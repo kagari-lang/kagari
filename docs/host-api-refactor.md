@@ -18,9 +18,9 @@ proposed logical latest-version entry; GO PinnedFunction handles retain one chec
 version and do not activate HA's update policy.
 
 The confirmed [Rust distribution naming](implementation-roadmap.md#toolchain-distribution-and-modes)
-assigns `kagari` to the embedding SDK, replacing the current `kagari-embed` package
-when implemented. That document owns package/CLI names; this plan owns SDK API
-evolution. Current-code links below retain their existing paths until migration.
+uses `kagari` for the embedding SDK and `kg` for the CLI executable. The package
+rename is implemented independently of this plan. That document owns package/CLI
+names; this plan owns SDK API evolution.
 
 The [package specification](spec/packages.md) defines current package identity and inputs.
 The [update model](update-model-design.md) owns the compatible-update versus state-
@@ -55,12 +55,12 @@ behavior at activation; it is not a current build report or the proposed facade.
 
 | Area | Current surface and limitation |
 | --- | --- |
-| Source preparation | [Engine source APIs](../crates/kagari-embed/src/engine/source.rs) expose source mutation, overlays, analysis queries, `CheckedModule`, artifact emission and `compile_to_artifact` |
-| Program preparation | [PreparedProgram](../crates/kagari-embed/src/program/mod.rs) validates artifacts/native input before loading; it uses `Rc` and an interior-mutable native cache, not a thread-transferable public program |
-| Runtime facade | [KagariRuntime](../crates/kagari-embed/src/runtime.rs) exposes registration, load/reload, raw runtime access and `execute`/`execute_prepared`; both execution methods reject nonempty argument slices |
-| Call configuration | [ExecutionContext](../crates/kagari-embed/src/context.rs) combines language/authority, resources, host exposure, JIT, tracing, deterministic inputs and panic policy; some JIT modes are declared but rejected by ordinary execution |
-| Native preparation | [Native APIs](../crates/kagari-embed/src/program/native.rs) expose backend preparation and runtime installation separately from ordinary execution |
-| Errors | [Embedding errors](../crates/kagari-embed/src/error.rs) classify several stages, while preparation and registration also return other error types |
+| Source preparation | [Engine source APIs](../crates/kagari/src/engine/source.rs) expose source mutation, overlays, analysis queries, `CheckedModule`, artifact emission and `compile_to_artifact` |
+| Program preparation | [PreparedProgram](../crates/kagari/src/program/mod.rs) validates artifacts/native input before loading; it uses `Rc` and an interior-mutable native cache, not a thread-transferable public program |
+| Runtime facade | [KagariRuntime](../crates/kagari/src/runtime.rs) exposes registration, load/reload, raw runtime access and `execute`/`execute_prepared`; both execution methods reject nonempty argument slices |
+| Call configuration | [ExecutionContext](../crates/kagari/src/context.rs) combines language/authority, resources, host exposure, JIT, tracing, deterministic inputs and panic policy; some JIT modes are declared but rejected by ordinary execution |
+| Native preparation | [Native APIs](../crates/kagari/src/program/native.rs) expose backend preparation and runtime installation separately from ordinary execution |
+| Errors | [Embedding errors](../crates/kagari/src/error.rs) classify several stages, while preparation and registration also return other error types |
 | Reload | [Runtime loading](../crates/kagari-runtime/src/loading.rs) stages, validates and publishes candidates; the SDK returns a new version-bound `LoadedModule`, not a stable latest-version logical entry |
 
 The common workflow exposes `CheckedModule`, artifact construction,

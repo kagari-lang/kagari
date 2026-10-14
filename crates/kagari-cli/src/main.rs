@@ -2,11 +2,7 @@ mod args;
 mod project;
 
 use crate::args::{Cli, Command, usage};
-use kagari_bytecode::artifact::ArtifactCompatibility;
-#[cfg(feature = "jit")]
-use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_embed::{
+use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, source::ArtifactOptions},
@@ -14,6 +10,10 @@ use kagari_embed::{
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions},
 };
+use kagari_bytecode::artifact::ArtifactCompatibility;
+#[cfg(feature = "jit")]
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     error::RuntimeError,
     host::{HostError, HostFunction},
@@ -364,7 +364,7 @@ impl CliError {
 #[cfg(test)]
 mod tests {
     use super::{Cli, Command, run_cli};
-    use kagari_embed::BytecodeArtifact;
+    use kagari::BytecodeArtifact;
     use std::{
         fs,
         path::PathBuf,

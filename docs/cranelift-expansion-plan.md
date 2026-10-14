@@ -33,9 +33,9 @@ and execution with an observer keep explicit pre-entry interpreter selection.
 Synchronous callbacks reached from async execution must preserve the existing
 session contracts; they do not authorize native suspension.
 
-Library-owned collection migration (NC), host-registration unification (HR/SA21),
-SDK/CLI renaming and compatible-reload redesign remain separate tasks. Consume
-their current contracts, and refresh affected boundaries if those tasks land first.
+Library-owned collection migration (NC), host-registration unification (HR/SA21)
+and compatible-reload redesign remain separate tasks. Consume their current
+contracts, and refresh affected boundaries if those tasks land first.
 This plan makes no numerical speedup or compilation-latency promise.
 
 ## Baseline and architectural diagnosis
@@ -52,8 +52,8 @@ or new Cargo validation were performed while preparing this plan.
 | [Native invocation](../crates/kagari-runtime/src/backend/native.rs) | Owns installation, runtime frame admission, status decoding and retained versions. Extend these owners rather than bypass them with raw generated calls. |
 | [Execution calls](../crates/kagari-runtime/src/frame/calls.rs), [native host calls](../crates/kagari-runtime/src/frame/native.rs) | Prepared targets and rooted host arguments already exist, but several entrypoints are coupled to the executing bytecode instruction. Factor shared validated operations; do not have JIT helpers fake an interpreter PC to select authority. |
 | [GC roots](../crates/kagari-runtime/src/gc/roots.rs) | Runtime owns registered slots and leases. Reuse this ownership for native root frames; empty scalar stack maps do not prove heap-reference support. |
-| [SDK preparation](../crates/kagari-embed/src/program/native.rs), [VM selection](../crates/kagari-vm/src/vm/native.rs) | Explicit preparation, per-program product caching and pre-entry fallback exist. Extend argument transport and function-boundary selection without runtime compilation. |
-| [Native tests](../crates/kagari-embed/tests/cranelift_preparation.rs) | Assert real native execution, artifact correspondence, lifetime and reload. Extend existing semantic owners instead of creating a duplicate syntax smoke suite. |
+| [SDK preparation](../crates/kagari/src/program/native.rs), [VM selection](../crates/kagari-vm/src/vm/native.rs) | Explicit preparation, per-program product caching and pre-entry fallback exist. Extend argument transport and function-boundary selection without runtime compilation. |
+| [Native tests](../crates/kagari/tests/cranelift_preparation.rs) | Assert real native execution, artifact correspondence, lifetime and reload. Extend existing semantic owners instead of creating a duplicate syntax smoke suite. |
 
 The narrow backend is an intentional baseline, not a demonstrated miscompile.
 Missing capability is mainly native execution machinery. Shared runtime checks
@@ -353,10 +353,10 @@ Representative commands, to narrow according to the actual change:
 
 ```text
 cargo test -p kagari-codegen-cranelift --lib <affected_filter>
-cargo test -p kagari-embed --test cranelift_preparation <affected_filter>
-cargo test -p kagari-embed --test native_preparation <affected_filter>
+cargo test -p kagari --test cranelift_preparation <affected_filter>
+cargo test -p kagari --test native_preparation <affected_filter>
 cargo test -p kagari-runtime --lib <affected_filter>
-cargo check -p kagari-embed --no-default-features --features native --lib
+cargo check -p kagari --no-default-features --features native --lib
 uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 git diff --check

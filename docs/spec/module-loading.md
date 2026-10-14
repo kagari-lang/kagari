@@ -93,8 +93,8 @@ compiler revisions/options and continue executable validation.
 
 The CLI uses the same loader model as embedded hosts.
 
-The current executable is `kagari-cli`; the separately planned `kg` distribution
-rename has not been applied. Commands select source or project work explicitly:
+The `kagari-cli` package provides the `kg` executable. Commands select source or
+project work explicitly:
 
 - `parse <file.kgr>` parses one file.
 - `check [file.kgr]` checks a file, or the selected package closures when omitted.

@@ -9,8 +9,8 @@ use crate::{
     args::{ProjectAction, ProjectArgs},
     print_source_error, run_loaded_artifact, source_engine,
 };
+use kagari::{engine::source::ArtifactOptions, runtime::LoadOptions};
 use kagari_common::cancellation::CancellationToken;
-use kagari_embed::{engine::source::ArtifactOptions, runtime::LoadOptions};
 use kagari_package::{
     error::PackageError,
     filesystem::FilesystemSources,

@@ -31,7 +31,7 @@ checked HIR --compiler source--> verified MIR --compiler core--> verified byteco
   machine-code generation and executable page lifetime.
 - `kagari-runtime` owns installation, generation/authority checks, sessions, frames,
   helper implementations and invocation. The VM consumes prepared native entries.
-- `kagari-embed` orchestrates preparation, caching, linking and execution. Concrete
+- `kagari` orchestrates preparation, caching, linking and execution. Concrete
   backends are supplied by hosts; they are not SDK production dependencies.
 
 No backend receives source text, a HIR arena, `Runtime`, `LoadedModule`, a Rust

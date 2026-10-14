@@ -1,0 +1,132 @@
+//! Reproducible foundation throughput and code-sharing baseline.
+//! Run with `cargo run --release -p kagari --example foundation_baseline`.
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use std::{hint::black_box, sync::Arc, time::Instant};
+
+use kagari::engine::{KagariEngine, source::ArtifactOptions};
+use kagari_runtime::{
+    Runtime, module::VerifiedProgram, module::entry::ProgramEntry, native::module::NativeModule,
+    value::Value,
+};
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib as standard;
+use kagari_vm::vm::Vm;
+
+fn main() {
+    let mut source = String::new();
+    for index in 0..32 {
+        source.push_str(&format!("fn f{index}() -> i32 {{ {index} }}\n"));
+    }
+    source.push_str("fn main() -> i32 { f31() }\n");
+
+    let mut compile_samples = Vec::new();
+    for _ in 0..5 {
+        let engine = KagariEngine::default();
+        let start = Instant::now();
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("baseline.kgr", source.clone()),
+                ArtifactOptions::default(),
+            )
+            .unwrap();
+        black_box(artifact);
+        compile_samples.push(start.elapsed().as_micros());
+    }
+    compile_samples.sort_unstable();
+    println!(
+        "compile_us={compile_samples:?} median_us={}",
+        compile_samples[2]
+    );
+
+    let engine = KagariEngine::default();
+    let file = engine
+        .set_source("baseline.kgr", source.clone(), SourceLayer::Base)
+        .unwrap();
+    let first = engine
+        .analyze(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    let initial = &first.file(file).unwrap().result().facts().typed;
+    assert_eq!(initial.checked_bodies, 33);
+    let edited = source.replacen("fn f0() -> i32 { 0 }", "fn f0() -> i32 { 100 }", 1);
+    engine
+        .set_source("baseline.kgr", edited, SourceLayer::Overlay)
+        .unwrap();
+    let start = Instant::now();
+    let second = engine
+        .analyze(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    let edit_us = start.elapsed().as_micros();
+    let changed = &second.file(file).unwrap().result().facts().typed;
+    assert_eq!((changed.checked_bodies, changed.reused_bodies), (1, 32));
+    println!(
+        "edit_analysis_us={edit_us} checked={} reused={}",
+        changed.checked_bodies, changed.reused_bodies
+    );
+
+    let artifact = engine
+        .compile_to_artifact(
+            SourceFile::new("baseline.kgr", source),
+            ArtifactOptions::default(),
+        )
+        .unwrap();
+    let code_image_bytes = artifact
+        .records()
+        .to_bytes(artifact.definitions())
+        .unwrap()
+        .len();
+    let definitions = DefinitionContext::new().unwrap();
+    let (table, records) = artifact.into_parts();
+    let program = DefinitionMetadata::checked(table, records.program, &Default::default()).unwrap();
+    let verified = VerifiedProgram::new(program, &definitions).unwrap();
+    let mut first_runtime = standard_runtime();
+    let mut second_runtime = standard_runtime();
+    let first_loaded = first_runtime
+        .load_verified_program("baseline", verified.clone())
+        .unwrap();
+    let second_loaded = second_runtime
+        .load_verified_program("baseline", verified.clone())
+        .unwrap();
+    let shared_code = Arc::ptr_eq(&first_loaded.bytecode, &second_loaded.bytecode);
+    println!(
+        "code_image_bytes={code_image_bytes} shared_code={shared_code} module_arc_refs={}",
+        Arc::strong_count(&first_loaded.bytecode)
+    );
+
+    let vm = Vm::new(first_runtime);
+    const CALLS: u32 = 10_000;
+    for _ in 0..100 {
+        black_box(
+            vm.execute(&first_loaded, ProgramEntry::Main)
+                .unwrap()
+                .return_value
+                .value(vm.runtime().gc())
+                .expect("retained execution result"),
+        );
+    }
+    let start = Instant::now();
+    let mut checksum = 0_i64;
+    for _ in 0..CALLS {
+        let Value::I32(value) = vm
+            .execute(&first_loaded, ProgramEntry::Main)
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result")
+        else {
+            unreachable!("benchmark entry returns i32")
+        };
+        checksum += i64::from(value);
+    }
+    println!(
+        "root_plus_one_internal_call_ns={} calls={CALLS} checksum={checksum}",
+        start.elapsed().as_nanos() / u128::from(CALLS)
+    );
+    assert_eq!(checksum, i64::from(CALLS) * 31);
+}
+
+// Standard installation is explicit setup, outside the executable import measurement.
+fn standard_runtime() -> Runtime {
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&standard::modules().unwrap(), &mut runtime).unwrap();
+    runtime
+}

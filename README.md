@@ -78,8 +78,8 @@ the [roadmap](docs/implementation-roadmap.md) records pending work.
 - `kagari-codegen-cranelift`: optional scalar native compiler and code-memory ownership
 - `kagari-runtime`: values, GC, host state, sessions, native calls, security and reload
 - `kagari-vm`: bytecode frame driver, debugger and prepared native selection
-- `kagari-embed`: host SDK with independent `source` and `native` features
-- `kagari-cli`: arguments, filesystem IO and presentation
+- `kagari`: host SDK with independent `source` and `native` features
+- `kagari-cli`: the `kg` executable, arguments, filesystem IO and presentation
 
 This structure prevents syntax, semantics, runtime logic, and execution backends from becoming tightly coupled as the project grows.
 
@@ -88,14 +88,16 @@ This structure prevents syntax, semantics, runtime logic, and execution backends
 The project currently uses the following naming conventions:
 
 - Source file extension: `.kgr`
-- Package manager name: `kg`
+- Rust SDK package and import: `kagari`
+- CLI executable: `kg` (Cargo package `kagari-cli`)
 - Bytecode artifact extension: `.kbc`
 
 These names are intended to serve as the baseline vocabulary for the future toolchain, module system, and build outputs.
 
 ## CLI
 
-The CLI uses the same embedding pipeline as hosts.
+The `kg` CLI uses the same embedding pipeline as hosts. Build it with
+`cargo build -p kagari-cli --bin kg`, or run it through Cargo:
 
 ```sh
 cargo run -p kagari-cli -- parse path/to/main.kgr

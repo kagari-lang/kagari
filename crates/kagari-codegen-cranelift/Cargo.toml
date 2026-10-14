@@ -22,5 +22,5 @@ kagari-stdlib.workspace = true
 kagari-source.workspace = true
 kagari-bytecode.workspace = true
 kagari-compiler = { workspace = true, features = ["source"] }
-kagari-embed = { workspace = true, features = ["source"] }
+kagari = { workspace = true, features = ["source"] }
 kagari-runtime.workspace = true

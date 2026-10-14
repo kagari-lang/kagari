@@ -214,7 +214,7 @@ def main():
             "machine": machine(),
             "revision": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip(),
             "git_status": subprocess.check_output(["git", "status", "--short"], cwd=root, text=True).strip(),
-            "features": "kagari-embed source,native; mlua lua54,vendored",
+            "features": "kagari source,native; mlua lua54,vendored",
             "parallelism": "Cargo default; one target thread; workload processes sequential",
             "cache": "reuse build products; fresh process and runtime per workload; three warmups",
             "environment": {key: os.environ[key] for key in (

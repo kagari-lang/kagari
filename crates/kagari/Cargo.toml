@@ -1,0 +1,55 @@
+[package]
+name = "kagari"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["source", "native"]
+source = ["dep:kagari-source", "dep:kagari-package", "dep:kagari-compiler", "kagari-compiler/source", "dep:kagari-hir", "dep:kagari-syntax", "dep:kagari-mir", "dep:smallvec", "dep:blake3"]
+native = ["dep:kagari-codegen", "dep:kagari-compiler", "dep:kagari-mir"]
+
+[dependencies]
+blake3 = { version = "1", optional = true }
+kagari-stdlib.workspace = true
+kagari-types.workspace = true
+kagari-source = { workspace = true, optional = true }
+kagari-package = { workspace = true, optional = true }
+kagari-codegen = { workspace = true, optional = true }
+kagari-compiler = { workspace = true, default-features = false, optional = true }
+kagari-mir = { workspace = true, optional = true }
+kagari-abi.workspace = true
+kagari-contract.workspace = true
+thiserror.workspace = true
+kagari-common.workspace = true
+kagari-hir = { workspace = true, optional = true }
+kagari-bytecode.workspace = true
+kagari-runtime.workspace = true
+kagari-syntax = { workspace = true, optional = true }
+kagari-vm.workspace = true
+smallvec = { workspace = true, optional = true }
+
+[dev-dependencies]
+bincode.workspace = true
+kagari-codegen-cranelift.workspace = true
+tokio = { version = "1", features = ["rt-multi-thread", "sync"] }
+
+[[example]]
+name = "async_tasks"
+required-features = ["source"]
+
+[[example]]
+name = "regenerate_feature_artifact"
+required-features = ["source"]
+
+[[example]]
+name = "definition_pipeline"
+required-features = ["source"]
+
+[[example]]
+name = "host_objects"
+required-features = ["source"]
+
+[[example]]
+name = "package_workspace"
+required-features = ["source"]

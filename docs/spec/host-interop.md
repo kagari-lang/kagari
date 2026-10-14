@@ -104,7 +104,7 @@ method callback.
 ## Function Registration
 
 Rust consumers import each API from its owning module. For example,
-`KagariEngine` belongs to `kagari_embed::engine`, `NativeApi` to
+`KagariEngine` belongs to `kagari::engine`, `NativeApi` to
 `kagari_runtime::native::api`, typed conversions to `kagari_runtime::native_value`,
 and array handles to `kagari_runtime::native_value::array`. The `native_module`
 attribute belongs to `kagari_native_macros`; consumers declare that direct
@@ -330,7 +330,7 @@ to import `call` or `service` from the facade, or call `facade::call(...)` and
 `facade::service::echo(...)` through a source module alias. These calls retain
 ordinary lexical shadowing and require the original host symbol's identity and
 matching runtime binding; re-exporting grants no additional authority.
-Run cargo run -p kagari-embed --example offline_compile to compile an imported
+Run cargo run -p kagari --example offline_compile to compile an imported
 host call without any runtime or callback registration.
 
 Required bytecode declarations now link mandatorily before module
@@ -857,8 +857,8 @@ reentry and hot reload. Hosts must explicitly root retained interface objects;
 this keeps the interface alive, without transferring host object ownership to GC.
 Runtime downcast syntax remains future work.
 
-Run `cargo run -p kagari-embed --example host_interfaces` for
-[the complete binding example](../../crates/kagari-embed/examples/host_interfaces.rs).
+Run `cargo run -p kagari --example host_interfaces` for
+[the complete binding example](../../crates/kagari/examples/host_interfaces.rs).
 
 Trait-system behavior is defined in [traits.md](traits.md).
 

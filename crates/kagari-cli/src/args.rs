@@ -205,12 +205,12 @@ fn value(args: &mut impl Iterator<Item = String>, option: &str) -> Result<String
 pub(crate) fn usage() -> String {
     [
         "usage:",
-        "  kagari-cli parse <script.kgr>",
-        "  kagari-cli check [script.kgr] [project options]",
-        "  kagari-cli build [-o artifact.kbc] [project options]",
-        "  kagari-cli emit [-o artifact.kbc] <script.kgr>",
-        "  kagari-cli run [--jit] [script.kgr] [project options]",
-        "  kagari-cli run-artifact [--jit] <artifact.kbc>",
+        "  kg parse <script.kgr>",
+        "  kg check [script.kgr] [project options]",
+        "  kg build [-o artifact.kbc] [project options]",
+        "  kg emit [-o artifact.kbc] <script.kgr>",
+        "  kg run [--jit] [script.kgr] [project options]",
+        "  kg run-artifact [--jit] <artifact.kbc>",
         "project options: --manifest-path Kagari.toml, -p NAME, --workspace,",
         "                 --locked, --offline, --frozen, --input-root DIRECTORY",
     ]

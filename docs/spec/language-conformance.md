@@ -1,10 +1,10 @@
 # Language conformance entry
 
 The shared observable suite is
-`cargo test -p kagari-embed --lib runtime::language_contract::language_contract_routes_preserve_values_diagnostics_and_effects`.
+`cargo test -p kagari --lib runtime::language_contract::language_contract_routes_preserve_values_diagnostics_and_effects`.
 Its complete backend/load matrix runs in GitHub CI; local iterations select the
 directly affected contract tests under [the repository policy](../../AGENTS.md#verification-and-tooling).
-Fixtures live in `crates/kagari-embed/src/runtime/language_contract.rs` and contain:
+Fixtures live in `crates/kagari/src/runtime/language_contract.rs` and contain:
 
 - root source, optional named dependency sources, and an expected value, diagnostic
   code or runtime failure category;

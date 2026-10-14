@@ -11,7 +11,7 @@ source environment; executable loading and calls do not read manifests, fetch
 packages or update locks. [Module loading](module-loading.md) owns source discovery,
 CLI commands and artifact handling; [modules](modules.md) owns names and visibility.
 See the [runnable workspace](../../examples/package-workspace/README.md) and
-[SDK host](../../crates/kagari-embed/examples/package_workspace.rs).
+[SDK host](../../crates/kagari/examples/package_workspace.rs).
 
 ## Manifests
 

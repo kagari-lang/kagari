@@ -1,5 +1,5 @@
 //! Allocation and runtime-protocol counts, kept outside throughput measurements.
-use kagari_embed::{context::ExecutionContext, runtime::KagariRuntime};
+use kagari::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_runtime::{
     diagnostics::{self, allocations},
     module::{LoadedModule, entry::ProgramEntry},

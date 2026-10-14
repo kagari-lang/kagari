@@ -29,7 +29,7 @@ immutable-host source model, one-root/multiple-export Programs, whole-workspace
 locking and host-coordinated rebuild/reload. [Architecture](architecture.md#source-package-inputs)
 owns the acquisition/analysis/executable boundaries. The runnable
 [workspace and embedding examples](../examples/package-workspace/README.md) show
-current entrypoints; `kagari-cli` remains the executable name.
+current entrypoints; package `kagari-cli` provides the `kg` executable.
 
 The complete workspace/backend/feature/platform CI matrix remains unrun locally.
 Focused Windows coverage includes junction escape/alias checks; Unix symlink
@@ -66,7 +66,7 @@ independent migrations; reuse their current contracts instead of activating them
 
 ## Toolchain distribution and modes
 
-The confirmed target product names are:
+The current workspace product names are:
 
 | Role | Package / command |
 | --- | --- |
@@ -74,10 +74,19 @@ The confirmed target product names are:
 | Installable toolchain | Rust package `kagari-cli`, executable `kg` |
 | Internal components | Existing responsibility-based `kagari-*` crates |
 
-The functional rename is queued: directly rename the current `kagari-embed` package
-and directory to `kagari`, update consumers and declare `kg` as the CLI binary.
-Do not add forwarding SDK packages, compatibility aliases or a second CLI command.
-The [Host API plan](host-api-refactor.md) owns API evolution independently.
+The SDK package and directory are `kagari`, imported as `kagari`; the CLI package
+remains `kagari-cli` and provides only the `kg` binary. Consumers, feature checks,
+examples and current documentation use these names. No forwarding SDK package or
+compatibility command is retained. The [Host API plan](host-api-refactor.md) owns
+API evolution independently; naming changes do not activate that refactor.
+
+Focused rename validation passed: SDK typed-call and Cranelift preparation cases,
+CLI parsing/artifact execution, and the standalone source-free async consumer
+(nine selected tests). These cover renamed dependency, feature and binary boundaries.
+The `kg` binary also ran source with and without JIT; benchmark compilation,
+production dependency guards, CLI-scoped Clippy, structure, formatting and diff
+checks passed. External dependency versions are unchanged. Complete workspace,
+SDK feature and backend/platform acceptance remains CI work.
 
 Dependency-free `kagari` and `kagari-cli` reservation packages at `0.0.0-reserved`
 were published on 2026-10-12 under separate authorization. The reservation SDK has

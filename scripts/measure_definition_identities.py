@@ -9,7 +9,6 @@ import hashlib
 import json
 import platform
 from pathlib import Path
-import shutil
 import subprocess
 import time
 
@@ -17,7 +16,9 @@ ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = ROOT / "target" / "identity-measurements"
 BASELINE = ROOT / "target" / "identity-baseline"
 BASELINE_REVISION = "7857fd8a"
-EXAMPLE = Path("crates/kagari-embed/examples/definition_pipeline.rs")
+EXAMPLE = Path("crates/kagari/examples/definition_pipeline.rs")
+# The pinned historical revision predates the SDK rename.
+BASELINE_EXAMPLE = Path("crates/kagari-embed/examples/definition_pipeline.rs")
 
 
 def command(args: list[str], cwd: Path = ROOT) -> str:
@@ -42,12 +43,16 @@ def run() -> None:
         subprocess.run(["git", "worktree", "add", "--detach", str(BASELINE), BASELINE_REVISION], cwd=ROOT, check=True)
     expected = command(["git", "rev-parse", BASELINE_REVISION])
     assert command(["git", "rev-parse", "HEAD"], BASELINE) == expected
-    # The baseline gets exactly the same measurement source, without its production migration.
-    shutil.copyfile(ROOT / EXAMPLE, BASELINE / EXAMPLE)
+    # Only the SDK import spelling differs; the measured workload stays identical.
+    probe = (ROOT / EXAMPLE).read_bytes()
+    baseline_probe = probe.replace(b"kagari::", b"kagari_embed::")
+    (BASELINE / BASELINE_EXAMPLE).write_bytes(baseline_probe)
     metadata = {
         "baseline": expected,
         "candidate": command(["git", "rev-parse", "HEAD"]),
-        "probe_sha256": hashlib.sha256((ROOT / EXAMPLE).read_bytes()).hexdigest(),
+        "probe_sha256": hashlib.sha256(probe).hexdigest(),
+        "baseline_probe_sha256": hashlib.sha256(baseline_probe).hexdigest(),
+        "baseline_adaptation": "SDK import spelling only: kagari to kagari_embed",
         "toolchain": command(["rustc", "-Vv"]),
         "os": platform.platform(),
         "profile": "workspace release, default Cargo parallelism and target directories",
@@ -63,7 +68,7 @@ def run() -> None:
     suffix = ".exe" if platform.system() == "Windows" else ""
     metadata["build_seconds"] = {
         "baseline": build(BASELINE, "baseline", "kagari-embed", "definition_pipeline"),
-        "candidate": build(ROOT, "candidate", "kagari-embed", "definition_pipeline"),
+        "candidate": build(ROOT, "candidate", "kagari", "definition_pipeline"),
         "table_probe": build(ROOT, "table-probe", "kagari-common", "definition_identity"),
     }
     for index, label in enumerate(metadata["order"], 1):

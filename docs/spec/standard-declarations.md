@@ -182,7 +182,7 @@ Registration checks ownership, generic scope, complete trait method coverage,
 substituted signatures and storage compatibility before publishing a module.
 Unbound functions, foreign declaration handles and incompatible Rust conversions
 are rejected. The application fixture at
-`crates/kagari-embed/tests/support/native_provider.rs` demonstrates a generic
+`crates/kagari/tests/support/native_provider.rs` demonstrates a generic
 factory and a non-sequence object with an inherent method and retained callback.
 
 Documentation registration preserves complete Markdown, blank paragraphs and

@@ -107,7 +107,7 @@ def main() -> None:
         "rustc": command("rustc", "-Vv"), "cargo": command("cargo", "-V"),
         "build_wall_seconds": build_seconds,
         "profile": "workspace release; default parallelism and target; no debug override",
-        "features": "kagari-embed source,native; only interpreter executed",
+        "features": "kagari source,native; only interpreter executed",
         "sampling": "sample PID 5 1; all threads; ten-second execution window",
         "kagari_warmups": 6 if args.source_forms else 3,
         "limitations": "wall-clock stack samples, not CPU counters; optimized inline attribution is incomplete",

@@ -11,7 +11,7 @@ Run from the repository root:
 cargo run -p kagari-cli -- check --manifest-path examples/package-workspace/Kagari.toml --workspace
 cargo run -p kagari-cli -- build --manifest-path examples/package-workspace/Kagari.toml --workspace --locked
 cargo run -p kagari-cli -- run --manifest-path examples/package-workspace/Kagari.toml --frozen
-cargo run -p kagari-embed --example package_workspace
+cargo run -p kagari --example package_workspace
 ```
 
 The first command maintains the checked-in shared `Kagari.lock`. Build outputs are under this

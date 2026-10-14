@@ -74,9 +74,9 @@ proof that this proposed SDK exists:
   type and registry checks. Current callbacks receive low-level script values.
 - [Root registration](../crates/kagari-runtime/src/host/registry.rs) records handle
   information. It does not itself store and retain an arbitrary Rust `T`.
-- The [host interface example](../crates/kagari-embed/examples/host_interfaces.rs)
+- The [host interface example](../crates/kagari/examples/host_interfaces.rs)
   separates offline compilation and runtime implementation installation.
-  [Integration tests](../crates/kagari-embed/tests/host_interfaces.rs) cover existing
+  [Integration tests](../crates/kagari/tests/host_interfaces.rs) cover existing
   rooted interface behavior including GC, reentry and reload.
 
 The automatic derives, typed function adapters, Serde bridge and owned opaque

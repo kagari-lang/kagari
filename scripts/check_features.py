@@ -18,7 +18,7 @@ OUTPUT = ROOT / "target" / "architecture-features"
 def check_crate_boundaries(output: Path = OUTPUT) -> None:
     source = {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
     compiling = {"kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
-    execution = {"kagari-runtime", "kagari-vm", "kagari-embed", "kagari-bytecode"}
+    execution = {"kagari-runtime", "kagari-vm", "kagari", "kagari-bytecode"}
     constraints = {
         "common": source | compiling | execution | {"kagari-types", "kagari-abi", "kagari-contract"},
         "types": source | compiling | execution | {"kagari-abi", "kagari-contract"},
@@ -29,13 +29,13 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         "bytecode": source | compiling,
         "runtime": source | compiling,
         "vm": source | compiling,
-        "compiler": source | {"kagari-runtime", "kagari-vm", "kagari-embed", "kagari-codegen-cranelift"},
+        "compiler": source | {"kagari-runtime", "kagari-vm", "kagari", "kagari-codegen-cranelift"},
         "codegen": source | execution | {"kagari-compiler", "kagari-codegen-cranelift"},
         "codegen-cranelift": source | execution | {"kagari-compiler"},
     }
     for forbidden in constraints.values():
         forbidden.add("kagari-stdlib")
-    constraints["stdlib"] = source | compiling | {"kagari-vm", "kagari-embed"}
+    constraints["stdlib"] = source | compiling | {"kagari-vm", "kagari"}
     for crate, forbidden in constraints.items():
         graph = subprocess.check_output([
             "cargo", "tree", "--locked", "--offline", "-p", f"kagari-{crate}",
@@ -63,21 +63,25 @@ def run(async_only: bool = False) -> None:
     lines = [
         '[workspace]', '[package]', 'name = "kagari-feature-consumer"',
         'version = "0.0.0"', 'edition = "2024"', '[features]', 'default = []',
-        'source = ["kagari-embed/source", "dep:kagari-source"]',
-        'native = ["kagari-embed/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
+        'source = ["kagari/source", "dep:kagari-source"]',
+        'native = ["kagari/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
         '[dependencies]',
     ]
-    for name in ["source", "abi", "contract", "types", "stdlib", "bytecode", "common", "runtime", "vm", "embed", "codegen", "mir", "codegen-cranelift"]:
-        options = [f'path = {json.dumps(str(ROOT / "crates" / f"kagari-{name}"))}']
-        if name == "embed":
+    for name in [
+        "kagari", "kagari-source", "kagari-abi", "kagari-contract", "kagari-types",
+        "kagari-stdlib", "kagari-bytecode", "kagari-common", "kagari-runtime",
+        "kagari-vm", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift",
+    ]:
+        options = [f'path = {json.dumps(str(ROOT / "crates" / name))}']
+        if name == "kagari":
             options.append('default-features = false')
-        if name in {"source", "codegen", "mir", "codegen-cranelift"}:
+        if name in {"kagari-source", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift"}:
             options.append('optional = true')
-        lines.append(f'kagari-{name} = {{ {", ".join(options)} }}')
+        lines.append(f'{name} = {{ {", ".join(options)} }}')
     targets = ["artifact_features", "async_execution"]
     for target in targets:
         lines += ['[[test]]', f'name = "{target}"',
-                  f'path = {json.dumps(str(ROOT / "crates/kagari-embed/tests" / f"{target}.rs"))}']
+                  f'path = {json.dumps(str(ROOT / "crates/kagari/tests" / f"{target}.rs"))}']
     lines += ['[profile.dev]', 'opt-level = 1']
     manifest = output / "Cargo.toml"
     manifest.write_text("\n".join(lines) + "\n")
@@ -88,12 +92,12 @@ def run(async_only: bool = False) -> None:
     external = {(item["name"], item["version"]) for item in locked if "source" in item}
     if not async_only:
         subprocess.run([
-            "cargo", "run", "--locked", "--offline", "-p", "kagari-embed",
+            "cargo", "run", "--locked", "--offline", "-p", "kagari",
             "--no-default-features", "--features", "source",
             "--example", "regenerate_feature_artifact",
         ], cwd=ROOT, check=True)
     subprocess.run([
-        "cargo", "run", "--locked", "--offline", "-p", "kagari-embed",
+        "cargo", "run", "--locked", "--offline", "-p", "kagari",
         "--no-default-features", "--features", "source", "--example", "async_tasks",
         "--", str(ROOT / "target/fixtures/async_tasks.kbc"),
     ], cwd=ROOT, check=True)

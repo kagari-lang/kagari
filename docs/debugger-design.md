@@ -221,7 +221,7 @@ All stages are unstarted. They define a finite proposal, not active phase gates.
 Reuse [VM debug tests](../crates/kagari-vm/src/tests/execution/debugger.rs),
 [protocol tests](../crates/kagari-vm/src/tests/debug_protocol.rs),
 [reentry tests](../crates/kagari-vm/src/tests/reentry_debug.rs) and
-[async SDK tests](../crates/kagari-embed/tests/async_execution/debugger.rs).
+[async SDK tests](../crates/kagari/tests/async_execution/debugger.rs).
 Current snapshot tests alone cannot prove interactive stopping. Add distinct
 coverage using command handshakes and bounded waits, not timing-dependent sleeps:
 

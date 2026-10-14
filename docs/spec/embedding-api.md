@@ -2,6 +2,8 @@
 
 This document defines the Rust-facing API shape for embedding Kagari.
 It is a semantic API specification, not a commitment to exact Rust type names.
+The SDK package and Rust import are `kagari`, located at `crates/kagari`.
+Its independent `source` and `native` features retain their existing contracts.
 
 ## Source packages
 
@@ -16,7 +18,7 @@ snapshots have no package acquisition provenance.
 selection, alias, provider or query-setting changes. Hosts compile those candidates
 and explicitly publish through existing load/reload APIs; removal from the selection
 does not unload anything. See [packages](packages.md) for identity, locking and
-publication rules, and the [runnable host](../../crates/kagari-embed/examples/package_workspace.rs)
+publication rules, and the [runnable host](../../crates/kagari/examples/package_workspace.rs)
 for several calls into one package Program. Artifact-only SDK configurations have
 no package acquisition or source-analysis dependency.
 
@@ -349,7 +351,7 @@ Option/Result/ControlFlow policy is implemented by registered library bodies.
 revision, but rejects a local binding from a different analysis. An unchanged cached
 analysis retains its local identities; source text or analysis-environment changes create new ones.
 The original snapshot remains usable after edits. See the runnable
-`crates/kagari-embed/examples/source_queries.rs` example.
+`crates/kagari/examples/source_queries.rs` example.
 
 ## Design Goals
 
@@ -480,13 +482,13 @@ reentry is available through HostCallContext and kagari_vm::reenter, using a
 LoadedModule and FunctionRef from the pinned root program. Its returned
 RootedValue remains alive across collection; ordinary raw Value copies do not.
 See [host-interop.md](host-interop.md) for scope and error rules. The `host_reentry`
-example demonstrates this boundary: `cargo run -p kagari-embed --example host_reentry`.
+example demonstrates this boundary: `cargo run -p kagari --example host_reentry`.
 It also installs an ExecutionObserver on an explicit root scope to observe both
 the suspended outer frame and the nested frame in the session-owned stack.
 The example keeps scratch values with HostCallContext::retain_temporaries and checks
 that ExecutionSession::host_scope_count returns to zero before ending the root.
 The `scoped_execution` embedding example demonstrates independent execution sessions and
-cancellation: `cargo run -p kagari-embed --example scoped_execution`.
+cancellation: `cargo run -p kagari --example scoped_execution`.
 
 Execution reports contain an owning RootedValue result. Moving `report.return_value`
 into host state or cloning it preserves retention across subsequent execution and
@@ -537,7 +539,7 @@ Rust result. Compilation selects its existing result adapter before execution;
 invocation validates the concrete value and applies that adapter without trait
 lookup. NativeContext::collect polls cancellation around each iterator step and
 checks Vec capacity growth. Individual blocking iterator steps are not preempted.
-See the [typed_native example](../../crates/kagari-embed/examples/typed_native.rs)
+See the [typed_native example](../../crates/kagari/examples/typed_native.rs)
 for registration and a host entry with owned arguments and results.
 
 ## Retained objects and prepared calls
@@ -582,7 +584,7 @@ applications or generations; old handles keep their selected version after reloa
 with cancellation, execution phase and backend policy. Field reads/writes and
 method/closure calls share that scope; native callbacks receive it automatically.
 No metadata or payload borrow spans script reentry. See the executable
-[host_objects example](../../crates/kagari-embed/examples/host_objects.rs).
+[host_objects example](../../crates/kagari/examples/host_objects.rs).
 
 `NativeObject<T>::edit` is available only for storage registered with fixed,
 reference-free NativeData. `native_data!` verifies every declared field. Traced
@@ -826,7 +828,7 @@ execution with or without SDK source/native features. Start validates a pinned
 entry, retains owned arguments and queues it without executing script. It returns
 `kagari_runtime::session::owned::OwnedExecution`, with no Runtime borrow in the
 handle. Drive takes a `NonZeroUsize` instruction slice and returns
-`kagari_embed::runtime::owned::DriveResult`:
+`kagari::runtime::owned::DriveResult`:
 
 - `Runnable`: a safe slice exit; the host should schedule another turn.
 - `Waiting`: an incomplete operation; the host should wait for readiness.
@@ -869,7 +871,7 @@ spawn/await sites. `TaskScopeOwner::close` requests cancellation; the host calls
 `drain_cancelled_tasks` until cleanup is acknowledged by `is_closed`. No remote IO
 reply is required. Dropping a Task handle does not cancel the scope-owned job.
 
-The [async_tasks example](../../crates/kagari-embed/examples/async_tasks/main.rs)
+The [async_tasks example](../../crates/kagari/examples/async_tasks/main.rs)
 demonstrates this public API with two native providers, ordinary for-loop awaits,
 terminal reporting and scope shutdown. Its decoded artifact also executes without
 SDK source/native features. The [roadmap](../implementation-roadmap.md#verification-and-open-ci-acceptance)

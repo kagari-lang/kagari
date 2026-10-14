@@ -14,7 +14,7 @@ path = "src/main.rs"
 kagari-source = { path = "../../../crates/kagari-source" }
 kagari-bytecode = { path = "../../../crates/kagari-bytecode" }
 kagari-common = { path = "../../../crates/kagari-common" }
-kagari-embed = { path = "../../../crates/kagari-embed" }
+kagari = { path = "../../../crates/kagari" }
 kagari-runtime = { path = "../../../crates/kagari-runtime" }
 
 [profile.dev]

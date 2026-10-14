@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "kg"
+path = "src/main.rs"
+
 [dependencies]
 blake3 = "1"
 kagari-package.workspace = true
@@ -11,7 +15,7 @@ kagari-types.workspace = true
 kagari-source.workspace = true
 thiserror.workspace = true
 kagari-common.workspace = true
-kagari-embed = { workspace = true, features = ["source"] }
+kagari = { workspace = true, features = ["source"] }
 kagari-bytecode.workspace = true
 kagari-codegen-cranelift = { workspace = true, optional = true }
 kagari-syntax.workspace = true
@@ -20,4 +24,4 @@ kagari-vm.workspace = true
 
 [features]
 default = []
-jit = ["dep:kagari-codegen-cranelift", "kagari-embed/native"]
+jit = ["dep:kagari-codegen-cranelift", "kagari/native"]

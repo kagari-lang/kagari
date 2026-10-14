@@ -7,7 +7,7 @@ assertions pass; the `syntax_examples` integration test also checks return value
 through source and encoded-artifact loading:
 
 ```sh
-cargo test -p kagari-embed --test syntax_examples
+cargo test -p kagari --test syntax_examples
 ```
 
 The [error-stack example](error-stack.kgr) intentionally returns Err: running
@@ -68,7 +68,7 @@ not standalone CLI programs.
 
 [host-interfaces.kgr](host-interfaces.kgr) demonstrates associated outputs on a
 host type, qualified projections and static/dynamic interface calls returning
-`42`. Run `cargo run -p kagari-embed --example host_interfaces` to install its
+`42`. Run `cargo run -p kagari --example host_interfaces` to install its
 offline declarations, compile without callbacks, then bind and execute. The
 `host_interfaces` integration test also covers encoded artifacts, JIT-enabled
 execution, GC, reentry, permissions and hot reload.
@@ -91,13 +91,13 @@ that invokes several exports from the same jointly compiled Program.
 
 ## Host-driven async tasks
 
-Run the deterministic [async_tasks host](../crates/kagari-embed/examples/async_tasks/main.rs):
+Run the deterministic [async_tasks host](../crates/kagari/examples/async_tasks/main.rs):
 
 ```text
-cargo run -p kagari-embed --example async_tasks --no-default-features --features source
+cargo run -p kagari --example async_tasks --no-default-features --features source
 ```
 
-Its [script](../crates/kagari-embed/examples/async_tasks/script.kgr) uses a synchronous
+Its [script](../crates/kagari/examples/async_tasks/script.kgr) uses a synchronous
 handler to admit an async closure, then returns before IO starts. Each ordinary
 `for` iteration awaits an RPC and a database request. Two public native providers
 share the typed completion protocol. The host drives bounded slices and can run
@@ -109,7 +109,7 @@ The demo needs no network, timed sleeps, Actor framework or Tokio executor.
 To emit the same portable artifact and verify the standalone source-free host:
 
 ```text
-cargo run -p kagari-embed --example async_tasks --no-default-features --features source -- target/fixtures/async_tasks.kbc
+cargo run -p kagari --example async_tasks --no-default-features --features source -- target/fixtures/async_tasks.kbc
 uv run python scripts/check_features.py --async-only
 ```
 

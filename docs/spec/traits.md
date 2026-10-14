@@ -911,7 +911,7 @@ execution version, including across synchronous host reentry and hot reload.
 Tuple method parameters and results validate any nested host roots as well.
 
 See [host-interfaces.kgr](../../examples/host-interfaces.kgr) and run
-`cargo run -p kagari-embed --example host_interfaces` for offline compilation
+`cargo run -p kagari --example host_interfaces` for offline compilation
 followed by runtime binding and static/dynamic calls returning `42`.
 
 ### Remaining Execution Work

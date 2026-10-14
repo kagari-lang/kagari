@@ -498,10 +498,10 @@ runtime reproduction, cancellation stress test or performance measurement.
 Evidence owners:
 
 - R1: [syntax conversion](../crates/kagari-syntax/src/syntax_node.rs).
-- R2: [SDK execution](../crates/kagari-embed/src/runtime.rs),
-  [context options](../crates/kagari-embed/src/context.rs),
+- R2: [SDK execution](../crates/kagari/src/runtime.rs),
+  [context options](../crates/kagari/src/context.rs),
   [native dispatch](../crates/kagari-vm/src/vm/native.rs) and
-  [SDK native tests](../crates/kagari-embed/tests/cranelift_preparation.rs).
+  [SDK native tests](../crates/kagari/tests/cranelift_preparation.rs).
 - R5: [trait searches](../crates/kagari-hir/src/aggregates/implementations.rs).
 - R7: [program lowering](../crates/kagari-compiler/src/source/program.rs).
 - R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),

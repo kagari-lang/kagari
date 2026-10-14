@@ -77,15 +77,15 @@ Clippy, formatting, structure and diff checks passed. Full CI remains unverified
 Relevant reproduction commands:
 
 ```text
-cargo test -p kagari-embed --lib runtime::language_contract::
-cargo test -p kagari-embed --test syntax_examples --test default_methods --no-fail-fast
-cargo test -p kagari-embed --test engine_sessions --test registration_sources
-cargo test -p kagari-embed --test native_provider_reset structural_agreement
-cargo test -p kagari-embed --test native_provider_reset forged_source_signature
-cargo test -p kagari-embed --test native_provider_reset callbacks_abort
+cargo test -p kagari --lib runtime::language_contract::
+cargo test -p kagari --test syntax_examples --test default_methods --no-fail-fast
+cargo test -p kagari --test engine_sessions --test registration_sources
+cargo test -p kagari --test native_provider_reset structural_agreement
+cargo test -p kagari --test native_provider_reset forged_source_signature
+cargo test -p kagari --test native_provider_reset callbacks_abort
 cargo test -p kagari-runtime --lib native::module::tests::
 cargo test -p kagari-hir --lib changing_parser_budget_invalidates_queries_without_changing_old_snapshots
-cargo check -p kagari-embed --no-default-features --lib
+cargo check -p kagari --no-default-features --lib
 ```
 
 The user confirmed concurrent CPU-intensive tests from another project. This
@@ -143,7 +143,7 @@ compiled, scoped SDK Clippy passed, and structure (1,036 files, no violations),
 formatting, documentation links and diff checks passed. No full workspace run or
 performance acceptance was attempted for TP04; CI remains unverified.
 
-Reproduce the SDK selections with `cargo test -p kagari-embed --test <target> --
+Reproduce the SDK selections with `cargo test -p kagari --test <target> --
 <filters> --exact` using these space-separated filters:
 
 | Target | Filters |
@@ -163,5 +163,5 @@ Other focused checks:
 ```text
 cargo test -p kagari-compiler --lib tests::bytecode::artifacts::rejects_
 cargo test -p kagari-stdlib --test documentation
-cargo clippy -p kagari-embed --test standard_traits --test instantiation --test associated_types --test conversion_traits --test collection_interfaces --test collection_access --test native_provider_reset --test syntax_examples --test default_methods -- -D warnings
+cargo clippy -p kagari --test standard_traits --test instantiation --test associated_types --test conversion_traits --test collection_interfaces --test collection_access --test native_provider_reset --test syntax_examples --test default_methods -- -D warnings
 ```

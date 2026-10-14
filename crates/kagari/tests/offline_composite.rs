@@ -1,0 +1,358 @@
+use kagari::{
+    context::ExecutionContext,
+    engine::{KagariEngine, source::ArtifactOptions},
+    program::PreparedProgram,
+    runtime::LoadOptions,
+};
+use kagari_bytecode::artifact::KbcArtifact;
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_runtime::{
+    host::{HostError, HostFunction},
+    module::entry::ProgramEntry,
+    value::Value,
+};
+use kagari_source::source::SourceFile;
+use kagari_types::{
+    collection::CollectionAccess,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
+        value_type::HostValueType as Type,
+    },
+    language::binding,
+};
+use kagari_vm::reentry::reenter;
+use std::sync::{Arc, Mutex};
+
+fn composite(definitions: &DefinitionContext) -> Type {
+    Type::Tuple(vec![
+        Type::Array(Box::new(Type::I32)),
+        Type::Map {
+            access: CollectionAccess::Mutable,
+            key: Box::new(Type::String),
+            value: Box::new(Type::Bool),
+        },
+        Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
+        Type::Option(
+            definitions.intern(&binding::option_declaration()).unwrap(),
+            Box::new(Type::I32),
+        ),
+        Type::Result {
+            declaration: definitions.intern(&binding::result_declaration()).unwrap(),
+            ok: Box::new(Type::I32),
+            error: Box::new(Type::String),
+        },
+    ])
+}
+
+#[test]
+fn offline_composite_calls_preserve_shapes_and_gc_roots_across_execution_routes() {
+    let definitions = DefinitionContext::new().unwrap();
+    let make =
+        HostFunctionDeclaration::new(&definitions, "demo.make", vec![], composite(&definitions))
+            .unwrap();
+    let echo = HostFunctionDeclaration::new(
+        &definitions,
+        "demo.echo",
+        vec![HostParameter {
+            name: "value".into(),
+            ty: composite(&definitions),
+            passing: HostPassingStyle::Owned,
+        }],
+        composite(&definitions),
+    )
+    .unwrap();
+    let interface = HostInterface {
+        paths: vec![],
+        types: Vec::new(),
+        functions: vec![make.clone(), echo.clone()],
+    };
+    let engine = KagariEngine::default();
+    engine
+        .set_host_interface(
+            HostInterface::from_bytes(&interface.to_bytes(&definitions.snapshot()).unwrap())
+                .unwrap(),
+        )
+        .unwrap();
+
+    let artifact = engine.compile_to_artifact(SourceFile::new("composite.kgr", "use std::collections::{HashMap, HashSet};\nuse demo as api; fn main() -> ([i32], HashMap<String, bool>, HashSet<String>, Option<i32>, Result<i32, String>) { api::echo(api::make()) } pub fn payload() -> ([i32], HashMap<String,bool>, HashSet<String>, Option<i32>, Result<i32,String>) { val map: HashMap<String,bool> = HashMap::new(); map.insert(\"yes\",true); val set: HashSet<String> = HashSet::new(); set.insert(\"name\"); ([7],map,set,Some(8),Ok(9)) }"),  ArtifactOptions::default()).unwrap();
+    let payload = artifact.records().program.modules[artifact.records().program.root.index()]
+        .functions
+        .iter()
+        .find(|function| function.name == "payload")
+        .unwrap()
+        .id;
+    for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        let artifact = if encoded {
+            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+                .unwrap()
+        } else {
+            artifact.clone()
+        };
+        let context = ExecutionContext {
+            ..Default::default()
+        };
+        let mut runtime = engine.runtime(context.clone());
+        let trace = Arc::new(Mutex::new(Vec::new()));
+        let calls = trace.clone();
+        runtime
+            .register_host_function(HostFunction::new(
+                DefinitionMetadata::checked(
+                    definitions.snapshot(),
+                    make.clone(),
+                    &Default::default(),
+                )
+                .unwrap(),
+                move |context, _| {
+                    calls.lock().unwrap().push("make");
+                    let owner = context.runtime().execution_root().unwrap();
+                    let payload = reenter(context, &owner, payload, &[]).map_err(|error| {
+                        HostError::new(format!("payload construction: {error:?}"))
+                    })?;
+                    Ok(payload.value(context.runtime().gc()).unwrap())
+                },
+            ))
+            .unwrap();
+        let calls = trace.clone();
+        runtime
+            .register_host_function(HostFunction::new(
+                DefinitionMetadata::checked(
+                    definitions.snapshot(),
+                    echo.clone(),
+                    &Default::default(),
+                )
+                .unwrap(),
+                move |context, args| {
+                    calls.lock().unwrap().push("echo");
+                    context.runtime().collect_garbage().unwrap();
+                    Ok(args[0])
+                },
+            ))
+            .unwrap();
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, LoadOptions::default())
+            .unwrap();
+        assert!(trace.lock().unwrap().is_empty());
+        let report = if jit {
+            let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+            let prepared = runtime
+                .prepare_native(
+                    &loaded_program,
+                    &loaded,
+                    ProgramEntry::Main,
+                    &mut backend,
+                    &context.cancellation,
+                )
+                .unwrap();
+            runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
+        } else {
+            runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
+        }
+        .unwrap();
+        let retained = report.return_value;
+        runtime.runtime().collect_garbage().unwrap();
+        let Value::Tuple(values) = retained.value(runtime.runtime().gc()).unwrap() else {
+            panic!("composite return")
+        };
+        let values = runtime.runtime().gc().tuple(values).unwrap().to_vec();
+        let [
+            Value::Array(array),
+            Value::Map(map),
+            Value::Set(set),
+            Value::Enum(option),
+            Value::Enum(result),
+        ] = values.as_slice()
+        else {
+            panic!("composite shapes")
+        };
+        let heap = runtime.runtime().gc();
+        assert_eq!(heap.array_snapshot(*array).unwrap(), [Value::I32(7)]);
+        let entries = heap.map_snapshot(*map).unwrap();
+        let [(Value::Str(key), Value::Bool(true))] = entries.as_slice() else {
+            panic!("map contents")
+        };
+        assert_eq!(&*heap.string(*key).unwrap(), "yes");
+        let entries = heap.set_snapshot(*set).unwrap();
+        let [Value::Str(key)] = entries.as_slice() else {
+            panic!("set contents")
+        };
+        assert_eq!(&*heap.string(*key).unwrap(), "name");
+        assert_eq!(heap.enum_snapshot(*option).unwrap().fields, [Value::I32(8)]);
+        assert_eq!(heap.enum_snapshot(*result).unwrap().fields, [Value::I32(9)]);
+        assert_eq!(*trace.lock().unwrap(), ["make", "echo"]);
+    }
+}
+
+#[test]
+fn offline_composite_signatures_reject_nested_source_mismatches() {
+    let definitions = DefinitionContext::new().unwrap();
+    let engine = KagariEngine::default();
+    engine
+        .set_host_interface(interface_metadata(
+            &definitions,
+            HostInterface {
+                paths: vec![],
+                types: Vec::new(),
+                functions: vec![
+                    HostFunctionDeclaration::new(
+                        &definitions,
+                        "demo.take",
+                        vec![HostParameter {
+                            name: "value".into(),
+                            ty: Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::Bool]),
+                            passing: HostPassingStyle::Owned,
+                        }],
+                        Type::Unit,
+                    )
+                    .unwrap(),
+                ],
+            },
+        ))
+        .unwrap();
+    let error = engine
+        .compile_source(SourceFile::new(
+            "bad.kgr",
+            "fn main() { demo::take(([true], true)); }",
+        ))
+        .unwrap_err();
+    assert!(format!("{error:?}").contains("KG_TYPE_ARGUMENT_TYPE_MISMATCH"));
+}
+
+#[test]
+fn offline_host_parameters_supply_context_and_skip_calls_after_terminating_operands() {
+    let definitions = DefinitionContext::new().unwrap();
+    let declaration = HostFunctionDeclaration::new(
+        &definitions,
+        "demo.take",
+        vec![HostParameter {
+            name: "value".into(),
+            ty: Type::Array(Box::new(Type::I32)),
+            passing: HostPassingStyle::Owned,
+        }],
+        Type::I32,
+    )
+    .unwrap();
+    let engine = KagariEngine::default();
+    engine
+        .set_host_interface(interface_metadata(
+            &definitions,
+            HostInterface {
+                paths: vec![],
+                types: vec![],
+                functions: vec![declaration.clone()],
+            },
+        ))
+        .unwrap();
+
+    for (argument, expected_calls) in [
+        ("[]", 1),
+        ("if true { [] } else { [] }", 1),
+        ("if true { return 42; } else { return 7; }", 0),
+    ] {
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "host-context.kgr",
+                    format!("fn main() -> i32 {{ demo::take({argument}) }}"),
+                ),
+                ArtifactOptions::default(),
+            )
+            .unwrap();
+        for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+            let artifact = if encoded {
+                KbcArtifact::from_bytes(
+                    &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+                )
+                .unwrap()
+            } else {
+                artifact.clone()
+            };
+            let context = ExecutionContext {
+                ..Default::default()
+            };
+            let mut runtime = engine.runtime(context.clone());
+            let count = Arc::new(Mutex::new(0));
+            let calls = count.clone();
+            runtime
+                .register_host_function(HostFunction::new(
+                    DefinitionMetadata::checked(
+                        definitions.snapshot(),
+                        declaration.clone(),
+                        &Default::default(),
+                    )
+                    .unwrap(),
+                    move |context, args| {
+                        let Value::Array(array) = args[0] else {
+                            panic!("array argument")
+                        };
+                        assert!(
+                            context
+                                .runtime()
+                                .gc()
+                                .array_snapshot(array)
+                                .unwrap()
+                                .is_empty()
+                        );
+                        *calls.lock().unwrap() += 1;
+                        Ok(Value::I32(42))
+                    },
+                ))
+                .unwrap();
+            let loaded_program =
+                PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                    .unwrap();
+            let loaded = runtime
+                .load_program(&loaded_program, LoadOptions::default())
+                .unwrap();
+            let report = if jit {
+                let mut backend = kagari_codegen_cranelift::CraneliftBackend::for_host().unwrap();
+                let prepared = runtime
+                    .prepare_native(
+                        &loaded_program,
+                        &loaded,
+                        ProgramEntry::Main,
+                        &mut backend,
+                        &context.cancellation,
+                    )
+                    .unwrap();
+                runtime.execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
+            } else {
+                runtime.execute(&loaded, ProgramEntry::Main, &[], &context)
+            }
+            .unwrap();
+            assert_eq!(
+                report
+                    .return_value
+                    .value(runtime.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
+            assert_eq!(*count.lock().unwrap(), expected_calls);
+        }
+    }
+    for argument in [
+        "[true]",
+        "if true { return 42; } else { false }",
+        "if true { return false; } else { return 7; }",
+        "[], missing",
+    ] {
+        assert!(
+            engine
+                .compile_source(SourceFile::new(
+                    "host-context-invalid.kgr",
+                    format!("fn main() -> i32 {{ demo::take({argument}) }}")
+                ),)
+                .is_err(),
+            "{argument}"
+        );
+    }
+}
+
+fn interface_metadata(
+    definitions: &DefinitionContext,
+    interface: HostInterface,
+) -> DefinitionMetadata<HostInterface> {
+    DefinitionMetadata::checked(definitions.snapshot(), interface, &Default::default()).unwrap()
+}

@@ -2,7 +2,7 @@
 
 Runtime-owned checked stores, automatically retained host handles, typed conversion
 and object/member calls are implemented. The
-[host_objects example](../crates/kagari-embed/examples/host_objects.rs) demonstrates
+[host_objects example](../crates/kagari/examples/host_objects.rs) demonstrates
 the public API. Explicitly optional generated views remain proposals.
 
 One runtime executes exclusively and can move between host threads; it does not
@@ -816,7 +816,7 @@ reload. Failed publication leaves existing handles usable.
 | --- | --- |
 | kagari-runtime | Stores, identities, tracing, leases, object access, conversion context, native binding validation and call services |
 | kagari-vm | Drive checked executable calls using runtime-owned frames; preserve return/unwind ordering |
-| kagari-embed | Ergonomic registration and typed call/binding entrypoints composed from runtime mechanisms |
+| kagari | Ergonomic registration and typed call/binding entrypoints composed from runtime mechanisms |
 | kagari-types | Existing source-independent declarations, nominal schemas, bounds, member access and documentation |
 | contract, MIR and bytecode | Checked member/call evidence, scoped signatures and bounded executable validation |
 | compiler/HIR | Existing analysis, trait selection and production of required executable evidence |

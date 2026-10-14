@@ -10,8 +10,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+use kagari::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_bytecode::instruction::BytecodeInstruction;
-use kagari_embed::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,

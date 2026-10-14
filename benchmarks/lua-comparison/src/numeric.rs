@@ -1,6 +1,6 @@
 //! Matched finite arithmetic/bit/conversion workloads across every numeric type.
 use crate::Options;
-use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 use kagari_source::source::SourceFile;
 use mlua::{Function, Lua};

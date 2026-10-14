@@ -10,11 +10,11 @@ mod workloads;
 
 use std::{env, hint::black_box, time::Instant};
 
-use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_embed::{
+use kagari::{
     context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
     runtime::KagariRuntime,
 };
+use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_runtime::{
     module::{LoadedModule, entry::ProgramEntry},
     value::Value,

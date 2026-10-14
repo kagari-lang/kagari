@@ -4,6 +4,8 @@ This page retains measurements needed for the open test-cost, interpreter
 performance and architecture follow-up work. Each result applies to its recorded revision and environment,
 not automatically to current HEAD. Superseded checkpoint reports live in Git
 history; compiler, startup and execution measurements remain separate.
+Historical result labels retain `kagari-embed`; current commands and source links
+use the renamed `kagari` SDK. This naming update does not rerun measurements.
 
 Keep workloads, hashes, environment and timing scope together. Allocation requests
 are not RSS; compilation/setup and execution are separate. Small differences are
@@ -39,9 +41,9 @@ Selections, passed together as libtest filters with `--exact`:
   `runtime::language_contract::evaluation::host_reject`,
   `runtime::language_contract::types_and_dispatch::publication_pins_old_dependencies_and_rejects_stale_candidate`.
 
-For example, build the three targets with `cargo test -p kagari-embed --lib
+For example, build the three targets with `cargo test -p kagari --lib
 --test default_methods --test syntax_examples --no-run`. Reproduce the syntax
-selection with `cargo test -p kagari-embed --test syntax_examples -- array_operations
+selection with `cargo test -p kagari --test syntax_examples -- array_operations
 collection_pipelines callables --exact`. The other targets accept their listed
 filters in the same way. Report Cargo compilation separately from harness time.
 
@@ -152,14 +154,14 @@ bytecode's 32 library tests 0.12 s. Test counts alone do not explain elapsed tim
 
 ### Concrete follow-up candidates
 
-1. [SDK language contract](../crates/kagari-embed/src/runtime/language_contract.rs):
+1. [SDK language contract](../crates/kagari/src/runtime/language_contract.rs):
    one test contains a large serial collection of scenarios (146 Case::new source
    sites, not a claimed executed-case count). Successful scenarios traverse Source,
    Artifact, Jit and ArtifactJit routes. It already shares compilation/prepared
    inputs across routes; do not propose removing that duplication as if it still
    existed. Review distinct route coverage, prepared declaration reuse and
    individually filterable cases while retaining fresh mutable runtime state.
-2. [Syntax examples](../crates/kagari-embed/tests/syntax_examples.rs): 45 examples
+2. [Syntax examples](../crates/kagari/tests/syntax_examples.rs): 45 examples
    inside one test each create an engine and compile a program, then execute
    direct/serialized artifacts. Default test parallelism cannot parallelize this
    inner loop. Preserve example validity and artifact coverage while reviewing
@@ -171,7 +173,7 @@ bytecode's 32 library tests 0.12 s. Test counts alone do not explain elapsed tim
    invariant program once when fixing this path; independently preserve each
    metadata mutation/rejection assertion. No exact standalone case time was
    measured during this parallel run.
-4. [Provider cancellation](../crates/kagari-embed/tests/native_provider_reset/main.rs):
+4. [Provider cancellation](../crates/kagari/tests/native_provider_reset/main.rs):
    cancellation_boundaries_unwind_nested_provider_callbacks constructs an engine
    and runtime for each cancellation point, stopping after normal completion or
    the 200-point bound. The program is already prepared outside the loop. Audit
@@ -219,7 +221,7 @@ collection execution matrices and allocation loops. Build them separately from
 execution to distinguish Rust build time from work performed inside the tests:
 
 ```text
-cargo test -p kagari-embed --test syntax_examples --test collection_interfaces --no-run --message-format=json
+cargo test -p kagari --test syntax_examples --test collection_interfaces --no-run --message-format=json
 cargo test -p kagari-vm --test interface_allocations --test library_collections --test native_allocations --no-run --message-format=json
 ```
 
@@ -247,7 +249,7 @@ distributed; the method and measured results are recorded here.
 The largest measured case was
 `standalone_language_examples_execute_from_source_and_artifact` at 141.36 s,
 approximately 88% of its target's serial time. The
-[example loop](../crates/kagari-embed/tests/syntax_examples.rs) runs 45 sources
+[example loop](../crates/kagari/tests/syntax_examples.rs) runs 45 sources
 inside one test, constructing a fresh engine for each and executing both direct
 and serialized artifacts. This inner loop stays serial even when libtest runs
 different tests concurrently. Other measured examples:
@@ -290,9 +292,9 @@ took 1.416-1.473 s on the three reused-engine inputs: engine reuse alone does no
 remove the remaining compilation/preparation cost.
 
 Source inspection explains repeated work, but does not yet attribute the time
-inside those stages. [Engine declaration preparation](../crates/kagari-embed/src/engine/declarations.rs)
+inside those stages. [Engine declaration preparation](../crates/kagari/src/engine/declarations.rs)
 renders/prepares/checks installed declarations; each fresh engine enters that
-path. [Collection interface tests](../crates/kagari-embed/tests/collection_interfaces.rs)
+path. [Collection interface tests](../crates/kagari/tests/collection_interfaces.rs)
 exercise direct, serialized and JIT-enabled routes with GC threshold 1. Similar
 helpers exist in default_methods, type_inference and trait_inheritance; these
 other targets were not timed and are candidates, not measured hotspots.

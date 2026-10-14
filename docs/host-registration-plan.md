@@ -293,13 +293,13 @@ a claim that today's `bind` already accepts every proposed form.
 
 | Capability | Current evidence and required work |
 | --- | --- |
-| Module declarations and installation | [ModuleBuilder](../crates/kagari-runtime/src/native/builder.rs), [NativeModule](../crates/kagari-runtime/src/native/module.rs), [Engine builder](../crates/kagari-embed/src/engine/builder.rs) already exist. Merge the separate HostInterface authority here. |
+| Module declarations and installation | [ModuleBuilder](../crates/kagari-runtime/src/native/builder.rs), [NativeModule](../crates/kagari-runtime/src/native/module.rs), [Engine builder](../crates/kagari/src/engine/builder.rs) already exist. Merge the separate HostInterface authority here. |
 | Owned conversions | [KagariType / IntoKagari / FromKagari](../crates/kagari-runtime/src/native/conversion/mod.rs) and rooted argument conversion already exist; reuse them. Existence of these traits alone does not establish general automatic struct conversion. |
 | Ordinary struct metadata | [Shared declarations](../crates/kagari-types/src/declaration/mod.rs) already model Struct and fields. A native-storage builder is not proof of a complete DTO authoring API. |
 | Type authoring convenience | `module.register_type::<T>()` registers schema/mapping metadata without creating objects or selecting a passing mode; it is proposed integration with RI schemas. |
 | Function binding | The single `bind` entrypoint automatically adapts typed closures using their declaration context and accepts explicit low-level bindings; consolidate existing helpers through the checked invocation machinery. |
 | DTO derive | `KagariValue` is proposed RI work. Track its actual implementation separately from registration acceptance. |
-| SDK entry | [execute_typed](../crates/kagari-embed/src/runtime/typed.rs) exists and uses directional owned conversion. |
+| SDK entry | [execute_typed](../crates/kagari/src/runtime/typed.rs) exists and uses directional owned conversion. |
 
 Portable type/member facts belong in `kagari-types`, executable contracts in
 `kagari-contract`, converters/callbacks in `kagari-runtime`, and installation
@@ -720,7 +720,7 @@ Reuse existing test owners and add only uncovered contract cases:
 
 At implementation checkpoints select package/target/test-name filters, affected
 Clippy, structure/format/diff checks and, where dependency boundaries change,
-`cargo check -p kagari-embed --no-default-features --lib`. Use `--no-fail-fast` for
+`cargo check -p kagari --no-default-features --lib`. Use `--no-fail-fast` for
 multiple selected test targets. Full workspace and exhaustive backend/feature
 matrices belong to CI. Do not equate a manual conversion test with derive coverage.
 Record actual commands, rationale, failures and unrun CI scope in the ledger.

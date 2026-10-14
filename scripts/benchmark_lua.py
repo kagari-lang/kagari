@@ -85,7 +85,7 @@ def main() -> None:
                 "git_status": command("git", "status", "--short"),
                 "rustc": command("rustc", "-Vv"), "cargo": command("cargo", "-V"),
                 "machine": machine(), "profile": "release (workspace defaults, opt-level=3)",
-                "features": "kagari-embed source,native; mlua lua54,vendored",
+                "features": "kagari source,native; mlua lua54,vendored",
                 "parallelism": "Cargo default; benchmark single thread; processes sequential",
                 "cache": "Rust build reused when available; fresh process/state per run; warmed execution measured separately from setup",
                 "samples_per_process": 1 if args.check else 11,

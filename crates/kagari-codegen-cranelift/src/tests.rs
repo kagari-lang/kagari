@@ -1,9 +1,9 @@
 use super::*;
+use kagari::engine::KagariEngine;
 use kagari_compiler::{
     bytecode::lower_program_to_bytecode, native_links::build_native_links,
     source::program::lower_program_to_mir,
 };
-use kagari_embed::engine::KagariEngine;
 use kagari_mir::{program::VerifiedMirProgram, verify::VerifiedMirModule};
 use kagari_runtime::{
     Runtime, RuntimeConfig,

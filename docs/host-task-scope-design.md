@@ -351,8 +351,8 @@ revalidate conditions or use version-checked host operations.
 
 The [executable contracts](async-execution-design.md#executable-contracts) define
 admission errors, capture checks, capabilities, bounded storage and shutdown.
-The [host-driven example](../crates/kagari-embed/examples/async_tasks/main.rs)
+The [host-driven example](../crates/kagari/examples/async_tasks/main.rs)
 demonstrates registration, driving, reporting and shutdown. Extend existing
-[SDK async tests](../crates/kagari-embed/tests/async_execution.rs) with deterministic
+[SDK async tests](../crates/kagari/tests/async_execution.rs) with deterministic
 dispatch/completion fixtures for distinct missing contracts; avoid live services
 and sleep-based ordering assertions. Full feature/backend acceptance belongs to CI.

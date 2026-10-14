@@ -2,7 +2,7 @@ use crate::{
     args::{ProjectAction, ProjectArgs},
     project::{locate, run_from},
 };
-use kagari_embed::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use kagari::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
 use std::{
     collections::BTreeSet,
     fs,

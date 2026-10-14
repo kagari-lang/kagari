@@ -23,7 +23,7 @@ Select cases at the layer whose behavior changed; this table is not a local swee
 | Importer aliases, empty roots, visibility, unused bodies, implementation-only dependencies and retained scopes | `kagari-package/tests/analysis.rs` and the HIR import/signature owners |
 | Canonical native contracts and provider/query-setting identity | `kagari-types` native compiler-input unit case and `kagari-hir` environment-identity unit case |
 | Public export target/signature validation and malformed source-free artifacts | Compiler/bytecode export cases and runtime/VM `package_exports` targets |
-| Exact SDK capture, affected roots, dependency constants/generic bodies and pinned reload through decoded artifacts | `kagari-embed/tests/package_inputs.rs` |
+| Exact SDK capture, affected roots, dependency constants/generic bodies and pinned reload through decoded artifacts | `kagari/tests/package_inputs.rs` |
 | CLI discovery/selection, shared products, locked edits and standalone artifacts | `kagari-cli` project and artifact-pipeline cases |
 
 The [workspace/host example](../examples/package-workspace/README.md) is a runnable
@@ -34,7 +34,7 @@ integration suite. CI owns the exhaustive feature/backend/platform matrix;
 ## Prepare once, execute with fresh state
 
 Ordinary SDK tests can use
-[`support/execution.rs`](../crates/kagari-embed/tests/support/execution.rs).
+[`support/execution.rs`](../crates/kagari/tests/support/execution.rs).
 Its standard baseline initializes once per integration binary. A short mutex
 protects copying the native-only analysis baseline; compilation and execution
 take place outside it in a fresh `KagariEngine::new_session`. This is not a pool
@@ -60,7 +60,7 @@ Rust state captured by a callback.
 
 Give independent scenarios stable `#[test]` names, or generate them with a small
 macro such as the one in
-[`syntax_examples.rs`](../crates/kagari-embed/tests/syntax_examples.rs).
+[`syntax_examples.rs`](../crates/kagari/tests/syntax_examples.rs).
 Do not hide a growing independent case list inside one serial test. Related
 sequences such as trap-then-recovery or publish-then-call-old-generation remain
 one scenario. Run its routes sequentially; let Rust's test harness schedule
@@ -102,7 +102,7 @@ identity isolation boundary, preserving the validity of existing scoped IDs.
 Build selected tests first:
 
 ```text
-cargo test -p kagari-embed --test syntax_examples --test default_methods --no-run
+cargo test -p kagari --test syntax_examples --test default_methods --no-run
 ```
 
 Then run the selected binaries or corresponding Cargo test commands. Report

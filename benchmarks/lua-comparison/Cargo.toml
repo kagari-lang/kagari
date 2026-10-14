@@ -11,7 +11,7 @@ diagnostics = ["kagari-runtime/execution-diagnostics"]
 [dependencies]
 kagari-source.workspace = true
 kagari-bytecode.workspace = true
-kagari-embed = { workspace = true, features = ["source", "native"] }
+kagari = { workspace = true, features = ["source", "native"] }
 kagari-runtime.workspace = true
 kagari-vm.workspace = true
 kagari-codegen-cranelift.workspace = true

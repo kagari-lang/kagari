@@ -42,8 +42,8 @@ Ordinary synchronous functions and standard-library callbacks retain their seman
 ## Script surface and evaluation
 
 The following application-specific types illustrate the supported syntax. See the
-[runnable host example](../crates/kagari-embed/examples/async_tasks/main.rs) for a
-self-contained two-provider flow and [its script](../crates/kagari-embed/examples/async_tasks/script.kgr)
+[runnable host example](../crates/kagari/examples/async_tasks/main.rs) for a
+self-contained two-provider flow and [its script](../crates/kagari/examples/async_tasks/script.kgr)
 for ordinary `for` traversal with `.await`:
 
 ```kagari
@@ -751,7 +751,7 @@ publication. State replacement remains outside AX scope.
 
 ## Contract coverage
 
-The [SDK async tests](../crates/kagari-embed/tests/async_execution.rs) cover source,
+The [SDK async tests](../crates/kagari/tests/async_execution.rs) cover source,
 artifact and host-driven execution. [Session tests](../crates/kagari-vm/src/tests/sessions.rs)
 and [native boundaries](../crates/kagari-vm/tests/native_boundary.rs) own cleanup,
 reentry and runtime safety. Use deterministic host completion/dispatch fixtures;

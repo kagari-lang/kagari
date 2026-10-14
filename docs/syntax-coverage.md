@@ -36,7 +36,7 @@ Async function/closure and postfix-await grammar has a parse witness in
 [async.kgr](../examples/syntax/async.kgr). Executable acceptance belongs to the SDK
 async contracts: explicit closure inference, ordinary-closure rejection, nested
 calls, generic Fn coercion and ordinary for-body suspension. The
-[async_tasks script](../crates/kagari-embed/examples/async_tasks/script.kgr) also runs
+[async_tasks script](../crates/kagari/examples/async_tasks/script.kgr) also runs
 as a decoded artifact in a standalone consumer without source compilation. No async
 block, async iterator or custom awaitable grammar is implied by this coverage.
 
@@ -45,7 +45,7 @@ witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)
 is parser-only because it combines unrelated grammar forms. Inline modules and
 wildcard imports also have executable examples and artifact tests in
-`cargo test -p kagari-embed --test syntax_examples` and `--test source_modules`.
+`cargo test -p kagari --test syntax_examples` and `--test source_modules`.
 
 The tests also extract quoted source terminals from the EBNF and compare them
 with the lexer. The current unrecognized terminal baseline is empty.

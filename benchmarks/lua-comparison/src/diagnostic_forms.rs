@@ -1,6 +1,6 @@
 //! Protocol scaling probes, separate from the frozen Lua parity workloads.
 use crate::diagnostics;
-use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_source::source::SourceFile;
 
 const SOURCE: &str = r#"

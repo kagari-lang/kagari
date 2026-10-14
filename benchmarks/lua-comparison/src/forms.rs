@@ -3,8 +3,8 @@
 use crate::diagnostics;
 
 use crate::{Options, profile};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{
     native::{
         binding::NativeResult, builder::ModuleBuilder, context::CallContext,

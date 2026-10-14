@@ -329,11 +329,11 @@ Reuse existing semantic owners, extending only distinct missing contracts:
 
 | Coverage owner | Required evidence |
 | --- | --- |
-| [Interfaces](../crates/kagari-embed/tests/collection_interfaces.rs), [access](../crates/kagari-embed/tests/collection_access.rs), [arrays](../crates/kagari-embed/tests/array_operations.rs) | Nominal distinction, generic/interface dispatch, invariance, shallow views, aliases, bounds, Array separation and once-only mutation targets. |
-| [Iteration](../crates/kagari-embed/tests/iteration_traits.rs), [conversions](../crates/kagari-embed/tests/conversion_traits.rs), [library collections](../crates/kagari-vm/tests/library_collections.rs) | Preserve implemented adapter/terminal behavior while changing source/destination storage: generic/interface traversal, custom destination dispatch, HashMap last-value-wins, HashSet deduplication, early exit and shared progress. |
-| [Lazy cursor boundaries](../crates/kagari-vm/tests/library_mapping/mod.rs), [source-free pipeline fixture](../crates/kagari-embed/tests/fixtures/feature_artifact.kgr) | Reuse retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload and existing recursive-next/cycle/invalidation coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
+| [Interfaces](../crates/kagari/tests/collection_interfaces.rs), [access](../crates/kagari/tests/collection_access.rs), [arrays](../crates/kagari/tests/array_operations.rs) | Nominal distinction, generic/interface dispatch, invariance, shallow views, aliases, bounds, Array separation and once-only mutation targets. |
+| [Iteration](../crates/kagari/tests/iteration_traits.rs), [conversions](../crates/kagari/tests/conversion_traits.rs), [library collections](../crates/kagari-vm/tests/library_collections.rs) | Preserve implemented adapter/terminal behavior while changing source/destination storage: generic/interface traversal, custom destination dispatch, HashMap last-value-wins, HashSet deduplication, early exit and shared progress. |
+| [Lazy cursor boundaries](../crates/kagari-vm/tests/library_mapping/mod.rs), [source-free pipeline fixture](../crates/kagari/tests/fixtures/feature_artifact.kgr) | Reuse retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload and existing recursive-next/cycle/invalidation coverage. Prove migrated sources propagate through nested/paired adapters and source-free short-circuit consumption, without rebuilding a duplicate iterator suite. |
 | [Native builder](../crates/kagari-runtime/tests/native_builder.rs), [native boundary](../crates/kagari-vm/tests/native_boundary.rs) | Public extensions, wrong nominal/payload/type/owner rejection, dynamic edges, roots, reentry/traps/cancellation, cyclic collection cleanup and host retention. |
-| [Reload](../crates/kagari-embed/tests/generic_reload.rs), [artifacts](../crates/kagari-embed/tests/artifact_features.rs), [native artifacts](../crates/kagari-embed/tests/native_artifacts.rs) | Pinned types/callbacks/cursors, source-free linking, forged storage/call evidence rejection and backend agreement. |
+| [Reload](../crates/kagari/tests/generic_reload.rs), [artifacts](../crates/kagari/tests/artifact_features.rs), [native artifacts](../crates/kagari/tests/native_artifacts.rs) | Pinned types/callbacks/cursors, source-free linking, forged storage/call evidence rejection and backend agreement. |
 
 Cover script key collisions and side effects, failures before commit, GC objects
 returned by reads/removals, alias mutation during protected operations, cancellation
@@ -362,7 +362,7 @@ uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --no-fail-fast
-cargo test -p kagari-embed --no-default-features --test artifact_features
+cargo test -p kagari --no-default-features --test artifact_features
 git diff --check
 ```
 

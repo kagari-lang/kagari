@@ -124,7 +124,7 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-codegen-cranelift | Scalar native emission and executable code ownership |
 | kagari-runtime | Values, GC, host state, sessions, native registration/calls and reload |
 | kagari-vm | Interpreter/frame driver, debugger and prepared tier selection |
-| kagari-embed | Host SDK, preparation and execution orchestration |
+| kagari | Host SDK, preparation and execution orchestration |
 | kagari-cli | Arguments, filesystem IO and presentation |
 
 Runtime, bytecode and VM have no production dependency on MIR, source/syntax/HIR or
@@ -358,7 +358,7 @@ providers; stdlib owns concrete declarations and implementations. The
 | `kagari-runtime` | Values, GC, roots, host state/borrows, native builders/bindings, linking, versions and execution services |
 | `kagari-vm` | Interpreter/frame driver, call dispatch and debugger control |
 | `kagari-stdlib` | Concrete core/alloc/std declarations, docs, exports, Rust bindings and algorithms |
-| `kagari-embed` | Engine/SDK composition of registrations, compilation, loading, preparation and execution |
+| `kagari` | Engine/SDK composition of registrations, compilation, loading, preparation and execution |
 | `kagari-cli` | Arguments, filesystem IO and presentation |
 
 The names identify responsibilities; reducing dependency count is not an
@@ -577,7 +577,7 @@ caller without depending on Engine or stdlib.
 | `kagari-abi` | Execution representations, physical native calls, helper signatures and executable ownership interfaces |
 | `kagari-stdlib` (new, populated during LR01) | Bundled core/alloc/std declarations, docs, prelude/re-export inventory, native bindings and library algorithms |
 | `kagari-runtime` | Generic native module builders, registration checks, linking, heap/host services and execution state |
-| `kagari-embed` | Assemble and validate the engine's module set, supply declarations to analysis and install matching implementations in runtimes |
+| `kagari` | Assemble and validate the engine's module set, supply declarations to analysis and install matching implementations in runtimes |
 | `kagari-hir` | Render registered declarations, analyze generated/user source, collect checked language roles and provide tooling queries |
 
 `TraitDef` is a shared types model; a particular Add or List declaration is an
@@ -1816,7 +1816,7 @@ The [roadmap](implementation-roadmap.md) owns future changes. The current
 boundaries preserve the mandatory foundation, shared generics, storage safety
 and reload pinning. They do not promise a stable external ABI or compatibility
 readers. Performance effects require measurement. A future kagari-ffi C adapter
-belongs over kagari-embed; internal helper ABI stays separate, and no placeholder
+belongs over kagari; internal helper ABI stays separate, and no placeholder
 crate is needed.
 
 ## Owned interpreter activation
@@ -1880,7 +1880,7 @@ retaining GC or version leases. Debug snapshots identify their root execution;
 independent parked roots do not become synchronous reentry frames or consume each
 other's single-step requests. Observers can be replaced between bounded drives.
 
-The [async_tasks host](../crates/kagari-embed/examples/async_tasks/main.rs) and its
+The [async_tasks host](../crates/kagari/examples/async_tasks/main.rs) and its
 source-free artifact consumer exercise two independently registered providers and
 a non-Actor dispatcher. No Tokio runtime, JIT suspension or script threads are
 required. Native preparation declines resume bodies before backend entry.

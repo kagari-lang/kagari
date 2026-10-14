@@ -378,6 +378,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagari"
+version = "0.1.0"
+dependencies = [
+ "bincode",
+ "blake3",
+ "kagari-abi",
+ "kagari-bytecode",
+ "kagari-codegen",
+ "kagari-codegen-cranelift",
+ "kagari-common",
+ "kagari-compiler",
+ "kagari-contract",
+ "kagari-hir",
+ "kagari-mir",
+ "kagari-package",
+ "kagari-runtime",
+ "kagari-source",
+ "kagari-stdlib",
+ "kagari-syntax",
+ "kagari-types",
+ "kagari-vm",
+ "smallvec",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "kagari-abi"
 version = "0.1.0"
 dependencies = [
@@ -404,10 +431,10 @@ name = "kagari-cli"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "kagari",
  "kagari-bytecode",
  "kagari-codegen-cranelift",
  "kagari-common",
- "kagari-embed",
  "kagari-package",
  "kagari-runtime",
  "kagari-source",
@@ -436,13 +463,13 @@ dependencies = [
  "cranelift-jit",
  "cranelift-module",
  "cranelift-native",
+ "kagari",
  "kagari-abi",
  "kagari-bytecode",
  "kagari-codegen",
  "kagari-common",
  "kagari-compiler",
  "kagari-contract",
- "kagari-embed",
  "kagari-mir",
  "kagari-runtime",
  "kagari-source",
@@ -492,33 +519,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "kagari-embed"
-version = "0.1.0"
-dependencies = [
- "bincode",
- "blake3",
- "kagari-abi",
- "kagari-bytecode",
- "kagari-codegen",
- "kagari-codegen-cranelift",
- "kagari-common",
- "kagari-compiler",
- "kagari-contract",
- "kagari-hir",
- "kagari-mir",
- "kagari-package",
- "kagari-runtime",
- "kagari-source",
- "kagari-stdlib",
- "kagari-syntax",
- "kagari-types",
- "kagari-vm",
- "smallvec",
- "thiserror",
- "tokio",
-]
-
-[[package]]
 name = "kagari-hir"
 version = "0.1.0"
 dependencies = [
@@ -538,9 +538,9 @@ dependencies = [
 name = "kagari-lua-benchmark"
 version = "0.1.0"
 dependencies = [
+ "kagari",
  "kagari-bytecode",
  "kagari-codegen-cranelift",
- "kagari-embed",
  "kagari-runtime",
  "kagari-source",
  "kagari-vm",

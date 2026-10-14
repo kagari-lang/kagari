@@ -2,7 +2,7 @@
 //! Source compilation/preparation, handle drops, execution, and engine creation
 //! are outside both timing intervals. A fresh runtime is used for every sample.
 use kagari_source::source::SourceFile;
-use kagari_embed::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::value::Value;
 use std::{hint::black_box, time::Instant};
 
