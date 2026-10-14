@@ -208,6 +208,7 @@ impl TypeRegistration<'_> {
             .into_iter()
             .map(|field| {
                 Ok(FieldDef {
+                    host_policy: None,
                     visibility: Visibility::Public,
                     name: field.name,
                     ty: field.ty.adopt(self.module.context())?,

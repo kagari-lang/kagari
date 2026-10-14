@@ -150,6 +150,7 @@ impl InterfaceTable {
             .iter()
             .map(|method| {
                 Some(FnDecl {
+                    host_policy: method.host_policy.clone(),
                     method_policy: method.method_policy,
                     name: method.name.clone(),
                     implementation: method.implementation.apply(&substitution, &cancel).ok()?,

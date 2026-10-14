@@ -1,6 +1,7 @@
 //! Portable semantic declarations and symbolic method defaults.
 pub mod applications;
 pub mod conversion;
+pub mod host;
 mod mapping;
 pub mod module;
 pub mod names;
@@ -14,6 +15,7 @@ pub mod wire;
 use crate::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{
+        host::{HostCallPolicy, HostFieldPolicy, HostTypePolicy},
         native::{NativeStorageLayout, NativeTypeConstructor},
         requirement::NativeCallableRequirement,
     },
@@ -25,6 +27,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FnDecl {
+    /// Checked external-ID access policy; signatures remain ordinary params/result.
+    pub host_policy: Option<HostCallPolicy>,
     pub method_policy: MethodPolicy,
     pub name: String,
     pub implementation: CallableImplementation,
@@ -75,13 +79,15 @@ pub enum TypeDefKind {
     Enum,
     Native(NativeTypeConstructor),
     NativeStorage(NativeStorageLayout),
+    /// Address-free external object identity with declared manual path access.
+    Host(HostTypePolicy),
 }
 
 impl TypeDefKind {
     /// Nominal identity belongs to the declaration kind, independent of its producer.
     pub fn definition_kind(self) -> DefinitionKind {
         match self {
-            Self::Struct => DefinitionKind::Struct,
+            Self::Struct | Self::Host(_) => DefinitionKind::Struct,
             Self::Enum => DefinitionKind::Enum,
             Self::Native(constructor) => constructor.declaration_kind(),
             Self::NativeStorage(_) => DefinitionKind::AssociatedType,
@@ -91,6 +97,8 @@ impl TypeDefKind {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldDef {
+    /// Specialized external path/read policy, valid only on a Host declaration.
+    pub host_policy: Option<HostFieldPolicy>,
     pub visibility: Visibility,
     pub name: String,
     pub ty: Ty,

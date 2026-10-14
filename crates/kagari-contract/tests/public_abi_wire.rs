@@ -99,6 +99,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         ],
     };
     let function = FnDecl {
+        host_policy: None,
         method_policy: Default::default(),
         name: "read".into(),
         implementation: CallableImplementation::NativeDefault(NativeDefaultApplication {
@@ -165,6 +166,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
             generic_params: vec![],
             bounds: vec![],
             fields: vec![FieldDef {
+                host_policy: None,
                 visibility: Visibility::Public,
                 name: "key".into(),
                 ty: text,

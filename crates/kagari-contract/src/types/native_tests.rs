@@ -69,6 +69,7 @@ fn native_type_templates_validate_arity_owner_and_physical_shape() {
         assert!(valid(ty.clone()), "{kind:?}");
         let mut wrong = ty.clone();
         wrong.fields.push(FieldDef {
+            host_policy: None,
             visibility: Visibility::Public,
             name: "injected".into(),
             ty: Ty::Builtin(BuiltinType::I32),

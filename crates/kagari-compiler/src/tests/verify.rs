@@ -967,6 +967,7 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
                     payload: vec![],
                 }),
                 3 => template.fields.push(FieldDef {
+                    host_policy: None,
                     visibility: Visibility::Public,
                     name: "unexpected".into(),
                     ty: Ty::Builtin(BuiltinType::I32),

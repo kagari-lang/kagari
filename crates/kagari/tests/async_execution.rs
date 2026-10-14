@@ -286,6 +286,7 @@ impl Fixture {
             });
             namespace.functions.insert(function.name.clone(), id);
             public_items.push(PublicItem::Function(FnDecl {
+                host_policy: None,
                 method_policy: Default::default(),
                 name: function.name.clone(),
                 implementation: CallableImplementation::Script,

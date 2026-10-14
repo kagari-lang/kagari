@@ -117,6 +117,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                         .fields
                         .iter()
                         .map(|field| FieldDef {
+                            host_policy: None,
                             visibility: field.visibility,
                             name: field.name.clone(),
                             ty: abi_type(
@@ -692,6 +693,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
             })
             .collect();
         result.push(FnDecl {
+            host_policy: None,
             method_policy: method.policy,
             name: method.name.clone(),
             implementation: match method.default.clone().expect("selected default method") {
@@ -739,6 +741,7 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
         .iter()
         .find(|typed| typed.id == function.id)?;
     Some(FnDecl {
+        host_policy: None,
         method_policy: module
             .declarations
             .target(ResolvedName::Function(function.id))

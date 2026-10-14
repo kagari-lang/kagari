@@ -20,6 +20,7 @@ impl RemapDefinitions for FnDecl {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FnDecl {
+            host_policy: self.host_policy.clone(),
             method_policy: self.method_policy,
             name: self.name.clone(),
             implementation: self.implementation.remap_definitions(mapper)?,
@@ -156,6 +157,7 @@ impl RemapDefinitions for FieldDef {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(FieldDef {
+            host_policy: self.host_policy,
             visibility: self.visibility,
             name: self.name.clone(),
             ty: self.ty.remap_definitions(mapper)?,

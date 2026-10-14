@@ -215,6 +215,7 @@ impl ModuleDecl {
                         | TypeDefKind::Enum
                         | TypeDefKind::Native(_)
                         | TypeDefKind::NativeStorage(_)
+                        | TypeDefKind::Host(_)
                 )
                 || ty.fields.iter().any(|field| !identifier(&field.name))
                 || ty.variants.iter().any(|variant| !identifier(&variant.name))
@@ -504,7 +505,7 @@ fn supported_type(ty: &Ty, definitions: &DefinitionTable) -> Result<(), Declarat
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         match ty {
-            Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) => {}
+            Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Host(_) => {}
             Ty::Array(item) | Ty::Set(item, _) | Ty::Range(item, _) | Ty::Iter(item) => {
                 pending.push(item)
             }

@@ -37,6 +37,7 @@ fn fixture(context: &DefinitionContext) -> (InterfaceCallContract, TraitDef) {
         associated_types: vec![],
         associated_consts: vec![],
         methods: vec![FnDecl {
+            host_policy: None,
             name: "map".into(),
             implementation: CallableImplementation::Required,
             method_policy: MethodPolicy::default(),

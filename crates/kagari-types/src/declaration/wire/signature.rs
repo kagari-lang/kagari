@@ -3,6 +3,7 @@ use crate::{
     callable::{MethodPolicy, NativeDefaultApplication},
     declaration::{
         FnDecl, Param,
+        host::HostCallPolicy,
         wire::leaf::{CallableImplementationRecord, ConstraintRecord},
     },
     decode_limits,
@@ -149,6 +150,7 @@ impl NativeDefaultApplicationRecord {
 /// Codec record for the scoped FnDecl declaration; identity fields are file-local references.
 #[derive(Serialize, Deserialize)]
 pub struct FnDeclRecord {
+    host_policy: Option<HostCallPolicy>,
     method_policy: MethodPolicy,
     name: String,
     implementation: CallableImplementationRecord,
@@ -172,6 +174,7 @@ impl FnDeclRecord {
         check_cancel(cancel)?;
         Ok(Self {
             method_policy: value.method_policy,
+            host_policy: value.host_policy.clone(),
             name: value.name.clone(),
             implementation: CallableImplementationRecord::encode(
                 &value.implementation,
@@ -206,6 +209,7 @@ impl FnDeclRecord {
     ) -> Result<FnDecl, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FnDecl {
+            host_policy: self.host_policy,
             method_policy: self.method_policy,
             name: self.name,
             implementation: self.implementation.decode(decoding, cancel)?,

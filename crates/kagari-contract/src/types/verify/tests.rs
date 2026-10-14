@@ -95,6 +95,7 @@ fn requirements_are_not_executable_functions_or_forged_native_entries() {
     owner(&context, &module, DefinitionKind::Function, "read");
     let cancel = CancellationToken::default();
     let mut function = FnDecl {
+        host_policy: None,
         method_policy: Default::default(),
         name: "read".into(),
         implementation: CallableImplementation::Required,
@@ -141,6 +142,7 @@ fn required_methods_cannot_forbid_an_implementation() {
         generic_params: vec![],
         bounds: vec![],
         methods: vec![FnDecl {
+            host_policy: None,
             method_policy: Default::default(),
             name: "read".into(),
             implementation: CallableImplementation::Required,
@@ -184,6 +186,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         arguments: Vec::new(),
     });
     let mut declared = FnDecl {
+        host_policy: None,
         method_policy: Default::default(),
         implementation: CallableImplementation::Required,
         name: "read".into(),
@@ -206,6 +209,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         return_type: Ty::Builtin(BuiltinType::I32),
     };
     let mut implemented = FnDecl {
+        host_policy: None,
         method_policy: Default::default(),
         implementation: CallableImplementation::Script,
         name: "read".into(),
@@ -368,6 +372,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         associated_types: BTreeMap::new(),
     };
     let declared = FnDecl {
+        host_policy: None,
         method_policy: Default::default(),
         implementation: CallableImplementation::Required,
         name: "read".into(),
@@ -382,6 +387,7 @@ fn dependency_projection_deferral_requires_a_successful_linked_comparison() {
         },
     };
     let mut implemented = FnDecl {
+        host_policy: None,
         method_policy: Default::default(),
         implementation: CallableImplementation::Script,
         return_type: Ty::Builtin(BuiltinType::Bool),

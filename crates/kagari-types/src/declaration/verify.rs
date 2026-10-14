@@ -2,6 +2,7 @@
 use crate::{
     callable::CallableImplementation,
     declaration::{FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind},
+    decode_limits::MAX_NESTED_RECORDS,
     host_interface::validate_host_type_identity,
     range::RangeKind,
     scalar::BuiltinType,
@@ -129,6 +130,11 @@ pub fn validate_native_declarations(
                 .is_ok_and(|order| order.is_lt())
         };
         if !receiver_access_valid(function)
+            || !parameter_names_valid(function)
+            || function
+                .host_policy
+                .as_ref()
+                .is_some_and(|policy| !policy.valid_for(function, table))
             || function.return_type.contains_stored_reference()
             || !function.return_type.reference_position_valid()
             || function
@@ -303,10 +309,15 @@ pub fn trait_valid(
 
 pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
     if ty.name.is_empty()
-        || ty
-            .fields
-            .iter()
-            .any(|field| field.ty.contains_stored_reference())
+        || ty.fields.iter().any(|field| {
+            field.ty.contains_stored_reference()
+                || match ty.kind {
+                    TypeDefKind::Host(_) => field
+                        .host_policy
+                        .is_none_or(|policy| !policy.valid_for(field)),
+                    _ => field.host_policy.is_some(),
+                }
+        })
         || ty
             .variants
             .iter()
@@ -314,6 +325,11 @@ pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
         || match ty.kind {
             TypeDefKind::Struct => !ty.variants.is_empty(),
             TypeDefKind::Enum => !ty.fields.is_empty(),
+            TypeDefKind::Host(_) => {
+                !ty.variants.is_empty()
+                    || !ty.generic_params.is_empty()
+                    || ty.fields.len() > MAX_NESTED_RECORDS
+            }
             TypeDefKind::Native(kind) => !kind.shape_valid(ty),
             TypeDefKind::NativeStorage(layout) => {
                 !ty.fields.is_empty()
@@ -453,6 +469,11 @@ pub fn function_valid(
         }
     };
     if !receiver_access_valid(function)
+        || !parameter_names_valid(function)
+        || function
+            .host_policy
+            .as_ref()
+            .is_some_and(|policy| !policy.valid_for(function, table))
         || function.name.is_empty()
         || function.return_type.contains_stored_reference()
         || !function.return_type.reference_position_valid()
@@ -486,6 +507,14 @@ pub fn function_valid(
                 _ => true,
             }
     })
+}
+
+fn parameter_names_valid(function: &FnDecl) -> bool {
+    let mut names = HashSet::new();
+    function
+        .params
+        .iter()
+        .all(|parameter| !parameter.name.is_empty() && names.insert(&parameter.name))
 }
 
 fn receiver_access_valid(function: &FnDecl) -> bool {

@@ -276,6 +276,7 @@ mod tests {
                 .insert(ExportName::new(NameNamespace::Value, name), id);
             module.private_functions.insert(id);
             module.functions.push(FnDecl {
+                host_policy: None,
                 name: name.into(),
                 method_policy: Default::default(),
                 implementation: CallableImplementation::Native(id),

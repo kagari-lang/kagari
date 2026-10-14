@@ -207,6 +207,7 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
         concrete_result: None,
         callable_requirements: vec![],
         function: FnDecl {
+            host_policy: None,
             name: "consume".into(),
             method_policy: Default::default(),
             implementation: CallableImplementation::Native(function),
@@ -344,6 +345,7 @@ fn trait_members_require_the_retained_scope_and_exact_parent() {
         generic_params: vec![],
         bounds: vec![],
         methods: vec![FnDecl {
+            host_policy: None,
             name: "read".into(),
             implementation: CallableImplementation::Required,
             generic_params: vec![],

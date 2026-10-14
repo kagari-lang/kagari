@@ -172,6 +172,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
             value: String::new(),
         }),
         PublicItem::Function(FnDecl {
+            host_policy: None,
             method_policy: Default::default(),
             name: "unused".into(),
             implementation: CallableImplementation::Script,
@@ -187,6 +188,7 @@ fn unused_declarations_and_semantic_slots_cannot_hide_unknown_traits() {
             bounds: vec![],
             variants: vec![],
             fields: vec![FieldDef {
+                host_policy: None,
                 visibility: Visibility::Public,
                 name: "hidden".into(),
                 ty: unknown.clone(),
@@ -341,6 +343,7 @@ fn incompatible_traits_remain_static_contracts_but_cannot_hide_in_value_position
         .intern_child(id, DefinitionKind::Method, "read", 0)
         .unwrap();
     record.methods.push(FnDecl {
+        host_policy: None,
         name: "read".into(),
         implementation: CallableImplementation::Required,
         method_policy: Default::default(),
@@ -394,6 +397,7 @@ fn incompatible_traits_remain_static_contracts_but_cannot_hide_in_value_position
             bounds: vec![],
             variants: vec![],
             fields: vec![FieldDef {
+                host_policy: None,
                 name: "callback".into(),
                 visibility: Visibility::Public,
                 mutable: false,

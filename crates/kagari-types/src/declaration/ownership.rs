@@ -44,6 +44,12 @@ impl ReceiverOwners {
     /// foreign nominal IDs never establish ownership.
     pub fn owner(&self, ty: &Ty, definitions: &DefinitionTable) -> Option<ModuleIdentity> {
         let constructor = match ty {
+            Ty::Host(declaration) => {
+                return definitions
+                    .resolve(*declaration)
+                    .ok()
+                    .map(|view| view.module().clone());
+            }
             Ty::NativeObject(nominal)
             | Ty::Struct(nominal)
             | Ty::Enum(nominal)

@@ -40,6 +40,7 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             .documentation
             .insert(id, format!("Registered generic {name} function."));
         module.functions.push(FnDecl {
+            host_policy: None,
             name: name.into(),
             implementation: CallableImplementation::Native(id),
             method_policy: MethodPolicy::default(),
@@ -87,6 +88,7 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             position: 0,
         };
         let body = FnDecl {
+            host_policy: None,
             name: format!("default_{name}"),
             implementation: CallableImplementation::Native(template),
             method_policy: MethodPolicy::default(),
@@ -218,6 +220,7 @@ pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         associated_types: vec![],
         associated_consts: vec![],
         methods: vec![FnDecl {
+            host_policy: None,
             name: "text_items".into(),
             implementation: CallableImplementation::Required,
             method_policy: MethodPolicy::default(),
@@ -260,6 +263,7 @@ pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             _ => Ty::Iter(Box::new(item)),
         };
         let method = FnDecl {
+            host_policy: None,
             name: "text_items".into(),
             implementation: CallableImplementation::Native(
                 context

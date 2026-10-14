@@ -60,6 +60,7 @@ pub(super) fn associated(
 
 pub(super) fn method(name: &str, params: Vec<Ty>, result: Ty) -> FnDecl {
     FnDecl {
+        host_policy: None,
         name: name.into(),
         method_policy: MethodPolicy::default(),
         implementation: CallableImplementation::Required,

@@ -66,6 +66,7 @@ fn impl_instantiation_preserves_method_generics_and_substitutes_their_bounds() {
         }),
         for_type: Ty::Tuple(vec![input.clone()]),
         methods: vec![FnDecl {
+            host_policy: None,
             method_policy: Default::default(),
             name: "construct".into(),
             implementation: CallableImplementation::Script,

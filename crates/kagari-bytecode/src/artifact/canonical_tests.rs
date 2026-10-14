@@ -475,6 +475,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
             bounds: Vec::new(),
             fields: vec![
                 FieldDef {
+                    host_policy: None,
                     visibility: Visibility::Public,
                     name: "field".into(),
                     ty: Ty::Builtin(BuiltinType::I32),

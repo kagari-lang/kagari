@@ -50,6 +50,7 @@ fn interface(owner: &DefinitionId, arguments: Vec<Ty>) -> NominalTy {
 
 fn function(name: &str, implementation: CallableImplementation, parameter: Ty) -> FnDecl {
     FnDecl {
+        host_policy: None,
         name: name.into(),
         implementation,
         method_policy: MethodPolicy::default(),

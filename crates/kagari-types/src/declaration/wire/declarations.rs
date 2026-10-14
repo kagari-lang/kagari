@@ -3,6 +3,7 @@ use crate::{
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, TraitDef,
         TypeDef, TypeDefKind, VariantDef,
+        host::HostFieldPolicy,
         wire::{
             leaf::{ConstraintRecord, ConversionAdapterRecord, NominalTyRecord},
             signature::{FnDeclRecord, GenericBoundRecord, GenericParamRecord},
@@ -149,6 +150,7 @@ impl TypeDefRecord {
 /// Codec record for the scoped FieldDef declaration; identity fields are file-local references.
 #[derive(Serialize, Deserialize)]
 struct FieldDefRecord {
+    host_policy: Option<HostFieldPolicy>,
     visibility: Visibility,
     name: String,
     ty: WireType,
@@ -166,6 +168,7 @@ impl FieldDefRecord {
         check_cancel(cancel)?;
         Ok(Self {
             visibility: value.visibility,
+            host_policy: value.host_policy,
             name: value.name.clone(),
             ty: WireType::encode(&value.ty, encoding, cancel)?,
             mutable: value.mutable,
@@ -181,6 +184,7 @@ impl FieldDefRecord {
     ) -> Result<FieldDef, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(FieldDef {
+            host_policy: self.host_policy,
             visibility: self.visibility,
             name: self.name,
             ty: self.ty.decode(decoding, cancel)?,

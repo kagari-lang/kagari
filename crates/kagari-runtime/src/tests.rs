@@ -88,6 +88,7 @@ fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
 fn module_with_public_function(return_type: BuiltinType) -> BytecodeModule {
     BytecodeModule {
         public_items: vec![PublicItem::Function(FnDecl {
+            host_policy: None,
             method_policy: Default::default(),
             implementation: CallableImplementation::Script,
             name: "main".to_owned(),

@@ -75,6 +75,7 @@ impl FunctionDecl {
         context: &DefinitionContext,
     ) -> NativeResult<FnDecl> {
         Ok(FnDecl {
+            host_policy: None,
             name: self.name,
             params: self
                 .params

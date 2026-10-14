@@ -55,6 +55,7 @@ pub(super) fn collect(
             let (params, result_type, callee) =
                 resolve_target(planner, module, functions, &request, method.id)?;
             methods.push(FnDecl {
+                host_policy: None,
                 method_policy: Default::default(),
                 implementation: CallableImplementation::Script,
                 name: method.name.clone(),

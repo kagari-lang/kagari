@@ -13,7 +13,7 @@ use kagari_types::declaration::verify::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{FnDecl, TraitDef, TypeDefKind, ownership::ReceiverOwners},
+    declaration::{FnDecl, TraitDef, ownership::ReceiverOwners},
     ty::{
         Constraint, GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
@@ -55,12 +55,7 @@ pub fn validate(
                 type_valid(&value.ty, &Parameters::new(), None, cancel, definitions)
             }
             PublicItem::Type(ty) => {
-                let kind = match ty.kind {
-                    TypeDefKind::Struct => DefinitionKind::Struct,
-                    TypeDefKind::Enum => DefinitionKind::Enum,
-                    TypeDefKind::Native(kind) => kind.declaration_kind(),
-                    TypeDefKind::NativeStorage(_) => DefinitionKind::AssociatedType,
-                };
+                let kind = ty.kind.definition_kind();
                 let Some(owner) = definitions.lookup_child(root, kind, &ty.name, 0) else {
                     return Err(invalid());
                 };

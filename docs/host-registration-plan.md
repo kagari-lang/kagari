@@ -1439,6 +1439,74 @@ focused Clippy and structure (1229 files, zero violations) passed. The interop l
 records reproduction, ownership and remaining legacy/reflective work. This does
 not close RF05 or the combined delivery.
 
+### HR02/RF05 integration boundary: existing live-root declarations
+
+The remaining registry carries address-free external object identities and manual
+field/index/virtual path services, not runtime-owned Rust payloads. Preserve that
+execution storage and its whole-root/path borrow, preparation/commit, dirty ledger
+and generation checks. Replacing it with an Opaque marker payload or an owned DTO
+would change the contract and is outside this registration migration.
+
+Move its nominal fields and methods into TypeDef/FnDecl/ImplDecl under ModuleDecl.
+Retain only specialized external-root policy (ownership eligibility, reflection,
+declared path/read access), passing styles and effects beside those shared facts;
+do not retain a second parameter/result/name authority. Paths refer to these
+shared field/type identities. Existing HostValueType conversion, standalone
+HostInterface aggregation/format and HostFunction registration retire after their
+consumers use the shared records. Ty::Host remains the semantic external-ID target;
+it does not imply a Rust layout or admit generated Ref<T> loans. Generated Rust
+Ref/Opaque mappings retain their already-proved target boundary.
+
+Keep each slice buildable: first introduce validated portable policy facts and
+round-trip/remapping proof, with production admission closed until its storage and
+adapter are installed; then migrate declaration ingestion and native callback
+adaptation together with selected live-root consumers. The final adapter uses the
+same declaration-aware bind, NativeImport and installed callback dispatch. Remove
+the old host callable linking/invocation registration at HR03, while retaining
+the required root/path execution services. No generic permission matrix or host
+storage/lifecycle overhaul is introduced. Source-free, owner/schema, path commit,
+reentry/cancellation and pinned-reload cases remain separate behavioral evidence.
+
+The existing warmed scalar/contiguous-i32 boundary check also passed after the
+shared-capability change: 100000 scalar calls and 1000 calls for lengths 0/16/16384
+each produced zero allocations/reallocations/deallocations in their warmed windows.
+This preserves that contract; it is not a speed comparison or a claim about DTO/
+reference calls. The fixture excludes compilation and setup from those windows.
+The allocation-contract run used rustc 1.98.1 (48a229cea), Apple M1 Max/arm64,
+the workspace test profile (inherited dev opt-level=1), default features/parallelism
+and an already-built target; each measured window followed the fixture's warmup.
+
+### HR02 checkpoint: portable external access policy in shared declarations
+
+TypeDefKind::Host now carries only external identity eligibility/reflection/path
+policy. FieldDef keeps the one name/type/visibility/write contract and adds optional
+external read/path policy. FnDecl owns the one parameter/result signature and adds
+optional passing/effect policy. Shared validators enforce capability/count rules,
+parameter-label uniqueness and immutable configuration shape restrictions. Ordinary
+DTO fields reject external policy. Ty::Host resolves its defining module through
+the common receiver owner without becoming a Rust Ref target. Identity remapping,
+interface instantiation and the canonical records preserve policy facts.
+
+Two focused types contract cases passed: canonical compilation input across
+adoption, type/function record round trips, invalid paths/borrow styles, duplicate
+parameter labels, immutable scalar/Option acceptance and owning-container rejection,
+and oversized policy decoding rejected before truncated elements. The existing
+public ABI round-trip case and source-free shared-forwarding regression passed.
+Runtime/HIR library checks and focused library Clippy passed; types library/test
+Clippy, structure (1231 Rust files, zero violations), formatting and diff passed.
+Intermediate missing kind handling/constructors and test fixture/API diagnostics
+were repaired; there is no carried local build/test failure.
+
+This is the portable model slice, not executable legacy migration. NativeModule
+explicitly rejects these new host types and policy-bearing entries until RF05's
+external-ID adapter is installed. That finite admission gate and the old enum
+owners under host_interface retire during the HR02/RF05 migration/HR03 cleanup;
+there is no compatibility reader or alias. Existing live-root registration remains
+unchanged until consumers migrate. Fn/field wire layouts changed without an
+unpublished format/ABI identifier bump; disposable KBC fixtures join the already
+pending RF06 regeneration batch. Full workspace/feature/backend/platform validation
+remains CI-owned and unrun locally. HR02 and the combined goal remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
