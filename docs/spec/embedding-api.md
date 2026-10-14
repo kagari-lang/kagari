@@ -399,6 +399,16 @@ The current Rust facade uses `KagariEngine` for compile and artifact emission an
 `KagariRuntime::reload_program` stages and validates the candidate before publishing,
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.
+Reload preserves the existing module identities, public ABI and typed-path contracts.
+It also requires equivalent public namespace/function paths and an unchanged optional
+root-entry signature. Public aliases may select different canonical functions when
+parameter and result types match; parameter names and private implementation targets
+are not public-path identities. Nominal type identities still must match. Cyclic alias
+graphs are compared as finite graphs, so equivalent cycles may have different internal
+shapes. Removing/renaming a public path, changing its signature or changing the separate
+`main` entry contract fails with `KG_RELOAD_PUBLIC_EXPORT_MISMATCH` after the existing
+module checks. Previously bound calls retain their supplying generation.
+
 At the runtime layer, `stage_reload_verified_program` (used by the SDK),
 `stage_reload_program` and `stage_reload_artifact` return an owned
 `StagedReload`. A driver may enter `begin_candidate_initialization` to explicitly

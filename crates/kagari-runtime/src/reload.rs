@@ -7,6 +7,7 @@ use kagari_bytecode::{
     program::{BytecodeProgram, verified::VerifiedBytecodeProgram},
     verifier::BytecodeVerificationError,
 };
+mod exports;
 
 use kagari_common::identity::{
     map::DefinitionContext, mapping::DefinitionMappingError, table::DefinitionTable,
@@ -44,6 +45,8 @@ pub enum ReloadValidationError {
     Runtime(RuntimeError),
     #[error("reload public ABI fingerprints changed")]
     PublicAbiFingerprintMismatch,
+    #[error("reload public paths or entry signatures changed")]
+    PublicExportMismatch,
     #[error("reload typed path fingerprints changed")]
     PathFingerprintMismatch,
 }
@@ -58,6 +61,7 @@ impl ReloadValidationError {
             Self::Bytecode(error) => error.code(),
             Self::Runtime(error) => error.code(),
             Self::PublicAbiFingerprintMismatch => "KG_RELOAD_PUBLIC_ABI_FINGERPRINT_MISMATCH",
+            Self::PublicExportMismatch => "KG_RELOAD_PUBLIC_EXPORT_MISMATCH",
             Self::PathFingerprintMismatch => "KG_RELOAD_PATH_FINGERPRINT_MISMATCH",
         }
     }
@@ -93,6 +97,7 @@ pub fn validate_reload_artifact_candidate(
         program.modules.iter(),
         bytecode.definitions(),
     )?;
+    exports::bytecode(active.verified_program(), bytecode)?;
     Ok(artifact)
 }
 
@@ -112,6 +117,7 @@ pub fn validate_reload_candidate(
         program.modules.iter(),
         verified.definitions(),
     )?;
+    exports::bytecode(active.verified_program(), &verified)?;
     Ok(verified)
 }
 
@@ -127,7 +133,8 @@ pub(crate) fn validate_verified_reload_candidate(
         &candidate.modules()[candidate.root().index()],
         candidate.modules().iter().map(|module| module.as_ref()),
         candidate.definitions(),
-    )
+    )?;
+    exports::runtime(active.verified_program(), candidate)
 }
 
 fn validate_reload_target(

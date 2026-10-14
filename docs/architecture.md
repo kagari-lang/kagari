@@ -56,8 +56,14 @@ Its verifier binds retained declarations to exact module/function slots and keep
 those bindings with suspension evidence. Runtime import remaps graph and binding IDs
 together without rescanning names, preserving the supplying Program version.
 `LoadedModule::exported_function` resolves only Program-root public paths even on a
-child handle; `entry_function` separately retains the root entry. VM/SDK named-call
-migration and reload comparison of public-path contracts remain in the active plan.
+child handle; `entry_function` separately retains the root entry. Reload retains
+existing module ABI/path checks and additionally compares public
+namespace/function paths and the separate entry signature. Function targets can
+change when the public paths and semantic parameter/result types remain compatible.
+Signatures enter one temporary identity context before comparison; nominal types
+are never compared by unrelated scoped ID numbers. Namespace equivalence joins
+matching states, preserving cycles without flattening or product-graph expansion.
+VM/SDK named-call migration remains in the active plan.
 
 ## Workspace Shape
 

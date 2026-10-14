@@ -198,6 +198,7 @@ pub fn entry_function_matches(
     };
     semantic.generic.is_none()
         && semantic.params.is_empty()
+        && semantic.result.is_some()
         && !native.iter().any(|record| record.declaration == id)
         && (!items.iter().any(
             |item| matches!(item, PublicItem::Function(record) if record.name == path.path[0].name),

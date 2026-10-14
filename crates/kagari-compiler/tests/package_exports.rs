@@ -177,7 +177,7 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    for corruption in 0..7 {
+    for corruption in 0..8 {
         let mut forged = raw.clone();
         let hidden = function(&forged, &["hidden"], "secret");
         let foreign_main = function(&forged, &["hidden"], "main");
@@ -249,6 +249,19 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                     .unwrap();
                 item.return_type = Ty::Builtin(BuiltinType::Bool);
             }
+            7 => {
+                forged
+                    .modules
+                    .iter_mut()
+                    .find(|module| module.identity == forged.root)
+                    .unwrap()
+                    .functions
+                    .iter_mut()
+                    .find(|function| function.name == "main")
+                    .unwrap()
+                    .semantic
+                    .result = None;
+            }
             _ => unreachable!(),
         }
         let mut forged_bytecode = bytecode.clone();
@@ -271,10 +284,20 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                 .unwrap();
             item.return_type = Ty::Builtin(BuiltinType::Bool);
         }
+        if corruption == 7 {
+            forged_bytecode.modules[forged_bytecode.root.index()]
+                .functions
+                .iter_mut()
+                .find(|function| function.name == "main")
+                .unwrap()
+                .metadata
+                .semantic
+                .result = None;
+        }
         let error = verify_bytecode(&forged_bytecode, &context.snapshot()).unwrap_err();
-        if corruption == 6 {
+        if matches!(corruption, 6 | 7) {
             // Bytecode's existing semantic-flow verifier detects the signature
-            // mismatch before the final export binding check.
+            // mismatch or omission before the final export binding check.
             assert!(matches!(
                 error,
                 BytecodeVerificationError::InvalidOperation {

@@ -831,9 +831,29 @@ No format/ABI version bump is needed for these unpublished development changes.
   structural scan pass; formatting and diff checks pass. The initial compile error
   imported `FunctionRef` through a private bytecode import; use its contract owner.
   No carried compile/test failure; exhaustive backend/features/platform CI is unrun.
+- PK03 public reload checkpoint: all verified-runtime, raw-bytecode and artifact
+  candidate routes now compare public namespace/function paths plus the optional
+  root entry. Existing module ABI/path checks retain their order and guarantees.
+  Alias retargeting is compatible when public names and semantic signatures match;
+  nominal types retain their exact canonical identity. Import signatures into one
+  temporary context before comparison. Union matching namespace representatives
+  instead of expanding cyclic paths or traversing a quadratic graph product.
+- Focused reload evidence: runtime package tests cover equivalent one/two-state
+  cycles, compatible alias retargeting, retained old targets, rejected public name
+  changes, scalar/nominal signature changes and entry removal/result changes. Raw
+  bytecode and source-free artifact candidates enforce the same result across
+  independent identity scopes. A declared entry must carry a semantic result;
+  the expanded compiler malformed-export case verifies omission rejection in MIR
+  and the existing earlier bytecode semantic-flow checker. Initial test fixtures
+  attempted to publicly re-export private modules; declare those modules public
+  as required by source visibility. No visibility relaxation was introduced.
+- Local reload checkpoint validation: runtime package exports (3 tests), existing
+  runtime `reload_rejects_` ABI/stale-epoch regressions (2 tests), and the compiler
+  malformed-export test pass. Runtime library check and runtime/contract library
+  Clippy pass. Structure scans 1,147 Rust files with no violations; formatting and
+  diff checks pass. Full workspace/backend/feature/platform CI remains unrun.
 - Next: PK03 VM/SDK public host-callable paths and explicit CLI entry invocation,
-  public-path reload contracts, followed by
-  SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
+  followed by SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
   but SDK and CLI do not yet expose it. Native-provider inputs must contribute their
   own contract fingerprint at compiler handoff. No carried compile/test failure at
   this source integration checkpoint; exhaustive backend/feature/platform CI remains

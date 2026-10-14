@@ -2,9 +2,30 @@
 
 use crate::module::{LoadedModule, VerifiedProgram};
 use kagari_bytecode::program::exports::ExportTarget;
-use kagari_contract::ids::FunctionRef;
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{exports::ProgramExports, ids::FunctionRef};
+use kagari_types::callable::Signature;
 
 impl VerifiedProgram {
+    pub(crate) fn export_graph(&self) -> &ProgramExports {
+        &self.exports
+    }
+
+    pub(crate) fn export_signature(&self, id: DefinitionId) -> Option<Signature> {
+        let target = self.export_targets.get(&id)?;
+        let function = &self.modules[target.module.index()].functions[target.function.index()];
+        Some(Signature {
+            params: function
+                .metadata
+                .semantic
+                .params
+                .values()
+                .cloned()
+                .collect(),
+            result: function.metadata.semantic.result.clone()?,
+        })
+    }
+
     /// Resolve a public path relative to the Program root into its verified slots.
     /// Private, missing and overlong paths return `None`; aliases may target dependencies.
     pub fn exported_function(&self, path: &str) -> Option<ExportTarget> {
