@@ -437,6 +437,23 @@ impl HostBorrowTable {
 }
 
 impl Runtime {
+    pub(crate) fn narrow_scoped(
+        &self,
+        value: &Value,
+        access: ReferenceAccess,
+    ) -> NativeResult<Option<Value>> {
+        let view = self.scoped_view(value)?;
+        if !view.access.permits(access) {
+            return Err(invalid());
+        }
+        if view.access == access {
+            return Ok(None);
+        }
+        self.gc()
+            .alloc_ephemeral(EphemeralValue::HostView(ScopedHostView { access, ..view }))
+            .map(Some)
+    }
+
     pub(crate) fn matches_scoped_receiver(
         &self,
         value: &Value,

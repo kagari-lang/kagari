@@ -2,6 +2,7 @@
 mod enums;
 mod iteration;
 pub mod operations;
+mod references;
 mod tasks;
 use crate::{
     RootedInterfaceMethod, Runtime,
@@ -49,11 +50,12 @@ pub enum ArgumentSlots<'call> {
     Scalars(&'call [Value]),
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct ArgumentView<'call> {
     heap: &'call GcHeap,
     frame: Option<FrameSlots>,
     slots: ArgumentSlots<'call>,
+    narrowed: Option<RootSet>,
 }
 
 impl<'call> ArgumentView<'call> {
@@ -66,6 +68,7 @@ impl<'call> ArgumentView<'call> {
             heap,
             frame: Some(frame),
             slots,
+            narrowed: None,
         }
     }
 
@@ -90,6 +93,9 @@ impl<'call> ArgumentView<'call> {
     }
 
     pub(crate) fn contains(&self, index: usize) -> bool {
+        if let Some(roots) = &self.narrowed {
+            return roots.contains_slot(self.heap, index);
+        }
         if let ArgumentSlots::Scalars(values) = self.slots {
             return index < values.len();
         }
@@ -99,6 +105,9 @@ impl<'call> ArgumentView<'call> {
     /// Read rooted immutable slot data without an owning clone. The closure cannot
     /// retain a slot reference; it must not reenter while this borrow is active.
     pub fn with_value<R>(&self, index: usize, read: impl FnOnce(&Value) -> R) -> Option<R> {
+        if let Some(roots) = &self.narrowed {
+            return roots.with_value(self.heap, index, read);
+        }
         if let ArgumentSlots::Scalars(values) = self.slots {
             return values.get(index).map(read);
         }
@@ -446,7 +455,7 @@ impl<'call> CallContext<'call> {
     }
 
     pub fn arguments(&self) -> ArgumentView<'call> {
-        self.arguments
+        self.arguments.clone()
     }
 
     pub fn argument(&self, index: usize) -> NativeResult<Value> {
@@ -556,6 +565,7 @@ impl<'call> CallContext<'call> {
                         heap: self.heap(),
                         frame: None,
                         slots: ArgumentSlots::Scalars(arguments),
+                        narrowed: None,
                     },
                     invoke_script: self.invoke_script,
                 };

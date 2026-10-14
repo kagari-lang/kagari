@@ -1429,6 +1429,16 @@ VM scope regression and example checks pass; the
 records evidence. Raw capability forwarding and live-host migration still own RF05's
 remaining gate; HR02/HR03, RF06 and RI05 remain open.
 
+RF05's formal shared capability checkpoint fixes the reproduced raw forwarding
+defect at LinkedNativeFunction entry, with one rooted restricted ArgumentView seen
+by every raw getter and call-scoped view. The caller's RefMut alias keeps its
+capability. Source-free forwarding/GC/alias, two existing mixed-pack/field cases
+and the actual path-loan kernel passed; the kernel also passed Miri (37.87 seconds,
+nightly-2026-07-27 on aarch64-apple-darwin, default configuration). Runtime/VM
+focused Clippy and structure (1229 files, zero violations) passed. The interop ledger
+records reproduction, ownership and remaining legacy/reflective work. This does
+not close RF05 or the combined delivery.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

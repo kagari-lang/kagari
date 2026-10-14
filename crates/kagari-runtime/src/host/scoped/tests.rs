@@ -10,6 +10,7 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_derive::KagariValue;
+use kagari_types::reference::ReferenceAccess;
 use std::{
     cell::Cell,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -77,6 +78,28 @@ fn atomic_generated_path_packs_release_conflicts_errors_and_unwinds() {
                     let stats = runtime.scoped_view(&values[1])?;
                     let inventory = runtime.scoped_view(&values[2])?;
                     let entered = Cell::new(false);
+                    let narrowed = runtime
+                        .narrow_scoped(&values[1], ReferenceAccess::Shared)?
+                        .unwrap();
+                    let roots = runtime.gc().root_execution_values(vec![narrowed]).unwrap();
+                    runtime.collect_garbage()?;
+                    let shared = runtime.scoped_view(&roots.get(runtime.gc(), 0).unwrap())?;
+                    assert!(
+                        runtime
+                            .host_borrows
+                            .edit_scoped::<Stats, _>(runtime, shared, |_| {
+                                entered.set(true);
+                                Ok(())
+                            })
+                            .is_err()
+                    );
+                    assert!(!entered.get());
+                    runtime
+                        .host_borrows
+                        .read_scoped::<Stats, _>(runtime, shared, |stats| {
+                            assert_eq!(stats.hp, 40);
+                            Ok(())
+                        })?;
                     assert!(
                         runtime
                             .host_borrows

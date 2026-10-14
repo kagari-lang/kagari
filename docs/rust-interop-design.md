@@ -1274,6 +1274,38 @@ lending/projection. No full workspace or feature/backend/platform matrix runs lo
 RF05 remains open for raw/reflective shared capability forwarding and live-host
 migration; HR02/HR03 and RF06/RI05 are also open. The active goal is not complete.
 
+### RF05 checkpoint: formal shared capabilities at native entry
+
+An actual source-free failure demonstrated the boundary defect: a raw callback
+declared `forward(player: Ref<Player>, callback: fn(RefMut<Player>) -> i32)`
+received the caller's mutable physical view and could invoke the supplied mutable
+closure, changing hp. Static typing alone could not constrain trusted raw value
+forwarding. LinkedNativeFunction now creates a checked inert shared alias for
+shared formals and shared registered receivers before callback entry. The common
+ArgumentView owns an optional execution root pack; raw getters and ValueHandle
+read the same restricted values. The original caller slot is preserved. No Rust
+reference is constructed here and the existing target/access/path loan checks
+still own callback admission. Ordinary frame/scalar calls allocate no new root
+pack; no performance improvement is claimed.
+
+The distinct contract test `shared_formal_arguments_cannot_forward_mutable_capabilities`
+failed before the fix and passed afterward, including direct and script-shared
+relay paths, forced GC in raw callbacks, allowed shared forwarding and the original
+mutable alias still incrementing hp from 40 to 41. Two existing mixed-pack and
+inline-field VM cases passed. The existing actual path-loan kernel now proves
+that a rooted narrowed field survives GC, permits shared access and rejects edit
+before callback entry while the original mutable path remains usable; normal
+execution and Miri passed. Miri used nightly-2026-07-27, aarch64-apple-darwin,
+default target/profile/parallelism and no MIRIFLAGS overrides; interpretation took
+37.87 seconds. Expected caught unwind output is not a test failure. Runtime/VM
+library and selected native-boundary Clippy passed; structure found zero violations
+in 1229 Rust files. The existing installed scalar native-declaration invocation,
+formatting and diff checks also passed. Full CI scope remains unrun locally.
+
+This closes the reproduced raw shared-forwarding defect. Legacy live-host adapter
+and reflective integration remain RF05/HR02-owned, followed by HR03/RF06/RI05.
+The combined goal remains active.
+
 ## Acceptance and verification
 
 Required coverage includes:

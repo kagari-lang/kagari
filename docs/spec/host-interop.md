@@ -432,7 +432,16 @@ reference contract. Ordinary DTO values cannot implicitly become a Ref/RefMut.
 
 Direct view parameters and locals may be forwarded with their checked capability.
 An outer RefMut<T> may supply Ref<T> while retaining the same target; nested type
-arguments remain invariant. Explicitly loan-capable native inherent methods use
+parameters remain invariant. At native entry, a shared formal parameter (or a
+shared registered receiver) gets a distinct inert shared view. Raw callbacks,
+ValueHandle and ArgumentView all see that capability; forwarding it to a mutable
+callback rejects before effects. The caller's original mutable view is unchanged.
+The restricted argument pack stays rooted across conversion, collection and
+reentry, and its call-scoped root leases end on return, error or unwind. Calls
+without actual capability narrowing keep their existing borrowed frame/scalar
+argument representation and do not create this root pack.
+
+Explicitly loan-capable native inherent methods use
 the same registered member through Opaque, Ref and RefMut. Ordinary owned members
 do not acquire view support automatically. Call applications retain their logical
 nominal signature and carry checked required access for the actual storage view.

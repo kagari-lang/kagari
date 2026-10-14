@@ -1,4 +1,5 @@
 mod dto;
+mod scoped_capabilities;
 mod scoped_pairs;
 mod scoped_struct;
 mod vector_edits;

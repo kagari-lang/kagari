@@ -365,6 +365,11 @@ impl LinkedNativeFunction {
             ));
         }
         context.poll()?;
+        let mut narrowed = context.narrow_arguments()?;
+        self.invoke_narrowed(&mut narrowed)
+    }
+
+    fn invoke_narrowed(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
         let signature = self.type_signature()?;
         let result = match &self.binding.entry {
             BindingEntry::Callback(entry) => entry(context),
