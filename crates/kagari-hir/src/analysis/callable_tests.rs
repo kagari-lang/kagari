@@ -598,7 +598,7 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
 }
 
 #[test]
-fn native_generic_permissions_do_not_bypass_bounds_or_script_export_rules() {
+fn native_generic_bounds_and_authority_do_not_depend_on_script_visibility() {
     for (text, native) in [
         (
             "use demo::native::choose as bound; fn main() { bound(1.0, 2.0, 3.0); }",
@@ -626,18 +626,10 @@ fn native_generic_permissions_do_not_bypass_bounds_or_script_export_rules() {
                 )),
                 "{diagnostics:?}"
             );
-            assert!(!diagnostics.iter().any(|diagnostic| matches!(
-                diagnostic.kind,
-                DiagnosticKind::PublicGenericFunction { .. }
-            )));
         } else {
             assert!(diagnostics.iter().any(|diagnostic| matches!(
                 diagnostic.kind,
                 DiagnosticKind::UnknownAttribute { .. }
-            )));
-            assert!(diagnostics.iter().any(|diagnostic| matches!(
-                diagnostic.kind,
-                DiagnosticKind::PublicGenericFunction { .. }
             )));
             assert!(
                 analysis

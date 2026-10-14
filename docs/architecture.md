@@ -41,6 +41,12 @@ trait candidates. Module traversal uses a package hub rather than all-to-all mem
 edges. Source visibility still controls name lookup independently of closure membership.
 Namespace/type/callable comparisons guard incremental reuse when bytes, bindings or
 exact selections change. Native provider contracts remain separate analysis inputs.
+Checked Programs also own the public namespace graph and canonical non-generic
+script function references, plus a separate root `main` capability. Module aliases
+retain finite graph edges, including cycles; lookup bounds path length. Public generic
+source templates can be specialized by dependents but do not become host entries.
+Executable export storage/verification and runtime lookup are still being connected
+under the active package plan.
 
 ## Workspace Shape
 

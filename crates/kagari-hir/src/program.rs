@@ -1,7 +1,9 @@
 //! A checked, snapshot-owned source dependency closure for compilation and linking.
 
-use crate::typeck::TypedFunction;
+use crate::{program::exports::ProgramExports, typeck::TypedFunction};
 use std::collections::HashMap;
+
+pub mod exports;
 
 use {
     kagari_common::identity::{ModuleIdentity, mapping::DefinitionMappingError},
@@ -44,6 +46,8 @@ pub enum ProgramCheckError {
     Cancelled,
     /// Checked facts could not be adopted into their definition identity tables.
     Identity(DefinitionMappingError),
+    /// Checked public namespace records are ambiguous, incomplete or exceed their bound.
+    Exports(String),
 }
 
 /// An error-free, immutable source dependency closure for compilation and linking.
@@ -65,9 +69,15 @@ pub struct CheckedProgram {
     modules: Vec<CheckedAnalysis>,
     by_file: HashMap<FileId, usize>,
     dependencies: HashMap<ModuleIdentity, Vec<ModuleIdentity>>,
+    exports: ProgramExports,
 }
 
 impl CheckedProgram {
+    /// Public namespace/function paths and the separate root CLI entry capability.
+    pub fn exports(&self) -> &ProgramExports {
+        &self.exports
+    }
+
     /// Borrows the checked root requested when this closure was built.
     pub fn root(&self) -> &CheckedAnalysis {
         &self.modules[self.by_file[&self.root]]
@@ -218,11 +228,14 @@ impl AnalysisSnapshot {
         if !diagnostics.is_empty() {
             return Err(ProgramCheckError::Diagnostics(diagnostics));
         }
-        Ok(CheckedProgram {
+        let mut program = CheckedProgram {
             root,
             modules,
             by_file,
             dependencies,
-        })
+            exports: ProgramExports::default(),
+        };
+        program.exports = ProgramExports::collect(&program, cancel)?;
+        Ok(program)
     }
 }

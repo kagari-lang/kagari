@@ -46,22 +46,11 @@ pub fn validate(
             .check()
             .map_err(|_| LayoutValidationError::Cancelled)?;
         let valid = match item {
-            PublicItem::Function(function) => {
-                (matches!(function.implementation, CallableImplementation::Native(_))
-                    || (function.generic_params.is_empty() && function.bounds.is_empty()))
-                    && definitions
-                        .lookup_child(root, DefinitionKind::Function, &function.name, 0)
-                        .is_some_and(|id| {
-                            function_valid(
-                                function,
-                                id,
-                                &Parameters::new(),
-                                None,
-                                cancel,
-                                definitions,
-                            )
-                        })
-            }
+            PublicItem::Function(function) => definitions
+                .lookup_child(root, DefinitionKind::Function, &function.name, 0)
+                .is_some_and(|id| {
+                    function_valid(function, id, &Parameters::new(), None, cancel, definitions)
+                }),
             PublicItem::Const(value) => {
                 type_valid(&value.ty, &Parameters::new(), None, cancel, definitions)
             }

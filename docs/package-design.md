@@ -646,10 +646,15 @@ a canonical declaration and a concrete `(module, function)` executable target.
 For example, `pub use crate::internal::calculate as damage;` records `damage` as
 the callable path and keeps `calculate` as the target declaration. Public child
 paths are traversable; private paths and re-export ambiguity are rejected by HIR.
-Initially export non-generic public functions, including ones without script callers.
-Generic exports require ordinary non-generic script wrappers; no runtime generic
-instantiation is introduced. CLI `main` is a separately recorded private entry
-capability, not a general private-function lookup exception.
+Initially export non-generic public script free functions, including ones without script
+callers. Generic and installed-native APIs use ordinary non-generic script wrappers
+for host calls; source consumers may import and specialize public generic templates.
+No runtime generic instantiation is introduced. Store public module aliases as a
+finite namespace graph with independent module/function name slots, rather than
+expanding cycles into infinitely many strings. A host path follows these checked
+edges under the identity path-length bound, ending at a canonical concrete function.
+CLI `main` is a separately recorded private entry capability, not a general
+private-function lookup exception.
 
 Bytecode construction, codec and source-free verification retain and bound the
 export map, validate target slots/canonical identities/concrete call contracts,
@@ -761,6 +766,27 @@ No format/ABI version bump is needed for these unpublished development changes.
   its initial body-analysis run was interrupted and the completed focused graph
   rerun passed. Initial two needless-reference Clippy findings were corrected;
   affected-library Clippy, the structural scan and formatting/diff checks pass.
+- PK03 export discovery checkpoint: checked Programs retain public module edges
+  and canonical concrete script function leaves. A bounded namespace graph preserves
+  cyclic aliases without infinite flattened paths and keeps Type/module and Value
+  spellings independent. Private `main` is a separate zero-argument entry capability;
+  generic/native APIs require concrete script wrappers for host calls.
+- The previous public-generic rejection mixed source visibility with runtime entry
+  policy. Remove it from both declaration/call checking and public ABI validation,
+  preserving ordinary binder/type/bound/native-authority checks. Source dependents
+  can specialize public generic functions; executable host export filtering remains
+  concrete-only. Initial focused failures exposed the obsolete HIR diagnostic and
+  then `InvalidPublicAbi`; the corrected cross-module alias/specialization test now
+  passes through MIR and bytecode verification. The public namespace/entry test also
+  passes. The existing SDK generic-entry case now exercises a public dependency
+  template through its concrete caller across source/artifact and JIT/fallback
+  routes; it passes. The native generic bound/registration-authority regression
+  also passes, as does the source-free required/forged-native declaration rejection
+  test. The existing cyclic module/re-export regression also passes. All seven
+  package-analysis tests pass with export collection enabled.
+  Scoped HIR/contract/SDK library Clippy, structure, formatting and diff checks pass.
+  Executable export persistence and runtime public lookup remain next; no complete
+  backend/feature matrix or whole-workspace Cargo suite was run.
 - Next: PK03 source-free export evidence and public host-callable paths, followed by
   SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
   but SDK and CLI do not yet expose it. Native-provider inputs must contribute their

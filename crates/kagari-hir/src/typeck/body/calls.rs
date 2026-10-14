@@ -7,10 +7,9 @@ use crate::{
     hir::{expr::ExprKind, ids::ExprId},
     imports::functions::ImportedFunction,
     language::{semantics as traits, semantics::intrinsic_holds},
-    native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{
-        BodyTypeEnv, FunctionImplementation, GenericBounds,
+        BodyTypeEnv, GenericBounds,
         body::BodyChecker,
         check, completion, constraints, inference, members,
         scalar::ScalarValue,
@@ -50,39 +49,6 @@ impl<'a> BodyChecker<'a> {
                 },
                 None,
             );
-            if !local
-                && !imported.signature.generic_params.is_empty()
-                && !self
-                    .aggregates
-                    .inherent_methods()
-                    .any(|method| method.declaration == imported.declaration)
-                && !matches!(
-                    imported.signature.implementation,
-                    FunctionImplementation::Native(NativeBinding::Entry(_))
-                )
-            {
-                self.infer_typed_args(
-                    args,
-                    imported
-                        .signature
-                        .params
-                        .iter()
-                        .map(|parameter| {
-                            self.aggregates
-                                .normalize_type(self.declarations.definitions(), &parameter.ty)
-                        })
-                        .collect::<Vec<_>>()
-                        .into_iter(),
-                    env,
-                );
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::PublicGenericFunction {
-                        name: imported.signature.name.clone(),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(callee)),
-                );
-                return TypeId::Error;
-            }
             return self.infer_checked_function_call(
                 &imported.signature,
                 call_expr,

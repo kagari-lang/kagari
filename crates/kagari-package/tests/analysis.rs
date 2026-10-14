@@ -381,3 +381,64 @@ fn implementation_only_dependencies_participate_in_selection_and_conflict_checks
         );
     }
 }
+
+#[test]
+fn public_export_graph_preserves_aliases_cycles_and_the_separate_private_entry() {
+    let input = capture(
+        &[
+            (
+                "Kagari.toml",
+                "[package]\nname = 'app'\nversion = '1.0.0'\nnamespace = 'example/exports'",
+            ),
+            (
+                "src/lib.kgr",
+                "mod hidden { pub fn calculate() -> i32 { 7 } } pub use crate::hidden::calculate as damage; pub mod api { pub fn tick() -> bool { true } } pub fn api() -> i32 { 0 } pub use crate as again; fn main() {} fn secret() {} pub(crate) fn sibling() {} pub fn generic<T>(value: T) -> T { value } pub fn concrete() -> i32 { generic(3) }",
+            ),
+        ],
+        BTreeMap::new(),
+    );
+    let source = input
+        .source_snapshot(&mut SourceDatabase::default(), &Default::default())
+        .unwrap();
+    let root = source
+        .files()
+        .find(|file| file.module_identity().path.is_empty())
+        .unwrap()
+        .id();
+    let snapshot = AnalysisDatabase::default()
+        .snapshot(source, &Default::default())
+        .unwrap();
+    let program = snapshot.check_program(root, &Default::default()).unwrap();
+    let identity = program.root().lowered.source.module_identity();
+    let exports = program.exports();
+    let damage = exports.function(identity, "damage").unwrap();
+    assert_eq!(program.source_function(damage).unwrap().1.name, "calculate");
+    assert_eq!(
+        exports.function(identity, "again::again::damage"),
+        Some(damage)
+    );
+    assert!(exports.function(identity, "api::tick").is_some());
+    assert!(exports.function(identity, "api").is_some());
+    assert!(exports.function(identity, "concrete").is_some());
+    for private in [
+        "hidden::calculate",
+        "main",
+        "secret",
+        "sibling",
+        "generic",
+        "api::",
+        "::damage",
+    ] {
+        assert!(exports.function(identity, private).is_none(), "{private}");
+    }
+    let oversized = format!("{}damage", "again::".repeat(64));
+    assert!(exports.function(identity, &oversized).is_none());
+    assert_eq!(
+        program
+            .source_function(exports.entry().unwrap())
+            .unwrap()
+            .1
+            .name,
+        "main"
+    );
+}

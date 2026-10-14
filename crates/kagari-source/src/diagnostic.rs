@@ -254,9 +254,6 @@ pub enum DiagnosticKind {
         type_name: String,
         trait_name: String,
     },
-    PublicGenericFunction {
-        name: String,
-    },
     CompileLimitExceeded {
         resource: &'static str,
         limit: usize,
@@ -443,7 +440,6 @@ impl DiagnosticKind {
             Self::InvalidBoundTarget { .. } => "KG_TYPE_INVALID_BOUND_TARGET",
             Self::CannotInferGenericArgument { .. } => "KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT",
             Self::GenericBoundNotSatisfied { .. } => "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
-            Self::PublicGenericFunction { .. } => "KG_TYPE_PUBLIC_GENERIC_FUNCTION",
             Self::CompileLimitExceeded { .. } => "KG_COMPILE_LIMIT_EXCEEDED",
             Self::UnresolvedConcreteType { .. } => "KG_COMPILE_UNRESOLVED_TYPE",
             Self::InvalidTraitImpl { .. } => "KG_TYPE_INVALID_TRAIT_IMPL",
@@ -747,9 +743,6 @@ impl Display for DiagnosticKind {
                 type_name,
                 trait_name,
             } => write!(f, "type `{type_name}` does not satisfy `{trait_name}`"),
-            Self::PublicGenericFunction { name } => {
-                write!(f, "public function `{name}` must have a concrete signature")
-            }
             Self::CompileLimitExceeded { resource, limit } => {
                 write!(f, "compile limit exceeded: {resource} (limit {limit})")
             }

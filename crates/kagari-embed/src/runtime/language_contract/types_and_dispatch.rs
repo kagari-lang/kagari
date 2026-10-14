@@ -563,12 +563,12 @@ fn generic_missing_argument() {
 }
 
 #[test]
-fn generic_public_entry() {
+fn generic_public_template_has_a_concrete_caller() {
     run_routes(&Case::new(
-        "generic-public-entry",
-        "pub fn echo<T>(value: T) -> T { value } fn main() {}",
-        Expected::Diagnostic("KG_TYPE_PUBLIC_GENERIC_FUNCTION"),
-    ));
+        "generic-public-template-concrete-caller",
+        "use contract::dependency::echo; pub fn concrete() -> i32 { echo(42) } fn main() -> i32 { concrete() }",
+        Expected::Value(|_| Value::I32(42)),
+    ).modules(&[("dependency", "pub fn echo<T>(value: T) -> T { value }")]));
 }
 
 #[test]

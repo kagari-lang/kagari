@@ -62,6 +62,50 @@ fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
 }
 
 #[test]
+fn public_generic_dependency_functions_specialize_through_source_aliases() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "generic",
+        "pub fn identity<T>(value: T) -> T { value }",
+    );
+    insert(
+        &mut db,
+        "facade",
+        "pub use pkg::generic::identity as forward;",
+    );
+    let root = insert(
+        &mut db,
+        "root",
+        "use pkg::facade::forward; pub fn integer() -> i32 { forward(7) } pub fn boolean() -> bool { forward(true) }",
+    );
+    let checked = checked(&db, root);
+    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let generic = mir
+        .modules()
+        .iter()
+        .find(|module| module.identity.path == ["generic"])
+        .unwrap();
+    let instances = generic
+        .functions
+        .iter()
+        .filter(|function| !function.instance.arguments.is_empty())
+        .collect::<Vec<_>>();
+    assert_eq!(instances.len(), 2);
+    assert_eq!(
+        instances[0].instance.declaration,
+        instances[1].instance.declaration
+    );
+    assert_ne!(
+        instances[0].instance.arguments,
+        instances[1].instance.arguments
+    );
+    let context = DefinitionContext::new().unwrap();
+    let program = bytecode(&context, &mir);
+    verify_bytecode_program(&program, &context.snapshot()).unwrap();
+}
+
+#[test]
 fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit() {
     let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();

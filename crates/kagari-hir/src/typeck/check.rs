@@ -44,7 +44,6 @@ use kagari_common::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
 use kagari_types::{
     scalar::BuiltinType, surface as standard_surface, surface::StandardTypeConstraint,
-    visibility::Visibility,
 };
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
@@ -274,28 +273,6 @@ pub(crate) fn check_signatures(
             None if function.body.is_some() => FunctionImplementation::Script,
             None => FunctionImplementation::Required,
         };
-        let inherent_member = lowered.module.impls.iter().any(|implementation| {
-            implementation.trait_ref.is_none()
-                && implementation
-                    .methods
-                    .iter()
-                    .any(|method| method.function == function.id)
-        });
-        if function.visibility != Visibility::Private
-            && !inherent_member
-            && !function.generic_params.is_empty()
-            && !matches!(
-                implementation,
-                FunctionImplementation::Native(NativeBinding::Entry(_))
-            )
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::PublicGenericFunction {
-                    name: function.name.clone(),
-                })
-                .with_span(lowered.source_map.function_span(function.id)),
-            );
-        }
         let mut params: TypedParameterBuffer = SmallVec::new();
         let context = function_type_context(&lowered.module, function, declarations);
         let bounds =

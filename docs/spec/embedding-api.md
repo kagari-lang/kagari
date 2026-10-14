@@ -145,11 +145,11 @@ AST lowering and standalone type-check entry were removed. Analysis collects
 declarations before checking types. Executable type layouts and linked ABI
 identities remain separate unfinished R07/R08 work.
 
-Private generic functions are templates. Calls infer their parameters structurally
+Script generic functions are templates, including public source-package functions. Calls infer their parameters structurally
 from argument types and check declared bounds. Missing arguments produce
-`KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT`; public generic script free functions are
-rejected with `KG_TYPE_PUBLIC_GENERIC_FUNCTION`. Expose concrete wrappers for those
-entry points. Public inherent methods and static associated functions may retain
+`KG_TYPE_CANNOT_INFER_GENERIC_ARGUMENT`. Public source visibility allows dependent
+packages to specialize a template; it does not create a host-callable generic entry.
+Expose non-generic script wrappers for host entry points. Public inherent methods and static associated functions may retain
 generic templates, including across source modules. Host member binding infers
 impl arguments from the applied receiver, takes method arguments explicitly, and
 requires a checked concrete instance or closed shared-call witness in the installed

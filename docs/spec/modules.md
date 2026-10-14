@@ -42,4 +42,12 @@ The checked closure contains every registered module in the selected package and
 
 Hot reload prepares and validates a candidate program, stages isolated runtime instances, rechecks the expected base version and bindings, then publishes it. The ordinary reload API does not execute candidate functions. Hosts that explicitly evaluate a candidate before publication must use the restricted candidate session; its effects are limited as described in [module activation](module-activation.md). A failed candidate leaves the active entry intact. Calls already in progress retain their pinned program and dependency versions.
 
+Public source functions may be generic templates. Source calls specialize them
+under ordinary type/bound checking; host entry discovery only records non-generic
+script functions. Public re-export aliases retain canonical declarations. Checked
+Programs keep a finite public namespace graph so cyclic module aliases do not require
+infinite path expansion. Private, package-restricted and implicit prelude names are
+absent from this graph. The root's zero-argument, non-generic `main` is recorded
+separately for CLI execution and does not become a public name merely by convention.
+
 Visibility is checked during import, qualified lookup, field access, struct construction, and inherent method calls. `pub` permits access from other module trees. An unmarked item or field is private to its owning module and its descendants. `pub(super)` permits access from the parent module and its descendants. `pub(crate)` permits access from every module with the same package identity and rejects access from other packages. A private inherent method is available within its defining module tree. Every module and item component of a direct path must be accessible. Re-exports may expose a public item through a private module, but cannot widen the visibility of the item or module they alias. Globs omit members that cannot be re-exported at the glob's visibility. `pub(in path)` is not part of this revision.

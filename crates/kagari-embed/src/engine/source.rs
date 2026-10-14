@@ -242,6 +242,7 @@ impl KagariEngine {
             .check_program(file, cancel)
             .map_err(|error| match error {
                 ProgramCheckError::Cancelled => EmbeddingError::Cancelled,
+                ProgramCheckError::Exports(message) => EmbeddingError::Source { message },
                 ProgramCheckError::Identity(error) => EmbeddingError::Source {
                     message: format!("invalid analysis definition metadata: {error}"),
                 },
