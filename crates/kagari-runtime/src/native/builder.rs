@@ -234,6 +234,7 @@ impl ModuleBuilder {
                 RuntimeError::metadata_conflict("unknown native function declaration")
             })?;
         let binding = entry.prepare(&declaration.function, &self.providers)?;
+        binding.check_receiver_access(&declaration.function)?;
         let signature = Signature {
             params: declaration
                 .function

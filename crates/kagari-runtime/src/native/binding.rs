@@ -23,7 +23,8 @@ use kagari_common::identity::{
 };
 use kagari_types::{
     callable::Signature,
-    declaration::{TypeDefKind, native::NativeStorageLayout},
+    declaration::{FnDecl, TypeDefKind, native::NativeStorageLayout},
+    reference::ReferenceAccess,
     ty::Ty,
 };
 use std::{
@@ -146,6 +147,7 @@ pub struct NativeBinding {
     pub(crate) entry: BindingEntry,
     pub(crate) converted_result: bool,
     pub(crate) requirement_owner: Option<(DefinitionId, DefinitionTable)>,
+    pub(crate) receiver_access: Option<ReferenceAccess>,
 }
 
 /// Primitive authority owns the implementation; a callback cannot claim its effects.
@@ -181,7 +183,17 @@ impl NativeBinding {
             entry: BindingEntry::Callback(Arc::new(entry)),
             converted_result: false,
             requirement_owner: None,
+            receiver_access: None,
         }
+    }
+
+    pub(crate) fn check_receiver_access(&self, declaration: &FnDecl) -> NativeResult<()> {
+        if self.receiver_access != declaration.method_policy.receiver_access {
+            return Err(RuntimeError::metadata_conflict(
+                "binding differs from declared receiver access",
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn check(

@@ -8,16 +8,17 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         conversion::context::ConversionContext,
-        declarations::FunctionDecl,
+        declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
         payload::{Opaque, take::NativeTake},
         storage::{NativePayload, NativeStorage},
-        typed::NativeContext,
+        typed::{NativeContext, loans::LoanContext},
         types::{Type, TypeRef},
     },
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::reference::ReferenceAccess;
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
     slice,
@@ -49,6 +50,24 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         .native_storage(NativeStorage::payload::<PlayerState>())
         .unwrap();
     let no_edit = declaration.finish().unwrap();
+    module
+        .implement(no_edit.clone(), |implementation| {
+            implementation.inherent_impl(|methods| {
+                let edit = methods.define_method(
+                    MethodDecl::instance("edit")
+                        .receiver_access(ReferenceAccess::Mutable)
+                        .returns(Type::i32()),
+                )?;
+                methods.bind(
+                    edit,
+                    |_: &mut LoanContext<'_>, (state,): (&mut PlayerState,)| -> NativeResult<i32> {
+                        state.hp = 0;
+                        panic!("payload registration must reject this loan before callback effects")
+                    },
+                )
+            })
+        })
+        .unwrap();
     let new = module
         .define_function(FunctionDecl::new("new").returns(player_type.apply([]).unwrap()))
         .unwrap();
@@ -88,9 +107,10 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         .unwrap();
     let (vm, owner) = fixture(
         r#"
-        use example::data::{Player, new, damage};
+        use example::data::{Player, ReadOnlyPayload, new, damage};
         pub fn make() -> Player { new() }
         pub fn hit(player: Player, amount: i32) -> i32 { damage(player, amount) }
+        pub fn blocked(player: ReadOnlyPayload) -> i32 { player.edit() }
     "#,
         Some(&module.finish().unwrap()),
     );
@@ -155,6 +175,10 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         )
         .unwrap();
     assert!(no_edit.edit(&cx, |_| Ok(())).is_err());
+    assert!(
+        vm.execute_typed::<_, i32>(&owner, "blocked", (no_edit.clone(),))
+            .is_err()
+    );
     assert_eq!(no_edit.read(&cx, |state| Ok(state.hp)).unwrap(), 1);
     drop((object, alias, no_edit, cx));
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);

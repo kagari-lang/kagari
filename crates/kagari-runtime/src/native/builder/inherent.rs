@@ -86,6 +86,7 @@ impl InherentMethodsBuilder {
             RuntimeError::metadata_conflict("unknown inherent method declaration")
         })?;
         let binding = entry.prepare(signature, &self.catalog)?;
+        binding.check_receiver_access(signature)?;
         if signature
             .params
             .first()

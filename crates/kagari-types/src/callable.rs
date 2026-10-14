@@ -1,8 +1,11 @@
 //! Callable implementation selectors with scoped definition identities. Signatures belong to the
 //! declarations lowered from HIR; these identities never reconstruct a signature.
-use crate::ty::{
-    Ty,
-    substitution::{TypeSubstitution, TypeTransformError},
+use crate::{
+    reference::ReferenceAccess,
+    ty::{
+        Ty,
+        substitution::{TypeSubstitution, TypeTransformError},
+    },
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use serde::{Deserialize, Serialize};
@@ -12,12 +15,16 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MethodPolicy {
     pub override_allowed: bool,
+    /// A short Rust payload loan required by an explicitly registered member.
+    /// This does not change the nominal receiver's storage or expose Rust traits.
+    pub receiver_access: Option<ReferenceAccess>,
 }
 
 impl Default for MethodPolicy {
     fn default() -> Self {
         Self {
             override_allowed: true,
+            receiver_access: None,
         }
     }
 }

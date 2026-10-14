@@ -8,7 +8,6 @@ use crate::{
     module::LoadedModule,
     native::{
         binding::NativeResult,
-        payload::data::NativeData,
         sequence::{NativeElement, SequencePayload},
         storage::{NativeObject, NativePayload, NativeStorage},
         stored_selection::StoredSelection,
@@ -27,7 +26,7 @@ impl Drop for NativeBorrow<'_> {
 }
 
 impl GcHeap {
-    pub(crate) fn with_native_data_mut<S: NativeData, R>(
+    pub(crate) fn with_native_data_mut<S: NativePayload, R>(
         &self,
         id: HeapObjectId,
         edit: impl for<'payload> FnOnce(&'payload mut S) -> NativeResult<R>,
@@ -46,6 +45,9 @@ impl GcHeap {
                 "storage does not permit direct data editing",
             ));
         }
+        // The sealed descriptor grants this flag only through data::<S: NativeData>.
+        // Matching its Rust TypeId recovers that proof for erased loan adapters;
+        // traced/managed/take-only storage never receives direct editing authority.
         let revision = objects[id.index()]
             .revision
             .checked_add(1)

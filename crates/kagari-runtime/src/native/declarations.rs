@@ -17,6 +17,7 @@ use kagari_common::{
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
     declaration::{FnDecl, NativeDeclaration, Param, requirement::NativeCallableRequirement},
+    reference::ReferenceAccess,
     ty::{Constraint, GenericBound, GenericParam, Ty},
 };
 use std::collections::BTreeMap;
@@ -99,9 +100,17 @@ impl FunctionDecl {
 pub struct MethodDecl {
     pub(crate) signature: FunctionDecl,
     pub(crate) instance: bool,
+    receiver_access: Option<ReferenceAccess>,
 }
 
 impl MethodDecl {
+    /// Require a short shared or exclusive host loan for this instance member.
+    /// The common binding adapter must agree with this declared capability.
+    pub fn receiver_access(mut self, access: ReferenceAccess) -> Self {
+        self.receiver_access = Some(access);
+        self
+    }
+
     pub fn documentation(mut self, text: impl Into<String>) -> Self {
         self.signature.documentation = Some(text.into());
         self
@@ -111,6 +120,7 @@ impl MethodDecl {
         Self {
             signature: FunctionDecl::new(name),
             instance: true,
+            receiver_access: None,
         }
     }
 
@@ -118,6 +128,7 @@ impl MethodDecl {
         Self {
             signature: FunctionDecl::new(name),
             instance: false,
+            receiver_access: None,
         }
     }
 
@@ -139,8 +150,14 @@ impl MethodDecl {
         if self.instance {
             self.signature.params.insert(0, ("self".into(), receiver));
         }
-        self.signature
-            .lower(CallableImplementation::Required, context)
+        if self.receiver_access.is_some() && !self.instance {
+            return Err(conflict("receiver access requires an instance method"));
+        }
+        let mut signature = self
+            .signature
+            .lower(CallableImplementation::Required, context)?;
+        signature.method_policy.receiver_access = self.receiver_access;
+        Ok(signature)
     }
 }
 

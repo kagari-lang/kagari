@@ -8,11 +8,22 @@ use kagari_runtime::native::{
     module::NativeModule,
     payload::Opaque,
     storage::NativeStorage,
-    typed::NativeContext,
+    typed::{NativeContext, loans::LoanContext},
     types::{FunctionRef, Type, TypeRef},
     value_handle::ScriptValue,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType};
+
+trait HostDescribe {
+    fn describe(&self) -> String;
+}
+
+impl HostDescribe for PlayerState {
+    fn describe(&self) -> String {
+        format!("trait hp={}", self.hp)
+    }
+}
 
 fn registration() -> (NativeModule, TypeRef, FunctionRef) {
     let mut module = ModuleBuilder::new(
@@ -25,6 +36,30 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
         .native_storage(NativeStorage::data::<PlayerState>())
         .unwrap();
     let player = declaration.finish().unwrap();
+    let mut contract = module.define_trait("Describe").unwrap();
+    contract
+        .define_method(MethodDecl::instance("describe").returns(Type::scalar(BuiltinType::String)))
+        .unwrap();
+    let describe = contract.finish().unwrap();
+    module
+        .implement(player.clone(), |implementation| {
+            implementation.trait_impl(describe.apply([])?, |methods| {
+                methods.receiver_access("describe", ReferenceAccess::Shared)?;
+                methods.bind(
+                    "describe",
+                    |_: &mut LoanContext<'_>, (state,): (&PlayerState,)| {
+                        Ok(HostDescribe::describe(state))
+                    },
+                )?;
+                assert!(
+                    methods
+                        .receiver_access("describe", ReferenceAccess::Mutable)
+                        .is_err()
+                );
+                Ok(())
+            })
+        })
+        .unwrap();
     let damage = module
         .implement(player.clone(), |implementation| {
             let receiver = implementation.receiver();
@@ -42,16 +77,50 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                 })?;
                 let damage = methods.define_method(
                     MethodDecl::instance("damage")
+                        .receiver_access(ReferenceAccess::Mutable)
                         .parameter("amount", Type::i32())
                         .returns(Type::i32()),
                 )?;
                 methods.bind(
                     damage.clone(),
-                    |cx: &mut NativeContext<'_>, player: Opaque<PlayerState>, (amount,): (i32,)| {
-                        player.edit(cx, |state| {
-                            state.hp -= amount;
-                            Ok(state.hp)
-                        })
+                    |cx: &mut LoanContext<'_>, (state, amount): (&mut PlayerState, i32)| {
+                        cx.poll()?;
+                        state.hp -= amount;
+                        Ok(state.hp)
+                    },
+                )?;
+                let inspect = methods.define_method(
+                    MethodDecl::instance("inspect")
+                        .receiver_access(ReferenceAccess::Shared)
+                        .returns(Type::scalar(BuiltinType::String)),
+                )?;
+                // An incompatible callback cannot consume the declaration; the
+                // correctly shared callback may be bound after this rejection.
+                assert!(
+                    methods
+                        .bind(
+                            inspect.clone(),
+                            |_: &mut LoanContext<'_>, (_state,): (&mut PlayerState,)| Ok(
+                                String::new()
+                            )
+                        )
+                        .is_err()
+                );
+                assert!(
+                    methods
+                        .bind(
+                            inspect.clone(),
+                            |_: &mut NativeContext<'_>, _: Opaque<PlayerState>, (): ()| Ok(
+                                String::new()
+                            )
+                        )
+                        .is_err()
+                );
+                methods.bind(
+                    inspect,
+                    |cx: &mut LoanContext<'_>, (state,): (&PlayerState,)| {
+                        cx.poll()?;
+                        Ok(format!("hp={}", state.hp))
                     },
                 )?;
                 let echo = methods.define_method(MethodDecl::instance("echo"))?;
@@ -76,10 +145,15 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
 }
 
 const SOURCE: &str = r#"
-    use example::methods::Player;
+    use example::methods::{Player, Describe};
     pub fn make() -> Player { Player::new(100) }
     pub fn hit(player: Player, amount: i32) -> i32 { player.damage(amount) }
     pub fn echo(player: Player) -> i32 { player.echo::<i32>(7) }
+    pub fn inspect(player: Player) -> String { player.inspect() }
+    pub fn describe(player: Player) -> String { player.describe() }
+    struct ScriptPlayer {}
+    impl Describe for ScriptPlayer { fn describe(self) -> String { "script" } }
+    pub fn ordinary() -> String { ScriptPlayer {}.describe() }
 "#;
 
 #[test]
@@ -159,6 +233,21 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
             .is_err()
     );
     assert_eq!(player.read(&cx, |state| Ok(state.hp)).unwrap(), 69);
+    assert_eq!(
+        vm.execute_typed::<_, String>(&owner, "inspect", (player.clone(),))
+            .unwrap(),
+        "hp=69"
+    );
+    assert_eq!(
+        vm.execute_typed::<_, String>(&owner, "describe", (player.clone(),))
+            .unwrap(),
+        "trait hp=69"
+    );
+    assert_eq!(
+        vm.execute_typed::<_, String>(&owner, "ordinary", ())
+            .unwrap(),
+        "script"
+    );
 }
 
 #[test]

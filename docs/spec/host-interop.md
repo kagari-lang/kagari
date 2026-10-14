@@ -395,6 +395,31 @@ Examples:
 
 Owned passing is simpler but may be too expensive for large host-owned structures.
 
+## Registered payload loans
+
+An instance `MethodDecl` may explicitly set `receiver_access` to
+`ReferenceAccess::Shared` or `Mutable`. The required capability belongs to its
+ordinary callable declaration, including portable metadata and trait/default
+application; it is independent of Rust trait implementation. The common `bind`
+adapter and installation validator require agreement with the selected callback.
+Owned/raw callbacks cannot silently claim the borrowed receiver contract.
+
+The borrowed callback takes `&mut LoanContext` and an outer argument tuple whose
+first element is `&T` or `&mut T`. It must work for every loan lifetime and return
+an owned, static result. `LoanContext::poll` provides cooperative cancellation;
+it exposes no script invocation or heap allocation. Captured runtime handles
+still encounter the ordinary non-reentry checks during Opaque access.
+
+Opaque adapters validate Rust mappings and installed receiver capabilities before
+argument conversion, then validate/root the entire input pack and decode owned
+arguments before acquiring the payload loan. Complete-pack roots remain until
+result conversion finishes. The existing GC guard releases access before result
+allocation and on errors/unwind; completed writes remain visible. Mutable access
+requires the installed fixed-data proof, not merely the callback's `&mut T` type.
+Traced, managed and take-only registrations do not gain arbitrary editing.
+External scope and path adapters consume the same declaration and binding facts
+in the subsequent reference integration gates.
+
 ## Borrowed Host Values
 
 `core::host::Ref<T>` and `RefMut<T>` are declared through the ordinary native type

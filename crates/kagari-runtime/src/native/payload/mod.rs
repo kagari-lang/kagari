@@ -122,6 +122,20 @@ impl<T: NativePayload> Opaque<T> {
         };
         cx.runtime().gc().with_native(id, read)
     }
+
+    pub(crate) fn edit_checked<R>(
+        &self,
+        cx: &NativeContext<'_>,
+        edit: impl for<'payload> FnOnce(&'payload mut T) -> NativeResult<R>,
+    ) -> NativeResult<R> {
+        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().resources().ensure_execution_allowed()?;
+        cx.poll()?;
+        let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
+            unreachable!("native object root")
+        };
+        cx.runtime().gc().with_native_data_mut(id, edit)
+    }
 }
 
 impl<T: NativeData> Opaque<T> {
@@ -139,13 +153,7 @@ impl<T: NativeData> Opaque<T> {
         cx: &NativeContext<'_>,
         edit: impl for<'payload> FnOnce(&'payload mut T) -> NativeResult<R>,
     ) -> NativeResult<R> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
-        cx.runtime().resources().ensure_execution_allowed()?;
-        cx.poll()?;
-        let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
-            unreachable!("native object root")
-        };
-        cx.runtime().gc().with_native_data_mut(id, edit)
+        self.edit_checked(cx, edit)
     }
 }
 

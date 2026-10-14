@@ -192,6 +192,9 @@ impl NativeRegistry {
             {
                 return Err(invalid());
             }
+            registration
+                .binding
+                .check_receiver_access(&declaration.function)?;
             registration.binding.check(
                 &Signature {
                     params: declaration

@@ -431,6 +431,15 @@ script; runtime destruction and extraction must not double-drop a payload.
 
 ### Methods and properties
 
+The runtime-owned borrowed adapter is implemented through the existing `bind`:
+use `MethodDecl::receiver_access(ReferenceAccess::Shared/Mutable)`, with an
+explicit `&mut LoanContext<'_>` callback context and a flat outer tuple beginning
+with `&T`/`&mut T`. The access enum is owned by `kagari_types::reference` and the
+context by `kagari_runtime::native::typed::loans`. Current mutable Opaque admission
+requires installed `NativeStorage::data`; shared access also supports registered
+traced payloads. Automatic registration/derive and external views in the complete
+example below remain subsequent combined gates.
+
 Register a host type once, explicitly declare its callable members, then bind
 implementations through the common binding API. This complete registration sketch
 uses the existing implementation-group shape with proposed receiver access metadata
@@ -457,14 +466,14 @@ module.implement(player_type.clone(), |implementation| {
     implementation.inherent_impl(|methods| {
         let inspect = methods.define_method(
             MethodDecl::instance("inspect")
-                .receiver_access(ReceiverAccess::Shared)
+                .receiver_access(ReferenceAccess::Shared)
                 .returns(Type::i32()),
         )?;
         methods.bind(inspect, |_cx, (p,): (&Player,)| Ok(p.inspect()))?;
 
         let heal = methods.define_method(
             MethodDecl::instance("heal")
-                .receiver_access(ReceiverAccess::Mutable)
+                .receiver_access(ReferenceAccess::Mutable)
                 .parameter("amount", Type::i32())
                 .returns(Type::i32()),
         )?;
@@ -481,7 +490,7 @@ let engine = engine_builder.build()?;
 An automatic storage descriptor for this Player is a proposed convenience, not an
 unverified safe trait assertion. A compiling prototype may use existing supported
 native_data storage to establish the fixed-data case. Reuse declaration and bind
-validation; `ReceiverAccess` describes required host access, not a second binding
+validation; `ReferenceAccess` describes required host access, not a second binding
 entrypoint. The borrowed adapter receives a restricted context that cannot execute
 scripts while these Rust references are alive. Complete-pack validation/conversion
 precedes loan acquisition; returned data must not borrow from p. End the loan before
@@ -549,8 +558,9 @@ The explicit Kagari declaration below is separately named Healable; resolving a
 trait already declared by another module would reuse its checked TraitRef instead.
 The Kagari trait keeps its ordinary Self signature. Required Rust payload access
 is metadata on this native impl member, not an imported Rust trait receiver rule.
-The proposed impl-builder receiver_access spelling needs the same compile proof
-as the inherent method builder.
+The implemented impl builder sets this fact before binding with
+`methods.receiver_access`. Installed declaration/binding validation checks it
+without changing the trait's ordinary Self signature.
 
 ```text
 let healable = {
@@ -564,7 +574,7 @@ let healable = {
 };
 module.implement(player_type.clone(), |implementation| {
     implementation.trait_impl(healable.apply([])?, |methods| {
-        methods.receiver_access("heal", ReceiverAccess::Mutable)?;
+        methods.receiver_access("heal", ReferenceAccess::Mutable)?;
         methods.bind("heal", |_cx, (p, n): (&mut Player, i32)| {
             Ok(RustHealable::heal(p, n))
         })
@@ -666,7 +676,7 @@ behavior and reports no test or performance result.
 - [x] RI02: Extend GO directional conversion contexts and typed Native adapters
   to the RI value-schema subset. Cover nested DTO conversion, limits and failures
   without adding another root or invocation implementation.
-- [ ] RI03: Build Opaque on existing runtime-owned storage/roots without T: Clone
+- [x] RI03: Build Opaque on existing runtime-owned storage/roots without T: Clone
   or parallel handle implementations. Add checked host read/edit/take, atomic alias
   invalidation and shared/mutable method adapters for proven payload capabilities.
   Reuse common declaration/bind validation and RF01's compiling lifetime proof.
@@ -883,6 +893,46 @@ recovered by focused reruns, rather than assuming success.
 RI03 remains open for borrowed invocation adapters shared with the reference phases.
 This slice adds no raw projection; actual projector Miri remains RF04/RF06-owned.
 Exhaustive workspace/feature/backend/platform validation remains pending CI.
+
+### RI03 checkpoint: registered lifetime-aware methods
+
+Shared/mutable callback tuples now use one `NativeAdapter` selection and the
+existing contextual invocation/conversion boundary. `LoanContext` permits polling
+without exposing heap or script execution services. The HRTB callback and static
+owned result prevent borrowed output/retention. Declaration, builder and installed
+binding checks agree on receiver access; raw/owned adapters cannot claim it.
+The common boundary checks Rust mappings and installed mutation capability before
+converters, then decodes a rooted complete pack before lending. Pack roots remain
+through result conversion, after the payload guard has released access.
+
+The internal erased editing path recovers its fixed-data proof from the immutable
+storage flag and matching Rust TypeId. Only `NativeStorage::data<S: NativeData>`
+grants the flag; public Opaque::edit still requires NativeData. This permits the
+same eventual callback shape for external non-Copy targets without granting
+traced/managed/take-only Opaque storage unrestricted mutation. Existing GC storage
+guards, revision publication, execution exclusion and cleanup remain the owners.
+
+Access may also be set on a concrete native trait impl before bind. The required
+Kagari Self signature stays independent: trait implementation comparison permits
+this local access fact while retaining all other policy/signature checks, and the
+ordinary native declaration/installed binding validators verify its actual target
+and adapter. A Rust trait method supplies one explicitly registered callback; a
+separate script impl of the same Kagari trait still uses ordinary script Self.
+
+Selected VM checks passed: prepared/pinned methods, result String allocation under
+collection threshold 1, foreign/runtime and pinned reload checks, explicit native
+trait callback plus independent script impl, rejected callback/access mismatch with
+successful retry, denied direct editing on same-Rust-type non-data storage, and
+take alias/pinned-method rejection after reinsertion. Two production LoanContext
+compile-fail doctests passed for returned/captured references. Initial fixture
+failures were an unavailable String constructor spelling and an unconstrained
+panic-only callback output; both were corrected. A trait-builder initializer field
+was placed on the adjacent inherent builder in the first edit and corrected after
+the focused check. No carried failure remains. Scoped runtime/VM native-boundary
+Clippy, structure, formatting and diff checks passed. These checks establish the
+runtime-owned RI03 gate; shared Ref/RefMut transport, root/path loans, mixed borrowed
+packs and final source-free integration remain RF02-RF05. No new unsafe projection
+is introduced; projector Miri and exhaustive matrices retain their RF/CI owners.
 
 ## Acceptance and verification
 

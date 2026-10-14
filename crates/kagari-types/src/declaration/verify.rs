@@ -128,7 +128,8 @@ pub fn validate_native_declarations(
             left.canonical_cmp(right, table, cancel)
                 .is_ok_and(|order| order.is_lt())
         };
-        if function.return_type.contains_stored_reference()
+        if !receiver_access_valid(function)
+            || function.return_type.contains_stored_reference()
             || !function.return_type.reference_position_valid()
             || function
                 .params
@@ -451,7 +452,8 @@ pub fn function_valid(
                 && application.arguments.len() <= 4096
         }
     };
-    if function.name.is_empty()
+    if !receiver_access_valid(function)
+        || function.name.is_empty()
         || function.return_type.contains_stored_reference()
         || !function.return_type.reference_position_valid()
         || function
@@ -484,6 +486,14 @@ pub fn function_valid(
                 _ => true,
             }
     })
+}
+
+fn receiver_access_valid(function: &FnDecl) -> bool {
+    function.method_policy.receiver_access.is_none()
+        || function.params.first().is_some_and(|receiver| {
+            matches!(receiver.name.as_str(), "self" | "__receiver")
+                && receiver.ty.reference_target_valid()
+        })
 }
 
 /// Check scoped type expressions without materializing owned paths.

@@ -15,6 +15,7 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::module::{ImplDecl, ModuleDecl},
+    reference::ReferenceAccess,
     ty::{GenericParam, Ty, substitution::TypeSubstitution},
 };
 use std::{collections::BTreeMap, fmt};
@@ -285,6 +286,7 @@ impl<'module> ImplementationBuilder<'module> {
             documentation: BTreeMap::new(),
             receiver_codec: self.receiver_codec.clone(),
             bindings: BTreeMap::new(),
+            receiver_access: BTreeMap::new(),
         };
         let result = configure(&mut methods)?;
         // The authoring closure uses its group binder. Each emitted impl owns a
@@ -322,6 +324,17 @@ impl<'module> ImplementationBuilder<'module> {
                 &context,
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let implementation = self
+            .module
+            .declaration
+            .implementations
+            .last_mut()
+            .expect("implement_trait appends the checked implementation");
+        for method in &mut implementation.methods {
+            if let Some(access) = methods.receiver_access.get(&method.name) {
+                method.method_policy.receiver_access = Some(*access);
+            }
+        }
         for method in &methods.applied.contract.contract.methods {
             let target = ModuleDecl::method_id(
                 methods.id,
@@ -363,9 +376,37 @@ pub struct MethodsBuilder {
     receiver_codec: Option<Codec>,
     documentation: BTreeMap<String, String>,
     bindings: BTreeMap<String, NativeBinding>,
+    receiver_access: BTreeMap<String, ReferenceAccess>,
 }
 
 impl MethodsBuilder {
+    /// Declare this Rust implementation's required receiver loan. The Kagari
+    /// trait's ordinary Self contract and other implementations remain independent.
+    /// Set this before binding; changing a selected callback's authority is rejected.
+    pub fn receiver_access(&mut self, name: &str, access: ReferenceAccess) -> NativeResult<()> {
+        let method = self
+            .applied
+            .contract
+            .contract
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?;
+        if !method.params.first().is_some_and(|p| p.name == "self")
+            || self.bindings.contains_key(name)
+            || method
+                .method_policy
+                .receiver_access
+                .is_some_and(|required| required != access)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "incompatible implementation receiver access",
+            ));
+        }
+        self.receiver_access.insert(name.into(), access);
+        Ok(())
+    }
+
     /// Override the inherited trait member's Markdown on this implementation.
     pub fn documentation(&mut self, name: &str, text: impl Into<String>) -> NativeResult<()> {
         if !self
@@ -390,15 +431,20 @@ impl MethodsBuilder {
     }
 
     pub fn bind<M, R>(&mut self, name: &str, entry: impl NativeAdapter<M, R>) -> NativeResult<()> {
-        let method = self
+        let mut method = self
             .applied
             .contract
             .contract
             .methods
             .iter()
             .find(|method| method.name == name)
-            .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?;
-        let binding = entry.prepare(method, &self.catalog)?;
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?
+            .clone();
+        if let Some(access) = self.receiver_access.get(name) {
+            method.method_policy.receiver_access = Some(*access);
+        }
+        let binding = entry.prepare(&method, &self.catalog)?;
+        binding.check_receiver_access(&method)?;
         let receiver = method
             .params
             .first()

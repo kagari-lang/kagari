@@ -132,13 +132,22 @@ impl ModuleDecl {
                     Ok((method.name.as_str(), *binding))
                 })
                 .collect::<Result<Vec<_>, DeclarationError>>()?;
-            let expected = implementation_methods(
+            let mut expected = implementation_methods(
                 contract,
                 implementation,
                 self.implementation_id(index, definitions)?,
                 &bindings,
                 definitions,
             )?;
+            // Required access is a local native impl fact when the Kagari trait
+            // does not impose it. Preserve every other signature/policy check;
+            // native declaration and installed binding validation check this fact
+            // against the receiver target and the actual lifetime-aware adapter.
+            for (expected, actual) in expected.iter_mut().zip(&implementation.methods) {
+                if expected.method_policy.receiver_access.is_none() {
+                    expected.method_policy.receiver_access = actual.method_policy.receiver_access;
+                }
+            }
             if expected != implementation.methods {
                 return Err(invalid());
             }

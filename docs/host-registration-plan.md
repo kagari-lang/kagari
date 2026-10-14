@@ -1060,6 +1060,23 @@ Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 ## Progress ledger
 
+### RI03/RF02 checkpoint: common borrowed receiver binding
+
+RI03's runtime-owned method gate is implemented. Receiver access is a portable
+fact on the existing callable declaration and a checked local fact on its binding.
+The lifetime-aware adapter selects through ordinary bind and reuses contextual
+conversion/invocation plus Opaque's existing guarded storage access. Concrete
+native trait impls can declare their own access before binding, independently of
+the Kagari trait's ordinary Self requirement. Installed agreement remains mandatory.
+
+Focused method, capability, take/pinned receiver and production compile-fail checks
+passed; the detailed selection and initial fixture repairs are recorded in
+[RI03's checkpoint](rust-interop-design.md#ri03-checkpoint-registered-lifetime-aware-methods).
+Scoped runtime/VM native-boundary Clippy, structure, format and diff checks passed.
+The local/native access contract is now ready for RF02's view receiver admission
+and RF03-RF05's external scope/path transport. HR02/RF02 remain open; no external
+scope implementation, projector Miri result or exhaustive CI result is claimed.
+
 ### RF02 checkpoint: reference targets and non-escape facts
 
 Shared portable/HIR types, ordinary core::host/prelude declarations and registration
