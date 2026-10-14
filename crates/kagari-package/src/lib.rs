@@ -5,9 +5,13 @@
 
 pub mod error;
 pub mod filesystem;
+pub mod graph;
+pub mod host;
 pub mod identity;
 pub mod input;
+pub mod lock;
 pub mod manifest;
 pub mod modules;
 pub mod path;
+pub mod snapshot;
 pub mod workspace;

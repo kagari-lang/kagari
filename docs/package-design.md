@@ -30,7 +30,8 @@ implemented inputs from pending compiler/runtime integration; publication is not
 - General packages use common identities and source handoff; native declaration
   installation is a separate boundary, not an implicit package privilege.
 - Script workspace discovery and selection are implemented in `kagari-package`;
-  graph locking and compiler integration remain pending. The repository's Cargo
+  whole-workspace graph locking and immutable Program input capture are implemented;
+  compiler integration remains pending. The repository's Cargo
   workspace groups Kagari's Rust implementation crates, not user script packages.
 
 Re-audit these foundations at activation. Existing specifications govern until
@@ -585,7 +586,7 @@ separate queued scope; do not pull them into PK03 through generic "CLI integrati
   discovery, selection and inheritance rules. Produce deterministic module maps and
   dependency requirements with diagnostic origins. Test path bases, membership,
   conflicting definitions and virtual/path equivalence without invoking the VM.
-- [ ] PK02: Resolve the complete workspace graph and atomically maintain its lock;
+- [x] PK02: Resolve the complete workspace graph and atomically maintain its lock;
   capture source snapshots and extract exact Program closures. Test locked/offline
   distinctions, preserved unrelated selections and closure conflicts with supported
   local/host sources. No remote solver is required.
@@ -694,8 +695,32 @@ No format/ABI version bump is needed for these unpublished development changes.
   fixtures failed with Windows error 123 because Windows PowerShell's junction cmdlet
   cannot consume verbatim `\\?\` targets; normalize only the test helper's arguments
   and retain canonical paths in production. Both affected cases then passed.
-- Next: PK02 whole-workspace exact graph, lock and immutable source capture. These
-  input APIs are not yet connected to HIR, artifacts, SDK or CLI; those remain PK03.
+- 2026-10-14: PK02 complete. Resolve the entire workspace graph with bounded
+  package/edge counts, source-name/version checks, cycle paths and one-selection-per-family
+  Program closures. Mutable local selections retain content separately; immutable
+  host selections verify their manifest/file fingerprint against both the input
+  catalog and existing lock. Valid locked host revisions survive preferred-provider
+  and local importer-version changes; unavailable exact input fails without silently
+  upgrading. Different revisions are allowed across disjoint Program closures.
+- Lock format 1 uses deterministic TOML selections, member locators, alias edges,
+  host keys and immutable-content hashes. Decoding rejects duplicates, dangling/cyclic
+  edges, inconsistent source kinds, unknown fields and oversized input. Local/offline
+  publication writes and syncs a same-directory temporary file, then replaces the
+  lock; unchanged locks are not rewritten. Locked/frozen modes prohibit changes.
+  Concurrent filesystem mutation remains host-controlled; this is atomic file
+  publication, not a filesystem snapshot or a workspace-wide runtime transaction.
+- PK02 validation: 11 focused `--test graph` cases passed, covering whole-workspace
+  versus selected-body scope, locks/flags, exact-input integrity and availability,
+  alias-only/source-only changes, retained old inputs, diamonds, same-name sources,
+  conflicting/disjoint revisions, malformed locks, cancellation, atomic publication
+  and relocation-stable locks/fingerprints. Rechecked the cycle test after improving
+  its dependency-chain diagnostic. Package Clippy, structure, formatting and diff
+  checks passed. The prior 17 input/workspace cases remain evidence for unchanged
+  normalization/discovery behavior; no broad Cargo sweep was run.
+- Next: PK03 package-scoped HIR/visibility, empty-root migration and source-free
+  export evidence, followed by SDK/CLI/shared storage and invalidation/reload.
+  PK01/PK02 APIs are not yet connected to those consumers. Native-provider inputs
+  must contribute their own contract fingerprint at compiler handoff.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 /// equally named packages at different positions remain distinct. Version and
 /// source content belong to selection/snapshot identity, not declaration identity.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackageFamily {
     namespace: String,
     directory: String,
@@ -71,6 +72,7 @@ pub enum SourceRevision {
 
 /// An exact graph selection. A Program may contain only one selection per family.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct PackageSelection {
     pub family: PackageFamily,
     pub version: Version,

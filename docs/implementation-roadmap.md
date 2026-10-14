@@ -28,7 +28,8 @@ These capabilities are foundations to reuse, not migrations to replay.
 request. PK00 froze portable identities, acquisition/analysis input ownership,
 empty roots and host-callable export contracts. PK01 completed strict local/virtual
 inputs and workspace discovery/selection, with 17 focused contract tests passing.
-PK02 shared locking and PK03 compiler/SDK/CLI integration follow in the same plan.
+PK02 added whole-workspace locking and isolated Program source capture; 11 graph/lock
+contract tests passed. PK03 compiler/SDK/CLI integration is next in the same plan.
 Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,
