@@ -697,15 +697,22 @@ let player = runtime.call(&make, ())?;
 let accepted: bool = predicate.call(cx, (player.clone(),))?;
 ```
 
-bind_function returns PinnedFunction<A, R>. It verifies visibility and the complete
-signature before running code, then retains the selected version. Concrete generic
-applications must have checked executable evidence. Source-free calls cannot ask
-HIR to specialize a missing instantiation. Unsupported bindings fail before script
-effects; they do not synthesize implementations or pick similarly named methods.
-Existing language export rules still apply: ordinary script generic free functions
-remain private templates exposed through concrete public wrappers. Registered
-native generic functions and supported generic trait members use their checked
-applications; host binding does not make a private declaration public.
+`bind_function` resolves a public path relative to the installed Program root and
+returns `PinnedFunction<A, R>`. For `pub use internal::calculate as damage`, binding
+`damage` uses the verified target in `internal`; a dependency module handle does not
+change the lookup root or expose its private paths. Binding checks the complete Rust
+signature before execution and retains that exact target generation through reload.
+The export table survives artifact loading, so ordinary binding does not scan private
+function names or reconstruct declaration paths.
+
+Public source generic functions are templates available to source dependents; ordinary
+host paths expose concrete non-generic script wrappers. Explicit declaration APIs
+(`bind_function_declaration` and `bind_function_application_declaration`) separately
+bind public installed declarations, including native entries and checked generic
+applications. They require existing executable evidence, preserve visibility and do
+not ask HIR to specialize missing applications. There is no local-name generic binding
+shortcut. Unsupported paths, declarations and Rust signatures fail before script
+effects; binding never synthesizes implementations or picks similarly named methods.
 
 A PinnedFunction for an installed native entry converts to a script function value
 through the ordinary closure heap representation. It stores the checked native

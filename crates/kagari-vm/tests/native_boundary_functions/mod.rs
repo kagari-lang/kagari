@@ -170,17 +170,41 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
 fn returned_closures_and_bound_functions_remain_pinned_after_reload() {
     let source = |answer| {
         format!(
-            "pub fn answer() -> i32 {{ {answer} }} pub fn make() -> fn() -> i32 {{ val data = [{answer}]; || data[0] }}"
+            r#"
+            mod implementation {{
+                pub fn value() -> i32 {{ {answer} }}
+                pub fn closure() -> fn() -> i32 {{ val data = [{answer}]; || data[0] }}
+            }}
+            pub use crate::implementation::value as answer;
+            pub use crate::implementation::closure as make;
+            pub use crate as again;
+            fn main() {{}}
+            "#
         )
     };
     let (vm, old) = fixture(&source(41), None);
     let answer = vm
         .runtime()
-        .bind_function::<(), i32>(&old, "answer")
+        .bind_function::<(), i32>(&old, "again::answer")
         .unwrap();
+    assert_eq!(answer.owner().bytecode.identity.path, ["implementation"]);
+    for inaccessible in [
+        "main",
+        "value",
+        "implementation::value",
+        "::answer",
+        "again",
+    ] {
+        assert!(
+            vm.runtime()
+                .bind_function::<(), i32>(answer.owner(), inaccessible)
+                .is_err(),
+            "{inaccessible}"
+        );
+    }
     let duplicate = vm
         .runtime()
-        .bind_function::<(), i32>(&old, "answer")
+        .bind_function::<(), i32>(answer.owner(), "answer")
         .unwrap();
     let make = vm
         .runtime()

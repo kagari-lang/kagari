@@ -852,8 +852,27 @@ No format/ABI version bump is needed for these unpublished development changes.
   malformed-export test pass. Runtime library check and runtime/contract library
   Clippy pass. Structure scans 1,147 Rust files with no violations; formatting and
   diff checks pass. Full workspace/backend/feature/platform CI remains unrun.
-- Next: PK03 VM/SDK public host-callable paths and explicit CLI entry invocation,
-  followed by SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
+- PK03 typed function binding checkpoint: `Runtime::bind_function` resolves Program-root
+  public paths through verified export slots, including aliases into other modules.
+  Binding uses the target module for semantic type conversion and retains the original
+  Program through the existing typed function cache/lease. Explicit public declaration
+  and application APIs keep their checked native/generic evidence path. Remove the
+  obsolete local-name generic shortcut rather than preserve a second name resolver.
+- Expanded the existing source-free closure/function pinning regression with a private
+  implementation module, public aliases, a cyclic root alias and child-handle lookup.
+  It rejects private paths and private `main`, exercises aliases through reload and
+  GC, and retains the old closure/target. The old local-name implementation failed on
+  the alias as expected. Generic native coverage retains explicit declaration binding
+  and private/missing-application rejection; ordinary names cannot bypass exports.
+- Typed binding validation: `cargo test -p kagari-vm --test native_boundary
+  native_boundary_functions:: --no-fail-fast` passes all 40 selected callable-boundary
+  cases (121 unrelated tests filtered out), covering the shared preparation path,
+  native/generic/member evidence, GC, cancellation, candidate isolation and reload.
+  Runtime library Clippy, structure (1,147 files), formatting and diff checks pass.
+  No carried failures. Full workspace/backend/feature/platform CI remains unrun.
+- Next: PK03 VM/SDK direct public host-callable paths and explicit CLI entry invocation,
+  including native preparation of exported dependency targets. Follow with
+  SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
   but SDK and CLI do not yet expose it. Native-provider inputs must contribute their
   own contract fingerprint at compiler handoff. No carried compile/test failure at
   this source integration checkpoint; exhaustive backend/feature/platform CI remains

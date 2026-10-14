@@ -3,7 +3,7 @@ use crate::{
     compile_program, native_boundary_interfaces::generic_identity_module,
     support::declaration_query,
 };
-use kagari_common::identity::DefinitionKind;
+use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
 use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding},
@@ -55,11 +55,19 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
         .members()
         .find(|member| member.bytecode.identity == declaration.module)
         .unwrap();
-    let by_name = vm
-        .runtime()
-        .bind_function_application::<(i32,), i32>(&native, "identity", slice::from_ref(&i32_type))
-        .unwrap();
-    assert_eq!(vm.call(&by_name, (43,)).unwrap(), 43);
+    assert!(
+        vm.runtime()
+            .bind_function::<(i32,), i32>(&native, "identity")
+            .is_err()
+    );
+    let hidden = DefinitionPath {
+        module: owner.bytecode.identity.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Function,
+            name: "hidden".into(),
+            occurrence: 0,
+        }],
+    };
 
     assert!(
         vm.runtime()
@@ -72,7 +80,11 @@ fn generic_function_binding_uses_closed_witnesses_and_rejects_missing_applicatio
     );
     assert!(
         vm.runtime()
-            .bind_function_application::<(i32,), i32>(&owner, "hidden", slice::from_ref(&i32_type))
+            .bind_function_application_declaration::<(i32,), i32>(
+                &owner,
+                &hidden,
+                slice::from_ref(&i32_type)
+            )
             .is_err()
     );
     assert!(

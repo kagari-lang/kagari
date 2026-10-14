@@ -39,6 +39,41 @@ pub(super) struct EntryEvidence {
 }
 
 impl EntryEvidence {
+    pub(super) fn script(
+        runtime: &Runtime,
+        owner: &LoadedModule,
+        target: FunctionRef,
+    ) -> NativeResult<Self> {
+        let function = owner
+            .bytecode
+            .functions
+            .get(target.index())
+            .ok_or_else(missing)?;
+        let params = (0..usize::from(function.parameter_count))
+            .map(|index| {
+                function
+                    .metadata
+                    .semantic
+                    .params
+                    .get(&index)
+                    .cloned()
+                    .ok_or_else(missing)
+            })
+            .collect::<NativeResult<Vec<_>>>()?;
+        Self::closed(
+            runtime,
+            owner,
+            CallableTarget::Script(target),
+            params,
+            function
+                .metadata
+                .semantic
+                .result
+                .clone()
+                .ok_or_else(missing)?,
+        )
+    }
+
     pub(super) fn find(
         runtime: &Runtime,
         root: &LoadedModule,
@@ -68,29 +103,7 @@ impl EntryEvidence {
                 {
                     continue;
                 }
-                let params = (0..usize::from(function.parameter_count))
-                    .map(|index| {
-                        function
-                            .metadata
-                            .semantic
-                            .params
-                            .get(&index)
-                            .cloned()
-                            .ok_or_else(missing)
-                    })
-                    .collect::<NativeResult<Vec<_>>>()?;
-                return Self::closed(
-                    runtime,
-                    &owner,
-                    CallableTarget::Script(function.id),
-                    params,
-                    function
-                        .metadata
-                        .semantic
-                        .result
-                        .clone()
-                        .ok_or_else(missing)?,
-                );
+                return Self::script(runtime, &owner, function.id);
             }
             for (index, import) in owner.bytecode.native_imports.iter().enumerate() {
                 if import.generic.is_none()

@@ -63,7 +63,9 @@ change when the public paths and semantic parameter/result types remain compatib
 Signatures enter one temporary identity context before comparison; nominal types
 are never compared by unrelated scoped ID numbers. Namespace equivalence joins
 matching states, preserving cycles without flattening or product-graph expansion.
-VM/SDK named-call migration remains in the active plan.
+Typed runtime `bind_function` consumes those export slots and retains the target
+Program; explicit declaration/application binding continues to consume installed
+closed-entry evidence. VM/SDK direct named-call migration remains in the active plan.
 
 ## Workspace Shape
 

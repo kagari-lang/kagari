@@ -38,7 +38,8 @@ MIR and bytecode now retain and verify portable public export/entry evidence,
 including after identity import and source-free decoding. Runtime lookup retains
 verified callable slots through context import and generation changes. All reload
 routes compare public-path/entry contracts, including aliases, cycles and nominal
-signature types. VM/SDK named calls and SDK/CLI package integration remain next.
+signature types. Typed runtime function binding uses verified public paths; VM/SDK
+direct named calls and SDK/CLI package integration remain next.
 Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,

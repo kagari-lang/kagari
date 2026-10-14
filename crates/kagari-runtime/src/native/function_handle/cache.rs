@@ -13,7 +13,7 @@ use crate::{
         methods::InherentMember,
     },
 };
-use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_common::identity::{DefinitionKind, DefinitionPath};
 use kagari_contract::types::PublicItem;
 use std::{
     any::TypeId,
@@ -32,32 +32,29 @@ struct CacheEntry {
 }
 
 impl Runtime {
+    /// Bind a public function path relative to the installed Program root.
+    ///
+    /// For example, `pub use internal::calculate as damage` exposes `damage`,
+    /// including when `owner` is a dependency member. Binding consumes verified
+    /// export slots, checks the Rust argument/result types and retains the target
+    /// generation. Private paths, generic templates and missing exports fail
+    /// before execution; concrete script wrappers can expose generic applications.
     pub fn bind_function<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
         owner: &LoadedModule,
-        name: &str,
+        path: &str,
     ) -> NativeResult<PinnedFunction<A, R>> {
-        self.bind_function_application(owner, name, &[])
+        self.gc().ensure_no_native_borrow()?;
+        self.validate_loaded_module(owner)?;
+        let (target, function) = owner.exported_function(path).ok_or_else(|| {
+            RuntimeError::module_validation("public path has no checked executable entry")
+        })?;
+        self.cache_function(EntryEvidence::script(self, &target, function)?)
     }
 
-    /// Bind a concrete generic application already evidenced by the installed program.
-    pub fn bind_function_application<A: KagariArguments + 'static, R: KagariType + 'static>(
-        &self,
-        owner: &LoadedModule,
-        name: &str,
-        arguments: &[TypeArgument],
-    ) -> NativeResult<PinnedFunction<A, R>> {
-        let declaration = DefinitionPath {
-            module: owner.bytecode.identity.clone(),
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Function,
-                name: name.into(),
-                occurrence: 0,
-            }],
-        };
-        self.bind_function_application_declaration(owner, &declaration, arguments)
-    }
-
+    /// Bind an explicit public declaration with an already installed closed entry.
+    /// This declaration capability is independent of Program-root path lookup;
+    /// native entries can be bound without adding a source wrapper or export alias.
     pub fn bind_function_declaration<A: KagariArguments + 'static, R: KagariType + 'static>(
         &self,
         owner: &LoadedModule,
@@ -66,6 +63,9 @@ impl Runtime {
         self.bind_function_application_declaration(owner, declaration, &[])
     }
 
+    /// Bind an explicit public declaration application using installed evidence.
+    /// Missing applications, private declarations and incompatible Rust signatures
+    /// fail before execution. This never performs runtime generic specialization.
     pub fn bind_function_application_declaration<
         A: KagariArguments + 'static,
         R: KagariType + 'static,

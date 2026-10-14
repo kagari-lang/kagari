@@ -531,6 +531,15 @@ preserve identity and share retention; dropping the last handle permits collecti
 `ScriptValue` forwards an exact declared generic value without erasing its type.
 Ordinary field/collection reads and callback results need no manual root operation.
 
+`Runtime::bind_function` resolves verified public paths from the Program root,
+including re-exports into dependencies, and returns a typed `PinnedFunction`.
+Passing a child module handle does not change that lookup root. Private declarations,
+private `main` and public generic templates are absent from ordinary host lookup;
+use a concrete public script wrapper for a generic source application. Explicit
+public declaration/application binding remains available for installed native entries
+and other existing checked executable evidence. Both routes validate the complete
+Rust signature and retain the supplying Program generation before execution.
+
 Prepare `Field<T>` and `Method<A, R>` once from the installed applied type, then
 reuse them. Native and script inherent members share declaration/name binding;
 method tuples exclude the receiver. Associated functions return PinnedFunction.
