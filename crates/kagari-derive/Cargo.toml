@@ -1,0 +1,13 @@
+[package]
+name = "kagari-derive"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "3", features = ["derive", "parsing", "printing", "proc-macro"] }
+quote = "1"
+proc-macro2 = "1"

@@ -3,7 +3,7 @@ use crate::{
     error::RuntimeError,
     native::{
         binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-        conversion::KagariType, types::Type,
+        conversion::KagariType, payload::Opaque, storage::NativePayload, types::Type,
     },
 };
 use kagari_types::{
@@ -11,7 +11,10 @@ use kagari_types::{
     ty::{NominalTy, Ty},
     visibility::Visibility,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::{
+    any::type_name,
+    collections::{BTreeMap, HashSet},
+};
 
 /// An exported DTO field. Writable script storage is independent of the source
 /// Rust value. This descriptor supplies no Rust method or field projector.
@@ -56,6 +59,52 @@ pub struct TypeRegistration<'module> {
 impl ModuleBuilder {
     /// Register a Rust mapping and its schema dependencies atomically. Explicit
     /// duplicate registrations reject; repeated graph edges reuse the same header.
+    ///
+    /// Dedicated derives reject open generic factories and borrowed data:
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// struct Open<T> { value: T }
+    /// ```
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// struct Borrowed<'a> { text: &'a str }
+    /// ```
+    /// Structs must have named fields:
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// struct Tuple(i32);
+    /// ```
+    /// Packed structs and union/record-enum representations are outside the subset:
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// #[repr(packed)]
+    /// struct Packed { value: i32 }
+    /// ```
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// union Union { integer: i32, float: f32 }
+    /// ```
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// enum Record { Entry { value: i32 } }
+    /// ```
+    /// Unsupported scalar conversions cannot silently change their script type:
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// struct Wide { value: i128 }
+    /// ```
+    /// ```compile_fail
+    /// use kagari_derive::KagariValue;
+    /// #[derive(KagariValue)]
+    /// struct Character { value: char }
+    /// ```
     pub fn register_type<T: KagariType + 'static>(&mut self) -> NativeResult<Type> {
         if self.providers.has_rust_type::<T>() {
             return Err(conflict("duplicate Rust type registration"));
@@ -97,6 +146,36 @@ impl ModuleBuilder {
 }
 
 impl TypeRegistration<'_> {
+    /// Register an Opaque dependency through the ordinary native type builder.
+    /// Rust's short named type supplies only a default name, never methods or
+    /// traits. Explicit nominal applications continue using their checked binding.
+    pub fn opaque<T: NativePayload>(&mut self) -> NativeResult<Type> {
+        let rust_name = type_name::<T>();
+        let name = rust_name.rsplit_once("::").map(|(_, name)| name)
+            .ok_or_else(|| conflict("automatic Opaque registration requires a named Rust payload; use explicit native declaration for primitive or generic storage"))?;
+        if !name
+            .chars()
+            .all(|character| character.is_alphanumeric() || character == '_')
+        {
+            return Err(conflict(
+                "automatic Opaque registration requires a finite named payload",
+            ));
+        }
+        let storage = T::registration_storage();
+        if !storage.accepts_payload::<T>() {
+            return Err(conflict(
+                "automatic Opaque storage policy differs from its Rust payload",
+            ));
+        }
+        let mut declaration = self.module.define_type(name)?;
+        declaration.native_storage(storage)?;
+        let ty = declaration.finish()?.apply([])?;
+        self.module
+            .providers
+            .insert_rust_type::<Opaque<T>>(ty.clone())?;
+        Ok(ty)
+    }
+
     pub fn catalog(&self) -> &DeclarationCatalog {
         &self.module.providers
     }

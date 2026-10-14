@@ -1,9 +1,11 @@
 //! Nominal DTO schemas share ordinary declarations and transactional installation.
+mod native_schema_derive;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_derive::KagariValue;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -19,7 +21,7 @@ use kagari_runtime::{
             context::{ConversionContext, ConversionLimits},
         },
         module::NativeModule,
-        schema::{TypeRegistration, ValueField, ValueVariant},
+        schema::{TypeRegistration, ValueField},
         types::Type,
     },
     value::Value,
@@ -38,13 +40,13 @@ struct Leaf {
     value: i32,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, KagariValue)]
 struct Tree {
     leaf: Leaf,
     children: Vec<Tree>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, KagariValue)]
 enum Choice {
     Empty,
     Leaf(Leaf),
@@ -57,36 +59,6 @@ impl KagariType for Leaf {
 
     fn register_type(cx: &mut TypeRegistration<'_>) -> NativeResult<Type> {
         cx.structure::<Self>("Leaf", |_| Ok(vec![ValueField::new("value", Type::i32())]))
-    }
-}
-
-impl KagariType for Tree {
-    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        catalog.rust_type::<Self>()
-    }
-
-    fn register_type(cx: &mut TypeRegistration<'_>) -> NativeResult<Type> {
-        cx.structure::<Self>("Tree", |cx| {
-            Ok(vec![
-                ValueField::new("leaf", cx.dependency::<Leaf>()?),
-                ValueField::new("children", cx.dependency::<Vec<Tree>>()?),
-            ])
-        })
-    }
-}
-
-impl KagariType for Choice {
-    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        catalog.rust_type::<Self>()
-    }
-
-    fn register_type(cx: &mut TypeRegistration<'_>) -> NativeResult<Type> {
-        cx.enumeration::<Self>("Choice", |cx| {
-            Ok(vec![
-                ValueVariant::new("Empty", []),
-                ValueVariant::new("Leaf", [cx.dependency::<Leaf>()?]),
-            ])
-        })
     }
 }
 
@@ -182,6 +154,13 @@ fn catalog_local_rust_identity_rejects_duplicate_module_install_atomically() {
 }
 
 fn program(module: &NativeModule) -> DefinitionMetadata<BytecodeProgram> {
+    program_for_source(
+        module,
+        "use game::data::Tree; pub fn inspect(tree: Tree) -> i32 { tree.leaf.value }",
+    )
+}
+
+fn program_for_source(module: &NativeModule, text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let mut modules = kagari_stdlib::modules().unwrap();
     modules.push(module.clone());
     let mut analysis = AnalysisDatabase::default();
@@ -193,11 +172,7 @@ fn program(module: &NativeModule) -> DefinitionMetadata<BytecodeProgram> {
     );
     let mut sources = SourceDatabase::default();
     let file = sources
-        .set(
-            "schema.kgr",
-            "use game::data::Tree; pub fn inspect(tree: Tree) -> i32 { tree.leaf.value }".into(),
-            SourceLayer::Base,
-        )
+        .set("schema.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
@@ -350,66 +325,6 @@ impl FromKagari for Leaf {
         Ok(Self {
             value: fields.field("value")?,
         })
-    }
-}
-
-impl IntoKagari for Tree {
-    fn into_kagari(
-        self,
-        cx: &mut ConversionContext<'_>,
-        expected: &TypeArgument,
-    ) -> NativeResult<Value> {
-        let mut fields = cx.write_struct(expected)?;
-        fields.field("leaf", self.leaf)?;
-        fields.field("children", self.children)?;
-        fields.finish()
-    }
-}
-
-impl FromKagari for Tree {
-    fn from_kagari(
-        cx: &mut ConversionContext<'_>,
-        expected: &TypeArgument,
-        value: &Value,
-    ) -> NativeResult<Self> {
-        let mut fields = cx.read_struct(expected, value)?;
-        Ok(Self {
-            leaf: fields.field("leaf")?,
-            children: fields.field("children")?,
-        })
-    }
-}
-
-impl IntoKagari for Choice {
-    fn into_kagari(
-        self,
-        cx: &mut ConversionContext<'_>,
-        expected: &TypeArgument,
-    ) -> NativeResult<Value> {
-        match self {
-            Self::Empty => cx.encode_variant(expected, "Empty", ()),
-            Self::Leaf(leaf) => cx.encode_variant(expected, "Leaf", (leaf,)),
-        }
-    }
-}
-
-impl FromKagari for Choice {
-    fn from_kagari(
-        cx: &mut ConversionContext<'_>,
-        expected: &TypeArgument,
-        value: &Value,
-    ) -> NativeResult<Self> {
-        match cx.variant_name(expected, value)?.as_str() {
-            "Empty" => {
-                cx.decode_variant::<()>(expected, value, "Empty")?;
-                Ok(Self::Empty)
-            }
-            "Leaf" => {
-                let (leaf,) = cx.decode_variant(expected, value, "Leaf")?;
-                Ok(Self::Leaf(leaf))
-            }
-            _ => Err(RuntimeError::module_validation("unknown Choice variant")),
-        }
     }
 }
 

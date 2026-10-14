@@ -17,6 +17,7 @@ members = [
     "crates/kagari-compiler",
     "crates/kagari-codegen-cranelift",
     "crates/kagari-runtime",
+    "crates/kagari-derive",
     "crates/kagari-syntax",
     "crates/kagari-vm",
 ]
@@ -43,6 +44,7 @@ kagari-bytecode = { path = "crates/kagari-bytecode" }
 kagari-compiler = { path = "crates/kagari-compiler", default-features = false }
 kagari-codegen-cranelift = { path = "crates/kagari-codegen-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
+kagari-derive = { path = "crates/kagari-derive" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
 cranelift-codegen = "0.136.2"

@@ -415,6 +415,7 @@ dependencies = [
  "kagari-common",
  "kagari-compiler",
  "kagari-contract",
+ "kagari-derive",
  "kagari-hir",
  "kagari-mir",
  "kagari-package",
@@ -546,6 +547,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "kagari-derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "kagari-hir"
 version = "0.1.0"
 dependencies = [
@@ -614,6 +624,7 @@ dependencies = [
  "kagari-common",
  "kagari-compiler",
  "kagari-contract",
+ "kagari-derive",
  "kagari-hir",
  "kagari-mir",
  "kagari-source",

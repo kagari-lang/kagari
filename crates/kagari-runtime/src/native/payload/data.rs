@@ -1,5 +1,8 @@
 //! Fixed-size Rust data that cannot retain script or executable graph edges.
-use crate::{native::storage::NativePayload, value::Value};
+use crate::{
+    native::storage::{NativePayload, NativeStorage},
+    value::Value,
+};
 use std::{fmt::Debug, mem::size_of};
 
 /// Data supported by direct native editing. Prefer `native_data!` for structs.
@@ -62,6 +65,10 @@ impl<T: NativeData> NativePayload for T {
 
     fn units(&self) -> usize {
         size_of::<T>().div_ceil(size_of::<usize>())
+    }
+
+    fn registration_storage() -> NativeStorage {
+        NativeStorage::data::<T>()
     }
 }
 

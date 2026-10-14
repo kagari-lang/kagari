@@ -39,6 +39,16 @@ pub trait NativePayload: Any + Debug + Send {
 
     /// Logical heap units retained by the payload, excluding its object header.
     fn units(&self) -> usize;
+
+    /// Local storage policy for automatic Opaque schema registration. The default
+    /// grants traced read access only. Explicit take/data policies must carry their
+    /// existing capability proof; the registration owner checks the Rust identity.
+    fn registration_storage() -> NativeStorage
+    where
+        Self: Sized,
+    {
+        NativeStorage::payload::<Self>()
+    }
 }
 
 pub struct StorageContext<'call> {

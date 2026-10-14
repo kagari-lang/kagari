@@ -83,32 +83,27 @@ typed-path protections remain in force.
 
 ## Current implementation boundary
 
-The [host interop specification](spec/host-interop.md) already separates portable
-declarations from runtime bindings. The following are useful foundations, not
-proof that this proposed SDK exists:
+The combined implementation now includes ordinary transactional schema graphs,
+rooted nominal DTO conversion, runtime-owned Opaque with atomic take, checked
+lifetime-aware methods, branded external whole-object scopes and the interpreter's
+scoped entry. Dedicated `kagari-derive::KagariValue` generates finite named structs
+and unit/tuple enums through that same schema/conversion owner. Automatic
+`register_type::<Opaque<T>>()` registers an explicit NativePayload storage policy,
+checks its Rust identity and maps only the Opaque wrapper to the module's nominal
+declaration. NativeData's existing proof grants its data/take flags; the default
+payload factory grants read-only traced storage. No Rust method or trait is inferred.
+Serde, ordinary Struct lending, generated projections, mixed loans and final SDK/
+legacy integration remain in RI04/RF04/RF05. The historical inventory below is the
+activation baseline, not a claim that these newer checkpoints remain unimplemented.
 
-- [Host value declarations](../crates/kagari-types/src/host_interface/value_type.rs)
-  include primitives, containers and opaque declaration identities, but not a
-  complete portable ordinary struct/enum binding model for this proposal.
-- [Type and member declarations](../crates/kagari-types/src/host_interface/type_declaration.rs)
-  describe fields and methods; method contracts include a typed receiver.
-- [Host handles and callbacks](../crates/kagari-runtime/src/host.rs) provide nominal
-  type and registry checks. Current callbacks receive low-level script values.
-- [Root registration](../crates/kagari-runtime/src/host/registry.rs) records handle
-  information. It does not itself store and retain an arbitrary Rust `T`.
-- [NativeObject/NativeType](../crates/kagari-runtime/src/native/payload/mod.rs)
-  already provide runtime-owned payload construction, roots and closure-based read;
-  NativeData enables limited direct edit. Reuse these instead of the external host
-  registry as the storage owner. General extraction and the proposed facade remain
-  unimplemented.
-- The [host interface example](../crates/kagari/examples/host_interfaces.rs)
-  separates offline compilation and runtime implementation installation.
-  [Integration tests](../crates/kagari/tests/host_interfaces.rs) cover existing
-  rooted interface behavior including GC, reentry and reload.
-
-DTO derives, Serde, the new facade and lifetime-aware method adapters need work;
-ordinary typed adapters and runtime-owned storage already exist. Do not infer the
-new API from `HostTypeOwnership` or reinterpret non-owning host handles as owners.
+Current owners are the [schema graph](../crates/kagari-runtime/src/native/schema.rs),
+[rooted conversions](../crates/kagari-runtime/src/native/conversion/context.rs),
+[Opaque storage](../crates/kagari-runtime/src/native/payload/mod.rs),
+[branded scope](../crates/kagari-runtime/src/host_scope/scoped.rs) and the
+[common lifetime-aware adapter](../crates/kagari-runtime/src/native/typed/loans.rs).
+The existing live-host interface/path consumers retain their checked behavior until
+RF05 migrates them and HR03 removes their obsolete registration aggregation.
+Neither HostTypeOwnership nor an ordinary GC DTO grants a Rust reference.
 
 ## One type mapping and conversion boundary
 
@@ -329,9 +324,9 @@ This uses the existing
 [Opaque/NativeType storage and access](../crates/kagari-runtime/src/native/payload/mod.rs).
 The public NativeObject handle and create_native constructor have been replaced
 directly, without compatibility aliases. Construction, checked read, fixed-data
-edit and explicitly edge-free take are implemented. Borrowed method adapters still
-belong to RI03 and RF02–RF05; HR registration and RF reference phases retain their
-distinct acceptance gates.
+edit and explicitly edge-free take are implemented. Shared/mutable method adapters now reuse the common checked bind and invocation
+owner across Opaque and scoped external storage. Field/path integration and HR
+registration retirement retain their RF/HR acceptance gates.
 
 ### Relationship to Ref and RefMut
 
@@ -933,6 +928,47 @@ Clippy, structure, formatting and diff checks passed. These checks establish the
 runtime-owned RI03 gate; shared Ref/RefMut transport, root/path loans, mixed borrowed
 packs and final source-free integration remain RF02-RF05. No new unsafe projection
 is introduced; projector Miri and exhaustive matrices retain their RF/CI owners.
+
+### RI04 checkpoint: dedicated DTO derive and automatic Opaque dependencies
+
+The new proc-macro crate generates finite named structs and unit/tuple enums through
+TypeRegistration and existing rooted struct/variant converters. It depends on Rust
+syntax/token libraries only; the executable/runtime production graph does not
+depend on a derive or frontend. Rust definitions in the embedding consumer supply
+short names (optionally `#[kagari(name = "ShortName")]`), schemas and conversion.
+The module still owns namespace and catalog-local identity. No methods/traits or
+Rust references to ordinary GC objects are inferred.
+
+NativePayload supplies a checked local `registration_storage` policy for automatic
+Opaque dependencies. Default traced payloads grant read access; NativeData's existing
+unsafe proof selects data/take storage. Manual NativeTake payloads may select their
+explicit takeable factory. Registration rejects a factory with a different Rust
+payload identity atomically. Opaque's contextual checks remain available for explicit
+generic native applications; automatic DTO fields reuse the wrapper's catalog
+mapping. This replaces the earlier always-error schema hook without introducing
+another registry, public handle alias or GC object model.
+
+The existing recursive Tree and Choice fixtures now use the derive; Leaf retains
+its custom converter because it owns alias-mutation and child-unwind coverage.
+Focused recursive DTO/enum conversion, schema rendering and snapshot/unwind tests
+passed. Mixed DTO conversion with an Opaque child preserves the same payload, data
+editing and all-alias invalidation after take; wrong factory identity rejects without
+publishing a mapping. Eight production compile-fail doctests reject generic/borrowed,
+tuple/packed/union/record-enum and unsupported scalar forms. Initial test placement
+used the wrong integration-root module path; fixed with the ordinary nested owner.
+A first test-name filter selected zero tests; the actual nested DTO test was run and
+passed. Structure initially found qualified import paths; they were corrected.
+Scoped derive/runtime lib/schema Clippy and consumer-example Clippy passed.
+
+`cargo run -p kagari --example value_interop` passed, printing
+`Applied(Response { amount: 40 })`. This embedding consumer defines its own DTOs,
+enum and Opaque payload, compiles/loads an artifact and uses the ordinary typed
+call boundary. The example and mixed test require no new core type switches.
+Dedicated derive output does not yet supply inline projector facts. Optional Serde,
+ordinary Struct lending and projector integration remain RI04/RF04; RI04 stays open.
+The earlier whole-object Miri selection is still running under RF03, without a
+passing result. No generated unsafe projection exists in this derive slice. Full
+workspace/feature/backend/platform validation remains CI-owned.
 
 ## Acceptance and verification
 

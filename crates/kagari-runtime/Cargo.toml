@@ -19,6 +19,7 @@ kagari-common.workspace = true
 kagari-bytecode.workspace = true
 
 [dev-dependencies]
+kagari-derive.workspace = true
 kagari-stdlib.workspace = true
 kagari-hir.workspace = true
 kagari-source.workspace = true
