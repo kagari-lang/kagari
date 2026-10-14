@@ -29,8 +29,9 @@ implemented inputs from pending compiler/runtime integration; publication is not
   evidence of an implemented general package manager.
 - General packages use common identities and source handoff; native declaration
   installation is a separate boundary, not an implicit package privilege.
-- Script workspaces are not implemented. The repository's Cargo workspace groups
-  Kagari's Rust implementation crates, not user script packages.
+- Script workspace discovery and selection are implemented in `kagari-package`;
+  graph locking and compiler integration remain pending. The repository's Cargo
+  workspace groups Kagari's Rust implementation crates, not user script packages.
 
 Re-audit these foundations at activation. Existing specifications govern until
 an implementation updates them.
@@ -208,6 +209,7 @@ and [manifest structure](https://doc.rust-lang.org/cargo/reference/manifest.html
 ```toml
 [package]
 name = "gameplay"
+namespace = "example/gameplay"
 version = "1.0.0"
 root = "src/lib.kgr"
 
@@ -254,6 +256,7 @@ for the reference model; Kagari does not promise full Cargo manifest compatibili
 ```toml
 # game/Kagari.toml
 [workspace]
+namespace = "example/game"
 members = ["gameplay", "combat", "shared"]
 default-members = ["gameplay"]
 
@@ -578,7 +581,7 @@ separate queued scope; do not pull them into PK03 through generic "CLI integrati
   choices. Map existing nonempty-root, global-alias and import-closure consumers;
   select focused tests and artifact changes. Exit with concrete input/export models,
   migration owners and acceptance examples, not just a manifest sketch.
-- [ ] PK01: Normalize package/workspace manifests and virtual inputs using the adopted
+- [x] PK01: Normalize package/workspace manifests and virtual inputs using the adopted
   discovery, selection and inheritance rules. Produce deterministic module maps and
   dependency requirements with diagnostic origins. Test path bases, membership,
   conflicting definitions and virtual/path equivalence without invoking the VM.
@@ -609,7 +612,9 @@ fallback to cwd, an absolute checkout path, random process ID or display name.
 is normalized relative to that namespace's acquisition root. A domain-separated
 BLAKE3 hash of length-delimited fields becomes `PackageId("source-package:<hex>")`.
 Moving the whole root preserves identity; moving a package within it changes its
-family. Installed provider identity collisions are rejected during handoff; choosing
+family. Explicit external members retain a normalized relative locator such as
+`../external`; this logical locator does not authorize IO outside the approved root.
+Installed provider identity collisions are rejected during handoff; choosing
 a source namespace never installs native APIs or confers provider privileges.
 
 `PackageSelection { family, version, revision }` is the graph node identity.
@@ -668,16 +673,29 @@ No format/ABI version bump is needed for these unpublished development changes.
   executable validation, SDK/CLI and existing snapshot/reload tests. Froze the
   contracts above after the user's namespace decision. Activated only PK00-PK04;
   SDK renaming, remote acquisition, broader tooling and publication remain queued.
-- PK01 in progress: added the compilation-only `kagari-package` crate with strict
-  bounded manifest parsing, explicit dependency inheritance/path bases, virtual
-  sources, bounded filesystem reads and declared inline/external module discovery.
-  Six input contract tests passed, including disk/virtual equivalence and portable
-  family identity. Scoped all-targets Clippy, formatting, full structural scan and
-  diff checks passed. The structural scan identified a TOML helper import; fixed
-  it with an explicit module-scope import and reran the scan. Workspace discovery/selection
-  remains next; compiler/runtime behavior is not yet changed. Filesystem reads reject
-  canonical symlink escapes and assume host-controlled concurrent mutations; they
-  are not an OS sandbox. Platform symlink fixtures remain in PK01 acceptance.
+- 2026-10-14: PK01 complete. `kagari-package` normalizes strict bounded manifests,
+  explicit dependency inheritance/path bases, virtual and bounded filesystem inputs,
+  portable family identity and declared inline/external module trees. Workspace
+  discovery covers roots, virtual workspaces, member/default/exclude globs, explicit
+  external association, parent discovery, nested-root rejection, auto-members and
+  duplicate physical manifests. Namespace disagreements fail before input publication.
+  Filesystem canonicalization assumes host-controlled concurrent mutations; this
+  acquisition policy is not an OS sandbox.
+- PK01 validation: 17 distinct tests passed across `--test inputs` and
+  `--test workspace`, including disk/virtual relocation, unselected manifest errors,
+  directory/module limits and cancellation. The final two physical-alias tests were
+  run with the `physical` filter after a Windows test-helper repair. Windows requires
+  privilege for true symlinks, so local tests use directory junctions to prove escape
+  rejection and duplicate canonical source/manifest detection. Unix symlink coverage
+  remains CI-only. Scoped all-targets Clippy, structural scan, formatting and diff
+  checks passed. No whole-workspace Cargo suite was run.
+- PK01 review repairs: recursive glob depth exhaustion now fails instead of returning
+  partial membership. Clippy's `manual_contains` was fixed. Initial physical-link
+  fixtures failed with Windows error 123 because Windows PowerShell's junction cmdlet
+  cannot consume verbatim `\\?\` targets; normalize only the test helper's arguments
+  and retain canonical paths in production. Both affected cases then passed.
+- Next: PK02 whole-workspace exact graph, lock and immutable source capture. These
+  input APIs are not yet connected to HIR, artifacts, SDK or CLI; those remain PK03.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.

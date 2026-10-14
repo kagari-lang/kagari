@@ -27,11 +27,7 @@ impl PackageFamily {
                 "invalid family package name",
             ));
         }
-        let directory = path::join(
-            "",
-            if directory.is_empty() { "." } else { directory },
-            namespace,
-        )?;
+        let directory = path::locator(directory, namespace)?;
         Ok(Self {
             namespace: namespace.into(),
             directory,

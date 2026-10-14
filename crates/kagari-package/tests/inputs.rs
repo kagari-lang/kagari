@@ -1,3 +1,5 @@
+mod support;
+
 use kagari_common::cancellation::CancellationToken;
 use kagari_package::{
     error::PackageError,
@@ -6,14 +8,8 @@ use kagari_package::{
     manifest::{DependencySource, Inheritance, Manifest},
     modules::{ModuleLimits, ModuleTree, VirtualSources},
 };
-use std::{
-    fs,
-    path::PathBuf,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-};
+use std::{fs, sync::Arc};
+use support::{link_directory, scratch};
 
 fn manifest(text: &str) -> Manifest {
     Manifest::parse("Kagari.toml", text, &CancellationToken::default()).unwrap()
@@ -286,19 +282,6 @@ fn input_paths_limits_and_cancellation_are_enforced_before_publication() {
     ));
 }
 
-fn scratch() -> PathBuf {
-    static NEXT: AtomicU64 = AtomicU64::new(0);
-    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../target/package-inputs")
-        .join(format!(
-            "{}-{}",
-            std::process::id(),
-            NEXT.fetch_add(1, Ordering::Relaxed)
-        ));
-    fs::create_dir_all(&root).unwrap();
-    root.canonicalize().unwrap()
-}
-
 #[test]
 fn filesystem_and_virtual_inputs_preserve_portable_module_identity_after_relocation() {
     let cancel = CancellationToken::default();
@@ -367,4 +350,36 @@ fn filesystem_and_virtual_inputs_preserve_portable_module_identity_after_relocat
     );
     assert!(source_namespace(Some("example/game"), Some("other/game")).is_err());
     assert!(source_namespace(None, None).is_err());
+}
+
+#[test]
+fn filesystem_rejects_escaped_links_and_duplicate_physical_module_sources() {
+    let root = scratch();
+    let outside = scratch();
+    fs::create_dir(root.join("shared")).unwrap();
+    fs::write(root.join("shared/mod.kgr"), "").unwrap();
+    fs::write(outside.join("mod.kgr"), "").unwrap();
+    link_directory(&outside, &root.join("escape")).unwrap();
+    let provider = FilesystemSources::new(&root).unwrap();
+    assert!(
+        provider
+            .canonical_path("escape/mod.kgr")
+            .unwrap_err()
+            .to_string()
+            .contains("escapes")
+    );
+    link_directory(&root.join("shared"), &root.join("one")).unwrap();
+    link_directory(&root.join("shared"), &root.join("two")).unwrap();
+    fs::write(root.join("lib.kgr"), "mod one; mod two;").unwrap();
+    let error = ModuleTree::load(
+        &provider,
+        "lib.kgr",
+        ModuleLimits::default(),
+        &CancellationToken::default(),
+    )
+    .unwrap_err();
+    assert!(
+        error.to_string().contains("source already assigned"),
+        "{error}"
+    );
 }

@@ -36,7 +36,7 @@ pub trait SourceInput {
 /// Host-owned source collection with canonical, relative, slash-separated keys.
 #[derive(Debug, Clone, Default)]
 pub struct VirtualSources {
-    files: BTreeMap<String, Arc<str>>,
+    pub(crate) files: BTreeMap<String, Arc<str>>,
 }
 
 impl VirtualSources {

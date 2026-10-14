@@ -25,10 +25,11 @@ These capabilities are foundations to reuse, not migrations to replay.
 ## Source packages and workspaces
 
 [PK00-PK04](package-design.md) are active following the 2026-10-14 implementation
-request. PK00 freezes portable identities, acquisition/analysis input ownership,
-empty roots and host-callable export contracts. PK01 is implementing strict local
-and virtual inputs; workspace discovery, shared locking and staged compiler/SDK/CLI
-integration follow in the same plan. Source distribution and joint compilation,
+request. PK00 froze portable identities, acquisition/analysis input ownership,
+empty roots and host-callable export contracts. PK01 completed strict local/virtual
+inputs and workspace discovery/selection, with 17 focused contract tests passing.
+PK02 shared locking and PK03 compiler/SDK/CLI integration follow in the same plan.
+Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,
 multiple executable targets, SDK renaming, broader tooling and publication remain

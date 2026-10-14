@@ -1,11 +1,12 @@
 use crate::{
     error::PackageError,
+    input::InputTree,
     modules::{SourceInput, SourceText},
     path,
 };
 use kagari_common::cancellation::CancellationToken;
 use std::{
-    fs::File,
+    fs::{self, File},
     io::{self, ErrorKind, Read},
     path::{Path, PathBuf},
     sync::Arc,
@@ -19,6 +20,49 @@ use std::{
 #[derive(Debug, Clone)]
 pub struct FilesystemSources {
     root: PathBuf,
+}
+
+impl InputTree for FilesystemSources {
+    fn directories(
+        &self,
+        directory: &str,
+        max_entries: usize,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, PackageError> {
+        cancel.check()?;
+        let Some(canonical) =
+            self.canonical_path(if directory.is_empty() { "." } else { directory })?
+        else {
+            return Ok(Vec::new());
+        };
+        let origin = canonical.display().to_string();
+        let entries = fs::read_dir(canonical)
+            .map_err(|error| PackageError::input(&origin, error.to_string()))?;
+        let mut directories = Vec::new();
+        for (visited, entry) in entries.enumerate() {
+            cancel.check()?;
+            if visited >= max_entries {
+                return Err(PackageError::input(
+                    &origin,
+                    "directory discovery exceeds limit",
+                ));
+            }
+            let entry = entry.map_err(|error| PackageError::input(&origin, error.to_string()))?;
+            let name = entry
+                .file_name()
+                .into_string()
+                .map_err(|_| PackageError::input(&origin, "non-UTF-8 input name"))?;
+            let relative = path::join(directory, &name, &origin)?;
+            if let Some(canonical) = self.canonical_path(&relative)?
+                && canonical.is_dir()
+            {
+                directories.push(name);
+            }
+        }
+        directories.sort();
+        cancel.check()?;
+        Ok(directories)
+    }
 }
 
 impl FilesystemSources {
