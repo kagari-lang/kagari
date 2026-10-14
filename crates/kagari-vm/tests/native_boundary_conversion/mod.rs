@@ -173,7 +173,7 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
                         .parameter("suffix", <(String, String)>::kagari_type(&catalog)?)
                         .returns(String::kagari_type(&catalog)?),
                 )?;
-                methods.bind_with(method, binding)
+                methods.bind(method, binding)
             })
         })
         .unwrap();

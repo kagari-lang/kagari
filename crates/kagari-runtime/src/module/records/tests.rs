@@ -32,7 +32,7 @@ fn fixture() -> (Runtime, LoadedModule, DefinitionMetadata<BytecodeProgram>) {
         .define_function(FunctionDecl::new("read").returns(Type::i32()))
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             function,
             NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(3))),
         )

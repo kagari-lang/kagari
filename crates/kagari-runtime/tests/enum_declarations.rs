@@ -306,7 +306,7 @@ fn declared_native_enum_signatures_reject_missing_provider_contracts() {
         ))
         .unwrap();
     module
-        .bind_with(
+        .bind(
             function,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
         )

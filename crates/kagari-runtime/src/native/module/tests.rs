@@ -148,7 +148,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
         )
         .unwrap();
     consumer
-        .bind_with(
+        .bind(
             inspect,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
         )
@@ -157,7 +157,7 @@ fn binding_specific_foreign_dependencies_do_not_leak_to_other_bindings() {
         .define_function(FunctionDecl::new("local"))
         .unwrap();
     consumer
-        .bind_with(
+        .bind(
             local,
             NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::Unit)),
         )
@@ -205,7 +205,7 @@ fn application(names: &[&str]) -> NativeModule {
             .define_function(FunctionDecl::new(*name).returns(Type::i32()))
             .unwrap();
         module
-            .bind_with(
+            .bind(
                 function,
                 NativeBinding::new(vec![], Codec::Exact(Type::i32()), |_| Ok(Value::I32(42))),
             )

@@ -602,7 +602,7 @@ Standard-library pop/remove additionally preserve their specified preparation of
 Option results before committing the removal.
 
 Preauthored native catalogs can use `NativeBinding::declared` and
-`SelectedCall::from_declaration`; ordinary registration uses `bind_typed` and
+`SelectedCall::from_declaration`; ordinary registration uses `bind` and
 FunctionBuilder::requires. Both consume the same validated declaration, scope and
 selected-operation machinery. RootedCallable is removed; independently retained
 host callbacks use PinnedFunction. CallContext, borrowed native views and traced

@@ -314,8 +314,8 @@ without a traversal-order guarantee. Collection and String behavior lives in
 [collection access](spec/collection-access.md) and [builtins](spec/builtins.md).
 
 Application and library modules use explicit ModuleBuilder declarations and
-scoped implementation blocks. `bind` checks Rust codecs against Kagari signatures;
-`bind_with` supplies explicit codecs. Rust signatures do not infer Kagari traits.
+scoped implementation blocks. `bind` selects raw/primitive, flat call-context or owned typed adapters against
+the same authored Kagari signature. Rust signatures do not infer Kagari traits.
 `finish` checks the declaration/binding/storage closure; installation validates
 dependencies and publishes atomically. Runtime construction starts empty. Engine
 construction explicitly installs standard modules through the same builder path

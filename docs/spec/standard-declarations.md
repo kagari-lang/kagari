@@ -173,10 +173,11 @@ fn module() -> NativeResult<NativeModule> {
 }
 ```
 
-`bind` checks supported argument/result codecs against the declared Kagari
-signature. `bind_with` accepts explicit codecs for cases requiring additional
-control. Both produce the same prepared native binding; neither infers Kagari
-traits, impls or generic constraints from Rust definitions.
+`bind` accepts an explicit raw/primitive binding, a flat call-context entry or
+an owned typed callback. Adapter selection retains the authored Kagari signature;
+all forms use its binding validator and contextual entries check each concrete
+application before conversion effects. Rust definitions never infer Kagari
+traits, impls or generic constraints.
 
 Registration checks ownership, generic scope, complete trait method coverage,
 substituted signatures and storage compatibility before publishing a module.
@@ -331,7 +332,7 @@ builders leave the fact false. Equality, hashing and payload access ignore it.
 
 Try and FromResidual are ordinary registered traits; their standard bodies live
 in the library alongside the carrier declarations. A native carrier uses
-`ModuleBuilder::implement`, `trait_impl`, `associated_type` and `bind_with`, just
+`ModuleBuilder::implement`, `trait_impl`, `associated_type` and `bind`, just
 like other trait implementations. `CallContext::type_parameter` retains the
 selected result's executable scope when constructing its nested residual.
 Result FromResidual declares a checked F: From<E> callable requirement. Static

@@ -118,7 +118,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         .unwrap();
     let stored = held.clone();
     builder
-        .bind_typed(
+        .bind(
             remember,
             move |_: &mut NativeContext<'_>, (callback,): (Callback,)| -> NativeResult<()> {
                 *stored.lock().unwrap() = Some(callback);
@@ -135,7 +135,7 @@ fn retained_host_callbacks_pin_their_capture_program_across_reload() {
         .unwrap();
     let current = held.clone();
     builder
-        .bind_typed(
+        .bind(
             invoke,
             move |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<i32> {
                 let callback = current.lock().unwrap().as_ref().unwrap().clone();

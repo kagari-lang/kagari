@@ -447,8 +447,8 @@ full declaration identity, including the `FunctionRef::id()` returned by native
 registration, without a name lookup. Same Rust payload types do not make different
 nominal applications or program generations interchangeable.
 
-Native inherent registration uses `InherentMethodsBuilder::bind_typed_method` for
-`Fn(&mut NativeContext, receiver, arguments)` callbacks and `bind_typed` for static
+Native inherent registration uses `InherentMethodsBuilder::bind` for
+`Fn(&mut NativeContext, receiver, arguments)` callbacks and `bind` for static
 members or complete argument tuples. `method(&reference, configure)` supplies the
 ordinary `FunctionBuilder` for method-local parameters, bounds, concrete interface
 results and selected callable requirements. Impl parameters precede method-local
@@ -751,7 +751,7 @@ execution does not perform open-ended trait search.
 
 For a native generic function, `FunctionBuilder::requires` returns an opaque
 `SelectedCall` token tied to the authoring declaration. Bind the callback with
-`ModuleBuilder::bind_typed`; its tuple mappings are checked against the concrete
+`ModuleBuilder::bind`; its tuple mappings are checked against the concrete
 invocation before converters or callback effects. Within that callback:
 
 ```rust
@@ -766,7 +766,7 @@ signature: instance operations include the receiver first; static operations hav
 only their declared arguments. Prepared primitive operations use the same typed
 conversion and execution policy. Source checking supplies all selection evidence.
 A token from another declaration is rejected even if its internal ordinal matches.
-Typed native trait defaults use `TraitBuilder::bind_default_method`, whose Rust
+Typed native trait defaults use `TraitBuilder::bind`, whose Rust
 callback receives `(cx, receiver, argument_tuple)` separately; its tokens keep the
 authored method identity when the body lowers to a private native function.
 

@@ -39,7 +39,7 @@ fn engine() -> KagariEngine {
         })
         .unwrap();
     module
-        .bind_with(
+        .bind(
             singleton,
             NativeBinding::new([Codec::Value], Codec::MutableSequence, |call| {
                 call.allocate_vec(call.result_type_parameter(0)?, vec![call.argument(0)?])
@@ -58,7 +58,7 @@ fn engine() -> KagariEngine {
         })
         .unwrap();
     module
-        .bind_with(
+        .bind(
             wrong,
             NativeBinding::new([], Codec::Value, |_| Ok(Value::I32(42))),
         )
@@ -75,7 +75,7 @@ fn engine() -> KagariEngine {
         })
         .unwrap();
     factory
-        .bind_default_with(
+        .bind(
             one,
             NativeBinding::new(
                 [Codec::Value, Codec::Value],
@@ -270,7 +270,7 @@ fn native_registration_rejects_an_unimplemented_result_interface() {
         })
         .unwrap();
     module
-        .bind_with(
+        .bind(
             function,
             NativeBinding::new([], Codec::Value, |_| Ok(Value::I32(42))),
         )

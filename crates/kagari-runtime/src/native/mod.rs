@@ -1,4 +1,5 @@
 //! Explicit declarations, checked Rust bindings and cold native producers.
+pub mod adapter;
 pub(crate) mod application;
 pub mod arguments;
 pub mod binding;

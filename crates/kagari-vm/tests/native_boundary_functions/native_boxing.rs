@@ -85,7 +85,7 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
         )
         .unwrap();
     module
-        .bind_with(
+        .bind(
             through,
             NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), |cx| {
                 let callback = cx.callable(0)?;

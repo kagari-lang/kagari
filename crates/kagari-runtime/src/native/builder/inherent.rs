@@ -2,11 +2,9 @@
 use crate::{
     error::RuntimeError,
     native::{
+        adapter::NativeAdapter,
         binding::{Codec, NativeBinding, NativeResult},
-        conversion::{FromKagari, IntoKagari, arguments::FromKagariArguments},
         declarations::{FunctionBuilder, MethodDecl, normalize_bounds},
-        functions::NativeFunction,
-        typed::NativeContext,
         types::{FunctionRef, Type},
     },
 };
@@ -76,59 +74,16 @@ impl InherentMethodsBuilder {
         Ok(result)
     }
 
-    /// Bind a typed entry against the declared signature, including generic types.
-    pub fn bind_typed<A: FromKagariArguments, R: IntoKagari>(
+    /// Select one callback adapter against the authored method signature.
+    pub fn bind<M, R>(
         &mut self,
         method: FunctionRef,
-        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
-        + Send
-        + Sync
-        + 'static,
+        entry: impl NativeAdapter<M, R>,
     ) -> NativeResult<()> {
         let signature = self.methods.get(&method.id).ok_or_else(|| {
             RuntimeError::metadata_conflict("unknown inherent method declaration")
         })?;
-        let arity = signature.params.len();
-        self.bind_with(method, NativeBinding::contextual(arity, entry))
-    }
-
-    /// Bind an instance entry with its receiver separate from the argument tuple.
-    pub fn bind_typed_method<S: FromKagari, A: FromKagariArguments, R: IntoKagari>(
-        &mut self,
-        method: FunctionRef,
-        entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>
-        + Send
-        + Sync
-        + 'static,
-    ) -> NativeResult<()> {
-        let signature = self.methods.get(&method.id).ok_or_else(|| {
-            RuntimeError::metadata_conflict("unknown inherent method declaration")
-        })?;
-        if !signature
-            .params
-            .first()
-            .is_some_and(|param| param.name == "self")
-        {
-            return Err(RuntimeError::metadata_conflict(
-                "typed method requires a receiver",
-            ));
-        }
-        let arity = signature.params.len();
-        self.bind_with(method, NativeBinding::contextual_method(arity, entry))
-    }
-
-    pub fn bind<A, R>(
-        &mut self,
-        method: FunctionRef,
-        entry: impl NativeFunction<A, R>,
-    ) -> NativeResult<()> {
-        self.bind_with(method, entry.binding())
-    }
-
-    pub fn bind_with(&mut self, method: FunctionRef, binding: NativeBinding) -> NativeResult<()> {
-        let signature = self.methods.get(&method.id).ok_or_else(|| {
-            RuntimeError::metadata_conflict("unknown inherent method declaration")
-        })?;
+        let binding = entry.prepare(signature)?;
         if signature
             .params
             .first()

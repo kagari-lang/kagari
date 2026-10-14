@@ -266,7 +266,7 @@ fn selected_script_callbacks_return_directly_to_a_rust_loop() {
         })
         .unwrap();
     module
-        .bind_with(
+        .bind(
             repeat,
             NativeBinding::new(
                 vec![Codec::Value, Codec::Exact(Type::i32())],
@@ -366,7 +366,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         .define_function(FunctionDecl::new("new").returns(ty.clone()))
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             new,
             NativeBinding::new(vec![], counter.codec(), |context| context.allocate_result()),
         )
@@ -379,7 +379,7 @@ fn registered_nominal_payload_traces_children_and_drops_with_the_heap() {
         )
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             read,
             NativeBinding::new(
                 vec![counter.codec()],
@@ -453,7 +453,7 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
             group.inherent_impl(|methods| {
                 let new =
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
-                methods.bind_with(
+                methods.bind(
                     new,
                     NativeBinding::new(vec![], buffer.codec(), |context| context.allocate_result()),
                 )
@@ -468,7 +468,7 @@ fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
         )
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             push,
             NativeBinding::new(
                 vec![buffer.codec(), Codec::Exact(Type::i32())],
@@ -543,7 +543,7 @@ fn default_array_literals_repeats_and_empty_arrays_use_contiguous_scalar_storage
         )
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             probe,
             NativeBinding::new(vec![Codec::Sequence], Codec::Exact(Type::i32()), |cx| {
                 assert!(cx.with_sequence::<u32, _>(0, |_| Ok(())).is_err());
@@ -816,7 +816,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
                 .unwrap();
             let count = calls.clone();
             builder
-                .bind_with(
+                .bind(
                     function,
                     NativeBinding::new(
                         vec![Codec::Sequence],
@@ -1040,7 +1040,7 @@ fn native_cursor_keeps_its_source_alive_and_shares_position_across_calls() {
     let slot = Arc::new(Mutex::new(None::<kagari_runtime::gc::roots::RootedValue>));
     let capture = slot.clone();
     builder
-        .bind_with(
+        .bind(
             hold,
             NativeBinding::new(vec![], Codec::Iterator, move |cx| {
                 capture
@@ -1124,7 +1124,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .unwrap();
     let capture = dropped.clone();
     builder
-        .bind_with(
+        .bind(
             new,
             NativeBinding::new(vec![Codec::Sequence], counter.codec(), move |cx| {
                 cx.allocate_result_payload(
@@ -1141,7 +1141,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         .define_function(FunctionDecl::new("missing_payload").returns(ty.clone()))
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             wrong,
             NativeBinding::new(vec![], counter.codec(), |cx| cx.allocate_result()),
         )
@@ -1154,7 +1154,7 @@ fn native_constructor_supplies_a_traced_payload_without_a_default_factory() {
         )
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             read,
             NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
                 cx.with_payload::<TracedCounter, _>(0, |payload| {

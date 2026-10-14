@@ -72,7 +72,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             .method(&twice, |method| method.requires(required))
             .unwrap();
         declaration
-            .bind_default_with(
+            .bind(
                 twice,
                 NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
                     let receiver = cx.argument(0)?;

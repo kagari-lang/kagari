@@ -76,7 +76,7 @@ fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity(
         )
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             update,
             |cx: &mut NativeContext<'_>, (mut packet,): (Packet,)| -> NativeResult<Packet> {
                 packet.hp += 1;

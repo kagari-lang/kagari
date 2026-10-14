@@ -54,9 +54,9 @@ fn explicit_binding_uses_the_same_signature_check() {
         .define_function(FunctionDecl::new("count").returns(Type::usize()))
         .unwrap();
     let wrong = NativeBinding::new(vec![], Codec::Exact(Type::u64()), |_| Ok(Value::U64(0)));
-    assert!(module.bind_with(function.clone(), wrong).is_err());
+    assert!(module.bind(function.clone(), wrong).is_err());
     let right = NativeBinding::new(vec![], Codec::Exact(Type::usize()), |_| Ok(Value::U64(0)));
-    module.bind_with(function, right).unwrap();
+    module.bind(function, right).unwrap();
     module.finish().unwrap();
 }
 
@@ -93,7 +93,7 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
             .contains("codec")
     );
     module
-        .bind_with(
+        .bind(
             len,
             NativeBinding::new(vec![opaque.codec()], Codec::Exact(Type::usize()), |_| {
                 Ok(Value::U64(0))
@@ -189,13 +189,13 @@ fn generic_receiver_groups_emit_independent_impl_binders() {
             let item = group.parameter("T")?.ty();
             group.receiver_codec(buffer.codec())?;
             group.trait_impl(read.apply([item.clone()])?, |methods| {
-                methods.bind_with(
+                methods.bind(
                     "read",
                     NativeBinding::new(vec![buffer.codec()], Codec::Value, |_| Ok(Value::I32(1))),
                 )
             })?;
             group.trait_impl(write.apply([item])?, |methods| {
-                methods.bind_with(
+                methods.bind(
                     "write",
                     NativeBinding::new(
                         vec![buffer.codec(), Codec::Value],
@@ -280,7 +280,7 @@ fn full_markdown_survives_builder_completion_and_cross_module_inheritance() {
                 methods.documentation("other", "Implementation-specific **override**.")?;
                 assert!(methods.documentation("missing", "invalid").is_err());
                 for method in ["read", "other"] {
-                    methods.bind_with(
+                    methods.bind(
                         method,
                         NativeBinding::new(vec![Codec::Value], Codec::Value, |_| {
                             Ok(Value::I32(42))
@@ -295,7 +295,7 @@ fn full_markdown_survives_builder_completion_and_cross_module_inheritance() {
                         .returns(Type::i32())
                         .documentation(markdown),
                 )?;
-                methods.bind_with(
+                methods.bind(
                     method,
                     NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::I32(42))),
                 )
@@ -381,7 +381,7 @@ fn scoped_type_inputs_preserve_snapshots_and_compare_complete_identity() {
         .unwrap();
     assert!(
         consumer
-            .bind_with(
+            .bind(
                 function.clone(),
                 NativeBinding::new(
                     vec![Codec::Exact(different)],
@@ -392,7 +392,7 @@ fn scoped_type_inputs_preserve_snapshots_and_compare_complete_identity() {
             .is_err()
     );
     consumer
-        .bind_with(
+        .bind(
             function,
             NativeBinding::new(
                 vec![Codec::Exact(exact)],
@@ -440,7 +440,7 @@ fn selected_callbacks_require_proven_declared_bounds() {
             })
             .unwrap();
         module
-            .bind_with(
+            .bind(
                 function,
                 NativeBinding::new(vec![Codec::Value], Codec::Value, |_| Ok(Value::Unit)),
             )
@@ -470,7 +470,7 @@ fn generic_default_is_derived_from_the_method_contract() {
         })
         .unwrap();
     declaration
-        .bind_default_with(
+        .bind(
             method,
             NativeBinding::new(
                 vec![Codec::Value, Codec::Value, Codec::Value],
@@ -519,7 +519,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
             })
             .unwrap();
         declaration
-            .bind_default_with(
+            .bind(
                 method.clone(),
                 NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |_| {
                     Ok(Value::Unit)
@@ -528,7 +528,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
             .unwrap();
         assert!(
             declaration
-                .bind_default_with(
+                .bind(
                     method,
                     NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |_| Ok(
                         Value::Unit
@@ -545,7 +545,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
         .define_method(MethodDecl::instance("count").returns(Type::usize()))
         .unwrap();
     declaration
-        .bind_default_with(
+        .bind(
             method,
             NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), |_| {
                 Ok(Value::I32(0))

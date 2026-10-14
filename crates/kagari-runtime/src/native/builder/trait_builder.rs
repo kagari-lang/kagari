@@ -2,12 +2,10 @@
 use crate::{
     error::RuntimeError,
     native::{
+        adapter::NativeAdapter,
         binding::{NativeBinding, NativeResult},
         builder::ModuleBuilder,
-        conversion::{FromKagari, IntoKagari, arguments::FromKagariArguments},
         declarations::{CallableRequirement, FunctionBuilder, MethodDecl, normalize_bounds},
-        functions::NativeFunction,
-        typed::NativeContext,
         types::{AppliedTrait, FunctionRef, ParameterRef, TraitRef, Type},
     },
 };
@@ -282,56 +280,12 @@ impl<'module> TraitBuilder<'module> {
         Ok(result)
     }
 
-    /// Bind a default body to the declared signature. The portable template is
-    /// derived at finalization, so its binders cannot drift from the method.
-    pub fn bind_default<A, R>(
+    /// Bind a default body against its declared signature through the common
+    /// adapter. Portable templates derive their binders from this same member.
+    pub fn bind<M, R>(
         &mut self,
         method: FunctionRef,
-        entry: impl NativeFunction<A, R>,
-    ) -> NativeResult<()> {
-        self.bind_default_with(method, entry.binding())
-    }
-
-    pub fn bind_default_with(
-        &mut self,
-        method: FunctionRef,
-        mut binding: NativeBinding,
-    ) -> NativeResult<()> {
-        if !self.declaration.methods.iter().any(|signature| {
-            ModuleDecl::method_id(
-                self.id,
-                &signature.name,
-                &self.module.providers.definitions(),
-            )
-            .ok()
-                == Some(method.id)
-        }) {
-            return Err(RuntimeError::metadata_conflict(
-                "unknown trait method declaration",
-            ));
-        }
-        if self.defaults.contains_key(&method.id) {
-            return Err(RuntimeError::metadata_conflict(
-                "duplicate trait default binding",
-            ));
-        }
-        // Lowering gives the body a private function identity. Requirement
-        // tokens continue to name the authored trait method.
-        binding.requirement_owner = Some((method.id, self.module.providers.definitions()));
-        self.defaults.insert(method.id, binding);
-        Ok(())
-    }
-
-    /// Bind an instance default against its declared, possibly generic signature.
-    /// The receiver is separate from the argument tuple. Concrete Rust mappings
-    /// are checked before callback effects.
-    pub fn bind_default_method<S: FromKagari, A: FromKagariArguments, R: IntoKagari>(
-        &mut self,
-        method: FunctionRef,
-        entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>
-        + Send
-        + Sync
-        + 'static,
+        entry: impl NativeAdapter<M, R>,
     ) -> NativeResult<()> {
         let signature = self
             .declaration
@@ -347,17 +301,17 @@ impl<'module> TraitBuilder<'module> {
                     == Some(method.id)
             })
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown trait method declaration"))?;
-        if !signature
-            .params
-            .first()
-            .is_some_and(|param| param.name == "self")
-        {
+        let mut binding = entry.prepare(signature)?;
+        if self.defaults.contains_key(&method.id) {
             return Err(RuntimeError::metadata_conflict(
-                "default requires an instance method",
+                "duplicate trait default binding",
             ));
         }
-        let arity = signature.params.len();
-        self.bind_default_with(method, NativeBinding::contextual_method(arity, entry))
+        // Lowering gives the body a private function identity. Requirement
+        // tokens continue to name the authored trait method.
+        binding.requirement_owner = Some((method.id, self.module.providers.definitions()));
+        self.defaults.insert(method.id, binding);
+        Ok(())
     }
 
     pub fn finish(mut self) -> NativeResult<TraitRef> {

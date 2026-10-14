@@ -2,9 +2,9 @@
 use crate::{
     error::RuntimeError,
     native::{
+        adapter::NativeAdapter,
         binding::{Codec, NativeBinding, NativeResult},
         builder::{ModuleBuilder, inherent::InherentMethodsBuilder},
-        functions::NativeFunction,
         types::{AppliedTrait, ParameterRef, Receiver, Type},
     },
 };
@@ -385,11 +385,7 @@ impl MethodsBuilder {
         Ok(())
     }
 
-    pub fn bind<A, R>(&mut self, name: &str, entry: impl NativeFunction<A, R>) -> NativeResult<()> {
-        self.bind_with(name, entry.binding())
-    }
-
-    pub fn bind_with(&mut self, name: &str, binding: NativeBinding) -> NativeResult<()> {
+    pub fn bind<M, R>(&mut self, name: &str, entry: impl NativeAdapter<M, R>) -> NativeResult<()> {
         let method = self
             .applied
             .contract
@@ -398,6 +394,7 @@ impl MethodsBuilder {
             .iter()
             .find(|method| method.name == name)
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?;
+        let binding = entry.prepare(method)?;
         let receiver = method
             .params
             .first()

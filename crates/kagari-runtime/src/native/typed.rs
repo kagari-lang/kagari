@@ -85,7 +85,7 @@ impl NativeBinding {
     /// Attach a typed callback to a preauthored declaration, including generic
     /// signatures. Module installation still validates the complete declaration
     /// and binding; every invocation checks concrete Rust mappings before effects.
-    /// Ordinary authored registrations should use ModuleBuilder::bind_typed.
+    /// Ordinary authored registrations should use ModuleBuilder::bind.
     pub fn declared<A: FromKagariArguments, R: IntoKagari>(
         declaration: &DefinitionMetadata<NativeDeclaration>,
         entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>

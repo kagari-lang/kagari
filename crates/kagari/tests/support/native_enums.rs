@@ -42,7 +42,7 @@ pub fn module() -> NativeResult<NativeModule> {
         let data = data.clone();
         let closed = closed.clone();
         let foreign = foreign.clone();
-        module.bind_with(
+        module.bind(
             function,
             NativeBinding::new(
                 [Codec::Value, Codec::Exact(Type::i32())],
@@ -84,7 +84,7 @@ pub fn module() -> NativeResult<NativeModule> {
         })?;
         let data = data.clone();
         let closed = closed.clone();
-        module.bind_with(
+        module.bind(
             function,
             NativeBinding::new([event.codec()], Codec::Value, move |call| {
                 call.collect_garbage()?;

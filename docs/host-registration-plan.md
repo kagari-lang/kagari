@@ -1,6 +1,6 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: active combined execution plan; HR01/RF01 proof and RI01-RI02 schema/conversion complete; HR02 unified registration follows. The user
+Status: active combined execution plan; HR01/RF01 proof and RI01-RI02 schema/conversion complete; HR02 unified bind implemented, declaration retirement is in progress. The user
 included Ref/RefMut in the same delivery as registration and Opaque. The
 [roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
 placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
@@ -293,7 +293,7 @@ Receiver tuple position does not define passing semantics. The reference
 declaration, lookup and borrowing requirements before reference implementation.
 
 Use the declaration-aware path currently implemented by
-[ModuleBuilder::bind_typed](../crates/kagari-runtime/src/native/builder.rs) and
+[ModuleBuilder::bind](../crates/kagari-runtime/src/native/builder.rs) and
 the contextual adapter in [typed bindings](../crates/kagari-runtime/src/native/typed.rs).
 Do not implement automatic wrapping by unconditionally calling the standalone
 `NativeBinding::typed(catalog, callback)` constructor: that constructor resolves
@@ -1042,7 +1042,7 @@ migration replaces registration ownership, not those services.
 
 | Existing owner/consumers | Destination and removal checkpoint |
 | --- | --- |
-| `native/builder.rs`, `builder/inherent.rs`, `builder/implementation.rs`; stdlib builders and application native modules | One declaration-aware `bind` adapter, retaining raw/primitive bindings and their allocation behavior. Consolidate `bind_with`, `bind_typed`, inferred FunctionSpec/add_function registration and receiver-separated typed helpers in HR02/RF05; remove the old public builder entrypoints by HR03. |
+| `native/builder.rs`, `builder/inherent.rs`, `builder/implementation.rs`; stdlib builders and application native modules | One declaration-aware `bind` adapter, retaining raw/primitive bindings and their allocation behavior. HR02 removed `bind_with`, `bind_typed`, receiver-separated typed registration and alternate default-body binding entrypoints; inferred FunctionSpec/add_function and standalone exact typed constructors remain for migration in the next HR02/HR03 slice. RF05 adds borrowed adapters to the same entrypoint. |
 | `native/conversion/`, `native/typed.rs`, `native/objects/` | RI01 schema registration and RI02 nominal conversion use existing TypeArgument, roots, depth/node/cycle limits and checked object layouts. RI04 derives project those same contracts. No second root or invocation implementation. |
 | `native/payload/`, `native/storage.rs`, `gc/native.rs` | RI03 renames the public NativeObject handle to Opaque directly, adds extraction capability and atomic heap removal, and reuses non-reentrant read/edit loans. Internal GC storage records remain private. |
 | `types/host_interface/`, HIR `host.rs`/`host/origin.rs`, SDK `engine/source.rs::set_host_interface` | General type/function/member/impl facts move to ordinary ModuleDecl/NativeDeclaration and generated registration views in HR02. Portable roots/path requirements remain checked until RF05 migrates them; standalone HostInterface bytes/aggregation retire in HR03. |
@@ -1104,6 +1104,32 @@ also passed: installed contextual generic mappings preserve object identity and
 reject an incompatible concrete application before callback effects. Final
 structure/format/diff checks passed. HR01/RF01's proof gate is complete; production
 schema, scope and adapter delivery remains in the subsequent combined phases.
+
+
+### HR02 checkpoint: common bind adapter
+
+`native/adapter.rs` selects existing flat call-context conversion, owned contextual
+conversion, owning receiver/tuple conversion, or an explicit `NativeBinding` from
+the authored `FnDecl`. All builder forms expose `bind`: module functions, inherent
+methods, explicit trait members and defaults. Contextual callbacks retain
+per-application conversion checks rather than creating exact codecs up front.
+Scalar/primitive entries retain their existing converter and execution path.
+Caller context annotations select disjoint inference markers; no new roots or
+invocation engine is introduced. The old alternate binding methods are removed
+and their repository callers migrate directly. Current guides use `bind`.
+
+This is a buildable slice, not the entire HR02 gate: inferred FunctionSpec and
+standalone exact typed constructors, by-value legacy host consumers and shared
+HostInterface declaration ownership still require migration. Live root/path
+semantics stay at their existing owner until RF03-RF05, with final aggregation
+retirement in HR03. No new compatibility bridge is introduced.
+
+Selected validation: runtime/stdlib library check, explicit raw signature
+mismatch/retry test and the source-free mixed DTO callback case passed.
+The selected generic member regression also passed. Runtime lib/registration-test
+scoped Clippy, structure (1184 files, zero findings), formatting and diff checks
+passed. No production build failure remains. Full workspace/feature/backend/platform
+coverage remains CI-owned.
 
 
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.

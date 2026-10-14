@@ -43,7 +43,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
                     .returns(result),
             )
             .unwrap();
-        assert!(builder.bind_with(function, primitive()).is_err());
+        assert!(builder.bind(function, primitive()).is_err());
     }
 
     let calls = Arc::new(AtomicUsize::new(0));
@@ -71,7 +71,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
             .resolve(function.id())
             .unwrap()
             .to_path();
-        builder.bind_with(function, binding).unwrap();
+        builder.bind(function, binding).unwrap();
         modules.push((builder.finish().unwrap(), id));
     }
     let source = r#"
@@ -179,7 +179,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
         let function = builder.define_function(declaration).unwrap();
         assert!(
             builder
-                .bind_with(function, NativeBinding::primitive(body))
+                .bind(function, NativeBinding::primitive(body))
                 .is_err()
         );
     }
@@ -203,7 +203,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
         }
         let function = builder.define_function(declaration).unwrap();
         builder
-            .bind_with(function, NativeBinding::primitive(body))
+            .bind(function, NativeBinding::primitive(body))
             .unwrap();
     }
     let module = builder.finish().unwrap();

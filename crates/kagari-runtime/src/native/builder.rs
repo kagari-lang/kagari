@@ -7,18 +7,16 @@ pub mod type_builder;
 use crate::{
     error::RuntimeError,
     native::{
+        adapter::NativeAdapter,
         binding::{NativeBinding, NativeResult},
         builder::{
             enum_builder::EnumBuilder, implementation::ImplementationBuilder,
             trait_builder::TraitBuilder, type_builder::TypeBuilder,
         },
         catalog::{DeclarationCatalog, import::CatalogImports},
-        conversion::{IntoKagari, arguments::FromKagariArguments},
         declarations::{FunctionBuilder, FunctionDecl, normalize_bounds},
-        functions::NativeFunction,
         module::NativeModule,
         storage::NativeStorage,
-        typed::NativeContext,
         types::{FunctionRef, Receiver},
     },
 };
@@ -219,15 +217,13 @@ impl ModuleBuilder {
         Ok(result)
     }
 
-    pub fn bind<A, R>(
+    /// Bind a raw/primitive, flat call-context or typed owned callback to the
+    /// same authored declaration. All forms share signature and duplicate checks.
+    pub fn bind<M, R>(
         &mut self,
         function: FunctionRef,
-        entry: impl NativeFunction<A, R>,
+        entry: impl NativeAdapter<M, R>,
     ) -> NativeResult<()> {
-        self.bind_with(function, entry.binding())
-    }
-
-    pub fn bind_with(&mut self, function: FunctionRef, binding: NativeBinding) -> NativeResult<()> {
         let declaration = self
             .declaration
             .native_declarations(&self.providers.definitions())
@@ -237,6 +233,7 @@ impl ModuleBuilder {
             .ok_or_else(|| {
                 RuntimeError::metadata_conflict("unknown native function declaration")
             })?;
+        let binding = entry.prepare(&declaration.function)?;
         let signature = Signature {
             params: declaration
                 .function
@@ -257,32 +254,6 @@ impl ModuleBuilder {
         }
         self.bindings.insert(function.id, binding);
         Ok(())
-    }
-
-    /// Bind against the authored signature, including generic parameters and
-    /// contextual handles. Rust mappings are checked against each concrete
-    /// application before any argument converter or callback runs.
-    pub fn bind_typed<A: FromKagariArguments, R: IntoKagari>(
-        &mut self,
-        function: FunctionRef,
-        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
-        + Send
-        + Sync
-        + 'static,
-    ) -> NativeResult<()> {
-        let declaration = self
-            .declaration
-            .native_declarations(&self.providers.definitions())
-            .map_err(conflict)?
-            .into_iter()
-            .find(|declaration| declaration.declaration == function.id)
-            .ok_or_else(|| {
-                RuntimeError::metadata_conflict("unknown native function declaration")
-            })?;
-        self.bind_with(
-            function,
-            NativeBinding::contextual(declaration.function.params.len(), entry),
-        )
     }
 
     pub fn finish(self) -> NativeResult<NativeModule> {

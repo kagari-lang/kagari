@@ -36,7 +36,7 @@ pub fn module() -> NativeResult<NativeModule> {
             |methods| {
                 let stop = stop.clone();
                 let none = none.clone();
-                methods.bind_with(
+                methods.bind(
                     "from_residual",
                     NativeBinding::new([option.codec()], carrier.codec(), move |cx| {
                         if !cx.enum_argument_is(0, &none)? {
@@ -51,7 +51,7 @@ pub fn module() -> NativeResult<NativeModule> {
             methods.associated_type("Output", item)?;
             methods.associated_type("Residual", residual.clone())?;
             let from_data = data.clone();
-            methods.bind_with(
+            methods.bind(
                 "from_output",
                 NativeBinding::new([Codec::Value], carrier.codec(), move |cx| {
                     cx.allocate_enum(
@@ -65,7 +65,7 @@ pub fn module() -> NativeResult<NativeModule> {
                 "branch",
                 "Inspect the installed carrier once; preserve its traced item.",
             )?;
-            methods.bind_with(
+            methods.bind(
                 "branch",
                 NativeBinding::new([carrier.codec()], flow.codec(), move |cx| {
                     let result = cx.result_type_argument()?;

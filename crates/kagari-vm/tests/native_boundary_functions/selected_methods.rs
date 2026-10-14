@@ -61,7 +61,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         .method(&twice, |method| method.requires(operation))
         .unwrap();
     contract
-        .bind_default_method(
+        .bind(
             twice,
             move |cx: &mut NativeContext<'_>, receiver: Object, (): ()| -> NativeResult<i32> {
                 let read = cx.selected_method::<(Object, i32), i32>(&required)?;
@@ -82,7 +82,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
         })
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             wrong,
             |_: &mut NativeContext<'_>, (_item,): (Object,)| -> NativeResult<i32> { Ok(0) },
         )
@@ -111,7 +111,7 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     let retained: Arc<Mutex<Option<(Read, Twice, Base)>>> = Arc::default();
     let saved = retained.clone();
     module
-        .bind_typed(
+        .bind(
             capture,
             move |cx: &mut NativeContext<'_>, (receiver,): (Object,)| -> NativeResult<i32> {
                 assert!(
@@ -264,7 +264,7 @@ fn typed_generic_native_selected_member_keeps_applied_object_results_and_rejects
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     module
-        .bind_typed(
+        .bind(
             invoke,
             move |cx: &mut NativeContext<'_>,
                   (source, item): (Object, Object)|
@@ -349,7 +349,7 @@ fn selected_primitive_operations_use_checked_typed_arguments() {
         })
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             function,
             move |cx: &mut NativeContext<'_>, (item,): (i32,)| -> NativeResult<i64> {
                 let operation = cx.selected_method::<(i32,), i64>(&key)?;

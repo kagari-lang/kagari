@@ -63,7 +63,7 @@ fn module(faults: &Arc<Faults>) -> NativeModule {
         .define_function(FunctionDecl::new("new").returns(payload.apply([]).unwrap()))
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             new,
             NativeBinding::new(Vec::<Codec>::new(), payload.codec(), |cx| {
                 cx.allocate_result()

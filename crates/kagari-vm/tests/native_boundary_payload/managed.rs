@@ -68,7 +68,7 @@ fn registration() -> Registration {
         .unwrap();
     let (name_token, callback_token) = (name.clone(), callback.clone());
     module
-        .bind_typed(
+        .bind(
             new,
             move |cx: &mut NativeContext<'_>,
                   (hp, name, callback): (i32, String, Callback)|
@@ -92,7 +92,7 @@ fn registration() -> Registration {
         )
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             read,
             |cx: &mut NativeContext<'_>, (holder,): (Holder,)| -> NativeResult<i32> {
                 cx.collect_garbage()?;
@@ -109,7 +109,7 @@ fn registration() -> Registration {
         .unwrap();
     let token = callback.clone();
     module
-        .bind_typed(
+        .bind(
             install,
             move |cx: &mut NativeContext<'_>,
                   (holder, callback): (Holder, Callback)|
@@ -128,7 +128,7 @@ fn registration() -> Registration {
         .unwrap();
     let token = callback.clone();
     module
-        .bind_typed(
+        .bind(
             invoke,
             move |cx: &mut NativeContext<'_>, (holder,): (Holder,)| -> NativeResult<i32> {
                 let field = holder.native_type().bind_field(cx.runtime(), &token)?;
@@ -529,7 +529,7 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         .unwrap();
     let token = value_token.clone();
     module
-        .bind_typed(
+        .bind(
             wrap,
             move |cx: &mut NativeContext<'_>, (value,): (ScriptValue,)| -> NativeResult<Boxed> {
                 let ty = cx.result_native_type::<Managed<()>>()?;
@@ -551,7 +551,7 @@ fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bind
         .unwrap();
     let token = value_token.clone();
     module
-        .bind_typed(
+        .bind(
             read,
             move |cx: &mut NativeContext<'_>, (value,): (Boxed,)| -> NativeResult<ScriptValue> {
                 let field = value.native_type().bind_field(cx.runtime(), &token)?;

@@ -106,7 +106,7 @@ impl FunctionSpec {
 
 impl ModuleBuilder {
     /// Prepare a concrete declaration and binding before publishing either.
-    /// Explicit generic declarations use `define_function` and `bind_with`,
+    /// Explicit generic declarations use `define_function` and `bind`,
     /// sharing the same catalog and binding validator.
     pub fn add_function<A, R>(
         &mut self,

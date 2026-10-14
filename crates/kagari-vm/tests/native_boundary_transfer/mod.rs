@@ -96,7 +96,7 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
         .define_function(FunctionDecl::new("new").returns(counter.apply([]).unwrap()))
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             new,
             NativeBinding::new(Vec::<Codec>::new(), counter.codec(), |cx| {
                 cx.allocate_result()
@@ -111,7 +111,7 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
         )
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             bump,
             NativeBinding::new(vec![counter.codec()], Codec::Exact(Type::i32()), |cx| {
                 cx.with_payload::<Counter, _>(0, |counter| {
@@ -130,7 +130,7 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
         .unwrap();
     let stored = held.clone();
     builder
-        .bind_typed(
+        .bind(
             remember,
             move |_: &mut NativeContext<'_>, (callback,): (Callback,)| -> NativeResult<()> {
                 *stored.lock().unwrap() = Some(callback);
@@ -174,7 +174,7 @@ fn module(held: &Arc<Mutex<Option<Callback>>>, drops: Sender<ThreadId>) -> Nativ
         .unwrap();
     let current = held.clone();
     builder
-        .bind_typed(
+        .bind(
             invoke,
             move |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<i32> {
                 let callback = current.lock().unwrap().as_ref().unwrap().clone();

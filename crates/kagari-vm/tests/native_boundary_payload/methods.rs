@@ -34,7 +34,7 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                         .parameter("hp", Type::i32())
                         .returns(receiver),
                 )?;
-                methods.bind_typed(new, |cx: &mut NativeContext<'_>, (hp,): (i32,)| {
+                methods.bind(new, |cx: &mut NativeContext<'_>, (hp,): (i32,)| {
                     cx.create_native(PlayerState {
                         hp,
                         position: [0.0; 3],
@@ -45,7 +45,7 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                         .parameter("amount", Type::i32())
                         .returns(Type::i32()),
                 )?;
-                methods.bind_typed_method(
+                methods.bind(
                     damage.clone(),
                     |cx: &mut NativeContext<'_>,
                      player: NativeObject<PlayerState>,
@@ -63,7 +63,7 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                     signature.returns(output.ty())?;
                     Ok(())
                 })?;
-                methods.bind_typed_method(
+                methods.bind(
                     echo,
                     |_: &mut NativeContext<'_>,
                      _: NativeObject<PlayerState>,
@@ -183,7 +183,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
             implementation.inherent_impl(|methods| {
                 let new =
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
-                methods.bind_typed(new, |cx: &mut NativeContext<'_>, (): ()| {
+                methods.bind(new, |cx: &mut NativeContext<'_>, (): ()| {
                     cx.create_native(PlayerState {
                         hp: 0,
                         position: [0.0; 3],
@@ -198,7 +198,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                         .parameter("value", element.ty())
                         .returns(element.ty()),
                 )?;
-                methods.bind_typed_method(
+                methods.bind(
                     exchange,
                     |_: &mut NativeContext<'_>,
                      _: NativeObject<PlayerState>,
@@ -214,7 +214,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                     signature.returns(output.ty())?;
                     Ok(())
                 })?;
-                methods.bind_typed_method(
+                methods.bind(
                     choose,
                     |_: &mut NativeContext<'_>,
                      _: NativeObject<PlayerState>,
@@ -300,7 +300,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
             implementation.inherent_impl(|methods| {
                 let new =
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
-                methods.bind_typed(new, |cx: &mut NativeContext<'_>, (): ()| {
+                methods.bind(new, |cx: &mut NativeContext<'_>, (): ()| {
                     cx.create_native(PlayerState {
                         hp: 0,
                         position: [0.0; 3],
@@ -320,7 +320,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
                         contract.method("read")?,
                     )?)
                 })?;
-                methods.bind_typed_method(
+                methods.bind(
                     read,
                     move |cx: &mut NativeContext<'_>,
                           _: NativeObject<PlayerState>,

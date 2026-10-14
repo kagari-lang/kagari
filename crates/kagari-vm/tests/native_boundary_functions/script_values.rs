@@ -50,7 +50,7 @@ fn generic_value_handles_forward_selected_results_without_erasing_type_access_or
         })
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             invoke,
             move |cx: &mut NativeContext<'_>,
                   (source, value): (ScriptValue, ScriptValue)|
@@ -196,7 +196,7 @@ fn selected_associated_collection_results_keep_their_supplying_scope() {
         .method(&again, |method| method.requires(operation))
         .unwrap();
     contract
-        .bind_default_method(
+        .bind(
             again,
             move |cx: &mut NativeContext<'_>,
                   receiver: ScriptValue,

@@ -52,7 +52,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         .define_function(FunctionDecl::new("new").returns(player_type.apply([]).unwrap()))
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             new,
             |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<NativeObject<PlayerState>> {
                 cx.create_native(PlayerState {
@@ -71,7 +71,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         )
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             damage,
             |cx: &mut NativeContext<'_>,
              (player, damage): (NativeObject<PlayerState>, i32)|
@@ -222,7 +222,7 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
         )
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             new,
             move |cx: &mut NativeContext<'_>,
                   (value,): (i32,)|
@@ -242,7 +242,7 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
         )
         .unwrap();
     module
-        .bind_typed(
+        .bind(
             read,
             |cx: &mut NativeContext<'_>,
              (counter,): (NativeObject<Counter>,)|

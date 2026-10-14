@@ -46,7 +46,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
         })
         .unwrap();
     declaration
-        .bind_default_with(
+        .bind(
             identity,
             NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, |cx| {
                 cx.argument(1)
@@ -59,7 +59,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
     module
         .implement(Type::i32(), |group| {
             group.trait_impl(contract.apply([Type::i32()])?, |methods| {
-                methods.bind_with(
+                methods.bind(
                     "identity",
                     NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
                         observed.fetch_add(1, Ordering::SeqCst);
@@ -196,7 +196,7 @@ fn registered_default_calls_the_selected_receiver_operation() {
         .method(&twice, |method| method.requires(operation))
         .unwrap();
     declaration
-        .bind_default_with(
+        .bind(
             twice,
             NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::i32()), move |cx| {
                 let receiver = cx.argument(0)?;
@@ -477,7 +477,7 @@ fn generic_native_default_uses_the_callers_ordering_operation() {
         })
         .unwrap();
     declaration
-        .bind_default_with(
+        .bind(
             compare,
             NativeBinding::new(
                 vec![Codec::Value, Codec::Value, Codec::Value],
@@ -590,7 +590,7 @@ pub(super) fn generic_identity_module() -> NativeModule {
         })
         .unwrap();
     module
-        .bind_with(
+        .bind(
             identity,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| cx.argument(0)),
         )
@@ -607,7 +607,7 @@ pub(super) fn generic_identity_module() -> NativeModule {
         })
         .unwrap();
     module
-        .bind_with(
+        .bind(
             singleton,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
                 let result = cx.allocate_result()?;
@@ -735,7 +735,7 @@ fn generic_native_default_calls_the_selected_receiver_operation() {
         })
         .unwrap();
     declaration
-        .bind_default_with(
+        .bind(
             echo,
             NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
                 let receiver = cx.argument(0)?;
@@ -821,7 +821,7 @@ fn a_shared_native_helper_calls_a_generic_constraint_member() {
         })
         .unwrap();
     module
-        .bind_with(
+        .bind(
             invoke,
             NativeBinding::new(vec![Codec::Value, Codec::Value], Codec::Value, move |cx| {
                 let arguments = [cx.argument(0)?, cx.argument(1)?];

@@ -307,7 +307,7 @@ fn bound_native_application_uses_the_compilers_selected_trait_operation() {
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
     builder
-        .bind_with(
+        .bind(
             repeat,
             NativeBinding::new(vec![Codec::Value], Codec::Value, move |cx| {
                 observed.fetch_add(1, Ordering::Relaxed);

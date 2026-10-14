@@ -46,7 +46,7 @@ fn provider() -> NativeModule {
         .define_function(FunctionDecl::new("read").returns(Type::i32()))
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             read,
             NativeBinding::new(vec![], Codec::Value, |_| Ok(Value::I32(3))),
         )
@@ -61,7 +61,7 @@ fn provider() -> NativeModule {
         })
         .unwrap();
     builder
-        .bind_with(
+        .bind(
             pass,
             NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| cx.argument(0)),
         )
