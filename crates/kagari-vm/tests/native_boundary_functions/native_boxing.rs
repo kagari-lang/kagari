@@ -16,12 +16,12 @@ use kagari_runtime::{
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
+        conversion::KagariType,
         conversion::context::ConversionContext,
         declarations::FunctionDecl,
         function_handle::PinnedFunction,
         module::NativeModule,
         objects::Object,
-        registration::FunctionSpec,
         typed::NativeContext,
         types::Type,
     },
@@ -51,29 +51,49 @@ fn registered_native_entries_box_round_trip_and_run_inside_script_closures() {
     )
     .unwrap();
     let observed = calls.clone();
-    let add = module
-        .add_function(
-            FunctionSpec::new("add").parameter_names(["left", "right"]),
-            move |cx: &mut NativeContext<'_>, (left, right): (i32, i32)| -> NativeResult<i32> {
-                cx.collect_garbage()?;
-                observed.fetch_add(1, Ordering::Relaxed);
-                if left < 0 {
-                    return Err(RuntimeError::module_validation("requested failure"));
-                }
-                Ok(left + right)
-            },
-        )
-        .unwrap();
+    let add = {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("add")
+                    .parameter("left", Type::i32())
+                    .parameter("right", Type::i32())
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (left, right): (i32, i32)| -> NativeResult<i32> {
+                    cx.collect_garbage()?;
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    if left < 0 {
+                        return Err(RuntimeError::module_validation("requested failure"));
+                    }
+                    Ok(left + right)
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let observed = text_calls.clone();
-    let text = module
-        .add_function(
-            FunctionSpec::new("text"),
-            move |_cx: &mut NativeContext<'_>, (): ()| -> NativeResult<String> {
-                observed.fetch_add(1, Ordering::Relaxed);
-                Ok("retained native result".to_owned())
-            },
-        )
-        .unwrap();
+    let text = {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("text")
+                    .returns(<String>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |_cx: &mut NativeContext<'_>, (): ()| -> NativeResult<String> {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    Ok("retained native result".to_owned())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let through = module
         .define_function(
             FunctionDecl::new("through")
@@ -309,12 +329,23 @@ fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    let add = module
-        .add_function(
-            FunctionSpec::new("add").parameter_names(["a", "b"]),
-            |_: &mut NativeContext<'_>, (a, b): (i32, i32)| -> NativeResult<i32> { Ok(a + b) },
-        )
-        .unwrap();
+    let add = {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("add")
+                    .parameter("a", Type::i32())
+                    .parameter("b", Type::i32())
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |_: &mut NativeContext<'_>, (a, b): (i32, i32)| -> NativeResult<i32> { Ok(a + b) },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = module.finish().unwrap();
     let program = compile_program(
         "use example::boxed::add; pub fn evidence() -> i32 { add(20, 22) }",

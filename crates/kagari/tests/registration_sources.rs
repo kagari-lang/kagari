@@ -12,9 +12,9 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         context::CallContext,
+        conversion::KagariType,
         declarations::{FunctionDecl, MethodDecl},
         module::NativeModule,
-        registration::FunctionSpec,
         storage::{NativePayload, NativeStorage},
         typed::NativeContext,
         types::Type,
@@ -37,18 +37,36 @@ fn typed_registration_preserves_parameter_and_return_docs_in_materialized_naviga
     let mut builder = KagariEngine::builder().unwrap();
     let mut module = ModuleBuilder::new("application::typed", builder.declarations()).unwrap();
     module.documentation("# Text tools\n\nOwned Unicode text conversions.");
-    module
-        .add_function(
-            FunctionSpec::new("duplicate")
-                .parameter_names(["text"])
-                .documentation(DOC)
-                .parameter_documentation("text", "Input text.\n\nUnicode is preserved.")
-                .return_documentation("Two independent strings.\n\n```kgr\nduplicate(\"雪\")\n```"),
-            |_: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<(String, String)> {
-                Ok((text.clone(), text))
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("duplicate")
+                    .documentation(
+                        DOC.to_owned()
+                            + "\n\n# Parameters\n"
+                            + "\n## `text`\n\n"
+                            + "Input text.\n\nUnicode is preserved."
+                            + "\n"
+                            + "\n\n# Returns\n\n"
+                            + "Two independent strings.\n\n```kgr\nduplicate(\"雪\")\n```",
+                    )
+                    .parameter(
+                        "text",
+                        <String>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .returns(<(String, String)>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |_: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<(String, String)> {
+                    Ok((text.clone(), text))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     builder.install(module.finish().unwrap()).unwrap();
     builder.declaration_cache(&cache.0);
     let engine = builder.build().unwrap();

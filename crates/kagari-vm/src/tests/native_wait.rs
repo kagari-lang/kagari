@@ -24,13 +24,15 @@ use kagari_runtime::{
     gc::roots::RootedValue,
     module::LoadedModule,
     native::{
+        adapter::Async,
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         completion::{Completion, CompletionStatus},
+        conversion::KagariType,
         conversion::context::ConversionContext,
+        declarations::FunctionDecl,
         future::NativeStart,
-        registration::FunctionSpec,
         storage::NativeStorage,
         typed::NativeContext,
         types::Type,
@@ -134,10 +136,27 @@ impl Fixture {
         .unwrap()
         .into_records();
         let (sent_to, started, cancelled) = (sent.clone(), starts.clone(), cancels.clone());
-        builder
-            .add_async_function::<(Vec<i32>,), i32>(
-                FunctionSpec::new("request").parameter_names(["values"]),
-                move |(values,), completion| {
+        {
+            let registered_function = builder
+                .define_function(
+                    FunctionDecl::new("request")
+                        .parameter(
+                            "values",
+                            <Vec<i32>>::kagari_type(builder.declarations()).unwrap(),
+                        )
+                        .returns(
+                            builder
+                                .declarations()
+                                .future_type()
+                                .unwrap()
+                                .apply([Type::i32()])
+                                .unwrap(),
+                        ),
+                )
+                .unwrap();
+            builder.bind::<Async<(Vec<i32>,)>, i32>(
+                registered_function,
+                move |(values,): (Vec<i32>,), completion: Completion<i32>| {
                     started.fetch_add(1, Ordering::Relaxed);
                     let input = values.iter().sum();
                     if input == 0 {
@@ -160,19 +179,34 @@ impl Fixture {
                     }))
                 },
             )
-            .unwrap();
-        builder
-            .add_function(
-                FunctionSpec::new("read").parameter_names(["values", "index"]),
-                |_: &mut NativeContext<'_>,
-                 (values, index): (Vec<i32>, i32)|
-                 -> NativeResult<i32> {
-                    values.get(index as usize).copied().ok_or_else(|| {
-                        RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "fixture index")
-                    })
-                },
-            )
-            .unwrap();
+        }
+        .unwrap();
+        {
+            let registered_function = builder
+                .define_function(
+                    FunctionDecl::new("read")
+                        .parameter(
+                            "values",
+                            <Vec<i32>>::kagari_type(builder.declarations()).unwrap(),
+                        )
+                        .parameter("index", Type::i32())
+                        .returns(Type::i32()),
+                )
+                .unwrap();
+            builder
+                .bind(
+                    registered_function.clone(),
+                    |_: &mut NativeContext<'_>,
+                     (values, index): (Vec<i32>, i32)|
+                     -> NativeResult<i32> {
+                        values.get(index as usize).copied().ok_or_else(|| {
+                            RuntimeError::new(RuntimeErrorKind::IndexOutOfBounds, "fixture index")
+                        })
+                    },
+                )
+                .map(|()| registered_function)
+        }
+        .unwrap();
         let native = builder.finish().unwrap();
         let declaration = native
             .to_declaration()

@@ -1,7 +1,7 @@
 use super::fixture;
 use crate::compile_program;
 use kagari_runtime::native::{
-    binding::NativeResult, builder::ModuleBuilder, objects::Object, registration::FunctionSpec,
+    binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl, objects::Object,
     typed::NativeContext,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -123,16 +123,22 @@ fn object_method_reentry_collects_and_retains_returned_aliases() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    builder
-        .add_function(
-            FunctionSpec::new("collect"),
-            move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                cx.collect_garbage()?;
-                observed.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = builder
+            .define_function(FunctionDecl::new("collect"))
+            .unwrap();
+        builder
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    cx.collect_garbage()?;
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let source = PLAYER.replace(
         "pub fn alias(self) -> Player { self }",
         "pub fn alias(self) -> Player { collect(); self }",

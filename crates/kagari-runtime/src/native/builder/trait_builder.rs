@@ -301,7 +301,7 @@ impl<'module> TraitBuilder<'module> {
                     == Some(method.id)
             })
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown trait method declaration"))?;
-        let mut binding = entry.prepare(signature)?;
+        let mut binding = entry.prepare(signature, &self.module.providers)?;
         if self.defaults.contains_key(&method.id) {
             return Err(RuntimeError::metadata_conflict(
                 "duplicate trait default binding",

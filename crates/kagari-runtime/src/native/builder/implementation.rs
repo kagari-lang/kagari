@@ -5,6 +5,7 @@ use crate::{
         adapter::NativeAdapter,
         binding::{Codec, NativeBinding, NativeResult},
         builder::{ModuleBuilder, inherent::InherentMethodsBuilder},
+        catalog::DeclarationCatalog,
         types::{AppliedTrait, ParameterRef, Receiver, Type},
     },
 };
@@ -68,6 +69,7 @@ impl<'module> ImplementationBuilder<'module> {
             })?;
         let mut methods = InherentMethodsBuilder {
             context: self.module.context().clone(),
+            catalog: self.module.providers.clone(),
             owner,
             receiver: self.receiver.clone(),
             receiver_codec: self.receiver_codec.clone(),
@@ -278,6 +280,7 @@ impl<'module> ImplementationBuilder<'module> {
             })?;
         let mut methods = MethodsBuilder {
             applied,
+            catalog: self.module.providers.clone(),
             id,
             documentation: BTreeMap::new(),
             receiver_codec: self.receiver_codec.clone(),
@@ -355,6 +358,7 @@ impl<'module> ImplementationBuilder<'module> {
 
 pub struct MethodsBuilder {
     applied: AppliedTrait,
+    catalog: DeclarationCatalog,
     id: DefinitionId,
     receiver_codec: Option<Codec>,
     documentation: BTreeMap<String, String>,
@@ -394,7 +398,7 @@ impl MethodsBuilder {
             .iter()
             .find(|method| method.name == name)
             .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?;
-        let binding = entry.prepare(method)?;
+        let binding = entry.prepare(method, &self.catalog)?;
         let receiver = method
             .params
             .first()

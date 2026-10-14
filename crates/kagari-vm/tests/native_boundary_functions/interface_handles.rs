@@ -2,7 +2,7 @@ use super::fixture;
 use crate::compile_program;
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog,
-    conversion::KagariType, interfaces::Interface, registration::FunctionSpec,
+    conversion::KagariType, declarations::FunctionDecl, interfaces::Interface,
     typed::NativeContext, types::Type,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -76,18 +76,31 @@ fn typed_native_interfaces_keep_readonly_views_and_survive_collection() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    builder
-        .add_function(
-            FunctionSpec::new("retain").parameter_names(["value"]),
-            move |cx: &mut NativeContext<'_>,
-                  (value,): (Interface<IntList>,)|
-                  -> NativeResult<Interface<IntList>> {
-                observed.fetch_add(1, Ordering::Relaxed);
-                cx.collect_garbage()?;
-                Ok(value)
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = builder
+            .define_function(
+                FunctionDecl::new("retain")
+                    .parameter(
+                        "value",
+                        <Interface<IntList>>::kagari_type(builder.declarations()).unwrap(),
+                    )
+                    .returns(<Interface<IntList>>::kagari_type(builder.declarations()).unwrap()),
+            )
+            .unwrap();
+        builder
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>,
+                      (value,): (Interface<IntList>,)|
+                      -> NativeResult<Interface<IntList>> {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    cx.collect_garbage()?;
+                    Ok(value)
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = builder.finish().unwrap();
     let (vm, owner) = fixture(
         r#"

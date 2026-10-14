@@ -2,8 +2,8 @@ use super::fixture;
 use crate::compile_program;
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::native::{
-    binding::NativeResult, builder::ModuleBuilder, interfaces::Interface, objects::Object,
-    registration::FunctionSpec, typed::NativeContext,
+    binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl,
+    interfaces::Interface, objects::Object, typed::NativeContext,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::sync::{
@@ -224,16 +224,22 @@ fn interface_dispatch_collects_during_reentry_and_pins_old_default_code() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    builder
-        .add_function(
-            FunctionSpec::new("collect"),
-            move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                observed.fetch_add(1, Ordering::Relaxed);
-                cx.collect_garbage()?;
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = builder
+            .define_function(FunctionDecl::new("collect"))
+            .unwrap();
+        builder
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    cx.collect_garbage()?;
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = builder.finish().unwrap();
     let source = format!(
         "use example::interface_methods::collect;\n{}",

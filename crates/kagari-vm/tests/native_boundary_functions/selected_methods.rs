@@ -6,7 +6,6 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         declarations::{CallableRequirement, FunctionDecl, MethodDecl},
         objects::Object,
-        registration::FunctionSpec,
         selected_method::SelectedMethod,
         typed::NativeContext,
         types::Type,
@@ -32,16 +31,20 @@ fn selected_handles_retain_generic_default_and_static_calls_across_gc_and_reload
     .unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
-    module
-        .add_function(
-            FunctionSpec::new("tick"),
-            move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                observed.fetch_add(1, Ordering::Relaxed);
-                cx.collect_garbage()?;
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("tick")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    cx.collect_garbage()?;
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let mut contract = module.define_trait("Read").unwrap();
     let read = contract
         .define_method(

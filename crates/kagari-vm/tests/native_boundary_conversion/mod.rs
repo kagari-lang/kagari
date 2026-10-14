@@ -12,15 +12,15 @@ use kagari_runtime::{
     gc::{GcHeapConfig, roots::RootedValue},
     module::{LoadedModule, entry::ProgramEntry},
     native::{
-        binding::{NativeBinding, NativeResult},
+        binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         collections::vector::ScriptVec,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        declarations::FunctionDecl,
         declarations::MethodDecl,
         module::NativeModule,
         objects::Object,
-        registration::FunctionSpec,
         typed::NativeContext,
         types::Type,
     },
@@ -77,18 +77,31 @@ fn script_objects_cross_typed_entries_without_exposing_heap_ids() {
 fn ordinary_native_callbacks_mutate_retained_collections_through_typed_handles() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("append").parameter_names(["values"]),
-            |cx: &mut NativeContext<'_>,
-             (values,): (ScriptVec<i32>,)|
-             -> NativeResult<ScriptVec<i32>> {
-                values.push(cx, 42)?;
-                cx.collect_garbage()?;
-                Ok(values)
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("append")
+                    .parameter(
+                        "values",
+                        <ScriptVec<i32>>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .returns(<ScriptVec<i32>>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>,
+                 (values,): (ScriptVec<i32>,)|
+                 -> NativeResult<ScriptVec<i32>> {
+                    values.push(cx, 42)?;
+                    cx.collect_garbage()?;
+                    Ok(values)
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
         use example::typed::append;
@@ -154,17 +167,6 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
         .unwrap();
     let label = label.finish().unwrap();
     let catalog = module.declarations().clone();
-    let binding = NativeBinding::typed_method(
-        &catalog,
-        |cx: &mut NativeContext<'_>,
-         receiver: Label,
-         (suffix,): ((String, String),)|
-         -> NativeResult<String> {
-            cx.collect_garbage()?;
-            Ok(format!("{}{}{}", receiver.0, suffix.0, suffix.1))
-        },
-    )
-    .unwrap();
     module
         .implement(label, |group| {
             group.inherent_impl(|methods| {
@@ -173,7 +175,16 @@ fn typed_instance_method_receives_its_receiver_separately_from_tuple_arguments()
                         .parameter("suffix", <(String, String)>::kagari_type(&catalog)?)
                         .returns(String::kagari_type(&catalog)?),
                 )?;
-                methods.bind(method, binding)
+                methods.bind(
+                    method,
+                    |cx: &mut NativeContext<'_>,
+                     receiver: Label,
+                     (suffix,): ((String, String),)|
+                     -> NativeResult<String> {
+                        cx.collect_garbage()?;
+                        Ok(format!("{}{}{}", receiver.0, suffix.0, suffix.1))
+                    },
+                )
             })
         })
         .unwrap();
@@ -218,36 +229,66 @@ fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, LoadedModule) {
 fn owned_native_arguments_and_business_results_survive_gc_and_source_free_loading() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("wrap").parameter_names(["input"]),
-            |cx: &mut NativeContext<'_>,
-             (input,): (Vec<String>,)|
-             -> NativeResult<Result<Option<Vec<String>>, String>> {
-                cx.collect_garbage()?;
-                if input.is_empty() {
-                    Ok(Err("empty input".into()))
-                } else {
-                    Ok(Ok(Some(cx.collect(input)?)))
-                }
-            },
-        )
-        .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("inspect").parameter_names(["input"]),
-            |cx: &mut NativeContext<'_>,
-             (input,): (Result<Option<Vec<String>>, String>,)|
-             -> NativeResult<i32> {
-                cx.collect_garbage()?;
-                Ok(match input {
-                    Ok(Some(items)) if items == ["雪", "🌱"] => 40,
-                    Err(message) if message == "empty input" => 2,
-                    _ => -100,
-                })
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("wrap")
+                    .parameter(
+                        "input",
+                        <Vec<String>>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .returns(
+                        <Result<Option<Vec<String>>, String>>::kagari_type(module.declarations())
+                            .unwrap(),
+                    ),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>,
+                 (input,): (Vec<String>,)|
+                 -> NativeResult<Result<Option<Vec<String>>, String>> {
+                    cx.collect_garbage()?;
+                    if input.is_empty() {
+                        Ok(Err("empty input".into()))
+                    } else {
+                        Ok(Ok(Some(cx.collect(input)?)))
+                    }
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("inspect")
+                    .parameter(
+                        "input",
+                        <Result<Option<Vec<String>>, String>>::kagari_type(module.declarations())
+                            .unwrap(),
+                    )
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>,
+                 (input,): (Result<Option<Vec<String>>, String>,)|
+                 -> NativeResult<i32> {
+                    cx.collect_garbage()?;
+                    Ok(match input {
+                        Ok(Some(items)) if items == ["雪", "🌱"] => 40,
+                        Err(message) if message == "empty input" => 2,
+                        _ => -100,
+                    })
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
@@ -281,19 +322,39 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
         .unwrap()
         .ty();
     let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("split")
-                .parameter_names(["text", "separator"])
-                .returns(list),
-            |cx: &mut NativeContext<'_>,
-             (text, separator): (String, String)|
-             -> NativeResult<Vec<String>> {
-                cx.collect_garbage()?;
-                cx.collect(text.split(&separator).map(str::to_owned))
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("split")
+                    .parameter(
+                        "text",
+                        <String>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .parameter(
+                        "separator",
+                        <String>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .returns(list),
+            )
+            .unwrap();
+        module
+            .function(&registered_function, |f| {
+                f.produces(<Vec<String>>::kagari_type(&catalog).unwrap())
+            })
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>,
+                 (text, separator): (String, String)|
+                 -> NativeResult<Vec<String>> {
+                    cx.collect_garbage()?;
+                    cx.collect(text.split(&separator).map(str::to_owned))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
@@ -313,7 +374,7 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
 }
 
 #[test]
-fn invalid_typed_registration_is_atomic_and_failed_output_preserves_callback_effects() {
+fn failed_output_preserves_callback_effects_and_traps_release_conversion_roots() {
     struct Invalid;
 
     impl KagariType for Invalid {
@@ -333,55 +394,38 @@ fn invalid_typed_registration_is_atomic_and_failed_output_preserves_callback_eff
     }
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let mut module = ModuleBuilder::new("example::typed", &catalog).unwrap();
-    assert!(
-        module
-            .add_function(
-                FunctionSpec::new("broken").returns(Type::bool()),
-                |_: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> {
-                    panic!("mismatched callback")
-                }
-            )
-            .is_err()
-    );
-    assert!(
-        module
-            .add_function(
-                FunctionSpec::new("broken").parameter_names(["bad-name"]),
-                |_: &mut NativeContext<'_>, (_value,): (i32,)| -> NativeResult<i32> {
-                    panic!("invalid name")
-                }
-            )
-            .is_err()
-    );
-    assert!(
-        module
-            .add_function(
-                FunctionSpec::new("broken").parameter_names(["extra"]),
-                |_: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> {
-                    panic!("mismatched callback")
-                }
-            )
-            .is_err()
-    );
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
-    module
-        .add_function(
-            FunctionSpec::new("broken"),
-            move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<Invalid> {
-                observed.fetch_add(1, Ordering::SeqCst);
-                Ok(Invalid)
-            },
-        )
-        .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("trap"),
-            |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                Err(RuntimeError::resource_limit("explicit native failure"))
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("broken")
+                    .returns(<Invalid>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<Invalid> {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(Invalid)
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("trap")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    Err(RuntimeError::resource_limit("explicit native failure"))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
@@ -497,15 +541,19 @@ fn typed_entry_signature_rejection_precedes_effects_and_data_failure_preserves_t
     .unwrap();
     let effects = Arc::new(AtomicUsize::new(0));
     let observed = effects.clone();
-    module
-        .add_function(
-            FunctionSpec::new("effect"),
-            move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                observed.fetch_add(1, Ordering::SeqCst);
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("effect")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = source_free_vm(
         r#"
@@ -577,18 +625,27 @@ fn native_collect_polls_between_iterator_steps_and_releases_the_failed_call() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("gather"),
-            move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Vec<i32>> {
-                cx.collect((0..100).inspect(|_| {
-                    if observed.fetch_add(1, Ordering::SeqCst) == 2 {
-                        cancel.cancel();
-                    }
-                }))
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("gather")
+                    .returns(<Vec<i32>>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Vec<i32>> {
+                    cx.collect((0..100).inspect(|_| {
+                        if observed.fetch_add(1, Ordering::SeqCst) == 2 {
+                            cancel.cancel();
+                        }
+                    }))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = module.finish().unwrap();
     let (vm, loaded) = source_free_vm(
         "use example::typed::gather; fn main() -> Vec<i32> { gather() } pub fn healthy() -> i32 { 42 }",

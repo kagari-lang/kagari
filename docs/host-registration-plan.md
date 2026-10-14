@@ -1,6 +1,6 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: active combined execution plan; HR01/RF01 proof and RI01-RI02 schema/conversion complete; HR02 unified bind implemented, declaration retirement is in progress. The user
+Status: active combined execution plan; HR01/RF01 proof and RI01-RI02 schema/conversion complete; HR02 unified bind and inferred registration retirement implemented; live-host declaration migration remains. The user
 included Ref/RefMut in the same delivery as registration and Opaque. The
 [roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
 placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
@@ -1042,7 +1042,7 @@ migration replaces registration ownership, not those services.
 
 | Existing owner/consumers | Destination and removal checkpoint |
 | --- | --- |
-| `native/builder.rs`, `builder/inherent.rs`, `builder/implementation.rs`; stdlib builders and application native modules | One declaration-aware `bind` adapter, retaining raw/primitive bindings and their allocation behavior. HR02 removed `bind_with`, `bind_typed`, receiver-separated typed registration and alternate default-body binding entrypoints; inferred FunctionSpec/add_function and standalone exact typed constructors remain for migration in the next HR02/HR03 slice. RF05 adds borrowed adapters to the same entrypoint. |
+| `native/builder.rs`, `builder/inherent.rs`, `builder/implementation.rs`; stdlib builders and application native modules | One declaration-aware `bind` adapter, retaining raw/primitive bindings and their allocation behavior. HR02 removed `bind_with`, `bind_typed`, receiver-separated typed registration and alternate default-body binding entrypoints; HR02 also removed inferred FunctionSpec/add_function/add_async_function and standalone exact typed constructors; preauthored stdlib contextual bindings retain the same conversion service. RF05 adds borrowed adapters to the same entrypoint. |
 | `native/conversion/`, `native/typed.rs`, `native/objects/` | RI01 schema registration and RI02 nominal conversion use existing TypeArgument, roots, depth/node/cycle limits and checked object layouts. RI04 derives project those same contracts. No second root or invocation implementation. |
 | `native/payload/`, `native/storage.rs`, `gc/native.rs` | RI03 renames the public NativeObject handle to Opaque directly, adds extraction capability and atomic heap removal, and reuses non-reentrant read/edit loans. Internal GC storage records remain private. |
 | `types/host_interface/`, HIR `host.rs`/`host/origin.rs`, SDK `engine/source.rs::set_host_interface` | General type/function/member/impl facts move to ordinary ModuleDecl/NativeDeclaration and generated registration views in HR02. Portable roots/path requirements remain checked until RF05 migrates them; standalone HostInterface bytes/aggregation retire in HR03. |
@@ -1130,6 +1130,55 @@ The selected generic member regression also passed. Runtime lib/registration-tes
 scoped Clippy, structure (1184 files, zero findings), formatting and diff checks
 passed. No production build failure remains. Full workspace/feature/backend/platform
 coverage remains CI-owned.
+
+
+### HR02 checkpoint: explicit signatures and cold producer integration
+
+Removed `native/registration.rs` and public `FunctionSpec`, `add_function`,
+`add_async_function`, `NativeBinding::typed` and `typed_method`. Existing synchronous
+callers now author `FunctionDecl` parameters/results explicitly, then bind their
+callback. The one concrete interface-return case explicitly calls `produces`;
+compiler-selected boxing and pinned declaration identity remain intact. Default
+library registrations still prepare preauthored metadata through the existing
+contextual adapter; this is the same checked installation/conversion path.
+
+The existing cold producer is an `Async<A>` adapter to `bind`, with explicit
+`Future<R>` return declaration and typed owned tuple/Completion inputs. It retains
+its existing exact argument/result codec check, capture validation, first-await
+conversion/submission and completion/cancellation services. This migrates an
+existing caller dependency; it adds no asynchronous borrowed-input feature.
+Owning/reflected handles are never substituted for scoped Rust references.
+
+The runtime-independence SDK case now installs an ordinary application module in
+only one runtime and loads the same compiled artifact into both: the installed
+runtime returns 42, the other rejects its missing binding, and heap roots remain
+owner-specific. It preserves the original independence boundary while removing
+that selected by-value legacy HostFunction consumer. Live-root/path/interface
+consumers remain at their existing owner until the reference-capability facts and
+scopes of RF02-RF05 can replace them coherently. HR02 remains unchecked while this
+shared live-host declaration migration is outstanding; no legacy retirement or
+combined acceptance is claimed from the owned delivery gate.
+
+Validation passed: selected source-free VM owned/business-result conversion,
+explicit interface output adaptation, output-error completed effects/trap cleanup;
+three VM cold-producer lifecycle cases; SDK materialized documentation/navigation,
+SDK owned native wait, cancellation/output publication, and two SDK installation
+independence cases (across focused runs). `cargo run -p kagari --example typed_native`
+ran and printed `["hello", "雪", ""]`. Runtime library and VM boundary-test scoped
+Clippy passed, as did SDK Clippy limited to these three test targets and the two
+migrated examples. Structure passed (1183 files, zero findings), format/diff passed.
+
+Initial migration checks found duplicate/unused imports, lost returned declaration
+references, a closure borrow overlapping its builder, and a missing cold-callback
+tuple annotation; repaired before successful reruns. The new SDK runtime test first
+used private `main` as a public named entry; corrected to the specified
+`ProgramEntry::Main` selector and reran only that failure. Obsolete FunctionSpec
+shape-inference assertions were removed with that API; authored raw signature
+mismatch/atomic retry remains at `native_registration`, pre-effect pack validation
+at `native_conversion`, and this VM case retains completed-output effects and trap
+cleanup assertions. No carried production/test failure remains. Full workspace,
+feature/backend/platform coverage and projector Miri remain in their designated
+CI/RF04/RF06 scope.
 
 
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.

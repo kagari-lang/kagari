@@ -10,10 +10,11 @@ use kagari_runtime::{
         binding::NativeResult,
         builder::ModuleBuilder,
         collections::{map::ScriptMap, set::ScriptSet, vector::ScriptVec},
+        conversion::KagariType,
         conversion::context::ConversionContext,
+        declarations::FunctionDecl,
         module::NativeModule,
         objects::Object,
-        registration::FunctionSpec,
         typed::NativeContext,
     },
     value::Value,
@@ -143,19 +144,23 @@ fn custom_hash_handles_use_selected_calls_with_gc_reentry_and_trap_cleanup() {
     .unwrap();
     let alias = held.clone();
     let observed = visits.clone();
-    module
-        .add_function(
-            FunctionSpec::new("probe"),
-            move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                cx.collect_garbage()?;
-                if let Some(map) = alias.lock().unwrap().as_ref() {
-                    assert!(map.clear(cx).is_err());
-                }
-                observed.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("probe")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    cx.collect_garbage()?;
+                    if let Some(map) = alias.lock().unwrap().as_ref() {
+                        assert!(map.clear(cx).is_err());
+                    }
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, owner) = fixture(CUSTOM, Some(&module.finish().unwrap()));
     type Containers = (ScriptMap<Object, i32>, ScriptSet<Object>);
     let make = vm
@@ -298,17 +303,34 @@ fn typed_native_hash_arguments_share_script_storage_and_return_handles() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("edit").parameter_names(["map", "set"]),
-            |cx: &mut NativeContext<'_>, (map, set): Containers| -> NativeResult<Containers> {
-                map.insert(cx, 1, 20)?;
-                map.insert(cx, 2, 22)?;
-                set.insert(cx, 42)?;
-                Ok((map, set))
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("edit")
+                    .parameter(
+                        "map",
+                        <ScriptMap<i32, i32>>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .parameter(
+                        "set",
+                        <ScriptSet<i32>>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .returns(<Containers>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>, (map, set): Containers| -> NativeResult<Containers> {
+                    map.insert(cx, 1, 20)?;
+                    map.insert(cx, 2, 22)?;
+                    set.insert(cx, 42)?;
+                    Ok((map, set))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, owner) = fixture(
         r#"
         use std::collections::{HashMap, HashSet};

@@ -24,7 +24,6 @@ pub mod module;
 pub mod objects;
 pub mod payload;
 pub mod primitive;
-pub mod registration;
 pub(crate) mod registry;
 mod result;
 pub mod returns;

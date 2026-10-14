@@ -1,18 +1,17 @@
 use crate::{
     error::RuntimeError,
     native::{
+        adapter::{Async, NativeAdapter},
         binding::{Codec, NativeBinding, NativeResult},
-        builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         completion::Completion,
         conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
         future::{ColdFuture, FuturePayload, NativeFuture, NativeStart, Producer, TypedProducer},
-        registration::FunctionSpec,
-        types::{FunctionRef, TypeRef},
+        types::TypeRef,
     },
     session::ExecutionPhase,
 };
-use kagari_types::declaration::{TypeDefKind, native::NativeStorageLayout};
+use kagari_types::declaration::{FnDecl, TypeDefKind, native::NativeStorageLayout};
 use std::{marker::PhantomData, sync::Arc};
 
 impl DeclarationCatalog {
@@ -41,28 +40,19 @@ impl DeclarationCatalog {
     }
 }
 
-impl ModuleBuilder {
-    /// Calling the registered function only captures checked script arguments.
-    /// Conversion and submission happen on first await. The producer receives
-    /// owned arguments and an endpoint, with no runtime borrow that could escape.
-    pub fn add_async_function<A, R>(
-        &mut self,
-        spec: FunctionSpec,
-        entry: impl Fn(A, Completion<R>) -> NativeResult<NativeStart<R>> + Send + Sync + 'static,
-    ) -> NativeResult<FunctionRef>
-    where
-        A: FromKagariArguments + 'static,
-        R: IntoKagari + Send + 'static,
-    {
-        let mut catalog = self.providers.clone();
-        catalog.merge(&DeclarationCatalog::declared(
-            [&self.declaration],
-            self.context(),
-        )?)?;
-        let parameters = A::argument_types(&catalog)?;
-        let result = catalog.future_type()?.apply([R::kagari_type(&catalog)?])?;
+impl<F, A, R> NativeAdapter<Async<A>, R> for F
+where
+    A: FromKagariArguments + 'static,
+    R: IntoKagari + Send + 'static,
+    F: Fn(A, Completion<R>) -> NativeResult<NativeStart<R>> + Send + Sync + 'static,
+{
+    /// Construction only captures checked script arguments. Conversion/submission
+    /// still happens on first await through the existing cold producer service.
+    fn prepare(self, _: &FnDecl, catalog: &DeclarationCatalog) -> NativeResult<NativeBinding> {
+        let parameters = A::argument_types(catalog)?;
+        let result = catalog.future_type()?.apply([R::kagari_type(catalog)?])?;
         let producer: Arc<dyn Producer> = Arc::new(TypedProducer {
-            entry,
+            entry: self,
             marker: PhantomData::<fn(A) -> R>,
         });
         let binding = NativeBinding::new(
@@ -100,6 +90,6 @@ impl ModuleBuilder {
                 )
             },
         );
-        self.add_prepared_function(spec, parameters, result, binding, &catalog)
+        Ok(binding)
     }
 }

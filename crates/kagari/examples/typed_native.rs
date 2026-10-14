@@ -1,7 +1,8 @@
 //! Documented native registration and owned host arguments/results.
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::native::{
-    binding::NativeResult, builder::ModuleBuilder, registration::FunctionSpec, typed::NativeContext,
+    binding::NativeResult, builder::ModuleBuilder, conversion::KagariType,
+    declarations::FunctionDecl, typed::NativeContext,
 };
 use kagari_source::source::SourceFile;
 
@@ -9,13 +10,24 @@ fn main() {
     let mut builder = KagariEngine::builder().unwrap();
     let mut text = ModuleBuilder::new("application::text", builder.declarations()).unwrap();
     text.documentation("# Text utilities\n\nApplication-owned Unicode text functions.");
-    text.add_function(
-        FunctionSpec::new("split")
-            .parameter_names(["text", "separator"])
-            .documentation("Split text around each literal separator, preserving empty fields.")
-            .parameter_documentation("text", "The text to split.")
-            .parameter_documentation("separator", "A literal separator, which may be empty.")
-            .return_documentation("An owned sequence of fields, in source order."),
+    let string = String::kagari_type(text.declarations()).unwrap();
+    let strings = Vec::<String>::kagari_type(text.declarations()).unwrap();
+    let split = text
+        .define_function(
+            FunctionDecl::new("split")
+                .parameter("text", string.clone())
+                .parameter("separator", string)
+                .returns(strings)
+                .documentation(concat!(
+                    "Split text around each literal separator, preserving empty fields.",
+                    "\n\n# Parameters\n\n## `text`\n\nThe text to split.\n",
+                    "\n## `separator`\n\nA literal separator, which may be empty.\n",
+                    "\n\n# Returns\n\nAn owned sequence of fields, in source order.",
+                )),
+        )
+        .unwrap();
+    text.bind(
+        split,
         |cx: &mut NativeContext<'_>,
          (text, separator): (String, String)|
          -> NativeResult<Vec<String>> {

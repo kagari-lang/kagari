@@ -1,28 +1,31 @@
 #![cfg(feature = "source")]
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_runtime::{
-    host::HostFunction,
     module::entry::ProgramEntry,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, registration::FunctionSpec,
-        typed::NativeContext,
+        binding::NativeResult, builder::ModuleBuilder, declarations::FunctionDecl,
+        typed::NativeContext, types::Type,
     },
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_syntax::parser::ParseLimits;
-use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
 
 fn provider(answer: i32) -> KagariEngine {
     let mut builder = KagariEngine::builder().unwrap();
     let mut module = ModuleBuilder::new("application::answer", builder.declarations()).unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("read"),
-            move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> { Ok(answer) },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(FunctionDecl::new("read").returns(Type::i32()))
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> { Ok(answer) },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     builder.install(module.finish().unwrap()).unwrap();
     builder.build().unwrap()
 }
@@ -86,33 +89,46 @@ fn sessions_retain_exact_providers_without_inheriting_source_or_query_settings()
 }
 
 #[test]
-fn runtimes_from_one_installation_have_independent_host_state_and_heap_owners() {
+fn runtimes_from_one_installation_have_independent_native_state_and_heap_owners() {
     let engine = KagariEngine::default();
     let mut first = engine.runtime(Default::default());
-    let second = engine.runtime(Default::default());
-    first
-        .runtime_mut()
-        .register_host_function(HostFunction::new(
-            {
-                let context = DefinitionContext::new().unwrap();
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "host.answer",
-                    vec![],
-                    HostValueType::I32,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            |_, _| Ok(Value::I32(42)),
-        ))
+    let mut second = engine.runtime(Default::default());
+    let mut builder = KagariEngine::builder().unwrap();
+    let mut module = ModuleBuilder::new("application::local", builder.declarations()).unwrap();
+    let answer = module
+        .define_function(FunctionDecl::new("answer").returns(Type::i32()))
         .unwrap();
+    module
+        .bind(
+            answer,
+            |_: &mut NativeContext<'_>, (): ()| -> NativeResult<i32> { Ok(42) },
+        )
+        .unwrap();
+    let module = module.finish().unwrap();
+    module.install(first.runtime_mut()).unwrap();
+    builder.install(module).unwrap();
+    let artifact = builder
+        .build()
+        .unwrap()
+        .compile_to_artifact(
+            SourceFile::new(
+                "local.kgr",
+                "use application::local::answer; fn main() -> i32 { answer() }",
+            ),
+            Default::default(),
+        )
+        .unwrap();
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let owner = first.load_program(&program, Default::default()).unwrap();
+    let context = ExecutionContext::default();
     assert_eq!(
-        first.runtime().invoke_host("host.answer", &[]).unwrap(),
-        Value::I32(42)
+        first
+            .execute_typed::<_, i32>(&owner, ProgramEntry::Main, (), &context)
+            .unwrap(),
+        42
     );
-    assert!(second.runtime().invoke_host("host.answer", &[]).is_err());
+    assert!(second.load_program(&program, Default::default()).is_err());
     let value = first.runtime().gc().alloc_string("owned".into()).unwrap();
     let rooted = first.runtime().root_value(value).unwrap();
     assert!(rooted.value(second.runtime().gc()).is_none());

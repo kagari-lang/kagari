@@ -18,8 +18,9 @@ use kagari_runtime::{
     gc::GcHeapConfig,
     module::LoadedModule,
     native::{
-        binding::NativeResult, builder::ModuleBuilder, function_handle::PinnedFunction,
-        module::NativeModule, objects::Object, registration::FunctionSpec, typed::NativeContext,
+        binding::NativeResult, builder::ModuleBuilder, conversion::KagariType,
+        declarations::FunctionDecl, function_handle::PinnedFunction, module::NativeModule,
+        objects::Object, typed::NativeContext, types::Type,
     },
     resource::RuntimeLimits,
 };
@@ -60,15 +61,19 @@ fn bound_entries_check_visibility_signature_and_return_retained_objects() {
     )
     .unwrap();
     let observed = calls.clone();
-    module
-        .add_function(
-            FunctionSpec::new("tick"),
-            move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                observed.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("tick")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |_: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, owner) = fixture(
         r#"
         use example::functions::tick;
@@ -120,27 +125,51 @@ fn typed_closures_reenter_native_and_retain_captures_until_last_handle() {
     let remembered: Arc<Mutex<Option<ScalarCallback>>> = Arc::default();
     let mut module = ModuleBuilder::new("example::functions", &catalog).unwrap();
     let saved = remembered.clone();
-    module
-        .add_function(
-            FunctionSpec::new("apply").parameter_names(["callback", "value"]),
-            move |cx: &mut NativeContext<'_>,
-                  (callback, value): (PinnedFunction<(i32,), i32>, i32)|
-                  -> NativeResult<i32> {
-                *saved.lock().unwrap() = Some(callback.clone());
-                cx.collect_garbage()?;
-                callback.call(cx, (value,))
-            },
-        )
-        .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("increment").parameter_names(["value"]),
-            |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<i32> {
-                cx.collect_garbage()?;
-                Ok(value + 1)
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("apply")
+                    .parameter(
+                        "callback",
+                        <PinnedFunction<(i32,), i32>>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .parameter("value", Type::i32())
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>,
+                      (callback, value): (PinnedFunction<(i32,), i32>, i32)|
+                      -> NativeResult<i32> {
+                    *saved.lock().unwrap() = Some(callback.clone());
+                    cx.collect_garbage()?;
+                    callback.call(cx, (value,))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("increment")
+                    .parameter("value", Type::i32())
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<i32> {
+                    cx.collect_garbage()?;
+                    Ok(value + 1)
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, owner) = fixture(
         r#"
         use example::functions::{apply, increment};
@@ -274,14 +303,28 @@ fn typed_reentry_traps_cancellation_and_depth_exhaustion_release_execution_state
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("apply").parameter_names(["callback", "value"]),
-            |cx: &mut NativeContext<'_>,
-             (callback, value): (PinnedFunction<(i32,), i32>, i32)|
-             -> NativeResult<i32> { callback.call(cx, (value,)) },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("apply")
+                    .parameter(
+                        "callback",
+                        <PinnedFunction<(i32,), i32>>::kagari_type(module.declarations()).unwrap(),
+                    )
+                    .parameter("value", Type::i32())
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>,
+                 (callback, value): (PinnedFunction<(i32,), i32>, i32)|
+                 -> NativeResult<i32> { callback.call(cx, (value,)) },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, owner) = fixture(
         r#"
         use example::functions::apply;
@@ -361,14 +404,25 @@ fn native_declaration_handles_bind_checked_installed_entries_directly() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    let add = module
-        .add_function(
-            FunctionSpec::new("add").parameter_names(["left", "right"]),
-            |_: &mut NativeContext<'_>, (left, right): (i32, i32)| -> NativeResult<i32> {
-                Ok(left + right)
-            },
-        )
-        .unwrap();
+    let add = {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("add")
+                    .parameter("left", Type::i32())
+                    .parameter("right", Type::i32())
+                    .returns(Type::i32()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |_: &mut NativeContext<'_>, (left, right): (i32, i32)| -> NativeResult<i32> {
+                    Ok(left + right)
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, owner) = fixture(
         "use example::functions::add; pub fn main() -> i32 { add(20, 22) }",
         Some(&module.finish().unwrap()),

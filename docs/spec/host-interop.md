@@ -952,7 +952,7 @@ late endpoints cannot keep completed payloads or reservations alive.
 
 ### Registered cold producers and VM waits
 
-`ModuleBuilder::add_async_function<A, R>` declares `fn(A) -> Future<R>` using the
+`ModuleBuilder::bind::<Async<A>, R>` binds an explicit `fn(A) -> Future<R>` declaration using the
 catalog's unique checked `NativeStorageLayout::Future` role. `NativeStorage::future`
 provides sealed runtime payload storage with exactly one invariant output parameter.
 The foundation installs `core::future::Future<T>` and exposes it through the

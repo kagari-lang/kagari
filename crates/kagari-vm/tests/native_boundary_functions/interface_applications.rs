@@ -2,8 +2,8 @@ use super::fixture;
 use crate::compile_program;
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, conversion::context::ConversionContext,
-    function_handle::PinnedFunction, interfaces::Interface, objects::Object,
-    registration::FunctionSpec, typed::NativeContext,
+    declarations::FunctionDecl, function_handle::PinnedFunction, interfaces::Interface,
+    objects::Object, typed::NativeContext,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
@@ -107,16 +107,22 @@ fn generic_interface_constraints_keep_selected_operations_alive_through_gc_and_r
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    builder
-        .add_function(
-            FunctionSpec::new("collect"),
-            move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                cx.collect_garbage()?;
-                observed.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = builder
+            .define_function(FunctionDecl::new("collect"))
+            .unwrap();
+        builder
+            .bind(
+                registered_function.clone(),
+                move |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    cx.collect_garbage()?;
+                    observed.fetch_add(1, Ordering::Relaxed);
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = builder.finish().unwrap();
     let source = r#"
         use example::interface_applications::collect;

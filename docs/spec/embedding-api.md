@@ -509,14 +509,21 @@ session's cancellation and pinned program. The explicit named-entry policy match
 
 ## Typed native registration
 
-ModuleBuilder::add_function takes a FunctionSpec and a callback of the form
+`ModuleBuilder::define_function` authors a `FunctionDecl` with explicit parameter
+names, semantic types, return type and Markdown documentation. `bind` attaches a
+raw/primitive binding, a flat call-context entry or an owned typed callback such as
 `|cx: &mut NativeContext<'_>, (text,): (String,)| -> NativeResult<Vec<String>>`.
-Rust types supply the concrete signature, while FunctionSpec supplies parameter
-names and full Markdown documentation. Parameter and return documentation are
-rendered into the existing declaration documentation, then the normal generated
-KGR and materialized navigation files. Explicit generic declarations and
-NativeBinding::typed use the same catalog and checked binding mechanism.
-NativeBinding::typed_method passes the receiver separately from the argument tuple.
+Instance callbacks may pass an owning receiver separately from the argument tuple.
+Rust and Kagari traits remain independent; callback types do not register impls.
+All adapters retain the authored signature and use checked installation and
+per-application conversions. A concrete interface result is configured explicitly
+with `FunctionBuilder::produces` so the compiler supplies the selected adapter.
+
+Existing cold Future producers use the same `bind` with the `Async<A>` inference
+marker and an explicit `Future<R>` declaration. Their callback accepts owned
+arguments plus `Completion<R>`; argument conversion and submission still occur on
+first await. The callback's tuple and completion types must be annotated. Borrowed
+host loans cannot be retained in a producer.
 
 The common KagariType/IntoKagari/FromKagari adapters support scalars, owned String,
 Vec, ordinary installed Option/Result and tuples of arity 0-12. The outer tuple is
@@ -837,7 +844,7 @@ handle. Drive takes a `NonZeroUsize` instruction slice and returns
 
 `OwnedExecution::set_waker` registers a host scheduling notification and rechecks
 durable readiness. `is_ready` observes that coalesced state; a wake never enters the
-runtime. Typed `ModuleBuilder::add_async_function` producers return cold
+runtime. Typed `bind` producers using `Async<A>` return cold
 `core::future::Future<T>` values, receive owned input/completion endpoints on first
 await, and convert results on the driver. Completion can arrive before registration,
 during submission or from another thread without executing a continuation there.

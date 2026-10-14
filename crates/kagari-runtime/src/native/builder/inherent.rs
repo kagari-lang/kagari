@@ -4,6 +4,7 @@ use crate::{
     native::{
         adapter::NativeAdapter,
         binding::{Codec, NativeBinding, NativeResult},
+        catalog::DeclarationCatalog,
         declarations::{FunctionBuilder, MethodDecl, normalize_bounds},
         types::{FunctionRef, Type},
     },
@@ -18,6 +19,7 @@ use std::collections::BTreeMap;
 
 pub struct InherentMethodsBuilder {
     pub(crate) context: DefinitionContext,
+    pub(crate) catalog: DeclarationCatalog,
     pub(crate) owner: DefinitionId,
     pub(crate) receiver: Type,
     pub(crate) receiver_codec: Option<Codec>,
@@ -83,7 +85,7 @@ impl InherentMethodsBuilder {
         let signature = self.methods.get(&method.id).ok_or_else(|| {
             RuntimeError::metadata_conflict("unknown inherent method declaration")
         })?;
-        let binding = entry.prepare(signature)?;
+        let binding = entry.prepare(signature, &self.catalog)?;
         if signature
             .params
             .first()

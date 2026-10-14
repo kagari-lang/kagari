@@ -3,6 +3,7 @@ use crate::{
     error::RuntimeError,
     native::{
         binding::{NativeBinding, NativeResult},
+        catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, arguments::FromKagariArguments},
         functions::NativeFunction,
         typed::NativeContext,
@@ -27,25 +28,33 @@ pub struct OwnedMethod<S, A>(PhantomData<(S, A)>);
 #[doc(hidden)]
 pub struct Explicit;
 
+/// Inference marker for an existing cold producer with owned arguments/results.
+#[doc(hidden)]
+pub struct Async<A>(PhantomData<A>);
+
 /// Select a local implementation against an already authored Kagari signature.
 /// `bind` checks the produced binding through its ordinary declaration validator;
 /// concrete contextual mappings are checked before conversion/callback effects.
 /// Callback context types must be annotated so Rust can select the adapter.
 pub trait NativeAdapter<Mode, R> {
-    fn prepare(self, declaration: &FnDecl) -> NativeResult<NativeBinding>;
+    fn prepare(
+        self,
+        declaration: &FnDecl,
+        catalog: &DeclarationCatalog,
+    ) -> NativeResult<NativeBinding>;
 }
 
 impl<F, A, R> NativeAdapter<Flat<A>, R> for F
 where
     F: NativeFunction<A, R>,
 {
-    fn prepare(self, _: &FnDecl) -> NativeResult<NativeBinding> {
+    fn prepare(self, _: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
         Ok(self.binding())
     }
 }
 
 impl NativeAdapter<Explicit, ()> for NativeBinding {
-    fn prepare(self, _: &FnDecl) -> NativeResult<NativeBinding> {
+    fn prepare(self, _: &FnDecl, _: &DeclarationCatalog) -> NativeResult<NativeBinding> {
         Ok(self)
     }
 }
@@ -56,7 +65,11 @@ where
     R: IntoKagari,
     F: for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R> + Send + Sync + 'static,
 {
-    fn prepare(self, declaration: &FnDecl) -> NativeResult<NativeBinding> {
+    fn prepare(
+        self,
+        declaration: &FnDecl,
+        _catalog: &DeclarationCatalog,
+    ) -> NativeResult<NativeBinding> {
         Ok(NativeBinding::contextual(declaration.params.len(), self))
     }
 }
@@ -68,7 +81,11 @@ where
     R: IntoKagari,
     F: for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R> + Send + Sync + 'static,
 {
-    fn prepare(self, declaration: &FnDecl) -> NativeResult<NativeBinding> {
+    fn prepare(
+        self,
+        declaration: &FnDecl,
+        _catalog: &DeclarationCatalog,
+    ) -> NativeResult<NativeBinding> {
         if !declaration
             .params
             .first()

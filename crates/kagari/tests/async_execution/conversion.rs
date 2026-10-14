@@ -6,13 +6,14 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     native::{
+        adapter::Async,
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        completion::CompletionStatus,
+        completion::{Completion, CompletionStatus},
         conversion::{IntoKagari, KagariType, context::ConversionContext},
+        declarations::FunctionDecl,
         future::NativeStart,
-        registration::FunctionSpec,
         types::Type,
     },
     task::{CancellationCause, TaskId, control::TaskScopeOwner, drive::TaskDriveResult},
@@ -124,10 +125,22 @@ fn async_output_publication_contract() {
             let cancelled = cancelled.clone();
             let mut module =
                 ModuleBuilder::new("test::converted_reply", engine.declarations()).unwrap();
-            module
-                .add_async_function::<(), Reply>(
-                    FunctionSpec::new("read"),
-                    move |(), completion| {
+            {
+                let registered_function = module
+                    .define_function(
+                        FunctionDecl::new("read").returns(
+                            module
+                                .declarations()
+                                .future_type()
+                                .unwrap()
+                                .apply([<Reply>::kagari_type(module.declarations()).unwrap()])
+                                .unwrap(),
+                        ),
+                    )
+                    .unwrap();
+                module.bind::<Async<()>, Reply>(
+                    registered_function,
+                    move |(): (), completion: Completion<Reply>| {
                         send.lock().unwrap().push(completion);
                         let cancelled = cancelled.clone();
                         Ok(NativeStart::cancellable(move || {
@@ -135,7 +148,8 @@ fn async_output_publication_contract() {
                         }))
                     },
                 )
-                .unwrap();
+            }
+            .unwrap();
             engine.install(module.finish().unwrap()).unwrap();
         });
         f.load_source(SOURCE);

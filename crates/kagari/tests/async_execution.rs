@@ -30,10 +30,11 @@ use kagari_runtime::{
     gc::roots::RootedValue,
     module::LoadedModule,
     native::{
+        adapter::Async,
         builder::ModuleBuilder,
         completion::{Completion, CompletionStatus},
+        declarations::FunctionDecl,
         future::NativeStart,
-        registration::FunctionSpec,
         types::Type,
     },
     value::Value,
@@ -143,10 +144,24 @@ impl Fixture {
         let recorded = inputs.clone();
         let (started, cancelled, send) = (starts.clone(), cancels.clone(), sent.clone());
         let mut native = ModuleBuilder::new("test::async_sdk", engine.declarations()).unwrap();
-        native
-            .add_async_function::<(i32,), i32>(
-                FunctionSpec::new("request").parameter_names(["input"]),
-                move |(input,), completion| {
+        {
+            let registered_function = native
+                .define_function(
+                    FunctionDecl::new("request")
+                        .parameter("input", Type::i32())
+                        .returns(
+                            native
+                                .declarations()
+                                .future_type()
+                                .unwrap()
+                                .apply([Type::i32()])
+                                .unwrap(),
+                        ),
+                )
+                .unwrap();
+            native.bind::<Async<(i32,)>, i32>(
+                registered_function,
+                move |(input,): (i32,), completion: Completion<i32>| {
                     started.fetch_add(1, Ordering::SeqCst);
                     recorded.lock().unwrap().push(input);
                     match input {
@@ -165,7 +180,8 @@ impl Fixture {
                     }
                 },
             )
-            .unwrap();
+        }
+        .unwrap();
         let native = native.finish().unwrap();
         let declaration = native
             .to_declaration()

@@ -55,7 +55,7 @@ Compiler-only consumers can read the same declarations without a runtime.
 `core::future::Future<T>` is the canonical single-drive native storage type, with
 one invariant output parameter. `std::future` and the prelude re-export that exact
 declaration. It has no public constructor or trait-based await protocol. Typed
-`ModuleBuilder::add_async_function` registration selects this checked storage role;
+`bind` with `Async<A>` selects this checked storage role;
 ordinary invocation captures values and first await submits the operation. Source
 async callables construct the same Future role with private script resume state;
 both producers support encoded wait/resume.

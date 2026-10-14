@@ -7,7 +7,6 @@ use crate::{
     module::LoadedModule,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
-        catalog::DeclarationCatalog,
         context::{CallContext, ScriptInvoker},
         conversion::{
             FromKagari, IntoKagari, arguments::FromKagariArguments, context::ConversionContext,
@@ -126,49 +125,6 @@ impl NativeBinding {
         Self::new(vec![Codec::Value; arity], Codec::Value, move |call| {
             invoke(call, &entry)
         })
-    }
-
-    /// Instance callbacks receive their receiver separately from the outer
-    /// argument tuple. The checked declaration still owns the receiver's type.
-    pub fn typed_method<S, A, R>(
-        catalog: &DeclarationCatalog,
-        entry: impl for<'call> Fn(&mut NativeContext<'call>, S, A) -> NativeResult<R>
-        + Send
-        + Sync
-        + 'static,
-    ) -> NativeResult<Self>
-    where
-        S: FromKagari,
-        A: FromKagariArguments,
-        R: IntoKagari,
-    {
-        Self::typed(
-            catalog,
-            move |cx, ReceiverArguments(receiver, arguments)| entry(cx, receiver, arguments),
-        )
-    }
-
-    /// Bind an outer argument tuple and one fallibly converted result. The
-    /// declaration builder checks this binding against the exported signature.
-    pub fn typed<A, R>(
-        catalog: &DeclarationCatalog,
-        entry: impl for<'call> Fn(&mut NativeContext<'call>, A) -> NativeResult<R>
-        + Send
-        + Sync
-        + 'static,
-    ) -> NativeResult<Self>
-    where
-        A: FromKagariArguments,
-        R: IntoKagari,
-    {
-        let arguments = A::argument_types(catalog)?
-            .into_iter()
-            .map(Codec::Exact)
-            .collect::<Vec<_>>();
-        let result = Codec::Exact(R::kagari_type(catalog)?);
-        Ok(Self::new(arguments, result, move |call| {
-            invoke(call, &entry)
-        }))
     }
 }
 

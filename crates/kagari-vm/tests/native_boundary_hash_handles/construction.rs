@@ -3,9 +3,10 @@ use kagari_runtime::native::{
     binding::NativeResult,
     builder::ModuleBuilder,
     collections::{map::ScriptMap, set::ScriptSet},
+    conversion::KagariType,
     conversion::context::ConversionContext,
+    declarations::FunctionDecl,
     objects::Object,
-    registration::FunctionSpec,
     typed::NativeContext,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -69,15 +70,19 @@ fn custom_key_factories_pin_selected_operations_through_reentry_and_reload() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("probe"),
-            |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
-                cx.collect_garbage()?;
-                Ok(())
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module.define_function(FunctionDecl::new("probe")).unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<()> {
+                    cx.collect_garbage()?;
+                    Ok(())
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let module = module.finish().unwrap();
     let (vm, old) = fixture(CUSTOM, Some(&module));
     let key_type = vm.runtime().bind_type(&old, "Key", &[]).unwrap();
@@ -172,19 +177,28 @@ fn typed_native_callbacks_create_collections_with_the_same_checked_factory() {
         &StandardDeclarations::default().catalog().unwrap(),
     )
     .unwrap();
-    module
-        .add_function(
-            FunctionSpec::new("fresh"),
-            |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Collections> {
-                let map = cx.create_map()?;
-                let set = cx.create_set()?;
-                map.insert(cx, 1, 42)?;
-                set.insert(cx, 1)?;
-                cx.collect_garbage()?;
-                Ok((map, set))
-            },
-        )
-        .unwrap();
+    {
+        let registered_function = module
+            .define_function(
+                FunctionDecl::new("fresh")
+                    .returns(<Collections>::kagari_type(module.declarations()).unwrap()),
+            )
+            .unwrap();
+        module
+            .bind(
+                registered_function.clone(),
+                |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Collections> {
+                    let map = cx.create_map()?;
+                    let set = cx.create_set()?;
+                    map.insert(cx, 1, 42)?;
+                    set.insert(cx, 1)?;
+                    cx.collect_garbage()?;
+                    Ok((map, set))
+                },
+            )
+            .map(|()| registered_function)
+    }
+    .unwrap();
     let (vm, owner) = fixture(
         r#"
         use std::collections::{HashMap, HashSet};
