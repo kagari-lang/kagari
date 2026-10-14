@@ -11,8 +11,8 @@ The user approved following Rust's dependency model as a direction. Manifest nam
 the initial feature subset and version restrictions below are recommendations to
 review, not implemented features or final language specifications. Source package
 distribution with joint compilation of the resolved dependency closure, one root
-module per package with multiple callable exports, and the toolchain and Rust
-distribution names below are confirmed design decisions.
+module per package with multiple callable exports, Cargo-style workspace management,
+and the toolchain and Rust distribution names below are confirmed design decisions.
 Recording them does not activate implementation, crate renaming or publication.
 
 ## Current foundation
@@ -28,6 +28,8 @@ Recording them does not activate implementation, crate renaming or publication.
   evidence of an implemented general package manager.
 - General packages use common identities and source handoff; native declaration
   installation is a separate boundary, not an implicit package privilege.
+- Script workspaces are not implemented. The repository's Cargo workspace groups
+  Kagari's Rust implementation crates, not user script packages.
 
 Re-audit these foundations at activation. Existing specifications govern until
 an implementation updates them.
@@ -39,6 +41,7 @@ resolution and input registration; they are not full package-manager acceptance.
 
 | Concept | Meaning |
 | --- | --- |
+| Workspace | Development group of packages with shared configuration, lockfile and build storage |
 | Package | Named source/interface unit with a root module and declared dependencies |
 | Module | Namespace within one package |
 | Resolved package graph | Exact package selections and dependency-alias edges for one build |
@@ -218,6 +221,89 @@ with a lock/graph contract capable of carrying future Git/registry selections.
 Remote fetching, registry publication and a full multi-version solver can follow.
 This staging is a review choice, not a claim that Cargo only supports these features.
 
+## Workspaces
+
+Confirmed initial scope: follow Cargo's workspace organization for script packages.
+Support a root manifest containing both `[workspace]` and `[package]`, and a virtual
+workspace manifest containing `[workspace]` without a root package. Standalone
+packages remain supported. See [Cargo workspaces](https://doc.rust-lang.org/cargo/reference/workspaces.html)
+for the reference model; Kagari does not promise full Cargo manifest compatibility.
+
+```toml
+# game/Kagari.toml
+[workspace]
+members = ["gameplay", "combat", "shared"]
+default-members = ["gameplay"]
+
+[workspace.dependencies]
+combat = { path = "combat" }
+shared = { path = "shared" }
+```
+
+```toml
+# game/gameplay/Kagari.toml
+[package]
+name = "gameplay"
+version = "0.1.0"
+
+[dependencies]
+combat.workspace = true
+shared.workspace = true
+```
+
+The initial workspace surface includes:
+
+- `members`, `exclude` and `default-members` for membership and default selection.
+- `[workspace.dependencies]` with explicit member inheritance through
+  `workspace = true`. A workspace dependency does not become a member's dependency
+  until that member declares it; workspace membership itself grants no import access.
+- A shared root `Kagari.lock` and build cache/output directory, with products keyed
+  by the existing complete build fingerprints rather than only a member name.
+- Package selection such as `kg check --workspace` and `kg build -p gameplay`.
+  CLI spellings here are target behavior, not implemented commands.
+
+Resolve paths in workspace dependency declarations against the workspace root;
+resolve paths written directly in a member manifest against that member's directory.
+Normalization retains the declaring manifest/site for diagnostics. Missing inherited
+entries and incompatible declaration combinations produce errors instead of an
+ambient package lookup. Default members must belong to the resolved member set.
+
+The proposed command defaults follow Cargo: from a member, select that package;
+from the workspace root, select `default-members` when present, otherwise the root
+package or all members of a virtual workspace. A run operation must identify one
+package and function before execution; checking/building several members does not
+implicitly run them. PK00 must settle member discovery details, including glob
+patterns, automatic inclusion of in-tree path dependencies, parent-root discovery,
+nested/external members and ambiguous package selectors. These details are not
+silently inherited from every Cargo feature.
+
+Workspace discovery and configuration inheritance belong to package tooling.
+Normalize each member into an ordinary package description with explicit dependency
+requirements before dependency resolution. HIR and compilation receive the same
+resolved graph/source snapshot contract used for standalone and virtual packages;
+runtime does not interpret workspace configuration. Filesystem discovery remains
+subject to host-approved roots. Workspace location is not a substitute for portable
+package identity.
+
+For example, if `gameplay` and `simulator` each depend on `combat`, building
+`gameplay` compiles its source closure into one Program; building `simulator`
+produces another. Building both selects two roots, not one combined language world.
+Analysis/generated products may be reused only under their ordinary validity rules;
+unrelated members do not contribute names or trait implementations to a Program.
+Workspace membership introduces no runtime instance, shared mutable state or atomic
+multi-Program reload boundary.
+
+The shared lockfile records exact selections and edges for member roots. Sharing
+its storage does not make the proposed single-revision-per-Program rule a
+single-revision-per-workspace rule. PK00 must define lock coverage, update behavior
+for selected-member commands and how distinct root selections are represented;
+it must not collapse conflicting selections by logical family identity. This does
+not activate multi-version support within one Program or remote version solving.
+
+Workspace package-metadata inheritance, features, build scripts and broader Cargo
+configuration are outside this initial workspace scope. Unsupported configuration
+must be diagnosed under the ordinary manifest rules.
+
 ## Resolution and locking
 
 Separate requirements from selections: the manifest describes requirements while
@@ -372,6 +458,8 @@ installations retain their existing pinned selection, not a globally mutated pac
 One root module per package with multiple callable exports is confirmed under
 [responsibilities](#responsibilities). Source distribution and joint compilation
 are confirmed under [the compilation handoff](#compilation-and-update-handoff).
+[Workspace management](#workspaces) is also confirmed for the initial package scope;
+its remaining discovery, selection and lock details belong to PK00.
 Multiple executable targets and independent package binary distribution/linking
 are outside the initial scope. Before implementation, confirm the remaining
 recommendations:
@@ -390,15 +478,18 @@ input and update compatibility; package code need not depend on an implemented S
 builder spelling or on async.
 
 - [ ] PK00: Re-audit ST/NR results; confirm review choices, package identity,
-  source/lock formats and host export/concrete generic entry selection. Inventory
-  current module/import tests and artifact impact.
-- [ ] PK01: Implement manifest/virtual package normalization, deterministic module
-  maps and dependency/alias validation. Test diagnostics and snapshot isolation.
+  source/lock formats, workspace discovery/selection/lock coverage and host
+  export/concrete generic entry selection. Inventory current module/import tests
+  and artifact impact.
+- [ ] PK01: Implement manifest/virtual package and workspace normalization,
+  membership/default selection, explicit dependency inheritance, deterministic
+  module maps and dependency/alias validation. Test diagnostics and snapshot isolation.
 - [ ] PK02: Implement supported resolution/locking and content snapshots with
-  host-approved sources, offline behavior and the selected version-conflict policy.
+  host-approved sources, shared workspace lock storage, offline behavior and the
+  selected version-conflict policy.
 - [ ] PK03: Integrate resolved graphs with HIR, Program/artifact provenance, SDK/CLI
-  inputs, host export retention and reverse-dependency invalidation. Keep IO out of
-  compiler execution.
+  package/workspace selection, shared build storage, host export retention and
+  reverse-dependency invalidation. Keep IO out of compiler execution.
 - [ ] PK04: Update specifications/examples and run package, feature and compatibility
   acceptance. Remote providers are separate scope unless explicitly activated.
 
@@ -410,6 +501,12 @@ equivalence, checkout relocation and standard/host namespace spoofing. Test lock
 reproducibility, local source changes, unavailable locked input, path traversal and
 symlink policy, cancellation, bounded graph size and atomic publication of inputs.
 
+Cover root-package and virtual workspaces, standalone packages, member/exclusion
+and default selection, inherited versus member-local path bases, missing inherited
+dependencies and shared lock behavior under the PK00 rules. Verify that sibling
+membership grants neither import access nor trait candidates, and that building
+multiple selected members yields independent Programs with correctly keyed products.
+
 Verify that multiple exported functions without script callers remain independently
 callable from one Program, including after source-free artifact loading, under the
 selected export policy. Cover the selected concrete generic entry policy without
@@ -419,7 +516,11 @@ Run end-to-end single-file and multi-package source/artifact routes, including
 changes to a dependency function, generic body and constant. Verify affected roots
 are identified, unchanged code can be reused without stale behavior, and no package
 fetch or initialization occurs at runtime. Keep the existing source-free/backend
-feature matrix and all repository final checks:
+feature matrix in CI. Local checkpoints use focused tests for changed package,
+workspace and directly affected source/artifact/reload contracts, plus lightweight
+structure, formatting and diff checks as applicable. Record the selected tests and
+remaining CI scope during implementation; documentation-only changes need content,
+link and diff checks. The complete sequence below is CI-only:
 
 ```text
 uv run --locked scripts/check_structure.py
