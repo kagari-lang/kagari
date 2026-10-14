@@ -20,6 +20,7 @@ use std::{collections::BTreeSet, iter};
 #[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 enum Reference {
     Type(DefinitionId),
+    External(DefinitionId),
     Enum(NominalTy),
     Trait(DefinitionId),
     Template(DefinitionId),
@@ -62,6 +63,7 @@ impl References {
         let mut pending = vec![ty];
         while let Some(ty) = pending.pop() {
             match ty {
+                Ty::Host(id) => self.pending.push(Reference::External(*id)),
                 Ty::Reference { target, .. } => pending.push(target),
                 Ty::NativeObject(nominal)
                 | Ty::Trait(nominal)
@@ -103,7 +105,7 @@ impl References {
                     pending.extend(params);
                     pending.push(result);
                 }
-                Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) | Ty::Host { .. } => {}
+                Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) => {}
             }
         }
         Ok(())
@@ -255,6 +257,18 @@ impl DeclarationCatalog {
                 continue;
             }
             match reference {
+                Reference::External(id) => {
+                    if !self
+                        .types
+                        .get_id(id)
+                        .is_some_and(|declaration| matches!(declaration.kind, TypeDefKind::Host(_)))
+                    {
+                        return Err(RuntimeError::metadata_conflict(
+                            "external type is absent from the declaration catalog",
+                        ));
+                    }
+                    references.pending.push(Reference::Type(id));
+                }
                 Reference::Enum(applied) => {
                     let declaration = self.types.get_id(applied.declaration).ok_or_else(|| {
                         RuntimeError::metadata_conflict(
@@ -374,5 +388,132 @@ impl DeclarationCatalog {
             }
         }
         Ok(closure)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DeclarationCatalog;
+    use kagari_common::identity::{
+        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+        metadata::DefinitionMetadata,
+    };
+    use kagari_types::{
+        callable::{CallableImplementation, MethodPolicy},
+        declaration::{
+            FieldDef, FnDecl, Param, TypeDef, TypeDefKind,
+            host::{
+                HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy,
+                PathAccess,
+            },
+            module::ModuleDecl,
+        },
+        scalar::BuiltinType,
+        ty::Ty,
+        visibility::Visibility,
+    };
+    use std::slice;
+
+    #[test]
+    fn external_dependencies_close_recursive_schemas_and_reject_dto_identities() {
+        let context = DefinitionContext::new().unwrap();
+        let mut module = ModuleDecl::new(ModuleIdentity {
+            package: PackageId("example".into()),
+            path: vec!["roots".into()],
+        });
+        let root_kind = TypeDefKind::Host(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Metadata,
+            path_access: PathAccess::ReadOnly,
+        });
+        for (name, kind) in [
+            ("Player", root_kind),
+            ("Stats", root_kind),
+            ("Dto", TypeDefKind::Struct),
+        ] {
+            module.types.push(TypeDef {
+                name: name.into(),
+                kind,
+                generic_params: vec![],
+                bounds: vec![],
+                fields: vec![],
+                variants: vec![],
+            });
+        }
+        module.collect_definitions(&context).unwrap();
+        let id = |name| {
+            module
+                .definition(DefinitionKind::Struct, name, &context.snapshot())
+                .unwrap()
+        };
+        let player = id("Player");
+        let stats = id("Stats");
+        let root = context.snapshot().lookup_root(&module.identity).unwrap();
+        let entry = context
+            .intern_child(root, DefinitionKind::Function, "identity", 0)
+            .unwrap();
+        for (name, ty, visibility) in [
+            ("parent", Ty::Host(player), Visibility::Private),
+            ("stats", Ty::Host(stats), Visibility::Public),
+        ] {
+            module.types[0].fields.push(FieldDef {
+                name: name.into(),
+                ty,
+                visibility,
+                mutable: false,
+                host_policy: Some(HostFieldPolicy {
+                    readable: true,
+                    path_access: PathAccess::ReadOnly,
+                }),
+            });
+        }
+        module.functions.push(FnDecl {
+            name: "identity".into(),
+            implementation: CallableImplementation::Native(entry),
+            generic_params: vec![],
+            bounds: vec![],
+            host_policy: None,
+            method_policy: MethodPolicy::default(),
+            params: vec![Param {
+                name: "player".into(),
+                ty: Ty::Host(player),
+                mutable: false,
+            }],
+            return_type: Ty::Builtin(BuiltinType::Unit),
+        });
+        module.collect_definitions(&context).unwrap();
+        let metadata =
+            DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap();
+        let catalog = DeclarationCatalog::from_declarations([&metadata]).unwrap();
+        let declaration = catalog.declarations.values().next().unwrap();
+        let closure = catalog.dependency_closure([], [declaration], []).unwrap();
+        for name in ["Player", "Stats"] {
+            let (id, schema) = catalog
+                .types
+                .entries()
+                .find(|(_, schema)| schema.name == name)
+                .unwrap();
+            assert_eq!(closure.catalog.types.get_id(id), Some(schema));
+        }
+        assert!(
+            closure
+                .catalog
+                .types
+                .values()
+                .all(|schema| schema.name != "Dto")
+        );
+        let (dto, _) = catalog
+            .types
+            .entries()
+            .find(|(_, schema)| schema.name == "Dto")
+            .unwrap();
+        let mut forged = declaration.clone();
+        forged.function.params[0].ty = Ty::Host(dto);
+        let empty = catalog.dependency_closure([], [], []).unwrap();
+        assert!(
+            catalog
+                .binding_dependencies(&empty, slice::from_ref(&forged))
+                .is_err()
+        );
     }
 }

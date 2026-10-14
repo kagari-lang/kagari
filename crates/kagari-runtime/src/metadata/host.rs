@@ -16,7 +16,8 @@ use kagari_common::{
 };
 use kagari_types::{
     declaration::host::PathAccess,
-    host_interface::{type_declaration::Visibility, value_type::HostValueType},
+    host_interface::{type_declaration::Visibility as LegacyVisibility, value_type::HostValueType},
+    visibility::Visibility,
 };
 use std::{collections::HashMap, fmt::Display};
 
@@ -91,7 +92,10 @@ impl TypeRegistry {
                         ty: intern(&mut candidate, &nominal, &field.ty, &definitions)?,
                         readable: field.readable,
                         writable: field.writable,
-                        visibility: field.visibility,
+                        visibility: match field.visibility {
+                            LegacyVisibility::Private => Visibility::Private,
+                            LegacyVisibility::Public => Visibility::Public,
+                        },
                         path_access: field.path_access,
                         abi_fingerprint: AbiFingerprint(
                             field.fingerprint(&definitions).map_err(metadata_error)?,

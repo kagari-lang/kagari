@@ -21,11 +21,12 @@ use kagari_types::{
     declaration::host::{HostTypeOwnership, PathAccess},
     host_interface::{
         path::HostPathSegmentDeclaration,
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration, Visibility},
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
     scalar::BuiltinType,
     ty::Ty,
+    visibility::Visibility,
 };
 
 #[path = "support/layouts.rs"]

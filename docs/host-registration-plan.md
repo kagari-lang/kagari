@@ -1692,6 +1692,33 @@ and old host/trait regression results remain evidence; exhaustive CI scope is
 unrun. Runtime shared metadata/root installation and HR02/RF05 acceptance remain
 outstanding, with no carried Rust build failure.
 
+### HR02 checkpoint: external catalog closure and metadata visibility
+
+Native registration dependency collection no longer skips Ty::Host. It requires an
+actual common Host TypeDef, follows its fields recursively through the existing
+schema dependency resolver, and retains exact records for per-binding/install
+validation. A Struct/DTO ID cannot supply an external type just because both IDs
+use DefinitionKind::Struct. Recursive external identities deduplicate normally;
+unrelated DTO schemas do not become external objects or implicit method exports.
+
+FieldInfo now uses common declared Visibility directly. The remaining old Host
+metadata producer explicitly maps its Private/Public cases to the same common
+cases. Manual path publication still requires exactly Public, preserving hidden,
+disabled and readonly field rejection. The other common visibility cases remain
+representable without conflating them with old access facts; this changes the
+FieldInfo Rust API directly without a forwarding type or ABI/version bump.
+
+The new native catalog closure boundary passed (private recursive parent plus
+another external schema, no unrelated DTO retention, forged DTO-as-external
+rejection). The existing nominal field/path contract and metadata registry/path
+records cases passed. A mistyped initial path test-name filter selected zero tests;
+this was corrected and the actual existing contract ran. An obsolete test import
+warning was removed. Runtime library/test Clippy, structure (1236 Rust files, zero
+violations), fmt and diff passed. No unsafe/lifetime change; previous Miri remains
+applicable. Complete workspace/feature/backend/platform tests are CI-owned and
+unrun. Shared runtime metadata preparation/installation and legacy retirement
+remain the next HR02/RF05 work; the combined goal is still active.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

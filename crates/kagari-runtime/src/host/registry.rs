@@ -28,9 +28,9 @@ use kagari_types::{
     host_interface::{
         self, HostInterface,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::Visibility,
         value_type::HostValueType,
     },
+    visibility::Visibility,
 };
 use std::iter;
 
