@@ -1,5 +1,6 @@
 use crate::{
     Runtime,
+    host::{HostCallContext, HostError},
     metadata::{TypeKind, TypeRegistration},
     native::{
         binding::{Codec, NativeBinding},
@@ -18,12 +19,19 @@ use kagari_stdlib::{catalog as standard_catalog, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        TypeDefKind,
+        FieldDef, TypeDefKind,
+        host::{
+            HostCallPolicy, HostFieldPolicy, HostPassingStyle, HostReflectionPolicy,
+            HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
         module::ModuleDecl,
         names::{ExportName, NameNamespace},
         native::NativeStorageLayout,
     },
     language::Protocol,
+    scalar::BuiltinType,
+    ty::Ty,
+    visibility::Visibility,
 };
 use std::{collections::BTreeMap, slice};
 
@@ -419,4 +427,114 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
             "{name}"
         );
     }
+}
+
+#[test]
+fn external_authoring_uses_common_type_and_member_binding_policies() {
+    fn callback(_: &HostCallContext<'_>, _: &[Value]) -> Result<Value, HostError> {
+        Ok(Value::I32(0))
+    }
+
+    let policy = |passing| HostCallPolicy {
+        passing: vec![passing],
+        effects: Default::default(),
+    };
+    let mut module = ModuleBuilder::new("example::roots", &Default::default()).unwrap();
+    let field = DefinitionMetadata::checked(
+        module.declarations().definitions(),
+        FieldDef {
+            name: "hp".into(),
+            ty: Ty::Builtin(BuiltinType::I32),
+            visibility: Visibility::Public,
+            mutable: true,
+            host_policy: Some(HostFieldPolicy {
+                readable: true,
+                path_access: PathAccess::ReadWrite,
+            }),
+        },
+        &Default::default(),
+    )
+    .unwrap();
+    let mut player = module.define_type("Player").unwrap();
+    player
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Metadata,
+            path_access: PathAccess::ReadWrite,
+        })
+        .unwrap();
+    assert!(player.type_parameter("T").is_err());
+    assert!(
+        player
+            .native_storage(NativeStorage::payload::<CatalogOnlyPayload>())
+            .is_err()
+    );
+    player.field(field).unwrap();
+    let player = player.finish().unwrap();
+    let receiver = player.apply([]).unwrap();
+    assert!(matches!(receiver.abi(), Ty::Host(_)));
+    let mut interface = module.define_trait("HasHp").unwrap();
+    interface
+        .define_method(MethodDecl::instance("hp").returns(Type::i32()))
+        .unwrap();
+    let interface = interface.finish().unwrap();
+    module
+        .implement(player, |group| {
+            group.inherent_impl(|methods| {
+                let method = methods.define_method(
+                    MethodDecl::instance("heal")
+                        .host_policy(policy(HostPassingStyle::UniqueBorrow))
+                        .returns(Type::i32()),
+                )?;
+                methods.bind(method, callback)
+            })?;
+            group.trait_impl(interface.apply([])?, |methods| {
+                methods.host_policy("hp", policy(HostPassingStyle::SharedBorrow))?;
+                assert!(
+                    methods
+                        .bind(
+                            "hp",
+                            NativeBinding::new(
+                                vec![Codec::Value],
+                                Codec::Exact(Type::i32()),
+                                |_| Ok(Value::I32(0))
+                            )
+                        )
+                        .is_err()
+                );
+                methods.bind("hp", callback)?;
+                assert!(
+                    methods
+                        .host_policy("hp", policy(HostPassingStyle::UniqueBorrow))
+                        .is_err()
+                );
+                Ok(())
+            })
+        })
+        .unwrap();
+    let definitions = module.declarations().definitions();
+    let owners = module.providers.receiver_owners(None).unwrap();
+    module
+        .declaration
+        .validate(
+            &|receiver| owners.owner(receiver, &definitions),
+            &definitions,
+        )
+        .unwrap();
+    let catalog = DeclarationCatalog::declared([&module.declaration], module.context()).unwrap();
+    catalog
+        .check_implementations([&module.declaration])
+        .unwrap();
+    catalog.validate_callable_contracts().unwrap();
+    for declaration in catalog.declarations.values() {
+        assert_eq!(declaration.function.params[0].ty, *receiver.abi());
+        assert!(declaration.function.host_policy.is_some());
+    }
+    // Authoring does not bypass the pending runtime root/path installation gate.
+    let error = module.finish().unwrap_err();
+    assert!(
+        error
+            .message()
+            .contains("external-ID native adapter is not installed")
+    );
 }

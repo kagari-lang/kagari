@@ -1794,6 +1794,40 @@ zero violations), fmt and diff passed. No unsafe/lifetime changes or new Miri
 requirement. Exhaustive workspace/feature/backend/platform validation is CI-owned
 and unrun locally; no carried Rust build/test failure. HR02/RF05 remain open.
 
+### HR02 checkpoint: common external type/member authoring
+
+The existing TypeBuilder now selects either traced native storage or an external
+identity policy. External declarations use their real Struct ID, have no generic
+parameters/Rust storage binding, and adopt common scoped FieldDefs without a
+second field schema. TypeRef applies the identity as Ty::Host and uses the ordinary
+value adapter; it never describes a Rust reference or a GC native payload.
+TypeBuilder finishes through the shared type validator before retaining the row.
+
+Inherent MethodDecls and explicit trait MethodsBuilder members can declare external
+passing/effects beside the existing signature. Trait impl policy must be selected
+before bind, cannot change after callback selection, and the ordinary binding
+policy equality rejects a raw binding without that authority. The concrete impl
+owns the final policy; the independent trait Self signature remains unchanged.
+Common declaration validation now requires a native signature explicitly containing
+an external ID (including nested arguments/results) to carry its access policy.
+Script relay signatures and trait Self templates acquire no automatic host policy.
+The recursive catalog closure fixture now declares its Owned-ID passing explicitly.
+
+Selected validation passed: common external authoring/binding policy boundary,
+both portable host-policy roundtrip/rejection cases, recursive external catalog
+closure, existing generic receiver/binder registration, full external ABI/MIR/KBC
+boundary, and the existing imported script trait implementation case. A negative
+test initially used Value as a flat typed Rust argument, which that adapter does
+not support; it now uses the actual existing explicit raw binding API and observes
+the intended policy rejection. Runtime library/test and types library Clippy,
+structure (1239 Rust files, zero violations), fmt and diff passed. No unsafe or
+lifetime changes; prior Miri remains applicable. Exhaustive matrices stay in CI.
+
+The authoring proof still observes the explicit external execution gate at module
+finalization. Runtime root slot publication, common manual paths/source member
+access and source trait references remain the owning HR02/RF05 integration work;
+this checkpoint does not claim those APIs runnable or combined acceptance complete.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

@@ -117,6 +117,12 @@ pub struct MethodDecl {
 }
 
 impl MethodDecl {
+    /// Declare passing/effects for an explicit external-ID member callback.
+    pub fn host_policy(mut self, policy: HostCallPolicy) -> Self {
+        self.signature.host_policy = Some(policy);
+        self
+    }
+
     /// Require a short shared or exclusive host loan for this instance member.
     /// The common binding adapter must agree with this declared capability.
     pub fn receiver_access(mut self, access: ReferenceAccess) -> Self {

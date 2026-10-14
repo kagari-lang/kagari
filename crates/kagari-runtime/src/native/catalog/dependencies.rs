@@ -403,8 +403,8 @@ mod tests {
         declaration::{
             FieldDef, FnDecl, Param, TypeDef, TypeDefKind,
             host::{
-                HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy,
-                PathAccess,
+                HostCallPolicy, HostFieldPolicy, HostPassingStyle, HostReflectionPolicy,
+                HostTypeOwnership, HostTypePolicy, PathAccess,
             },
             module::ModuleDecl,
         },
@@ -472,7 +472,10 @@ mod tests {
             implementation: CallableImplementation::Native(entry),
             generic_params: vec![],
             bounds: vec![],
-            host_policy: None,
+            host_policy: Some(HostCallPolicy {
+                passing: vec![HostPassingStyle::Owned],
+                effects: Default::default(),
+            }),
             method_policy: MethodPolicy::default(),
             params: vec![Param {
                 name: "player".into(),

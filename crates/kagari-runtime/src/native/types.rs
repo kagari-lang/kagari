@@ -264,7 +264,7 @@ impl TypeRef {
 
     pub fn codec(&self) -> Codec {
         match self.declaration.kind {
-            TypeDefKind::Enum => Codec::Value,
+            TypeDefKind::Enum | TypeDefKind::Host(_) => Codec::Value,
             _ => Codec::Object {
                 declaration: self.id,
                 definitions: self.definitions.clone(),
@@ -285,6 +285,7 @@ impl TypeRef {
         let root = match self.declaration.kind {
             TypeDefKind::Enum => Ty::Enum(nominal),
             TypeDefKind::NativeStorage(_) => Ty::NativeObject(nominal),
+            TypeDefKind::Host(_) => Ty::Host(self.id),
             _ => return Err(conflict("unsupported authoring type kind")),
         };
         let mut inputs = vec![Type::from_semantic(root, &self.definitions)?];
@@ -293,6 +294,7 @@ impl TypeRef {
             let mut result = inputs.remove(0);
             match &mut result {
                 Ty::Enum(nominal) | Ty::NativeObject(nominal) => nominal.arguments = inputs,
+                Ty::Host(_) if inputs.is_empty() => {}
                 _ => unreachable!("nominal input"),
             }
             Ok(result)

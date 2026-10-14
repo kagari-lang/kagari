@@ -8,9 +8,14 @@ use crate::{
         types::{ParameterRef, Type, TypeRef},
     },
 };
-use kagari_common::identity::{DefinitionKind, table::DefinitionId};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, metadata::DefinitionMetadata, table::DefinitionId},
+};
 use kagari_types::{
-    declaration::{TypeDef, TypeDefKind},
+    declaration::{
+        FieldDef, TypeDef, TypeDefKind, host::HostTypePolicy, verify::type_definition_valid,
+    },
     ty::{GenericParam, Ty},
 };
 use std::sync::Arc;
@@ -22,7 +27,13 @@ pub struct TypeBuilder<'module> {
     parameter_names: Vec<String>,
     parameters: Vec<GenericParam>,
     documentation: Option<String>,
-    storage: Option<NativeStorage>,
+    storage: Option<Storage>,
+    fields: Vec<FieldDef>,
+}
+
+enum Storage {
+    Native(NativeStorage),
+    External(HostTypePolicy),
 }
 
 impl ModuleBuilder {
@@ -69,6 +80,7 @@ impl<'module> TypeBuilder<'module> {
             parameters: vec![],
             documentation: None,
             storage: None,
+            fields: vec![],
         })
     }
 
@@ -78,6 +90,11 @@ impl<'module> TypeBuilder<'module> {
     }
 
     pub fn type_parameter(&mut self, name: impl Into<String>) -> NativeResult<ParameterRef> {
+        if matches!(self.storage, Some(Storage::External(_))) {
+            return Err(RuntimeError::metadata_conflict(
+                "external identity types cannot have generic parameters",
+            ));
+        }
         let name = name.into();
         if self.parameter_names.contains(&name) {
             return Err(RuntimeError::metadata_conflict(
@@ -115,16 +132,61 @@ impl<'module> TypeBuilder<'module> {
                 "duplicate native storage contract",
             ));
         }
-        self.storage = Some(storage);
+        self.storage = Some(Storage::Native(storage));
         Ok(())
     }
 
-    /// All native storage objects have shared reference semantics.
+    /// Declare an address-free external identity. It installs no Rust object or
+    /// reference, and methods/traits still require explicit declarations/bindings.
+    pub fn external(&mut self, policy: HostTypePolicy) -> NativeResult<()> {
+        if self.storage.is_some() || !self.parameters.is_empty() {
+            return Err(RuntimeError::metadata_conflict(
+                "external identity conflicts with storage or type parameters",
+            ));
+        }
+        self.id = self.module.definition(DefinitionKind::Struct, &self.name)?;
+        self.storage = Some(Storage::External(policy));
+        Ok(())
+    }
+
+    /// Adopt a common field record into this external declaration's scope. The
+    /// field supplies declared access only, without a Rust layout/projection.
+    pub fn field(&mut self, field: DefinitionMetadata<FieldDef>) -> NativeResult<()> {
+        if !matches!(self.storage, Some(Storage::External(_))) {
+            return Err(RuntimeError::metadata_conflict(
+                "manual fields require an external identity declaration",
+            ));
+        }
+        let field = field
+            .import_into(self.module.context(), &CancellationToken::default())
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+            .into_records();
+        if field.host_policy.is_none()
+            || self
+                .fields
+                .iter()
+                .any(|existing| existing.name == field.name)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "external field requires a unique name and access policy",
+            ));
+        }
+        self.module
+            .context()
+            .intern_child(self.id, DefinitionKind::Field, &field.name, 0)
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        self.fields.push(field);
+        Ok(())
+    }
+
+    /// Finish the common nominal declaration. Native storage owns its payload;
+    /// external identities describe host-managed state without transferring it.
     pub fn finish(self) -> NativeResult<TypeRef> {
         let storage = self
             .storage
             .ok_or_else(|| RuntimeError::metadata_conflict("native type requires storage"))?;
-        if !storage.layout().valid_parameters(self.parameters.len()) {
+        if matches!(&storage, Storage::Native(storage) if !storage.layout().valid_parameters(self.parameters.len()))
+        {
             return Err(RuntimeError::metadata_conflict(
                 "native storage parameter positions",
             ));
@@ -142,16 +204,31 @@ impl<'module> TypeBuilder<'module> {
         }
         let declaration = TypeDef {
             name: self.name,
-            kind: TypeDefKind::NativeStorage(storage.layout()),
+            kind: match &storage {
+                Storage::Native(storage) => TypeDefKind::NativeStorage(storage.layout()),
+                Storage::External(policy) => TypeDefKind::Host(*policy),
+            },
             generic_params: self.parameters,
             bounds: vec![],
-            fields: vec![],
+            fields: self.fields,
             variants: vec![],
         };
+        if !type_definition_valid(
+            &declaration,
+            self.id,
+            &CancellationToken::default(),
+            &self.module.providers.definitions(),
+        ) {
+            return Err(RuntimeError::metadata_conflict(
+                "invalid native type declaration",
+            ));
+        }
         if let Some(text) = self.documentation {
             self.module.declaration.documentation.insert(self.id, text);
         }
-        self.module.storage.insert(self.id, storage);
+        if let Storage::Native(storage) = storage {
+            self.module.storage.insert(self.id, storage);
+        }
         self.module.declaration.types.push(declaration.clone());
         self.module
             .providers

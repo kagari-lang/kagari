@@ -1,7 +1,9 @@
 //! Bounded declaration shape and binder checks, independent of linked execution.
 use crate::{
     callable::CallableImplementation,
-    declaration::{FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind},
+    declaration::{
+        FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind, host::function_policy_valid,
+    },
     decode_limits::MAX_NESTED_RECORDS,
     host_interface::validate_host_type_identity,
     range::RangeKind,
@@ -131,10 +133,7 @@ pub fn validate_native_declarations(
         };
         if !receiver_access_valid(function)
             || !parameter_names_valid(function)
-            || function
-                .host_policy
-                .as_ref()
-                .is_some_and(|policy| !policy.valid_for(function, table))
+            || !function_policy_valid(function, table)
             || function.return_type.contains_stored_reference()
             || !function.return_type.reference_position_valid()
             || function
@@ -470,10 +469,7 @@ pub fn function_valid(
     };
     if !receiver_access_valid(function)
         || !parameter_names_valid(function)
-        || function
-            .host_policy
-            .as_ref()
-            .is_some_and(|policy| !policy.valid_for(function, table))
+        || !function_policy_valid(function, table)
         || function.name.is_empty()
         || function.return_type.contains_stored_reference()
         || !function.return_type.reference_position_valid()

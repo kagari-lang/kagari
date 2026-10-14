@@ -123,6 +123,56 @@ impl HostCallPolicy {
     }
 }
 
+pub(crate) fn function_policy_valid(function: &FnDecl, table: &DefinitionTable) -> bool {
+    if let Some(policy) = &function.host_policy {
+        return policy.valid_for(function, table);
+    }
+    if !matches!(function.implementation, CallableImplementation::Native(_)) {
+        return true;
+    }
+    let mut pending = function
+        .params
+        .iter()
+        .map(|parameter| &parameter.ty)
+        .chain(iter::once(&function.return_type))
+        .collect::<Vec<_>>();
+    while let Some(ty) = pending.pop() {
+        match ty {
+            Ty::Host(_) => return false,
+            Ty::Projection {
+                receiver,
+                interface,
+                arguments,
+                ..
+            } => {
+                pending.push(receiver);
+                pending.extend(&interface.arguments);
+                pending.extend(interface.associated_types.values());
+                pending.extend(arguments);
+            }
+            Ty::Tuple(items) => pending.extend(items),
+            Ty::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
+            Ty::Reference { target, .. } => pending.push(target),
+            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
+                pending.push(item)
+            }
+            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Struct(nominal)
+            | Ty::Enum(nominal)
+            | Ty::NativeObject(nominal)
+            | Ty::Trait(nominal) => {
+                pending.extend(&nominal.arguments);
+                pending.extend(nominal.associated_types.values());
+            }
+            Ty::Builtin(_) | Ty::Parameter { .. } | Ty::SelfType(_) => {}
+        }
+    }
+    true
+}
+
 fn immutable_value(ty: &Ty, table: &DefinitionTable) -> bool {
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {

@@ -193,6 +193,11 @@ fn host_policy_rejects_invalid_borrow_access_and_immutable_configuration_shapes(
     let table = context.snapshot();
     let original = &module.functions[0];
     let mut function = original.clone();
+    function.host_policy = None;
+    assert!(!checked(&function, &table));
+    function.params[0].ty = Ty::Tuple(vec![function.params[0].ty.clone()]);
+    assert!(!checked(&function, &table));
+    function = original.clone();
     function.params[1].name = function.params[0].name.clone();
     assert!(!checked(&function, &table));
     function = original.clone();

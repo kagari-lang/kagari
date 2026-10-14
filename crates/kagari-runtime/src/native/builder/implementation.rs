@@ -14,7 +14,10 @@ use kagari_common::{
     identity::{DefinitionKind, table::DefinitionId},
 };
 use kagari_types::{
-    declaration::module::{ImplDecl, ModuleDecl},
+    declaration::{
+        host::HostCallPolicy,
+        module::{ImplDecl, ModuleDecl},
+    },
     reference::ReferenceAccess,
     ty::{GenericParam, Ty, substitution::TypeSubstitution},
 };
@@ -287,6 +290,7 @@ impl<'module> ImplementationBuilder<'module> {
             receiver_codec: self.receiver_codec.clone(),
             bindings: BTreeMap::new(),
             receiver_access: BTreeMap::new(),
+            host_policies: BTreeMap::new(),
         };
         let result = configure(&mut methods)?;
         // The authoring closure uses its group binder. Each emitted impl owns a
@@ -334,6 +338,9 @@ impl<'module> ImplementationBuilder<'module> {
             if let Some(access) = methods.receiver_access.get(&method.name) {
                 method.method_policy.receiver_access = Some(*access);
             }
+            if let Some(policy) = methods.host_policies.get(&method.name) {
+                method.host_policy = Some(policy.clone());
+            }
         }
         for method in &methods.applied.contract.contract.methods {
             let target = ModuleDecl::method_id(
@@ -377,9 +384,35 @@ pub struct MethodsBuilder {
     documentation: BTreeMap<String, String>,
     bindings: BTreeMap<String, NativeBinding>,
     receiver_access: BTreeMap<String, ReferenceAccess>,
+    host_policies: BTreeMap<String, HostCallPolicy>,
 }
 
 impl MethodsBuilder {
+    /// Set an explicit native impl's external passing/effects before selecting
+    /// its callback. This does not change the Kagari trait's Self contract.
+    pub fn host_policy(&mut self, name: &str, policy: HostCallPolicy) -> NativeResult<()> {
+        let method = self
+            .applied
+            .contract
+            .contract
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?;
+        if self.bindings.contains_key(name)
+            || method
+                .host_policy
+                .as_ref()
+                .is_some_and(|declared| declared != &policy)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "incompatible implementation external policy",
+            ));
+        }
+        self.host_policies.insert(name.into(), policy);
+        Ok(())
+    }
+
     /// Declare this Rust implementation's required receiver loan. The Kagari
     /// trait's ordinary Self contract and other implementations remain independent.
     /// Set this before binding; changing a selected callback's authority is rejected.
@@ -442,6 +475,9 @@ impl MethodsBuilder {
             .clone();
         if let Some(access) = self.receiver_access.get(name) {
             method.method_policy.receiver_access = Some(*access);
+        }
+        if let Some(policy) = self.host_policies.get(name) {
+            method.host_policy = Some(policy.clone());
         }
         let binding = entry.prepare(&method, &self.catalog)?;
         binding.check_policies(&method)?;
