@@ -2,7 +2,7 @@ use crate::{
     error_trace::{ErrorTrace, asynchronous::AsyncBoundary},
     task::TaskFailureOrigin,
 };
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {
@@ -141,6 +141,11 @@ impl RuntimeError {
             RuntimeErrorKind::ModuleValidation,
             format!("module validation failed: {}", detail.into()),
         )
+    }
+
+    pub(crate) fn at_conversion(mut self, location: impl fmt::Display) -> Self {
+        self.message = format!("{location}: {}", self.message);
+        self
     }
 
     pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {

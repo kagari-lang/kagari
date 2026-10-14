@@ -85,7 +85,8 @@ impl Runtime {
         Ok(result)
     }
 
-    pub(super) fn retain_object_type(&self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
+    /// Share the same retained layout owner with nominal DTO conversion.
+    pub(crate) fn retain_object_type(&self, layout: StructLayoutRef) -> NativeResult<ObjectType> {
         self.validate_loaded_module(layout.module())?;
         let mut cache = self
             .object_bindings

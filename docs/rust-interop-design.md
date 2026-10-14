@@ -1,6 +1,6 @@
 # Rust Value and Opaque Interoperability Plan
 
-Status: active combined host/interop delivery; RI01 schemas implemented; RI02 nominal conversion is next.
+Status: active combined host/interop delivery; RI01-RI02 schema/conversion implemented; HR02 unified registration follows.
 This plan defines typed Rust value conversion and runtime-owned opaque objects. The user selected
 runtime ownership with checked host read/edit and explicit take; Rust and Kagari
 traits remain independent and require explicit script registration. Examples are
@@ -664,7 +664,7 @@ behavior and reports no test or performance result.
 - [x] RI01: Introduce portable nominal value schemas and registration graph
   validation. Integrate ordinary HIR types, checked contracts, linking and artifact
   validation. Test offline registration, missing dependencies and atomic rejection.
-- [ ] RI02: Extend GO directional conversion contexts and typed Native adapters
+- [x] RI02: Extend GO directional conversion contexts and typed Native adapters
   to the RI value-schema subset. Cover nested DTO conversion, limits and failures
   without adding another root or invocation implementation.
 - [ ] RI03: Build Opaque on existing runtime-owned storage/roots without T: Clone
@@ -796,6 +796,38 @@ structure, format and diff checks passed before checkpoint (final test edits wer
 rechecked). The existing nested owned-value/GC-root conversion regression also
 passed after the catalog/loading changes. No unsafe projector is introduced here; Miri remains RF04/RF06-owned.
 Full workspace/feature/backend/platform acceptance is pending CI.
+
+### RI02 checkpoint: nominal directional conversion
+
+Ordinary struct conversion shares the existing prepared `StructLayoutRef`,
+`ObjectType`/field mapping and rooted `ObjectBuilder` construction. It adds no
+second heap object constructor. Decode roots a complete field snapshot before
+child converters, so alias mutation and collection during one child do not change
+later snapshot values. Enum conversion shares complete-pack argument validation,
+rooting and runtime enum allocation. Field/variant error context preserves the
+original error kind and execution trace. Directional adapters remain independent;
+no Rust borrow is manufactured from a DTO. Derive generation remains RI04-owned.
+
+The selected source-free VM case passes `Packet { hp: 7, shared: Vec::from([1]) }`
+through a typed callback. The returned hp becomes 8 while the input remains 7;
+its explicitly retained vector handle shares identity and both aliases see the
+appended element. Ordinary nested Tree/Choice conversion runs under collection
+threshold 1; limits, incomplete/duplicate initializers, child panic cleanup and
+snapshot stability are covered at the runtime owner. The existing enum cycle case
+now exercises these helpers: shared noncyclic children copy successfully, an owned
+cycle rejects, and explicitly retained children preserve their identity.
+
+Validation: the seven initially selected `native_schema` cases passed, followed by
+the added `dto_snapshot_survives_alias_mutation_collection_and_child_unwind` case.
+`native_conversion::owned_conversion_rejects_a_cycle_but_accepts_shared_noncyclic_children`
+and VM `nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity`
+passed. Runtime lib plus these two runtime test targets passed scoped Clippy.
+The first library check found the existing object preparation method private to
+its module; it is now crate-visible because DTO conversion is a genuine consumer
+of the same retained owner, without a forwarding facade or new public API.
+No carried build failure remains. VM test-target Clippy, structure (1183 files, zero findings), formatting
+and diff checks also passed. Full feature/backend/platform/workspace coverage
+is CI-owned; this phase introduces no unsafe projection requiring Miri.
 
 ## Acceptance and verification
 

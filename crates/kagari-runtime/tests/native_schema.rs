@@ -6,27 +6,49 @@ use kagari_common::identity::{
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
-    Runtime,
+    Runtime, RuntimeConfig,
     error::RuntimeError,
+    frame::types::arguments::TypeArgument,
+    gc::{GcHeapConfig, HeapObjectId},
     native::{
         binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
-        conversion::KagariType,
+        conversion::{
+            FromKagari, IntoKagari, KagariType,
+            context::{ConversionContext, ConversionLimits},
+        },
         module::NativeModule,
         schema::{TypeRegistration, ValueField, ValueVariant},
         types::Type,
     },
+    value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::ty::{NominalTy, Ty};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    cell::Cell,
+    collections::BTreeMap,
+    panic::{AssertUnwindSafe, catch_unwind},
+    sync::Arc,
+};
 
-struct Leaf;
+#[derive(Debug, Clone, PartialEq)]
+struct Leaf {
+    value: i32,
+}
 
-struct Tree;
+#[derive(Debug, Clone, PartialEq)]
+struct Tree {
+    leaf: Leaf,
+    children: Vec<Tree>,
+}
 
-struct Choice;
+#[derive(Debug, Clone, PartialEq)]
+enum Choice {
+    Empty,
+    Leaf(Leaf),
+}
 
 impl KagariType for Leaf {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
@@ -287,4 +309,243 @@ fn caught_child_schema_failure_cannot_publish_an_incomplete_dependency() {
     assert!(builder.declarations().rust_type::<FailedChild>().is_err());
     builder.register_type::<Leaf>().unwrap();
     builder.finish().unwrap();
+}
+
+impl IntoKagari for Leaf {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Value> {
+        let mut fields = cx.write_struct(expected)?;
+        fields.field("value", self.value)?;
+        fields.finish()
+    }
+}
+
+thread_local! {
+    static REWRITE_PARENT: Cell<Option<HeapObjectId>> = const { Cell::new(None) };
+    static PANIC_IN_LEAF: Cell<bool> = const { Cell::new(false) };
+}
+
+impl FromKagari for Leaf {
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        if let Some(parent) = REWRITE_PARENT.take() {
+            let empty = cx.encode(Vec::<Tree>::new())?;
+            let layout = cx.runtime().gc().struct_layout(parent).unwrap();
+            cx.runtime().gc().struct_set_slot(
+                parent,
+                &layout,
+                1,
+                empty.value(cx.runtime().gc()).unwrap(),
+            )?;
+            cx.runtime().collect_garbage()?;
+        }
+        assert!(!PANIC_IN_LEAF.replace(false), "DTO child conversion unwind");
+        let mut fields = cx.read_struct(expected, value)?;
+        Ok(Self {
+            value: fields.field("value")?,
+        })
+    }
+}
+
+impl IntoKagari for Tree {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Value> {
+        let mut fields = cx.write_struct(expected)?;
+        fields.field("leaf", self.leaf)?;
+        fields.field("children", self.children)?;
+        fields.finish()
+    }
+}
+
+impl FromKagari for Tree {
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        let mut fields = cx.read_struct(expected, value)?;
+        Ok(Self {
+            leaf: fields.field("leaf")?,
+            children: fields.field("children")?,
+        })
+    }
+}
+
+impl IntoKagari for Choice {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Value> {
+        match self {
+            Self::Empty => cx.encode_variant(expected, "Empty", ()),
+            Self::Leaf(leaf) => cx.encode_variant(expected, "Leaf", (leaf,)),
+        }
+    }
+}
+
+impl FromKagari for Choice {
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        match cx.variant_name(expected, value)?.as_str() {
+            "Empty" => {
+                cx.decode_variant::<()>(expected, value, "Empty")?;
+                Ok(Self::Empty)
+            }
+            "Leaf" => {
+                let (leaf,) = cx.decode_variant(expected, value, "Leaf")?;
+                Ok(Self::Leaf(leaf))
+            }
+            _ => Err(RuntimeError::module_validation("unknown Choice variant")),
+        }
+    }
+}
+
+fn conversion_fixture() -> (Runtime, kagari_runtime::module::LoadedModule) {
+    let module = module("game::data");
+    let program = program(&module);
+    let mut runtime = Runtime::new(RuntimeConfig {
+        gc: GcHeapConfig {
+            collection_threshold: Some(1),
+        },
+        ..Default::default()
+    });
+    let mut modules = kagari_stdlib::modules().unwrap();
+    modules.push(module);
+    NativeModule::install_all(&modules, &mut runtime).unwrap();
+    let owner = runtime.load_program("dto", program).unwrap();
+    (runtime, owner)
+}
+
+#[test]
+fn nested_dtos_and_enum_payloads_round_trip_with_owned_isolation_and_collection() {
+    let (runtime, owner) = conversion_fixture();
+    let input = Tree {
+        leaf: Leaf { value: 42 },
+        children: vec![Tree {
+            leaf: Leaf { value: 7 },
+            children: vec![],
+        }],
+    };
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let root = cx.encode(input.clone()).unwrap();
+    let mut decoded: Tree = cx.decode(&root).unwrap();
+    decoded.leaf.value = 99;
+    assert_eq!(cx.decode::<Tree>(&root).unwrap(), input);
+    let Value::Struct(id) = root.value(runtime.gc()).unwrap() else {
+        panic!("DTO struct")
+    };
+    let layout = runtime.gc().struct_layout(id).unwrap();
+    let Value::Struct(leaf) = runtime.gc().struct_get_slot(id, &layout, 0).unwrap() else {
+        panic!("nested DTO")
+    };
+    let leaf_layout = runtime.gc().struct_layout(leaf).unwrap();
+    runtime
+        .gc()
+        .struct_set_slot(leaf, &leaf_layout, 0, Value::I32(12))
+        .unwrap();
+    assert_eq!(decoded.leaf.value, 99);
+    assert_eq!(cx.decode::<Tree>(&root).unwrap().leaf.value, 12);
+    for input in [Choice::Empty, Choice::Leaf(Leaf { value: 23 })] {
+        let root = cx.encode(input.clone()).unwrap();
+        runtime.collect_garbage().unwrap();
+        assert_eq!(cx.decode::<Choice>(&root).unwrap(), input);
+    }
+    assert!(runtime.gc().stats().collections > 0);
+    drop(root);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn dto_limits_and_incomplete_initializers_release_unpublished_roots() {
+    let (runtime, owner) = conversion_fixture();
+    let input = Tree {
+        leaf: Leaf { value: 42 },
+        children: vec![Tree {
+            leaf: Leaf { value: 7 },
+            children: vec![],
+        }],
+    };
+    let mut cx = ConversionContext::with_limits(
+        &runtime,
+        &owner,
+        ConversionLimits {
+            max_depth: 3,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let error = cx.encode(input.clone()).unwrap_err();
+    assert!(error.message().contains("field leaf"), "{error}");
+    assert_eq!(runtime.gc().active_roots(), 0);
+    drop(cx);
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let expected = cx.type_for::<Tree>().unwrap();
+    let mut fields = cx.write_struct(&expected).unwrap();
+    fields.field("leaf", Leaf { value: 1 }).unwrap();
+    assert!(fields.finish().unwrap_err().message().contains("missing"));
+    assert_eq!(runtime.gc().active_roots(), 0);
+    let mut fields = cx.write_struct(&expected).unwrap();
+    fields.field("leaf", Leaf { value: 1 }).unwrap();
+    assert!(
+        fields
+            .field("leaf", Leaf { value: 2 })
+            .unwrap_err()
+            .message()
+            .contains("duplicate")
+    );
+    drop(fields);
+    let root = cx.encode(input).unwrap();
+    let mut restricted = ConversionContext::with_limits(
+        &runtime,
+        &owner,
+        ConversionLimits {
+            max_depth: 3,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    assert!(restricted.decode::<Tree>(&root).is_err());
+    assert_eq!(runtime.gc().active_roots(), 1);
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
+
+#[test]
+fn dto_snapshot_survives_alias_mutation_collection_and_child_unwind() {
+    let (runtime, owner) = conversion_fixture();
+    let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
+    let input = Tree {
+        leaf: Leaf { value: 1 },
+        children: vec![Tree {
+            leaf: Leaf { value: 2 },
+            children: vec![],
+        }],
+    };
+    let root = cx.encode(input.clone()).unwrap();
+    let Value::Struct(parent) = root.value(runtime.gc()).unwrap() else {
+        panic!("Tree")
+    };
+    REWRITE_PARENT.set(Some(parent));
+    assert_eq!(cx.decode::<Tree>(&root).unwrap(), input);
+    assert!(cx.decode::<Tree>(&root).unwrap().children.is_empty());
+    PANIC_IN_LEAF.set(true);
+    assert!(catch_unwind(AssertUnwindSafe(|| cx.decode::<Tree>(&root))).is_err());
+    assert_eq!(runtime.gc().active_roots(), 1);
+    assert!(cx.decode::<Tree>(&root).unwrap().children.is_empty());
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }

@@ -1,6 +1,6 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: active combined execution plan; HR01/RF01 proof and RI01 schemas complete; RI02 conversion work follows. The user
+Status: active combined execution plan; HR01/RF01 proof and RI01-RI02 schema/conversion complete; HR02 unified registration follows. The user
 included Ref/RefMut in the same delivery as registration and Opaque. The
 [roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
 placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
@@ -1118,7 +1118,7 @@ schema, scope and adapter delivery remains in the subsequent combined phases.
 
 RI progress remains in the interop plan. The combined order above is the sole
 cross-plan schedule; these lists are not duplicate RI checklists. Current state:
-API/lifetime prototype implemented, no carried production build failure. The
+API/lifetime prototype and RI01-RI02 schema/conversion implemented, no carried production build failure. The
 proof and focused results above do not establish production scope/projector or
 complete combined acceptance. Implementation checkpoints use Conventional Commits with the owning
 phase trailer, for example `Plan-Phase: RF04`.

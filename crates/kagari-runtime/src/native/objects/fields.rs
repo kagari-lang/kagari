@@ -2,6 +2,7 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
+    gc::roots::RootSet,
     native::{
         binding::NativeResult,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
@@ -148,6 +149,21 @@ impl<T> Field<T> {
             ));
         }
         Ok(self.record.member.slot)
+    }
+}
+
+impl<T: FromKagari> Field<T> {
+    pub(crate) fn read_snapshot(
+        &self,
+        cx: &mut ConversionContext<'_>,
+        object_type: &ObjectType,
+        values: &RootSet,
+    ) -> NativeResult<T> {
+        let slot = self.check_owner(object_type)?;
+        let value = values
+            .get(cx.runtime().gc(), slot)
+            .ok_or_else(|| RuntimeError::module_validation("struct conversion snapshot field"))?;
+        cx.decode_prepared(&self.record.argument, &value)
     }
 }
 

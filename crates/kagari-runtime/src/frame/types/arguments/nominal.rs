@@ -28,18 +28,10 @@ impl TypeArgument {
         // detached preparation must not poison later installed application admission.
         self.validate(runtime).ok()?;
         match self.ty() {
-            Ty::Struct(nominal) => {
-                let view = self.view(fallback).normalized()?;
-                let (owner, id) = view.owner.find_struct_definition(nominal)?;
-                let arguments = (0..nominal.arguments.len())
-                    .map(|index| self.parameter(runtime, fallback, index))
-                    .collect::<Result<Vec<_>, _>>()
-                    .ok()?;
-                let layout = runtime
-                    .prepare_struct_application(&owner, id, &arguments)
-                    .ok()?;
-                NominalAdmission::structure(&layout)
-            }
+            Ty::Struct(_) => runtime
+                .prepare_struct_layout(fallback, self)
+                .ok()
+                .and_then(|layout| NominalAdmission::structure(&layout)),
             Ty::Enum(_) => runtime
                 .prepare_enum_layout(fallback, self)
                 .ok()?
@@ -50,6 +42,30 @@ impl TypeArgument {
 }
 
 impl Runtime {
+    pub(crate) fn prepare_struct_layout(
+        &self,
+        fallback: &LoadedModule,
+        applied: &TypeArgument,
+    ) -> Result<StructLayoutRef, RuntimeError> {
+        applied.validate(self)?;
+        let Ty::Struct(nominal) = applied.ty() else {
+            return Err(RuntimeError::module_validation(
+                "conversion requires a struct type",
+            ));
+        };
+        let view = applied
+            .view(fallback)
+            .normalized()
+            .ok_or_else(|| RuntimeError::module_validation("struct conversion type scope"))?;
+        let (owner, id) = view.owner.find_struct_definition(nominal).ok_or_else(|| {
+            RuntimeError::module_validation("struct layout absent from pinned program")
+        })?;
+        let arguments = (0..nominal.arguments.len())
+            .map(|index| applied.parameter(self, fallback, index))
+            .collect::<Result<Vec<_>, _>>()?;
+        self.prepare_struct_application(&owner, id, &arguments)
+    }
+
     pub(crate) fn prepare_struct_application(
         &self,
         owner: &LoadedModule,

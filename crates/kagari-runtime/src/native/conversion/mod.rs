@@ -3,7 +3,9 @@ pub mod arguments;
 mod composites;
 pub mod context;
 mod scalars;
+pub mod structures;
 mod tuples;
+mod variants;
 
 use crate::{
     frame::types::arguments::TypeArgument,

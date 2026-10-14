@@ -1,3 +1,4 @@
+mod dto;
 mod vector_edits;
 use crate::{compile_program, publish_unused_version, support::round_trip_program};
 use kagari_common::{

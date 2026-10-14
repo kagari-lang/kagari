@@ -3,7 +3,7 @@ use crate::{
     gc::roots::RootedValue,
     native::{
         binding::NativeResult,
-        conversion::IntoKagari,
+        conversion::{IntoKagari, context::ConversionContext},
         objects::{Object, ObjectType, fields::Field},
         typed::NativeContext,
     },
@@ -53,6 +53,15 @@ impl ObjectBuilder {
         field: &Field<T>,
         value: T,
     ) -> NativeResult<&mut Self> {
+        self.set_in(&mut cx.conversion, field, value)
+    }
+
+    pub(crate) fn set_in<T: IntoKagari>(
+        &mut self,
+        cx: &mut ConversionContext<'_>,
+        field: &Field<T>,
+        value: T,
+    ) -> NativeResult<&mut Self> {
         self.object_type.validate(cx.runtime())?;
         let slot = field.check_owner(&self.object_type)?;
         if self.fields[slot].is_some() {
@@ -60,7 +69,7 @@ impl ObjectBuilder {
                 "duplicate object initializer",
             ));
         }
-        let root = cx.conversion.argument_scope(|cx| {
+        let root = cx.argument_scope(|cx| {
             let value = cx.encode_prepared(&field.record.argument, value)?;
             cx.runtime()
                 .root_value(value)
@@ -71,6 +80,10 @@ impl ObjectBuilder {
     }
 
     pub fn build(self, cx: &mut NativeContext<'_>) -> NativeResult<Object> {
+        self.build_in(&mut cx.conversion)
+    }
+
+    pub(crate) fn build_in(self, cx: &mut ConversionContext<'_>) -> NativeResult<Object> {
         self.object_type.validate(cx.runtime())?;
         let mut values = Vec::new();
         values

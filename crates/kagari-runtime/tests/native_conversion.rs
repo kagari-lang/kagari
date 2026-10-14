@@ -487,15 +487,11 @@ impl KagariType for NodeView {
 impl FromKagari for NodeView {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
-        _: &TypeArgument,
+        expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        let Value::Enum(id) = value else {
-            return Err(RuntimeError::module_validation("Node view"));
-        };
-        let snapshot = cx.runtime().gc().enum_snapshot(*id).unwrap();
-        let children = cx.type_for::<Vec<RetainedNode>>()?;
-        cx.decode_value(&children, &snapshot.fields[0]).map(Self)
+        let (children,) = cx.decode_variant(expected, value, "Children")?;
+        Ok(Self(children))
     }
 }
 
@@ -525,25 +521,18 @@ impl IntoKagari for Node {
         cx: &mut ConversionContext<'_>,
         expected: &TypeArgument,
     ) -> NativeResult<Value> {
-        let children_type = cx.type_for::<Vec<Node>>()?;
-        let children = cx.encode_value(&children_type, self.0)?;
-        cx.runtime()
-            .make_enum_member(cx.owner(), expected, "Children", vec![children])
+        cx.encode_variant(expected, "Children", (self.0,))
     }
 }
 
 impl FromKagari for Node {
     fn from_kagari(
         cx: &mut ConversionContext<'_>,
-        _: &TypeArgument,
+        expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        let Value::Enum(id) = value else {
-            return Err(RuntimeError::module_validation("Node enum"));
-        };
-        let snapshot = cx.runtime().gc().enum_snapshot(*id).unwrap();
-        let children = cx.type_for::<Vec<Node>>()?;
-        cx.decode_value(&children, &snapshot.fields[0]).map(Self)
+        let (children,) = cx.decode_variant(expected, value, "Children")?;
+        Ok(Self(children))
     }
 }
 
