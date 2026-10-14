@@ -199,15 +199,24 @@ impl ModuleDecl {
         self.visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
             .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
         for ty in &self.types {
-            for payload in ty.variants.iter().flat_map(|variant| &variant.payload) {
+            for payload in ty
+                .fields
+                .iter()
+                .map(|field| &field.ty)
+                .chain(ty.variants.iter().flat_map(|variant| &variant.payload))
+            {
                 supported_type(payload, definitions)?;
             }
             if !identifier(&ty.name)
                 || !names.insert((NameNamespace::Type, &ty.name))
                 || !matches!(
                     ty.kind,
-                    TypeDefKind::Enum | TypeDefKind::Native(_) | TypeDefKind::NativeStorage(_)
+                    TypeDefKind::Struct
+                        | TypeDefKind::Enum
+                        | TypeDefKind::Native(_)
+                        | TypeDefKind::NativeStorage(_)
                 )
+                || ty.fields.iter().any(|field| !identifier(&field.name))
                 || ty.variants.iter().any(|variant| !identifier(&variant.name))
             {
                 return Err(fail());
@@ -544,7 +553,7 @@ fn supported_type(ty: &Ty, definitions: &DefinitionTable) -> Result<(), Declarat
                 pending.extend(&nominal.arguments);
                 pending.extend(nominal.associated_types.values());
             }
-            Ty::NativeObject(nominal) | Ty::Enum(nominal) => {
+            Ty::Struct(nominal) | Ty::NativeObject(nominal) | Ty::Enum(nominal) => {
                 if !nominal.associated_types.is_empty() {
                     return Err(invalid());
                 }

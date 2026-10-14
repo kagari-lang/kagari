@@ -168,6 +168,20 @@ fn attach_types(
     lowered: &mut LoweredModule,
 ) -> Result<(), DeclarationError> {
     for ty in &definition.types {
+        if ty.kind == TypeDefKind::Struct {
+            if !lowered
+                .module
+                .structs
+                .iter()
+                .any(|item| item.name == ty.name)
+            {
+                return Err(DeclarationError(
+                    "missing registered struct declaration".into(),
+                ));
+            }
+            // Exact source correspondence leaves ordinary struct typing/layout intact.
+            continue;
+        }
         if ty.kind == TypeDefKind::Enum {
             let item = lowered
                 .module

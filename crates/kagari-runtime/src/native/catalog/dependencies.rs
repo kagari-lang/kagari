@@ -66,7 +66,7 @@ impl References {
                 | Ty::Trait(nominal)
                 | Ty::Struct(nominal)
                 | Ty::Enum(nominal) => {
-                    if matches!(ty, Ty::NativeObject(_)) {
+                    if matches!(ty, Ty::NativeObject(_) | Ty::Struct(_)) {
                         self.pending.push(Reference::Type(nominal.declaration));
                     }
                     if matches!(ty, Ty::Enum(_)) {

@@ -28,6 +28,7 @@ pub(crate) mod registry;
 mod result;
 pub mod returns;
 pub mod scalar;
+pub mod schema;
 mod selected;
 pub mod selected_method;
 pub mod sequence;

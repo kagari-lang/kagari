@@ -276,6 +276,7 @@ impl DeclarationCatalog {
         let documentation = self.import_documentation(other)?;
         Arc::make_mut(&mut self.documentation)
             .extend(documentation.iter().map(|(id, text)| (*id, text.clone())));
+        self.merge_rust_types(other)?;
         self.collect_implicit_definitions()?;
         Ok(())
     }

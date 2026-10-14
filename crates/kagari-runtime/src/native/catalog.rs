@@ -3,7 +3,8 @@ mod dependencies;
 pub(crate) mod import;
 mod ownership;
 mod proofs;
-use crate::error::RuntimeError;
+mod rust_types;
+use crate::{error::RuntimeError, native::catalog::rust_types::RustTypes};
 use kagari_common::identity::{
     map::{DefinitionContext, DefinitionMap},
     table::{DefinitionId, DefinitionTableError},
@@ -14,6 +15,7 @@ use std::{collections::BTreeMap, sync::Arc};
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone)]
 pub struct DeclarationCatalog {
+    pub(crate) rust_types: RustTypes,
     /// Authoring-only Markdown; excluded from executable contract comparisons.
     pub(crate) documentation: Arc<BTreeMap<DefinitionId, String>>,
     pub(crate) types: Arc<DefinitionMap<TypeDef>>,
@@ -31,6 +33,7 @@ impl Default for DeclarationCatalog {
 impl DeclarationCatalog {
     pub(crate) fn in_context(context: DefinitionContext) -> Self {
         Self {
+            rust_types: Arc::default(),
             documentation: Arc::default(),
             types: Arc::new(DefinitionMap::new(context.clone())),
             traits: Arc::new(DefinitionMap::new(context.clone())),

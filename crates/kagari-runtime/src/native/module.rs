@@ -54,7 +54,8 @@ impl NativeModule {
                 &definitions,
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        let owned = DeclarationCatalog::declared([&declaration], context)?;
+        let mut owned = DeclarationCatalog::declared([&declaration], context)?;
+        owned.copy_rust_types(providers)?;
         let mut entries = BTreeMap::new();
         for declaration in owned.declarations.values() {
             let CallableImplementation::Native(binding) = declaration.function.implementation
@@ -94,20 +95,20 @@ impl NativeModule {
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
             let exists = match view.last().map(|part| part.kind) {
                 Some(DefinitionKind::Trait) => available.traits.get_id(*target).is_some(),
-                Some(DefinitionKind::Enum | DefinitionKind::AssociatedType) => {
-                    available.types.get_id(owner).is_some_and(|ty| {
-                        owner == *target
-                            || definitions
-                                .resolve(*target)
-                                .ok()
-                                .and_then(|view| view.last())
-                                .is_some_and(|member| {
-                                    ty.variants
-                                        .iter()
-                                        .any(|variant| variant.name == member.name)
-                                })
-                    })
-                }
+                Some(
+                    DefinitionKind::Struct | DefinitionKind::Enum | DefinitionKind::AssociatedType,
+                ) => available.types.get_id(owner).is_some_and(|ty| {
+                    owner == *target
+                        || definitions
+                            .resolve(*target)
+                            .ok()
+                            .and_then(|view| view.last())
+                            .is_some_and(|member| {
+                                ty.variants
+                                    .iter()
+                                    .any(|variant| variant.name == member.name)
+                            })
+                }),
                 _ => false,
             };
             if !exists {
@@ -123,6 +124,7 @@ impl NativeModule {
         let dependencies = available.binding_dependencies(&base, entries.values().flatten())?;
         let mut checked = owned.clone();
         checked.merge(&dependencies)?;
+        checked.copy_rust_types(&available)?;
         checked.check_implementations([&declaration])?;
         checked.validate_callable_contracts()?;
         let mut registrations = Vec::new();

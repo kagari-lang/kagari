@@ -36,6 +36,11 @@ impl ModuleDecl {
             let owner = context
                 .intern_child(root, ty.kind.definition_kind(), &ty.name, 0)
                 .map_err(invalid)?;
+            for field in &ty.fields {
+                context
+                    .intern_child(owner, DefinitionKind::Field, &field.name, 0)
+                    .map_err(invalid)?;
+            }
             for variant in &ty.variants {
                 context
                     .intern_child(owner, DefinitionKind::Variant, &variant.name, 0)

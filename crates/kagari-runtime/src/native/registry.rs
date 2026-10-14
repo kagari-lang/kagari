@@ -117,6 +117,7 @@ impl NativeRegistry {
     /// Validate carried declarations before publication, including unused entries.
     pub(crate) fn validate_installed_contracts(&self, module: &BytecodeModule) -> NativeResult<()> {
         dependencies::validate_installed_traits(&self.catalog, module)?;
+        dependencies::validate_installed_values(&self.catalog, module)?;
         for declaration in &module.native_declarations {
             let CallableImplementation::Native(binding) = declaration.function.implementation
             else {

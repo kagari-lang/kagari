@@ -1,6 +1,6 @@
 # Rust Value and Opaque Interoperability Plan
 
-Status: active combined host/interop delivery; RI00 inventory checkpoint complete; RI01 schema implementation follows.
+Status: active combined host/interop delivery; RI01 schemas implemented; RI02 nominal conversion is next.
 This plan defines typed Rust value conversion and runtime-owned opaque objects. The user selected
 runtime ownership with checked host read/edit and explicit take; Rust and Kagari
 traits remain independent and require explicit script registration. Examples are
@@ -661,7 +661,7 @@ behavior and reports no test or performance result.
   capabilities and atomic take/invalidation. Coordinate the shared descriptor and
   lifetime proof with HR01/RF01; do not reimplement their binding prototype.
   Separate explicit Kagari trait registration from Rust trait implementations.
-- [ ] RI01: Introduce portable nominal value schemas and registration graph
+- [x] RI01: Introduce portable nominal value schemas and registration graph
   validation. Integrate ordinary HIR types, checked contracts, linking and artifact
   validation. Test offline registration, missing dependencies and atomic rejection.
 - [ ] RI02: Extend GO directional conversion contexts and typed Native adapters
@@ -758,6 +758,44 @@ checks are recorded there. Automatic schemas/derive, native extraction, scope/pa
 execution and their tests are still required. Local acceptance selects those
 changed contracts plus directly affected regressions; exhaustive workspace,
 feature/backend/platform CI and actual projector Miri remain separately owned.
+
+### RI01 schema checkpoint (2026-10-15)
+
+Implemented catalog-local Rust representation mappings and transactional
+`ModuleBuilder::register_type`. The KagariType registration hook visits a bounded
+graph, reserves nominal headers before recursive children, and rejects unfinished
+headers even when a custom schema catches a child error. Failed staging may intern
+disposable identity records but publishes no declarations, mappings or bindings.
+Repeated dependencies reuse their header; explicit duplicate registrations and
+cross-module rebinding of one Rust representation reject atomically. Mappings
+carry no serialized TypeId; existing portable TypeDef/FieldDef/VariantDef own shape.
+
+Existing ModuleDecl validation now admits ordinary structs and validates their
+fields, identities and nominal dependencies. HIR renders writable struct fields
+and processes them as ordinary structs, with generated field navigation sites.
+The dependency collector now retains Struct contracts rather than overlooking
+them. Source-free installation checks exact registered ordinary schemas even
+when a module has no native calls. An independently valid artifact with the same
+nominal identity and changed field capability is rejected against the installed
+schema; internal layout corruption also remains rejected by bytecode validation.
+Vec/Option/Result/tuple registration recursively visits mapped child dependencies.
+DTO registration creates no Rust method or Kagari trait exposure. RI04 still owns
+automatic derive output; these tests use explicit manual schema hooks.
+
+Five selected `native_schema` cases passed across focused runs: recursive offline
+schema/rendering, missing dependency rollback, caught-child rollback, catalog-local
+identity/batch install and source-free schema agreement. Source-free cases encode,
+decode and verify KBC artifacts before loading. Initial test-only failures used a
+private Type comparison and assumed qualified names within the same module;
+corrected to portable owner comparison and the renderer's existing local spelling.
+The corrupted schema case was strengthened from inconsistent layout mutation to
+an independently compiled/verified provider, proving installed agreement directly.
+No production failure remains from these runs. `cargo check -p kagari-runtime --lib`
+and `cargo check -p kagari-hir --lib` passed. Runtime lib/schema-test scoped Clippy,
+structure, format and diff checks passed before checkpoint (final test edits were
+rechecked). The existing nested owned-value/GC-root conversion regression also
+passed after the catalog/loading changes. No unsafe projector is introduced here; Miri remains RF04/RF06-owned.
+Full workspace/feature/backend/platform acceptance is pending CI.
 
 ## Acceptance and verification
 

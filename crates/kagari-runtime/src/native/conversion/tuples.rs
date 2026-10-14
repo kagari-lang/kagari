@@ -5,6 +5,7 @@ use crate::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        schema::TypeRegistration,
         types::Type,
     },
     value::Value,
@@ -14,6 +15,11 @@ use kagari_types::ty::Ty;
 macro_rules! tuple {
     ($count:expr; $($ty:ident:$slot:tt),+) => {
         impl<$($ty: KagariType),+> KagariType for ($($ty,)+) {
+            fn register_type(registration: &mut TypeRegistration<'_>) -> NativeResult<Type>
+            where Self: 'static {
+                $(registration.dependency::<$ty>()?;)+
+                Self::kagari_type(registration.catalog())
+            }
             fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
                 Type::tuple([$($ty::kagari_type(catalog)?),+])
             }

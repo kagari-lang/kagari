@@ -3,7 +3,40 @@ use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::Decla
 use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_contract::types::{InterfaceTable, PublicItem};
-use kagari_types::{declaration::module::ImplDecl, language, language::Protocol, ty::Ty};
+use kagari_types::{
+    declaration::{TypeDefKind, module::ImplDecl},
+    language,
+    language::Protocol,
+    ty::Ty,
+};
+
+/// Registered ordinary schemas remain exact even when no callable imports them.
+pub(super) fn validate_installed_values(
+    installed: &DeclarationCatalog,
+    module: &BytecodeModule,
+) -> Result<(), RuntimeError> {
+    let definitions = installed.definitions();
+    for (id, expected) in installed
+        .types
+        .entries()
+        .filter(|(_, ty)| matches!(ty.kind, TypeDefKind::Struct | TypeDefKind::Enum))
+    {
+        let owner = definitions
+            .resolve(id)
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        if owner.module() == &module.identity
+            && !module
+                .public_items
+                .iter()
+                .any(|item| matches!(item, PublicItem::Type(actual) if actual == expected))
+        {
+            return Err(RuntimeError::module_validation(
+                "registered value schema differs from its installed contract",
+            ));
+        }
+    }
+    Ok(())
+}
 
 /// Installed trait identities retain their exact contracts even without calls.
 /// Ordinary uninstalled traits carry no native authority. Conversion adapters

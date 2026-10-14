@@ -6,6 +6,7 @@ use crate::{
         catalog::DeclarationCatalog,
         collections::vector::storage::declaration,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        schema::TypeRegistration,
         types::Type,
     },
     value::{EnumTag, Value},
@@ -14,6 +15,14 @@ use kagari_common::identity::DefinitionPath;
 use kagari_types::{language::binding, ty::Ty};
 
 impl<T: KagariType> KagariType for Vec<T> {
+    fn register_type(registration: &mut TypeRegistration<'_>) -> NativeResult<Type>
+    where
+        Self: 'static,
+    {
+        registration.dependency::<T>()?;
+        Self::kagari_type(registration.catalog())
+    }
+
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
         catalog
             .type_reference(&declaration())?
@@ -104,6 +113,14 @@ impl<T: FromKagari> FromKagari for Vec<T> {
 }
 
 impl<T: KagariType> KagariType for Option<T> {
+    fn register_type(registration: &mut TypeRegistration<'_>) -> NativeResult<Type>
+    where
+        Self: 'static,
+    {
+        registration.dependency::<T>()?;
+        Self::kagari_type(registration.catalog())
+    }
+
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
         catalog
             .type_reference(&binding::option_declaration())?
@@ -152,6 +169,15 @@ impl<T: FromKagari> FromKagari for Option<T> {
 }
 
 impl<T: KagariType, E: KagariType> KagariType for Result<T, E> {
+    fn register_type(registration: &mut TypeRegistration<'_>) -> NativeResult<Type>
+    where
+        Self: 'static,
+    {
+        registration.dependency::<T>()?;
+        registration.dependency::<E>()?;
+        Self::kagari_type(registration.catalog())
+    }
+
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
         catalog
             .type_reference(&binding::result_declaration())?

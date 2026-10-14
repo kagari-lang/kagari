@@ -9,7 +9,7 @@ use crate::{
     frame::types::arguments::TypeArgument,
     native::{
         binding::NativeResult, catalog::DeclarationCatalog, conversion::context::ConversionContext,
-        types::Type,
+        schema::TypeRegistration, types::Type,
     },
     value::Value,
 };
@@ -18,6 +18,15 @@ use crate::{
 /// This describes a type, never a sample value or a second declaration registry.
 pub trait KagariType {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type>;
+
+    /// Visit a schema dependency. Identity-free/manual mappings reuse their
+    /// catalog mapping; nominal derives reserve a header before visiting fields.
+    fn register_type(registration: &mut TypeRegistration<'_>) -> NativeResult<Type>
+    where
+        Self: 'static,
+    {
+        Self::kagari_type(registration.catalog())
+    }
 
     /// Check an installed expected type before conversion. Dynamic retained
     /// handles use its exact nominal scope instead of inventing an `Any` type.

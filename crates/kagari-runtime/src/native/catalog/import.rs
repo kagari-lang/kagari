@@ -36,6 +36,7 @@ impl CatalogImports {
         catalog: &DeclarationCatalog,
     ) -> Result<DeclarationCatalog, RuntimeError> {
         let mut imported = DeclarationCatalog {
+            rust_types: Arc::default(),
             documentation: Default::default(),
             types: imported(&catalog.types, &self.context, &mut self.types)?,
             traits: imported(&catalog.traits, &self.context, &mut self.traits)?,
@@ -46,6 +47,7 @@ impl CatalogImports {
                 &mut self.implementations,
             )?,
         };
+        imported.rust_types = imported.import_rust_types(catalog)?;
         imported.documentation = imported.import_documentation(catalog)?;
         imported.collect_implicit_definitions()?;
         Ok(imported)

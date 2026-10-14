@@ -18,6 +18,7 @@ use kagari_types::{
     language::{Protocol, role::LangRole},
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    visibility::Visibility,
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
 
@@ -243,11 +244,16 @@ impl<'a> DeclarationView<'a> {
         for ty in &self.types {
             let id = self.definition(ty.kind.definition_kind(), &ty.name, self.definitions)?;
             let is_enum = ty.kind == TypeDefKind::Enum;
+            let is_struct = ty.kind == TypeDefKind::Struct;
             output.doc(id)?;
             let start = output.text.len();
-            output
-                .text
-                .push_str(if is_enum { "pub enum " } else { "pub type " });
+            output.text.push_str(if is_enum {
+                "pub enum "
+            } else if is_struct {
+                "pub struct "
+            } else {
+                "pub type "
+            });
             let name_span = output.name(&ty.name);
             let generics = output.generics(&ty.generic_params)?;
             let bounds = output.bounds(&ty.bounds)?;
@@ -272,6 +278,31 @@ impl<'a> DeclarationView<'a> {
                     }
                     output.text.push_str(",\n");
                     output.site(owner, start, name_span, vec![], payload);
+                }
+                output.text.push_str("}\n\n");
+            } else if is_struct {
+                output.text.push_str(" {\n");
+                for field in &ty.fields {
+                    let owner = self
+                        .definitions
+                        .lookup_child(id, DefinitionKind::Field, &field.name, 0)
+                        .ok_or_else(|| {
+                            DeclarationError("missing registered field identity".into())
+                        })?;
+                    output.doc(owner)?;
+                    let start = output.text.len();
+                    output.text.push_str("    ");
+                    if field.visibility == Visibility::Public {
+                        output.text.push_str("pub ");
+                    }
+                    output
+                        .text
+                        .push_str(if field.mutable { "var " } else { "val " });
+                    let name_span = output.name(&field.name);
+                    output.text.push_str(": ");
+                    let field_type = output.name(&self.type_spelling(&field.ty)?);
+                    output.text.push_str(",\n");
+                    output.site(owner, start, name_span, vec![], vec![field_type]);
                 }
                 output.text.push_str("}\n\n");
             } else {
@@ -478,7 +509,9 @@ impl<'a> DeclarationView<'a> {
             Ty::Function { params, result } => {
                 format!("fn({}) -> {}", join(params)?, self.spell(result)?)
             }
-            Ty::Trait(ty) | Ty::NativeObject(ty) | Ty::Enum(ty) => self.nominal_spelling(ty)?,
+            Ty::Struct(ty) | Ty::Trait(ty) | Ty::NativeObject(ty) | Ty::Enum(ty) => {
+                self.nominal_spelling(ty)?
+            }
             Ty::Projection {
                 receiver,
                 interface,

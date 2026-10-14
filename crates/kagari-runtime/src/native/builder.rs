@@ -39,7 +39,7 @@ use kagari_types::{
 };
 use std::collections::{BTreeMap, HashSet};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ModuleBuilder {
     pub(crate) declaration: ModuleDecl,
     pub(crate) providers: DeclarationCatalog,

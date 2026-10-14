@@ -1,6 +1,6 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: active combined execution plan; HR01/RF01 API/lifetime checkpoint complete; schema work follows. The user
+Status: active combined execution plan; HR01/RF01 proof and RI01 schemas complete; RI02 conversion work follows. The user
 included Ref/RefMut in the same delivery as registration and Opaque. The
 [roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
 placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
@@ -1042,7 +1042,7 @@ migration replaces registration ownership, not those services.
 
 | Existing owner/consumers | Destination and removal checkpoint |
 | --- | --- |
-| `native/builder.rs`, `builder/inherent.rs`, `builder/implementation.rs`; stdlib builders and application native modules | One declaration-aware `bind` adapter, retaining raw/primitive bindings and their allocation behavior. Consolidate `bind_with`, `bind_typed` and receiver-separated typed helpers in HR02/RF05; remove the old public builder entrypoints by HR03. |
+| `native/builder.rs`, `builder/inherent.rs`, `builder/implementation.rs`; stdlib builders and application native modules | One declaration-aware `bind` adapter, retaining raw/primitive bindings and their allocation behavior. Consolidate `bind_with`, `bind_typed`, inferred FunctionSpec/add_function registration and receiver-separated typed helpers in HR02/RF05; remove the old public builder entrypoints by HR03. |
 | `native/conversion/`, `native/typed.rs`, `native/objects/` | RI01 schema registration and RI02 nominal conversion use existing TypeArgument, roots, depth/node/cycle limits and checked object layouts. RI04 derives project those same contracts. No second root or invocation implementation. |
 | `native/payload/`, `native/storage.rs`, `gc/native.rs` | RI03 renames the public NativeObject handle to Opaque directly, adds extraction capability and atomic heap removal, and reuses non-reentrant read/edit loans. Internal GC storage records remain private. |
 | `types/host_interface/`, HIR `host.rs`/`host/origin.rs`, SDK `engine/source.rs::set_host_interface` | General type/function/member/impl facts move to ordinary ModuleDecl/NativeDeclaration and generated registration views in HR02. Portable roots/path requirements remain checked until RF05 migrates them; standalone HostInterface bytes/aggregation retire in HR03. |
