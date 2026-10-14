@@ -274,7 +274,7 @@ protection and storage revisions remain checked.
 `NativePayload` supplies tracing, logical units and ordinary Rust destruction.
 Every retained script Value and stored callable must be traced. `NativeStorage`
 registers the payload layout and either a checked factory or an explicitly
-constructed payload. New opaque types use the generic NativeObject representation;
+constructed payload. New opaque types use the generic Opaque handle;
 they do not require new compiler, ABI, verifier or VM type variants.
 
 ## Sorting and lazy iteration

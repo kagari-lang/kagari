@@ -551,7 +551,7 @@ for registration and a host entry with owned arguments and results.
 
 ## Retained objects and prepared calls
 
-`Object`, `NativeObject<T>`, `ScriptVec<T>`, `ScriptMap<K, V>`, `ScriptSet<T>`,
+`Object`, `Opaque<T>`, `ScriptVec<T>`, `ScriptMap<K, V>`, `ScriptSet<T>`,
 `Interface` and `PinnedFunction<A, R>` retain the values needed by the host. Clones
 preserve identity and share retention; dropping the last handle permits collection.
 `ScriptValue` forwards an exact declared generic value without erasing its type.
@@ -593,12 +593,21 @@ method/closure calls share that scope; native callbacks receive it automatically
 No metadata or payload borrow spans script reentry. See the executable
 [host_objects example](../../crates/kagari/examples/host_objects.rs).
 
-`NativeObject<T>::edit` is available only for storage registered with fixed,
+`Opaque<T>::edit` is available only for storage registered with fixed,
 reference-free NativeData. `native_data!` verifies every declared field. Traced
 payloads use ManagedStorage field tokens, complete builders and checked per-field
 writes; `edit_data` lends only the fixed data portion. Registered traversal handles
 new fields without changing the collector. Mutable references cannot escape a
 payload callback, and conflicting reentry fails before execution.
+
+`Opaque<T>::take` requires the explicit unsafe `NativeTake` edge-free proof and
+storage registered with `NativeStorage::takeable` (or `data`). It moves the original
+payload without Clone/Copy requirements. A failed take changes nothing; a successful
+take invalidates all old host/script aliases, parked values and method receivers.
+Reinsertion has a new generation, including when the same physical slot is reused.
+The collector retains only an inert, charged invalidation identity while old aliases
+remain; it cannot be accessed or published as a live object. Managed script-edge
+payloads do not receive extraction capability from an empty trace function.
 
 `ScriptVec::retain` and `dedup_by` run typed callbacks under the existing exclusive
 buffer lease. Aliases cannot mutate or read detached slots. GC may run during the

@@ -664,7 +664,7 @@ no_std, broader JIT support, new traits or a package manager.
 
 Native entries return synchronously. NativeContext receives owned Rust arguments
 or retained handles; recursive adapters check declared types and protect arguments
-and results automatically. Object, NativeObject, collection and interface handles
+and results automatically. Object, Opaque, collection and interface handles
 preserve shared identity. PinnedFunction and prepared Method/Field descriptors
 retain exact applied scopes and program generations; weak binding caches retain
 no obsolete version by themselves. Selected trait operations consume installed

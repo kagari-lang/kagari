@@ -811,7 +811,7 @@ This order supersedes standalone RI sequencing only at the explicit shared gates
 | --- | --- | --- |
 | 1 | HR01 + RI00 + RF01 | One migration map and compiling API/lifetime proofs, including receiver metadata, scope ownership and the accepted payload/schema subset. |
 | 2 | RI01-RI02, then HR02 | Shared schema/conversion facts and one checked declaration/bind/install path; live-host consumers keep their current behavior. |
-| 3 | RI03 + RF02 | Runtime-owned Opaque read/edit/take and method adapters; reference types, escape rules and portable validation. RF02 consumes the receiver facts fixed in the first gate. |
+| 3 | RI03 + RF02 | After the shared owned-registration gate, complete reference-dependent HR02 live-host declaration migration with RF02-RF05. Runtime-owned Opaque read/edit/take and method adapters; reference types, escape rules and portable validation. RF02 consumes the receiver facts fixed in the first gate. |
 | 4 | RF03, then RI04 and RF04 | Safe external whole-object scopes, then derive-generated inline field projections and batch path loans. RF04 depends on RI04's schema/projection support. |
 | 5 | RF05 | One callable registration works for supported Opaque, Ref and RefMut inputs through SDK, VM and source-free loading. |
 | 6 | HR03, RF06 and RI05 | Remove migrated legacy registration, finish reference/interop acceptance, and move current contracts to their specification owners. |

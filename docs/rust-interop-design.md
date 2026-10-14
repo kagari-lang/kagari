@@ -1,6 +1,6 @@
 # Rust Value and Opaque Interoperability Plan
 
-Status: active combined host/interop delivery; RI01-RI02 schema/conversion implemented; HR02 unified registration follows.
+Status: active combined host/interop delivery; RI01-RI02 and HR02 owned registration implemented; RI03/RF02 proceed with reference-dependent HR02 migration still open.
 This plan defines typed Rust value conversion and runtime-owned opaque objects. The user selected
 runtime ownership with checked host read/edit and explicit take; Rust and Kagari
 traits remain independent and require explicit script registration. Examples are
@@ -318,21 +318,20 @@ installing a usable API. Repeated dependency references are not duplicate defini
 
 ## Opaque ownership and access
 
-`Opaque<T>` is the proposed typed, rooted handle to an exclusively runtime-owned
+`Opaque<T>` is the typed, rooted handle to an exclusively runtime-owned
 Rust payload. Insertion moves T into the runtime. Cloning the handle retains the
 same object without requiring `T: Clone`; neither Rust nor script aliases acquire
 a Rust reference merely by holding a handle. The wrapper has no Deref/DerefMut.
 Kagari sees the registered native nominal type, such as `game::Player`, not the
 Rust wrapper spelling `Opaque<Player>`.
 
-Build this on the existing
-[NativeObject/NativeType storage and access](../crates/kagari-runtime/src/native/payload/mod.rs).
-The public naming transition must select one owner/API, updating consumers directly;
-do not keep Opaque and NativeObject as parallel public lifetime implementations or
-compatibility aliases. Current NativeObject supports construction/read and limited
-edit; the proposed facade, general method adapter and ownership extraction below
-are not implemented. RI03 now belongs to the selected combined delivery; HR
-registration and RF reference phases retain their distinct acceptance gates.
+This uses the existing
+[Opaque/NativeType storage and access](../crates/kagari-runtime/src/native/payload/mod.rs).
+The public NativeObject handle and create_native constructor have been replaced
+directly, without compatibility aliases. Construction, checked read, fixed-data
+edit and explicitly edge-free take are implemented. Borrowed method adapters still
+belong to RI03 and RF02–RF05; HR registration and RF reference phases retain their
+distinct acceptance gates.
 
 ### Relationship to Ref and RefMut
 
@@ -828,6 +827,62 @@ of the same retained owner, without a forwarding facade or new public API.
 No carried build failure remains. VM test-target Clippy, structure (1183 files, zero findings), formatting
 and diff checks also passed. Full feature/backend/platform/workspace coverage
 is CI-owned; this phase introduces no unsafe projection requiring Miri.
+
+### RI03 implementation decision: moved aliases and collection
+
+The existing GC requires every traced ID to resolve. Simply freeing a taken native
+slot would leave its old roots, script fields or pinned receiver captures pointing
+to a missing object, which quarantines collection. Extraction therefore needs an
+explicit, inert moved-identity record at the GC owner: it proves that this exact
+heap/slot/generation was invalidated by successful take, carries no payload or
+executable state, and is terminal only for collector traversal. Ordinary access,
+conversion and publication checks continue to reject it. Foreign/fabricated or
+otherwise stale IDs remain invalid; collector tolerance is limited to the proven
+moved identities.
+
+Take validates capability, payload identity, generation, active accesses and
+fallible bookkeeping before detaching storage. It returns the original Rust value
+without cloning, increments/retires the old slot generation and makes the slot
+reusable while old aliases still exist. Payload accounting is released; one logical
+heap unit remains charged for each moved identity until collection proves no root,
+heap or metadata edge retains it, then prunes it. This bounds identity bookkeeping
+under repeated create/take without claiming zero-cost invalidation. There is no
+second payload/object system or revived alias on slot reuse. Managed script-edge
+extraction remains outside the proven RI00 subset; an empty trace is not proof.
+
+The shared owned-registration gate is implemented. HR02's live-host declaration
+migration still requires the reference target/capability facts and usable external
+scopes; it remains open while RI03/RF02-RF05 supply these concrete dependencies.
+This does not relax the final combined acceptance or retire old live-host services
+before their checked replacement is integrated.
+
+### RI03 checkpoint: Opaque ownership extraction
+
+The public rooted NativeObject handle is replaced directly by Opaque; constructors,
+managed wrappers, conversion and method consumers use the same storage and roots.
+There is no public compatibility alias. NativeTake explicitly proves edge-free
+extraction independently of Clone/Copy/Sync; installed storage must separately
+grant take capability. NativeData grants this proof recursively. Traced and managed
+storage does not infer it from an empty trace. GC take preflights loans, active
+operations, runtime/generation, Rust payload identity and fallible bookkeeping,
+then detaches the original value and invalidates every old alias atomically.
+
+Focused VM native-boundary tests passed: non-Clone take with duplicate script/host
+aliases, parked ScriptValue, active-read rejection, same-slot/new-generation reuse
+and exactly-once destruction; denied extraction with unchanged payload/accounting;
+stale edit and pinned method calls after reinsertion; existing checked-data edit
+cleanup on errors/unwind. The existing runtime malformed executable-edge collection
+test also passed, preserving rejection before detachment. An initial slot-reuse
+fixture retained an unrelated temporary script array until the post-take collection;
+collecting that temporary before take made physical slot reuse deterministic without
+weakening the assertion. No production failure remains. Runtime lib check, scoped
+runtime-lib/VM-native-boundary Clippy, structure (1186 files, zero findings), formatting
+and diff checks passed. Missing captured output from three completed checks was
+recovered by focused reruns, rather than assuming success.
+
+RI03 remains open for borrowed invocation adapters shared with the reference phases.
+This slice adds no raw projection; actual projector Miri remains RF04/RF06-owned.
+Exhaustive workspace/feature/backend/platform validation remains pending CI.
 
 ## Acceptance and verification
 

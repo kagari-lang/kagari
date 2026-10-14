@@ -3,7 +3,7 @@ use crate::native::{
     binding::NativeResult,
     conversion::{FromKagari, arguments::IntoKagariArguments},
     methods::{InherentMember, InherentType, Method, receiver::AppliedReceiver},
-    payload::{NativeObject, NativeType},
+    payload::{NativeType, Opaque},
     storage::NativePayload,
     typed::NativeContext,
 };
@@ -33,7 +33,7 @@ impl<T: NativePayload> InherentType for NativeType<T> {
     }
 }
 
-impl<T: NativePayload> NativeObject<T> {
+impl<T: NativePayload> Opaque<T> {
     pub fn call<A: IntoKagariArguments, R: FromKagari>(
         &self,
         cx: &mut NativeContext<'_>,

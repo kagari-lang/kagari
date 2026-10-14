@@ -1,5 +1,6 @@
 mod managed;
 mod methods;
+mod take;
 use crate::{compile_program, native_boundary_functions::fixture};
 use kagari_runtime::{
     error::RuntimeError,
@@ -9,7 +10,7 @@ use kagari_runtime::{
         conversion::context::ConversionContext,
         declarations::FunctionDecl,
         module::NativeModule,
-        payload::NativeObject,
+        payload::{Opaque, take::NativeTake},
         storage::{NativePayload, NativeStorage},
         typed::NativeContext,
         types::{Type, TypeRef},
@@ -54,8 +55,8 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
     module
         .bind(
             new,
-            |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<NativeObject<PlayerState>> {
-                cx.create_native(PlayerState {
+            |cx: &mut NativeContext<'_>, (): ()| -> NativeResult<Opaque<PlayerState>> {
+                cx.create_opaque(PlayerState {
                     hp: 100,
                     position: [0.0; 3],
                 })
@@ -74,7 +75,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
         .bind(
             damage,
             |cx: &mut NativeContext<'_>,
-             (player, damage): (NativeObject<PlayerState>, i32)|
+             (player, damage): (Opaque<PlayerState>, i32)|
              -> NativeResult<i32> {
                 player.edit(cx, |state| {
                     state.hp = state.hp.saturating_sub(damage);
@@ -93,7 +94,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
     "#,
         Some(&module.finish().unwrap()),
     );
-    let object: NativeObject<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
+    let object: Opaque<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
     let alias = object.clone();
     let mut cx = vm.context(&owner).unwrap();
     let before = vm.runtime().gc().stats().current_heap_units;
@@ -102,6 +103,7 @@ fn checked_data_edits_preserve_writes_and_release_exclusive_borrows_on_failure()
             state.position[0] = 2.0;
             assert!(alias.read(&cx, |_| Ok(())).is_err());
             assert!(alias.edit(&cx, |_| Ok(())).is_err());
+            assert!(alias.take(&cx).is_err());
             assert!(cx.collect_garbage().is_err());
             assert!(
                 vm.execute_typed::<_, i32>(&owner, "hit", (alias.clone(), 1))
@@ -165,6 +167,10 @@ struct Counter {
     dropped: Arc<AtomicUsize>,
 }
 
+// SAFETY: The counter owns an integer and a host-only atomic drop count. Neither
+// has script/runtime edges, and its one-unit accounting is stable while installed.
+unsafe impl NativeTake for Counter {}
+
 impl Drop for Counter {
     fn drop(&mut self) {
         self.dropped.fetch_add(1, Ordering::Relaxed);
@@ -200,7 +206,7 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
     .unwrap();
     let mut declaration = module.define_type("Counter").unwrap();
     declaration
-        .native_storage(NativeStorage::payload::<Counter>())
+        .native_storage(NativeStorage::takeable::<Counter>())
         .unwrap();
     let counter = declaration.finish().unwrap();
     let mut declaration = module.define_type("Other").unwrap();
@@ -224,10 +230,8 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
     module
         .bind(
             new,
-            move |cx: &mut NativeContext<'_>,
-                  (value,): (i32,)|
-                  -> NativeResult<NativeObject<Counter>> {
-                cx.create_native(Counter {
+            move |cx: &mut NativeContext<'_>, (value,): (i32,)| -> NativeResult<Opaque<Counter>> {
+                cx.create_opaque(Counter {
                     value,
                     dropped: dropped.clone(),
                 })
@@ -244,9 +248,7 @@ fn module(dropped: Arc<AtomicUsize>) -> (NativeModule, TypeRef, TypeRef, TypeRef
     module
         .bind(
             read,
-            |cx: &mut NativeContext<'_>,
-             (counter,): (NativeObject<Counter>,)|
-             -> NativeResult<i32> {
+            |cx: &mut NativeContext<'_>, (counter,): (Opaque<Counter>,)| -> NativeResult<i32> {
                 cx.collect_garbage()?;
                 counter.read(cx, |counter| Ok(counter.value))
             },
@@ -276,11 +278,11 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
             .is_err()
     );
     let read = runtime
-        .bind_function::<(NativeObject<Counter>,), i32>(&owner, "value")
+        .bind_function::<(Opaque<Counter>,), i32>(&owner, "value")
         .unwrap();
     assert!(
         runtime
-            .bind_function::<(NativeObject<Edge>,), i32>(&owner, "value")
+            .bind_function::<(Opaque<Edge>,), i32>(&owner, "value")
             .is_err()
     );
     let mut cx = vm.context(&owner).unwrap();
@@ -298,7 +300,7 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
     cx.collect_garbage().unwrap();
     assert_eq!(alias.read(&cx, |state| Ok(state.value)).unwrap(), 42);
     assert_eq!(vm.call(&read, (alias.clone(),)).unwrap(), 42);
-    let returned: NativeObject<Counter> = vm.execute_typed(&owner, "make", (43,)).unwrap();
+    let returned: Opaque<Counter> = vm.execute_typed(&owner, "make", (43,)).unwrap();
     assert_eq!(vm.call(&read, (returned,)).unwrap(), 43);
     let wrong = runtime
         .bind_native_type::<Counter>(&owner, &other, &[])
@@ -337,7 +339,7 @@ fn retained_native_factories_share_aliases_and_check_nominal_and_runtime_identit
 fn native_borrows_reject_reentry_and_release_on_error_and_unwind() {
     let (module, _, _, _) = module(Arc::new(AtomicUsize::new(0)));
     let (vm, owner) = fixture(SOURCE, Some(&module));
-    let object: NativeObject<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
+    let object: Opaque<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
     let mut cx = vm.context(&owner).unwrap();
     assert!(
         object
@@ -345,7 +347,7 @@ fn native_borrows_reject_reentry_and_release_on_error_and_unwind() {
                 assert!(cx.collect_garbage().is_err());
                 assert!(object.read(&cx, |_| Ok(())).is_err());
                 assert!(
-                    vm.execute_typed::<_, NativeObject<Counter>>(&owner, "make", (0,))
+                    vm.execute_typed::<_, Opaque<Counter>>(&owner, "make", (0,))
                         .is_err()
                 );
                 Err::<(), _>(RuntimeError::module_validation("after inspection"))
@@ -361,7 +363,7 @@ fn native_borrows_reject_reentry_and_release_on_error_and_unwind() {
     cx.collect_garbage().unwrap();
     assert_eq!(object.read(&cx, |state| Ok(state.value)).unwrap(), 42);
     assert!(
-        cx.create_native(Counter {
+        cx.create_opaque(Counter {
             value: 0,
             dropped: Arc::new(AtomicUsize::new(0))
         })
@@ -389,7 +391,7 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
         .bind_native_type_declaration::<Edge>(&owner, edge.id(), edge.definitions(), &[element])
         .unwrap();
     let mut cx = vm.context(&owner).unwrap();
-    let child: NativeObject<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
+    let child: Opaque<Counter> = vm.execute_typed(&owner, "make", (42,)).unwrap();
     // Handwritten NativePayload is an advanced tracing boundary. The typed
     // native handle API itself never exposes a mutable traced field.
     let root = ConversionContext::new(vm.runtime(), &owner)
@@ -400,7 +402,7 @@ fn payload_factories_trace_children_and_reject_foreign_edges_before_publication(
     drop(child);
     assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 2);
     let (foreign, foreign_owner) = fixture(SOURCE, Some(&module));
-    let child: NativeObject<Counter> = foreign.execute_typed(&foreign_owner, "make", (0,)).unwrap();
+    let child: Opaque<Counter> = foreign.execute_typed(&foreign_owner, "make", (0,)).unwrap();
     let foreign_value = ConversionContext::new(foreign.runtime(), &foreign_owner)
         .unwrap()
         .encode_value(child.native_type().type_argument(), child.clone())
@@ -501,10 +503,10 @@ fn applied_native_handles_preserve_the_supplied_nominal_layout_scope() {
     let old_value = old_type.create(&mut cx, Edge(Value::Unit)).unwrap();
     let new_value = new_type.create(&mut cx, Edge(Value::Unit)).unwrap();
     let old_call = runtime
-        .bind_function::<(NativeObject<Edge>,), i32>(&old, "accept")
+        .bind_function::<(Opaque<Edge>,), i32>(&old, "accept")
         .unwrap();
     let new_call = runtime
-        .bind_function::<(NativeObject<Edge>,), i32>(&new, "accept")
+        .bind_function::<(Opaque<Edge>,), i32>(&new, "accept")
         .unwrap();
     assert_eq!(vm.call(&old_call, (old_value.clone(),)).unwrap(), 42);
     assert!(vm.call(&new_call, (old_value,)).is_err());

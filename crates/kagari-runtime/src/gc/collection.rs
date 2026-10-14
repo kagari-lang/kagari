@@ -60,8 +60,25 @@ impl GcHeap {
             })
     }
 
+    // Only successful take creates these inert native identities. All public
+    // publication/access validation still uses validate_value and rejects them.
+    fn collection_value_valid(&self, value: &Value) -> bool {
+        if let Value::GcHandle(id) = value
+            && self
+                .moved
+                .try_borrow()
+                .is_ok_and(|moved| moved.contains(id))
+        {
+            return true;
+        }
+        self.validate_value(value)
+    }
+
     fn trace_graph(&self, programs: &ProgramGraph<'_>, values: &[Value]) -> Option<MarkedGraph> {
-        if !values.iter().all(|value| self.validate_value(value)) {
+        if !values
+            .iter()
+            .all(|value| self.collection_value_valid(value))
+        {
             return None;
         }
         let objects = self.objects.try_borrow().ok()?;
@@ -84,12 +101,18 @@ impl GcHeap {
         }
         let mut edges = values.iter().rev().collect();
         metadata.append_values(&mut edges);
+        if !edges.iter().all(|value| self.collection_value_valid(value)) {
+            return None;
+        }
         let mut object_edges = Vec::new();
         append_value_edges(&mut edges, &mut object_edges);
         pending.extend(object_edges.drain(..).map(Node::Object));
         let live = collector::mark(pending, |node, pending| {
             match node {
                 Node::Object(id) => {
+                    if self.moved.try_borrow().ok()?.contains(&id) {
+                        return Some(());
+                    }
                     let object = self.object_ref(&objects, id)?;
                     object.trace(&interfaces, &mut |value| edges.push(value))?;
                     if let Some(edge) = object.metadata() {
@@ -108,15 +131,15 @@ impl GcHeap {
                             Some(())
                         })?;
                     }
-                    if !edges.iter().all(|value| self.validate_value(value)) {
-                        return None;
-                    }
                 }
             }
             if self.resources.is_quarantined() {
                 return None;
             }
             metadata.append_values(&mut edges);
+            if !edges.iter().all(|value| self.collection_value_valid(value)) {
+                return None;
+            }
             append_value_edges(&mut edges, &mut object_edges);
             pending.extend(object_edges.drain(..).map(Node::Object));
             Some(())
@@ -138,11 +161,16 @@ impl GcHeap {
         values.extend_from_slice(additional_roots);
         let mut live = HashSet::new();
         let mut live_programs = HashSet::new();
+        let mut live_moved = HashSet::new();
         let graph = self.trace_graph(&programs, &values)?;
         for node in graph.nodes {
             match node {
                 Node::Object(id) => {
-                    live.insert(id);
+                    if self.moved.try_borrow().ok()?.contains(&id) {
+                        live_moved.insert(id);
+                    } else {
+                        live.insert(id);
+                    }
                 }
                 Node::Program(id) => {
                     live_programs.insert(id);
@@ -171,8 +199,11 @@ impl GcHeap {
         let mut applications = self.applications.try_borrow_mut().ok()?;
         let mut interfaces = self.interfaces.try_borrow_mut().ok()?;
         let mut environments = self.environments.try_borrow_mut().ok()?;
+        let mut moved = self.moved.try_borrow_mut().ok()?;
+        let retired_identities = moved.len() - live_moved.len();
         let reclaimed_objects = dead.len();
-        let reclaimed_units = dead.iter().map(|(_, units)| units).sum();
+        let reclaimed_units =
+            dead.iter().map(|(_, units)| units).sum::<usize>() + retired_identities;
         let mut retired = Vec::with_capacity(reclaimed_objects);
         {
             let mut objects = self.objects.try_borrow_mut().ok()?;
@@ -186,6 +217,8 @@ impl GcHeap {
                 }
             }
         }
+        moved.retain(|id| live_moved.contains(id));
+        drop(moved);
         let retired_groups = groups.detach(&graph.metadata.groups);
         let reclaimed_operation_groups = retired_groups.len();
         let retired_applications = applications.detach(&graph.metadata.applications);

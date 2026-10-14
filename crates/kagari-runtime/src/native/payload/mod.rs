@@ -4,6 +4,7 @@ mod conversion;
 pub mod data;
 pub mod managed;
 mod methods;
+pub mod take;
 
 use crate::{
     error::RuntimeError,
@@ -13,7 +14,7 @@ use crate::{
     native::{
         binding::NativeResult,
         conversion::context::ConversionContext,
-        payload::{data::NativeData, managed::AppliedSchema},
+        payload::{data::NativeData, managed::AppliedSchema, take::NativeTake},
         storage::{NativePayload, NativeStorage},
         typed::NativeContext,
     },
@@ -49,12 +50,12 @@ impl<T> Clone for NativeType<T> {
 /// An owning root, never an exposed Rust pointer. Reading lends the payload only
 /// for the closure; nested execution and conflicting access fail structurally.
 #[derive(Debug)]
-pub struct NativeObject<T> {
+pub struct Opaque<T> {
     root: RootedValue,
     native_type: NativeType<T>,
 }
 
-impl<T> Clone for NativeObject<T> {
+impl<T> Clone for Opaque<T> {
     fn clone(&self) -> Self {
         Self {
             root: self.root.clone(),
@@ -76,7 +77,7 @@ impl<T> NativeType<T> {
 impl<T: NativePayload> NativeType<T> {
     /// Construct from the registered payload representation. Handwritten
     /// NativePayload implementations remain the low-level tracing boundary.
-    pub fn create(&self, cx: &mut NativeContext<'_>, payload: T) -> NativeResult<NativeObject<T>> {
+    pub fn create(&self, cx: &mut NativeContext<'_>, payload: T) -> NativeResult<Opaque<T>> {
         let runtime = cx.runtime();
         runtime.gc().ensure_no_native_borrow()?;
         runtime.resources().ensure_execution_allowed()?;
@@ -95,14 +96,14 @@ impl<T: NativePayload> NativeType<T> {
             .root_value(Value::GcHandle(id))
             .ok_or_else(|| RuntimeError::module_validation("native object retention"))?;
         runtime.gc_safepoint()?;
-        Ok(NativeObject {
+        Ok(Opaque {
             root,
             native_type: self.clone(),
         })
     }
 }
 
-impl<T: NativePayload> NativeObject<T> {
+impl<T: NativePayload> Opaque<T> {
     pub fn native_type(&self) -> &NativeType<T> {
         &self.native_type
     }
@@ -123,13 +124,13 @@ impl<T: NativePayload> NativeObject<T> {
     }
 }
 
-impl<T: NativeData> NativeObject<T> {
+impl<T: NativeData> Opaque<T> {
     /// Lend checked fixed data for one non-reentrant edit. Completed scalar writes
     /// remain visible when the closure fails or unwinds. A reference cannot escape.
     ///
     /// ```compile_fail
-    /// use kagari_runtime::native::{payload::NativeObject, typed::NativeContext};
-    /// fn escape<'a>(object: &NativeObject<i32>, cx: &'a NativeContext<'_>) -> &'a mut i32 {
+    /// use kagari_runtime::native::{payload::Opaque, typed::NativeContext};
+    /// fn escape<'a>(object: &Opaque<i32>, cx: &'a NativeContext<'_>) -> &'a mut i32 {
     ///     object.edit(cx, |value| Ok(value)).unwrap()
     /// }
     /// ```
@@ -148,10 +149,25 @@ impl<T: NativeData> NativeObject<T> {
     }
 }
 
+impl<T: NativeTake> Opaque<T> {
+    /// Move the original Rust payload out. Success invalidates every old alias,
+    /// including script aliases and pinned receivers. Failed take changes nothing.
+    /// Active loans/operations reject extraction; no Clone bound or copy is used.
+    pub fn take(&self, cx: &NativeContext<'_>) -> NativeResult<T> {
+        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().resources().ensure_execution_allowed()?;
+        cx.poll()?;
+        let Value::GcHandle(id) = self.value(cx.runtime().gc())? else {
+            unreachable!("opaque root")
+        };
+        cx.runtime().gc().take_native::<T>(id)
+    }
+}
+
 impl NativeContext<'_> {
     /// A typed native constructor can use its declared result application,
     /// including generic scopes, without capturing an installed runtime handle.
-    pub fn create_native<T: NativePayload>(&mut self, payload: T) -> NativeResult<NativeObject<T>> {
+    pub fn create_opaque<T: NativePayload>(&mut self, payload: T) -> NativeResult<Opaque<T>> {
         self.result_native_type()?.create(self, payload)
     }
 
@@ -166,10 +182,11 @@ impl NativeContext<'_> {
     }
 }
 
-impl<T> NativeObject<T> {
+impl<T> Opaque<T> {
     fn value(&self, heap: &GcHeap) -> NativeResult<Value> {
         self.root
             .value(heap)
+            .filter(|value| heap.validate_value(value))
             .ok_or_else(|| RuntimeError::module_validation("foreign or expired native object"))
     }
 

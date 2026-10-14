@@ -13,7 +13,7 @@ use crate::{
     native::{
         binding::NativeResult,
         context::{LinkedCallable, LinkedOperation},
-        payload::{data::NativeData, managed::ManagedSchema},
+        payload::{data::NativeData, managed::ManagedSchema, take::NativeTake},
         storage_type::StorageType,
         stored_selection::StoredSelection,
     },
@@ -128,6 +128,7 @@ struct StorageEntries {
     trace: Box<Trace>,
     units: Box<Units>,
     editable_data: bool,
+    takeable: bool,
     managed: Option<Arc<ManagedSchema>>,
 }
 
@@ -161,7 +162,7 @@ impl NativeStorage {
     /// Safe direct editing is available only for recursively checked fixed data.
     /// Handwritten traced payload registrations do not receive this capability.
     pub fn data<S: NativeData>() -> Self {
-        let mut storage = Self::payload::<S>();
+        let mut storage = Self::takeable::<S>();
         Arc::get_mut(&mut storage.entries)
             .expect("new storage descriptor")
             .editable_data = true;
@@ -200,6 +201,20 @@ impl NativeStorage {
         Self::provided_with_layout::<S>(NativeStorageLayout::Opaque)
     }
 
+    /// Register edge-free Rust-owned payloads with explicit extraction capability.
+    /// Traced payloads continue using `payload`; no empty-trace inference occurs.
+    pub fn takeable<S: NativeTake>() -> Self {
+        let mut storage = Self::payload::<S>();
+        Arc::get_mut(&mut storage.entries)
+            .expect("new storage descriptor")
+            .takeable = true;
+        storage
+    }
+
+    pub(crate) fn is_takeable(&self) -> bool {
+        self.entries.takeable
+    }
+
     pub(crate) fn provided_with_layout<S: NativePayload>(layout: NativeStorageLayout) -> Self {
         Self::entries::<S>(layout, None)
     }
@@ -226,6 +241,7 @@ impl NativeStorage {
                         .units()
                 }),
                 editable_data: false,
+                takeable: false,
                 managed: None,
             }),
         }
@@ -327,6 +343,15 @@ impl Debug for NativeObject {
 }
 
 impl NativeObject {
+    pub(crate) fn into_payload<S: NativeTake>(self) -> S {
+        // The GC preflights Rust identity before any detachment. This immutable
+        // erased record cannot change payload types between validation and move.
+        *self
+            .payload
+            .downcast::<S>()
+            .expect("validated extraction payload type")
+    }
+
     pub(crate) fn owner(&self) -> &LoadedModule {
         &self._owner
     }

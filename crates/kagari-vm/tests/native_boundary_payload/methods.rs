@@ -6,7 +6,7 @@ use kagari_runtime::native::{
     conversion::context::ConversionContext,
     declarations::{CallableRequirement, MethodDecl},
     module::NativeModule,
-    payload::NativeObject,
+    payload::Opaque,
     storage::NativeStorage,
     typed::NativeContext,
     types::{FunctionRef, Type, TypeRef},
@@ -35,7 +35,7 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                         .returns(receiver),
                 )?;
                 methods.bind(new, |cx: &mut NativeContext<'_>, (hp,): (i32,)| {
-                    cx.create_native(PlayerState {
+                    cx.create_opaque(PlayerState {
                         hp,
                         position: [0.0; 3],
                     })
@@ -47,9 +47,7 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                 )?;
                 methods.bind(
                     damage.clone(),
-                    |cx: &mut NativeContext<'_>,
-                     player: NativeObject<PlayerState>,
-                     (amount,): (i32,)| {
+                    |cx: &mut NativeContext<'_>, player: Opaque<PlayerState>, (amount,): (i32,)| {
                         player.edit(cx, |state| {
                             state.hp -= amount;
                             Ok(state.hp)
@@ -66,7 +64,7 @@ fn registration() -> (NativeModule, TypeRef, FunctionRef) {
                 methods.bind(
                     echo,
                     |_: &mut NativeContext<'_>,
-                     _: NativeObject<PlayerState>,
+                     _: Opaque<PlayerState>,
                      (value,): (ScriptValue,)|
                      -> NativeResult<ScriptValue> { Ok(value) },
                 )?;
@@ -106,7 +104,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
         .unwrap();
     let again = runtime.bind_method::<(i32,), i32>(&ty, "damage").unwrap();
     let new = runtime
-        .bind_associated_function::<(i32,), NativeObject<PlayerState>>(&ty, "new")
+        .bind_associated_function::<(i32,), Opaque<PlayerState>>(&ty, "new")
         .unwrap();
     let player = vm.call(&new, (100,)).unwrap();
     assert_eq!(
@@ -133,7 +131,7 @@ fn native_inherent_members_support_prepared_calls_and_method_parameters() {
     assert!(runtime.bind_method::<(i32,), i32>(&ty, "new").is_err());
     assert!(
         runtime
-            .bind_associated_function::<(NativeObject<PlayerState>, i32), i32>(&ty, "damage")
+            .bind_associated_function::<(Opaque<PlayerState>, i32), i32>(&ty, "damage")
             .is_err()
     );
     let mut nested = vm.context(&owner).unwrap();
@@ -184,7 +182,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                 let new =
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
                 methods.bind(new, |cx: &mut NativeContext<'_>, (): ()| {
-                    cx.create_native(PlayerState {
+                    cx.create_opaque(PlayerState {
                         hp: 0,
                         position: [0.0; 3],
                     })
@@ -201,7 +199,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                 methods.bind(
                     exchange,
                     |_: &mut NativeContext<'_>,
-                     _: NativeObject<PlayerState>,
+                     _: Opaque<PlayerState>,
                      (value,): (ScriptValue,)|
                      -> NativeResult<ScriptValue> { Ok(value) },
                 )?;
@@ -217,7 +215,7 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
                 methods.bind(
                     choose,
                     |_: &mut NativeContext<'_>,
-                     _: NativeObject<PlayerState>,
+                     _: Opaque<PlayerState>,
                      (_, value): (ScriptValue, ScriptValue)|
                      -> NativeResult<ScriptValue> { Ok(value) },
                 )
@@ -249,8 +247,8 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
     let choose = runtime
         .bind_method_application::<(i32, String), String>(&ty, "choose", &[string_type])
         .unwrap();
-    let value: NativeObject<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
-    let other: NativeObject<PlayerState> = vm.execute_typed(&owner, "other", ()).unwrap();
+    let value: Opaque<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
+    let other: Opaque<PlayerState> = vm.execute_typed(&owner, "other", ()).unwrap();
     let mut cx = vm.context(&owner).unwrap();
     assert_eq!(value.call(&mut cx, &exchange, (33,)).unwrap(), 33);
     assert_eq!(
@@ -301,7 +299,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
                 let new =
                     methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
                 methods.bind(new, |cx: &mut NativeContext<'_>, (): ()| {
-                    cx.create_native(PlayerState {
+                    cx.create_opaque(PlayerState {
                         hp: 0,
                         position: [0.0; 3],
                     })
@@ -323,7 +321,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
                 methods.bind(
                     read,
                     move |cx: &mut NativeContext<'_>,
-                          _: NativeObject<PlayerState>,
+                          _: Opaque<PlayerState>,
                           (item,): (ScriptValue,)| {
                         let method = cx.selected_method::<(ScriptValue,), i32>(&selected)?;
                         cx.collect_garbage()?;
@@ -353,7 +351,7 @@ fn native_method_requirements_use_selected_generic_evidence() {
     let read = runtime
         .bind_method::<(ScriptValue,), i32>(&ty, "read")
         .unwrap();
-    let holder: NativeObject<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
+    let holder: Opaque<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
     let item: ScriptValue = vm.execute_typed(&owner, "item", ()).unwrap();
     assert_eq!(
         holder
@@ -365,4 +363,36 @@ fn native_method_requirements_use_selected_generic_evidence() {
         vm.execute_typed::<_, i32>(&owner, "evidence", ()).unwrap(),
         77
     );
+}
+
+#[test]
+fn taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion() {
+    let (module, declaration, _) = registration();
+    let (vm, owner) = fixture(SOURCE, Some(&module));
+    let ty = vm
+        .runtime()
+        .bind_native_type::<PlayerState>(&owner, &declaration, &[])
+        .unwrap();
+    let damage = vm
+        .runtime()
+        .bind_method::<(i32,), i32>(&ty, "damage")
+        .unwrap();
+    let player: Opaque<PlayerState> = vm.execute_typed(&owner, "make", ()).unwrap();
+    let alias = player.clone();
+    let mut cx = vm.context(&owner).unwrap();
+    let state = player.take(&cx).unwrap();
+    assert_eq!(state.hp, 100);
+    assert!(alias.edit(&cx, |_| Ok(())).is_err());
+    assert!(alias.call(&mut cx, &damage, (1,)).is_err());
+    assert!(
+        vm.execute_typed::<_, i32>(&owner, "hit", (alias.clone(), 1))
+            .is_err()
+    );
+    let fresh = ty.create(&mut cx, state).unwrap();
+    assert_eq!(fresh.call(&mut cx, &damage, (1,)).unwrap(), 99);
+    assert!(alias.call(&mut cx, &damage, (1,)).is_err());
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
+    drop((player, alias, fresh));
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(vm.runtime().gc().stats().current_heap_units, 0);
 }

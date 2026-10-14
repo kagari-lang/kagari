@@ -1,5 +1,6 @@
 //! Scoped access to one registered Rust payload. A borrow cannot escape its closure.
 mod managed;
+mod take;
 use crate::{
     error::RuntimeError,
     frame::types::{bindings::TypeBindings, compatibility::TypeView},

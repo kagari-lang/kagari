@@ -17,14 +17,12 @@ This document owns the runtime stores, automatic script-object retention,
 thread-transfer contract, typed native adapters, managed object access, scoped
 payload editing and object/function/trait invocation described below.
 
-The [Rust interop proposal](rust-interop-design.md) continues to own ordinary Rust
-DTO derives, schema-backed Serde and the proposed runtime-owned Opaque facade with
-checked read/edit/take. It reuses the implemented NativeObject storage, roots and
-limited payload editing described here. Ownership extraction, alias invalidation
-and new borrowed method adapters are queued additions, not current capabilities.
-Its implementation must select one public handle API rather than keep duplicate
-Opaque/NativeObject owners. External Ref/RefMut scopes retain their separate host
-ownership; shared resources inside a payload need their own Rust access guarantees.
+The [Rust interop plan](rust-interop-design.md) owns ordinary Rust DTO derives,
+schema-backed Serde and new borrowed method adapters. Runtime-owned `Opaque<T>`
+uses the storage and roots described here; checked read, fixed-data edit and
+edge-free take are implemented. External Ref/RefMut scopes retain their separate
+host ownership and remain in the active combined implementation. Shared resources
+inside a payload need their own Rust access guarantees.
 
 The [host facade proposal](host-api-refactor.md) continues to own the cohesive
 prepare/load/reload workflow and proposed logical latest-version Function handles.
@@ -272,7 +270,7 @@ input/output capabilities allow return-only types.
 | Vec<T>, supported tuples, Option<T> and Result<T, E> | Owned data conversion using installed ordinary declarations |
 | Object<S>, ScriptVec<T>, ScriptMap<K, V>, ScriptSet<T> | Retained reference to an existing script object, preserving aliases |
 | PinnedFunction<A, R> and Interface<S> | Retained callable/interface with a verified signature |
-| NativeObject<T> | Checked handle to a registered runtime-owned Rust payload |
+| Opaque<T> | Checked handle to a registered runtime-owned Rust payload |
 | ScriptValue | Retained value with the exact declared type and access view of a generic parameter or result |
 
 S is a registered schema/declaration marker, not a claim that a KGR object has
@@ -440,7 +438,7 @@ including the declaring impl and receiver scope. A function body's presence alon
 does not grant host member access.
 
 Script `ObjectType` and registered `NativeType<T>` implement the same `InherentType`
-binding boundary. `NativeObject<T>::call` uses the same checked method descriptor,
+binding boundary. `Opaque<T>::call` uses the same checked method descriptor,
 receiver conversion, execution stack and cache as `Object::call`. Calling while a
 payload borrow is active fails before execution. `method_declaration` accepts a
 full declaration identity, including the `FunctionRef::id()` returned by native
@@ -498,7 +496,7 @@ Host-retained callbacks use PinnedFunction; the superseded RootedCallable wrappe
 is removed. Advanced traced StoredCallable descriptors remain heap edges and must
 be kept reachable by their owning payload, never mistaken for host roots.
 
-Managed Rust payload editing uses NativeObject<T> and a short borrow. In this
+Managed Rust payload editing uses Opaque<T> and a short borrow. In this
 example PlayerState is registered as containing no script references:
 
 ```rust
@@ -543,17 +541,33 @@ including when an edit fails or unwinds after completing writes. Manual unsafe
 `NativeData` implementations are part of the trusted storage boundary and must
 uphold the documented recursive field contract; ordinary users need no unsafe code.
 
-`NativeObject<T>::read` lends a shared payload reference only for its closure.
+`Opaque<T>::read` lends a shared payload reference only for its closure.
 `NativeType<T>::create` validates the registered Rust representation and traced
 edges before allocation, roots the result before a safepoint and retains its exact
 applied scope. `bind_native_type_declaration` accepts the portable registration
-identity directly. Typed constructor callbacks can use `cx.create_native(payload)`
+identity directly. Typed constructor callbacks can use `cx.create_opaque(payload)`
 to inherit their checked result application, including generic arguments, without
 capturing a handle from a particular runtime installation. Contextual conversion
 checks both the Rust payload mapping and the Kagari nominal scope; registering the
 same Rust representation under two type names does not make them interchangeable.
 Handwritten `NativePayload` remains an advanced tracing interface and receives no
 unrestricted mutable access through these handles.
+
+`Opaque<T>::take` moves the original payload without Clone/Copy. It requires the
+explicit unsafe `NativeTake` edge-free proof and a `NativeStorage::takeable`
+registration (`NativeStorage::data` also grants it). Handwritten empty tracing
+receives no extraction capability. Active loans, mutation/key guards and native
+operations reject take before mutation. Successful take invalidates every old
+host/script/parked alias and pinned receiver; reinsertion creates a fresh heap
+generation and cannot revive them. Managed script-edge payloads cannot be taken.
+
+The GC detaches payload storage immediately and releases its payload units. An
+inert moved identity is terminal for collector traversal only; normal value
+validation and access continue to reject it. Its one header unit remains charged
+until no heap/root/metadata edge retains that identity, then collection prunes it.
+This permits slot reuse and collection with stale aliases while preserving strict
+foreign/fabricated ID rejection. Rust owns exactly-once destruction of the returned
+payload; collection no longer destroys it.
 
 This facility applies to a payload exclusively owned by runtime storage. Arbitrary
 KGR fields do not become Rust &mut T. Externally shared host state continues to use

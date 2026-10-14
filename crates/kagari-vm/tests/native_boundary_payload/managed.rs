@@ -11,7 +11,7 @@ use kagari_runtime::{
         function_handle::PinnedFunction,
         module::NativeModule,
         payload::{
-            NativeObject,
+            Opaque,
             managed::{Field, Managed, ManagedStorage},
         },
         typed::NativeContext,
@@ -28,7 +28,7 @@ use std::{
 
 kagari_runtime::native_data! { struct State { hp: i32 } }
 type Callback = PinnedFunction<(), i32>;
-type Holder = NativeObject<Managed<State>>;
+type Holder = Opaque<Managed<State>>;
 
 struct Registration {
     module: NativeModule,
@@ -504,7 +504,7 @@ fn failed_converters_keep_prior_initializers_and_committed_fields_rooted() {
 
 #[test]
 fn generic_managed_fields_keep_their_argument_scope_across_native_calls_and_bindings() {
-    type Boxed = NativeObject<Managed<()>>;
+    type Boxed = Opaque<Managed<()>>;
     let mut module = ModuleBuilder::new(
         "example::managed",
         &StandardDeclarations::default().catalog().unwrap(),

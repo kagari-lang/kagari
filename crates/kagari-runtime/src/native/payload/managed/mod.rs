@@ -122,15 +122,15 @@ impl<T: NativeData> ManagedStorage<T> {
 ///
 /// The complete payload cannot be edited as ordinary data:
 /// ```compile_fail
-/// use kagari_runtime::native::{payload::{NativeObject, managed::Managed}, typed::NativeContext};
-/// fn edit_fields(object: &NativeObject<Managed<i32>>, cx: &NativeContext<'_>) {
+/// use kagari_runtime::native::{payload::{Opaque, managed::Managed}, typed::NativeContext};
+/// fn edit_fields(object: &Opaque<Managed<i32>>, cx: &NativeContext<'_>) {
 ///     object.edit(cx, |_| Ok(())).unwrap();
 /// }
 /// ```
 /// Nor can a data borrow escape the restricted edit:
 /// ```compile_fail
-/// use kagari_runtime::native::{payload::{NativeObject, managed::Managed}, typed::NativeContext};
-/// fn escape<'a>(object: &NativeObject<Managed<i32>>, cx: &'a NativeContext<'_>) -> &'a mut i32 {
+/// use kagari_runtime::native::{payload::{Opaque, managed::Managed}, typed::NativeContext};
+/// fn escape<'a>(object: &Opaque<Managed<i32>>, cx: &'a NativeContext<'_>) -> &'a mut i32 {
 ///     object.edit_data(cx, |data| Ok(data)).unwrap()
 /// }
 /// ```

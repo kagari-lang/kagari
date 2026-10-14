@@ -3,7 +3,7 @@ use crate::{
         binding::NativeResult,
         conversion::{FromKagari, IntoKagari, context::ConversionContext},
         payload::{
-            NativeObject,
+            Opaque,
             data::NativeData,
             managed::{BoundField, Managed, invalid},
         },
@@ -12,7 +12,7 @@ use crate::{
     value::Value,
 };
 
-impl<T: NativeData> NativeObject<Managed<T>> {
+impl<T: NativeData> Opaque<Managed<T>> {
     /// Only fixed data is lent mutably; the traced fields remain inaccessible.
     pub fn edit_data<R>(
         &self,

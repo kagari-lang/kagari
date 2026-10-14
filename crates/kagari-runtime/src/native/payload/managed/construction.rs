@@ -5,7 +5,7 @@ use crate::{
         binding::NativeResult,
         conversion::{IntoKagari, context::ConversionContext},
         payload::{
-            NativeObject, NativeType,
+            NativeType, Opaque,
             data::NativeData,
             managed::{BoundField, Managed, invalid},
         },
@@ -86,7 +86,7 @@ impl<T: NativeData> ManagedBuilder<T> {
         })
     }
 
-    pub fn finish(self, cx: &mut NativeContext<'_>) -> NativeResult<NativeObject<Managed<T>>> {
+    pub fn finish(self, cx: &mut NativeContext<'_>) -> NativeResult<Opaque<Managed<T>>> {
         let payload = self.prepare(cx)?;
         // self retains every initializer until the newly allocated object is rooted.
         self.native_type.create(cx, payload)
@@ -97,7 +97,7 @@ impl<T: NativeData> ManagedBuilder<T> {
     pub fn replace(
         self,
         cx: &mut NativeContext<'_>,
-        target: &NativeObject<Managed<T>>,
+        target: &Opaque<Managed<T>>,
     ) -> NativeResult<()> {
         if !self
             .native_type

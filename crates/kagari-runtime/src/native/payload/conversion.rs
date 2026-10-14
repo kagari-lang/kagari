@@ -5,7 +5,7 @@ use crate::{
         binding::NativeResult,
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
-        payload::NativeObject,
+        payload::Opaque,
         storage::NativePayload,
         types::Type,
     },
@@ -13,7 +13,7 @@ use crate::{
 };
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 
-impl<T: NativePayload> KagariType for NativeObject<T> {
+impl<T: NativePayload> KagariType for Opaque<T> {
     fn kagari_type(_: &DeclarationCatalog) -> NativeResult<Type> {
         Err(RuntimeError::module_validation(
             "native object requires a registered contextual type",
@@ -46,7 +46,7 @@ impl<T: NativePayload> KagariType for NativeObject<T> {
     }
 }
 
-impl<T: NativePayload> FromKagari for NativeObject<T> {
+impl<T: NativePayload> FromKagari for Opaque<T> {
     const PRESERVES_IDENTITY: bool = true;
 
     fn from_kagari(
@@ -71,7 +71,7 @@ impl<T: NativePayload> FromKagari for NativeObject<T> {
     }
 }
 
-impl<T: NativePayload> IntoKagari for NativeObject<T> {
+impl<T: NativePayload> IntoKagari for Opaque<T> {
     fn into_kagari(
         self,
         cx: &mut ConversionContext<'_>,

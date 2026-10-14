@@ -25,6 +25,7 @@ use kagari_abi::representation::ValueType;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
 use std::{
     cell::{Cell, Ref, RefCell, RefMut},
+    collections::HashSet,
     slice,
     sync::{
         Arc,
@@ -186,6 +187,7 @@ pub struct GcHeap {
     config: GcHeapConfig,
     objects: RefCell<Vec<ObjectSlot>>,
     free: RefCell<Vec<usize>>,
+    moved: RefCell<HashSet<HeapObjectId>>,
     roots: RefCell<RootTable>,
     pub(crate) environments: RefCell<EnvironmentStore>,
     pub(crate) interfaces: RefCell<InterfaceStore>,
@@ -252,6 +254,7 @@ impl GcHeap {
             ),
             objects: RefCell::new(Vec::new()),
             free: RefCell::new(Vec::new()),
+            moved: RefCell::new(HashSet::new()),
             roots: RefCell::new(RootTable::default()),
             environments: RefCell::new(EnvironmentStore::new(owner)),
             interfaces: RefCell::new(InterfaceStore::new(owner)),
