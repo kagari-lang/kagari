@@ -1,3 +1,7 @@
+mod args;
+mod project;
+
+use crate::args::{Cli, Command, usage};
 use kagari_bytecode::artifact::ArtifactCompatibility;
 #[cfg(feature = "jit")]
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -16,7 +20,7 @@ use kagari_runtime::{
     module::{LoadedModule, entry::ProgramEntry},
     value::Value,
 };
-use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
+use kagari_source::{diagnostic::Diagnostic, source::SourceFile, source_database::SourceSnapshot};
 use kagari_syntax::parser::parse_module;
 use kagari_types::host_interface;
 use kagari_vm::vm::ExecutionReport;
@@ -36,164 +40,9 @@ fn main() -> ExitCode {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Cli {
-    command: Command,
-
-    jit: bool,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum Command {
-    Parse { source: PathBuf },
-    Check { source: PathBuf },
-    Emit { source: PathBuf, output: PathBuf },
-    RunSource { source: PathBuf },
-    RunArtifact { artifact: PathBuf },
-}
-
-impl Cli {
-    fn parse(args: impl IntoIterator<Item = String>) -> Result<Self, CliError> {
-        let mut parser = ArgParser::new(args);
-        parser.consume_options()?;
-        let Some(first) = parser.next_positional() else {
-            return Err(CliError::usage());
-        };
-
-        let command_name = match first.as_str() {
-            "parse" | "check" | "emit" | "run" | "run-artifact" => first,
-            "--help" | "-h" | "help" => return Err(CliError::usage()),
-            path => {
-                let source = PathBuf::from(path);
-
-                let jit = parser.jit()?;
-                parser.finish()?;
-                return Ok(Self {
-                    command: command_for_implicit_path(source),
-
-                    jit,
-                });
-            }
-        };
-
-        let jit = parser.jit()?;
-        let command = match command_name.as_str() {
-            "parse" => Command::Parse {
-                source: parser.required_path("source")?,
-            },
-            "check" => Command::Check {
-                source: parser.required_path("source")?,
-            },
-            "emit" => {
-                let output = parser.output();
-                let source = parser.required_path("source")?;
-                Command::Emit {
-                    output: output.unwrap_or_else(|| default_artifact_path(&source)),
-                    source,
-                }
-            }
-            "run" => Command::RunSource {
-                source: parser.required_path("source")?,
-            },
-            "run-artifact" => Command::RunArtifact {
-                artifact: parser.required_path("artifact")?,
-            },
-            _ => unreachable!("command name was already filtered"),
-        };
-        parser.finish()?;
-
-        Ok(Self { command, jit })
-    }
-}
-
-#[derive(Debug)]
-struct ArgParser {
-    args: Vec<String>,
-    index: usize,
-
-    jit: bool,
-    output: Option<PathBuf>,
-}
-
-impl ArgParser {
-    fn new(args: impl IntoIterator<Item = String>) -> Self {
-        Self {
-            args: args.into_iter().collect(),
-            index: 0,
-
-            jit: false,
-            output: None,
-        }
-    }
-
-    fn next_positional(&mut self) -> Option<String> {
-        let arg = self.args.get(self.index)?.clone();
-        self.index += 1;
-        Some(arg)
-    }
-
-    fn jit(&mut self) -> Result<bool, CliError> {
-        self.consume_options()?;
-        Ok(self.jit)
-    }
-
-    fn output(&mut self) -> Option<PathBuf> {
-        let _ = self.consume_options();
-        self.output.clone()
-    }
-
-    fn required_path(&mut self, label: &'static str) -> Result<PathBuf, CliError> {
-        self.consume_options()?;
-        self.next_positional()
-            .map(PathBuf::from)
-            .ok_or_else(|| CliError::message(2, format!("missing {label} path\n\n{}", usage())))
-    }
-
-    fn finish(&mut self) -> Result<(), CliError> {
-        self.consume_options()?;
-        if self.index == self.args.len() {
-            Ok(())
-        } else {
-            Err(CliError::message(
-                2,
-                format!(
-                    "unexpected argument `{}`\n\n{}",
-                    self.args[self.index],
-                    usage()
-                ),
-            ))
-        }
-    }
-
-    fn consume_options(&mut self) -> Result<(), CliError> {
-        while self.index < self.args.len() {
-            match self.args[self.index].as_str() {
-                "--jit" => {
-                    self.jit = true;
-                    self.index += 1;
-                }
-                "--no-jit" => {
-                    self.jit = false;
-                    self.index += 1;
-                }
-                "-o" | "--output" => {
-                    self.index += 1;
-                    let value = self
-                        .args
-                        .get(self.index)
-                        .ok_or_else(|| CliError::message(2, usage()))?;
-                    self.output = Some(PathBuf::from(value));
-                    self.index += 1;
-                }
-                _ => break,
-            }
-        }
-        Ok(())
-    }
-}
-
 fn run_cli(cli: Cli) -> Result<(), CliError> {
     match cli.command {
+        Command::Project { action, options } => project::run(action, options, cli.jit),
         Command::Parse { source } => parse_source(&source),
         Command::Check { source } => check_source(&source),
         Command::Emit { source, output } => emit_artifact(&source, &output),
@@ -216,31 +65,31 @@ fn parse_source(path: &Path) -> Result<(), CliError> {
     }
 }
 
-fn source_engine() -> Result<KagariEngine, CliError> {
+fn source_engine(declaration_cache: impl Into<PathBuf>) -> Result<KagariEngine, CliError> {
     let mut builder =
         KagariEngine::builder().map_err(|error| CliError::message(1, error.to_string()))?;
-    builder.declaration_cache("target/kagari-declarations");
+    builder.declaration_cache(declaration_cache);
     builder.build().map_err(print_embedding_error)
 }
 
 fn check_source(path: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = source_engine()?;
+    let engine = source_engine("target/kagari-declarations")?;
     match engine.compile_source(source) {
         Ok(_) => {
             println!("checked {}", path.display());
             Ok(())
         }
-        Err(error) => Err(print_embedding_error(error)),
+        Err(error) => Err(print_source_error(&engine, error)),
     }
 }
 
 fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = source_engine()?;
+    let engine = source_engine("target/kagari-declarations")?;
     let artifact = engine
         .compile_to_artifact(source, ArtifactOptions::default())
-        .map_err(print_embedding_error)?;
+        .map_err(|error| print_source_error(&engine, error))?;
     let bytes = artifact
         .records()
         .to_bytes(artifact.definitions())
@@ -257,10 +106,10 @@ fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
 
 fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
     let source = read_source(path)?;
-    let engine = source_engine()?;
+    let engine = source_engine("target/kagari-declarations")?;
     let artifact = engine
         .compile_to_artifact(source, ArtifactOptions::default())
-        .map_err(print_embedding_error)?;
+        .map_err(|error| print_source_error(&engine, error))?;
     run_loaded_artifact(
         &engine,
         artifact,
@@ -416,15 +265,36 @@ fn print_common_diagnostics(diagnostics: &[Diagnostic]) {
     }
 }
 
-fn print_embedding_diagnostics(diagnostics: &[EmbeddingDiagnostic]) {
+fn print_embedding_diagnostics(
+    diagnostics: &[EmbeddingDiagnostic],
+    sources: Option<&SourceSnapshot>,
+) {
     for diagnostic in diagnostics {
+        let origin = diagnostic
+            .span
+            .and_then(|span| {
+                sources
+                    .filter(|sources| sources.contains(span))?
+                    .file(span.file)
+            })
+            .map(|file| format!("{}: ", file.name()))
+            .unwrap_or_default();
         match diagnostic.span {
             Some(span) => eprintln!(
-                "{}: {} at {}..{}",
+                "{origin}{}: {} at {}..{}",
                 diagnostic.code, diagnostic.message, span.range.start, span.range.end
             ),
             None => eprintln!("{}: {}", diagnostic.code, diagnostic.message),
         }
+    }
+}
+
+fn print_source_error(engine: &KagariEngine, error: EmbeddingError) -> CliError {
+    if let EmbeddingError::Diagnostics { diagnostics } = error {
+        print_embedding_diagnostics(&diagnostics, Some(&engine.source_snapshot()));
+        CliError::message(1, "diagnostics emitted")
+    } else {
+        print_embedding_error(error)
     }
 }
 
@@ -441,7 +311,7 @@ fn print_program_error(error: ProgramPreparationError) -> CliError {
 fn print_embedding_error(error: EmbeddingError) -> CliError {
     match error {
         EmbeddingError::Diagnostics { diagnostics } => {
-            print_embedding_diagnostics(&diagnostics);
+            print_embedding_diagnostics(&diagnostics, None);
             CliError::message(1, "diagnostics emitted")
         }
         EmbeddingError::Runtime {
@@ -465,30 +335,6 @@ fn print_embedding_error(error: EmbeddingError) -> CliError {
         ),
         other => CliError::message(1, format!("{}: {other:?}", other.code())),
     }
-}
-
-fn command_for_implicit_path(path: PathBuf) -> Command {
-    if path.extension().and_then(|extension| extension.to_str()) == Some("kbc") {
-        Command::RunArtifact { artifact: path }
-    } else {
-        Command::RunSource { source: path }
-    }
-}
-
-fn default_artifact_path(source: &Path) -> PathBuf {
-    source.with_extension("kbc")
-}
-
-fn usage() -> String {
-    [
-        "usage:",
-        "  kagari parse <script.kgr>",
-        "  kagari check <script.kgr>",
-        "  kagari emit [-o artifact.kbc] <script.kgr>",
-        "  kagari run [--jit] <script.kgr>",
-        "  kagari run-artifact [--jit] <artifact.kbc>",
-    ]
-    .join("\n")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]

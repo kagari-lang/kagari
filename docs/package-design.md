@@ -287,7 +287,8 @@ The initial workspace surface includes:
 - A shared root `Kagari.lock` and build cache/output directory, with products keyed
   by the existing complete build fingerprints rather than only a member name.
 - Package selection such as `kg check --workspace` and `kg build -p gameplay`.
-  CLI spellings here are target behavior, not implemented commands.
+  The current `kagari-cli` executable implements these selectors; its `kg`
+  distribution rename remains separately queued.
 
 Resolve paths in workspace dependency declarations against the workspace root;
 resolve paths written directly in a member manifest against that member's directory.
@@ -944,11 +945,35 @@ No format/ABI version bump is needed for these unpublished development changes.
   Python syntax and diff checks pass. No carried build/test failures. This selected
   scope covers the new handoff and an existing source-session boundary; the complete
   feature/backend/platform test matrix remains CI-only and unrun locally.
-- Next: CLI project/member commands, shared build storage and affected-root reporting.
-  Native-provider inputs must contribute their own contract fingerprint before any
-  shared product reuse. Dependency invalidation must include generic bodies, embedded
-  constants and alias/selection-only changes. Full workspace/backend/feature/platform
-  CI remains unrun; no whole-workspace Cargo suite was run locally.
+- PK03 CLI checkpoint: split argument validation from project/file
+  orchestration. Project `check`, `build` and `run` reuse `ProjectInputs` and SDK
+  compilation; explicit file/artifact routes remain. Package selectors, manifest and
+  bounded-input-root selection, locked/offline/frozen policy and single-root execution
+  are wired. The CLI host's default approved root is the invoking filesystem anchor;
+  `--input-root` provides a narrower boundary. This supports declared parent/sibling
+  paths while keeping workspace and module semantics in the package owner.
+- Shared CLI output storage uses captured-source fingerprints plus emitted artifact
+  bytes. It atomically publishes immutable products at the workspace root and checks
+  existing bytes; every request still checks and compiles its current inputs. It is
+  not a pre-compilation cache. Generated native declaration views use that same
+  workspace storage root. Native-provider contract fingerprinting before any skipped
+  compilation/product reuse remains pending.
+- CLI validation: `cargo test -p kagari-cli project_ --no-fail-fast` passes three
+  selected argument/discovery/project cases. The expanded build/run case also passes
+  unchanged-output reuse, dependency-body edits under the frozen shared lock, distinct
+  root exports, library builds without entries, decoded artifact execution and retained
+  previous products. The three existing `parses_` tests and standalone artifact pipeline
+  regression pass. Source diagnostics now include their retained physical filename;
+  shared-output comparisons bound reads by the expected encoded length.
+- CLI all-target Clippy and `cargo check -p kagari-cli --features jit` pass. Structure
+  scans 1,156 files with no violations after replacing a long `fs::File::open` path
+  with its explicit import. Formatting and diff checks pass. No carried build/test
+  failures; this is focused CLI/affected-consumer evidence, not exhaustive native or
+  workspace acceptance. Full feature/backend/platform CI remains unrun locally.
+- Next: native-provider input fingerprints and affected-root reporting. Provider
+  contracts must participate before any product reuse that skips compilation.
+  Dependency invalidation must include generic bodies, embedded constants and
+  alias/selection-only changes. Keep existing per-Program reload and pinned generations.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.

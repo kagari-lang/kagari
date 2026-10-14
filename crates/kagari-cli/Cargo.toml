@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+blake3 = "1"
+kagari-package.workspace = true
 kagari-types.workspace = true
 kagari-source.workspace = true
 thiserror.workspace = true

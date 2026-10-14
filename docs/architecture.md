@@ -30,6 +30,13 @@ source capture. It returns a candidate lock; filesystem publication remains expl
 SDK `KagariEngine::compile_package` publishes one capture to its source session and
 uses the existing checked-program and artifact pipeline. Checked results retain their
 source acquisition provenance; no package acquisition runs during execution.
+CLI project commands use these same inputs, select roots before execution and publish
+one shared workspace lock. Each selected package produces a separate Program.
+Generated declaration views and immutable outputs share the workspace build directory;
+outputs include captured-input and emitted-content identity and do not bypass source
+checking. See [CLI loading](spec/module-loading.md#cli-loading) for selectors and the
+command-line filesystem policy. Provider-aware build-input keys and affected-root
+reporting remain in the active package plan.
 
 Immutable `ProgramInputs` retains one exact dependency closure and hands external/root files
 to `kagari-source`; HIR derives inline modules from those same captured bytes.
@@ -86,7 +93,7 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-types | Semantic types, declarations, symbolic defaults, generic checks, numeric/collection/range semantics and offline host schemas |
 | kagari-source | Source documents/revisions, immutable package scopes, diagnostics, literal grammar, line indices and navigation provenance |
 | kagari-syntax | Lexer, parser, CST and AST views |
-| kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture and atomic handoff to source analysis/SDK; CLI integration is in progress |
+| kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture and atomic handoff to source analysis/SDK/CLI |
 | kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
 | kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
 | kagari-contract | Executable envelopes, checked call/layout/operation contracts, physical lowering and linked verification |

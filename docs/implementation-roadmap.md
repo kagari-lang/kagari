@@ -42,7 +42,9 @@ signature types. Typed binding and direct VM/SDK calls use verified public paths
 with explicit root entry selection for the CLI and native preparation. Consumer
 fixture migration is complete. Shared project acquisition and SDK captured-package
 compilation now use the same local/virtual input path, with retained snapshots and
-source-free reload coverage. CLI/shared storage and affected-root reporting remain.
+source-free reload coverage. CLI project check/build/run, member and lock selection,
+and shared immutable output storage are integrated. Provider-aware input fingerprints
+and affected-root reporting remain.
 Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,

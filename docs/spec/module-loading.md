@@ -116,19 +116,49 @@ Cache entries are invalidated by source hash, dependency fingerprint, host regis
 
 The CLI uses the same loader model as embedded hosts.
 
-The current CLI commands are:
+The current executable is `kagari-cli`; the separately planned `kg` distribution
+rename has not been applied. Commands select source or project work explicitly:
 
-- parse source
-- check source
-- emit `.kbc`
-- run source
-- run `.kbc`
+- `parse <file.kgr>` parses one file.
+- `check [file.kgr]` checks a file, or the selected package closures when omitted.
+- `build` emits a complete artifact for each selected package without execution.
+- `emit [-o file.kbc] <file.kgr>` emits a standalone file's artifact.
+- `run [file.kgr]` compiles and invokes the selected root's separate `main` entry.
+- `run-artifact <file.kbc>` validates and executes an existing artifact without
+  reading package manifests or source files.
 
 An implicit source path runs source and an implicit `.kbc` path runs an artifact.
-The CLI also supports `--jit`, `--no-jit`, and `-o` / `--output` for artifact emission.
-Module reload remains a host-managed embedding operation rather than a standalone CLI command.
+`--jit` and `--no-jit` select execution policy; they are rejected for other commands.
+Project options cannot be combined with an explicit source or artifact path.
 
-CLI convenience behavior must not define different language semantics from embedding behavior.
+For project commands, find the nearest `Kagari.toml` from the invoking directory,
+or use `--manifest-path <Kagari.toml>`. The package loader discovers the owning
+workspace and applies member/default-member rules. `-p` / `--package NAME` may be
+repeated; `--workspace` selects all members and is mutually exclusive with `-p`.
+`run` requires exactly one selected package. Building a library requires no `main`.
+
+The shared root `Kagari.lock` covers all workspace members even when only one is
+checked/built. `--locked` prohibits graph changes and requires a lock; `--offline`
+prohibits network acquisition; `--frozen` combines both. Current acquisition is
+local only. Source-only edits may be rebuilt under an unchanged locked graph.
+The CLI supplies no implicit immutable host packages or remote package registry.
+
+The CLI admits declared local inputs under the invoking filesystem anchor (a
+Windows drive/share root, or `/`); `--input-root DIRECTORY` narrows that read root.
+Embedding hosts supply their own approved providers. Only declared module trees
+and dependencies are captured, with the loader's canonical-path and resource limits.
+Workspace ownership, dependency names and source visibility remain package/HIR rules.
+
+All project members share `<workspace>/target/kagari`: generated native declaration
+views live under `declarations`, and complete `.kbc` products under `programs`.
+Products are addressed by captured source inputs and emitted bytes; unchanged output
+bytes can share a file, while edits retain earlier products. Publication of shared
+products is atomic and checks existing bytes before reuse. This is output storage,
+not a cache that skips source checking or compilation. `build -o PATH` selects an
+explicit output and therefore requires exactly one selected package.
+
+Module reload remains a host-managed embedding operation. CLI convenience behavior
+must not define different language semantics from embedding behavior.
 
 ## Security
 
