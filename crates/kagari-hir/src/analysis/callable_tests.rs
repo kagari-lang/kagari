@@ -19,10 +19,10 @@ use kagari_source::{
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::NativeDefaultApplication,
+    declaration::host::{HostPassingStyle, HostTypeOwnership},
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        type_declaration::{HostTypeDeclaration, HostTypeOwnership},
-        value_type::HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter,
+        type_declaration::HostTypeDeclaration, value_type::HostValueType,
     },
     scalar::BuiltinType,
 };

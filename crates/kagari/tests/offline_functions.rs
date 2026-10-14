@@ -11,9 +11,11 @@ use kagari_common::identity::{
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::{host::HostFunction, value::Value};
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::HostPassingStyle,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType,
+    },
 };
 use std::sync::{Arc, Mutex};
 

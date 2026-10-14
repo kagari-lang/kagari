@@ -5,10 +5,7 @@ use crate::{
     session::ExecutionPhase,
     value::Value,
 };
-use kagari_types::{
-    declaration::host::HostCallPolicy,
-    host_interface::{HostFunctionEffects, HostPassingStyle},
-};
+use kagari_types::declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle};
 
 impl Runtime {
     pub(super) fn is_candidate_initialization(&self) -> bool {

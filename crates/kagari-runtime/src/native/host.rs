@@ -13,8 +13,10 @@ use crate::{
     value::{EphemeralValue, Value},
 };
 use kagari_types::{
-    declaration::{FnDecl, host::HostCallPolicy},
-    host_interface::HostPassingStyle,
+    declaration::{
+        FnDecl,
+        host::{HostCallPolicy, HostPassingStyle},
+    },
     ty::Ty,
 };
 use std::fmt::Write;

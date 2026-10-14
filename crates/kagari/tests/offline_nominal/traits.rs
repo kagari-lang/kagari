@@ -4,7 +4,7 @@ use kagari_bytecode::artifact::KbcArtifact;
 use kagari_contract::types::PublicItem;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_source::diagnostic::DiagnosticKind;
-use kagari_types::host_interface::type_declaration::PathAccess;
+use kagari_types::declaration::host::PathAccess;
 use std::sync::{Arc, Mutex};
 
 #[test]

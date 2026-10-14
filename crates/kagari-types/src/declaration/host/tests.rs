@@ -2,16 +2,15 @@ use crate::{
     callable::CallableImplementation,
     declaration::{
         FieldDef, FnDecl, NativeDeclaration, Param, TypeDef, TypeDefKind,
-        host::{HostCallPolicy, HostFieldPolicy, HostTypePolicy},
+        host::{
+            HostCallPolicy, HostFieldPolicy, HostFunctionEffects, HostPassingStyle,
+            HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
         module::ModuleDecl,
         verify::{Parameters, aggregate_shape_valid, function_valid, validate_native_declarations},
         wire::{declarations::TypeDefRecord, signature::FnDeclRecord},
     },
     decode_limits::MAX_NESTED_RECORDS,
-    host_interface::{
-        HostFunctionEffects, HostPassingStyle,
-        type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
-    },
     language::binding,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},

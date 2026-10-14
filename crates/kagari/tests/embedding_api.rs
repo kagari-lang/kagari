@@ -38,15 +38,15 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source::SourceFile;
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface,
-    path::HostPathSegmentDeclaration,
-    standard_log,
-    type_declaration::{
-        HostFieldDeclaration, HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership,
-        PathAccess,
+use kagari_types::{
+    declaration::host::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    host_interface::{
+        HostFunctionDeclaration, HostInterface,
+        path::HostPathSegmentDeclaration,
+        standard_log,
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
     },
-    value_type::HostValueType,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 

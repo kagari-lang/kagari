@@ -1,6 +1,9 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
-use crate::host_interface::{
-    path::HostPathDeclaration, type_declaration::HostTypeDeclaration, value_type::HostValueType,
+use crate::{
+    declaration::host::{HostFunctionEffects, HostPassingStyle},
+    host_interface::{
+        path::HostPathDeclaration, type_declaration::HostTypeDeclaration, value_type::HostValueType,
+    },
 };
 use bincode::{DefaultOptions, Options};
 use kagari_common::identity::{
@@ -10,7 +13,6 @@ use kagari_common::identity::{
     metadata::DefinitionMetadata,
     table::{DefinitionId, DefinitionTable, DefinitionTableError},
 };
-use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, iter, sync::OnceLock};
 
 const MAGIC: [u8; 4] = *b"KHI\0";
@@ -82,30 +84,11 @@ pub fn validate_host_type_identity(
     Ok(())
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HostPassingStyle {
-    Owned,
-    SharedBorrow,
-    UniqueBorrow,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HostParameter {
     pub name: String,
     pub ty: HostValueType,
     pub passing: HostPassingStyle,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct HostFunctionEffects {
-    pub may_allocate: bool,
-    pub may_trap: bool,
-    /// Reads only host-provided immutable configuration, with value-only inputs
-    /// and results. This does not authorize general service access or mutation.
-    pub may_read_immutable_configuration: bool,
-    pub may_call_host_services: bool,
-    pub may_mutate_host_state: bool,
-    pub may_suspend: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

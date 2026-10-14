@@ -7,9 +7,11 @@ use kagari_common::{
 };
 use kagari_runtime::value::Value;
 use kagari_source::{identity::FileId, source_database::SourceLayer};
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::HostPassingStyle,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType,
+    },
 };
 
 fn compile(engine: &KagariEngine, root: FileId) -> DefinitionMetadata<BytecodeArtifact> {

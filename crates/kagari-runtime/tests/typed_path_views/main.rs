@@ -17,14 +17,12 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{
+    declaration::host::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
     host_interface::{
         path::{
             HostIndexSegmentDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
         },
-        type_declaration::{
-            HostFieldDeclaration, HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership,
-            PathAccess,
-        },
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
     scalar::BuiltinType,

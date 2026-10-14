@@ -15,9 +15,10 @@ use kagari_bytecode::{
 use kagari_runtime::{Runtime, RuntimeConfig, host::HostFunction, value::Value};
 use kagari_types::{
     collection::CollectionAccess,
+    declaration::host::HostPassingStyle,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError, HostParameter,
-        HostPassingStyle, type_declaration::HostTypeDeclaration, value_type::HostValueType,
+        type_declaration::HostTypeDeclaration, value_type::HostValueType,
     },
     language::binding,
 };

@@ -14,9 +14,9 @@ use kagari_runtime::{
 use kagari_source::source::SourceFile;
 use kagari_types::{
     collection::CollectionAccess,
+    declaration::host::HostPassingStyle,
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        value_type::HostValueType as Type,
+        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType as Type,
     },
     language::binding,
 };

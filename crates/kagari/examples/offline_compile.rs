@@ -8,17 +8,17 @@ use kagari::{
 };
 use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_source::source_database::SourceLayer;
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-    path::{
-        HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-        HostVirtualSegmentDeclaration,
+use kagari_types::{
+    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter,
+        path::{
+            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+            HostVirtualSegmentDeclaration,
+        },
+        type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
     },
-    type_declaration::{
-        HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration, HostTypeOwnership,
-        PathAccess,
-    },
-    value_type::HostValueType,
 };
 use std::error::Error;
 

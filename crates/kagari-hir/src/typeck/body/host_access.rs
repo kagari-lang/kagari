@@ -25,11 +25,11 @@ use kagari_common::cancellation::Cancelled;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     collection::CollectionAccess,
+    declaration::host::PathAccess,
     host_interface,
     host_interface::{
-        HostFunctionDeclaration,
-        path::HostPathSegmentDeclaration,
-        type_declaration::{HostFieldDeclaration, PathAccess},
+        HostFunctionDeclaration, path::HostPathSegmentDeclaration,
+        type_declaration::HostFieldDeclaration,
     },
     scalar::BuiltinType,
 };

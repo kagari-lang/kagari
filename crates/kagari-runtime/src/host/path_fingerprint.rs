@@ -10,10 +10,12 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
 use kagari_common::identity::table::DefinitionTable;
-use kagari_types::host_interface::{
-    path::{HostPathContract, HostPathInput, HostPathSegmentContract},
-    type_declaration::PathAccess,
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::PathAccess,
+    host_interface::{
+        path::{HostPathContract, HostPathInput, HostPathSegmentContract},
+        value_type::HostValueType,
+    },
 };
 
 impl HostRegistry {

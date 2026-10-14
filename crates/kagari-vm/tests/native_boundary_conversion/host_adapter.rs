@@ -9,8 +9,7 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{
-    declaration::host::HostCallPolicy,
-    host_interface::{HostFunctionEffects, HostPassingStyle},
+    declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
 };
 use kagari_vm::error::VmError;

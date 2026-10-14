@@ -12,8 +12,7 @@ use kagari_runtime::{
 };
 use kagari_source::source::SourceFile;
 use kagari_types::{
-    declaration::host::HostCallPolicy,
-    host_interface::{HostFunctionEffects, HostPassingStyle},
+    declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
     ty::Ty,
 };

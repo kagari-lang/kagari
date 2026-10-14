@@ -22,13 +22,16 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::SourceLayer;
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-    type_declaration::{
-        HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
-        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+use kagari_types::{
+    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter,
+        type_declaration::{
+            HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration,
+        },
+        value_type::HostValueType,
     },
-    value_type::HostValueType,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use kagari_vm::{reentry::reenter, vm::Vm};

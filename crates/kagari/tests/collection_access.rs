@@ -20,9 +20,9 @@ use kagari_source::source::SourceFile;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     collection::CollectionAccess,
+    declaration::host::HostPassingStyle,
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        value_type::HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType,
     },
     scalar::BuiltinType,
     ty::Ty,

@@ -17,7 +17,10 @@ use kagari_runtime::{
     jit_abi::jit_poll_execution,
     module::entry::ProgramEntry,
 };
-use kagari_types::host_interface::{HostParameter, HostPassingStyle, value_type::HostValueType};
+use kagari_types::{
+    declaration::host::HostPassingStyle,
+    host_interface::{HostParameter, value_type::HostValueType},
+};
 use std::sync::{Arc, Mutex};
 
 #[test]

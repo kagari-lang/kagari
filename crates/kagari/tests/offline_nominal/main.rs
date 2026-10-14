@@ -22,14 +22,17 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-    path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
-    type_declaration::{
-        HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
-        HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+use kagari_types::{
+    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter,
+        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::{
+            HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
+            HostTraitMethodBinding, HostTypeDeclaration,
+        },
+        value_type::HostValueType,
     },
-    value_type::HostValueType,
 };
 use std::sync::{
     Arc, Mutex,

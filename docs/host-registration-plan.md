@@ -1607,6 +1607,27 @@ applicable. Full workspace/feature/backend/platform checks stay in CI. HR02/RF05
 and the combined goal remain open; the recorded new external-type MIR integration
 failure must be resolved before their acceptance.
 
+### HR02 checkpoint: shared external policy ownership
+
+HostPassingStyle, HostFunctionEffects, HostTypeOwnership, HostReflectionPolicy and
+PathAccess now belong to declaration::host alongside their shared policy records.
+Consumers import this owner directly. The former public paths are removed without
+forwarding exports or duplicate enums; variant order, serialized shape and access
+checks are preserved. Legacy two-case Visibility remains with its declaration
+until that declaration is retired: the common four-case visibility cannot be
+substituted mechanically without reviewing access behavior.
+
+Selected validation passed: runtime/compiler library check, the two shared policy
+contract tests, the existing Host metadata record roundtrip/import test, and types
+library/selected-target Clippy. Structure (1235 Rust files, zero violations), fmt
+and diff checks passed. The mechanical import pass first missed a grouped path
+and private imports in the former defining modules; the resulting compilation
+errors are repaired. No unsafe/lifetime change; prior Miri evidence still applies.
+No workspace sweep or feature/backend/platform matrix was run; CI owns those.
+The previously recorded new external-type MissingBinding MIR error remains carried
+by HR02/RF05 dependency and metadata integration. This checkpoint does not satisfy
+that gate or complete the combined goal.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

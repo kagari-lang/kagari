@@ -3,10 +3,6 @@ use crate::{
     callable::CallableImplementation,
     declaration::{FieldDef, FnDecl},
     decode_limits,
-    host_interface::{
-        HostFunctionEffects, HostPassingStyle,
-        type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
-    },
     language::binding,
     scalar::BuiltinType,
     ty::Ty,
@@ -17,6 +13,46 @@ use std::iter;
 
 #[cfg(test)]
 mod tests;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostPassingStyle {
+    Owned,
+    SharedBorrow,
+    UniqueBorrow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct HostFunctionEffects {
+    pub may_allocate: bool,
+    pub may_trap: bool,
+    /// Reads only host-provided immutable configuration, with value-only inputs
+    /// and results. This does not authorize general service access or mutation.
+    pub may_read_immutable_configuration: bool,
+    pub may_call_host_services: bool,
+    pub may_mutate_host_state: bool,
+    pub may_suspend: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostTypeOwnership {
+    Opaque,
+    Owned,
+    HostRoot,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HostReflectionPolicy {
+    Hidden,
+    TypeNameOnly,
+    Metadata,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum PathAccess {
+    None,
+    ReadOnly,
+    ReadWrite,
+}
 
 /// External identity eligibility, reflection and manual path capabilities. Rust
 /// data stays outside the heap; this policy grants no generated Rust reference.

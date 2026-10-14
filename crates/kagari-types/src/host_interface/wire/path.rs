@@ -1,13 +1,15 @@
 //! Private serialized Host path declarations.
-use crate::host_interface::{
-    HostInterfaceError, decode_limits,
-    path::{
-        HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-        HostVirtualSegmentDeclaration,
+use crate::{
+    declaration::host::PathAccess,
+    host_interface::{
+        HostInterfaceError, decode_limits,
+        path::{
+            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+            HostVirtualSegmentDeclaration,
+        },
+        value_type::codec::WireHostValueType,
+        wire::{Encode, check_cancel, identity_error},
     },
-    type_declaration::PathAccess,
-    value_type::codec::WireHostValueType,
-    wire::{Encode, check_cancel, identity_error},
 };
 use kagari_common::{
     cancellation::CancellationToken,

@@ -1,14 +1,18 @@
 //! Private serialized Host declarations; decode only into scoped IDs.
-use crate::host_interface::{
-    HostFunctionDeclaration, HostFunctionEffects, HostInterfaceError, HostParameter,
-    HostPassingStyle, decode_limits,
-    type_declaration::{
-        HostAssociatedTypeBinding, HostFieldDeclaration, HostMethodDeclaration,
-        HostReflectionPolicy, HostTraitImplementationDeclaration, HostTraitMethodBinding,
-        HostTypeDeclaration, HostTypeOwnership, PathAccess, Visibility,
+use crate::{
+    declaration::host::{
+        HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership, PathAccess,
     },
-    value_type::codec::WireHostValueType,
-    wire::{Encode, check_cancel, identity_error},
+    host_interface::{
+        HostFunctionDeclaration, HostInterfaceError, HostParameter, decode_limits,
+        type_declaration::{
+            HostAssociatedTypeBinding, HostFieldDeclaration, HostMethodDeclaration,
+            HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
+            Visibility,
+        },
+        value_type::codec::WireHostValueType,
+        wire::{Encode, check_cancel, identity_error},
+    },
 };
 use kagari_common::{
     cancellation::CancellationToken,

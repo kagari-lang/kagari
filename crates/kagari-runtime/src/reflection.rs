@@ -206,12 +206,13 @@ mod tests {
         metadata::{AbiFingerprint, TypeId},
     };
     use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-    use kagari_types::host_interface::{
-        path::HostPathSegmentDeclaration,
-        type_declaration::{
-            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+    use kagari_types::{
+        declaration::host::{HostTypeOwnership, PathAccess},
+        host_interface::{
+            path::HostPathSegmentDeclaration,
+            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+            value_type::HostValueType,
         },
-        value_type::HostValueType,
     };
 
     fn host_root_value(gc: &GcHeap, object_id: u64) -> Value {

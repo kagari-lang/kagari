@@ -1,9 +1,10 @@
 //! Portable resolved path contracts shared by offline tools and runtime registration.
 use crate::collection::CollectionAccess;
-use crate::host_interface::{
-    HostInterface, HostInterfaceError,
-    type_declaration::{HostTypeOwnership, PathAccess, Visibility},
-    value_type::HostValueType,
+use crate::{
+    declaration::host::{HostTypeOwnership, PathAccess},
+    host_interface::{
+        HostInterface, HostInterfaceError, type_declaration::Visibility, value_type::HostValueType,
+    },
 };
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use std::collections::BTreeMap;

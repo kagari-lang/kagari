@@ -16,7 +16,8 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{
-    host_interface::{HostFunctionDeclaration, HostFunctionEffects, value_type::HostValueType},
+    declaration::host::HostFunctionEffects,
+    host_interface::{HostFunctionDeclaration, value_type::HostValueType},
     scalar::BuiltinType,
     ty::Ty,
 };

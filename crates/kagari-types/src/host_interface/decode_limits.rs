@@ -26,11 +26,14 @@ mod tests {
     use crate::host_interface::test_support::{decode_fixture, encode_unchecked_fixture};
 
     use super::*;
-    use crate::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostInterfaceError,
-        path::{HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration, PathAccess},
-        value_type::HostValueType,
+    use crate::{
+        declaration::host::PathAccess,
+        host_interface::{
+            HostFunctionDeclaration, HostInterface, HostInterfaceError,
+            path::{HostPathDeclaration, HostPathSegmentDeclaration},
+            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+            value_type::HostValueType,
+        },
     };
     use bincode::Options;
     use kagari_common::identity::{

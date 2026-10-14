@@ -20,13 +20,11 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{
+    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        host_type_identity,
+        HostFunctionDeclaration, HostInterface, HostParameter, host_type_identity,
         path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-        type_declaration::{
-            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess, Visibility,
-        },
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration, Visibility},
         value_type::HostValueType,
     },
     language::binding,

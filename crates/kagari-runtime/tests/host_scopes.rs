@@ -17,9 +17,9 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_types::{
+    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
     host_interface::{
-        HostFunctionDeclaration, HostParameter, HostPassingStyle,
-        type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
+        HostFunctionDeclaration, HostParameter, type_declaration::HostTypeDeclaration,
         value_type::HostValueType,
     },
     scalar::BuiltinType,

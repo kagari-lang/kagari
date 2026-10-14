@@ -1,8 +1,13 @@
 //! Offline member contracts with scoped definition identities. No Rust type names, runtime IDs or callbacks.
 use super::decode_limits;
-use crate::host_interface::{
-    HostFunctionEffects, HostInterfaceError, HostParameter, HostPassingStyle,
-    register_host_definition, validate_host_type_identity, value_type::HostValueType, wire,
+use crate::{
+    declaration::host::{
+        HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership, PathAccess,
+    },
+    host_interface::{
+        HostInterfaceError, HostParameter, register_host_definition, validate_host_type_identity,
+        value_type::HostValueType, wire,
+    },
 };
 use kagari_common::identity::{
     DefinitionKind,
@@ -11,27 +16,6 @@ use kagari_common::identity::{
 };
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, iter};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HostTypeOwnership {
-    Opaque,
-    Owned,
-    HostRoot,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum HostReflectionPolicy {
-    Hidden,
-    TypeNameOnly,
-    Metadata,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PathAccess {
-    None,
-    ReadOnly,
-    ReadWrite,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Visibility {

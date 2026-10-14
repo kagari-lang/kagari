@@ -7,13 +7,16 @@ use {
         metadata::DefinitionMetadata,
     },
     kagari_source::source_database::SourceLayer,
-    kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        type_declaration::{
-            HostAssociatedTypeBinding, HostMethodDeclaration, HostTraitImplementationDeclaration,
-            HostTraitMethodBinding, HostTypeDeclaration, HostTypeOwnership, PathAccess,
+    kagari_types::{
+        declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+        host_interface::{
+            HostFunctionDeclaration, HostInterface, HostParameter,
+            type_declaration::{
+                HostAssociatedTypeBinding, HostMethodDeclaration,
+                HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
+            },
+            value_type::HostValueType,
         },
-        value_type::HostValueType,
     },
 };
 

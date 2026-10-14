@@ -5,10 +5,11 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
+    declaration::host::HostTypeOwnership,
     host_interface::{
         type_declaration::{
             HostMethodDeclaration, HostTraitImplementationDeclaration, HostTraitMethodBinding,
-            HostTypeDeclaration, HostTypeOwnership,
+            HostTypeDeclaration,
         },
         value_type::HostValueType,
     },
@@ -49,7 +50,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
         .host_interface
         .functions[0]
         .params[0]
-        .passing = kagari_types::host_interface::HostPassingStyle::Owned;
+        .passing = kagari_types::declaration::host::HostPassingStyle::Owned;
     assert!(matches!(
         verify_program(&wrong_parameter, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))

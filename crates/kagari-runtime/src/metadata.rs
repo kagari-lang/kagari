@@ -1,7 +1,7 @@
 use crate::{error::RuntimeError, reload::ModuleEpoch};
-use kagari_types::host_interface::{
-    type_declaration::{PathAccess, Visibility},
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::PathAccess,
+    host_interface::{type_declaration::Visibility, value_type::HostValueType},
 };
 use std::{
     cell::RefCell,

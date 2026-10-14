@@ -8,10 +8,11 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
     declaration::{
         FieldDef, TypeDef, TypeDefKind,
-        host::{HostFieldPolicy, HostTypePolicy},
+        host::{
+            HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
         module::ModuleDecl,
     },
-    host_interface::type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
     scalar::BuiltinType,
     ty::Ty,
     visibility::Visibility,

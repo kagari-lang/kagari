@@ -5,10 +5,13 @@ use std::sync::{
     atomic::{AtomicI32, Ordering},
 };
 
-use kagari_types::host_interface::{
-    path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-    type_declaration::{HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess},
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::{HostTypeOwnership, PathAccess},
+    host_interface::{
+        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
+    },
 };
 
 use kagari_runtime::{

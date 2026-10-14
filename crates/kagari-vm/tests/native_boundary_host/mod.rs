@@ -18,10 +18,12 @@ use kagari_runtime::{
 use kagari_stdlib::{identity, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::module::ModuleDecl,
+    declaration::{
+        host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+        module::ModuleDecl,
+    },
     host_interface::{
-        HostFunctionDeclaration, HostParameter, HostPassingStyle,
-        type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
+        HostFunctionDeclaration, HostParameter, type_declaration::HostTypeDeclaration,
         value_type::HostValueType as Type,
     },
     language::binding,

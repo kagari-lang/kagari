@@ -24,11 +24,11 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    host_interface,
+    declaration::host::{HostTypeOwnership, PathAccess},
     host_interface::{
-        HostInterface,
+        self, HostInterface,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::{HostTypeOwnership, PathAccess, Visibility},
+        type_declaration::Visibility,
         value_type::HostValueType,
     },
 };

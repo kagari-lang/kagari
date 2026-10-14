@@ -22,13 +22,16 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostPassingStyle,
-    path::{HostPathDeclaration, HostPathSegmentDeclaration},
-    type_declaration::{HostTypeDeclaration, PathAccess},
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::{HostPassingStyle, PathAccess},
+    host_interface::{
+        HostFunctionDeclaration,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::HostTypeDeclaration,
+        value_type::HostValueType,
+    },
+    ty::Ty,
 };
-use kagari_types::ty::Ty;
 use std::{
     cell::RefCell,
     collections::HashMap,

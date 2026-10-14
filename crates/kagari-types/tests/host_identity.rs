@@ -9,11 +9,14 @@ use kagari_common::{
         table::DefinitionTableError,
     },
 };
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, HostInterfaceError, HostPassingStyle,
-    host_type_identity, standard_log,
-    type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::HostPassingStyle,
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostInterfaceError, host_type_identity,
+        standard_log,
+        type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
+        value_type::HostValueType,
+    },
 };
 
 #[test]

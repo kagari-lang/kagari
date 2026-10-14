@@ -12,11 +12,10 @@ use crate::{
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{
+    declaration::host::{HostTypeOwnership, PathAccess},
     host_interface::{
         path::HostPathSegmentDeclaration,
-        type_declaration::{
-            HostFieldDeclaration, HostTypeDeclaration, HostTypeOwnership, PathAccess,
-        },
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
     scalar::BuiltinType,

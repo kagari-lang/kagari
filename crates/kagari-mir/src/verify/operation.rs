@@ -17,8 +17,10 @@ use kagari_contract::{
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeStorageLayout, verify::types_in_scope},
-    host_interface::{HostInterface, type_declaration::PathAccess},
+    declaration::{
+        TypeDefKind, host::PathAccess, native::NativeStorageLayout, verify::types_in_scope,
+    },
+    host_interface::HostInterface,
     reference::{ReferenceAccess, field_read_type},
     ty::Ty,
 };

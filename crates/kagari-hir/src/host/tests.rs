@@ -5,9 +5,9 @@ use crate::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{
-    declaration::names::NameNamespace,
+    declaration::{host::HostPassingStyle, names::NameNamespace},
     host_interface::{
-        HostParameter, HostPassingStyle,
+        HostParameter,
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
     },
 };

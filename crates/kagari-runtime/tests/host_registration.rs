@@ -12,11 +12,14 @@ use kagari_runtime::{
     metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
     value::Value,
 };
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostFunctionEffects, HostParameter, HostPassingStyle,
-    host_type_identity,
-    type_declaration::{HostReflectionPolicy, HostTypeDeclaration, HostTypeOwnership, PathAccess},
-    value_type::HostValueType,
+use kagari_types::{
+    declaration::host::{
+        HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership, PathAccess,
+    },
+    host_interface::{
+        HostFunctionDeclaration, HostParameter, host_type_identity,
+        type_declaration::HostTypeDeclaration, value_type::HostValueType,
+    },
 };
 use std::sync::{Arc, Mutex};
 

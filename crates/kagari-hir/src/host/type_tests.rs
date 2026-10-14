@@ -14,11 +14,12 @@ use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_types::host_interface::{
-    HostParameter, HostPassingStyle,
-    path::{HostPathDeclaration, HostPathSegmentDeclaration},
-    type_declaration::{
-        HostFieldDeclaration, HostMethodDeclaration, HostTypeOwnership, PathAccess,
+use kagari_types::{
+    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+    host_interface::{
+        HostParameter,
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
+        type_declaration::{HostFieldDeclaration, HostMethodDeclaration},
     },
 };
 
