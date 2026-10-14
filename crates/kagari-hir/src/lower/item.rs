@@ -49,6 +49,7 @@ fn lower_visibility(visibility: AstVisibility) -> Visibility {
     match visibility {
         AstVisibility::Private => Visibility::Private,
         AstVisibility::PublicSuper => Visibility::PublicSuper,
+        AstVisibility::PublicCrate => Visibility::PublicCrate,
         AstVisibility::Public => Visibility::Public,
     }
 }

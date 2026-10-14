@@ -264,10 +264,10 @@ Notes:
   `#[reflect]` is reserved and diagnosed until its behavior is implemented.
   Legacy `#[requires]` and `#[profile]` remain rejected; they do not establish
   runtime permissions. Other unqualified names are diagnosed as unknown.
-- `pub` and `pub(super)` are the explicit visibility markers in the source syntax
+- `pub`, `pub(super)` and `pub(crate)` are the explicit visibility markers in the source syntax
 - unmarked declarations are private in their containing scope
 - public top-level items form the module's public interface
-- `pub(super)` makes an item available to the parent module tree; `pub(crate)` and `pub(in path)` are not part of the source syntax
+- `pub(super)` makes an item available to the parent module tree; `pub(crate)` makes it available throughout the current package. `pub(in path)` remains unsupported
 
 ### Functions
 

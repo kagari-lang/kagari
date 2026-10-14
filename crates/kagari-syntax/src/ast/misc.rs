@@ -653,7 +653,7 @@ impl FieldList {
 
 impl Field {
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }

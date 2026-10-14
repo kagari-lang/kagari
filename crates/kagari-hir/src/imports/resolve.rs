@@ -593,31 +593,6 @@ fn add_dependencies(hit: &LookupHit, dependencies: &mut BTreeSet<ModuleIdentity>
     }
 }
 
-fn visibility_covers(
-    source: Visibility,
-    owner: &ModuleIdentity,
-    exported: Visibility,
-    exporter: &ModuleIdentity,
-) -> bool {
-    if source == Visibility::Public {
-        return true;
-    }
-    if exported == Visibility::Public || owner.package != exporter.package {
-        return false;
-    }
-    let source_scope = if source == Visibility::Private {
-        owner.path.len()
-    } else {
-        owner.path.len().saturating_sub(1)
-    };
-    let export_scope = if exported == Visibility::Private {
-        exporter.path.len()
-    } else {
-        exporter.path.len().saturating_sub(1)
-    };
-    exporter.path[..export_scope].starts_with(&owner.path[..source_scope])
-}
-
 fn reexport_allowed(
     catalog: &NamespaceCatalog,
     target: &ResolvedTarget,
@@ -640,7 +615,7 @@ fn reexport_allowed(
     candidates.is_empty()
         || candidates
             .iter()
-            .any(|c| visibility_covers(c.visibility, &c.owner, visibility, exporter))
+            .any(|c| c.visibility.allows_reexport(&c.owner, visibility, exporter))
 }
 
 fn normalize_import_path(path: &str, current: &ModuleIdentity) -> String {

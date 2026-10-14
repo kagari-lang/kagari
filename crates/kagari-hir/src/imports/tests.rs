@@ -261,6 +261,68 @@ fn reexports_cannot_widen_private_items_or_modules() {
 }
 
 #[test]
+fn package_visibility_covers_siblings_but_not_other_packages_or_public_reexports() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "root",
+        "pub mod inner { pub(crate) fn value() -> i32 { 7 } pub(crate) struct Data { pub(crate) val value: i32 } } pub(crate) use self::inner::value as shared;",
+    );
+    let sibling = insert(
+        &mut db,
+        "sibling",
+        "use pkg::root::shared; use pkg::root::inner::Data; fn main() -> i32 { val data = Data { value: shared() }; data.value }",
+    );
+    let leak = insert(&mut db, "leak", "pub use pkg::root::shared as leaked;");
+    let foreign_path = "mem://foreign";
+    db.bind_module(
+        foreign_path,
+        ModuleIdentity {
+            package: PackageId("other".into()),
+            path: vec!["foreign".into()],
+        },
+    )
+    .unwrap();
+    let foreign = db
+        .set(
+            foreign_path,
+            "use pkg::root::shared; use pkg::root::inner::Data;".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let snapshot = analyze(&db);
+    assert!(
+        snapshot
+            .file(sibling)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty(),
+        "{:?}",
+        snapshot.file(sibling).unwrap().result().diagnostics()
+    );
+    snapshot
+        .check_program(sibling, &Default::default())
+        .unwrap();
+    for (file, expected) in [(foreign, 2), (leak, 1)] {
+        let result = snapshot.file(file).unwrap().result();
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .filter(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::ImportNotPublic { .. }
+                ))
+                .count(),
+            expected,
+            "{:?}",
+            result.diagnostics()
+        );
+    }
+}
+
+#[test]
 fn wildcard_import_expands_offline_host_module_declarations() {
     let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();

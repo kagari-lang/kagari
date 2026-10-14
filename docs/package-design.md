@@ -23,7 +23,7 @@ implemented inputs from pending compiler/runtime integration; publication is not
   package manifest, version resolver or lockfile.
 - [Module semantics](spec/modules.md) support registered source modules, imports,
   visibility and dependency closures. Analysis does not discover unregistered files.
-  Module cycles are allowed; `pub(crate)` is not currently supported.
+  Module cycles are allowed; `pub(crate)` is implemented in the first PK03 checkpoint.
 - [Loading specifications](spec/module-loading.md) describe host-approved package
   roots and dependency mappings, and reserve `kg` for future tooling. They are not
   evidence of an implemented general package manager.
@@ -717,7 +717,18 @@ No format/ABI version bump is needed for these unpublished development changes.
   its dependency-chain diagnostic. Package Clippy, structure, formatting and diff
   checks passed. The prior 17 input/workspace cases remain evidence for unchanged
   normalization/discovery behavior; no broad Cargo sweep was run.
-- Next: PK03 package-scoped HIR/visibility, empty-root migration and source-free
+- PK03 in progress: implemented `pub(crate)` parsing, AST/HIR lowering, package-wide
+  access and re-export restrictions. Moved re-export scope containment into the
+  shared types visibility owner so access and export checks use one scope model.
+  Extended the existing source-free field/method artifact tests; package-restricted
+  members retain their metadata scope without entering public method export tables.
+- PK03 visibility validation: one parser, six HIR visibility and six compiler
+  visibility/contract tests passed. These include sibling access, foreign-package
+  rejection, forbidden public re-exports, metadata mismatch rejection and retained
+  signature invalidation. The full structural scan passed; specification links and
+  package TOML examples checked. Selected-library Clippy, formatting and diff checks
+  passed. No other source/artifact/backend suites were run.
+- Next: PK03 package-scoped HIR environments, empty-root migration and source-free
   export evidence, followed by SDK/CLI/shared storage and invalidation/reload.
   PK01/PK02 APIs are not yet connected to those consumers. Native-provider inputs
   must contribute their own contract fingerprint at compiler handoff.

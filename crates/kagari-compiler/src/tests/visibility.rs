@@ -12,9 +12,10 @@ const SOURCE: &str = r#"
 pub struct Player {
     val secret: i32,
     pub(super) val internal: i32,
+    pub(crate) val package_value: i32,
     pub var hp: i32,
 }
-pub fn make() -> Player { Player { secret: 1, internal: 2, hp: 100 } }
+pub fn make() -> Player { Player { secret: 1, internal: 2, package_value: 3, hp: 100 } }
 "#;
 
 #[test]
@@ -38,11 +39,12 @@ fn field_visibility_survives_source_free_artifacts() {
     let layout = module
         .structures
         .iter()
-        .find(|s| s.fields.len() == 3)
+        .find(|s| s.fields.len() == 4)
         .unwrap();
     let expected = [
         Visibility::Private,
         Visibility::PublicSuper,
+        Visibility::PublicCrate,
         Visibility::Public,
     ];
     assert_eq!(
@@ -92,7 +94,7 @@ fn executable_and_declared_field_access_must_agree() {
             let layout = module
                 .structures
                 .iter_mut()
-                .find(|s| s.fields.len() == 3)
+                .find(|s| s.fields.len() == 4)
                 .unwrap();
             layout.fields[0].visibility = Visibility::Public;
         }
@@ -107,6 +109,7 @@ impl Player {
     pub fn damage(self, amount: i32) -> i32 { self.hp = self.hp - amount; self.hp }
     fn secret(self) -> i32 { self.hp }
     pub(super) fn internal(self) -> i32 { self.secret() }
+    pub(crate) fn package_only(self) -> i32 { self.hp }
     pub fn create(hp: i32) -> Player { Player { hp: hp } }
 }
 pub fn main() -> i32 { val player = Player::create(100); player.damage(20) + player.internal() }

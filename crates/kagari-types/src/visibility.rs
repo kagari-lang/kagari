@@ -7,6 +7,7 @@ pub enum Visibility {
     Private,
     PublicSuper,
     Public,
+    PublicCrate,
 }
 
 impl Visibility {
@@ -17,11 +18,32 @@ impl Visibility {
         if owner.package != accessor.package {
             return false;
         }
-        let scope = match self {
+        accessor.path.starts_with(self.scope(owner))
+    }
+
+    /// Whether a re-export's complete access scope stays within this declaration's scope.
+    pub fn allows_reexport(
+        self,
+        owner: &ModuleIdentity,
+        exported: Self,
+        exporter: &ModuleIdentity,
+    ) -> bool {
+        if self == Self::Public {
+            return true;
+        }
+        if exported == Self::Public || owner.package != exporter.package {
+            return false;
+        }
+        exported.scope(exporter).starts_with(self.scope(owner))
+    }
+
+    fn scope(self, owner: &ModuleIdentity) -> &[String] {
+        let length = match self {
             Self::Private => owner.path.len(),
             Self::PublicSuper => owner.path.len().saturating_sub(1),
+            Self::PublicCrate => 0,
             Self::Public => unreachable!(),
         };
-        accessor.path.starts_with(&owner.path[..scope])
+        &owner.path[..length]
     }
 }

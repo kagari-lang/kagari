@@ -602,7 +602,7 @@ ast_node!(
 
 impl AssociatedType {
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -652,6 +652,8 @@ pub enum Visibility {
     Public,
     /// The `pub(super)` prefix.
     PublicSuper,
+    /// The `pub(crate)` prefix.
+    PublicCrate,
 }
 
 pub(crate) fn visibility_of(syntax: &SyntaxNode) -> Visibility {
@@ -659,6 +661,8 @@ pub(crate) fn visibility_of(syntax: &SyntaxNode) -> Visibility {
         Visibility::Private
     } else if support::token(syntax, SyntaxKind::SuperKw).is_some() {
         Visibility::PublicSuper
+    } else if support::token(syntax, SyntaxKind::CrateKw).is_some() {
+        Visibility::PublicCrate
     } else {
         Visibility::Public
     }
@@ -815,7 +819,7 @@ impl AttributeValue {
 
 impl ModuleDef {
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -848,7 +852,7 @@ impl ModuleBlock {
 
 impl UseDecl {
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -926,7 +930,7 @@ impl TraitDef {
     }
 
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -1008,7 +1012,7 @@ impl MethodDef {
     }
 
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -1089,7 +1093,7 @@ impl FnDef {
     }
 
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -1138,7 +1142,7 @@ impl FnDef {
 
 impl ConstDef {
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -1169,7 +1173,7 @@ impl ConstDef {
 
 impl StructDef {
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
@@ -1200,7 +1204,7 @@ impl StructDef {
 
 impl EnumDef {
     /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// A direct `super` token with `pub` produces `PublicSuper`.
+    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }

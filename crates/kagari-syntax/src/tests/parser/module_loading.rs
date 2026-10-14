@@ -42,24 +42,24 @@ pub mod ui {
 
 #[test]
 fn parses_scoped_visibility_and_rejects_unimplemented_scopes() {
-    let module = common::parse_ok(
-        "pub(super) mod child { pub(super) fn read() -> i32 { 1 } pub(super) struct Data { pub(super) val value: i32 } }",
-    );
-    let child = match module.items().next().unwrap() {
-        Item::ModuleDef(child) => child,
-        other => panic!("{other:?}"),
-    };
-    assert_eq!(child.visibility(), Visibility::PublicSuper);
-    let items = child.block().unwrap().items().collect::<Vec<_>>();
-    assert!(matches!(&items[0], Item::FnDef(item) if item.visibility() == Visibility::PublicSuper));
-    assert!(
-        matches!(&items[1], Item::StructDef(item) if item.visibility() == Visibility::PublicSuper && item.field_list().unwrap().fields().next().unwrap().visibility() == Visibility::PublicSuper)
-    );
-    assert!(
-        !common::parse("pub(crate) fn invalid() {}")
-            .diagnostics()
-            .is_empty()
-    );
+    for (scope, expected) in [
+        ("super", Visibility::PublicSuper),
+        ("crate", Visibility::PublicCrate),
+    ] {
+        let module = common::parse_ok(&format!(
+            "pub({scope}) mod child {{ pub({scope}) fn read() -> i32 {{ 1 }} pub({scope}) struct Data {{ pub({scope}) val value: i32 }} }}",
+        ));
+        let child = match module.items().next().unwrap() {
+            Item::ModuleDef(child) => child,
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(child.visibility(), expected);
+        let items = child.block().unwrap().items().collect::<Vec<_>>();
+        assert!(matches!(&items[0], Item::FnDef(item) if item.visibility() == expected));
+        assert!(
+            matches!(&items[1], Item::StructDef(item) if item.visibility() == expected && item.field_list().unwrap().fields().next().unwrap().visibility() == expected)
+        );
+    }
     assert!(
         !common::parse("pub(in parent) fn invalid() {}")
             .diagnostics()

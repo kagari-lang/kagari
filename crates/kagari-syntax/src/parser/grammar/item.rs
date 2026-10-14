@@ -286,7 +286,12 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         if self.at(TokenKind::LParen) {
             self.bump();
-            self.expect(TokenKind::SuperKw, DiagnosticKind::UnexpectedToken);
+            self.bump_trivia();
+            if self.at_any(&[TokenKind::SuperKw, TokenKind::CrateKw]) {
+                self.bump();
+            } else {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
             self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
         }
         self.bump_trivia();
