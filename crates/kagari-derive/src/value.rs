@@ -48,7 +48,7 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
         ));
     }
     let ident = &input.ident;
-    let (schema, encode, decode) = match &input.data {
+    let (schema, encode, decode, projections) = match &input.data {
         Data::Struct(data) => {
             let Fields::Named(fields) = &data.fields else {
                 return Err(Error::new_spanned(
@@ -59,6 +59,7 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
             let mut schemas = vec![];
             let mut encoders = vec![];
             let mut decoders = vec![];
+            let mut projectors = vec![];
             for field in &fields.named {
                 reject_attributes(&field.attrs)?;
                 let member = field.ident.as_ref().expect("named field");
@@ -67,6 +68,18 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 schemas.push(quote! { ::kagari_runtime::native::schema::ValueField::new(#name, registration.dependency::<#ty>()?) });
                 encoders.push(quote! { encoder.field(#name, self.#member)?; });
                 decoders.push(quote! { #member: decoder.field::<#ty>(#name)? });
+                projectors.push(quote! {
+                    // SAFETY: The derive rejects packed/union/variant fields.
+                    // This is a direct initialized inline field; addr_of_mut!
+                    // creates no intermediate reference to its ancestor.
+                    unsafe {
+                        ::kagari_runtime::native::projection::GeneratedField::new::<Self, #ty>(
+                            #name, |root| {
+                                ::std::ptr::addr_of_mut!((*(root.cast::<Self>())).#member).cast::<()>()
+                            },
+                        )
+                    }
+                });
             }
             let encode = if fields.named.is_empty() {
                 quote! { cx.write_struct(expected)?.finish() }
@@ -87,6 +100,7 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 quote! { registration.structure::<Self>(#script_name, |#registration| Ok(vec![#(#schemas),*])) },
                 encode,
                 decode,
+                quote! { Some(vec![#(#projectors),*]) },
             )
         }
         Data::Enum(data) => {
@@ -150,6 +164,7 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
                 quote! { match cx.variant_name(expected, value)?.as_str() { #(#decoders,)*
                     _ => Err(::kagari_runtime::error::RuntimeError::module_validation("enum variant differs from the registered Rust representation")),
                 } },
+                quote! { None },
             )
         }
         Data::Union(_) => {
@@ -163,6 +178,10 @@ pub(super) fn expand(input: &DeriveInput) -> Result<TokenStream> {
         impl ::kagari_runtime::native::conversion::KagariType for #ident {
             fn kagari_type(catalog: &::kagari_runtime::native::catalog::DeclarationCatalog) -> ::kagari_runtime::native::binding::NativeResult<::kagari_runtime::native::types::Type> {
                 catalog.rust_type::<Self>()
+            }
+
+            fn generated_fields() -> Option<Vec<::kagari_runtime::native::projection::GeneratedField>> {
+                #projections
             }
 
             fn register_type(registration: &mut ::kagari_runtime::native::schema::TypeRegistration<'_>) -> ::kagari_runtime::native::binding::NativeResult<::kagari_runtime::native::types::Type> {

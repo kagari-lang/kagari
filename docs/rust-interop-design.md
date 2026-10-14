@@ -679,7 +679,7 @@ behavior and reports no test or performance result.
   Reuse common declaration/bind validation and RF01's compiling lifetime proof.
   External Ref/RefMut scopes/projections are delivered by RF03-RF05, not RI03;
   keep this phase's adapter extensible only for those concrete argument sources.
-- [ ] RI04: Implement `KagariValue`, schema generation and the explicit optional
+- [x] RI04: Implement `KagariValue`, schema generation and the explicit optional
   Serde adapter against the accepted subset. Add compile-fail tests and an external
   embedding consumer proving that new structs and opaque types need no core edits.
   Coordinate finite inline field descriptors with RF04, which owns generated
@@ -1080,6 +1080,37 @@ pointer gate; generated projector Miri and exhaustive backend/platform CI are st
 pending. Initial module placement and a test's nonexistent Type::string helper were
 corrected; no carried production/test failure remains. RI04 still owns finite inline
 field descriptors in coordination with RF04. The combined goal remains active.
+
+### RI04/RF04 checkpoint: finite generated field layout descriptors
+
+`KagariValue` now emits a local `GeneratedField` list for named ordinary inline
+structs. The existing staged `TypeRegistration::structure` validates each field's
+name, Rust root identity and semantic child type against the same schema before
+publication. Catalog Rust mappings carry the immutable list through ordinary
+imports, dependency closure and native module installation. Portable declarations
+retain their existing field identities/types; no Rust address, offset or projector
+function is serialized. Manual converters and `KagariSchema` supply no layout proof.
+
+The generated function uses `addr_of_mut!` directly on the raw root. It creates no
+ancestor reference. The hidden unsafe constructor documents the direct initialized,
+aligned inline-place contract; deriving still rejects packed structs, unions and
+variant fields. A retained Opaque field describes its Rust handle wrapper, never
+the payload behind that handle. Function addresses are not semantic identities;
+mapping compatibility compares exact Rust root/field identities and schema types.
+
+Focused runtime projection tests passed (two cases): simultaneous disjoint
+Stats/Inventory references from generated pointers, and transactional rejection of
+a mismatched field name. Recursive-header/schema and source-free schema-loading
+regressions passed. Scoped runtime/derive library Clippy, formatting, the structural
+checker (1219 files, zero violations) and diff checks passed. The raw
+projection test also passed under `nightly-2026-07-27` Miri on aarch64-apple-darwin
+with MIRIFLAGS unset, workspace test profile/default parallelism and Miri's default
+target directory. This proves the generated address boundary only. Runtime path
+handles, atomic loan packs, replacement/reentry and their Miri gate remain RF04;
+checked field operations remain RF02, and SDK/live-host integration remains RF05.
+RI04's schema/derive/Serde and finite descriptor responsibilities are complete;
+the combined delivery remains open. Full workspace/feature/backend/platform checks
+remain CI-owned.
 
 ## Acceptance and verification
 

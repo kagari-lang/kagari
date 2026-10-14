@@ -1390,6 +1390,14 @@ in the [interop ledger](rust-interop-design.md#ri04rf03-checkpoint-common-rust-t
 Field places, inline descriptors/projectors, atomic packs and SDK/live-host integration
 remain RF02/RI04/RF04/RF05. This closes RF03 only, not combined acceptance.
 
+The next RI04/RF04 checkpoint completes RI04's finite descriptor coordination:
+KagariValue emits raw direct-field projectors matched transactionally to the same
+schema, carried by local catalog mappings rather than portable Rust layout data.
+The [interop ledger](rust-interop-design.md#ri04rf04-checkpoint-finite-generated-field-layout-descriptors)
+records the focused generated-pointer Miri result. Runtime path/batch integration
+and checked field operations remain RF04/RF02; no reference execution gate closes
+from this descriptor result alone.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

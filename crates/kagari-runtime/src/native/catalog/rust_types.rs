@@ -1,12 +1,20 @@
 //! Catalog-local Rust mappings; never part of portable declarations or artifacts.
 use crate::{
     error::RuntimeError,
-    native::{binding::NativeResult, catalog::DeclarationCatalog, types::Type},
+    native::{
+        binding::NativeResult, catalog::DeclarationCatalog, projection::GeneratedField, types::Type,
+    },
 };
 use kagari_types::ty::Ty;
 use std::{any::TypeId, collections::HashMap, sync::Arc};
 
-pub(crate) type RustTypes = Arc<HashMap<TypeId, Type>>;
+#[derive(Debug, Clone)]
+pub(crate) struct RustMapping {
+    pub(crate) ty: Type,
+    pub(crate) fields: Option<Arc<[GeneratedField]>>,
+}
+
+pub(crate) type RustTypes = Arc<HashMap<TypeId, RustMapping>>;
 
 impl DeclarationCatalog {
     /// Resolve a registered Rust representation in this catalog. Independent
@@ -14,7 +22,7 @@ impl DeclarationCatalog {
     pub fn rust_type<T: 'static>(&self) -> NativeResult<Type> {
         self.rust_types
             .get(&TypeId::of::<T>())
-            .cloned()
+            .map(|mapping| mapping.ty.clone())
             .ok_or_else(|| RuntimeError::metadata_conflict("Rust type is not registered"))
     }
 
@@ -29,24 +37,33 @@ impl DeclarationCatalog {
                 "duplicate Rust type registration",
             ));
         }
-        Arc::make_mut(&mut self.rust_types).insert(TypeId::of::<T>(), ty);
+        Arc::make_mut(&mut self.rust_types)
+            .insert(TypeId::of::<T>(), RustMapping { ty, fields: None });
         Ok(())
     }
 
     pub(crate) fn import_rust_types(&self, other: &Self) -> NativeResult<RustTypes> {
         let mut result = HashMap::new();
-        for (rust, ty) in other.rust_types.iter() {
-            let ty = Type::from_semantic(ty.adopt(self.types.context())?, &self.definitions())?;
-            result.insert(*rust, ty);
+        for (rust, mapping) in other.rust_types.iter() {
+            let ty =
+                Type::from_semantic(mapping.ty.adopt(self.types.context())?, &self.definitions())?;
+            result.insert(
+                *rust,
+                RustMapping {
+                    ty,
+                    fields: mapping.fields.clone(),
+                },
+            );
         }
         Ok(Arc::new(result))
     }
 
     pub(crate) fn merge_rust_types(&mut self, other: &Self) -> NativeResult<()> {
         let imported = self.import_rust_types(other)?;
-        for (rust, ty) in imported.iter() {
+        for (rust, mapping) in imported.iter() {
             if let Some(previous) = self.rust_types.get(rust)
-                && previous.abi() != ty.abi()
+                && (previous.ty.abi() != mapping.ty.abi()
+                    || !same_fields(&previous.fields, &mapping.fields))
             {
                 return Err(RuntimeError::metadata_conflict(
                     "Rust type is already registered under another declaration",
@@ -64,7 +81,7 @@ impl DeclarationCatalog {
         self.rust_types = Arc::new(
             imported
                 .iter()
-                .filter(|(_, ty)| match ty.abi() {
+                .filter(|(_, mapping)| match mapping.ty.abi() {
                     Ty::Struct(nominal) | Ty::Enum(nominal) | Ty::NativeObject(nominal) => {
                         self.types.get_id(nominal.declaration).is_some()
                     }
@@ -74,5 +91,24 @@ impl DeclarationCatalog {
                 .collect(),
         );
         Ok(())
+    }
+}
+
+fn same_fields(
+    left: &Option<Arc<[GeneratedField]>>,
+    right: &Option<Arc<[GeneratedField]>>,
+) -> bool {
+    match (left, right) {
+        (None, None) => true,
+        (Some(left), Some(right)) => {
+            left.len() == right.len()
+                && left.iter().zip(right.iter()).all(|(a, b)| {
+                    // The unsafe generator contract identifies one direct Rust
+                    // field by root type and name. Function addresses are not
+                    // stable semantic identities across Rust code generation.
+                    a.name == b.name && a.root == b.root && a.target == b.target
+                })
+        }
+        _ => false,
     }
 }

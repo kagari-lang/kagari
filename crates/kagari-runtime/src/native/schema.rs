@@ -12,8 +12,9 @@ use kagari_types::{
     visibility::Visibility,
 };
 use std::{
-    any::type_name,
+    any::{TypeId, type_name},
     collections::{BTreeMap, HashSet},
+    sync::Arc,
 };
 
 /// An exported DTO field. Writable script storage is independent of the source
@@ -196,7 +197,7 @@ impl TypeRegistration<'_> {
     }
 
     /// Declare an ordinary named struct, reserving its identity before fields.
-    pub fn structure<T: 'static>(
+    pub fn structure<T: KagariType + 'static>(
         &mut self,
         name: &str,
         fields: impl FnOnce(&mut Self) -> NativeResult<Vec<ValueField>>,
@@ -216,6 +217,29 @@ impl TypeRegistration<'_> {
             .collect::<NativeResult<Vec<_>>>()?;
         self.module.declaration.types[slot].fields = fields;
         self.publish(slot, &ty)?;
+        if let Some(projectors) = T::generated_fields() {
+            let fields = &self.module.declaration.types[slot].fields;
+            if fields.len() != projectors.len() {
+                return Err(conflict(
+                    "generated Rust fields differ from the struct schema",
+                ));
+            }
+            for (field, projector) in fields.iter().zip(&projectors) {
+                let target = (projector.target_type)(&self.module.providers)?;
+                if projector.root != TypeId::of::<T>()
+                    || projector.name != field.name
+                    || target.adopt(self.module.context())? != field.ty
+                {
+                    return Err(conflict(
+                        "generated Rust field identity or type differs from its schema",
+                    ));
+                }
+            }
+            Arc::make_mut(&mut self.module.providers.rust_types)
+                .get_mut(&TypeId::of::<T>())
+                .expect("reserved Rust schema header")
+                .fields = Some(projectors.into());
+        }
         Ok(ty)
     }
 

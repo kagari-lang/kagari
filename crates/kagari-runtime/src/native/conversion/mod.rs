@@ -11,7 +11,7 @@ use crate::{
     frame::types::arguments::TypeArgument,
     native::{
         binding::NativeResult, catalog::DeclarationCatalog, conversion::context::ConversionContext,
-        schema::TypeRegistration, types::Type,
+        projection::GeneratedField, schema::TypeRegistration, types::Type,
     },
     value::Value,
 };
@@ -20,6 +20,13 @@ use crate::{
 /// This describes a type, never a sample value or a second declaration registry.
 pub trait KagariType {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type>;
+
+    /// Local layout proof emitted by the dedicated inline-struct derive. An
+    /// ordinary conversion or serialization schema supplies no projection proof.
+    #[doc(hidden)]
+    fn generated_fields() -> Option<Vec<GeneratedField>> {
+        None
+    }
 
     /// Visit a schema dependency. Identity-free/manual mappings reuse their
     /// catalog mapping; nominal derives reserve a header before visiting fields.
