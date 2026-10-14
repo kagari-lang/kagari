@@ -1,7 +1,9 @@
 # Cranelift synchronous execution expansion plan
 
-Status: planning complete; J01-J06 implementation has not started. The user
-requested this execution plan, not implementation activation. The
+Status: planning complete; J01-J06 implementation and the call-stack decision
+are deferred by user direction until the interpreter is stable. The separate
+[AOT plan](cranelift-aot-plan.md) covers deployment of the existing scalar subset
+and does not activate these phases. The
 [roadmap](implementation-roadmap.md#cranelift-synchronous-execution) owns queue
 placement. This document owns scope, phase order, design decisions, acceptance
 and the progress ledger. Proposed contracts below are not existing APIs.

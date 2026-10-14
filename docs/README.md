@@ -35,8 +35,12 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 are
-  planned and unstarted; expand native ABI, control flow, calls, GC values and
+- [Cranelift AOT deployment](cranelift-aot-plan.md): A01-A04 are planned and
+  unstarted; deploy the existing scalar subset as a Windows native bundle and
+  load it in a compiler-free host while sharing JIT lowering/runtime contracts.
+- [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and
+  the call-stack decision are deferred until the interpreter is stable; expand
+  native ABI, control flow, calls, GC values and
   host/library integration while keeping explicit native coverage requirements.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.

@@ -50,18 +50,33 @@ current source-distribution model. Future persistent compilation caches must pro
 compiler revision/options and provider/source validity before skipping work; current
 shared output storage always checks and compiles inputs.
 
+## Cranelift AOT deployment
+
+[The Cranelift AOT plan](cranelift-aot-plan.md) owns A01-A04: shared JIT/object
+lowering, a linked native bundle, compiler-free loading and deployment validation.
+The plan is prepared; implementation has not started. This is the next selected
+native track, limited to the existing zero-argument scalar subset on x86_64 Windows
+MSVC. Runtime invocation and retained versions remain shared with JIT.
+
+The deployment proof requires actual native execution in a separate process whose
+production dependencies exclude source analysis, MIR/compiler and Cranelift.
+LLVM, Linux AOT, cross-compilation and wider native language coverage are deferred.
+This track does not activate the call-stack decision or synchronous expansion.
+
 ## Cranelift synchronous execution
 
 [The Cranelift expansion plan](cranelift-expansion-plan.md) owns J01-J06:
 general native ABI, scalar/control-flow coverage, verified calls, rooted objects,
 closures/interfaces and installed host/library operations. The execution plan is
-recorded; implementation has not started. Current behavior remains the narrow
+recorded; implementation and the call-stack decision are deferred until the
+interpreter is stable. Current behavior remains the narrow
 scalar baseline in [JIT](spec/jit.md).
 
 Native acceptance requires actual compiled script bodies and separately identified
 runtime helpers/mixed callees, with source-free artifacts, GC/reentry, cancellation
 and pinned reload evidence. Async suspension, native debugging, automatic hotness,
-LLVM/AOT and machine-code persistence are outside this batch. NC and HR/SA21 remain
+LLVM, AOT and machine-code persistence are outside J01-J06; the separate
+[AOT plan](cranelift-aot-plan.md) owns the selected deployment work. NC and HR/SA21 remain
 independent migrations; reuse their current contracts instead of activating them.
 
 ## Toolchain distribution and modes
