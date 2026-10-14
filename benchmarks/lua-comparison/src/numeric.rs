@@ -31,7 +31,7 @@ fn source(ty: &str) -> String {
         }}
         sum
     }}
-    fn main_{ty}() -> i32 {{ numeric_{ty}({N}) }}")
+    pub fn main_{ty}() -> i32 {{ numeric_{ty}({N}) }}")
 }
 
 fn expected(float: bool) -> i32 {
@@ -111,7 +111,7 @@ pub(super) fn run(options: &Options) {
                 return entry.call::<i32>(()).expect("numeric Lua execution");
             }
             let report = runtime
-                .execute(&loaded, &entry_name, &[], &context)
+                .execute(&loaded, entry_name.as_str(), &[], &context)
                 .expect("numeric execution");
             let Value::I32(value) = report
                 .return_value

@@ -16,7 +16,7 @@ use kagari_runtime::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionFrame, transfer::ReturnValue},
-    module::{LoadedModule, execution::ExecutionInstruction},
+    module::{LoadedModule, entry::ProgramEntry, execution::ExecutionInstruction},
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -85,7 +85,7 @@ fn execute(
     runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
-    entry: &str,
+    entry: ProgramEntry<'_>,
     expected: i32,
 ) {
     let result = runtime
@@ -106,7 +106,7 @@ pub(super) fn run(
     runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
-    entry: &str,
+    entry: ProgramEntry<'_>,
     name: &str,
     expected: i32,
 ) {
@@ -151,7 +151,7 @@ pub(super) fn count(
     runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
-    entry: &str,
+    entry: ProgramEntry<'_>,
     expected: i32,
 ) {
     runtime

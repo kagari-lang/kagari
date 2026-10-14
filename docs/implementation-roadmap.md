@@ -37,6 +37,12 @@ coverage and the exhaustive feature matrix remain CI responsibilities. Source-fr
 production dependency guards live in `scripts/check_features.py`. These are CI
 acceptance items, not authorization to run a local full-workspace sweep.
 
+CI run 38552068511 stopped during Clippy in a benchmark entry consumer, before
+workspace tests or feature checks ran. The corrected consumers follow the
+[verified benchmark entry contract](../benchmarks/lua-comparison/README.md#matching-and-timing).
+The skipped workspace tests and complete feature/backend/platform matrix remain
+pending a CI run with that correction.
+
 Remote registry/Git acquisition and publication, simultaneous revisions of one
 family within a Program, and explicit dependency-update CLI spelling remain queued.
 Independent package binaries and multiple executable targets are outside the

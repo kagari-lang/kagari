@@ -15,7 +15,10 @@ use kagari_embed::{
     context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
     runtime::KagariRuntime,
 };
-use kagari_runtime::{module::LoadedModule, value::Value};
+use kagari_runtime::{
+    module::{LoadedModule, entry::ProgramEntry},
+    value::Value,
+};
 use kagari_source::source::SourceFile;
 use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use mlua::{Function, Lua};
@@ -149,14 +152,14 @@ impl ExecutionRoutes {
         let report = if native {
             self.runtime.execute_prepared(
                 &self.module,
-                "main",
+                ProgramEntry::Main,
                 &[],
                 &self.context,
                 self.native.as_ref().expect("prepared native entry"),
             )
         } else {
             self.runtime
-                .execute(&self.module, "main", &[], &self.context)
+                .execute(&self.module, ProgramEntry::Main, &[], &self.context)
         }
         .expect("Kagari execution");
         if native {
@@ -188,7 +191,7 @@ impl ExecutionRoutes {
                 &self.runtime,
                 &self.module,
                 &self.context,
-                "main",
+                ProgramEntry::Main,
                 &[],
                 expected,
             );
@@ -199,7 +202,7 @@ impl ExecutionRoutes {
                 &self.runtime,
                 &self.module,
                 &self.context,
-                "main",
+                ProgramEntry::Main,
                 workload.name,
                 expected,
             );
@@ -287,7 +290,13 @@ fn run(workload: &Workload, options: &Options) {
             });
             let start = Instant::now();
             let native = runtime
-                .prepare_native(&program, &module, "main", &mut backend, &Default::default())
+                .prepare_native(
+                    &program,
+                    &module,
+                    ProgramEntry::Main,
+                    &mut backend,
+                    &Default::default(),
+                )
                 .expect("native preparation");
             let elapsed = start.elapsed().as_nanos();
             let phase = match &native {

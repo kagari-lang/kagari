@@ -142,7 +142,7 @@ pub(super) fn run() {
     let mut source = SOURCE.to_owned();
     for n in [2_500, 5_000] {
         for entry in entries {
-            source.push_str(&format!("\nfn {entry}_{n}() -> i32 {{ {entry}({n}) }}"));
+            source.push_str(&format!("\npub fn {entry}_{n}() -> i32 {{ {entry}({n}) }}"));
         }
     }
     let artifact = engine
@@ -169,7 +169,7 @@ pub(super) fn run() {
                 &runtime,
                 &loaded,
                 &context,
-                &format!("{entry}_{n}"),
+                format!("{entry}_{n}").as_str().into(),
                 &[],
                 expected,
             );

@@ -28,39 +28,39 @@ impl Step for i32 { fn step(self, state: i32) -> i32 { (state * 3 + 7) % 251 } }
 trait Forward { fn forward<T>(self, value: T) -> T { value } }
 impl Forward for i32 {}
 struct Counter { var value: i32 }
-fn direct() -> i32 { var state = 1; var sum = 0; var i = 0;
+pub fn direct() -> i32 { var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = (state * 3 + 7) % 251; sum += state; i += 1; } sum }
-fn helper() -> i32 { var state = 1; var sum = 0; var i = 0;
+pub fn helper() -> i32 { var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = step(state); sum += state; i += 1; } sum }
-fn concrete_generic() -> i32 { var state = 1; var sum = 0; var i = 0;
+pub fn concrete_generic() -> i32 { var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = add(state * 3, 7) % 251; sum += state; i += 1; } sum }
-fn interface() -> i32 { val receiver: Step = 0; var state = 1; var sum = 0; var i = 0;
+pub fn interface() -> i32 { val receiver: Step = 0; var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = receiver.step(state); sum += state; i += 1; } sum }
-fn shared_generic() -> i32 { val receiver: Forward = 0; var state = 1; var sum = 0; var i = 0;
+pub fn shared_generic() -> i32 { val receiver: Forward = 0; var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = receiver.forward((state * 3 + 7) % 251); sum += state; i += 1; } sum }
-fn capture_cell() -> i32 { var state = 1; val next = || { state = (state * 3 + 7) % 251; state };
+pub fn capture_cell() -> i32 { var state = 1; val next = || { state = (state * 3 + 7) % 251; state };
     var sum = 0; var i = 0; while i < 5000 { sum += next(); i += 1; } sum }
-fn field() -> i32 { val counter = Counter { value: 1 }; var sum = 0; var i = 0;
+pub fn field() -> i32 { val counter = Counter { value: 1 }; var sum = 0; var i = 0;
     while i < 5000 { counter.value = (counter.value * 3 + 7) % 251; sum += counter.value; i += 1; } sum }
-fn native() -> i32 { var state = 1; var sum = 0; var i = 0;
+pub fn native() -> i32 { var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = native_step(state); sum += state; i += 1; } sum }
-fn host_callback() -> i32 { var state = 1; var sum = 0; var i = 0;
+pub fn host_callback() -> i32 { var state = 1; var sum = 0; var i = 0;
     while i < 5000 { state = native_step(state); sum += state; i += 1; } sum }
 fn string_identity(text: String) -> String { text }
-fn string_constants() -> i32 { var sum = 0; var i = 0;
+pub fn string_constants() -> i32 { var sum = 0; var i = 0;
     while i < 5000 {
         val text = if i % 2 == 0 { "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
             else { "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-extra" };
         sum += text.len() as i32; i += 1;
     } sum }
-fn string_calls() -> i32 { var sum = 0; var i = 0;
+pub fn string_calls() -> i32 { var sum = 0; var i = 0;
     while i < 5000 {
         val text = if i % 2 == 0 { "abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ" }
             else { "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ-extra" };
         val result = string_identity(text);
         sum += result.len() as i32; i += 1;
     } sum }
-fn byte_state() -> i32 { val memory: Vec<u8> = Vec::from([0u8; 256]); var state = 1u8; var sum = 0; var i = 0;
+pub fn byte_state() -> i32 { val memory: Vec<u8> = Vec::from([0u8; 256]); var state = 1u8; var sum = 0; var i = 0;
     while i < 5000 {
         state = (((state as u32) * 13u32 + 17u32) as u8) ^ (state >> 3u32);
         val index = ((i as u32) & 255u32) as usize;
@@ -267,7 +267,7 @@ pub(super) fn run(options: &Options) {
                 &diagnostic_runtime,
                 &diagnostic_module,
                 &context,
-                name,
+                name.into(),
                 &[],
                 expected,
             );
@@ -280,7 +280,7 @@ pub(super) fn run(options: &Options) {
         }
         if options.profile.is_some() {
             profile::count_lua(&lua, &entry, expected);
-            profile::run(&runtime, &loaded, &context, name, name, expected);
+            profile::run(&runtime, &loaded, &context, name.into(), name, expected);
             continue;
         }
         for sample in 0..options.samples {

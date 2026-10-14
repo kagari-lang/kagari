@@ -48,6 +48,12 @@ iterator or numeric-for machinery.
 All seven results are checked against independent Rust reference calculations.
 The regression test additionally checks empty and single-element inputs.
 
+The original workloads retain private `main` functions and select
+`ProgramEntry::Main` for interpreter, native, profiling and diagnostic execution.
+The numeric, source-form and protocol matrices select named public exports;
+their internal helper functions remain private. All routes use the same verified
+Program entry boundary as ordinary SDK consumers.
+
 The VE00 follow-up also freezes `--source-forms`: direct/helper/concrete generic,
 interface/shared generic identity, captured cell, field, byte state, native,
 host_callback, string_constants and string_calls. The last three were added before

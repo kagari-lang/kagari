@@ -2,7 +2,7 @@
 use kagari_embed::{context::ExecutionContext, runtime::KagariRuntime};
 use kagari_runtime::{
     diagnostics::{self, allocations},
-    module::LoadedModule,
+    module::{LoadedModule, entry::ProgramEntry},
     value::Value,
 };
 
@@ -13,7 +13,7 @@ pub(super) fn measure(
     runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
-    entry: &str,
+    entry: ProgramEntry<'_>,
     args: &[Value],
     expected: i32,
 ) {
@@ -32,7 +32,7 @@ fn count(
     runtime: &KagariRuntime,
     module: &LoadedModule,
     context: &ExecutionContext,
-    entry: &str,
+    entry: ProgramEntry<'_>,
     args: &[Value],
     expected: i32,
     phase: &str,
@@ -47,6 +47,7 @@ fn count(
         Some(Value::I32(expected))
     );
     let after = runtime.runtime().gc().stats();
+    let entry = entry.label();
     println!(
         "DIAGNOSTIC,{entry},phase={phase},args={args:?},requests={},requested_bytes={},net_bytes={},objects={},collections={},environments_delta={},applications_delta={},method_preparations={},interface_call_preparations={},shared_preparations={},operation_preparations={},native_preparations={},layout_scope_preparations={},layout_operand_preparations={},layout_comparisons={},environment_allocations={},metadata_validations={},slow_boundaries={},driver_admissions={},await_polls={}",
         allocations.requests,
