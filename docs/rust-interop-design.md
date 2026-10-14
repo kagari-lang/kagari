@@ -34,6 +34,17 @@ belong to the [roadmap](implementation-roadmap.md). Synchronous interop does not
 depend on async. Re-audit affected APIs at activation; existing specifications
 remain in force until an implementation updates them.
 
+The [single binding entrypoint](host-registration-plan.md#one-function-binding-entrypoint)
+owns registration syntax: register type metadata, declare functions/members, then
+attach implementations with `bind`. Declarations are the signature authority;
+Rust converters/adapters are checked against them. Value and opaque registration
+share this model without separate inferred-signature or chained binding APIs.
+The examples below use this one model;
+exact new member-builder spellings still require the owning plan's compile proof.
+Reference receivers follow its
+[conversion and receiver rules](host-registration-plan.md#method-receivers-and-trait-selection),
+not an automatic conversion from ordinary GC objects or Opaque handles.
+
 ## Design decisions
 
 - Ordinary value bindings convert data into script-owned values. Opaque bindings
@@ -132,27 +143,36 @@ conversion scope or make RI depend on implementation of the later facade.
 ## Value binding
 
 The default path uses a dedicated derive to generate schema and direct conversions
-from the same definition:
+from the same definition. This registration sketch is a target API, not compiling
+Rust against the current SDK:
 
-```rust
+```text
 #[derive(KagariValue)]
 struct DamageRequest {
     target_id: i64,
     damage: i32,
 }
 
-let game = registry.module("game");
-game.value::<DamageRequest>()?;
+let mut engine_builder = KagariEngine::builder();
+let mut game = ModuleBuilder::new("game", engine_builder.declarations())?;
+let request_type = game.register_type::<DamageRequest>()?;
 ```
 
-Typed function registration then derives its signature and boundary adapters:
+Declare the script signature, then bind a checked typed adapter in the same module:
 
-```rust
+```text
 fn echo(request: DamageRequest) -> DamageRequest {
     request
 }
 
-game.function("echo", echo)?;
+let echo_function = game.define_function(
+    FunctionDecl::new("echo")
+        .parameter("request", request_type.clone())
+        .returns(request_type.clone()),
+)?;
+game.bind(echo_function, |_cx, (request,): (DamageRequest,)| Ok(echo(request)))?;
+engine_builder.install(game.finish()?)?;
+let engine = engine_builder.build()?;
 ```
 
 Kagari sees `game::DamageRequest` as an ordinary nominal script value type. Data
@@ -240,9 +260,10 @@ Serde types are not guaranteed to be directly bindable.
 
 ## Module registration and identity
 
-The registration module owns the path:
+The registration module owns the path. This independent variant uses the same
+registration flow as above:
 
-```rust
+```text
 #[derive(KagariValue)]
 #[kagari(name = "DamageInput")]
 struct DamageRequest {
@@ -250,8 +271,9 @@ struct DamageRequest {
     damage: i32,
 }
 
-let game = registry.module("game");
-game.value::<DamageRequest>()?;
+let mut engine_builder = KagariEngine::builder();
+let mut game = ModuleBuilder::new("game", engine_builder.declarations())?;
+let request_type = game.register_type::<DamageRequest>()?;
 ```
 
 The resulting name is `game::DamageInput`. The attribute is optional and accepts
@@ -330,20 +352,31 @@ remain responsible for payload/resource quotas and bounded Native work.
 
 ## Methods and properties
 
-Register all members at the type's module boundary:
+Register all members at the type's module boundary. This independent declaration
+sketch uses the same module setup as the value example. RI must supply the explicit
+`Opaque<SkillConfig>` type mapping/schema; it is not inferred from a borrowed Rust
+receiver. The resulting script nominal type is SkillConfig. Member-builder syntax
+is deliberately left as a declaration sketch until its compile proof; each
+implementation still attaches through the one `bind` entrypoint:
 
-```rust
-game
-    .opaque::<SkillConfig>("SkillConfig")?
-    .property("power", |c: Opaque<SkillConfig>| c.power)?
-    .property("name", |c: Opaque<SkillConfig>| c.name.clone())?
-    .method("damage", |c: Opaque<SkillConfig>, level: i32| {
-        c.power * level
-    })?;
+```text
+struct SkillConfig { power: i32, name: String }
+let config_type = game.register_type::<Opaque<SkillConfig>>()?;
+
+Declare members on config_type, obtaining these callable references:
+  power_getter: readonly property power, receiver SkillConfig, result i32
+  name_getter: readonly property name, receiver SkillConfig, result String
+  damage_method: method damage, receiver SkillConfig, parameter level: i32, result i32
+
+game.bind(power_getter, |_cx, (c,): (Opaque<SkillConfig>,)| Ok(c.power))?;
+game.bind(name_getter, |_cx, (c,): (Opaque<SkillConfig>,)| Ok(c.name.clone()))?;
+game.bind(damage_method, |_cx, (c, level): (Opaque<SkillConfig>, i32)| {
+    Ok(c.power.saturating_mul(level))
+})?;
 ```
 
-The arithmetic above only illustrates binding; production Native code must define
-its overflow/error behavior and not inherit accidental build-profile differences.
+This example explicitly chooses saturating arithmetic; other native operations
+must declare their own overflow/error behavior rather than depend on build profile.
 Registration does not expose all Rust fields automatically. A property is a declared
 getter-backed member, initially read-only. The compiler resolves the member using
 its declaration; runtime execution uses linked Native entries, not reflection over
@@ -372,20 +405,28 @@ owned/retained wrapper. Borrowed subobject projection remains deferred.
 Opaque does not mean immutable. Host objects may own safe interior mutability and
 expose operations that change the shared object:
 
-```rust
+```text
 use std::cell::Cell;
 
 struct Player {
     score: Cell<i32>,
 }
 
-game
-    .opaque::<Player>("Player")?
-    .property("score", |p: Opaque<Player>| p.score.get())?
-    .method("set_score", |p: Opaque<Player>, value: i32| {
-        p.score.set(value);
-    })?;
+let player_type = game.register_type::<Opaque<Player>>()?;
+Declare members on player_type:
+  score_getter: readonly property score, receiver Player, result i32
+  set_score_method: method set_score, receiver Player, parameter value: i32, result Unit
+
+game.bind(score_getter, |_cx, (p,): (Opaque<Player>,)| Ok(p.score.get()))?;
+game.bind(set_score_method, |_cx, (p, value): (Opaque<Player>, i32)| {
+    p.score.set(value);
+    Ok(())
+})?;
 ```
+
+This is an independent opaque registration example, not a second registration of
+the by-value Player in the same catalog. It uses the same explicit member
+declarations and owning receiver tuple convention as the previous example.
 
 Other handles observe the updated score. The property is read-only in script syntax
 even though the object has a modifying method. Read-only field access is not proof

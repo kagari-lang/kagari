@@ -436,7 +436,11 @@ Users do not write path-to-field lookup callbacks. Existing root-level checks
 remain in force until their coherent path-aware replacement is implemented.
 
 The plan owns overlap rules, scope cleanup, reentry, replacement behavior and
-the finite inline-struct projection boundary. Safe scope signatures and callback
+the finite inline-struct projection boundary. Its
+[receiver proposal](host-registration-plan.md#method-receivers-and-trait-selection)
+adds the conversion matrix, explicit owned/shared/mutable method requirements and
+checked view trait impls; a shared nominal identity does not imply representation
+conversion or inherited trait witnesses. Safe scope signatures and callback
 lifetimes still require compiling proofs before activation. Generated projections
 must not create overlapping ancestor references. Implementation remains queued;
 the proposal is not evidence that current typed adapters support Rust references.
@@ -450,6 +454,13 @@ Retained `Opaque<T>` objects remain owned by the
 [interoperability plan](rust-interop-design.md#opaque-ownership-and-access), using
 the shared registration model. Retention is not exclusivity against external Rust
 aliases, and opaque handles cannot automatically supply `&mut T`.
+
+The plan also owns the bounded
+[call-boundary cost follow-up](host-registration-plan.md#call-boundary-cost-follow-up):
+per-insertion root-table scans and repeated typed argument packing are confirmed
+by static inspection, without measured speed claims. Registration must preserve
+existing low-level allocation contracts. Reference implementation and performance
+optimization are separate from HR01-HR03 acceptance.
 
 ## SA22 Generic bounds do not supply interface construction witnesses
 

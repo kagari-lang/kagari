@@ -40,6 +40,23 @@ Rust move semantics still apply: passing an owned Player moves that Rust value.
 If the host wants to retain an original for comparison, it explicitly clones it
 before the call. Registration does not silently clone arbitrary Rust payloads.
 
+The initial ordinary-struct boundary admits the following conversions. These
+rules also apply to Rust method receivers; they do not restrict ordinary script
+methods on GC objects.
+
+| Script input | Rust `T` | Rust `&T` | Rust `&mut T` |
+| --- | --- | --- | --- |
+| Ordinary GC-owned `T` | Schema-directed independent value conversion. | Reject. | Reject. |
+| `Ref<T>` | Reject implicit conversion; explicit snapshot is a later extension. | Checked short shared loan. | Reject. |
+| `RefMut<T>` | Reject implicit conversion; explicit snapshot is a later extension. | Checked short shared loan. | Checked short exclusive loan. |
+
+One registered nominal identity does not make these representations interchangeable.
+A GC object has no implied Rust `T` layout. Never silently copy it into a temporary
+Rust object to satisfy a borrowed parameter, or copy modified data back afterward.
+Reference capability/type mismatches reject during checking; live loan conflicts
+reject at invocation before callback entry. Retained Opaque storage follows its
+own contract and is not an exception granting arbitrary Rust references.
+
 ## Scope and ownership
 
 Unify standard-library, application native and existing host declarations/bindings
@@ -261,6 +278,9 @@ the receiver first in that tuple, for example `(player, amount): (Player, i32)`.
 The method declaration still owns receiver identity, type and dispatch; treating
 its arguments uniformly does not turn it into a free function. The adapter must
 root and validate the complete argument pack before a converter can reenter.
+Receiver tuple position does not define passing semantics. The queued
+[receiver contract](#method-receivers-and-trait-selection) records the additional
+declaration, lookup and borrowing requirements before reference implementation.
 
 Use the declaration-aware path currently implemented by
 [ModuleBuilder::bind_typed](../crates/kagari-runtime/src/native/builder.rs) and
@@ -391,6 +411,89 @@ A previously copied scalar local does not become a host path. Frontend lowering
 must retain that distinction explicitly; backends consume the checked operation.
 Passing a view to an owned DTO parameter requires explicit snapshot conversion,
 outside the initial reference example; it must not silently change passing modes.
+
+### Method receivers and trait selection
+
+This is the proposed reference-stage contract, not a new HR01-HR03 implementation
+requirement. Current `MethodDecl::lower` inserts the owning type as `self`; it has
+no value/shared/mutable receiver mode. Freeze the following contract and a
+compiling adapter proof before extending it.
+
+- A method declaration owns the nominal member identity and an explicit receiver
+  requirement: owned `T`, shared `Ref<T>` or mutable `RefMut<T>`. This is checked
+  semantic metadata, preserved through generated declarations and source-free
+  contracts, not inferred from the callback's first tuple element at execution.
+- For an inherent method call on a host view, resolve the member against the
+  referenced nominal `T`, then check the declared receiver requirement against the
+  actual view. This lookup convenience neither erases the view's type/capability
+  nor grants access to ordinary `T` methods with an incompatible receiver. Avoid
+  introducing same-name overloads distinguished only by passing mode initially.
+- A `RefMut<T>` may call a shared-receiver method using a short shared loan. Keep
+  that loan through callback/result handling as required by the lifetime proof;
+  release it on every exit. Include the receiver in the complete argument batch,
+  so a whole-root mutable receiver conflicts with an additional borrowed child
+  argument even when that argument was evaluated through another alias.
+- Trait matching retains the actual receiver type and checked implementation.
+  An impl for `T` does not automatically establish an impl for `Ref<T>` or
+  `RefMut<T>`, and shared receiver adaptation does not manufacture a trait witness.
+  Initially require explicit checked impls for the supported view types. General
+  forwarding, borrowed interface erasure and escaping interface values are outside
+  this first reference scope. Freeze source/native authoring syntax and portable
+  impl validation before accepting these impls.
+
+Example, using the Stats/Inventory/Player schema in the next section. The Rust
+methods are shown with a declaration sketch; this is not currently compilable
+registration syntax. Ordinary owned Player registration and host scope setup are
+the same as in the complete examples; all methods use the single `bind` path.
+
+```text
+impl Player {
+    fn inspect(&self) -> i32 { self.stats.hp }
+
+    fn heal(&mut self, amount: i32) -> i32 {
+        self.stats.hp = self.stats.hp.saturating_add(amount.max(0));
+        self.stats.hp
+    }
+
+    fn healed(mut self, amount: i32) -> Self {
+        self.heal(amount);
+        self
+    }
+}
+
+Declared inherent members of Player:
+  inspect: receiver = shared Ref<Player>, parameters = (), result = i32
+  heal: receiver = mutable RefMut<Player>, parameters = (amount: i32), result = i32
+  healed: receiver = owned Player, parameters = (amount: i32), result = Player
+
+Bind each declared member through module.bind(member, callback):
+  inspect => |_cx, (p,): (&Player,)| Ok(p.inspect())
+  heal    => |_cx, (p, n): (&mut Player, i32)| Ok(p.heal(n))
+  healed  => |_cx, (p, n): (Player, i32)| Ok(p.healed(n))
+
+Trait requirement Inspect: inspect(Self) -> i32
+  explicit impl for Ref<Player>: checked shared invocation of Player.inspect
+  explicit impl for RefMut<Player>: checked shared invocation of Player.inspect
+  no impl for Player is supplied by these two registrations
+
+fn tick(p: RefMut<Player>) -> i32 {
+    p.heal(10);
+    p.inspect()
+}
+
+fn inspect_only(p: Ref<Player>) -> i32 { p.inspect() }
+
+fn via_trait<T: Inspect>(p: T) -> i32 { p.inspect() }
+```
+
+For host hp=60, `tick` returns 70 and leaves host hp=70; `inspect_only` returns 70
+without granting exclusive access. The two explicit view impls allow `via_trait`
+on either view, with the same loan checks. Calling `heal` on a shared view rejects;
+calling Rust-backed `inspect`/`heal` on an ordinary GC Player rejects. An ordinary
+GC Player can call `healed(10)` to obtain a separate converted object, leaving its
+existing script aliases unchanged. Neither view can call `healed` implicitly.
+These checks also apply to mixed receiver/argument calls and generic dispatch;
+dynamic loan conflicts remain runtime errors even when static selection succeeds.
 
 ### Complete example: disjoint Player fields
 
@@ -650,11 +753,64 @@ idle versus active views; and rejection of escaping references/handles. Include
 compile-fail checks for host root reaccess/movement and escaping borrowed outputs,
 plus focused Miri coverage of generated projection/loan lifetimes when implemented.
 Use existing host boundary test owners; keep source-free evidence distinct.
+Cover the three passing modes across free functions, inherent methods and explicit
+trait impls, including mixed arguments and static rejection as well as dynamic
+conflicts. Reuse equivalent cases; do not create a redundant Cartesian test suite.
+Compile-fail evidence must cover callback reference escape as well as scope escape;
+source-free cases must reject incompatible receiver/impl contracts independently
+of frontend checking.
 
 Borrowing removes DTO reconstruction for this example, but still costs checked
 path resolution and loan bookkeeping. No speedup is claimed. Measure frequent
 small native calls separately from conversion/storage work before introducing
 caches or routing existing stdlib primitives through this adapter.
+
+## Call-boundary cost follow-up
+
+Static review at `47297a0d` confirms these paths are unchanged from report baseline
+`f1494d1c`. These are code-derived costs, not benchmark results or speedup claims:
+
+- [RootTable::insert](../crates/kagari-runtime/src/gc/roots.rs) calls `prune` over
+  every slot before each insertion, including when reusable slots already exist.
+  [Vec conversion](../crates/kagari-runtime/src/native/conversion/composites.rs)
+  calls `encode_value` per element; the
+  [conversion context](../crates/kagari-runtime/src/native/conversion/context.rs)
+  retains temporary roots for heap-backed results until the enclosing scope ends.
+  For n such elements and initial slot high-water mark R, scanning can cost
+  O(nR + n^2) when live temporary roots force table growth. Existing free capacity
+  can avoid the quadratic growth term, but not the repeated high-water scan.
+- [Typed native invocation](../crates/kagari-runtime/src/native/typed.rs) builds a
+  `Vec<Value>`; [argument decoding](../crates/kagari-runtime/src/native/conversion/arguments.rs)
+  copies it into rooted storage and creates a root lease even for scalar packs.
+  Mapping checks recur at pack and element conversion boundaries. Value/handle
+  copying here is not necessarily a deep object copy. Individual scalar conversion
+  avoids an object root, which does not eliminate the pack-level allocation.
+
+The GC root owner should evaluate scope/batch storage or bounded amortized reclaim;
+the typed invocation owner should evaluate borrowed argument windows and reuse of
+checked mapping facts. Preserve snapshot/retention across user conversion and
+reentry, collection during conversion, owner/generation/value checks, cancellation
+and cleanup on every exit. Separate stable declaration proofs from invocation-time
+facts before relocating validation. Root reclamation must still handle last-lease
+drop and runtime transfer safely. Do not remove roots merely because the simple
+scalar case does not need GC protection.
+
+Keep owned conversion, scoped borrowing and explicit raw/primitive implementations
+behind one validated binding entrypoint without forcing one data-movement path.
+The [VM allocation tests](../crates/kagari-vm/tests/native_allocations.rs) establish
+warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
+general typed adapter is allocation-free. Preserve those existing contracts during
+registration migration.
+
+This is a bounded follow-up owned here, not an additional HR01-HR03 optimization
+gate. Before optimization, measure equivalent raw/typed/owned cases; add ref/refmut
+cases only when those adapters exist. Vary argument/payload size, root-table
+high-water mark, path depth and active loans where applicable. Separate compile,
+installation, conversion and warm-call costs; report allocations, retained memory
+and timing with revision, machine, toolchain, profile/features, parallelism and
+cache state. Include representative bulk calls and small frequent calls without
+assuming one is faster. Reuse focused correctness tests for GC/reentry/trap cleanup;
+no retained performance conclusion can be inferred from registration unification.
 
 ## Implementation stages
 
@@ -667,6 +823,11 @@ by-value registration/conversion contract. Prove closure/prebuilt-binding trait
 coherence and type inference, receiver-first tuples, and declaration-aware generic
 validation with a compiling prototype. Identify the exact RI schema/derive
 capabilities required to make the complete example runnable and their owners.
+Align RI examples with explicit declaration plus `bind`; do not retain parallel
+signature-inference APIs. Record receiver metadata/lookup requirements and reserved
+reference-stage boundaries before freezing the owned method declaration surface.
+Compile the owned/raw/primitive prototype in HR01; lifetime-aware scoped adapters
+and explicit view trait impls require their own proof before reference activation.
 
 Gate: general registration work is separated from queued reference implementation;
 existing live-host behavior has an explicit migration disposition. State which
@@ -712,6 +873,7 @@ Reuse existing test owners and add only uncovered contract cases:
 | --- | --- |
 | Binding/type agreement and atomic install | Runtime `native_registration`, `host_registration`; SDK `registration_sources`. |
 | Unified bind adaptation | Focused API compile coverage for direct scalar/owned-struct closures, method receiver tuples and explicit raw/primitive bindings; retain generic per-application mismatch checks before converters or callback effects at existing owners. |
+| Preserved low-level allocation contract | Existing VM warm scalar/SequenceHandle allocation assertions for affected binding paths; do not claim general typed zero allocation. New cost measurements belong to the bounded follow-up above. |
 | Owned conversion | Runtime `native_conversion` and selected SDK typed-call cases: nominal mismatch, nested conversion failure/roots, independent Rust values, script alias behavior and explicit return conversion. |
 | Shared type/member/trait selection | SDK `host_interfaces` and directly affected declaration tests. |
 | Source-free contracts | Selected runtime `offline_host` and SDK `offline_nominal` cases; keep host-root cases distinct from by-value DTO cases. |
@@ -735,8 +897,11 @@ Documentation-only changes need content/link/diff checks, not Cargo validation.
 Design checkpoint: `register_type::<T>()` registers shared type/schema metadata;
 ordinary struct by-value conversion uses Kagari object storage. The queued
 Ref/RefMut proposal uses scoped path handles, generated structural projections and
-batch-checked disjoint loans. Both complete examples are end-user targets with
-explicit implementation dependencies. Reference implementation remains outside
-HR01-HR03; no code changes, Cargo validation or runtime behavior changes are claimed.
+batch-checked disjoint loans. The review adds the conversion matrix, explicit
+receiver/trait selection proposal and method example, aligns RI registration
+sketches, and records root/typed-call costs with separate measurement ownership.
+All examples remain end-user targets with explicit implementation dependencies.
+Reference implementation and cost optimization remain outside HR01-HR03; no code
+changes, Cargo validation, benchmark results or runtime behavior changes are claimed.
 Implementation commits use Conventional Commits and phase trailers such as
 `Plan-Phase: HR02`.

@@ -305,7 +305,10 @@ Important ordering constraints and limits:
   [queued design](host-registration-plan.md#queued-ref-and-refmut-design) for scoped
   handles and disjoint mutable fields. Implementation follows registration
   unification and requires scope/adapter lifetime proofs; keep existing borrow/path
-  checks during migration. Persistent borrowed returns remain a separate extension.
+  checks during migration. The same plan owns the receiver conversion matrix,
+  method/trait selection proposal and a bounded root/typed-call cost follow-up;
+  these do not activate reference implementation or add performance gates to
+  HR01-HR03. Persistent borrowed returns remain a separate extension.
 - [Focused validation policy](../AGENTS.md#verification-and-tooling) applies
   throughout: reuse already implemented preparation. Coordinate any further
   preparation changes with the existing [test preparation task](test-preparation-plan.md),
