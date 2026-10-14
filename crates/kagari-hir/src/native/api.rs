@@ -4,6 +4,8 @@ mod access;
 mod tests;
 
 #[cfg(test)]
+mod host_tests;
+#[cfg(test)]
 mod reference_tests;
 use crate::{
     hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
@@ -208,6 +210,14 @@ fn attach_types(
             continue;
         }
         let kind = match ty.kind {
+            TypeDefKind::Host(_) => NativeTypeKind::Host {
+                definition: Arc::new(ty.clone()),
+                declaration: definition.definition(
+                    DefinitionKind::Struct,
+                    &ty.name,
+                    definitions,
+                )?,
+            },
             TypeDefKind::NativeStorage(layout) => NativeTypeKind::Storage {
                 declaration: definition.definition(
                     DefinitionKind::AssociatedType,

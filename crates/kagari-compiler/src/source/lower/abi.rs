@@ -1,3 +1,6 @@
+#[cfg(test)]
+mod host_tests;
+
 use crate::source::types::lower_native_kind;
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_contract::types::{
@@ -12,7 +15,7 @@ use kagari_hir::{
         behavior::{GenericParam as HirGenericParam, Impl},
         function::{Function, FunctionKind},
     },
-    native::NativeBinding,
+    native::{NativeBinding, NativeTypeKind},
     resolver::resolved::ResolvedName,
     typeck::{
         FunctionImplementation, GenericBounds,
@@ -146,6 +149,12 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                     .declarations
                     .native_type(id)
                     .expect("checked native type representation");
+                if let NativeTypeKind::Host { definition, .. } = representation {
+                    // Manual external fields are shared declaration facts, not GC
+                    // field syntax or a Rust layout inferred from this source view.
+                    public_items.push(PublicItem::Type(definition.as_ref().clone()));
+                    continue;
+                }
                 public_items.push(PublicItem::Type(TypeDef {
                     name: item.name.clone(),
                     kind: lower_native_kind(representation),

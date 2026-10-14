@@ -486,6 +486,11 @@ impl<'a> DeclarationView<'a> {
                 }
             }
             .into(),
+            Ty::Host(declaration) => self.nominal_spelling(&NominalTy {
+                declaration: *declaration,
+                arguments: vec![],
+                associated_types: BTreeMap::new(),
+            })?,
             Ty::Parameter { owner, position } => self.parameter_spelling(*owner, *position)?,
             Ty::SelfType(_) => "Self".into(),
             Ty::Reference { target, access } => {

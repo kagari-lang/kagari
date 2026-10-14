@@ -249,7 +249,14 @@ impl Declarations {
             let owner = builder.definition(
                 ResolvedName::OpaqueType(item.id),
                 root,
-                DefinitionKind::AssociatedType,
+                if matches!(
+                    lowered.native_types.get(&item.id),
+                    Some(NativeTypeKind::Host { .. })
+                ) {
+                    DefinitionKind::Struct
+                } else {
+                    DefinitionKind::AssociatedType
+                },
                 &item.name,
                 map.item_declaration_span(Item::OpaqueType(item.id)),
                 map.item_name_span(Item::OpaqueType(item.id)).is_some(),

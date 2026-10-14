@@ -1562,6 +1562,51 @@ remains evidence for unaffected loan/projector owners. Exhaustive workspace,
 feature/backend/platform acceptance and pending fixture regeneration remain CI/RF06
 owned. HR02/RF05 and the combined goal remain open.
 
+### HR02 checkpoint: shared external type declaration ingestion
+
+Registered native declaration views now resolve Host TypeDefs to Ty::Host at their
+shared Struct-kind identity. They retain the checked TypeDef in the HIR native
+representation, including remapped member types, and render the address-free type
+as an opaque source declaration. This is not ordinary GC field syntax or a Rust
+layout. Compiler ABI projection copies its shared fields/access policy directly;
+it does not reconstruct them from nonexistent GC fields in that source view.
+
+Focused HIR declaration ingestion passed, including exact external target typing,
+Ref/RefMut target rejection and rejection of unregistered methods. The selected
+compiler ABI case passed: public writable scalar field, private readonly recursive
+external field, preserved policy/nominal scope and public ABI validation. Initial
+check/test compilation reported a missing Host representation match, missing
+schema initializer and wrong AnalysisResult field access; these are repaired.
+
+A temporary full-MIR probe at this architecture boundary deliberately used the
+same declaration fixture and ordinary `snapshot.check_program` followed by
+`lower_program_to_mir`. It failed with
+`Lowering { module: example::roots, error: MissingBinding("nominal host type declaration") }`.
+Reproduction: register a Host TypeDef with a `parent: Ty::Host(self)` field through
+native module inputs, analyze `fn main() {}`, check its provider closure, then lower
+the checked program. The collector at source/lower/host.rs still resolves only the
+old HostDeclarations table. HR02/RF05's next shared host dependency/runtime metadata
+migration owns this integration error; it is not full MIR/bytecode acceptance.
+The temporary probe was removed; the ABI contract test retains its distinct
+passing coverage. The existing scoped-reference forwarding/field regression passed;
+HIR/compiler library/test Clippy, structure (1235 Rust files, zero violations),
+formatting and diff passed. NativeModule Host-type execution remains closed until that
+collector, source-free checks, runtime metadata and live-root installation migrate.
+
+The next runtime boundary must stage reflected TypeDef/FnDecl/ImplDecl metadata and
+native registration together before publishing either. NativeInstallation prepares
+an immutable metadata seed for independent runtimes; each runtime owns its TypeId
+slots and external-root registry. Runtime-local installation stages against current
+metadata so existing roots retain their owner/schema/ABI facts. Manual field/path
+storage services remain the same owner and must consume the common field/type IDs;
+no converted second declaration or implicit Rust layout is needed. Legacy input,
+callable linking and enum owners retire at HR03 after consumers migrate.
+
+No unsafe pointer/lifetime changes; previously passing loan/projector Miri remains
+applicable. Full workspace/feature/backend/platform checks stay in CI. HR02/RF05
+and the combined goal remain open; the recorded new external-type MIR integration
+failure must be resolved before their acceptance.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

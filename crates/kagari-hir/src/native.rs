@@ -5,10 +5,15 @@ use crate::{
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
-    callable::NativeDefaultApplication, collection::CollectionAccess,
-    declaration::native::NativeStorageLayout, range::RangeKind, reference::ReferenceAccess,
+    callable::NativeDefaultApplication,
+    collection::CollectionAccess,
+    declaration::{TypeDef, native::NativeStorageLayout},
+    range::RangeKind,
+    reference::ReferenceAccess,
     scalar::BuiltinType,
 };
+
+use std::sync::Arc;
 
 pub(crate) mod adoption;
 pub(crate) mod api;
@@ -32,6 +37,12 @@ pub enum NativeBinding {
 /// Installed representation descriptor used to apply native-backed source type declarations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeTypeKind {
+    /// External object identity; this grants no Rust layout or reference target.
+    Host {
+        declaration: DefinitionId,
+        /// Checked shared schema, retained for field policy and source-free ABI lowering.
+        definition: Arc<TypeDef>,
+    },
     /// A scope-bound host location with a checked target and access capability.
     Reference(ReferenceAccess),
     /// A nominal registered storage type with explicit layout and generic arity.
@@ -60,7 +71,7 @@ impl NativeTypeKind {
     pub fn arity(&self) -> usize {
         match self {
             Self::Storage { arity, .. } => *arity,
-            Self::String | Self::Range(RangeKind::Full) => 0,
+            Self::Host { .. } | Self::String | Self::Range(RangeKind::Full) => 0,
             Self::HashMap => 2,
             _ => 1,
         }
@@ -73,6 +84,7 @@ impl NativeTypeKind {
         }
         let first = || Box::new(arguments[0].clone());
         Some(match self {
+            Self::Host { declaration, .. } => TypeId::Host(*declaration),
             Self::Reference(access) => TypeId::Reference {
                 target: first(),
                 access: *access,

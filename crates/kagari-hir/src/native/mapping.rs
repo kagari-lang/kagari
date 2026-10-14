@@ -10,6 +10,8 @@ use kagari_common::{
     },
 };
 
+use std::sync::Arc;
+
 impl RemapDefinitions for NativeBinding {
     fn remap_definitions(
         &self,
@@ -52,6 +54,13 @@ impl RemapDefinitions for NativeTypeKind {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(match self {
+            Self::Host {
+                declaration,
+                definition,
+            } => NativeTypeKind::Host {
+                declaration: mapper.reference(declaration)?,
+                definition: Arc::new(definition.remap_definitions(mapper)?),
+            },
             Self::Storage {
                 declaration,
                 arity,
@@ -79,6 +88,13 @@ impl DefinitionReferences for NativeTypeKind {
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
         match self {
+            Self::Host {
+                declaration,
+                definition,
+            } => {
+                visit(declaration)?;
+                definition.visit_definition_ids(visit, cancel)?;
+            }
             Self::Storage {
                 declaration,
                 arity: _,
