@@ -3,7 +3,7 @@ use crate::{
     error::VmError,
     executor::Executor,
     tests::common::round_trip_bytecode,
-    vm::{Vm, owned::DriveResult},
+    vm::{Vm, fixtures::FixtureExecution, owned::DriveResult},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
@@ -315,9 +315,9 @@ impl Fixture {
             .unwrap();
         let execution = self
             .vm
-            .start(
+            .start_fixture(
                 &self.module,
-                "create",
+                FunctionRef::new(0),
                 &[array.value(self.vm.runtime().gc()).unwrap()],
                 ExecutionOptions::default(),
             )
@@ -417,9 +417,9 @@ fn async_wait_live_storage_contract() {
             panic!("dead Vec fixture")
         };
         let execution =
-            f.vm.start(
+            f.vm.start_fixture(
                 &f.module,
-                "wait_with_storage",
+                FunctionRef::new(2),
                 &[
                     future.value(f.vm.runtime().gc()).unwrap(),
                     Value::GcHandle(live),
@@ -495,9 +495,9 @@ fn async_native_completion_contract() {
     f.vm.runtime().collect_garbage().unwrap();
     let value = future.value(f.vm.runtime().gc()).unwrap();
     let execution =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             from_ref(&value),
             ExecutionOptions::default(),
         )
@@ -538,8 +538,13 @@ fn async_native_completion_contract() {
     );
     assert_eq!(f.cancels.load(Ordering::Relaxed), 0);
     let duplicate =
-        f.vm.start(&f.module, "wait", &[value], ExecutionOptions::default())
-            .unwrap();
+        f.vm.start_fixture(
+            &f.module,
+            FunctionRef::new(1),
+            &[value],
+            ExecutionOptions::default(),
+        )
+        .unwrap();
     assert!(matches!(
         f.vm.drive(&duplicate, slice()).unwrap(),
         DriveResult::Complete(Err(_))
@@ -549,9 +554,9 @@ fn async_native_completion_contract() {
     for (input, expected) in [(0, 7), (-1, 8)] {
         let future = f.cold(input);
         let execution =
-            f.vm.start(
+            f.vm.start_fixture(
                 &f.module,
-                "wait",
+                FunctionRef::new(1),
                 &[future.value(f.vm.runtime().gc()).unwrap()],
                 ExecutionOptions::default(),
             )
@@ -566,9 +571,9 @@ fn async_native_completion_contract() {
     }
     let future = f.cold(5);
     let execution =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             &[future.value(f.vm.runtime().gc()).unwrap()],
             ExecutionOptions::default(),
         )
@@ -614,9 +619,9 @@ fn async_native_completion_contract_retirement_and_admission() {
         "synchronous entry rejects before submission"
     );
     let first =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             from_ref(&value),
             ExecutionOptions::default(),
         )
@@ -626,17 +631,22 @@ fn async_native_completion_contract_retirement_and_admission() {
         DriveResult::Waiting
     ));
     let alias =
-        f.vm.start(&f.module, "wait", &[value], ExecutionOptions::default())
-            .unwrap();
+        f.vm.start_fixture(
+            &f.module,
+            FunctionRef::new(1),
+            &[value],
+            ExecutionOptions::default(),
+        )
+        .unwrap();
     assert!(matches!(
         f.vm.drive(&alias, slice()).unwrap(),
         DriveResult::Complete(Err(_))
     ));
     let other = f.cold(12);
     let full =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             &[other.value(f.vm.runtime().gc()).unwrap()],
             ExecutionOptions::default(),
         )
@@ -660,9 +670,9 @@ fn async_native_completion_contract_retirement_and_admission() {
 
     let failed = f.cold(-2);
     let execution =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             &[failed.value(f.vm.runtime().gc()).unwrap()],
             ExecutionOptions::default(),
         )
@@ -674,9 +684,9 @@ fn async_native_completion_contract_retirement_and_admission() {
     assert_eq!(f.starts.load(Ordering::Relaxed), 2);
     let failed = f.cold(14);
     let execution =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             &[failed.value(f.vm.runtime().gc()).unwrap()],
             ExecutionOptions::default(),
         )
@@ -703,9 +713,9 @@ fn async_native_completion_contract_retirement_and_admission() {
     );
     let last = f.cold(13);
     let execution =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             &[last.value(f.vm.runtime().gc()).unwrap()],
             ExecutionOptions::default(),
         )
@@ -726,9 +736,9 @@ fn async_native_completion_contract_cleanup_quarantine() {
     let f = Fixture::new();
     let future = f.cold(-4);
     let execution =
-        f.vm.start(
+        f.vm.start_fixture(
             &f.module,
-            "wait",
+            FunctionRef::new(1),
             &[future.value(f.vm.runtime().gc()).unwrap()],
             ExecutionOptions::default(),
         )

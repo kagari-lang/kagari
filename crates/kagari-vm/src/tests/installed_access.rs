@@ -2,6 +2,7 @@ use crate::{
     debug::{DebugSession, SourceBreakpoint},
     tests::common::{module_program, standard_runtime, test_function_module, with_host_imports},
     vm::Vm,
+    vm::fixtures::FixtureExecution,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::{
@@ -9,9 +10,9 @@ use kagari_bytecode::instruction::{
     RuntimeHelper, StructId,
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    RuntimeConfig, host::HostFunction, module::entry::ProgramEntry, value::Value,
-    value_semantics::script_equal,
+    RuntimeConfig, host::HostFunction, value::Value, value_semantics::script_equal,
 };
 use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
 
@@ -77,7 +78,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
     let host_vm = Vm::new(host_runtime);
     assert_eq!(
         host_vm
-            .execute(&host_module, ProgramEntry::Main)
+            .execute_fixture(&host_module, FunctionRef::new(0))
             .unwrap()
             .return_value
             .value(host_vm.runtime().gc())
@@ -114,7 +115,7 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
         script_equal(
             reflection_vm.runtime().gc(),
             &(reflection_vm
-                .execute(&reflection_module, ProgramEntry::Main)
+                .execute_fixture(&reflection_module, FunctionRef::new(0))
                 .unwrap()
                 .return_value
                 .value(reflection_vm.runtime().gc())
@@ -177,7 +178,7 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
         .expect("module should load");
     let reflection_vm = Vm::new(metadata_only);
     reflection_vm
-        .execute(&reflection_module, ProgramEntry::Main)
+        .execute_fixture(&reflection_module, FunctionRef::new(0))
         .unwrap();
 
     let debug_runtime = standard_runtime(RuntimeConfig {

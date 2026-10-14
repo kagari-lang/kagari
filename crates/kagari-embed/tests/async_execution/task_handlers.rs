@@ -25,13 +25,13 @@ impl Fn<()> for Fetch {
     type Output = Future<i32>;
     fn call(self, args: ()) -> Future<i32> { self.events.push(3); request(0) }
 }
-fn items() -> Vec<i32> { Vec::from([10,20]) }
-fn events() -> Vec<i32> { Vec::from([]) }
-fn len(items: Vec<i32>) -> usize { items.len() }
-fn at(items: Vec<i32>, index: usize) -> i32 { items[index] }
-fn replace(items: Vec<i32>) { items[1]=40; }
-fn append(items: Vec<i32>) { items.push(50); }
-fn handler(scope: TaskScope, items: Vec<i32>, events: Vec<i32>) -> Result<Task<i32>, SpawnError> {
+pub fn items() -> Vec<i32> { Vec::from([10,20]) }
+pub fn events() -> Vec<i32> { Vec::from([]) }
+pub fn len(items: Vec<i32>) -> usize { items.len() }
+pub fn at(items: Vec<i32>, index: usize) -> i32 { items[index] }
+pub fn replace(items: Vec<i32>) { items[1]=40; }
+pub fn append(items: Vec<i32>) { items.push(50); }
+pub fn handler(scope: TaskScope, items: Vec<i32>, events: Vec<i32>) -> Result<Task<i32>, SpawnError> {
     val result = forward(scope, || {
         events.push(1);
         val resume = async || { var sum=0; for item in items { sum += request(item).await; } sum };
@@ -40,21 +40,21 @@ fn handler(scope: TaskScope, items: Vec<i32>, events: Vec<i32>) -> Result<Task<i
     events.push(0);
     result
 }
-fn observer(scope: TaskScope, task: Task<i32>) -> Result<Task<i32>, SpawnError> {
+pub fn observer(scope: TaskScope, task: Task<i32>) -> Result<Task<i32>, SpawnError> {
     scope.spawn(async || task.await + 1)
 }
-fn object(scope: TaskScope, events: Vec<i32>) -> Result<Task<i32>, SpawnError> { forward(scope, Fetch { events }) }
-fn nested(scope: TaskScope) -> Result<Task<Future<i32>>, SpawnError> { scope.spawn(async || request(0)) }
+pub fn object(scope: TaskScope, events: Vec<i32>) -> Result<Task<i32>, SpawnError> { forward(scope, Fetch { events }) }
+pub fn nested(scope: TaskScope) -> Result<Task<Future<i32>>, SpawnError> { scope.spawn(async || request(0)) }
 fn stop<T>(task: Task<T>) { task.cancel(); }
-fn stop_i32(task: Task<i32>) { stop(task); }
-fn after_spawn_trap(scope: TaskScope, events: Vec<i32>) {
+pub fn stop_i32(task: Task<i32>) { stop(task); }
+pub fn after_spawn_trap(scope: TaskScope, events: Vec<i32>) {
     val admitted = scope.spawn(async || { events.push(9); 9 });
     val zero=0; val bad=1/zero;
 }
 fn unwrap<T>(result: Result<Task<T>, SpawnError>) -> Task<T> { match result { Ok(task) => task, Err(_) => { val zero=0; val bad=1/zero; unwrap(result) } } }
-fn unwrap_i32(result: Result<Task<i32>, SpawnError>) -> Task<i32> { unwrap(result) }
-fn unwrap_nested(result: Result<Task<Future<i32>>, SpawnError>) -> Task<Future<i32>> { unwrap(result) }
-fn status(result: Result<Task<i32>, SpawnError>) -> i32 {
+pub fn unwrap_i32(result: Result<Task<i32>, SpawnError>) -> Task<i32> { unwrap(result) }
+pub fn unwrap_nested(result: Result<Task<Future<i32>>, SpawnError>) -> Task<Future<i32>> { unwrap(result) }
+pub fn status(result: Result<Task<i32>, SpawnError>) -> i32 {
     match result { Ok(_) => 0, Err(error) => match error {
         SpawnError::ScopeClosed => 1, SpawnError::CapacityExceeded => 2, SpawnError::DispatchUnavailable => 3
     } }

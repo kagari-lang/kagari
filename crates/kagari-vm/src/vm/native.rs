@@ -1,9 +1,11 @@
 //! Execute a preparation decision supplied before script entry. Compilation belongs to the SDK.
 use kagari_abi::native::BackendId;
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     backend::{BackendInvocationError, native::InstalledNativeFunction},
     error::RuntimeError,
     module::{LoadedModule, entry::ProgramEntry},
+    session::ExecutionSession,
 };
 
 use crate::{
@@ -39,7 +41,17 @@ impl Vm {
         let (owner, function) = entry
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry.label().to_owned()))?;
-        let module = &owner;
+        self.execute_prepared_selected(&owner, function, entry.label(), prepared, &session)
+    }
+
+    pub(super) fn execute_prepared_selected(
+        &self,
+        module: &LoadedModule,
+        function: FunctionRef,
+        label: &str,
+        prepared: &PreparedNativeEntry,
+        session: &ExecutionSession<'_>,
+    ) -> Result<ExecutionReport, VmError> {
         let (backend, artifact, mut diagnostics) = match prepared {
             PreparedNativeEntry::Native(installed) => {
                 self.runtime.validate_loaded_module(installed.module())?;
@@ -104,7 +116,7 @@ impl Vm {
         Ok(ExecutionReport {
             module_name: module.name.clone(),
             epoch: module.epoch.0,
-            entry: entry.label().to_owned(),
+            entry: label.to_owned(),
             failure,
             return_value,
             jit: Some(JitExecutionReport {

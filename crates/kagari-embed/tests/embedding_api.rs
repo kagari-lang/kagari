@@ -7,14 +7,17 @@ use kagari_bytecode::{
     },
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord,
-        RootSlotLayout, entry::ProgramEntry,
+        RootSlotLayout,
     },
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{
-    ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
 };
-use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
+use kagari_contract::{
+    exports::ProgramExports, ids::FunctionRef, native_import::NativeImport,
+    types::ConcreteFunctionIdentity,
+};
 use kagari_embed::{
     BytecodeArtifact,
     context::ExecutionContext,
@@ -31,6 +34,7 @@ use kagari_runtime::{
         HostTypeRegistration, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
+    module::entry::ProgramEntry,
     value::Value,
 };
 use kagari_source::source::SourceFile;
@@ -44,6 +48,7 @@ use kagari_types::host_interface::{
     },
     value_type::HostValueType,
 };
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn compile_artifact(
     engine: &KagariEngine,
@@ -159,15 +164,32 @@ fn host_path_artifact(
         HostValueType::Opaque(player.id),
     )
     .unwrap();
-    let metadata = FunctionMetadata {
+    let identity = ModuleIdentity::single_file(source_name);
+    let root = definitions.intern_root(&identity).unwrap();
+    let main = definitions
+        .intern_child(root, DefinitionKind::Function, "main", 0)
+        .unwrap();
+    let instance = ConcreteFunctionIdentity {
+        declaration: main,
+        arguments: vec![],
+    };
+    let mut metadata = FunctionMetadata {
         return_type,
         roots: RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
+    metadata.semantic.result = Some(match return_type {
+        ValueType::Unit => Ty::Builtin(BuiltinType::Unit),
+        ValueType::I32 => Ty::Builtin(BuiltinType::I32),
+        _ => panic!("host path fixture returns only unit or i32"),
+    });
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
-            exports: Default::default(),
+            exports: ProgramExports {
+                entry: Some(main),
+                ..Default::default()
+            },
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 native_imports: if instructions.iter().any(|instruction| {
@@ -212,7 +234,7 @@ fn host_path_artifact(
                         vec![]
                     },
                 },
-                identity: ModuleIdentity::single_file(source_name),
+                identity,
                 source_name: source_name.to_owned(),
                 module_slots: vec![],
                 constants,
@@ -227,7 +249,7 @@ fn host_path_artifact(
                 }],
                 function_table: vec![FunctionRecord {
                     id: FunctionRef::new(0),
-                    identity: None,
+                    identity: Some(instance.clone()),
                     name: "main".to_owned(),
                     params: metadata.params.clone(),
                     return_type: metadata.return_type,
@@ -235,7 +257,7 @@ fn host_path_artifact(
                 }],
                 functions: vec![BytecodeFunction {
                     id: FunctionRef::new(0),
-                    identity: None,
+                    identity: Some(instance.clone()),
                     name: "main".to_owned(),
                     parameter_count: 0,
                     register_count: metadata.registers.len() as u16,

@@ -265,6 +265,10 @@ pub fn exhaust()->i32{val a=Vec::from([20]);for x in a {while true {}}0}
         let cancellation =
             (entry == "exhaust").then(|| support::cancel_after(runtime.runtime(), &loaded, 30));
         let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
+        assert!(
+            !format!("{error:?}").contains("MissingFunction"),
+            "{entry}: {error:?}"
+        );
         drop(cancellation);
         assert!(!format!("{error:?}").contains("UnsupportedExecution"));
         assert!(!runtime.runtime().is_quarantined());

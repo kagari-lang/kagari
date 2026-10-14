@@ -40,7 +40,7 @@ verified callable slots through context import and generation changes. All reloa
 routes compare public-path/entry contracts, including aliases, cycles and nominal
 signature types. Typed binding and direct VM/SDK calls use verified public paths,
 with explicit root entry selection for the CLI and native preparation. Consumer
-fixture migration remains open before SDK/CLI package integration.
+fixture migration is complete; SDK/CLI package integration is next.
 Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,

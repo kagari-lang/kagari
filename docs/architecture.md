@@ -69,8 +69,8 @@ closed-entry evidence. Direct VM/SDK execution and native preparation use
 `ProgramEntry`: strings select public export paths, while `ProgramEntry::Main`
 selects the separate root entry. Typed conversion, owned execution and native
 installation use the resolved target module and its pinned Program. CLI execution
-selects `Main` explicitly. Remaining test/example consumer migration is recorded
-in the active plan.
+selects `Main` explicitly. Raw opcode tests use explicit slots through a test-only
+harness sharing production execution mechanics; they do not grant host entry access.
 
 ## Workspace Shape
 

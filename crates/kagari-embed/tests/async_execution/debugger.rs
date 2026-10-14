@@ -10,12 +10,12 @@ use std::{num::NonZeroUsize, sync::atomic::Ordering};
 
 const SOURCE: &str = r#"
 use test::async_sdk::request;
-async fn work(tag: i32) -> i32 {
+pub async fn work(tag: i32) -> i32 {
     val reply = request(tag).await;
     reply + 1
 }
-async fn left() -> i32 { work(10).await }
-async fn right() -> i32 { work(20).await }
+pub async fn left() -> i32 { work(10).await }
+pub async fn right() -> i32 { work(20).await }
 "#;
 
 fn drive(f: &Fixture, execution: &OwnedExecution) -> DriveResult {

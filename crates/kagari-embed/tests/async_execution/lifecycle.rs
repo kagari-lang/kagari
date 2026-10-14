@@ -21,7 +21,7 @@ use std::{
 
 const SOURCE: &str = r#"
 use test::async_sdk::request;
-fn version() -> i32 { 1 }
+pub fn version() -> i32 { 1 }
 trait Read { fn read(self) -> i32; }
 struct Saved { val value: i32 }
 impl Read for Saved { fn read(self) -> i32 { self.value + version() } }
@@ -30,10 +30,10 @@ async fn finish<T: Read>(saved: T) -> i32 {
     val second = request(first + version()).await;
     saved.read() + first + second + version()
 }
-fn factory() -> fn() -> Future<i32> { val saved = Saved { value: 5 }; || finish(saved) }
-fn cold() -> Future<i32> { finish(Saved { value: 5 }) }
-fn native_cold() -> Future<i32> { request(10) }
-fn captured() -> fn() -> Future<i32> { val future = cold(); || future }
+pub fn factory() -> fn() -> Future<i32> { val saved = Saved { value: 5 }; || finish(saved) }
+pub fn cold() -> Future<i32> { finish(Saved { value: 5 }) }
+pub fn native_cold() -> Future<i32> { request(10) }
+pub fn captured() -> fn() -> Future<i32> { val future = cold(); || future }
 "#;
 
 fn prepare(f: &Fixture, source: &str) -> PreparedProgram {
@@ -171,7 +171,10 @@ fn lifecycle_reload_contract() {
     reject_candidate_work(&f, &scope, &factory);
     let replacement = prepare(
         &f,
-        &SOURCE.replace("fn version() -> i32 { 1 }", "fn version() -> i32 { 100 }"),
+        &SOURCE.replace(
+            "pub fn version() -> i32 { 1 }",
+            "pub fn version() -> i32 { 100 }",
+        ),
     );
     let current = f
         .runtime

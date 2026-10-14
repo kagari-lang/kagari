@@ -2,15 +2,19 @@ use super::*;
 use crate::{
     executor::Executor,
     tests::common::{module_program, round_trip_bytecode, standard_runtime},
+    vm::fixtures::FixtureExecution,
 };
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
     program::{BytecodeProgram, identity, verify_program},
     verifier::verify_module,
 };
-use kagari_contract::types::PublicItem;
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::{Runtime, frame::transfer::ReturnValue, module::LoadedModule};
+use kagari_contract::{ids::FunctionRef, types::PublicItem};
+use kagari_runtime::{
+    Runtime,
+    frame::transfer::ReturnValue,
+    module::{LoadedModule, entry::ProgramEntry},
+};
 use kagari_types::ty::{NominalTy, Ty};
 use std::slice;
 
@@ -510,7 +514,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         .unwrap();
     let vm = Vm::new(runtime);
     let value = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .unwrap()
         .return_value
         .value(vm.runtime().gc())
@@ -572,7 +576,7 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
     let dependency_key = loaded.member(ModuleRef::new(0)).unwrap().key();
     let vm = Vm::new(runtime);
     let value = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .unwrap()
         .return_value
         .value(vm.runtime().gc())

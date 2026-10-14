@@ -1,9 +1,14 @@
 use super::*;
-use crate::tests::common::module_program;
-use crate::tests::{common, common::standard_runtime};
+use crate::{
+    tests::{
+        common,
+        common::{module_program, standard_runtime},
+    },
+    vm::fixtures::FixtureExecution,
+};
 use kagari_bytecode::instruction::ConstantId;
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value_semantics::script_equal;
+use kagari_contract::ids::FunctionRef;
+use kagari_runtime::{module::entry::ProgramEntry, value_semantics::script_equal};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]
@@ -32,7 +37,7 @@ fn executes_runtime_reflect_type_of_helper() {
 
     let vm = Vm::new(runtime);
     let report = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
     assert!(
@@ -76,7 +81,7 @@ fn runtime_reflection_helpers_use_declared_metadata() {
     assert!(
         script_equal(
             vm.runtime().gc(),
-            &(vm.execute(&loaded, ProgramEntry::Main)
+            &(vm.execute_fixture(&loaded, FunctionRef::new(0))
                 .unwrap()
                 .return_value
                 .value(vm.runtime().gc())
@@ -125,7 +130,7 @@ fn declared_reflection_reads_are_available() {
         .unwrap();
     let vm = Vm::new(metadata_only);
     assert_eq!(
-        vm.execute(&loaded, ProgramEntry::Main)
+        vm.execute_fixture(&loaded, FunctionRef::new(0))
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -180,7 +185,7 @@ fn declared_reflection_writes_are_available() {
         )
         .unwrap();
     let vm = Vm::new(read_only);
-    vm.execute(&loaded, ProgramEntry::Main).unwrap();
+    vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
 }
 
 #[test]
@@ -234,7 +239,7 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
 
     let vm = Vm::new(runtime);
     let report = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
     assert_eq!(
@@ -295,7 +300,7 @@ fn executes_runtime_reflect_set_index_helper() {
 
     let vm = Vm::new(runtime);
     let report = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
     let Value::Array(handle) = report

@@ -1,14 +1,13 @@
 use crate::{
     debug::DebugSession,
     tests::{common, common::standard_runtime, native_fixtures},
-    vm::{JitExecutionStatus, Vm, native::PreparedNativeEntry},
+    vm::{JitExecutionStatus, Vm, fixtures::FixtureExecution, native::PreparedNativeEntry},
 };
 use kagari_abi::{native::BackendId, representation::ValueType};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register},
     module::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
-        entry::ProgramEntry,
     },
 };
 use kagari_common::{
@@ -17,7 +16,8 @@ use kagari_common::{
 };
 use kagari_contract::ids::{DebugPointId, FunctionRef};
 use kagari_runtime::{
-    Runtime, RuntimeConfig, host::HostFunction, value::Value, value_semantics::script_equal,
+    Runtime, RuntimeConfig, host::HostFunction, module::entry::ProgramEntry, value::Value,
+    value_semantics::script_equal,
 };
 
 use kagari_types::host_interface::{
@@ -119,7 +119,7 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
     let prepared = native_fixtures::unsupported();
 
     let report = vm
-        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+        .execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
         .expect("unsupported JIT compilation should fall back");
 
     assert_eq!(
@@ -277,7 +277,7 @@ fn ordinary_interpreter_execution_has_no_jit_report() {
     let vm = Vm::new(runtime);
 
     let report = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("interpreter execution should succeed");
 
     assert_eq!(
@@ -315,7 +315,7 @@ fn jit_native_execution_reports_installed_artifact() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+        .execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
         .expect("native JIT execution should succeed");
 
     assert_eq!(
@@ -357,7 +357,7 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+        .execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
         .expect("installed JIT implementation should execute");
 
     assert_eq!(
@@ -390,7 +390,7 @@ fn jit_debug_session_falls_back_without_safe_debug_metadata() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+        .execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
         .expect("debugger should force interpreter fallback when JIT metadata is missing");
 
     assert_eq!(
@@ -427,7 +427,7 @@ fn jit_debug_session_requires_callbacks_even_when_metadata_is_complete() {
     ));
 
     let report = vm
-        .execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+        .execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
         .expect("metadata alone cannot supply native debug callbacks");
 
     assert_eq!(

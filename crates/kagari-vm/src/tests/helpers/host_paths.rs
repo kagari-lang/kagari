@@ -6,10 +6,11 @@ use crate::{
         common::{module_program, round_trip_bytecode, with_host_imports},
         native_fixtures,
     },
-    vm::native::PreparedNativeEntry,
+    vm::{fixtures::FixtureExecution, native::PreparedNativeEntry},
 };
 use kagari_abi::native_call::JIT_STATUS_ENGINE_FAULT;
 use kagari_bytecode::instruction::{ConstantId, NativeImportId};
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     host::{HostCallContext, HostPathDescriptorId},
@@ -113,7 +114,7 @@ fn executes_runtime_host_helper_call() {
 
     let vm = Vm::new(runtime);
     let report = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .expect("vm should execute");
 
     assert_eq!(
@@ -189,10 +190,11 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let loaded = runtime.load_program("fault.kgr", program).unwrap();
             let vm = Vm::new(runtime);
             let error = if jit {
-                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+                vm.execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
                     .unwrap_err()
             } else {
-                vm.execute(&loaded, ProgramEntry::Main).unwrap_err()
+                vm.execute_fixture(&loaded, FunctionRef::new(0))
+                    .unwrap_err()
             };
             assert!(
                 matches!(error, VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::EngineFault)
@@ -412,7 +414,7 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
         .unwrap();
 
     let vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, ProgramEntry::Main).unwrap();
+    let report = vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
 
     assert_eq!(
         report
@@ -492,7 +494,7 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
 
     let vm = Vm::new(runtime);
     assert_eq!(
-        vm.execute(&loaded, ProgramEntry::Main)
+        vm.execute_fixture(&loaded, FunctionRef::new(0))
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -598,10 +600,10 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
             let vm = Vm::new(runtime);
             let value = if jit {
                 let prepared = native_fixtures::unsupported();
-                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+                vm.execute_fixture_prepared(&loaded, FunctionRef::new(0), &prepared)
                     .unwrap()
             } else {
-                vm.execute(&loaded, ProgramEntry::Main).unwrap()
+                vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap()
             };
             assert_eq!(
                 value

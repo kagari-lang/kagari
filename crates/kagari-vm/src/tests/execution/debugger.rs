@@ -1,6 +1,7 @@
 use super::*;
-use crate::tests::common::standard_runtime;
+use crate::{tests::common::standard_runtime, vm::fixtures::FixtureExecution};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
 
 #[test]
@@ -245,7 +246,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
     let error = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .expect_err("unreachable should trap");
 
     assert!(matches!(error.cause(), VmError::Trap("unreachable")));

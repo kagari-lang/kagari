@@ -29,10 +29,10 @@ use std::{
 
 const SOURCE: &str = r#"
 use test::converted_reply::read;
-fn items() -> Vec<i32> { Vec::from([5]) }
-fn push(items: Vec<i32>) { items.push(9); }
-fn first(items: Vec<i32>) -> i32 { items[0] }
-fn factory(items: Vec<i32>) -> fn()->Future<i32> {
+pub fn items() -> Vec<i32> { Vec::from([5]) }
+pub fn push(items: Vec<i32>) { items.push(9); }
+pub fn first(items: Vec<i32>) -> i32 { items[0] }
+pub fn factory(items: Vec<i32>) -> fn()->Future<i32> {
     async || {
         for item in items {
             val reply = read().await;

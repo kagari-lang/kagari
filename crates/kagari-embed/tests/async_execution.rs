@@ -9,8 +9,11 @@ use kagari_bytecode::{
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+};
 use kagari_contract::{
+    exports::{ExportNamespace, ProgramExports},
     ids::FunctionRef,
     native_import::NativeImport,
     representation::semantic_representation,
@@ -36,7 +39,12 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_stdlib::catalog;
-use kagari_types::{callable::Signature, scalar::BuiltinType, ty::Ty};
+use kagari_types::{
+    callable::{CallableImplementation, Signature},
+    declaration::{FnDecl, Param},
+    scalar::BuiltinType,
+    ty::Ty,
+};
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -243,6 +251,48 @@ impl Fixture {
         run.metadata.semantic.locals.clear();
         run.metadata.roots = RootSlotLayout::from_types(&[], &run.metadata.registers);
         functions.push(run);
+        // These SDK fixtures test public host entry, so author the full callable
+        // contract from their explicit semantic signatures before serialization.
+        let root = definitions.intern_root(&declaration.identity).unwrap();
+        let mut namespace = ExportNamespace::default();
+        let mut public_items = declaration
+            .functions
+            .into_iter()
+            .map(PublicItem::Function)
+            .collect::<Vec<_>>();
+        for function in &mut functions {
+            let id = definitions
+                .intern_child(root, DefinitionKind::Function, &function.name, 0)
+                .unwrap();
+            function.identity = Some(ConcreteFunctionIdentity {
+                declaration: id,
+                arguments: vec![],
+            });
+            namespace.functions.insert(function.name.clone(), id);
+            public_items.push(PublicItem::Function(FnDecl {
+                method_policy: Default::default(),
+                name: function.name.clone(),
+                implementation: CallableImplementation::Script,
+                generic_params: vec![],
+                bounds: vec![],
+                params: function
+                    .metadata
+                    .semantic
+                    .params
+                    .iter()
+                    .map(|(slot, ty)| Param {
+                        name: format!("argument{slot}"),
+                        ty: ty.clone(),
+                        mutable: false,
+                    })
+                    .collect(),
+                return_type: function.metadata.semantic.result.clone().unwrap(),
+            }));
+        }
+        let exports = ProgramExports {
+            namespaces: [(declaration.identity.clone(), namespace)].into(),
+            entry: None,
+        };
         let application = BytecodeModule {
             identity: declaration.identity,
             dependencies: vec![ModuleRef::new(1)],
@@ -263,18 +313,14 @@ impl Fixture {
                 callables: vec![],
                 host: None,
             }],
-            public_items: declaration
-                .functions
-                .into_iter()
-                .map(PublicItem::Function)
-                .collect(),
+            public_items,
             native_declarations: request,
             types: vec![ValueType::Unit, ValueType::I32, ValueType::HeapObject],
             function_table: functions
                 .iter()
                 .map(|function| FunctionRecord {
                     id: function.id,
-                    identity: None,
+                    identity: function.identity.clone(),
                     name: function.name.clone(),
                     params: function.metadata.params.clone(),
                     return_type: function.metadata.return_type,
@@ -306,7 +352,7 @@ impl Fixture {
         };
         let artifact = KbcArtifact::from_program(
             BytecodeProgram {
-                exports: Default::default(),
+                exports,
                 root: ModuleRef::new(0),
                 modules: vec![application, foundation],
             },

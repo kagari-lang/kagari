@@ -510,7 +510,17 @@ fn main()->i32 {Number{value:42}+1}
         let options = context.clone();
         let cancellation =
             (entry == "exhaust").then(|| support::cancel_after(runtime.runtime(), &loaded, 30));
-        assert!(runtime.execute(&loaded, entry, &[], &options).is_err());
+        let error = runtime.execute(&loaded, entry, &[], &options).unwrap_err();
+        assert!(
+            !format!("{error:?}").contains("MissingFunction"),
+            "{entry}: {error:?}"
+        );
+        let expected = if entry == "exhaust" {
+            "KG_RUNTIME_CANCELLED"
+        } else {
+            "KG_RUNTIME_SCRIPT_TRAP"
+        };
+        assert_eq!(error.code(), expected, "{entry}: {error:?}");
         drop(cancellation);
         assert_eq!(runtime.runtime().gc().active_roots(), 0);
         assert!(!runtime.runtime().is_quarantined());

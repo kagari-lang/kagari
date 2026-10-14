@@ -1,9 +1,10 @@
 use super::*;
-use crate::tests::common::standard_runtime;
+use crate::{tests::common::standard_runtime, vm::fixtures::FixtureExecution};
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
     program::{BytecodeProgram, ModuleRef, verify_program},
 };
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::error::RuntimeErrorKind;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value_semantics::script_equal;
@@ -340,7 +341,7 @@ fn unreachable_instruction_is_a_script_trap() {
 
     let vm = Vm::new(runtime);
     let error = vm
-        .execute(&loaded, ProgramEntry::Main)
+        .execute_fixture(&loaded, FunctionRef::new(0))
         .expect_err("unreachable should trap");
 
     assert!(matches!(error.cause(), VmError::Trap("unreachable")));
@@ -475,9 +476,9 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
         )
         .unwrap();
     let vm = Vm::new(runtime);
-    vm.execute(&loaded, "init").unwrap();
+    vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
     assert_eq!(
-        vm.execute(&loaded, ProgramEntry::Main)
+        vm.execute_fixture(&loaded, FunctionRef::new(1))
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -491,7 +492,7 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
             .is_err()
     );
     assert_eq!(
-        vm.execute(&loaded, ProgramEntry::Main)
+        vm.execute_fixture(&loaded, FunctionRef::new(1))
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -502,7 +503,7 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
         .write_module_slot(&loaded, slot, Value::I32(9))
         .unwrap();
     assert_eq!(
-        vm.execute(&loaded, ProgramEntry::Main)
+        vm.execute_fixture(&loaded, FunctionRef::new(1))
             .unwrap()
             .return_value
             .value(vm.runtime().gc())
@@ -563,7 +564,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
 
     let vm = Vm::new(runtime);
     let old_report = vm
-        .execute(&first_loaded, ProgramEntry::Main)
+        .execute_fixture(&first_loaded, FunctionRef::new(0))
         .expect("old active epoch should remain executable");
     let latest = vm
         .runtime()
@@ -571,7 +572,7 @@ fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
         .latest("hot_reload.kgr")
         .expect("latest module epoch should be visible");
     let latest_report = vm
-        .execute(&latest, ProgramEntry::Main)
+        .execute_fixture(&latest, FunctionRef::new(0))
         .expect("new call should use latest epoch");
 
     assert_eq!(second_loaded.epoch, latest.epoch);

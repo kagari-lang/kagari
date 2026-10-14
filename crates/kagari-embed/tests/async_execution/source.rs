@@ -119,17 +119,17 @@ fn sdk_owned_future_factory_contract() {
     let f = Fixture::source(
         r#"
 use test::async_sdk::request;
-fn events() -> Vec<i32> { Vec::from([]) }
-fn count(events:Vec<i32>) -> usize { events.len() }
+pub fn events() -> Vec<i32> { Vec::from([]) }
+pub fn count(events:Vec<i32>) -> usize { events.len() }
 async fn read() -> i32 { request(10).await }
-fn ordinary(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(1); read() } }
-fn explicit(events:Vec<i32>) -> fn()->Future<i32> { async || { events.push(2); request(20).await } }
-fn reentry(events:Vec<i32>) -> fn()->Future<i32> { || { val items=Vec::from([3,1,2]); items.retain(|x| { events.push(x); true }); read() } }
-fn wrong() -> fn()->i32 { || 7 }
-fn trapped(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(3); val zero=0; val bad=1/zero; read() } }
-fn captured() -> fn()->Future<i32> { val future=read(); || future }
+pub fn ordinary(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(1); read() } }
+pub fn explicit(events:Vec<i32>) -> fn()->Future<i32> { async || { events.push(2); request(20).await } }
+pub fn reentry(events:Vec<i32>) -> fn()->Future<i32> { || { val items=Vec::from([3,1,2]); items.retain(|x| { events.push(x); true }); read() } }
+pub fn wrong() -> fn()->i32 { || 7 }
+pub fn trapped(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(3); val zero=0; val bad=1/zero; read() } }
+pub fn captured() -> fn()->Future<i32> { val future=read(); || future }
 async fn outer() -> Future<i32> { read() }
-fn nested() -> fn()->Future<Future<i32>> { || outer() }
+pub fn nested() -> fn()->Future<Future<i32>> { || outer() }
 "#,
     );
     let events = f.invoke("events", &[]);
@@ -277,8 +277,8 @@ use std::collections;
 struct Calls { var source:i32, var into:i32, var next:i32 }
 struct Range { val calls:Calls }
 struct Counter { val calls:Calls }
-fn calls() -> Calls { Calls { source:0, into:0, next:0 } }
-fn counts(calls:Calls) -> i32 { calls.source*100+calls.into*10+calls.next }
+pub fn calls() -> Calls { Calls { source:0, into:0, next:0 } }
+pub fn counts(calls:Calls) -> i32 { calls.source*100+calls.into*10+calls.next }
 fn make(calls:Calls) -> Range { calls.source+=1; Range { calls } }
 impl Iterable for Range {
     type Item=i32;
@@ -289,7 +289,7 @@ impl Iterator for Counter {
     type Item=i32;
     fn next(self) -> Option<i32> { self.calls.next+=1; Some(self.calls.next+10) }
 }
-async fn custom(calls:Calls) -> i32 {
+pub async fn custom(calls:Calls) -> i32 {
     var total=0;
     for item in make(calls) {
         val reply=request(item).await;
@@ -299,11 +299,11 @@ async fn custom(calls:Calls) -> i32 {
     }
     total
 }
-fn items() -> Vec<i32> { Vec::from([10,20,30]) }
-fn replace(items:Vec<i32>) { items[1]=99; }
-fn append(items:Vec<i32>) { items.push(40); }
+pub fn items() -> Vec<i32> { Vec::from([10,20,30]) }
+pub fn replace(items:Vec<i32>) { items[1]=99; }
+pub fn append(items:Vec<i32>) { items.push(40); }
 fn view(items:Vec<i32>) -> Iterator<Item=i32> { items.map(|item| item) }
-async fn nested(items:Vec<i32>) -> i32 {
+pub async fn nested(items:Vec<i32>) -> i32 {
     for outer in items {
         for inner in view(items) {
             val reply=request(outer+inner).await;
@@ -314,7 +314,7 @@ async fn nested(items:Vec<i32>) -> i32 {
     }
     0
 }
-async fn trapping(items:Vec<i32>) -> i32 {
+pub async fn trapping(items:Vec<i32>) -> i32 {
     for item in items { val zero=request(item).await; val bad=1/zero; }
     0
 }
@@ -423,31 +423,31 @@ fn sdk_script_future_and_for_await_contract() {
 use test::async_sdk::request;
 async fn identity<T>(value: T) -> T { value }
 fn apply<F:Fn(i32)->Future<i32>>(f:F, value:i32) -> Future<i32> { f(value) }
-async fn total(items: Vec<i32>) -> i32 {
+pub async fn total(items: Vec<i32>) -> i32 {
     val fetch: fn(i32) -> Future<i32> = async |item| request(identity(item).await).await;
     var sum = 0;
     for item in items { sum += apply(fetch, item).await; }
     sum
 }
-fn items() -> Vec<i32> { Vec::from([10, 20, 30]) }
-fn replace(items: Vec<i32>) { items[1] = 99; }
-fn append(items: Vec<i32>) { items.push(40); }
-fn size(items: Vec<i32>) -> usize { items.len() }
-async fn lazy(items: Vec<i32>) { items.push(50); }
+pub fn items() -> Vec<i32> { Vec::from([10, 20, 30]) }
+pub fn replace(items: Vec<i32>) { items[1] = 99; }
+pub fn append(items: Vec<i32>) { items.push(40); }
+pub fn size(items: Vec<i32>) -> usize { items.len() }
+pub async fn lazy(items: Vec<i32>) { items.push(50); }
 fn record(events:Vec<i32>, value:i32) -> i32 { events.push(value); value }
 async fn ordered(first:i32, second:i32) -> i32 { first*10+second }
-fn construct(events:Vec<i32>) -> Future<i32> { ordered(record(events,1),record(events,2)) }
-fn empty() -> Vec<i32> { Vec::from([]) }
-fn order(events:Vec<i32>) -> i32 { events[0]*10+events[1] }
-async fn closures() -> i32 {
+pub fn construct(events:Vec<i32>) -> Future<i32> { ordered(record(events,1),record(events,2)) }
+pub fn empty() -> Vec<i32> { Vec::from([]) }
+pub fn order(events:Vec<i32>) -> i32 { events[0]*10+events[1] }
+pub async fn closures() -> i32 {
     var count = 0;
     val next = async || { count += 1; identity(count).await };
     val first = next();
     val second = next();
     first.await * 10 + second.await
 }
-async fn nested() -> Future<i32> { identity(7) }
-async fn early() -> Result<i32, i32> {
+pub async fn nested() -> Future<i32> { identity(7) }
+pub async fn early() -> Result<i32, i32> {
     val first=request(50).await;
     val result:Result<i32,i32> = if first<0 { Err(first) } else { Ok(first) };
     val value=identity(result).await?;

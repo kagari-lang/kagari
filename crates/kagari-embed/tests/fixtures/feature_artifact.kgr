@@ -3,7 +3,7 @@ use std::num::{TryFromIntError};
 fn main() -> i32 { 42 }
 
 use external::enums;
-fn native_enum_values() -> i32 {
+pub fn native_enum_values() -> i32 {
     val nested = enums::make(enums::make(Vec::from([38]), 2), 2);
     match enums::roundtrip(nested) {
         enums::Event::Data(inner, outer) => match inner {
@@ -14,7 +14,7 @@ fn native_enum_values() -> i32 {
     }
 }
 
-fn required_methods() -> i32 {
+pub fn required_methods() -> i32 {
     val text = "  β,a  ";
     val fields = text.trim().split(",").sorted_by_key(|field| field);
     if fields.len() != 2usize || fields[0] != "a" || fields[1].len() != 2usize
@@ -49,7 +49,7 @@ fn change<C: MutableList<i32>>(values: C) {
 
 use external::fixture::hold;
 
-fn library_and_object() -> i32 {
+pub fn library_and_object() -> i32 {
     val values = Vec::from([20, 1, 19]); values.sort();
     values.sort_by(|a, b| b.cmp(a));
     val offset = Vec::from([2]);
@@ -65,7 +65,7 @@ use core::ops::ControlFlow;
 struct FeaturePayload { val values: Vec<i32> }
 fn carry<T>(value: Carrier<T>) -> Carrier<T> { Carrier::Data(value?) }
 fn stop_carrier(value: Carrier<i32>) -> Carrier<String> { value?; Carrier::Data("unreachable") }
-fn native_propagation_values() -> i32 {
+pub fn native_propagation_values() -> i32 {
     val value = FeaturePayload { values: Vec::from([42]) };
     val passed = carry(Carrier::Data(value));
     match stop_carrier(Carrier::Stop) {
@@ -76,7 +76,7 @@ fn native_propagation_values() -> i32 {
 fn convert_residual(value: Result<i32, i32>) -> Result<String, i64> { value?; Ok("unreachable") }
 fn flow_residual(value: ControlFlow<i32, i32>) -> ControlFlow<i32, String> { value?; ControlFlow::Continue("unreachable") }
 fn option_residual(value: Option<i32>) -> Option<String> { value?; Some("unreachable") }
-fn standard_residual_values() -> i32 {
+pub fn standard_residual_values() -> i32 {
     match convert_residual(Err(42)) {
         Err(error) => match flow_residual(ControlFlow::Break(42)) {
             ControlFlow::Break(value) => match option_residual(None) {
@@ -90,10 +90,10 @@ fn standard_residual_values() -> i32 {
 }
 
 fn origin_residual() -> Result<i32, i32> { Err(42) }
-fn converted_error_origin() -> Result<String, i64> { convert_residual(origin_residual()) }
+pub fn converted_error_origin() -> Result<String, i64> { convert_residual(origin_residual()) }
 
 
-fn fixed_array_construction() -> i32 {
+pub fn fixed_array_construction() -> i32 {
     var data: [i32] = [20, 22];
     val alias = data;
     val vector = Vec::from(data);

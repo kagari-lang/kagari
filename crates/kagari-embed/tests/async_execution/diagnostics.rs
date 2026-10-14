@@ -18,15 +18,15 @@ use std::{
 
 const SOURCE: &str = r#"
 use test::async_sdk::request;
-async fn crash() -> i32 { request(10).await; val zero=0; 1/zero }
+pub async fn crash() -> i32 { request(10).await; val zero=0; 1/zero }
 fn unwrap(result: Result<Task<i32>, SpawnError>) -> Task<i32> {
     match result { Ok(task) => task, Err(_) => { val zero=0; val bad=1/zero; unwrap(result) } }
 }
-fn submit(scope: TaskScope) -> Task<i32> { unwrap(scope.spawn(async || crash().await)) }
-fn observe(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || task.await)) }
-fn other(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || task.await)) }
-async fn direct(task: Task<i32>) -> i32 { task.await }
-fn factory() -> fn()->Future<i32> { async || 7 }
+pub fn submit(scope: TaskScope) -> Task<i32> { unwrap(scope.spawn(async || crash().await)) }
+pub fn observe(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || task.await)) }
+pub fn other(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || task.await)) }
+pub async fn direct(task: Task<i32>) -> i32 { task.await }
+pub fn factory() -> fn()->Future<i32> { async || 7 }
 "#;
 
 fn fixture(stripped: bool) -> Fixture {

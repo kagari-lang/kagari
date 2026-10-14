@@ -1,3 +1,5 @@
+#[cfg(test)]
+pub(crate) mod fixtures;
 pub mod native;
 pub mod owned;
 mod tasks;
@@ -148,7 +150,17 @@ impl Vm {
         let (module, function) = entry
             .resolve(module)
             .ok_or_else(|| VmError::MissingFunction(entry_name.clone()))?;
-        let mut executor = Executor::new(&self.runtime, &module, function, &[])?;
+        self.execute_selected(&module, function, &entry_name, &_session)
+    }
+
+    fn execute_selected(
+        &self,
+        module: &LoadedModule,
+        function: FunctionRef,
+        label: &str,
+        session: &ExecutionSession<'_>,
+    ) -> Result<ExecutionReport, VmError> {
+        let mut executor = Executor::new(&self.runtime, module, function, &[])?;
         let return_value = executor.run()?;
         let failure = self.runtime.result_failure(&return_value);
         let return_value = self
@@ -159,11 +171,11 @@ impl Vm {
         Ok(ExecutionReport {
             module_name: module.name.clone(),
             epoch: module.epoch.0,
-            entry: entry_name,
+            entry: label.to_owned(),
             failure,
             return_value,
             jit: None,
-            trace: _session.trace(),
+            trace: session.trace(),
         })
     }
 

@@ -895,26 +895,29 @@ No format/ABI version bump is needed for these unpublished development changes.
   `async_execution` and `syntax_examples` compile; their runtime migration audit
   remains pending. Structure scans 1,149 files without violations; formatting and
   diff checks pass.
-- Carried test failure, owned by the immediate PK03 consumer follow-up:
-  `cargo test -p kagari-vm --lib executes_runtime_reflect_type_of_helper` fails with
-  `MissingFunction("main")`. Its hand-authored bytecode deliberately has no export
-  graph, canonical function identity or closed source signature. Audit other raw
-  fixtures in VM `tests/common`, `execution`, `helpers`, `jit`, `installed_access`
-  and `native_wait`: retain their actual opcode/host/GC/debugger assertions and use
-  explicit low-level executable references or correctly authored export contracts;
-  never restore a production name-scan fallback or fabricate semantic evidence.
-- Consumer follow-up also audits dynamic entry helpers in SDK `never`,
-  `artifact_features`, `operator_traits`, `iteration_traits`, `syntax_examples`,
-  `async_execution`, and VM native-boundary storage/interfaces. Literal named-entry
-  source declarations were migrated; dynamically supplied names need corresponding
-  public declarations or explicit root-entry selection. Preserve trap classifications
-  so missing-entry errors cannot falsely satisfy tests expecting script failures.
-- Next: finish that finite entry-consumer migration and its affected checks, then
-  SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
-  but SDK and CLI do not yet expose it. Native-provider inputs must contribute their
-  own contract fingerprint at compiler handoff. The carried raw-fixture failure is
-  not final acceptance. Full workspace/backend/feature/platform CI remains unrun;
-  no whole-workspace Cargo suite was run locally.
+- PK03 entry-consumer follow-up resolves the carried raw-fixture failure. VM opcode
+  fixtures use explicit function slots through a test-only harness sharing the normal
+  session, frame, retention and prepared-fallback paths. It adds no production entry
+  lookup. SDK source-free fixtures author canonical identities, semantic declarations
+  and exports and pass ordinary artifact verification. Dynamic async/artifact callers
+  now expose their selected source functions. Operator/iterator failure tests reject
+  missing-entry errors; operator failures also require the trap/cancellation codes.
+- Follow-up validation: all 23 selected VM helper cases pass (22 in the first run,
+  the omitted raw reflection fixture after repair); 10 JIT and four native-wait cases
+  pass. The live-storage wait fixture initially selected slot 1 instead of its actual
+  slot 2; the corrected case passes. Selected module storage, interface instruction
+  and debugger trap/step cases pass. SDK source-free native waiting, source async
+  factory, two installed-host-path cases and operator/iterator cleanup cases pass.
+  Native binding artifact execution passes both source-enabled emission and a
+  no-default-features consumer of the disposable artifact. Two wrong test-only
+  `ProgramEntry` imports from the previous checkpoint were repaired; the import
+  audit passes. VM/SDK library Clippy, structure (1,150 files), formatting and diff
+  checks pass. No carried build/test failure; full feature/backend/platform CI and
+  unselected subsystem cases remain unrun.
+- Next: SDK/CLI/shared storage and invalidation/reload. Package capture is connected
+  to HIR, but SDK and CLI do not yet expose it. Native-provider inputs must contribute
+  their own contract fingerprint at compiler handoff. Full workspace/backend/feature/
+  platform CI remains unrun; no whole-workspace Cargo suite was run locally.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.
