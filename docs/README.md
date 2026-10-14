@@ -35,6 +35,9 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 are
+  planned and unstarted; expand native ABI, control flow, calls, GC values and
+  host/library integration while keeping explicit native coverage requirements.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Unified host registration and API proposal](host-registration-plan.md):

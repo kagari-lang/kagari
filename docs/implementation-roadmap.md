@@ -44,6 +44,20 @@ current source-distribution model. Future persistent compilation caches must pro
 compiler revision/options and provider/source validity before skipping work; current
 shared output storage always checks and compiles inputs.
 
+## Cranelift synchronous execution
+
+[The Cranelift expansion plan](cranelift-expansion-plan.md) owns J01-J06:
+general native ABI, scalar/control-flow coverage, verified calls, rooted objects,
+closures/interfaces and installed host/library operations. The execution plan is
+recorded; implementation has not started. Current behavior remains the narrow
+scalar baseline in [JIT](spec/jit.md).
+
+Native acceptance requires actual compiled script bodies and separately identified
+runtime helpers/mixed callees, with source-free artifacts, GC/reentry, cancellation
+and pinned reload evidence. Async suspension, native debugging, automatic hotness,
+LLVM/AOT and machine-code persistence are outside this batch. NC and HR/SA21 remain
+independent migrations; reuse their current contracts instead of activating them.
+
 ## Toolchain distribution and modes
 
 The confirmed target product names are:
