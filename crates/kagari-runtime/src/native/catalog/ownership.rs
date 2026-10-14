@@ -167,14 +167,12 @@ impl DeclarationCatalog {
                 result.insert_declaration(declaration)?;
             }
             for (index, implementation) in module.implementations.iter().enumerate() {
-                if implementation.trait_type.is_some() {
-                    let occurrence = u32::try_from(index)
-                        .map_err(|_| conflict("native implementation identity exhausted"))?;
-                    let id = context
-                        .intern_child(root, DefinitionKind::Impl, "", occurrence)
-                        .map_err(conflict)?;
-                    result.insert_implementation(id, implementation)?;
-                }
+                let occurrence = u32::try_from(index)
+                    .map_err(|_| conflict("native implementation identity exhausted"))?;
+                let id = context
+                    .intern_child(root, DefinitionKind::Impl, "", occurrence)
+                    .map_err(conflict)?;
+                result.insert_implementation(id, implementation)?;
             }
         }
         result.collect_implicit_definitions()?;

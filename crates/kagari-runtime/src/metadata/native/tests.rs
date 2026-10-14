@@ -1,18 +1,20 @@
 use super::MetadataSnapshot;
 use crate::{
-    metadata::{TypeKind, TypeRegistration, TypeRegistry},
-    native::catalog::DeclarationCatalog,
+    metadata::{MethodOrigin, TypeKind, TypeRegistration, TypeRegistry},
+    native::catalog::{DeclarationCatalog, import::CatalogImports},
 };
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_types::{
+    callable::CallableImplementation,
     declaration::{
-        FieldDef, TypeDef, TypeDefKind,
+        FieldDef, FnDecl, Param, TraitDef, TypeDef, TypeDefKind,
         host::{
-            HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+            HostCallPolicy, HostFieldPolicy, HostFunctionEffects, HostPassingStyle,
+            HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
         },
-        module::ModuleDecl,
+        module::{ImplDecl, ModuleDecl},
     },
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
@@ -188,4 +190,203 @@ fn rejected_external_metadata_preparation_publishes_no_partial_rows() {
             .prepare(&declarations(false))
             .is_ok()
     );
+}
+
+#[test]
+fn external_members_require_explicit_impl_and_keep_installed_slots_stable() {
+    let catalog = declarations(false);
+    let context = catalog.types.context().clone();
+    let mut module = ModuleDecl::new(ModuleIdentity {
+        package: PackageId("example".into()),
+        path: vec!["roots".into()],
+    });
+    module.types.extend(catalog.types.values().cloned());
+    let player = module
+        .definition(DefinitionKind::Struct, "Player", &context.snapshot())
+        .unwrap();
+    module.traits.push(TraitDef {
+        name: "HasHp".into(),
+        associated_consts: vec![],
+        associated_types: vec![],
+        supertraits: vec![],
+        generic_params: vec![],
+        bounds: vec![],
+        methods: vec![],
+        conversion_adapter: None,
+    });
+    module.collect_definitions(&context).unwrap();
+    let interface = module
+        .definition(DefinitionKind::Trait, "HasHp", &context.snapshot())
+        .unwrap();
+    let method = |name: &str, implementation, receiver| FnDecl {
+        name: name.into(),
+        host_policy: None,
+        method_policy: Default::default(),
+        implementation,
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![Param {
+            name: "self".into(),
+            ty: receiver,
+            mutable: false,
+        }],
+        return_type: Ty::Builtin(BuiltinType::I32),
+    };
+    module.traits[0].methods.push(method(
+        "hp",
+        CallableImplementation::Required,
+        Ty::SelfType(interface),
+    ));
+    module.implementations.push(ImplDecl {
+        generic_params: vec![],
+        bounds: vec![],
+        for_type: Ty::Host(player),
+        trait_type: None,
+        methods: vec![],
+    });
+    module.collect_definitions(&context).unwrap();
+    let owner = module.implementation_id(0, &context.snapshot()).unwrap();
+    let heal = context
+        .intern_child(owner, DefinitionKind::Method, "heal", 0)
+        .unwrap();
+    let policy = |passing| HostCallPolicy {
+        passing: vec![passing],
+        effects: HostFunctionEffects {
+            may_mutate_host_state: passing == HostPassingStyle::UniqueBorrow,
+            ..Default::default()
+        },
+    };
+    let mut heal_method = method(
+        "heal",
+        CallableImplementation::Native(heal),
+        Ty::Host(player),
+    );
+    heal_method.host_policy = Some(policy(HostPassingStyle::UniqueBorrow));
+    module.implementations[0].methods.push(heal_method);
+    let root = context.snapshot().lookup_root(&module.identity).unwrap();
+    let trait_impl = context
+        .intern_child(root, DefinitionKind::Impl, "", 1)
+        .unwrap();
+    let read = context
+        .intern_child(trait_impl, DefinitionKind::Method, "hp", 0)
+        .unwrap();
+    let contract = module.traits[0].clone();
+    module
+        .implement_trait(
+            &contract,
+            ImplDecl {
+                generic_params: vec![],
+                bounds: vec![],
+                for_type: Ty::Host(player),
+                trait_type: Some(NominalTy {
+                    declaration: interface,
+                    arguments: vec![],
+                    associated_types: Default::default(),
+                }),
+                methods: vec![],
+            },
+            &[("hp", read)],
+            &context,
+        )
+        .unwrap();
+    module.implementations[1].methods[0].host_policy = Some(policy(HostPassingStyle::SharedBorrow));
+    let checked = |module| {
+        let metadata =
+            DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap();
+        DeclarationCatalog::from_declarations([&metadata]).unwrap()
+    };
+    let catalog = checked(module.clone());
+    let prepared = MetadataSnapshot::default().prepare(&catalog).unwrap();
+    let rows = prepared.runtime_registry();
+    let player = rows.get_by_name("example::roots::Player").unwrap();
+    assert_eq!(player.methods.len(), 2);
+    let heal = player
+        .methods
+        .iter()
+        .find(|method| method.name == "heal")
+        .unwrap();
+    assert_eq!(heal.origin, MethodOrigin::Inherent);
+    assert_eq!(heal.params[0].ty, player.id);
+    let hp = player
+        .methods
+        .iter()
+        .find(|method| method.name == "hp")
+        .unwrap();
+    assert_eq!(player.traits.len(), 1);
+    assert_eq!(hp.origin, MethodOrigin::Trait(player.traits[0].trait_type));
+    assert_eq!(player.traits[0].name, "HasHp");
+    let mut extra = ModuleDecl::new(ModuleIdentity {
+        package: PackageId("aaa".into()),
+        path: vec!["extra".into()],
+    });
+    let mut bonus = contract.clone();
+    bonus.name = "Bonus".into();
+    bonus.methods.clear();
+    extra.traits.push(bonus);
+    extra.collect_definitions(&context).unwrap();
+    let bonus_id = extra
+        .definition(DefinitionKind::Trait, "Bonus", &context.snapshot())
+        .unwrap();
+    extra.traits[0].methods.push(method(
+        "bonus",
+        CallableImplementation::Required,
+        Ty::SelfType(bonus_id),
+    ));
+    let extra_root = context.snapshot().lookup_root(&extra.identity).unwrap();
+    let extra_impl = context
+        .intern_child(extra_root, DefinitionKind::Impl, "", 0)
+        .unwrap();
+    let added = context
+        .intern_child(extra_impl, DefinitionKind::Method, "bonus", 0)
+        .unwrap();
+    let extra_contract = extra.traits[0].clone();
+    extra
+        .implement_trait(
+            &extra_contract,
+            ImplDecl {
+                generic_params: vec![],
+                bounds: vec![],
+                for_type: module.implementations[0].for_type.clone(),
+                trait_type: Some(NominalTy {
+                    declaration: bonus_id,
+                    arguments: vec![],
+                    associated_types: Default::default(),
+                }),
+                methods: vec![],
+            },
+            &[("bonus", added)],
+            &context,
+        )
+        .unwrap();
+    extra.implementations[0].methods[0].host_policy = Some(policy(HostPassingStyle::SharedBorrow));
+    let original =
+        DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap();
+    let extra =
+        DefinitionMetadata::checked(context.snapshot(), extra, &Default::default()).unwrap();
+    let complete = DeclarationCatalog::from_declarations([&original, &extra]).unwrap();
+    let complete = CatalogImports::new(catalog.types.context().clone())
+        .import(&complete)
+        .unwrap();
+    // The new module sorts before the existing module. Its method receives a
+    // fresh physical slot while existing member IDs and fingerprints remain fixed.
+    let grown = prepared.prepare(&complete).unwrap().runtime_registry();
+    let grown = grown.get_by_name("example::roots::Player").unwrap();
+    assert_eq!(
+        grown
+            .methods
+            .iter()
+            .find(|method| method.name == "heal")
+            .unwrap(),
+        heal
+    );
+    assert_eq!(
+        grown
+            .methods
+            .iter()
+            .find(|method| method.name == "hp")
+            .unwrap(),
+        hp
+    );
+    assert_eq!(grown.methods.len(), 3);
+    assert!(rows.get(player.fields[2].ty).unwrap().methods.is_empty());
 }

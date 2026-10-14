@@ -35,6 +35,8 @@ use std::{cell::RefCell, collections::BTreeSet, fmt::Debug};
 #[cfg(test)]
 mod tests;
 
+mod members;
+
 /// Immutable prepared metadata. Runtime construction clones its value-only rows;
 /// runtime-local installation prepares against that runtime's current rows.
 #[derive(Debug, Clone, Default)]
@@ -109,6 +111,7 @@ impl MetadataSnapshot {
                 0,
             )?;
             builder.inner.by_id[id.index()].fields = fields;
+            builder.members(record.declaration, id)?;
         }
         Ok(Self { inner: staged })
     }

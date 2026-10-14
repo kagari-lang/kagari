@@ -147,6 +147,12 @@ impl ModuleDecl {
                 if expected.method_policy.receiver_access.is_none() {
                     expected.method_policy.receiver_access = actual.method_policy.receiver_access;
                 }
+                // A trait's Self signature does not select external-ID storage.
+                // The explicit native impl owns its checked passing/effect policy;
+                // function and binding validation still require an exact adapter.
+                if expected.host_policy.is_none() {
+                    expected.host_policy = actual.host_policy.clone();
+                }
             }
             if expected != implementation.methods {
                 return Err(invalid());

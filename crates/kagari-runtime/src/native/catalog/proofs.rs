@@ -6,7 +6,11 @@ use kagari_types::ty::{Constraint, Ty};
 
 impl DeclarationCatalog {
     pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {
-        let implementations = self.implementations.entries().collect::<Vec<_>>();
+        let implementations = self
+            .implementations
+            .entries()
+            .filter(|(_, implementation)| implementation.trait_type.is_some())
+            .collect::<Vec<_>>();
         let catalog = ProofCatalog::new(
             implementations
                 .iter()

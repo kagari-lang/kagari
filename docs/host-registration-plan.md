@@ -1756,6 +1756,44 @@ trait metadata, live-root publication and manual paths remain the next coherent
 integration slice. The external NativeModule execution gate remains closed until
 those consumers use the shared records; HR02/RF05 and the combined goal remain open.
 
+### HR02 checkpoint: explicit common external members
+
+The checked native catalog now retains inherent ImplDecls as well as trait
+ImplDecls. These are the original common records, not a reflection-only member
+DSL. Trait proof construction selects only explicit trait impls; inherent records
+grant no trait witness. Source-free dependency matching recognizes the existing
+InherentTable contract separately from the existing InterfaceTable contract.
+
+External metadata reads its concrete receiver/impl/member records from that
+catalog. Inherent members and explicit Kagari trait members retain their distinct
+origins. It includes the checked NativeDeclaration (identity, policy, signature,
+bounds and requirements) in method fingerprints and the applied Kagari trait's
+schema/identity in trait fingerprints. Reflection slots belong to the runtime
+metadata snapshot and remain stable when later explicit impls sort before prior
+members. A DTO's schema does not infer Rust methods/traits or become an external
+object. This adds no callback dispatch route or Rust reference.
+
+Kagari traits keep their independent Self signature. A concrete native impl may
+declare external passing/effects when the trait has no such storage policy; the
+common function validator and ordinary binding-policy equality still validate
+that explicit local fact. Signature, bounds, associated output and declared
+override checks remain exact. The builder's concrete external-member authoring,
+runtime root/path publication and source access migration remain the next slice;
+external NativeModule execution stays gated.
+
+Selected validation passed: all three metadata boundaries, including explicit
+inherent/trait members and stable slots after another module's impl is added;
+existing generic native trait receiver/binder registration; reused foundation
+installation requirements; and the VM native inherent method/prepared-call case.
+The new member test initially reused a foreign catalog scope for the second
+snapshot and correctly hit the duplicate-name guard; it now explicitly adopts
+the expanded checked catalog into the installation's retained context. An initial
+private metadata ID accessor error is repaired without widening public APIs.
+Runtime library/test and types library Clippy passed. Structure (1239 Rust files,
+zero violations), fmt and diff passed. No unsafe/lifetime changes or new Miri
+requirement. Exhaustive workspace/feature/backend/platform validation is CI-owned
+and unrun locally; no carried Rust build/test failure. HR02/RF05 remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

@@ -168,6 +168,7 @@ pub struct TypeRegistry {
 struct TypeRegistryInner {
     native_values: HashMap<Ty, TypeId>,
     native_external: HashMap<DefinitionId, (TypeDef, TypeId)>,
+    native_methods: HashMap<(TypeId, DefinitionId), MethodMetadataId>,
     host_value_types: HashMap<HostValueType, TypeId>,
     by_id: Vec<TypeInfo>,
     by_name: HashMap<String, TypeId>,

@@ -2,7 +2,7 @@
 use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::DeclarationCatalog};
 use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::{DefinitionKind, table::DefinitionId};
-use kagari_contract::types::{InterfaceTable, PublicItem};
+use kagari_contract::types::{InterfaceTable, PublicItem, inherent::InherentTable};
 use kagari_types::{
     declaration::{TypeDefKind, module::ImplDecl},
     language,
@@ -179,11 +179,20 @@ pub(super) fn validate(
             .definitions()
             .resolve(id)
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
-        if !program.modules().iter().filter(|module| &module.identity == owner.module())
-            .flat_map(|module| &module.public_items).any(|item| {
-                matches!(item, PublicItem::InterfaceTable(actual) if implementation_matches(&id, expected, actual))
-            }) {
-            return Err(RuntimeError::module_validation("native dependency differs from its registered implementation contract"));
+        if !program
+            .modules()
+            .iter()
+            .filter(|module| &module.identity == owner.module())
+            .flat_map(|module| &module.public_items)
+            .any(|item| match item {
+                PublicItem::InterfaceTable(actual) => implementation_matches(&id, expected, actual),
+                PublicItem::InherentTable(actual) => inherent_matches(id, expected, actual),
+                _ => false,
+            })
+        {
+            return Err(RuntimeError::module_validation(
+                "native dependency differs from its registered implementation contract",
+            ));
         }
     }
     Ok(())
@@ -201,6 +210,21 @@ fn implementation_matches(id: &DefinitionId, expected: &ImplDecl, actual: &Inter
         && actual.associated_type_families.is_empty()
         && actual.associated_consts.is_empty()
         && matches!(&actual.trait_type, Ty::Trait(interface) if Some(interface) == expected.trait_type.as_ref())
+        && expected.methods.iter().all(|method| {
+            let mut method = method.clone();
+            method
+                .generic_params
+                .retain(|parameter| !expected.generic_params.contains(parameter));
+            actual.methods.contains(&method)
+        })
+}
+
+fn inherent_matches(id: DefinitionId, expected: &ImplDecl, actual: &InherentTable) -> bool {
+    expected.trait_type.is_none()
+        && actual.declaration == id
+        && actual.generic_params == expected.generic_params
+        && actual.bounds == expected.bounds
+        && actual.for_type == expected.for_type
         && expected.methods.iter().all(|method| {
             let mut method = method.clone();
             method
