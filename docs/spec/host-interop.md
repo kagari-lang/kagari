@@ -453,7 +453,7 @@ and `borrow_mut` lend external storage without copying or taking ownership.
 `NativeType<T>::rust_type()` supplies that same metadata-only descriptor for native
 storage. Both use one Rust target/owner/generation validator. External T needs
 Send + 'static, without NativePayload or a blanket Sync requirement. Runtime-owned
-creation still requires its storage proof. Field projections remain RF04 work.
+creation still requires its storage proof.
 The original host loan lasts until scope exit even if its branded view is dropped.
 Scope/view values cannot transfer between threads. Execution stays within the scope;
 the interpreter's `Vm::execute_scoped` uses the ordinary checked public entry and
@@ -476,6 +476,24 @@ because their memory/accounting belongs to the host. Opaque edits retain that fl
 Errors and supported Rust unwind release loans while preserving completed writes.
 Scope exit removes all external root records and revokes every old view identity;
 retaining a naked script Value does not extend its Rust lifetime or permit access.
+
+For derived ordinary inline structs, `Runtime::bind_rust_field::<T, F>(&target,
+"field")` resolves the generated field proof once. `view.field(scope, &field)`
+creates a branded child location with the parent's access capability, without
+constructing a Rust reference or caching its address. Nested descriptors use the
+registered child Rust target. Schema-only/Serde mappings and mismatched Rust field
+types cannot supply this proof. Opaque fields describe retained handle wrappers;
+they cannot reinterpret those wrappers as pointers to their payloads.
+
+The existing borrow table records generated field-identity paths. The empty path
+is the whole root; equal and prefix paths overlap, and divergent inline fields are
+disjoint. Any overlapping loan involving a writer rejects before constructing a
+Rust reference. Active ancestor/child loans block replacement; an idle view resolves
+the current reserved root and raw field chain on its next access. Generated code
+uses raw field addresses without creating an ancestor reference. Scope exit revokes
+child locations along with their root. Script field operations and atomic borrowed
+argument packs remain pending in RF02/RF04; the Rust scoped field boundary is
+implemented independently of those execution admission gates.
 
 Borrowed host values are the important case for low-copy interop.
 

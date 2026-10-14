@@ -1398,6 +1398,13 @@ records the focused generated-pointer Miri result. Runtime path/batch integratio
 and checked field operations remain RF04/RF02; no reference execution gate closes
 from this descriptor result alone.
 
+RF04's next checkpoint implements branded Rust field locations using those
+descriptors and extends the existing borrow owner from whole-root counts to
+generated inline path counts. The [interop ledger](rust-interop-design.md#rf04-checkpoint-scoped-inline-locations-and-one-path-loan-owner)
+records actual-pointer Miri coverage of disjoint reentry, ancestor conflicts,
+replacement and unwind. Atomic native packs and source/portable field operations
+remain open; this checkpoint does not close RF04 or combined acceptance.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

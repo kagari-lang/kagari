@@ -6,17 +6,44 @@ use crate::{
     module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
     native::{
         binding::NativeResult,
+        catalog::DeclarationCatalog,
         conversion::{KagariType, context::ConversionContext},
+        projection::GeneratedField,
     },
 };
+use kagari_common::identity::{DefinitionKind, table::DefinitionId};
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
-use std::{marker::PhantomData, sync::Arc};
+use std::{any::TypeId as RustTypeId, marker::PhantomData, sync::Arc};
 
 #[derive(Debug)]
 struct TypeRecord {
     argument: TypeArgument,
     owner: LoadedModule,
     program: ProgramLease,
+    catalog: DeclarationCatalog,
+}
+
+/// One generated direct field in an exact applied Rust target and generation.
+/// Resolving this descriptor grants no loan and caches no field address.
+#[derive(Debug)]
+pub struct RustField<T, F> {
+    pub(crate) parent: RustType<T>,
+    pub(crate) declaration: DefinitionId,
+    pub(crate) projector: GeneratedField,
+    pub(crate) target: TypeArgument,
+    mapping: PhantomData<fn() -> F>,
+}
+
+impl<T, F> Clone for RustField<T, F> {
+    fn clone(&self) -> Self {
+        Self {
+            parent: self.parent.clone(),
+            declaration: self.declaration,
+            projector: self.projector.clone(),
+            target: self.target.clone(),
+            mapping: PhantomData,
+        }
+    }
 }
 
 /// A checked Rust representation of one applied nominal target and generation.
@@ -69,6 +96,7 @@ impl<T: Send + 'static> RustType<T> {
                 argument,
                 owner: owner.clone(),
                 program,
+                catalog: runtime.native_entries.catalog.clone(),
             }),
             mapping: PhantomData,
         })
@@ -76,6 +104,50 @@ impl<T: Send + 'static> RustType<T> {
 }
 
 impl Runtime {
+    /// Resolve a generated public inline field. DTO and Serde schemas without
+    /// dedicated layout proofs reject, as do mismatched Rust field representations.
+    pub fn bind_rust_field<T: Send + 'static, F: KagariType + Send + 'static>(
+        &self,
+        parent: &RustType<T>,
+        name: &str,
+    ) -> NativeResult<RustField<T, F>> {
+        self.validate_loaded_module(parent.owner())?;
+        parent.type_argument().validate(self)?;
+        let Ty::Struct(nominal) = parent.type_argument().ty() else {
+            return Err(invalid());
+        };
+        let fields = parent
+            .record
+            .catalog
+            .rust_types
+            .get(&RustTypeId::of::<T>())
+            .and_then(|mapping| mapping.fields.as_ref())
+            .ok_or_else(|| {
+                RuntimeError::module_validation("Rust target has no generated inline field layout")
+            })?;
+        let projector = fields
+            .iter()
+            .find(|field| field.name == name && field.target == RustTypeId::of::<F>())
+            .cloned()
+            .ok_or_else(invalid)?;
+        let declaration = self
+            .definition_context()
+            .snapshot()
+            .lookup_child(nominal.declaration, DefinitionKind::Field, name, 0)
+            .ok_or_else(invalid)?;
+        let ty = (projector.target_type)(&parent.record.catalog)?;
+        let target = self.native_type_argument(parent.owner(), &ty)?;
+        let cx = ConversionContext::new(self, parent.owner())?;
+        F::check_type(&cx, &target)?;
+        Ok(RustField {
+            parent: parent.clone(),
+            declaration,
+            projector,
+            target,
+            mapping: PhantomData,
+        })
+    }
+
     /// Bind an explicitly registered ordinary Rust struct representation. Native
     /// payload constructors already supply this same descriptor through NativeType.
     /// Custom conversion schemas do not prove Rust field layout or projectors.

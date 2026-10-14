@@ -1112,6 +1112,39 @@ RI04's schema/derive/Serde and finite descriptor responsibilities are complete;
 the combined delivery remains open. Full workspace/feature/backend/platform checks
 remain CI-owned.
 
+### RF04 checkpoint: scoped inline locations and one path loan owner
+
+Rust scopes now prepare `RustField<T, F>` from generated layout proofs pinned by
+the common RustType descriptor's immutable catalog and Program lease. A scoped
+field view retains a root/place identity, target and generated field-identity
+chain; it retains no field address. Every read/edit resolves the reserved raw root
+through that chain after acquiring its path loan. Equal/prefix paths overlap,
+diverging generated structural paths are disjoint, and the empty path preserves
+whole-root access. Existing installed host tokens keep empty paths in their separate
+object identity domain; one borrow table/guard/count owner checks and releases both
+representations. Opaque's non-reentrant GC payload adapter is unchanged.
+
+Shared views inherit shared access. Ordinary schema or Serde metadata supplies no
+field proof. Target/Rust identity, owner, generation and capability checks precede
+projection. An active field prevents incompatible ancestor/replacement access;
+an idle nested view reads newly replaced contents on its next access. Root addresses
+remain reserved for the invariant scope lifetime. No mutable ancestor reference is
+created while disjoint field references coexist.
+
+Focused local results: the runtime scoped field fixture passed normally and under
+Miri (`nightly-2026-07-27`, aarch64-apple-darwin, MIRIFLAGS unset, default Miri target,
+workspace test profile/default parallelism). It covers simultaneous disjoint unique
+loans, shared overlap, duplicate/ancestor/whole-root conflicts, nested scalar access,
+replacement and unwind cleanup. All three small actual-pointer scope fixtures,
+the five legacy borrow-owner tests and five production lifetime compile-fail
+doctests passed. Scoped runtime library/host_scopes Clippy, structural review
+(1220 files, zero violations), formatting and diff checks passed.
+
+This closes only the scoped Rust field boundary. Full argument-pack preparation/
+atomic loan acquisition, scalar script reads/prepared assignments, checked portable
+field operations and pinned-projector execution integration remain RF04/RF02/RF05.
+The combined checklist remains open and exhaustive matrices remain CI-owned.
+
 ## Acceptance and verification
 
 Required coverage includes:

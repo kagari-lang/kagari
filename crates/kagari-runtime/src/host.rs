@@ -719,11 +719,12 @@ impl FrameHostBorrowToken {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct FrameBorrowRecord {
     object_id: HostObjectId,
     borrow_kind: HostBorrowKind,
     type_id: Option<TypeId>,
+    path: Arc<[DefinitionId]>,
 }
 
 #[derive(Debug)]
@@ -735,13 +736,19 @@ struct ActiveBorrowFrame {
 
 #[derive(Debug, Default)]
 struct ObjectBorrowState {
+    paths: Vec<PathBorrowState>,
+}
+
+#[derive(Debug)]
+struct PathBorrowState {
+    path: Arc<[DefinitionId]>,
     shared_count: usize,
     unique_count: usize,
 }
 
 impl ObjectBorrowState {
     fn is_empty(&self) -> bool {
-        self.shared_count == 0 && self.unique_count == 0
+        self.paths.is_empty()
     }
 }
 

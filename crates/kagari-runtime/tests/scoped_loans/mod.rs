@@ -1,4 +1,5 @@
 //! Small actual-pointer fixtures isolate Miri safety from source compilation cost.
+mod fields;
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},

@@ -4,7 +4,10 @@ use crate::{
     error::RuntimeError,
     host::HostBorrowTable,
     host_scope::HostResourceScope,
-    native::{binding::NativeResult, rust_type::RustType},
+    native::{
+        binding::NativeResult,
+        rust_type::{RustField, RustType},
+    },
     value::{EphemeralValue, Value},
 };
 use kagari_types::reference::ReferenceAccess;
@@ -84,6 +87,22 @@ impl Runtime {
 }
 
 impl<'scope, 'host> HostScope<'scope, 'host> {
+    fn project<T: Send + 'static, F: Send + 'static>(
+        &self,
+        value: Value,
+        field: &RustField<T, F>,
+    ) -> NativeResult<Value> {
+        let runtime = self.resources.runtime();
+        let view = runtime.scoped_view(&value)?;
+        let projected = runtime.host_borrows.project_scoped(runtime, view, field)?;
+        let value = runtime
+            .gc()
+            .alloc_ephemeral(EphemeralValue::HostView(projected))?;
+        self.resources.retain_values(&[value])?;
+        runtime.gc_safepoint()?;
+        Ok(value)
+    }
+
     /// Reserve shared external storage for this scope, using its installed Rust target
     /// descriptor. Foreign descriptors and incompatible root aliases fail.
     pub fn borrow<T: Send + 'static>(
@@ -167,6 +186,19 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
 }
 
 impl<'scope, T: Send + 'static> Ref<'scope, T> {
+    /// Prepare a child location through a generated, generation-pinned field.
+    /// No Rust reference or cached address is created by this operation.
+    pub fn field<F: Send + 'static>(
+        &self,
+        scope: &HostScope<'scope, '_>,
+        field: &RustField<T, F>,
+    ) -> NativeResult<Ref<'scope, F>> {
+        Ok(Ref {
+            value: scope.project(self.value, field)?,
+            brand: PhantomData,
+        })
+    }
+
     /// Raw script identity for a synchronous scoped argument. It becomes inert at
     /// scope exit and is checked again by execution and every access boundary.
     pub fn value(&self) -> Value {
@@ -187,6 +219,19 @@ impl<'scope, T: Send + 'static> Ref<'scope, T> {
 }
 
 impl<'scope, T: Send + 'static> RefMut<'scope, T> {
+    /// Prepare a mutable child capability; every subsequent access checks its
+    /// path against active loans, including ancestors and the whole root.
+    pub fn field<F: Send + 'static>(
+        &self,
+        scope: &HostScope<'scope, '_>,
+        field: &RustField<T, F>,
+    ) -> NativeResult<RefMut<'scope, F>> {
+        Ok(RefMut {
+            value: scope.project(self.value, field)?,
+            brand: PhantomData,
+        })
+    }
+
     /// Raw script identity for a synchronous scoped argument. Alias creation does
     /// not bypass exclusive-loan conflict checks or extend the host lifetime.
     pub fn value(&self) -> Value {

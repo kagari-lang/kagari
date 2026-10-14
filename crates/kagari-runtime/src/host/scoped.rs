@@ -8,14 +8,22 @@ use crate::{
         HostCallGuard, HostFrameId, HostObjectId,
     },
     module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
-    native::{binding::NativeResult, rust_type::RustType},
+    native::{
+        binding::NativeResult,
+        projection::GeneratedField,
+        rust_type::{RustField, RustType},
+    },
     value::{EphemeralValue, Value},
 };
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::{reference::ReferenceAccess, ty::Ty};
 use std::{
     any::TypeId,
     mem::size_of,
-    sync::atomic::{AtomicU64, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
 };
 
 /// An inert identity and access capability. It contains no Rust address. The
@@ -26,6 +34,7 @@ pub struct ScopedHostView {
     frame: HostFrameId,
     epoch: BorrowEpoch,
     object: HostObjectId,
+    place: usize,
     access: ReferenceAccess,
 }
 
@@ -33,11 +42,18 @@ pub struct ScopedHostView {
 pub(super) struct ScopedRoot {
     object: HostObjectId,
     pointer: *mut (),
-    rust_type: TypeId,
-    target: TypeArgument,
+    places: Vec<ScopedPlace>,
     owner: LoadedModule,
     access: ReferenceAccess,
     _program: ProgramLease,
+}
+
+#[derive(Debug, Clone)]
+struct ScopedPlace {
+    rust_type: TypeId,
+    target: TypeArgument,
+    path: Arc<[DefinitionId]>,
+    projectors: Arc<[GeneratedField]>,
 }
 
 // SAFETY: Only HostScope can publish these records, while holding an exclusive
@@ -73,7 +89,7 @@ impl HostBorrowTable {
             .find(|root| {
                 size_of::<T>() != 0
                     && root.pointer == pointer.cast()
-                    && root.rust_type == TypeId::of::<T>()
+                    && root.places[0].rust_type == TypeId::of::<T>()
             })
             .map(|root| root.object);
         let object = match object {
@@ -96,7 +112,12 @@ impl HostBorrowTable {
         // Identical shared aliases reuse a record. A capability may never be
         // upgraded by merely creating another view of a reserved shared root.
         if let Some(root) = active.roots.iter().find(|root| root.object == object) {
-            if root.target.ty() != descriptor.type_argument().ty() || !root.access.permits(access) {
+            if !root.places[0]
+                .target
+                .view(&root.owner)
+                .compatible(descriptor.type_argument().view(descriptor.owner()))
+                || !root.access.permits(access)
+            {
                 return Err(invalid());
             }
         } else {
@@ -107,8 +128,12 @@ impl HostBorrowTable {
             active.roots.push(ScopedRoot {
                 object,
                 pointer: pointer.cast(),
-                rust_type: TypeId::of::<T>(),
-                target: descriptor.type_argument().clone(),
+                places: vec![ScopedPlace {
+                    rust_type: TypeId::of::<T>(),
+                    target: descriptor.type_argument().clone(),
+                    path: Arc::default(),
+                    projectors: Arc::default(),
+                }],
                 owner: descriptor.owner().clone(),
                 access,
                 _program: program,
@@ -119,6 +144,7 @@ impl HostBorrowTable {
             frame: frame.frame_id,
             epoch: frame.epoch,
             object,
+            place: 0,
             access,
         })
     }
@@ -141,7 +167,7 @@ impl HostBorrowTable {
             .iter()
             .find(|root| root.object == view.object)
             .ok_or_else(invalid)?;
-        if !root.access.permits(view.access) {
+        if !root.access.permits(view.access) || root.places.get(view.place).is_none() {
             return Err(invalid());
         }
         f(root)
@@ -162,8 +188,9 @@ impl HostBorrowTable {
         view.access.permits(access)
             && self
                 .with_root(view, |root| {
-                    root.target.validate(runtime)?;
-                    Ok(root
+                    let place = &root.places[view.place];
+                    place.target.validate(runtime)?;
+                    Ok(place
                         .target
                         .identity(&root.owner)
                         .is_some_and(|actual| Some(actual) == expected.identity(owner)))
@@ -180,7 +207,10 @@ impl HostBorrowTable {
         view.access.permits(access)
             && self
                 .with_root(view, |root| {
-                    Ok(root.target.view(&root.owner).compatible(expected))
+                    Ok(root.places[view.place]
+                        .target
+                        .view(&root.owner)
+                        .compatible(expected))
                 })
                 .unwrap_or(false)
     }
@@ -198,11 +228,13 @@ impl HostBorrowTable {
                 "shared view cannot grant mutable access",
             ));
         }
-        let pointer = self.with_root(view, |root| {
-            if root.rust_type != TypeId::of::<T>() {
+        let (pointer, place) = self.with_root(view, |root| {
+            let place = &root.places[view.place];
+            if place.rust_type != TypeId::of::<T>() {
                 return Err(invalid());
             }
-            Ok(root.pointer.cast::<T>())
+            place.target.validate(runtime)?;
+            Ok((root.pointer, place.clone()))
         })?;
         let loan = self.enter_frame_in(Some(runtime.resources()))?;
         self.borrow_record(
@@ -215,13 +247,88 @@ impl HostBorrowTable {
                     HostBorrowKind::Shared
                 },
                 type_id: None,
+                path: place.path.clone(),
             },
         )?;
+        let mut pointer = pointer;
+        for projector in place.projectors.iter() {
+            // SAFETY: Validated generated direct fields start at the scope-reserved
+            // live root. No ancestor reference is formed; this path loan is active.
+            pointer = unsafe { (projector.project)(pointer) };
+        }
         // The temporary loan frame releases its counts on all exits, including
         // unwind. No table borrow spans callback execution or nested validation.
-        let result = f(pointer);
+        let result = f(pointer.cast::<T>());
         drop(loan);
         result
+    }
+
+    pub(crate) fn project_scoped<T: Send + 'static, F: Send + 'static>(
+        &self,
+        runtime: &Runtime,
+        view: ScopedHostView,
+        field: &RustField<T, F>,
+    ) -> NativeResult<ScopedHostView> {
+        runtime.resources().poll_execution()?;
+        runtime.validate_loaded_module(field.parent.owner())?;
+        field.target.validate(runtime)?;
+        let place = self.with_root(view, |root| {
+            let parent = &root.places[view.place];
+            if parent.rust_type != TypeId::of::<T>()
+                || !parent
+                    .target
+                    .view(&root.owner)
+                    .compatible(field.parent.type_argument().view(field.parent.owner()))
+            {
+                return Err(invalid());
+            }
+            if parent.path.len() >= 64 {
+                return Err(RuntimeError::resource_limit("inline host path depth"));
+            }
+            let mut path = parent.path.to_vec();
+            path.try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("inline host path capacity"))?;
+            path.push(field.declaration);
+            let mut projectors = parent.projectors.to_vec();
+            projectors
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("inline host projector capacity"))?;
+            projectors.push(field.projector.clone());
+            Ok(ScopedPlace {
+                rust_type: TypeId::of::<F>(),
+                target: field.target.clone(),
+                path: path.into(),
+                projectors: projectors.into(),
+            })
+        })?;
+        let mut state = self.state.borrow_mut();
+        let root = state
+            .active_frames
+            .get_mut(&view.frame)
+            .and_then(|frame| {
+                frame
+                    .roots
+                    .iter_mut()
+                    .find(|root| root.object == view.object)
+            })
+            .ok_or_else(invalid)?;
+        let index = if let Some(index) = root
+            .places
+            .iter()
+            .position(|existing| existing.path == place.path)
+        {
+            index
+        } else {
+            root.places
+                .try_reserve(1)
+                .map_err(|_| RuntimeError::resource_limit("inline host places"))?;
+            root.places.push(place);
+            root.places.len() - 1
+        };
+        Ok(ScopedHostView {
+            place: index,
+            ..view
+        })
     }
 
     pub(crate) fn read_scoped<T: Send + 'static, R>(
