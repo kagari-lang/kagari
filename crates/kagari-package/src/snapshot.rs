@@ -7,7 +7,11 @@ use crate::{
     path,
 };
 use blake3::Hasher;
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
+use kagari_source::{
+    package::{PackageEnvironment, PackageScope},
+    source_database::{CapturedSource, SourceDatabase, SourceSnapshot},
+};
 use std::collections::BTreeMap;
 
 /// Immutable source/module capture for one exact selection.
@@ -42,6 +46,64 @@ impl CapturedPackage {
 }
 
 impl ProgramInputs {
+    /// Registers the complete captured Program and its exact package scopes atomically.
+    /// Inline modules are derived by HIR from their containing file, never registered twice.
+    pub fn source_snapshot(
+        &self,
+        sources: &mut SourceDatabase,
+        cancel: &CancellationToken,
+    ) -> Result<SourceSnapshot, PackageError> {
+        cancel.check()?;
+        let mut scopes = BTreeMap::new();
+        let mut captured = Vec::new();
+        for (selection, package) in &self.packages {
+            cancel.check()?;
+            let id = selection.family.package_id();
+            let mut hash = Hasher::new_derive_key("kagari selected package input v1");
+            hash_selection(&mut hash, selection);
+            scopes.insert(
+                id.clone(),
+                PackageScope {
+                    dependencies: package
+                        .dependencies
+                        .iter()
+                        .map(|(alias, selection)| (alias.clone(), selection.family.package_id()))
+                        .collect(),
+                    selection: hash.finalize().to_hex().to_string(),
+                },
+            );
+            for (module, location) in &package.tree.modules {
+                cancel.check()?;
+                if location.inline_range.is_some() {
+                    continue;
+                }
+                let name = format!("package://{}/{}", id.0, module.join("/"));
+                let name = format!("{name}/source.kgr");
+                let file = &package.tree.files[&location.file];
+                captured.push(CapturedSource {
+                    key: name,
+                    module: ModuleIdentity {
+                        package: id.clone(),
+                        path: module.clone(),
+                    },
+                    text: file.text.to_string(),
+                    display_name: file.origin.clone(),
+                });
+            }
+        }
+        let environment = PackageEnvironment::new(scopes)
+            .map_err(|message| PackageError::input("package environment", message))?;
+        sources
+            .replace_captured(captured, environment, cancel)
+            .map_err(|message| {
+                if cancel.check().is_err() {
+                    PackageError::Cancelled
+                } else {
+                    PackageError::input("package sources", message)
+                }
+            })
+    }
+
     pub fn root(&self) -> &PackageSelection {
         &self.root
     }

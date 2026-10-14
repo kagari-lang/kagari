@@ -395,7 +395,7 @@ impl DeclaredAnalysis {
                     .names
                     .facts
                     .catalog
-                    .same_reuse_namespaces(
+                    .same_signature_namespaces(
                         &self.names.facts.catalog,
                         &old.names.facts.items,
                         &self.names.facts.items,

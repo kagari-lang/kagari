@@ -43,11 +43,18 @@ impl ModuleIdentity {
         self.path.len() <= MAX_IDENTITY_PATH_SEGMENTS
     }
 
-    /// An unnamed package uses the complete source name as its module path.
+    /// A standalone source owns an unnamed root and a family derived from its source name.
+    /// Hex encoding keeps arbitrary host URIs out of the `::` module-path syntax.
     pub fn single_file(source_name: impl Into<String>) -> Self {
+        let source_name = source_name.into();
+        let encoded = source_name
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
         Self {
-            package: PackageId("source".into()),
-            path: vec![source_name.into()],
+            package: PackageId(format!("source-file:{encoded}")),
+            path: vec![],
         }
     }
 }

@@ -14,16 +14,18 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::ModuleIdentity,
+    identity::{ModuleIdentity, PackageId},
     span::Span,
 };
 use kagari_source::{
     diagnostic::{Diagnostic, DiagnosticKind},
     identity::FileSpan,
+    package::PackageEnvironment,
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
+    iter,
     sync::Arc,
 };
 
@@ -37,18 +39,22 @@ impl ModuleGraph {
         hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<Self, ImportSolveError> {
-        Self::build_with_limits(sources, hosts, cancel, None)
+        Self::build_with_limits(sources, hosts, &PackageEnvironment::default(), cancel, None)
     }
 
     pub(crate) fn build_with_limits<'a>(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
         hosts: &HostDeclarations,
+        packages: &PackageEnvironment,
         cancel: &CancellationToken,
         limits: Option<SolverLimits>,
     ) -> Result<Self, ImportSolveError> {
         let mut sources = sources.into_iter().collect::<Vec<_>>();
         sources.sort_by_key(|module| (module.source.module_identity().clone(), module.source.id()));
-        let mut base = NamespaceCatalog::default();
+        let mut base = NamespaceCatalog {
+            packages: packages.clone(),
+            ..NamespaceCatalog::default()
+        };
         for module in &sources {
             cancel.check()?;
             let unit = SourceUnit::of(module);
@@ -56,11 +62,45 @@ impl ModuleGraph {
                 .entry(unit.module.clone())
                 .or_default()
                 .push(unit);
-            if let Some(alias) = &module.native_package_alias {
-                base.package_aliases
-                    .entry(alias.clone())
-                    .or_default()
-                    .insert(module.source.module_identity().package.clone());
+            if module.registered_native_api {
+                let package = &module.source.module_identity().package;
+                for alias in module
+                    .native_package_alias
+                    .iter()
+                    .chain(iter::once(&package.0))
+                {
+                    base.installed_aliases
+                        .entry(alias.clone())
+                        .or_default()
+                        .insert(package.clone());
+                }
+            }
+        }
+        for (package, scope) in packages.scopes() {
+            if !base.modules.contains_key(&ModuleIdentity {
+                package: package.clone(),
+                path: vec![],
+            }) {
+                return Err(ImportSolveError::Packages(format!(
+                    "missing root of {}",
+                    package.0
+                )));
+            }
+            if scope
+                .dependencies
+                .keys()
+                .any(|alias| base.installed_aliases.contains_key(alias))
+            {
+                return Err(ImportSolveError::Packages(
+                    "source dependency alias conflicts with installed provider".into(),
+                ));
+            }
+            if sources.iter().any(|source| {
+                source.registered_native_api && &source.source.module_identity().package == package
+            }) {
+                return Err(ImportSolveError::Packages(
+                    "source package collides with installed provider".into(),
+                ));
             }
         }
         for module in &sources {
@@ -72,11 +112,37 @@ impl ModuleGraph {
             facts: resolved,
             work: _work,
         } = solve(&sources, base, hosts, cancel, limits)?;
+        // A package hub retains the complete module set without a quadratic clique.
+        // Normalized packages have an empty-path root; manually bound analysis inputs
+        // use their first deterministic module as the same traversal anchor.
+        let mut members: BTreeMap<PackageId, Vec<ModuleIdentity>> = BTreeMap::new();
+        for identity in catalog.modules.keys() {
+            members
+                .entry(identity.package.clone())
+                .or_default()
+                .push(identity.clone());
+        }
         let mut nodes = BTreeMap::new();
         let mut source_facts = HashMap::new();
         for (unit, mut facts) in resolved {
             cancel.check()?;
             let identity = &unit.module;
+            let package = &members[&identity.package];
+            let hub = &package[0];
+            if identity == hub {
+                facts
+                    .dependencies
+                    .extend(package.iter().filter(|member| *member != identity).cloned());
+                if let Some(scope) = packages.scope(&identity.package) {
+                    for target in scope.dependencies.values() {
+                        facts.dependencies.push(members[target][0].clone());
+                    }
+                }
+            } else {
+                facts.dependencies.push(hub.clone());
+            }
+            facts.dependencies.sort();
+            facts.dependencies.dedup();
             let units = &catalog.modules[identity];
             if units.len() > 1 {
                 facts.diagnostics.push(

@@ -108,7 +108,6 @@ impl NativeImport {
             declaration.validate(definitions).is_ok() && *self == Self::from_host(declaration)
         }) && definitions.resolve(self.binding).is_ok_and(|view| {
             !view.module().package.0.is_empty()
-                && !view.module().path.is_empty()
                 && !view.module().path.iter().any(String::is_empty)
                 && view.last().is_some_and(|part| {
                     !part.name.is_empty()

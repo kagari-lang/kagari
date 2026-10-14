@@ -1,9 +1,14 @@
 use crate::{
     identity::{FileId, FileSpan, Revision},
+    package::PackageEnvironment,
     source::SourceFile,
 };
-use kagari_common::identity::ModuleIdentity;
-use std::{collections::BTreeMap, env, fs, sync::Arc};
+use kagari_common::{cancellation::CancellationToken, identity::ModuleIdentity};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env, fs,
+    sync::Arc,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub enum SourceLayer {
@@ -17,12 +22,22 @@ struct Document {
     module: ModuleIdentity,
     base: Option<String>,
     overlay: Option<String>,
+    display_name: String,
+}
+
+/// One captured document: stable database key, diagnostic origin, module and bytes.
+pub struct CapturedSource {
+    pub key: String,
+    pub display_name: String,
+    pub module: ModuleIdentity,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct SourceSnapshot {
     revision: Revision,
     files: Arc<BTreeMap<FileId, Arc<SourceFile>>>,
+    packages: Arc<PackageEnvironment>,
 }
 
 impl SourceSnapshot {
@@ -31,11 +46,16 @@ impl SourceSnapshot {
         Self {
             revision: file.revision(),
             files: Arc::new([(file.id(), file)].into()),
+            packages: Arc::default(),
         }
     }
 
     pub fn revision(&self) -> Revision {
         self.revision
+    }
+
+    pub fn packages(&self) -> &PackageEnvironment {
+        &self.packages
     }
 
     pub fn file(&self, file: FileId) -> Option<&Arc<SourceFile>> {
@@ -114,6 +134,90 @@ impl SourceDatabase {
         self.snapshot.clone()
     }
 
+    /// Atomically replaces the complete input set while retaining unchanged file IDs/revisions.
+    /// Captured text replaces base/overlay layers; documents outside the batch are removed.
+    /// Invalid input or cancellation leaves the database and retained snapshots unchanged.
+    pub fn replace_captured(
+        &mut self,
+        sources: Vec<CapturedSource>,
+        packages: PackageEnvironment,
+        cancel: &CancellationToken,
+    ) -> Result<SourceSnapshot, String> {
+        cancel.check().map_err(|_| "source capture cancelled")?;
+        let revision = Revision(
+            self.snapshot
+                .revision
+                .0
+                .checked_add(1)
+                .expect("source revision exhausted"),
+        );
+        let mut documents = BTreeMap::new();
+        let mut files = BTreeMap::new();
+        let mut identities = BTreeSet::new();
+        for source in sources {
+            cancel.check().map_err(|_| "source capture cancelled")?;
+            let key = self.source_name(&source.key)?;
+            validate_module(&source.module)?;
+            if !identities.insert(source.module.clone()) || documents.contains_key(&key) {
+                return Err("duplicate captured source key or module identity".into());
+            }
+            let id = self
+                .documents
+                .get(&key)
+                .map_or_else(FileId::fresh, |document| document.id);
+            let file = self
+                .snapshot
+                .files
+                .get(&id)
+                .filter(|file| {
+                    file.text() == source.text
+                        && file.module_identity() == &source.module
+                        && file.name() == source.display_name
+                })
+                .cloned()
+                .unwrap_or_else(|| {
+                    Arc::new(
+                        SourceFile::new(&source.display_name, &source.text).with_identity(
+                            id,
+                            revision,
+                            source.module.clone(),
+                        ),
+                    )
+                });
+            files.insert(id, file);
+            documents.insert(
+                key,
+                Document {
+                    id,
+                    module: source.module,
+                    base: Some(source.text),
+                    overlay: None,
+                    display_name: source.display_name,
+                },
+            );
+        }
+        let unchanged = *self.snapshot.packages == packages
+            && self.snapshot.files.len() == files.len()
+            && files.iter().all(|(id, file)| {
+                self.snapshot
+                    .files
+                    .get(id)
+                    .is_some_and(|old| Arc::ptr_eq(old, file))
+            });
+        cancel.check().map_err(|_| "source capture cancelled")?;
+        self.documents = documents;
+        self.snapshot = SourceSnapshot {
+            revision: if unchanged {
+                self.snapshot.revision
+            } else {
+                revision
+            },
+            files: Arc::new(files),
+            packages: Arc::new(packages),
+        };
+        Ok(self.snapshot())
+    }
+
     pub fn set(&mut self, name: &str, text: String, layer: SourceLayer) -> Result<FileId, String> {
         let name = self.source_name(name)?;
         if !self.documents.contains_key(&name)
@@ -132,6 +236,7 @@ impl SourceDatabase {
                 module: ModuleIdentity::single_file(name.clone()),
                 base: None,
                 overlay: None,
+                display_name: name.clone(),
             });
         match layer {
             SourceLayer::Base => document.base = Some(text),
@@ -154,15 +259,7 @@ impl SourceDatabase {
     /// Bind a logical package/module before analysis. An overlay shares this binding.
     pub fn bind_module(&mut self, name: &str, module: ModuleIdentity) -> Result<FileId, String> {
         let name = self.source_name(name)?;
-        if !module.within_path_limit() {
-            return Err("module identity path segment limit exceeded".into());
-        }
-        if module.package.0.is_empty()
-            || module.path.is_empty()
-            || module.path.iter().any(String::is_empty)
-        {
-            return Err("module identity requires a package and nonempty path components".into());
-        }
+        validate_module(&module)?;
         if self
             .documents
             .iter()
@@ -180,6 +277,7 @@ impl SourceDatabase {
                 module: module.clone(),
                 base: None,
                 overlay: None,
+                display_name: name.clone(),
             });
         document.module = module;
         let id = document.id;
@@ -217,7 +315,7 @@ impl SourceDatabase {
         if let Some(text) = text {
             files.insert(
                 document.id,
-                Arc::new(SourceFile::new(name, text).with_identity(
+                Arc::new(SourceFile::new(&document.display_name, text).with_identity(
                     document.id,
                     self.snapshot.revision,
                     document.module.clone(),
@@ -227,6 +325,16 @@ impl SourceDatabase {
             files.remove(&document.id);
         }
     }
+}
+
+fn validate_module(module: &ModuleIdentity) -> Result<(), String> {
+    if !module.within_path_limit() {
+        return Err("module identity path segment limit exceeded".into());
+    }
+    if module.package.0.is_empty() || module.path.iter().any(String::is_empty) {
+        return Err("module identity requires a package and nonempty path components".into());
+    }
+    Ok(())
 }
 
 /// Lexical normalization only: virtual/unsaved sources need not exist on disk.
@@ -328,6 +436,57 @@ mod tests {
     use super::*;
     use crate::line_index::{Position, PositionEncoding};
     use kagari_common::span::Span;
+
+    #[test]
+    fn captured_batches_preserve_previous_inputs_on_invalid_or_cancelled_replacement() {
+        let mut db = SourceDatabase::default();
+        let id = db
+            .set("retained.kgr", "before".into(), SourceLayer::Base)
+            .unwrap();
+        let old = db.snapshot();
+        let capture = || CapturedSource {
+            key: "mem://new".into(),
+            display_name: "src/lib.kgr".into(),
+            module: ModuleIdentity::single_file("new"),
+            text: "after".into(),
+        };
+        assert!(
+            db.replace_captured(
+                vec![capture(), capture()],
+                PackageEnvironment::default(),
+                &CancellationToken::default(),
+            )
+            .is_err()
+        );
+        let cancel = CancellationToken::default();
+        cancel.cancel();
+        assert!(
+            db.replace_captured(vec![capture()], PackageEnvironment::default(), &cancel)
+                .is_err()
+        );
+        assert_eq!(db.snapshot().revision(), old.revision());
+        assert_eq!(db.file_id("retained.kgr"), Some(id));
+        assert!(db.file_id("mem://new").is_none());
+        assert_eq!(db.snapshot().file(id).unwrap().text(), "before");
+        let next = db
+            .replace_captured(
+                vec![capture()],
+                PackageEnvironment::default(),
+                &CancellationToken::default(),
+            )
+            .unwrap();
+        assert!(next.file(id).is_none());
+        assert_eq!(next.files().next().unwrap().name(), "src/lib.kgr");
+        assert_eq!(old.file(id).unwrap().text(), "before");
+        let unchanged = db
+            .replace_captured(
+                vec![capture()],
+                PackageEnvironment::default(),
+                &CancellationToken::default(),
+            )
+            .unwrap();
+        assert_eq!(unchanged.revision(), next.revision());
+    }
 
     #[test]
     fn single_file_snapshot_preserves_identity_revision_and_span_validation() {

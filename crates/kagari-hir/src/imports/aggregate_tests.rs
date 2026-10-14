@@ -236,11 +236,13 @@ fn inferred_foreign_fields_invalidate_through_unchanged_function_facades() {
     );
     let text = "use pkg::api::make; fn read() -> i32 { make().count }";
     let root = insert(&mut db, "root", text);
-    let unrelated = insert(
-        &mut db,
-        "unrelated",
-        "struct Data { var count: bool } fn unrelated() -> i32 { 0 }",
-    );
+    let unrelated = db
+        .set(
+            "mem://unrelated",
+            "struct Data { var count: bool } fn unrelated() -> i32 { 0 }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
     let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())

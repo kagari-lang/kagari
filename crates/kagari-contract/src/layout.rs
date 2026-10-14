@@ -411,7 +411,6 @@ fn top_level(
     definitions.resolve(id).is_ok_and(|view| {
         view.segments().count() == 1
             && !view.module().package.0.is_empty()
-            && !view.module().path.is_empty()
             && !view.module().path.iter().any(String::is_empty)
             && view.last().is_some_and(|part| {
                 part.kind == kind

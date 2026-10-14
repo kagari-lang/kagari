@@ -509,7 +509,6 @@ pub fn type_valid(
     let nominal_valid = |id: &DefinitionId, kind| {
         table.resolve(*id).is_ok_and(|view| {
             !view.module().package.0.is_empty()
-                && !view.module().path.is_empty()
                 && !view.module().path.iter().any(String::is_empty)
                 && view
                     .last()
@@ -666,7 +665,6 @@ pub fn type_definition_valid(
 fn callable_identity_valid(id: DefinitionId, table: &DefinitionTable) -> bool {
     table.resolve(id).is_ok_and(|view| {
         !view.module().package.0.is_empty()
-            && !view.module().path.is_empty()
             && !view.module().path.iter().any(String::is_empty)
             && view.last().is_some_and(|part| {
                 matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)

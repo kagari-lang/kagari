@@ -283,6 +283,7 @@ impl AnalysisDatabase {
         let graph = Arc::new(ModuleGraph::build_with_limits(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
             hosts,
+            source.packages(),
             cancel,
             limits,
         )?);

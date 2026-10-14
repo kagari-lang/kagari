@@ -1,6 +1,10 @@
 use super::*;
 use crate::{
-    analysis::AnalysisSnapshot, host::HostDeclarations, lower::lower_module, tests::test_analysis,
+    analysis::{AnalysisSnapshot, error::AnalysisError},
+    host::HostDeclarations,
+    imports::solver::ImportSolveError,
+    lower::lower_module,
+    tests::test_analysis,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -8,7 +12,8 @@ use kagari_common::{
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
-    source_database::{SourceDatabase, SourceLayer},
+    package::{PackageEnvironment, PackageScope},
+    source_database::{CapturedSource, SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
@@ -95,6 +100,15 @@ fn wildcard_imports_detect_conflicts_and_reject_nonmodule_targets() {
         "right",
         "pub fn Marker() -> i32 { 42 } pub fn same() -> i32 { 2 }",
     );
+    let independent = insert(
+        &mut db,
+        "independent",
+        "use pkg::left::Marker; use pkg::right::*; fn main() -> i32 { val value: Marker = Marker {}; Marker() }",
+    );
+    let snapshot = analyze(&db);
+    snapshot
+        .check_program(independent, &Default::default())
+        .unwrap();
     let conflict = insert(
         &mut db,
         "conflict",
@@ -105,15 +119,7 @@ fn wildcard_imports_detect_conflicts_and_reject_nonmodule_targets() {
         "invalid",
         "use pkg::left::same::*; fn main() -> i32 { 42 }",
     );
-    let independent = insert(
-        &mut db,
-        "independent",
-        "use pkg::left::Marker; use pkg::right::*; fn main() -> i32 { val value: Marker = Marker {}; Marker() }",
-    );
     let snapshot = analyze(&db);
-    snapshot
-        .check_program(independent, &Default::default())
-        .unwrap();
     assert!(
         snapshot
             .file(conflict)
@@ -177,11 +183,6 @@ fn scoped_visibility_allows_parent_tree_and_rejects_outsiders() {
         "root::family::sibling",
         "use pkg::root::family::hidden; fn main() -> i32 { hidden() }",
     );
-    let outsider = insert(
-        &mut db,
-        "outsider",
-        "use pkg::root::family::shared; use pkg::root::family::child;",
-    );
     let snapshot = analyze(&db);
     assert!(
         snapshot
@@ -207,6 +208,12 @@ fn scoped_visibility_allows_parent_tree_and_rejects_outsiders() {
     snapshot
         .check_program(sibling, &Default::default())
         .unwrap();
+    let outsider = insert(
+        &mut db,
+        "outsider",
+        "use pkg::root::family::shared; use pkg::root::family::child;",
+    );
+    let snapshot = analyze(&db);
     assert!(
         snapshot
             .file(outsider)
@@ -273,23 +280,6 @@ fn package_visibility_covers_siblings_but_not_other_packages_or_public_reexports
         "sibling",
         "use pkg::root::shared; use pkg::root::inner::Data; fn main() -> i32 { val data = Data { value: shared() }; data.value }",
     );
-    let leak = insert(&mut db, "leak", "pub use pkg::root::shared as leaked;");
-    let foreign_path = "mem://foreign";
-    db.bind_module(
-        foreign_path,
-        ModuleIdentity {
-            package: PackageId("other".into()),
-            path: vec!["foreign".into()],
-        },
-    )
-    .unwrap();
-    let foreign = db
-        .set(
-            foreign_path,
-            "use pkg::root::shared; use pkg::root::inner::Data;".into(),
-            SourceLayer::Base,
-        )
-        .unwrap();
     let snapshot = analyze(&db);
     assert!(
         snapshot
@@ -303,6 +293,63 @@ fn package_visibility_covers_siblings_but_not_other_packages_or_public_reexports
     );
     snapshot
         .check_program(sibling, &Default::default())
+        .unwrap();
+    let leak = insert(&mut db, "leak", "pub use pkg::root::shared as leaked;");
+    let foreign_path = "mem://foreign";
+    db.bind_module(
+        foreign_path,
+        ModuleIdentity {
+            package: PackageId("other".into()),
+            path: vec![],
+        },
+    )
+    .unwrap();
+    let foreign = db
+        .set(
+            foreign_path,
+            "use pkg::root::shared; use pkg::root::inner::Data;".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    db.bind_module(
+        "mem://package",
+        ModuleIdentity {
+            package: PackageId("pkg".into()),
+            path: vec![],
+        },
+    )
+    .unwrap();
+    db.set("mem://package", "pub mod root;".into(), SourceLayer::Base)
+        .unwrap();
+    let packages = PackageEnvironment::new(
+        [
+            (PackageId("pkg".into()), PackageScope::default()),
+            (
+                PackageId("other".into()),
+                PackageScope {
+                    dependencies: [("pkg".into(), PackageId("pkg".into()))].into(),
+                    ..Default::default()
+                },
+            ),
+        ]
+        .into(),
+    )
+    .unwrap();
+    let captured = db
+        .snapshot()
+        .files()
+        .map(|file| CapturedSource {
+            key: file.name().into(),
+            display_name: file.name().into(),
+            module: file.module_identity().clone(),
+            text: file.text().into(),
+        })
+        .collect();
+    let source = db
+        .replace_captured(captured, packages, &Default::default())
+        .unwrap();
+    let snapshot = test_analysis()
+        .snapshot(source, &Default::default())
         .unwrap();
     for (file, expected) in [(foreign, 2), (leak, 1)] {
         let result = snapshot.file(file).unwrap().result();
@@ -394,7 +441,13 @@ fn diamond_has_deterministic_reachable_order() {
     insert(&mut db, "right", "use pkg::shared;");
     insert(&mut db, "left", "use pkg::shared;");
     insert(&mut db, "shared", "pub fn value() -> i32 { 7 }");
-    insert(&mut db, "unrelated", "use pkg::unrelated;");
+    let unrelated = db
+        .set(
+            "mem://unrelated",
+            "use self as recursive;".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
     let snapshot = analyze(&db);
     let graph = snapshot.module_graph();
     assert_eq!(
@@ -405,9 +458,24 @@ fn diamond_has_deterministic_reachable_order() {
     );
     assert_eq!(
         graph
-            .reachable_order(&identity("unrelated"), &Default::default())
+            .reachable_order(
+                snapshot.file(unrelated).unwrap().source().module_identity(),
+                &Default::default()
+            )
             .unwrap(),
-        expected_modules(&["unrelated"])
+        {
+            let mut expected = expected_modules(&[]);
+            expected.push(
+                snapshot
+                    .file(unrelated)
+                    .unwrap()
+                    .source()
+                    .module_identity()
+                    .clone(),
+            );
+            expected.sort();
+            expected
+        }
     );
     let root = graph.node(&identity("root")).unwrap();
     assert!(
@@ -753,6 +821,43 @@ fn source_host_and_module_item_ambiguities_are_rejected() {
 }
 
 #[test]
+fn declared_source_aliases_cannot_shadow_installed_native_packages() {
+    let mut db = SourceDatabase::default();
+    let modules = ["app", "library"].map(|name| CapturedSource {
+        key: format!("mem://{name}"),
+        display_name: name.into(),
+        module: ModuleIdentity {
+            package: PackageId(name.into()),
+            path: vec![],
+        },
+        text: String::new(),
+    });
+    let packages = PackageEnvironment::new(
+        [
+            (
+                PackageId("app".into()),
+                PackageScope {
+                    dependencies: [("std".into(), PackageId("library".into()))].into(),
+                    ..Default::default()
+                },
+            ),
+            (PackageId("library".into()), PackageScope::default()),
+        ]
+        .into(),
+    )
+    .unwrap();
+    let source = db
+        .replace_captured(modules.into(), packages, &Default::default())
+        .unwrap();
+    let error = test_analysis()
+        .snapshot(source, &Default::default())
+        .unwrap_err();
+    assert!(
+        matches!(error, AnalysisError::Imports(ImportSolveError::Packages(message)) if message.contains("installed provider"))
+    );
+}
+
+#[test]
 fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
     let mut db = SourceDatabase::default();
     for i in 0..1024 {
@@ -766,14 +871,23 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
             },
         );
     }
-    let snapshot = analyze(&db);
-    let graph = snapshot.module_graph();
+    let source = db.snapshot();
+    let lowered = source
+        .files()
+        .map(|file| lower_module(file))
+        .collect::<Vec<_>>();
+    let graph = ModuleGraph::build(
+        &lowered,
+        &HostDeclarations::empty().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     assert_eq!(
         graph
             .reachable_order(&identity("m0"), &Default::default())
             .unwrap()
             .len(),
-        1024 + foundation_catalog::shared().unwrap().len()
+        1024
     );
     let cancel = CancellationToken::default();
     cancel.cancel();
@@ -838,11 +952,6 @@ fn deep_aliases_and_direct_leaves_share_declarations_without_child_bindings() {
     let other = insert(&mut db, "other::nested", "pub fn value() -> i32 { 8 }");
     let text = "use pkg::m as a; use pkg::m as b; use pkg::m::nested::value as v; use pkg::other as c; fn main() -> i32 { a::nested::value() + b::nested::value() + v() + c::nested::value() }";
     let root = insert(&mut db, "root", text);
-    let missing = insert(
-        &mut db,
-        "missing",
-        "use pkg::m; fn bad() -> i32 { nested::value() }",
-    );
     let snapshot = analyze(&db);
     assert!(
         snapshot.check_program(root, &Default::default()).is_ok(),
@@ -897,6 +1006,12 @@ fn deep_aliases_and_direct_leaves_share_declarations_without_child_bindings() {
             .lookup("nested", NameNamespace::Type)
             .is_none()
     );
+    let missing = insert(
+        &mut db,
+        "missing",
+        "use pkg::m; fn bad() -> i32 { nested::value() }",
+    );
+    let snapshot = analyze(&db);
     assert!(
         snapshot
             .file(missing)

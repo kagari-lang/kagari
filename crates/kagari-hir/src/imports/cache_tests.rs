@@ -1,4 +1,8 @@
-use crate::{declarations::DeclarationId, imports::tests::insert, tests::test_analysis};
+use crate::{
+    analysis::signature_queries::FileSignatures, declarations::DeclarationId,
+    imports::tests::insert, tests::test_analysis,
+};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
@@ -22,7 +26,13 @@ fn transitive_alias_rename_invalidates_unchanged_caller() {
     let text =
         "use pkg::facade as m; fn keep(x: m::old) -> m::old { x } fn main() -> i32 { m::old() }";
     let root = insert(&mut sources, "root", text);
-    let unrelated = insert(&mut sources, "unrelated", "fn value() -> i32 { 9 }");
+    let unrelated = sources
+        .set(
+            "mem://unrelated",
+            "fn value() -> i32 { 9 }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
     let offset = text.rfind("old()").unwrap();
     let mut analysis = test_analysis();
     let first = analysis
@@ -175,10 +185,19 @@ fn type_alias_swap_invalidates_signature_reuse() {
         .signatures(sources.snapshot(), &Default::default())
         .unwrap();
     let result = incremental.file(root).unwrap();
-    assert_eq!(
-        result.type_at(offset),
-        fresh.file(root).unwrap().type_at(offset)
-    );
+    let context = DefinitionContext::new().unwrap();
+    let scoped_type = |file: &FileSignatures| {
+        DefinitionMetadata::checked(
+            file.definitions().clone(),
+            file.type_at(offset).unwrap(),
+            &Default::default(),
+        )
+        .unwrap()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records()
+    };
+    assert_eq!(scoped_type(result), scoped_type(fresh.file(root).unwrap()));
     assert_ne!(result.type_at(offset), Some(old_type.clone()));
     assert!(!result.reused());
     assert_eq!(first.file(root).unwrap().type_at(offset), Some(old_type));

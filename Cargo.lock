@@ -564,6 +564,7 @@ dependencies = [
  "blake3",
  "glob",
  "kagari-common",
+ "kagari-hir",
  "kagari-source",
  "kagari-syntax",
  "semver",

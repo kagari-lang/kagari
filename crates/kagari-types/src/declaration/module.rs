@@ -183,13 +183,11 @@ impl ModuleDecl {
                 .package_alias
                 .as_ref()
                 .is_some_and(|alias| !identifier(alias))
-            || self.identity.path.is_empty()
             || self.identity.path.iter().any(|name| !identifier(name))
             || self.dependencies.len() > 4096
             || self.dependencies.iter().any(|dependency| {
                 dependency == &self.identity
                     || dependency.package.0.is_empty()
-                    || dependency.path.is_empty()
                     || dependency.path.iter().any(|name| !identifier(name))
             })
             || !self.declaration_count_valid()

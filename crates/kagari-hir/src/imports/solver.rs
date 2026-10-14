@@ -64,6 +64,8 @@ impl SolverLimits {
 /// A failed solve never publishes a graph or authorizes code generation.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImportSolveError {
+    #[error("invalid package environment: {0}")]
+    Packages(String),
     #[error("import resolution cancelled")]
     Cancelled,
     #[error(

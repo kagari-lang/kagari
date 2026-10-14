@@ -127,7 +127,13 @@ fn facade_signature_changes_invalidate_unchanged_transitive_callers() {
     let facade = insert(&mut db, "facade", "pub use pkg::library::value;");
     let text = "use pkg::facade::value; fn main() -> i32 { val x = value(); x }";
     let root = insert(&mut db, "root", text);
-    let unrelated = insert(&mut db, "unrelated", "fn other() -> i32 { 9 }");
+    let unrelated = db
+        .set(
+            "mem://unrelated",
+            "fn other() -> i32 { 9 }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
     let mut analysis = test_analysis();
     let first = analysis
         .snapshot(db.snapshot(), &Default::default())

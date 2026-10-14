@@ -29,9 +29,10 @@ request. PK00 froze portable identities, acquisition/analysis input ownership,
 empty roots and host-callable export contracts. PK01 completed strict local/virtual
 inputs and workspace discovery/selection, with 17 focused contract tests passing.
 PK02 added whole-workspace locking and isolated Program source capture; 11 graph/lock
-contract tests passed. PK03 started with `pub(crate)` across parsing, semantic
-access and artifact metadata (13 focused tests passed). Package-scoped compiler
-inputs, empty roots, exported host calls and SDK/CLI integration remain next.
+contract tests passed. PK03 has `pub(crate)`, atomic captured-source publication, per-package import scopes,
+empty roots, full package/dependency checking and incremental scope invalidation.
+Focused source/HIR and existing compiler/source-free contract tests pass; the plan
+records their scope. Exported host calls and SDK/CLI integration remain next.
 Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,

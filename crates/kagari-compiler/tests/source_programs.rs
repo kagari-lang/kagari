@@ -281,7 +281,12 @@ fn fixture() -> CheckedProgram {
         "right",
         "pub use pkg::shared::answer; pub use pkg::shared::Data;",
     );
-    insert(&mut db, "unrelated", "fn broken() -> i32 { false }");
+    db.set(
+        "mem://unrelated",
+        "fn broken() -> i32 { false }".into(),
+        SourceLayer::Base,
+    )
+    .unwrap();
     let root = insert(
         &mut db,
         "root",

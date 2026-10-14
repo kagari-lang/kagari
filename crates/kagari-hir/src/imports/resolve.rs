@@ -101,8 +101,8 @@ pub(super) fn resolve_imports(
             },
             direct_dependencies: BTreeSet::new(),
         };
-        let path = normalize_import_path(&directive.path, &unit.module);
-        catalog.path_dependencies(&path, &mut directive.direct_dependencies);
+        let path = &directive.path;
+        catalog.path_dependencies(&unit.module, path, &mut directive.direct_dependencies);
         let categories: &[NameNamespace] =
             if let Some(namespace) = module.native_import_namespaces.get(&slot) {
                 slice::from_ref(namespace)
@@ -125,11 +125,11 @@ pub(super) fn resolve_imports(
                 cancel,
             };
             let ctx = &directive_context.lookup;
-            let mut lookup = catalog.absolute(ctx, &path, namespace, cancel)?;
+            let mut lookup = catalog.absolute(ctx, path, namespace, cancel)?;
             if matches!(import.kind, ImportLeaf::Glob)
                 && matches!(lookup, LookupResult::Missing)
                 && matches!(
-                    catalog.absolute(ctx, &path, NameNamespace::Value, cancel)?,
+                    catalog.absolute(ctx, path, NameNamespace::Value, cancel)?,
                     LookupResult::Found(_)
                 )
             {
@@ -265,15 +265,7 @@ pub(super) fn resolve_imports(
                         },
                     )),
                 };
-                if let Some(mut hit) = catalog
-                    .absolute(
-                        &ctx,
-                        &normalize_import_path(prefix, &unit.module),
-                        namespace,
-                        cancel,
-                    )?
-                    .hit()
-                {
+                if let Some(mut hit) = catalog.absolute(&ctx, prefix, namespace, cancel)?.hit() {
                     hit.via.insert(
                         0,
                         if matches!(directive.kind, ImportKind::Glob) {
@@ -616,30 +608,4 @@ fn reexport_allowed(
         || candidates
             .iter()
             .any(|c| c.visibility.allows_reexport(&c.owner, visibility, exporter))
-}
-
-fn normalize_import_path(path: &str, current: &ModuleIdentity) -> String {
-    let mut segments = path.split("::").peekable();
-    let mut base = current.path.clone();
-    match segments.peek().copied() {
-        Some("self") => {
-            segments.next();
-        }
-        Some("crate") => {
-            segments.next();
-            base.truncate(1);
-        }
-        Some("super") => {
-            while segments.peek() == Some(&"super") {
-                segments.next();
-                if base.len() <= 1 {
-                    return path.into();
-                }
-                base.pop();
-            }
-        }
-        _ => return path.into(),
-    }
-    base.extend(segments.map(str::to_owned));
-    format!("{}::{}", current.package.0, base.join("::"))
 }

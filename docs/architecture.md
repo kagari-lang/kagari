@@ -22,15 +22,35 @@ For source-level data structures and ID lookup, start with the
 - Installed interfaces determine available APIs. Cancellation and call-depth
   protection remain; there is no generic permission matrix or execution charging.
 
+## Source package inputs
+
+`kagari-package` acquires and resolves sources before compilation. Its immutable
+`ProgramInputs` retains one exact dependency closure and hands external/root files
+to `kagari-source`; HIR derives inline modules from those same captured bytes.
+`SourceDatabase::replace_captured` publishes the complete batch and package scopes
+atomically, preserves unchanged file IDs/revisions, and keeps diagnostic origins
+separate from stable logical keys. Invalid or cancelled batches leave old inputs
+usable. Retained source and analysis snapshots own their previous scopes and bytes.
+
+`PackageEnvironment` is a bounded, validated graph of importer-specific source
+aliases and opaque selection fingerprints. It carries no filesystem or acquisition
+policy. HIR resolves `crate`, `self` and `super` against structured module identities;
+the root path is empty. Installed native aliases remain separately registered inputs.
+Complete package membership and direct dependency edges determine body checking and
+trait candidates. Module traversal uses a package hub rather than all-to-all member
+edges. Source visibility still controls name lookup independently of closure membership.
+Namespace/type/callable comparisons guard incremental reuse when bytes, bindings or
+exact selections change. Native provider contracts remain separate analysis inputs.
+
 ## Workspace Shape
 
 | Crate | Current responsibility |
 | --- | --- |
 | kagari-common | Portable definition identities/tables/mappings, debug spans, cancellation and bounded decoding |
 | kagari-types | Semantic types, declarations, symbolic defaults, generic checks, numeric/collection/range semantics and offline host schemas |
-| kagari-source | Source documents/revisions, diagnostics, literal grammar, line indices and navigation provenance |
+| kagari-source | Source documents/revisions, immutable package scopes, diagnostics, literal grammar, line indices and navigation provenance |
 | kagari-syntax | Lexer, parser, CST and AST views |
-| kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture; compiler integration is in progress |
+| kagari-package | Compilation-only manifests/workspaces, portable package identities, exact dependency graph/lock, virtual/filesystem source capture and atomic handoff to source analysis; SDK/CLI integration is in progress |
 | kagari-hir | Recoverable analysis, resolution, typing and tooling queries |
 | kagari-abi | Physical value representations, helper ABI, native code descriptors and memory lifetime |
 | kagari-contract | Executable envelopes, checked call/layout/operation contracts, physical lowering and linked verification |

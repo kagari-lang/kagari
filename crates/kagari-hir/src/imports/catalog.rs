@@ -11,6 +11,7 @@ use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{ModuleIdentity, PackageId},
 };
+use kagari_source::package::PackageEnvironment;
 use kagari_types::declaration::names::NameNamespace;
 use std::{
     cell::RefCell,
@@ -51,7 +52,8 @@ pub struct NamespaceCatalog {
     /// Namespace identity to owner, shared name table and glob policy.
     pub(crate) namespaces: HashMap<NamespaceId, NamespaceTable>,
     /// Installed package aliases; multiple package targets make an alias ambiguous.
-    pub(crate) package_aliases: BTreeMap<String, BTreeSet<PackageId>>,
+    pub(crate) installed_aliases: BTreeMap<String, BTreeSet<PackageId>>,
+    pub(crate) packages: PackageEnvironment,
 }
 
 /// A canonical target plus the selected binding origins along its lookup path.
@@ -205,7 +207,7 @@ impl NamespaceCatalog {
         let Some((candidates, strong)) = selected else {
             if let NamespaceId::InstalledPrefix(identity) = ns {
                 let aliases = iter::once(identity.package.0.as_str()).chain(
-                    self.package_aliases
+                    self.installed_aliases
                         .iter()
                         .filter(|(_, packages)| {
                             packages.len() == 1 && packages.contains(&identity.package)
@@ -362,26 +364,33 @@ impl NamespaceCatalog {
         if let Some(observations) = ctx.observations {
             observations.borrow_mut().insert(Observation::InputUniverse);
         }
-        let segments = path.split("::").collect::<Vec<_>>();
-        let Some(package) = segments.first() else {
+        let Some((packages, components)) = self.package_path(ctx.importer, path) else {
             return Ok(LookupResult::Missing);
         };
-        let packages = self
-            .package_aliases
-            .get(*package)
-            .cloned()
-            .unwrap_or_else(|| BTreeSet::from([PackageId((*package).into())]));
         if packages.len() > 1 {
             return Ok(LookupResult::Ambiguous(vec![]));
         }
-        let package = packages.first().expect("package");
-        for end in 1..segments.len() {
+        let Some(package) = packages.first() else {
+            return Ok(ctx
+                .hosts
+                .resolve_name(path, namespace)
+                .and_then(host_target)
+                .map_or(LookupResult::Missing, |target| {
+                    LookupResult::Found(LookupHit {
+                        support: HashSet::new(),
+                        namespace,
+                        target,
+                        via: vec![],
+                    })
+                }));
+        };
+        for end in 0..=components.len() {
             let identity = ModuleIdentity {
                 package: package.clone(),
-                path: segments[1..=end].iter().map(|s| (*s).into()).collect(),
+                path: components[..end].to_vec(),
             };
             if let Some(units) = self.modules.get(&identity) {
-                if end + 1 == segments.len() && namespace == NameNamespace::Value {
+                if end == components.len() && namespace == NameNamespace::Value {
                     return Ok(LookupResult::Missing);
                 }
                 if units.len() != 1 {
@@ -396,16 +405,11 @@ impl NamespaceCatalog {
                     target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
                     via: vec![],
                 });
-                let result = self.resolve_path(
-                    ctx,
-                    root,
-                    &segments[end + 1..].join("::"),
-                    namespace,
-                    cancel,
-                )?;
+                let result =
+                    self.resolve_path(ctx, root, &components[end..].join("::"), namespace, cancel)?;
                 let terminal = ModuleIdentity {
                     package: package.clone(),
-                    path: segments[1..].iter().map(|s| (*s).to_owned()).collect(),
+                    path: components.clone(),
                 };
                 let physical_collision = namespace == NameNamespace::Type && self.modules.get(&terminal).is_some_and(|units| {
                     matches!(&result, LookupResult::Found(hit) if !matches!(&hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if units.as_slice() == [unit.clone()]))
@@ -444,7 +448,7 @@ impl NamespaceCatalog {
                     target: ResolvedTarget::Namespace(prefix),
                     via: vec![],
                 }),
-                &segments[1..].join("::"),
+                &components.join("::"),
                 namespace,
                 cancel,
             );
@@ -459,7 +463,7 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
         let mut parent = identity.clone();
-        while parent.path.len() > 1 {
+        while !parent.path.is_empty() {
             cancel.check()?;
             let name = parent.path.pop().expect("child");
             if let Some(units) = self.modules.get(&parent) {
@@ -512,6 +516,7 @@ impl NamespaceCatalog {
             .collect::<Vec<_>>();
         let mut seen = HashSet::new();
         let mut sources = HashSet::new();
+        self.add_package_namespaces(&ctx, &mut pending, cancel)?;
         while let Some(target) = pending.pop() {
             cancel.check()?;
             if let ResolvedTarget::Source(source) = &target
@@ -576,6 +581,37 @@ impl NamespaceCatalog {
     }
 }
 
+impl NamespaceCatalog {
+    /// Qualified paths need signature projections even without a `use` binding.
+    fn add_package_namespaces(
+        &self,
+        ctx: &LookupContext<'_>,
+        pending: &mut Vec<ResolvedTarget>,
+        cancel: &CancellationToken,
+    ) -> Result<(), Cancelled> {
+        let dependencies = self
+            .packages
+            .scope(&ctx.importer.package)
+            .map(|scope| &scope.dependencies);
+        for (identity, units) in &self.modules {
+            cancel.check()?;
+            let own = identity.package == ctx.importer.package;
+            let direct = dependencies.is_some_and(|aliases| {
+                aliases.values().any(|package| package == &identity.package)
+            });
+            if (own || (direct && identity.path.is_empty()))
+                && units.len() == 1
+                && self.module_accessible(ctx, identity, cancel)?
+            {
+                pending.push(ResolvedTarget::Namespace(NamespaceId::Module(
+                    units[0].clone(),
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
 fn host_target(name: ResolvedName) -> Option<ResolvedTarget> {
     Some(match name {
         ResolvedName::HostModule(id) => ResolvedTarget::Namespace(NamespaceId::Host(id)),
@@ -595,7 +631,7 @@ impl NamespaceCatalog {
         hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
-        self.same_namespace_inputs(other, names, None, hosts, cancel)
+        self.same_namespace_inputs(other, names, None, hosts, cancel, false)
     }
 
     /// Reuse checked facts across a local lowering only after comparing all
@@ -615,7 +651,26 @@ impl NamespaceCatalog {
         if unit.module != other_unit.module || unit.file != other_unit.file {
             return Ok(false);
         }
-        self.same_namespace_inputs(other, names, Some(other_unit), hosts, cancel)
+        self.same_namespace_inputs(other, names, Some(other_unit), hosts, cancel, false)
+    }
+
+    /// Compare signature namespace bindings independently of foreign function body revisions.
+    /// The caller must also compare imported type surfaces before reusing typed signatures.
+    pub(crate) fn same_signature_namespaces(
+        &self,
+        other: &Self,
+        names: &NameTable,
+        other_names: &NameTable,
+        hosts: &HostDeclarations,
+        cancel: &CancellationToken,
+    ) -> Result<bool, Cancelled> {
+        let (Some(unit), Some(other_unit)) = (&names.unit, &other_names.unit) else {
+            return Ok(false);
+        };
+        if unit.module != other_unit.module || unit.file != other_unit.file {
+            return Ok(false);
+        }
+        self.same_namespace_inputs(other, names, Some(other_unit), hosts, cancel, true)
     }
 
     fn same_namespace_inputs(
@@ -625,6 +680,7 @@ impl NamespaceCatalog {
         rebased_unit: Option<&SourceUnit>,
         hosts: &HostDeclarations,
         cancel: &CancellationToken,
+        signature: bool,
     ) -> Result<bool, Cancelled> {
         let Some(unit) = names.unit.as_ref() else {
             return Ok(false);
@@ -647,6 +703,24 @@ impl NamespaceCatalog {
                 })
             })
             .collect::<Vec<_>>();
+        let package_start = pending.len();
+        self.add_package_namespaces(&ctx, &mut pending, cancel)?;
+        let mut other_packages = Vec::new();
+        other.add_package_namespaces(&ctx, &mut other_packages, cancel)?;
+        let package_namespaces = &pending[package_start..];
+        if package_namespaces.len() != other_packages.len()
+            || !package_namespaces
+                .iter()
+                .zip(&other_packages)
+                .all(|(a, b)| {
+                    matches!((a, b), (
+                    ResolvedTarget::Namespace(NamespaceId::Module(a)),
+                    ResolvedTarget::Namespace(NamespaceId::Module(b))
+                ) if a.module == b.module && a.file == b.file)
+                })
+        {
+            return Ok(false);
+        }
         let mut seen = HashSet::new();
         while let Some(target) = pending.pop() {
             cancel.check()?;
@@ -656,11 +730,31 @@ impl NamespaceCatalog {
             if !seen.insert(ns.clone()) {
                 continue;
             }
-            let other_ns = match (&ns, rebased_unit) {
-                (NamespaceId::Module(source), Some(new)) if source == unit => {
+            let foreign_unit = match &ns {
+                NamespaceId::Module(source) => Some(source),
+                NamespaceId::Associated(source) => Some(&source.unit),
+                _ => None,
+            }
+            .filter(|_| signature)
+            .and_then(|source| {
+                other
+                    .modules
+                    .get(&source.module)
+                    .filter(|units| units.len() == 1)
+                    .and_then(|units| units.iter().find(|candidate| candidate.file == source.file))
+            });
+            let mapped_unit = if signature {
+                foreign_unit
+            } else {
+                rebased_unit
+            };
+            let other_ns = match (&ns, mapped_unit) {
+                (NamespaceId::Module(source), Some(new)) if signature || source == unit => {
                     NamespaceId::Module(new.clone())
                 }
-                (NamespaceId::Associated(source), Some(new)) if &source.unit == unit => {
+                (NamespaceId::Associated(source), Some(new))
+                    if signature || &source.unit == unit =>
+                {
                     NamespaceId::Associated(SourceDeclRef {
                         unit: new.clone(),
                         item: source.item,
@@ -674,7 +768,7 @@ impl NamespaceCatalog {
                 (Some(a), Some(b), Some(new)) => {
                     a.owner == b.owner
                         && a.glob_allowed == b.glob_allowed
-                        && same_name_tables(&a.names, &b.names, Some(unit), Some(new), false)
+                        && same_name_tables(&a.names, &b.names, Some(unit), Some(new), signature)
                 }
                 _ => table == other_table,
             };
@@ -694,31 +788,72 @@ impl NamespaceCatalog {
                 }
             }
         }
-        Ok(self.package_aliases == other.package_aliases)
+        Ok(self.installed_aliases == other.installed_aliases && self.packages == other.packages)
     }
 }
 
 impl NamespaceCatalog {
+    fn package_path(
+        &self,
+        importer: &ModuleIdentity,
+        path: &str,
+    ) -> Option<(BTreeSet<PackageId>, Vec<String>)> {
+        let mut segments = path
+            .split("::")
+            .filter(|segment| !segment.is_empty())
+            .peekable();
+        let first = segments.next()?;
+        let (packages, mut components) = match first {
+            "crate" => ([importer.package.clone()].into(), vec![]),
+            "self" => ([importer.package.clone()].into(), importer.path.clone()),
+            "super" => {
+                let mut base = importer.path.clone();
+                base.pop()?;
+                while segments.peek() == Some(&"super") {
+                    segments.next();
+                    base.pop()?;
+                }
+                ([importer.package.clone()].into(), base)
+            }
+            alias => (self.package_targets(importer, alias), vec![]),
+        };
+        components.extend(segments.map(str::to_owned));
+        Some((packages, components))
+    }
+
+    fn package_targets(&self, importer: &ModuleIdentity, name: &str) -> BTreeSet<PackageId> {
+        if name == importer.package.0 {
+            return [importer.package.clone()].into();
+        }
+        if let Some(target) = self
+            .packages
+            .scope(&importer.package)
+            .and_then(|scope| scope.dependencies.get(name))
+        {
+            return [target.clone()].into();
+        }
+        self.installed_aliases
+            .get(name)
+            .cloned()
+            .unwrap_or_default()
+    }
+
     /// Syntactic facade/module edges survive even when a terminal name is missing.
     pub(crate) fn path_dependencies(
         &self,
+        importer: &ModuleIdentity,
         path: &str,
         dependencies: &mut BTreeSet<ModuleIdentity>,
     ) {
-        let mut segments = path.split("::");
-        let Some(package) = segments.next() else {
+        let Some((packages, components)) = self.package_path(importer, path) else {
             return;
         };
-        let package = self
-            .package_aliases
-            .get(package)
-            .filter(|packages| packages.len() == 1)
-            .and_then(|packages| packages.first())
-            .cloned()
-            .unwrap_or_else(|| PackageId(package.into()));
-        let components = segments.map(str::to_owned).collect::<Vec<_>>();
+        if packages.len() != 1 {
+            return;
+        }
+        let package = packages.first().expect("one package");
         for identity in self.modules.keys() {
-            if identity.package == package && components.starts_with(&identity.path) {
+            if &identity.package == package && components.starts_with(&identity.path) {
                 dependencies.insert(identity.clone());
             }
         }

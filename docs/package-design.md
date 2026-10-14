@@ -728,10 +728,45 @@ No format/ABI version bump is needed for these unpublished development changes.
   signature invalidation. The full structural scan passed; specification links and
   package TOML examples checked. Selected-library Clippy, formatting and diff checks
   passed. No other source/artifact/backend suites were run.
-- Next: PK03 package-scoped HIR environments, empty-root migration and source-free
-  export evidence, followed by SDK/CLI/shared storage and invalidation/reload.
-  PK01/PK02 APIs are not yet connected to those consumers. Native-provider inputs
-  must contribute their own contract fingerprint at compiler handoff.
+- PK03 source integration checkpoint: `ProgramInputs::source_snapshot` now publishes
+  complete captured files and importer-specific scopes through one cancellable,
+  atomic source database batch. Stable logical keys are separate from diagnostic
+  origins; unchanged files retain IDs/revisions and removed selections leave the new
+  snapshot. HIR alone derives inline modules. Standalone sources have distinct
+  families and every package root uses `path: []`; executable declaration/layout
+  validators accept empty roots while retaining component/ownership checks.
+- Source import lookup now uses explicit per-importer dependency aliases and
+  structured `crate/self/super` paths. Arbitrary registered source packages are no
+  longer implicit aliases. Installed native aliases are separately owned and source
+  collisions fail before publication. Package hubs include every declared module and
+  dependency in checking/trait selection without an all-to-all member edge graph.
+  Direct qualified calls project signatures even without `use`; retained namespace,
+  alias/selection, type and callable comparisons prevent stale incremental facts.
+- PK03 focused source validation: six package/HIR integration tests cover distinct
+  aliases for same-named packages, transitive import rejection, unused body errors,
+  empty roots/inline modules, retained snapshots, alias-only replacement and
+  implementation-only dependency selection/conflicts versus unrelated members.
+  Six source database tests cover atomic invalid/cancelled batches and existing
+  overlays/locations. The HIR import owner passed 47 tests (one opt-in measurement
+  ignored); 42 signature-filtered tests passed after separating signature namespace
+  comparison from body/callable revision comparison. These sets overlap. One existing
+  compiler source-program linking/portable-codec test and six visibility/artifact
+  verification tests passed, covering root types and source-free contracts.
+- Review repairs: older isolation fixtures incorrectly placed unrelated or deliberately
+  invalid modules in the same package. Bind unrelated files as independent packages;
+  check valid package snapshots before adding invalid members. Preserve all error,
+  retained-snapshot and cache-reuse assertions. A cross-database nominal-type test
+  now imports both values into one identity context before comparing them. The
+  1024-node cancellation test now exercises graph construction/traversal directly;
+  its initial body-analysis run was interrupted and the completed focused graph
+  rerun passed. Initial two needless-reference Clippy findings were corrected;
+  affected-library Clippy, the structural scan and formatting/diff checks pass.
+- Next: PK03 source-free export evidence and public host-callable paths, followed by
+  SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
+  but SDK and CLI do not yet expose it. Native-provider inputs must contribute their
+  own contract fingerprint at compiler handoff. No carried compile/test failure at
+  this source integration checkpoint; exhaustive backend/feature/platform CI remains
+  unrun. No whole-workspace Cargo suite was run locally.
 - Intermediate compile diagnostic: initial module-discovery code treated optional
   syntax diagnostic spans as mandatory. Corrected by preserving `Option<Range>`;
   the input-test build passed. No carried build failure from this diagnostic.

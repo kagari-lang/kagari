@@ -91,8 +91,6 @@ fn equal_glob_targets_keep_origins_and_absent_categories_release_fallback() {
     insert(&mut sources, "right", "pub use pkg::library::value;");
     let text = "use pkg::left::*; use pkg::right::*; fn main() -> i32 { value() }";
     let root = insert(&mut sources, "root", text);
-    let broken_text = "use pkg::left::missing as value; use pkg::right::*; use missing::Option; fn main() -> i32 { value() }";
-    let broken = insert(&mut sources, "broken", broken_text);
     let snapshot = analyze(&sources);
     assert!(snapshot.check_program(root, &Default::default()).is_ok());
     let hit = snapshot
@@ -105,6 +103,9 @@ fn equal_glob_targets_keep_origins_and_absent_categories_release_fallback() {
             .count(),
         2
     );
+    let broken_text = "use pkg::left::missing as value; use pkg::right::*; use missing::Option; fn main() -> i32 { value() }";
+    let broken = insert(&mut sources, "broken", broken_text);
+    let snapshot = analyze(&sources);
     let imports = &snapshot
         .file(broken)
         .unwrap()
