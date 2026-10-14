@@ -68,16 +68,17 @@ pub fn bytecode_with_edited_root(
         .unwrap()
         .into_records();
     let slot = members
+        .modules
         .iter()
         .position(|member| member.identity == root)
         .unwrap();
-    members[slot] = edited
+    members.modules[slot] = edited
         .clone()
         .into_unverified()
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    let verified = verify_program(root, members, &context, &Default::default())
+    let verified = verify_program(members, &context, &Default::default())
         .expect("edited program should verify");
     lower_program_to_bytecode(&verified).expect("edited program bytecode lowering should succeed")
 }

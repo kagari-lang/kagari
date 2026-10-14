@@ -184,6 +184,7 @@ fn inherent_declaration_receiver_and_executable_signature_are_checked() {
     let root = mir.root().clone();
     let mut modules = common::adopt(&context, mir.into_unverified());
     let module = modules
+        .modules
         .iter_mut()
         .find(|module| module.identity == root)
         .unwrap();
@@ -197,7 +198,7 @@ fn inherent_declaration_receiver_and_executable_signature_are_checked() {
         })
         .unwrap();
     table.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
-    assert!(verify_mir_program(root, modules, &context, &Default::default()).is_err());
+    assert!(verify_mir_program(modules, &context, &Default::default()).is_err());
 }
 
 #[test]

@@ -412,6 +412,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let mut forged = common::adopt(&context, ir.clone().into_unverified());
     let root_ir = forged
+        .modules
         .iter_mut()
         .find(|module| module.identity.path == ["root"])
         .unwrap();
@@ -429,7 +430,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         path.path.last_mut().unwrap().name = "forged".into()
     });
     assert!(matches!(
-        mir_program::verify_program(ir.root().clone(), forged, &context, &Default::default()),
+        mir_program::verify_program(forged, &context, &Default::default()),
         Err(mir_program::ProgramError {
             kind: mir_program::ProgramErrorKind::InterfaceContract(_),
             ..
@@ -437,6 +438,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     ));
     let mut forged_call = common::adopt(&context, ir.clone().into_unverified());
     let method_slot = forged_call
+        .modules
         .iter_mut()
         .find(|module| module.identity.path == ["root"])
         .unwrap()
@@ -454,12 +456,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .unwrap();
     *method_slot = 99;
     assert!(matches!(
-        mir_program::verify_program(
-            ir.root().clone(),
-            forged_call,
-            &context,
-            &Default::default()
-        ),
+        mir_program::verify_program(forged_call, &context, &Default::default()),
         Err(mir_program::ProgramError {
             kind: mir_program::ProgramErrorKind::InterfaceContract(_),
             ..

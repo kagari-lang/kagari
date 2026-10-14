@@ -9,7 +9,7 @@ use kagari_mir::{
     function::{MirModule, MirTemp},
     ids::{LocalId, TempId},
     instruction::{Instruction, MirValue},
-    program::{VerifiedMirProgram, verify_program},
+    program::{VerifiedMirProgram, records::MirProgram, verify_program},
 };
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
@@ -20,7 +20,7 @@ fn program(context: &DefinitionContext) -> (Vec<MirModule>, usize) {
     let program =
         common::mir_ok("pub struct Future<T> {} fn wait(value: Future<i32>) -> i32 { 0 }");
     let root = program.root().clone();
-    let mut modules = common::adopt(context, program.into_unverified());
+    let mut modules = common::adopt(context, program.into_unverified()).modules;
     let index = modules
         .iter()
         .position(|module| module.identity == root)
@@ -89,8 +89,11 @@ fn verified(
     root: usize,
 ) -> VerifiedMirProgram {
     verify_program(
-        modules[root].identity.clone(),
-        modules,
+        MirProgram {
+            root: modules[root].identity.clone(),
+            modules,
+            exports: Default::default(),
+        },
         context,
         &Default::default(),
     )

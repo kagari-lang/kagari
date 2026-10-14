@@ -45,8 +45,13 @@ Checked Programs also own the public namespace graph and canonical non-generic
 script function references, plus a separate root `main` capability. Module aliases
 retain finite graph edges, including cycles; lookup bounds path length. Public generic
 source templates can be specialized by dependents but do not become host entries.
-Executable export storage/verification and runtime lookup are still being connected
-under the active package plan.
+The compiler maps source references into the contract-owned `ProgramExports` graph.
+MIR owns root, modules and exports together, including when verification seals are
+discarded for editing or identities are imported into another context. Its portable
+codec retains bounded namespace records and file-local definition references.
+Source-free verification checks reachable graph edges, public concrete script
+leaves and their semantic signatures, and the separate zero-argument root entry.
+Bytecode export persistence and runtime lookup remain under the active package plan.
 
 ## Workspace Shape
 

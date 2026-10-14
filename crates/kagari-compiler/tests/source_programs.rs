@@ -171,6 +171,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
     }));
     let mut forged = adopt(&context, ir.clone().into_unverified());
     let contract = forged
+        .modules
         .iter_mut()
         .flat_map(|module| &mut module.functions)
         .flat_map(|function| &mut function.blocks)
@@ -185,7 +186,7 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
         .unwrap();
     contract.arguments[0] = Ty::Builtin(BuiltinType::F32);
     assert!(matches!(
-        verify_program(ir.root().clone(), forged, &context, &Default::default())
+        verify_program(forged, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::UnresolvedFunction(_)
@@ -503,6 +504,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
     let raw = adopt(&context, program.into_unverified());
     let mut schema = raw.clone();
     schema
+        .modules
         .iter_mut()
         .find(|module| module.identity.path == ["shared"])
         .unwrap()
@@ -510,7 +512,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         .fields[0]
         .mutable = false;
     assert!(matches!(
-        verify_program(root.clone(), schema, &context, &Default::default())
+        verify_program(schema, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::Verification(MirVerificationError {
@@ -520,6 +522,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
     ));
     let mut unresolved = raw.clone();
     for instruction in unresolved
+        .modules
         .iter_mut()
         .find(|module| module.identity.path == ["root"])
         .unwrap()
@@ -543,29 +546,31 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         }
     }
     assert!(matches!(
-        verify_program(root.clone(), unresolved, &context, &Default::default())
+        verify_program(unresolved, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::UnresolvedFunction(_)
     ));
     let mut missing = raw.clone();
-    missing.remove(0);
+    missing.modules.remove(0);
     assert!(matches!(
-        verify_program(root.clone(), missing, &context, &Default::default())
+        verify_program(missing, &context, &Default::default())
             .unwrap_err()
             .kind,
         ProgramErrorKind::InvalidGraph
     ));
     let mut cycle = raw.clone();
     cycle
+        .modules
         .iter_mut()
         .find(|module| module.identity.path == ["shared"])
         .unwrap()
         .dependencies
         .push(root.clone());
-    assert!(verify_program(root.clone(), cycle, &context, &Default::default()).is_ok());
+    assert!(verify_program(cycle, &context, &Default::default()).is_ok());
     let mut wrong = raw.clone();
     let other = wrong
+        .modules
         .iter()
         .find(|module| module.identity.path == ["shared"])
         .unwrap()
@@ -576,6 +581,7 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         .instance
         .declaration;
     for instruction in wrong
+        .modules
         .iter_mut()
         .find(|module| module.identity.path == ["root"])
         .unwrap()
@@ -593,14 +599,12 @@ fn missing_dependencies_and_mismatched_link_signatures_are_rejected() {
         }
     }
     assert!(
-        matches!(verify_program(root.clone(), wrong, &context, &Default::default()).unwrap_err().kind, ProgramErrorKind::FunctionContract(path) if path == context.snapshot().resolve(other).unwrap().to_path())
+        matches!(verify_program(wrong, &context, &Default::default()).unwrap_err().kind, ProgramErrorKind::FunctionContract(path) if path == context.snapshot().resolve(other).unwrap().to_path())
     );
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert!(matches!(
-        verify_program(root, raw, &context, &cancel)
-            .unwrap_err()
-            .kind,
+        verify_program(raw, &context, &cancel).unwrap_err().kind,
         ProgramErrorKind::Cancelled
     ));
 }

@@ -5,7 +5,7 @@ use crate::{
     function::{BasicBlock, MirFunction, MirModule, MirTemp},
     ids::{BlockId, InstanceId, TempId},
     instruction::{Constant, Instruction, MirValue, Terminator},
-    program::{ProgramErrorKind, verify_program},
+    program::{ProgramErrorKind, records::MirProgram, verify_program},
     verify::MirVerificationErrorKind,
 };
 use bincode::Options;
@@ -13,7 +13,7 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, scoped::DefinitionReferences,
 };
-use kagari_contract::types::ConcreteFunctionIdentity;
+use kagari_contract::{exports::wire::ProgramExportsRecord, types::ConcreteFunctionIdentity};
 use std::collections::HashSet;
 
 fn module(context: &DefinitionContext, name: &str) -> MirModule {
@@ -88,6 +88,7 @@ fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
             .iter()
             .map(|module| MirModuleRecord::encode(module, &encoding, &cancel).unwrap())
             .collect(),
+        exports: ProgramExportsRecord::encode(&Default::default(), &encoding, &cancel).unwrap(),
         definitions: encoding.table,
     };
     options().serialize(&(Header::current(), record)).unwrap()
@@ -98,8 +99,11 @@ fn codec_rejects_forged_control_flow_instead_of_accepting_serialized_proof() {
     let context = DefinitionContext::new().unwrap();
     let mut module = module(&context, "root");
     verify_program(
-        module.identity.clone(),
-        vec![module.clone()],
+        MirProgram {
+            root: module.identity.clone(),
+            modules: vec![module.clone()],
+            exports: Default::default(),
+        },
         &context,
         &Default::default(),
     )
@@ -143,8 +147,11 @@ fn whole_program_analysis_budget_cannot_be_reset_by_splitting_modules() {
         })
         .collect::<Vec<_>>();
     verify_program(
-        modules[0].identity.clone(),
-        vec![modules[0].clone()],
+        MirProgram {
+            root: modules[0].identity.clone(),
+            modules: vec![modules[0].clone()],
+            exports: Default::default(),
+        },
         &context,
         &Default::default(),
     )

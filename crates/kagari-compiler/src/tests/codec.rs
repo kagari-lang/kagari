@@ -20,7 +20,7 @@ use kagari_mir::{
     codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
     function::MirModule,
     instruction::{Constant, Instruction},
-    program::{VerifiedMirProgram, verify_program},
+    program::{VerifiedMirProgram, records::MirProgram, verify_program},
     verify::MirVerificationErrorKind,
 };
 use std::sync::Arc;
@@ -148,11 +148,14 @@ fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
         functions: vec![],
     };
     let original = verify_program(
-        root.clone(),
-        vec![
-            empty(root, vec![dependency.clone()]),
-            empty(dependency, vec![]),
-        ],
+        MirProgram {
+            root: root.clone(),
+            modules: vec![
+                empty(root, vec![dependency.clone()]),
+                empty(dependency, vec![]),
+            ],
+            exports: Default::default(),
+        },
         &context,
         &Default::default(),
     )
@@ -301,10 +304,11 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             let mut modules = common::adopt(&context, original.into_unverified());
             let mut bits = [first, second].into_iter();
             let slot = modules
+                .modules
                 .iter()
                 .position(|module| module.identity == root)
                 .unwrap();
-            for instruction in &mut modules[slot].functions[0].blocks[0].instructions {
+            for instruction in &mut modules.modules[slot].functions[0].blocks[0].instructions {
                 match instruction {
                     Instruction::LoadConst {
                         constant: Constant::F32(value),
@@ -322,7 +326,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                 }
             }
             assert!(bits.next().is_none());
-            let original = verify_program(root, modules, &context, &Default::default()).unwrap();
+            let original = verify_program(modules, &context, &Default::default()).unwrap();
             let wire = encode_program(&original, &Default::default()).unwrap();
             let bytecode = VerifiedBytecodeProgram::new(
                 lower_program_to_bytecode(&original)

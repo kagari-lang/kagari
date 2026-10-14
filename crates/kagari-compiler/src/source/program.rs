@@ -2,6 +2,7 @@ use crate::source::{
     lower,
     lower::{MirLoweringError, instances::MirLoweringOptions},
 };
+mod exports;
 use kagari_common::identity::{
     ModuleIdentity, mapping::DefinitionMappingError, scoped::DefinitionReferences,
 };
@@ -14,7 +15,7 @@ use kagari_mir::{
     instruction::{CallTarget, Instruction},
     program::{
         ProgramError, ProgramErrorKind, VerifiedMirProgram,
-        construction::closed_interface_instances, verify_program,
+        construction::closed_interface_instances, records::MirProgram, verify_program,
     },
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
@@ -407,8 +408,22 @@ pub fn lower_program_to_mir(
             }
         }
         if !changed {
-            return verify_program(root, modules, &context, &options.cancel)
-                .map_err(SourceProgramError::Verification);
+            let exports = exports::lower(program, &options.cancel).map_err(|error| {
+                SourceProgramError::Lowering {
+                    module: Box::new(root.clone()),
+                    error: error.into(),
+                }
+            })?;
+            return verify_program(
+                MirProgram {
+                    root,
+                    modules,
+                    exports,
+                },
+                &context,
+                &options.cancel,
+            )
+            .map_err(SourceProgramError::Verification);
         }
     }
 }

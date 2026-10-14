@@ -2,14 +2,7 @@
 use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        ModuleIdentity,
-        map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError, check_cancel as check_mapping_cancel},
-        metadata::DefinitionMetadata,
-        scoped::{DefinitionReferences, RemapDefinitions},
-        table::DefinitionId,
-    },
+    identity::{map::DefinitionContext, metadata::DefinitionMetadata},
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use smallvec::{Array, SmallVec};
@@ -22,7 +15,7 @@ use {
 use crate::{
     codec::wire::ProgramRecord,
     function::MirModule,
-    program::{ProgramError, VerifiedMirProgram, verify_program},
+    program::{ProgramError, VerifiedMirProgram, records::MirProgram, verify_program},
 };
 
 mod wire;
@@ -72,43 +65,6 @@ impl Header {
             return Err(MirCodecError::Version);
         }
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-struct RawProgram {
-    root: ModuleIdentity,
-    modules: Vec<MirModule>,
-}
-
-impl DefinitionReferences for RawProgram {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_mapping_cancel(cancel)?;
-        for module in &self.modules {
-            module.visit_definition_ids(visit, cancel)?;
-        }
-        Ok(())
-    }
-}
-
-impl RemapDefinitions for RawProgram {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_>,
-    ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(Self {
-            root: self.root.clone(),
-            modules: self
-                .modules
-                .iter()
-                .map(|module| module.remap_definitions(mapper))
-                .collect::<Result<_, _>>()?,
-        })
     }
 }
 
@@ -169,7 +125,7 @@ pub fn decode_program(
         .import_into(&context, cancel)
         .map_err(|error| encoding(error, cancel))?
         .into_records();
-    verify_program(raw.root, raw.modules, &context, cancel).map_err(|error| {
+    verify_program(raw, &context, cancel).map_err(|error| {
         if cancel.check().is_err() {
             MirCodecError::Cancelled
         } else {
@@ -181,7 +137,7 @@ pub fn decode_program(
 fn read_raw(
     bytes: &[u8],
     cancel: &CancellationToken,
-) -> Result<DefinitionMetadata<RawProgram>, MirCodecError> {
+) -> Result<DefinitionMetadata<MirProgram>, MirCodecError> {
     check_cancel(cancel)?;
     if bytes.len() > MAX_MIR_BYTES {
         return Err(MirCodecError::SizeLimit);

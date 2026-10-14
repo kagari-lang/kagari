@@ -34,7 +34,9 @@ empty roots, full package/dependency checking and incremental scope invalidation
 Checked Programs now capture public namespace/function exports and a separate CLI
 entry; public generic templates compile through source aliases. Focused source/HIR,
 compiler/source-free and SDK execution contracts pass; the plan records their scope.
-Executable export evidence, host lookup and SDK/CLI package integration remain next.
+MIR now retains and verifies portable public export/entry evidence, including after
+identity import and source-free decoding. Bytecode persistence, host lookup and
+SDK/CLI package integration remain next.
 Source distribution and joint compilation,
 one root with multiple exports, and one whole-workspace lock graph are confirmed.
 Each selected Program retains its own exact closure. Independent package binaries,

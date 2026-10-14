@@ -5,11 +5,12 @@ mod applications;
 mod bridges;
 pub mod construction;
 mod native;
+pub mod records;
 mod shared;
 use crate::{
-    function::MirModule,
     ids::InstanceId,
     instruction::{CallTarget, Instruction},
+    program::records::MirProgram,
     verify::{
         MirVerificationError, ValidatedMirModule, VerificationBudget, VerifiedMirModule, ownership,
         verify_with_budget,
@@ -20,14 +21,17 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionPath, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
-        table::DefinitionTable,
+        scoped::DefinitionReferences, table::DefinitionTable,
     },
 };
 use kagari_contract::{
-    contracts, host, types as abi,
+    contracts,
+    exports::{ProgramExports, public_function_matches},
+    host, types as abi,
     types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_types::{
+    callable::CallableImplementation,
     host_interface::HostInterface,
     language::Protocol,
     ty::{Ty, inheritance, substitution::TypeTransformError},
@@ -44,6 +48,7 @@ pub struct ProgramFunctionRef {
 pub enum ProgramErrorKind {
     Cancelled,
     InvalidGraph,
+    InvalidExports,
     Verification(MirVerificationError),
     UnresolvedFunction(DefinitionPath),
     FunctionContract(DefinitionPath),
@@ -64,6 +69,7 @@ pub struct VerifiedMirProgram {
     modules: Vec<VerifiedMirModule>,
     bindings: HashMap<ConcreteFunctionIdentity, ProgramFunctionRef>,
     definitions: DefinitionTable,
+    exports: ProgramExports,
 }
 
 impl VerifiedMirProgram {
@@ -79,18 +85,28 @@ impl VerifiedMirProgram {
         &self.modules
     }
 
+    /// Verified public paths and the separate root entry, in this Program's scope.
+    pub fn exports(&self) -> &ProgramExports {
+        &self.exports
+    }
+
     pub fn function(&self, instance: &ConcreteFunctionIdentity) -> Option<ProgramFunctionRef> {
         self.bindings.get(instance).copied()
     }
 
     /// Discard program and module seals while retaining their shared identity scope.
-    pub fn into_unverified(self) -> DefinitionMetadata<Vec<MirModule>> {
+    pub fn into_unverified(self) -> DefinitionMetadata<MirProgram> {
         DefinitionMetadata::checked(
             self.definitions,
-            self.modules
-                .into_iter()
-                .map(|module| module.into_unverified().into_records())
-                .collect(),
+            MirProgram {
+                root: self.root,
+                exports: self.exports,
+                modules: self
+                    .modules
+                    .into_iter()
+                    .map(|module| module.into_unverified().into_records())
+                    .collect(),
+            },
             &CancellationToken::default(),
         )
         .expect("verified program references remain in their retained scope")
@@ -103,11 +119,15 @@ impl VerifiedMirProgram {
 /// collected without granting declaration or execution authority. Success retains
 /// an immutable prefix containing the checked graph and its proof identities.
 pub fn verify_program(
-    root: ModuleIdentity,
-    inputs: Vec<MirModule>,
+    input: MirProgram,
     context: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<VerifiedMirProgram, ProgramError> {
+    let MirProgram {
+        root,
+        modules: inputs,
+        exports,
+    } = input;
     let error = |module: &ModuleIdentity, kind| ProgramError {
         module: Box::new(module.clone()),
         kind,
@@ -115,6 +135,18 @@ pub fn verify_program(
     cancel
         .check()
         .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+    let input_definitions = context.snapshot();
+    exports
+        .visit_definition_ids(
+            &mut |id| Ok(input_definitions.resolve(*id).map(|_| ())?),
+            cancel,
+        )
+        .map_err(|cause| {
+            error(
+                &root,
+                ProgramErrorKind::Verification(ownership::mapping_error(cause)),
+            )
+        })?;
     let definitions = ownership::collect(&inputs, context, cancel).map_err(|cause| {
         error(
             &root,
@@ -594,11 +626,57 @@ pub fn verify_program(
             },
         )
     })?;
+    exports
+        .validate(&root, &definitions, cancel, |id, entry| {
+            let instance = ConcreteFunctionIdentity {
+                declaration: id,
+                arguments: vec![],
+            };
+            let Some(binding) = bindings.get(&instance) else {
+                return false;
+            };
+            let owner = &modules[binding.module];
+            let function = &owner.functions[binding.function.index()];
+            if entry {
+                function.params.is_empty()
+                    && function.semantic.generic.is_none()
+                    && !owner
+                        .abi
+                        .native_declarations
+                        .iter()
+                        .any(|record| record.declaration == id)
+                    && !owner.abi.public_items.iter().any(|item| {
+                        matches!(item,
+                            PublicItem::Function(record) if record.name == "main"
+                                && record.implementation != CallableImplementation::Script
+                        )
+                    })
+            } else {
+                public_function_matches(
+                    id,
+                    &owner.identity,
+                    &owner.abi.public_items,
+                    &function.semantic,
+                    &definitions,
+                )
+            }
+        })
+        .map_err(|_| {
+            error(
+                &root,
+                if cancel.check().is_err() {
+                    ProgramErrorKind::Cancelled
+                } else {
+                    ProgramErrorKind::InvalidExports
+                },
+            )
+        })?;
     let modules = modules.into_iter().map(ValidatedMirModule::seal).collect();
     Ok(VerifiedMirProgram {
         root,
         modules,
         bindings,
         definitions,
+        exports,
     })
 }

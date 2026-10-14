@@ -4,6 +4,7 @@ pub mod callable;
 pub mod contracts;
 pub mod decode_limits;
 pub mod effects;
+pub mod exports;
 pub mod host;
 pub mod ids;
 pub mod language;

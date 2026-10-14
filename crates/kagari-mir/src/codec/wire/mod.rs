@@ -7,8 +7,8 @@ mod instruction;
 mod tests;
 
 use crate::{
-    codec::{RawProgram, wire::function::MirModuleRecord},
-    program::VerifiedMirProgram,
+    codec::wire::function::MirModuleRecord,
+    program::{VerifiedMirProgram, records::MirProgram},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -20,7 +20,7 @@ use kagari_common::{
         table::wire::PortableDefinitionTable,
     },
 };
-use kagari_contract::decode_limits;
+use kagari_contract::{decode_limits, exports::wire::ProgramExportsRecord};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -32,6 +32,7 @@ pub(crate) struct ProgramRecord {
     #[serde(deserialize_with = "decode_limits::modules")]
     modules: Vec<MirModuleRecord>,
     definitions: PortableDefinitionTable,
+    exports: ProgramExportsRecord,
 }
 
 impl ProgramRecord {
@@ -50,6 +51,13 @@ impl ProgramRecord {
                 cancel,
             )?;
         }
+        program.exports().visit_definition_ids(
+            &mut |id| {
+                references.insert(*id);
+                Ok(())
+            },
+            cancel,
+        )?;
         let encoding = program.definitions().encode(references)?;
         let modules = program
             .modules()
@@ -59,6 +67,7 @@ impl ProgramRecord {
         Ok(Self {
             root: program.root().clone(),
             modules,
+            exports: ProgramExportsRecord::encode(program.exports(), &encoding, cancel)?,
             definitions: encoding.table,
         })
     }
@@ -66,7 +75,7 @@ impl ProgramRecord {
     pub(crate) fn decode(
         self,
         cancel: &CancellationToken,
-    ) -> Result<DefinitionMetadata<RawProgram>, DefinitionMappingError> {
+    ) -> Result<DefinitionMetadata<MirProgram>, DefinitionMappingError> {
         check_cancel(cancel)?;
         let decoding = self.definitions.decode()?;
         let modules = self
@@ -74,11 +83,13 @@ impl ProgramRecord {
             .into_iter()
             .map(|module| module.decode(&decoding, cancel))
             .collect::<Result<_, _>>()?;
+        let exports = self.exports.decode(&decoding, cancel)?;
         DefinitionMetadata::checked(
             decoding.table,
-            RawProgram {
+            MirProgram {
                 root: self.root,
                 modules,
+                exports,
             },
             cancel,
         )

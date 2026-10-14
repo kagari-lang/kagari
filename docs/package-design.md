@@ -787,7 +787,25 @@ No format/ABI version bump is needed for these unpublished development changes.
   Scoped HIR/contract/SDK library Clippy, structure, formatting and diff checks pass.
   Executable export persistence and runtime public lookup remain next; no complete
   backend/feature matrix or whole-workspace Cargo suite was run.
-- Next: PK03 source-free export evidence and public host-callable paths, followed by
+- PK03 MIR export checkpoint: contract-owned namespace records retain canonical
+  definition IDs independently of source analysis. `MirProgram` now owns root, modules
+  and exports together; editing/import no longer drops Program metadata. The MIR
+  codec encodes explicit file-local references, bounds records and rejects duplicate
+  namespace/name records. Verification checks graph reachability, concrete public
+  script bodies and exact semantic signatures; private zero-argument root `main`
+  remains a separate capability. No format/ABI bump or compatibility reader is added.
+- MIR export validation: the two focused source-free export tests pass, including
+  canonical re-encoding, cross-context ID adoption, alias cycles, independent name
+  spaces, private/template path rejection and the separate entry. The forged-graph
+  case was strengthened to require `InvalidExports` for seven distinct invalid
+  inputs, then rerun successfully. The contract wire test rejects duplicate
+  namespaces/names, invalid references and oversized sequence headers. The existing
+  five-source MIR codec/canonical-bytecode regression and the source generic alias
+  specialization test pass. The existing forged-control-flow MIR decoder test also
+  passes. Scoped contract/MIR/compiler library Clippy, the 1143-file structural scan,
+  formatting and diff checks pass. These are focused tests, not full backend
+  acceptance; bytecode/runtime export consumption and exhaustive CI remain pending.
+- Next: PK03 bytecode export persistence and public host-callable paths, followed by
   SDK/CLI/shared storage and invalidation/reload. Package capture is connected to HIR,
   but SDK and CLI do not yet expose it. Native-provider inputs must contribute their
   own contract fingerprint at compiler handoff. No carried compile/test failure at
