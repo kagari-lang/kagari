@@ -10,8 +10,9 @@ hot reload and state replacement.
 The user approved following Rust's dependency model as a direction. Manifest names,
 the initial feature subset and version restrictions below are recommendations to
 review, not implemented features or final language specifications. Source package
-distribution with joint compilation of the resolved dependency closure, and the
-toolchain and Rust distribution names below, are confirmed design decisions.
+distribution with joint compilation of the resolved dependency closure, one root
+module per package with multiple callable exports, and the toolchain and Rust
+distribution names below are confirmed design decisions.
 Recording them does not activate implementation, crate renaming or publication.
 
 ## Current foundation
@@ -49,10 +50,20 @@ One Program can contain code from multiple packages; multiple Script installatio
 can independently use the same package. Building a library does not run an entry
 function. Running a tool or script remains an explicit host/CLI function call.
 
-The first version should have one root code target per package, usable as a library
-or through exported entry functions. Do not reproduce Cargo's entire target matrix,
-build scripts, procedural macros, feature unification or platform dependency system
-before Kagari needs them. Unsupported manifest fields must be diagnosed, not ignored.
+Confirmed initial model: each script package has one root module, which organizes
+its module tree and public API. A package may export multiple callable functions;
+its root source file is not an execution entry. For example, a host can invoke
+`on_login`, `tick` and `simulate` from the same prepared Program without creating
+three build targets. Each call still checks public access, argument/result contracts
+and runtime/generation ownership.
+
+The initial script package model has no separate library or executable targets.
+The host explicitly selects a function to invoke. CLI execution retains the existing
+`main` convention; an explicit function selector and its argument syntax remain
+queued CLI design choices. These script package rules do not alter the Rust SDK/CLI
+package distribution described below. Build scripts, procedural macros, feature
+unification and platform dependency selection also remain outside the initial
+scope. Unsupported manifest fields must be diagnosed, not ignored.
 
 ## Toolchain CLI and execution modes
 
@@ -324,6 +335,14 @@ reachable source closure, validates the resolved graph and produces a Program wi
 exact package/module provenance. Package boundaries continue to govern namespaces,
 visibility and declared dependencies during joint compilation.
 
+Compilation must retain the functions exposed for host invocation and their
+execution dependencies, even when no script function calls them. Treat these
+exports as executable reachability roots; selecting one function for a call does
+not discard the other retained exports. PK00 must specify the export-selection
+policy and how concrete generic entry instantiations are requested before code
+generation. A public generic declaration alone does not imply that every possible
+instantiation is present in the Program.
+
 The initial scope excludes independently compiled per-package binary libraries and
 a cross-package binary linker. Generic specialization uses the source closure in
 the existing compilation pipeline; it does not require a separately distributed
@@ -350,12 +369,14 @@ installations retain their existing pinned selection, not a globally mutated pac
 
 ## Review choices and implementation sequence
 
-Source distribution and joint compilation are confirmed as described in
-[the compilation handoff](#compilation-and-update-handoff). Independent package
-binary distribution/linking is outside the initial scope. Before implementation,
-confirm the remaining recommendations:
+One root module per package with multiple callable exports is confirmed under
+[responsibilities](#responsibilities). Source distribution and joint compilation
+are confirmed under [the compilation handoff](#compilation-and-update-handoff).
+Multiple executable targets and independent package binary distribution/linking
+are outside the initial scope. Before implementation, confirm the remaining
+recommendations:
 
-1. `Kagari.toml`/`Kagari.lock`, one root target and `src/lib.kgr` by default.
+1. `Kagari.toml`/`Kagari.lock` and the default root source path `src/lib.kgr`.
 2. Path and virtual/resolved host packages first; remote distribution later.
 3. One selected revision per package family per Program initially.
 4. Acyclic package dependencies, while preserving intra-package module cycles.
@@ -368,14 +389,16 @@ dependencies. Freeze identity and resolver contracts before finalizing HA's pack
 input and update compatibility; package code need not depend on an implemented SDK
 builder spelling or on async.
 
-- [ ] PK00: Re-audit ST/NR results; confirm review choices, package identity and
-  source/lock formats. Inventory current module/import tests and artifact impact.
+- [ ] PK00: Re-audit ST/NR results; confirm review choices, package identity,
+  source/lock formats and host export/concrete generic entry selection. Inventory
+  current module/import tests and artifact impact.
 - [ ] PK01: Implement manifest/virtual package normalization, deterministic module
   maps and dependency/alias validation. Test diagnostics and snapshot isolation.
 - [ ] PK02: Implement supported resolution/locking and content snapshots with
   host-approved sources, offline behavior and the selected version-conflict policy.
 - [ ] PK03: Integrate resolved graphs with HIR, Program/artifact provenance, SDK/CLI
-  inputs and reverse-dependency invalidation. Keep IO out of compiler execution.
+  inputs, host export retention and reverse-dependency invalidation. Keep IO out of
+  compiler execution.
 - [ ] PK04: Update specifications/examples and run package, feature and compatibility
   acceptance. Remote providers are separate scope unless explicitly activated.
 
@@ -386,6 +409,11 @@ dependencies, diamond graphs/conflicts, cycles, duplicate module paths, virtual/
 equivalence, checkout relocation and standard/host namespace spoofing. Test lock
 reproducibility, local source changes, unavailable locked input, path traversal and
 symlink policy, cancellation, bounded graph size and atomic publication of inputs.
+
+Verify that multiple exported functions without script callers remain independently
+callable from one Program, including after source-free artifact loading, under the
+selected export policy. Cover the selected concrete generic entry policy without
+assuming arbitrary runtime instantiation.
 
 Run end-to-end single-file and multi-package source/artifact routes, including
 changes to a dependency function, generic body and constant. Verify affected roots
