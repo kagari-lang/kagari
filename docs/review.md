@@ -429,7 +429,9 @@ migration. DTO schema/derive dependencies remain owned by the interoperability p
 
 The [reference proposal and complete example](host-registration-plan.md#queued-ref-and-refmut-design)
 use `Ref<T>`/`RefMut<T>` path handles and derive-generated field projections.
-`register_type::<T>()` installs one type schema for all three passing modes.
+Register the target descriptor once; reference capabilities reuse its explicit
+host members and any validated projection schema. Native payload and ordinary DTO
+representations remain distinct; a data schema alone does not expose Rust methods.
 Native calls batch-check loans before constructing short-lived `&T`/`&mut T`;
 disjoint fields of one host object may be borrowed mutably at the same time.
 Users do not write path-to-field lookup callbacks. Existing root-level checks
@@ -438,11 +440,12 @@ remain in force until their coherent path-aware replacement is implemented.
 The plan owns overlap rules, scope cleanup, reentry, replacement behavior and
 the finite inline-struct projection boundary. Its
 [receiver proposal](host-registration-plan.md#method-receivers-and-trait-selection)
-adds the conversion matrix, explicit owned/shared/mutable method requirements and
-checked view trait impls; a shared nominal identity does not imply representation
-conversion or inherited trait witnesses. Safe scope signatures and callback
-lifetimes still require compiling proofs before activation. Generated projections
-must not create overlapping ancestor references. Implementation remains queued;
+adds the conversion matrix and shared/mutable host receiver requirements. Methods
+are registered once for a host target type. Rust and Kagari traits are independent;
+script trait exposure requires explicit declaration/impl/binding registration,
+without imposing three separate view impls for ordinary method calls. Safe scope
+signatures and callback lifetimes still require compiling proofs before activation.
+Generated projections must not create overlapping ancestor references. Implementation remains queued;
 the proposal is not evidence that current typed adapters support Rust references.
 
 Persistent returns borrowed from an input are a separate optional extension.
@@ -450,10 +453,13 @@ They require origin/lifetime records, conflict protection, deterministic cleanup
 and a policy for alias invalidation; ordinary independent outputs do not establish
 that borrow relationship. Do not use GC timing to release Rust borrow protection.
 
-Retained `Opaque<T>` objects remain owned by the
+The runtime-owned `Opaque<T>` proposal remains owned by the
 [interoperability plan](rust-interop-design.md#opaque-ownership-and-access), using
-the shared registration model. Retention is not exclusivity against external Rust
-aliases, and opaque handles cannot automatically supply `&mut T`.
+the shared registration model and existing NativeObject storage/roots. The host
+moves T into runtime, accesses it through checked read/edit, or explicitly takes it
+back with atomic alias invalidation. Ref/RefMut instead lend host-owned storage.
+The new facade, extraction and method adapter capabilities remain unimplemented;
+this does not activate RI03 or expand HR01-HR03.
 
 The plan also owns the bounded
 [call-boundary cost follow-up](host-registration-plan.md#call-boundary-cost-follow-up):

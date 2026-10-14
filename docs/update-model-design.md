@@ -286,8 +286,10 @@ have a bounded driving strategy, or a documented host-selected pause budget; own
 data can move off-thread only under its actual Rust thread-safety contract. The
 engine cannot forcibly interrupt arbitrary Rust code: a timeout can abort the
 transition only when control is available. Noncooperative Native code prevents a
-bounded-cutover guarantee. Opaque objects shared with the old runtime are not a
-shortcut around writer quiescence or candidate side-effect isolation.
+bounded-cutover guarantee. Runtime-owned Opaque handles cannot cross into a new
+runtime. Explicitly shared external resources inside payload wrappers are not a
+shortcut around writer quiescence or candidate side-effect isolation; ownership
+extraction also requires its own admission and alias-invalidation checks.
 
 ## Host API integration
 

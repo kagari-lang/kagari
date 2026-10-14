@@ -18,11 +18,13 @@ thread-transfer contract, typed native adapters, managed object access, scoped
 payload editing and object/function/trait invocation described below.
 
 The [Rust interop proposal](rust-interop-design.md) continues to own ordinary Rust
-DTO derives, schema-backed Serde and independently retained host-owned Opaque
-objects. Its shared conversion concepts are reused here. Its fixed-thread policy
-and deferral of managed payload editing do not override this design. Adding safe
-editing of a runtime-owned payload does not manufacture exclusive access to an
-externally shared Opaque object.
+DTO derives, schema-backed Serde and the proposed runtime-owned Opaque facade with
+checked read/edit/take. It reuses the implemented NativeObject storage, roots and
+limited payload editing described here. Ownership extraction, alias invalidation
+and new borrowed method adapters are queued additions, not current capabilities.
+Its implementation must select one public handle API rather than keep duplicate
+Opaque/NativeObject owners. External Ref/RefMut scopes retain their separate host
+ownership; shared resources inside a payload need their own Rust access guarantees.
 
 The [host facade proposal](host-api-refactor.md) continues to own the cohesive
 prepare/load/reload workflow and proposed logical latest-version Function handles.

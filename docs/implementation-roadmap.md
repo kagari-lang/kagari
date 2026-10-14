@@ -196,7 +196,7 @@ require a concrete task; implemented foundations are not prerequisites to replay
 | Track | Scope and dependencies |
 | --- | --- |
 | [Unified host registration](host-registration-plan.md) | SA21 / HR01-HR03 are proposed and unstarted. Unify HostInterface declarations/bindings under NativeModule; ordinary by-value structs use Kagari objects. HR01 bounds legacy live-host migration and records RI conversion/derive dependencies. The queued Ref/RefMut design covers generated paths and disjoint field loans; reference implementation remains outside HR01-HR03. |
-| [Rust interoperability](rust-interop-design.md) | DTO derives, optional schema-backed Serde and retained host-owned opaque objects; reuse existing conversion/root contracts. |
+| [Rust interoperability](rust-interop-design.md) | DTO derives, optional schema-backed Serde and runtime-owned Opaque handles with checked read/edit/take. Reuse NativeObject storage/roots; extraction and new method adapters remain queued. Ref/RefMut lend host-owned data and reuse explicit host member registration. Rust traits never implicitly supply Kagari impls. |
 | [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
 | [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
 | [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
@@ -306,7 +306,7 @@ Important ordering constraints and limits:
   handles and disjoint mutable fields. Implementation follows registration
   unification and requires scope/adapter lifetime proofs; keep existing borrow/path
   checks during migration. The same plan owns the receiver conversion matrix,
-  method/trait selection proposal and a bounded root/typed-call cost follow-up;
+  explicit host method/trait registration and a bounded root/typed-call cost follow-up;
   these do not activate reference implementation or add performance gates to
   HR01-HR03. Persistent borrowed returns remain a separate extension.
 - [Focused validation policy](../AGENTS.md#verification-and-tooling) applies

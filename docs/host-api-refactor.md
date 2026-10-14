@@ -30,10 +30,10 @@ handoffs, not circular requirements to finish both implementations first.
 ## Dependencies and scope
 
 Build on current [native registration](spec/standard-declarations.md) and
-[execution control](spec/execution.md). The queued
+[execution control](spec/execution.md). The implemented
 [runtime ownership design](runtime-ownership-and-host-api-design.md) supplies
 conversion/root/call contracts; [Rust interoperability](rust-interop-design.md)
-extends them with DTO derives, Serde and external opaque ownership.
+extends them with DTO derives, Serde and runtime-owned opaque access/extraction.
 The [roadmap](implementation-roadmap.md) owns activation and scheduling.
 
 This track owns the coherent host-facing facade, default workflows, call argument

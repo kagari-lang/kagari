@@ -8,6 +8,10 @@ registration migration acceptance and the queued reference design. Start with th
 [by-value example](#complete-example-player-by-value) or the
 [reference example](#complete-example-disjoint-player-fields) for the intended usage.
 All new API spellings below are proposals, not currently callable APIs.
+The interop plan owns the selected
+[Opaque/Ref/RefMut relationship and host method API](rust-interop-design.md#relationship-to-ref-and-refmut).
+Opaque transfers payload ownership to runtime; Ref/RefMut lend host-owned data.
+Rust traits never automatically become Kagari trait implementations.
 
 ## Three passing modes
 
@@ -40,13 +44,15 @@ Rust move semantics still apply: passing an owned Player moves that Rust value.
 If the host wants to retain an original for comparison, it explicitly clones it
 before the call. Registration does not silently clone arbitrary Rust payloads.
 
-The initial ordinary-struct boundary admits the following conversions. These
-rules also apply to Rust method receivers; they do not restrict ordinary script
-methods on GC objects.
+Ordinary DTO conversion is separate from runtime-owned opaque storage. The target
+boundary below distinguishes representation from a short Rust borrow. These rules
+also apply to explicitly registered methods; ordinary Rust method/trait definitions
+are not exported by data schema registration.
 
 | Script input | Rust `T` | Rust `&T` | Rust `&mut T` |
 | --- | --- | --- | --- |
 | Ordinary GC-owned `T` | Schema-directed independent value conversion. | Reject. | Reject. |
+| Runtime-owned `Opaque<T>` | Explicit host take only; never implicit decoding. | Checked shared access through the declared native receiver adapter. | Checked exclusive access with a proven storage capability. |
 | `Ref<T>` | Reject implicit conversion; explicit snapshot is a later extension. | Checked short shared loan. | Reject. |
 | `RefMut<T>` | Reject implicit conversion; explicit snapshot is a later extension. | Checked short shared loan. | Checked short exclusive loan. |
 
@@ -54,8 +60,10 @@ One registered nominal identity does not make these representations interchangea
 A GC object has no implied Rust `T` layout. Never silently copy it into a temporary
 Rust object to satisfy a borrowed parameter, or copy modified data back afterward.
 Reference capability/type mismatches reject during checking; live loan conflicts
-reject at invocation before callback entry. Retained Opaque storage follows its
-own contract and is not an exception granting arbitrary Rust references.
+reject at invocation before callback entry. Ordinary DTO and native representations
+are explicitly distinct bindings, not interchangeable instances of one nominal
+type. Inherent host methods are registered once for their target descriptor and
+can admit Opaque/Ref/RefMut access according to their declared receiver requirement.
 
 ## Scope and ownership
 
@@ -363,15 +371,24 @@ owned snapshot merely because its registration entrypoint changes.
 
 ### Retained Opaque integration
 
-The [interoperability plan](rust-interop-design.md#opaque-ownership-and-access)
-owns retained `Opaque<T>`. It describes an explicit representation choice: an owned
-wrapper retains a Rust object rather than structurally copying its payload. That
-wrapper travels through the owning conversion boundary; it does not add a fourth
-passing mode and does not grant `&mut T` access to externally shared data.
+The [interop ownership contract](rust-interop-design.md#opaque-ownership-and-access)
+owns Opaque<T>: a rooted handle to a runtime-owned Rust payload. The host moves T
+into the runtime, accesses it through checked read/edit, or explicitly takes it
+back and invalidates all aliases. Reuse NativeObject storage and roots; do not
+build another ownership table or leave two public handles for the same contract.
+This is the selected revision of the Opaque proposal, not implemented behavior.
 
-This is distinct from ordinary Player-by-value conversion above. There is no
-fallback from failed struct conversion to an opaque handle. Opaque implementation,
-borrowed subobject projections and reference adapters remain separate queued work.
+Ref<T>/RefMut<T> instead borrow host-owned data for a scope. They can reuse the
+same native type descriptor and explicitly registered shared/mutable methods;
+changing ownership does not require duplicate method registration. The
+[complete API example](rust-interop-design.md#methods-and-properties) shows both
+runtime-owned and scoped use. Opaque does not convert its payload into a GC DTO,
+provide unrestricted Deref/DerefMut, or silently take T during argument decoding.
+
+The ownership and method adapter changes belong to RI03; external reference
+scopes/projections belong to the reference follow-up below. They share checked
+invocation machinery but do not expand HR01-HR03. Ordinary DTO schemas remain a
+separate representation without automatic Rust method or trait exposure.
 
 ## Queued Ref and RefMut design
 
@@ -414,86 +431,56 @@ outside the initial reference example; it must not silently change passing modes
 
 ### Method receivers and trait selection
 
-This is the proposed reference-stage contract, not a new HR01-HR03 implementation
-requirement. Current `MethodDecl::lower` inserts the owning type as `self`; it has
-no value/shared/mutable receiver mode. Freeze the following contract and a
-compiling adapter proof before extending it.
+The [complete method and scope example](rust-interop-design.md#methods-and-properties)
+is the API owner for Opaque/Ref/RefMut. It registers native Player once, declares
+inspect with shared receiver access and heal with mutable receiver access, and
+binds the Rust implementations once. Host object storage is not ordinary GC DTO
+storage. Registration of a data schema alone does not expose Rust inherent methods.
 
-- A method declaration owns the nominal member identity and an explicit receiver
-  requirement: owned `T`, shared `Ref<T>` or mutable `RefMut<T>`. This is checked
-  semantic metadata, preserved through generated declarations and source-free
-  contracts, not inferred from the callback's first tuple element at execution.
-- For an inherent method call on a host view, resolve the member against the
-  referenced nominal `T`, then check the declared receiver requirement against the
-  actual view. This lookup convenience neither erases the view's type/capability
-  nor grants access to ordinary `T` methods with an incompatible receiver. Avoid
-  introducing same-name overloads distinguished only by passing mode initially.
-- A `RefMut<T>` may call a shared-receiver method using a short shared loan. Keep
-  that loan through callback/result handling as required by the lifetime proof;
-  release it on every exit. Include the receiver in the complete argument batch,
-  so a whole-root mutable receiver conflicts with an additional borrowed child
-  argument even when that argument was evaluated through another alias.
-- Trait matching retains the actual receiver type and checked implementation.
-  An impl for `T` does not automatically establish an impl for `Ref<T>` or
-  `RefMut<T>`, and shared receiver adaptation does not manufacture a trait witness.
-  Initially require explicit checked impls for the supported view types. General
-  forwarding, borrowed interface erasure and escaping interface values are outside
-  this first reference scope. Freeze source/native authoring syntax and portable
-  impl validation before accepting these impls.
+| Input representation | Registered `&self` method | Registered `&mut self` method |
+| --- | --- | --- |
+| Runtime-owned Opaque<T> (native T in script) | Checked shared payload access. | Checked exclusive access with a proven storage capability. |
+| Host-owned Ref<T> | Checked shared access. | Reject: missing mutable capability. |
+| Host-owned RefMut<T> | Checked shared access. | Checked exclusive access. |
+| Ordinary converted DTO | No automatic host method exposure. | No automatic host method exposure. |
 
-Example, using the Stats/Inventory/Player schema in the next section. The Rust
-methods are shown with a declaration sketch; this is not currently compilable
-registration syntax. Ordinary owned Player registration and host scope setup are
-the same as in the complete examples; all methods use the single `bind` path.
+`ReceiverAccess::Shared/Mutable` in the proposed MethodDecl records required host
+access; it is not a different nominal T declaration for every handle mode. Member
+lookup through Ref/RefMut resolves explicitly registered host members on the target
+nominal descriptor and checks the view capability. This does not attach borrowed
+Rust methods to ordinary GC instances, infer methods from Rust impl blocks or add
+same-name overloads distinguished only by ownership mode. Current MethodDecl::lower
+has no such metadata; its implementation needs a coherent declaration/source-free
+contract change, not just a receiver-first tuple.
 
-```text
-impl Player {
-    fn inspect(&self) -> i32 { self.stats.hp }
+Method calls evaluate the receiver and arguments left to right, once. Validate and
+prepare the full pack before obtaining any Rust references. Include the receiver
+in batch loan checking: a whole-root mutable receiver conflicts with any borrowed
+child argument, even through another alias. RefMut may call a shared method through
+a short shared loan, not a permanent downgrade. Borrowed results cannot escape;
+release references before result conversion can allocate or execute script while
+retaining the required roots. Methods use the same conservative effects and trap
+cleanup rules as free functions.
 
-    fn heal(&mut self, amount: i32) -> i32 {
-        self.stats.hp = self.stats.hp.saturating_add(amount.max(0));
-        self.stats.hp
-    }
+The first runtime-owned receiver adapter reuses non-reentrant payload loans; the
+external path adapter may admit disjoint reentry only once its existing path/loan
+proofs below are established. A common binding API does not erase those storage
+capabilities or promise reentry for every borrowed callback. Scoped adapters need
+a compiling higher-ranked lifetime proof; FromKagari does not decode arbitrary &T.
 
-    fn healed(mut self, amount: i32) -> Self {
-        self.heal(amount);
-        self
-    }
-}
+Rust traits and Kagari traits are independent. A Rust impl neither creates a Kagari
+trait nor satisfies a script bound. To expose a Kagari impl, explicitly register
+or resolve its trait declaration, name its script receiver contract, and bind its
+members, possibly calling Rust trait methods in the callbacks. Source-free loading
+validates the same facts. See the
+[trait registration boundary](rust-interop-design.md#rust-traits-and-kagari-traits).
 
-Declared inherent members of Player:
-  inspect: receiver = shared Ref<Player>, parameters = (), result = i32
-  heal: receiver = mutable RefMut<Player>, parameters = (amount: i32), result = i32
-  healed: receiver = owned Player, parameters = (amount: i32), result = Player
-
-Bind each declared member through module.bind(member, callback):
-  inspect => |_cx, (p,): (&Player,)| Ok(p.inspect())
-  heal    => |_cx, (p, n): (&mut Player, i32)| Ok(p.heal(n))
-  healed  => |_cx, (p, n): (Player, i32)| Ok(p.healed(n))
-
-Trait requirement Inspect: inspect(Self) -> i32
-  explicit impl for Ref<Player>: checked shared invocation of Player.inspect
-  explicit impl for RefMut<Player>: checked shared invocation of Player.inspect
-  no impl for Player is supplied by these two registrations
-
-fn tick(p: RefMut<Player>) -> i32 {
-    p.heal(10);
-    p.inspect()
-}
-
-fn inspect_only(p: Ref<Player>) -> i32 { p.inspect() }
-
-fn via_trait<T: Inspect>(p: T) -> i32 { p.inspect() }
-```
-
-For host hp=60, `tick` returns 70 and leaves host hp=70; `inspect_only` returns 70
-without granting exclusive access. The two explicit view impls allow `via_trait`
-on either view, with the same loan checks. Calling `heal` on a shared view rejects;
-calling Rust-backed `inspect`/`heal` on an ordinary GC Player rejects. An ordinary
-GC Player can call `healed(10)` to obtain a separate converted object, leaving its
-existing script aliases unchanged. Neither view can call `healed` implicitly.
-These checks also apply to mixed receiver/argument calls and generic dispatch;
-dynamic loan conflicts remain runtime errors even when static selection succeeds.
+Inherent method reuse does not require users to implement three trait variants.
+Do not add automatic Rust-trait import, implicit view impl generation or a mandatory
+three-impl API. General view-to-interface/generic adaptation remains a separate
+concrete-use decision; no such rule is needed for inspect/heal calls. Consuming
+Rust self methods are also separate: initial ownership recovery is explicit host
+take on Opaque, never consumption of a borrowed host Ref/RefMut.
 
 ### Complete example: disjoint Player fields
 
@@ -827,7 +814,7 @@ Align RI examples with explicit declaration plus `bind`; do not retain parallel
 signature-inference APIs. Record receiver metadata/lookup requirements and reserved
 reference-stage boundaries before freezing the owned method declaration surface.
 Compile the owned/raw/primitive prototype in HR01; lifetime-aware scoped adapters
-and explicit view trait impls require their own proof before reference activation.
+and any explicitly exposed view trait adaptation require their own proof before use.
 
 Gate: general registration work is separated from queued reference implementation;
 existing live-host behavior has an explicit migration disposition. State which
@@ -901,6 +888,10 @@ batch-checked disjoint loans. The review adds the conversion matrix, explicit
 receiver/trait selection proposal and method example, aligns RI registration
 sketches, and records root/typed-call costs with separate measurement ownership.
 All examples remain end-user targets with explicit implementation dependencies.
+Opaque now follows runtime ownership with checked read/edit/take, reusing existing
+NativeObject machinery under RI03. The old requirement for separate view trait
+impls is replaced by independent Rust/Kagari trait systems and explicit script
+registration; inherent methods are registered once for their host target type.
 Reference implementation and cost optimization remain outside HR01-HR03; no code
 changes, Cargo validation, benchmark results or runtime behavior changes are claimed.
 Implementation commits use Conventional Commits and phase trailers such as

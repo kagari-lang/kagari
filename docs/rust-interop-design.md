@@ -1,18 +1,20 @@
 # Rust Value and Opaque Interoperability Plan
 
-Status: queued, documentation only. This plan defines typed Rust value conversion
-and retained opaque objects without exposing Rust borrows to scripts. It records
-the agreed behavior and proposed binding API; the examples are target API sketches,
-not interfaces that exist today. Implementation and commits are not authorized by
-this documentation task.
+Status: queued implementation, revised ownership/API proposal. This plan defines
+typed Rust value conversion and runtime-owned opaque objects. The user selected
+runtime ownership with checked host read/edit and explicit take; Rust and Kagari
+traits remain independent and require explicit script registration. Examples are
+target API sketches, not interfaces that exist today. This documentation revision
+does not activate implementation.
 
 The later [runtime ownership and host object design](runtime-ownership-and-host-api-design.md)
 owns central runtime storage, automatic script-object roots, the Send runtime
 contract, common typed native adapters and managed-payload editing. RI reuses that
-foundation and retains DTO derives, Serde and independently retained external
-Opaque objects. Its phases extend accepted GO capabilities rather than implement
-a second conversion or root system. Editing a runtime-owned payload does not grant
-exclusive access to an externally shared Opaque object.
+foundation and owns DTO derives, Serde and the Opaque facade/extraction additions.
+Its phases extend existing NativeObject storage, roots and access rather than
+implement a second object table or root system. External shared resources require
+an explicit payload wrapper; exclusive access to that wrapper does not manufacture
+exclusive access to an externally shared resource inside it.
 
 The [SA21 registration proposal](host-registration-plan.md#retained-opaque-integration)
 unifies declaration/installation ownership and presents ordinary structs through
@@ -22,11 +24,11 @@ exist or move RI01/RI02/RI04 into a second implementation queue. The
 [queued Ref/RefMut design](host-registration-plan.md#queued-ref-and-refmut-design)
 adds scoped path handles and generated projections for disjoint inline fields;
 reference implementation remains deferred. This plan continues to own DTO
-schema/conversion/derives and retained Opaque storage. An
-`Opaque<T>` callback uses an owning handle; it does not implicitly satisfy a
-scoped mutable input. Registered modifying methods own domain validation and safe
-interior mutation. Shared references and opaque handles may change interior state;
-the shared registration boundary supplies conservative call-effect metadata.
+schema/conversion/derives and the runtime-owned Opaque contract. Registered host
+methods declare shared or mutable receiver access and acquire short checked loans
+from their actual storage owner. An Opaque handle is not a freely dereferenceable
+Rust reference. Shared references may change interior state; registration retains
+conservative call-effect metadata.
 
 Build on the current [native registration](spec/standard-declarations.md) and
 [installation-based access model](spec/execution.md). Activation and scheduling
@@ -42,8 +44,9 @@ share this model without separate inferred-signature or chained binding APIs.
 The examples below use this one model;
 exact new member-builder spellings still require the owning plan's compile proof.
 Reference receivers follow its
-[conversion and receiver rules](host-registration-plan.md#method-receivers-and-trait-selection),
-not an automatic conversion from ordinary GC objects or Opaque handles.
+[conversion and receiver rules](host-registration-plan.md#method-receivers-and-trait-selection).
+Ordinary GC DTOs do not automatically receive host methods. Native object access
+uses its registered capability; no Rust reference is obtained by layout casting.
 
 ## Design decisions
 
@@ -60,15 +63,21 @@ not an automatic conversion from ordinary GC objects or Opaque handles.
   internal retention mechanism.
 - Module registration determines the namespace. A derive supplies a short type
   name and schema, not a repeated module prefix.
-- Opaque objects may expose modifying methods. In this version Rust objects own
-  their safe interior mutation; the wrapper does not manufacture exclusive access.
+- Runtime owns opaque payloads; both host access and registered methods use checked
+  loans. Explicit take transfers ownership out and invalidates all old aliases.
+- Ref/RefMut lend host-owned data for a scope, reusing explicitly registered host
+  methods. Their implementation remains the separate reference-stage follow-up.
+- Rust traits never automatically supply Kagari traits or methods. Script exposure
+  requires explicit declarations and bindings, including explicit Kagari impls.
 - Registration and exposure authorize use under the current execution model.
   Properties have declared writeability, not additional runtime permission flags.
 
-Excluded here are script-visible `&T`/`&mut T`, automatic binding of exclusive
-`&mut self` receivers, borrowed strings/slices, borrowed subobject projection,
-revocable entity handles, and open Rust generic factories. Existing scoped borrow
-and typed-path mechanisms are not deleted or relaxed by this proposal.
+Excluded here are raw script-visible Rust references, borrowed strings/slices,
+retained borrowed subobjects, general consuming-self adapters and open Rust generic
+factories. Scoped external Ref/RefMut construction and path projections remain in
+the reference plan. Runtime-owned shared/mutable method adapters belong to RI03,
+with lifetime machinery shared with that follow-up. Existing scoped borrow and
+typed-path protections remain in force.
 
 ## Current implementation boundary
 
@@ -85,14 +94,19 @@ proof that this proposed SDK exists:
   type and registry checks. Current callbacks receive low-level script values.
 - [Root registration](../crates/kagari-runtime/src/host/registry.rs) records handle
   information. It does not itself store and retain an arbitrary Rust `T`.
+- [NativeObject/NativeType](../crates/kagari-runtime/src/native/payload/mod.rs)
+  already provide runtime-owned payload construction, roots and closure-based read;
+  NativeData enables limited direct edit. Reuse these instead of the external host
+  registry as the storage owner. General extraction and the proposed facade remain
+  unimplemented.
 - The [host interface example](../crates/kagari/examples/host_interfaces.rs)
   separates offline compilation and runtime implementation installation.
   [Integration tests](../crates/kagari/tests/host_interfaces.rs) cover existing
   rooted interface behavior including GC, reentry and reload.
 
-The automatic derives, typed function adapters, Serde bridge and owned opaque
-storage below require new work. Do not infer their availability from the existing
-`HostTypeOwnership` enum or reinterpret old non-owning handles as owning objects.
+DTO derives, Serde, the new facade and lifetime-aware method adapters need work;
+ordinary typed adapters and runtime-owned storage already exist. Do not infer the
+new API from `HostTypeOwnership` or reinterpret non-owning host handles as owners.
 
 ## One type mapping and conversion boundary
 
@@ -118,7 +132,7 @@ its signature, rather than demanding every type support both directions.
 | --- | --- | --- |
 | Supported scalars and `String` | Corresponding primitive | Checked conversion; strings may allocate |
 | Value-bound struct or enum | Ordinary nominal struct or enum | Convert declared fields or variant payloads |
-| `Opaque<T>` | Registered opaque nominal type | Retain or resolve a typed object handle |
+| `Opaque<T>` | Registered native nominal type | Retain or resolve a checked handle to this runtime's payload; never implicitly take T |
 | `Option<T>` and tuples | Corresponding composite | Recursively apply the element mapping |
 | Supported `Vec<T>`, maps and sets | Declared script collection | Convert elements; obey key and collection contracts |
 | `Serde<T>` | The nominal value type described by its schema | Use the explicit Serde adapter, not a dynamic dictionary |
@@ -187,16 +201,18 @@ from field mutation. Document which fields are exported; unsupported field/varia
 forms produce diagnostics. A manual adapter is available for external types or
 deliberately different representations.
 
-The proposed `module.register_type::<T>()` registers schema/mapping metadata;
-it does not create/copy an object or select a passing mode. Reference support uses
-the same nominal declarations. Its follow-up extends derive output with checked
+The proposed `module.register_type::<T>()` registers DTO schema/mapping metadata;
+`register_type::<Opaque<T>>()` registers a native payload representation. Neither
+creates an object. Reference support reuses the selected target declaration;
+registering a DTO is not registration of an opaque representation or host methods.
+The reference follow-up extends derive output with checked
 local projections for supported inline fields, under the reference plan's safety
 contract. An owned converter, custom schema or Serde mapping alone does not prove
 that a field can be borrowed from the original Rust representation.
 
 Mixed value and opaque data use the same recursion:
 
-```rust
+```text
 #[derive(KagariValue)]
 struct BattleInput {
     damage: i32,
@@ -205,7 +221,8 @@ struct BattleInput {
 ```
 
 Only the outer structure and ordinary value fields are converted. `config` retains
-the same Rust object. Returning such a structure follows exactly the parameter rule.
+the same runtime-owned Rust object, with runtime-owner checks on every conversion;
+it cannot be used in another runtime. Returning a structure follows the same rule.
 Input conversion of ordinary mutable script data yields owned Rust data; it does
 not secretly borrow script storage or mutate the source graph.
 
@@ -299,151 +316,270 @@ installing a usable API. Repeated dependency references are not duplicate defini
 
 ## Opaque ownership and access
 
-The main construction API takes ownership and hides storage choices:
+`Opaque<T>` is the proposed typed, rooted handle to an exclusively runtime-owned
+Rust payload. Insertion moves T into the runtime. Cloning the handle retains the
+same object without requiring `T: Clone`; neither Rust nor script aliases acquire
+a Rust reference merely by holding a handle. The wrapper has no Deref/DerefMut.
+Kagari sees the registered native nominal type, such as `game::Player`, not the
+Rust wrapper spelling `Opaque<Player>`.
 
-```rust
-let config = Opaque::new(GameConfig::load());
-let another = config.clone();
-```
+Build this on the existing
+[NativeObject/NativeType storage and access](../crates/kagari-runtime/src/native/payload/mod.rs).
+The public naming transition must select one owner/API, updating consumers directly;
+do not keep Opaque and NativeObject as parallel public lifetime implementations or
+compatibility aliases. Current NativeObject supports construction/read and limited
+edit; the proposed facade, general method adapter and ownership extraction below
+are not implemented. HR registration unification does not activate RI03.
 
-`GameConfig::load` is an application placeholder here. `Opaque<T>: Clone` must not
-add a `T: Clone` bound or invoke the payload's clone implementation. Both handles
-denote the same object. No `DerefMut`, implicit deep copy or automatic
-exclusive access is provided. Shared Rust access is available for implementing
-methods; references obtained there never become script values in this design.
+### Relationship to Ref and RefMut
 
-Objects must not contain borrowed data with a lifetime shorter than their retention;
-the proposed first binding requires `T: 'static`. This does not mean the object
-lives forever. The GO thread-transfer contract requires Send for runtime-owned
-payloads. An independently shared Opaque owner must additionally satisfy the
-requirements of its storage and access model; for example, sharing Arc<T> across
-threads requires T: Send + Sync. Thread-affine objects remain in external host
-services. This replaces the earlier assumption that every Opaque payload can stay
-inside a fixed-thread isolate without transfer constraints.
+| Handle | Payload owner | Lifetime and access |
+| --- | --- | --- |
+| `Opaque<T>` | Runtime owns T. | Rooted host handles and reachable script references retain the object within that runtime; checked shared/mutable access, and explicit host ownership extraction. |
+| `Ref<T>` | Host continues to own T. | Scope-bound shared access; no transfer, retention beyond scope or ownership extraction. |
+| `RefMut<T>` | Host continues to own T. | Scope-bound shared or exclusive access with dynamic conflict checks; no transfer or ownership extraction. |
 
-Observable lifetime requirements are:
+The latter two are [host location capabilities](host-registration-plan.md#queued-ref-and-refmut-design),
+not long-lived Rust references. All three can use explicitly registered host
+methods on the same native nominal type. The method's required access and the
+actual storage/handle capability determine whether invocation is admitted. No
+second Player registration or duplicate method bodies are required for borrowing.
 
-- Live Rust wrappers and reachable script handles retain the payload.
-- Script assignment and repeated conversions of a cloned wrapper preserve object
-  identity within the runtime; they do not allocate independent payloads.
-- Temporary conversions, Native calls, reentry and traps retain valid objects until
-  cleanup can safely release them. Failed publication must not leak permanent roots.
-- Dropping a Rust wrapper does not invalidate a script handle that still retains
-  the object. After all owners release it, the payload is destroyed once.
-- Script release timing depends on collection. No business-critical resource
-  cleanup may rely on prompt GC or script finalizers.
-- Runtime teardown releases its own handles, not independently retained Rust owners.
-  Runtime registry/generation/type checks reject foreign, stale or forged values.
+Ordinary DTO conversion is a separate representation. Registering its schema does
+not expose Rust methods or traits. A native Player has no structural DTO conversion
+by default; if both forms are needed, expose an explicit PlayerSnapshot/value
+binding with its own nominal identity and conversion operation. Existing structured
+DTO-backed Ref examples retain their explicitly registered projection capabilities;
+that capability does not attach host methods to ordinary GC instances.
 
-The GC traces script-side handles and releases their retention records; it does not
-scan arbitrary Rust object graphs. An object table must not retain every object
-forever merely because it was once registered. Release must occur on an allowed
-thread and must not run reentrant script code from a payload destructor. Finalize
-the destruction/panic policy before implementation.
+Borrowing an Opaque payload for one native call does not create a script Ref value.
+Retained Ref views into runtime-owned objects, implicit conversion between these
+handle categories and arbitrary cross-runtime sharing are outside this initial
+scope. External shared resources can be represented by explicitly registered
+payload wrappers; their synchronization/ownership rules are not inferred from T.
 
-The first release excludes opaque payloads or captured host callbacks that create
-unmanaged ownership cycles back into the script heap. Explicit script roots remain
-necessary for any independently authorized host-retained script values; they do not
-automatically solve cross-heap cycles. Opaque handles are not persistence tokens.
+### Host construction, access and extraction
 
-Rust payload memory is outside script heap accounting. Track/bound handle storage,
-but do not claim that script heap limits bound arbitrary Rust allocations. Hosts
-remain responsible for payload/resource quotas and bounded Native work.
-
-## Methods and properties
-
-Register all members at the type's module boundary. This independent declaration
-sketch uses the same module setup as the value example. RI must supply the explicit
-`Opaque<SkillConfig>` type mapping/schema; it is not inferred from a borrowed Rust
-receiver. The resulting script nominal type is SkillConfig. Member-builder syntax
-is deliberately left as a declaration sketch until its compile proof; each
-implementation still attaches through the one `bind` entrypoint:
+The target facade below is pseudocode, with a checked loaded program and the
+registered Player type supplied by the method example. It must resolve the exact
+runtime/type generation through existing prepared NativeType machinery; this is
+not permission to bypass installation or execute using unchecked type IDs.
 
 ```text
-struct SkillConfig { power: i32, name: String }
-let config_type = game.register_type::<Opaque<SkillConfig>>()?;
+let player: Opaque<Player> = runtime.insert_opaque(
+    &loaded, &player_type, Player { hp: 100 },
+)?;
+let alias = player.clone();
+let hp = runtime.read(&player, |p: &Player| p.hp)?;
+runtime.edit(&player, |p: &mut Player| {
+    p.hp = p.hp.saturating_add(20);
+})?;
 
-Declare members on config_type, obtaining these callable references:
-  power_getter: readonly property power, receiver SkillConfig, result i32
-  name_getter: readonly property name, receiver SkillConfig, result String
-  damage_method: method damage, receiver SkillConfig, parameter level: i32, result i32
+// Passing a clone into script retains the same object, not a copy of Player.
+runtime.execute_typed(&loaded, "on_reward", (player.clone(),), &context)?;
 
-game.bind(power_getter, |_cx, (c,): (Opaque<SkillConfig>,)| Ok(c.power))?;
-game.bind(name_getter, |_cx, (c,): (Opaque<SkillConfig>,)| Ok(c.name.clone()))?;
-game.bind(damage_method, |_cx, (c, level): (Opaque<SkillConfig>, i32)| {
-    Ok(c.power.saturating_mul(level))
+let recovered: Player = runtime.take(&player)?;
+// player, alias and every script alias can no longer access the removed object.
+```
+
+`read`/`edit` lend references only inside the closure. They must preserve the
+existing non-escaping, non-reentrant native storage access contract: no script
+execution, suspension, collection or runtime transfer while the storage loan is
+active. Borrow guards, not GC timing, end access on success, error and unwind.
+Completed edits remain visible on failure. Handle-based complex operations may
+alternate access and script calls after releasing each loan.
+
+The first safe scope reuses proven registered storage capabilities. Current direct
+editing supports fixed-size NativeData without script edges; it does not admit
+arbitrary String/Vec fields or hidden script handles. General owned Rust payloads
+need explicit tracing/accounting/mutation capabilities before unrestricted edit or
+extraction is accepted. Existing managed storage uses controlled setters for its
+script edges; do not turn those into unchecked `&mut T` access. `T: Send + 'static`
+is required for runtime-owned payloads, with no blanket Sync requirement because
+the runtime is exclusively driven. Nested externally shared storage must still
+satisfy its own Rust access requirements.
+
+`take` has the following proposed contract:
+
+- Validate runtime owner, exact registered Rust type, generation, storage extraction
+  capability and absence of active/in-flight payload loans before mutation. The
+  initial implementation rejects extraction during native storage borrows/reentry.
+- Other inactive handles, including script aliases and parked execution references,
+  do not by themselves prevent extraction. Commit removal once and invalidate all
+  aliases before returning T; subsequent access or a second take returns a
+  structured unavailable-object error. A failed precondition leaves the object
+  present and unchanged.
+- Preserve identity/generation protection so slot reuse or reinsertion of the
+  recovered T cannot resurrect an old handle. Old pinned methods still reject an
+  extracted receiver; pinning code is not permission to access missing storage.
+- Release payload accounting and traced edges through the storage owner, and
+  transfer destruction responsibility to the caller exactly once. The first
+  extraction proof covers payloads without script edges; extraction of managed
+  script references requires a separate rooting/ownership conversion proof.
+- Taking T is never implicit FromKagari decoding or a side effect of cloning or
+  dropping a handle. It does not run a script callback, and it does not roll back
+  previously completed script/host effects.
+
+Without take, unreachable payloads are collected once; live host roots prevent
+collection while the runtime exists. Runtime teardown destroys its remaining
+payloads and invalidates retained handles. A handle does not keep an independently
+accessible Rust allocation alive after its runtime is gone. Explicit take is the
+way to move a supported payload out before teardown. Destructors cannot reenter
+script; runtime destruction and extraction must not double-drop a payload.
+
+### Methods and properties
+
+Register a host type once, explicitly declare its callable members, then bind
+implementations through the common binding API. This complete registration sketch
+uses the existing implementation-group shape with proposed receiver access metadata
+and lifetime-aware bind adaptation. All new spellings require a compiling proof;
+it is not currently callable Rust API.
+
+```text
+struct Player { hp: i32 }
+
+impl Player {
+    fn inspect(&self) -> i32 { self.hp }
+
+    fn heal(&mut self, amount: i32) -> i32 {
+        self.hp = self.hp.saturating_add(amount.max(0));
+        self.hp
+    }
+}
+
+let mut engine_builder = KagariEngine::builder();
+let mut module = ModuleBuilder::new("game", engine_builder.declarations())?;
+// The descriptor also needs a proven storage/access capability for this payload.
+let player_type = module.register_type::<Opaque<Player>>()?;
+module.implement(player_type.clone(), |implementation| {
+    implementation.inherent_impl(|methods| {
+        let inspect = methods.define_method(
+            MethodDecl::instance("inspect")
+                .receiver_access(ReceiverAccess::Shared)
+                .returns(Type::i32()),
+        )?;
+        methods.bind(inspect, |_cx, (p,): (&Player,)| Ok(p.inspect()))?;
+
+        let heal = methods.define_method(
+            MethodDecl::instance("heal")
+                .receiver_access(ReceiverAccess::Mutable)
+                .parameter("amount", Type::i32())
+                .returns(Type::i32()),
+        )?;
+        methods.bind(heal, |_cx, (p, amount): (&mut Player, i32)| {
+            Ok(p.heal(amount))
+        })?;
+        Ok(())
+    })
+})?;
+engine_builder.install(module.finish()?)?;
+let engine = engine_builder.build()?;
+```
+
+An automatic storage descriptor for this Player is a proposed convenience, not an
+unverified safe trait assertion. A compiling prototype may use existing supported
+native_data storage to establish the fixed-data case. Reuse declaration and bind
+validation; `ReceiverAccess` describes required host access, not a second binding
+entrypoint. The borrowed adapter receives a restricted context that cannot execute
+scripts while these Rust references are alive. Complete-pack validation/conversion
+precedes loan acquisition; returned data must not borrow from p. End the loan before
+allocating/publishing the converted result, retaining the receiver/result roots as
+required. Shared callbacks can have interior effects, so shared does not mean pure.
+
+The same registered methods are available through each admitted representation:
+
+```text
+use game::Player;
+
+fn on_reward(player: Player) -> i32 { player.heal(20) }
+fn inspect_guest(player: Ref<Player>) -> i32 { player.inspect() }
+fn reward_guest(player: RefMut<Player>) -> i32 { player.heal(20) }
+```
+
+Here bare Player means the registered native object, never a DTO with the same
+name. `Ref<Player>.heal` rejects for insufficient capability; actual borrow conflicts
+and foreign/stale/extracted objects are rejected at runtime. The host creates the
+external views using the same descriptor:
+
+```text
+let mut external = Player { hp: 100 };
+runtime.with_host_scope(|scope| {
+    let view = scope.borrow_mut(&player_type, &mut external)?;
+    runtime.execute_scoped(&loaded, "reward_guest", (view,), &context)
+})?;
+assert_eq!(external.hp, 120);
+
+runtime.with_host_scope(|scope| {
+    let view = scope.borrow(&player_type, &external)?;
+    runtime.execute_scoped(&loaded, "inspect_guest", (view,), &context)
 })?;
 ```
 
-This example explicitly chooses saturating arithmetic; other native operations
-must declare their own overflow/error behavior rather than depend on build profile.
-Registration does not expose all Rust fields automatically. A property is a declared
-getter-backed member, initially read-only. The compiler resolves the member using
-its declaration; runtime execution uses linked Native entries, not reflection over
-Rust field names. Kagari code sees ordinary syntax:
+These scoped helpers remain reference-stage work. Rust cannot access or move the
+lent object incompatibly until the scope ends. Scope exit revokes all views without
+dropping or taking the host's payload. Registration is reused; ownership differs.
 
-```kagari
-fn calculate(config: SkillConfig, level: i32) -> i32 {
-    val power = config.power
-    return config.damage(level)
-}
-```
+Properties require explicit getter/setter declarations and use the same shared or
+mutable receiver checks. Opaque fields are not automatically exposed as ordinary
+GC fields or projected paths. A returned Opaque<Child> must name a separately
+registered, retained runtime object; an internal `&Child` is not such a handle.
+Consuming Rust `self` methods are a separate adapter extension: the first API uses
+explicit host `take`, never silently moves T out to satisfy a method parameter.
 
-Methods are ordinary registered Native calls with an opaque receiver. Property
-getters use the same conversion and invocation machinery with appropriate member
-metadata. Preserve conservative call effects, evaluation order and once-only receiver
-evaluation. No per-type or per-member cases belong in generic compiler/VM dispatch.
+### Rust traits and Kagari traits
 
-A getter or method returning `Opaque<Child>` produces a `Child` handle; returning a
-value-bound child produces converted data. `Option<Opaque<Child>>` recursively maps
-to `Option<Child>`. There is no configuration-specific branch. Returning an internal
-`&Child` does not automatically become a retained child; the host must supply an
-owned/retained wrapper. Borrowed subobject projection remains deferred.
+Rust and Kagari traits are independent systems. Implementing a Rust trait, matching
+its name or deriving a Rust trait supplies no Kagari declaration, impl or interface
+conversion witness. Exposing a Rust trait method as an ordinary registered method
+also does not implicitly implement a Kagari trait.
 
-## Mutation through methods
+To expose a Kagari trait implementation, explicitly register/resolve that Kagari
+trait declaration, register an impl for the actual script receiver contract, and
+bind each required member. Rust trait methods may implement those callbacks. For
+example, a Rust `impl RustHealable for Player` can be used in a callback bound to an
+explicitly registered Kagari `Healable` member; omitting that registration leaves
+Kagari `T: Healable` unsatisfied. Source-free linking checks the same declaration,
+receiver access, signature and impl requirements.
 
-Opaque does not mean immutable. Host objects may own safe interior mutability and
-expose operations that change the shared object:
+Optional registration sketch, added before finishing the same module. Assume the
+Rust trait RustHealable is implemented for Player with `heal(&mut self, i32) -> i32`.
+The explicit Kagari declaration below is separately named Healable; resolving a
+trait already declared by another module would reuse its checked TraitRef instead.
+The Kagari trait keeps its ordinary Self signature. Required Rust payload access
+is metadata on this native impl member, not an imported Rust trait receiver rule.
+The proposed impl-builder receiver_access spelling needs the same compile proof
+as the inherent method builder.
 
 ```text
-use std::cell::Cell;
-
-struct Player {
-    score: Cell<i32>,
-}
-
-let player_type = game.register_type::<Opaque<Player>>()?;
-Declare members on player_type:
-  score_getter: readonly property score, receiver Player, result i32
-  set_score_method: method set_score, receiver Player, parameter value: i32, result Unit
-
-game.bind(score_getter, |_cx, (p,): (Opaque<Player>,)| Ok(p.score.get()))?;
-game.bind(set_score_method, |_cx, (p, value): (Opaque<Player>, i32)| {
-    p.score.set(value);
-    Ok(())
+let healable = {
+    let mut declaration = module.define_trait("Healable")?;
+    declaration.define_method(
+        MethodDecl::instance("heal")
+            .parameter("amount", Type::i32())
+            .returns(Type::i32()),
+    )?;
+    declaration.finish()?
+};
+module.implement(player_type.clone(), |implementation| {
+    implementation.trait_impl(healable.apply([])?, |methods| {
+        methods.receiver_access("heal", ReceiverAccess::Mutable)?;
+        methods.bind("heal", |_cx, (p, n): (&mut Player, i32)| {
+            Ok(RustHealable::heal(p, n))
+        })
+    })
 })?;
 ```
 
-This is an independent opaque registration example, not a second registration of
-the by-value Player in the same catalog. It uses the same explicit member
-declarations and owning receiver tuple convention as the previous example.
+This registers a Kagari impl for the native Player receiver. Without it, Rust's
+impl and the inherent heal binding alone do not satisfy a Kagari Healable bound.
+The snippet does not assert an additional impl for Ref<Player> or RefMut<Player>.
 
-Other handles observe the updated score. The property is read-only in script syntax
-even though the object has a modifying method. Read-only field access is not proof
-of deep immutability or absence of aliases. Native callbacks are potentially
-effectful by default. Internal call contracts must not infer purity from a shared
-Rust receiver or readonly property.
-
-The host selects safe interior mutation/synchronization appropriate to its object.
-Bindings neither add a mandatory mutex nor hand out `&mut T` behind a shared handle.
-Do not hold a dynamic borrow or lock across script reentry or suspension; conflicts
-need defined host errors rather than undefined behavior, accidental panics or VM
-deadlocks. The engine cannot make arbitrary trusted Rust code cooperative.
-
-Automatic `&mut self` adapters and writable property setters are deferred to the
-borrow/mutation design. Native methods are not automatically transactional: already
-completed host effects remain completed if later result conversion fails. Preserve
-existing prepare/commit guarantees where the operation explicitly promises them.
+Do not require three copies of inherent method registration or manufacture view
+trait impls just because Opaque/Ref/RefMut share a target schema. This proposal does
+not add a general view-to-trait forwarding or borrowed interface erasure rule. If
+a concrete script generic/interface use needs it, its accepted receiver/capability
+mapping must be explicitly registered and checked before use. Ordinary inherent
+calls above do not depend on that future trait adaptation design.
 
 ## Configuration reload and future async use
 
@@ -453,10 +589,11 @@ not a whole-heap snapshot API. State replacement exports explicit data and busin
 IDs; Opaque objects and old runtime handles are not serialized into a new heap.
 Resources are reattached only through checked host policy after writer quiescence.
 
-For immutable configuration, a handle represents a fixed snapshot. Publishing a new
-configuration does not retarget existing handles. New lookups can return the new
-snapshot; old data remains retained while used. A service that always queries the
-latest configuration is a distinct API, not an implicit property of opaque handles.
+For immutable configuration exposed without editing/extraction to its consumers,
+a handle represents a fixed snapshot. Publishing a new configuration does not
+retarget old handles. New lookups return the new snapshot; old payloads remain
+retained while reachable unless the host explicitly takes them or tears down the
+runtime. A service querying the latest configuration is a distinct API.
 
 Script module reload and configuration data replacement are separate operations.
 Preserve generation-pinned callable contracts and check type/schema compatibility;
@@ -464,7 +601,9 @@ keeping a payload alive does not authorize an old handle under an incompatible t
 
 The [async design](async-execution-design.md) may retain owned values and valid opaque
 handles in suspended executions, subject to its root and lifecycle rules. This plan
-adds no suspension support. Thread-affine external objects stay with their host
+adds no suspension support. Parked handles do not guarantee an object cannot be
+explicitly taken; resumption validates liveness before payload access. Ref/RefMut
+and active Rust loans cannot cross suspension. Thread-affine objects stay with their host
 service; external completion threads do not directly access the script heap.
 
 ## Architecture and failure boundaries
@@ -488,7 +627,8 @@ Input conversion completes before invoking the business callback. Output convers
 failure cannot roll back effects that the callback already performed. Error messages
 should identify the callable and nested field/index without leaking opaque contents.
 
-Document schema versions/fingerprints and bump affected artifact/runtime formats.
+Preserve schema/ABI validation and record contract changes; follow the unpublished
+development policy rather than routinely bumping format/runtime identifiers.
 Update consumers directly; do not keep duplicate old/new semantic implementations
 or silently ignore obsolete metadata. This does not permit removing validation,
 existing scoped borrow protections or typed-path behavior outside this scope.
@@ -499,19 +639,32 @@ All phases are unstarted. Reconcile the accepted GO foundation before activation
 already implemented nominal declarations, roots and typed adapters are reused.
 Review the remaining RI-specific API gates below.
 
+Design checkpoint: runtime-owned Opaque with read/edit/take replaces independent
+external ownership in this proposal. RI03 reuses existing storage and owns the
+new extraction/receiver adapter work; external Ref/RefMut remains SA21 follow-up.
+The selected API shape is explicit type/member registration plus bind, with Rust
+and Kagari traits kept independent. Exact facade/adapter signatures and broader
+payload capabilities require compile proofs; this checkpoint changes no runtime
+behavior and reports no test or performance result.
+
 - [ ] RI00: Re-audit the completed predecessor and existing tests. Decide trait
   signatures, supported numeric/collection/enum forms, field exposure,
   Serde attribute matrix, fallible-call channel and destruction/thread policy.
   Fix ordinary-value alias/cycle behavior, catalog identity rules and phase scope.
+  Inventory NativeObject reuse, the single public handle migration, payload
+  capabilities and atomic take/invalidation. Separate explicit Kagari trait
+  registration from Rust trait implementations.
 - [ ] RI01: Introduce portable nominal value schemas and registration graph
   validation. Integrate ordinary HIR types, checked contracts, linking and artifact
   validation. Test offline registration, missing dependencies and atomic rejection.
 - [ ] RI02: Extend GO directional conversion contexts and typed Native adapters
   to the RI value-schema subset. Cover nested DTO conversion, limits and failures
   without adding another root or invocation implementation.
-- [ ] RI03: Implement retained opaque storage and `Opaque<T>` without `T: Clone`.
-  Add methods/properties through common Native bindings, identity/lifetime checks
-  and safe host-managed mutation. Keep borrowed adapters out of this phase.
+- [ ] RI03: Build Opaque on existing runtime-owned storage/roots without T: Clone
+  or parallel handle implementations. Add checked host read/edit/take, atomic alias
+  invalidation and shared/mutable method adapters for proven payload capabilities.
+  Reuse common declaration/bind validation; require a compiling lifetime proof.
+  External Ref/RefMut scopes and path projections remain outside this phase.
 - [ ] RI04: Implement `KagariValue`, schema generation and the explicit optional
   Serde adapter against the accepted subset. Add compile-fail tests and an external
   embedding consumer proving that new structs and opaque types need no core edits.
@@ -531,8 +684,14 @@ Required coverage includes:
 - Primitive, struct, enum and nested composite round trips; directional-only types;
   range/type errors; ordinary copy isolation and documented graph rejection.
 - Mixed value/opaque fields across arguments, returns, properties and containers.
-- Non-`Clone` payloads with cloned wrappers; identity preservation; shared mutation;
-  no automatic `&mut` access or public Rust reference representation.
+- Non-Clone payload retention without copy; shared/exclusive access and capability
+  rejection; reference escape compile-fail coverage and no unguarded dereference.
+- Take with inactive aliases, active-loan rejection, failed-take atomicity, repeated
+  take/access rejection, slot reuse/reinsertion, parked handles, pinned methods,
+  accounting/traced-edge cleanup and exactly-once destruction after extraction.
+- Explicit shared/mutable method registration, receiver/argument batch validation,
+  and rejection of inferred Rust-trait exposure. Ref variants are tested in their
+  owning phase; nominal data registration alone does not expose host methods.
 - Script reachability, host retention, GC during conversion/callbacks, reentry,
   cancellation/traps, last-owner destruction and runtime teardown without leaks.
 - Foreign runtime/type, stale generations, fabricated object IDs and incompatible
@@ -546,7 +705,9 @@ Required coverage includes:
 - Synchronous configuration snapshot retention across data publication, separately
   from script generation pinning. Async suspension tests belong to async activation.
 
-Run the relevant predecessor feature/backend matrix and all repository final checks:
+Local validation selects affected payload/registration/conversion and a small
+dependent regression set, plus lightweight structure/format/diff checks. Full
+workspace and feature/backend/platform acceptance belongs to CI:
 
 ```text
 uv run --locked scripts/check_structure.py
