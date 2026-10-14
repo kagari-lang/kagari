@@ -14,7 +14,7 @@ impl<T: NativePayload> NativeType<T> {
         AppliedReceiver::new(
             self.owner().clone(),
             self.type_argument().clone(),
-            self.record._program.clone(),
+            self.record.rust_type.program(),
         )
     }
 

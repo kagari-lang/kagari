@@ -24,6 +24,7 @@ pub(crate) fn inherent_substitution(
     receiver: &TypeId,
     cancel: &CancellationToken,
 ) -> Option<TypeSubstitution> {
+    let scoped = matches!(receiver, TypeId::Reference { .. });
     let receiver = if let TypeId::Reference { target, access } = receiver {
         let required = method.receiver_access?;
         if !access.permits(required) {
@@ -44,6 +45,17 @@ pub(crate) fn inherent_substitution(
     )
     .ok()?;
     let owner = aggregates.normalize_type(definitions, &method.owner.instantiate(&substitution));
+    if !scoped
+        && method.receiver_access.is_some()
+        && !matches!(
+            receiver,
+            TypeId::NativeObject(_) | TypeId::Generic(_) | TypeId::SelfType(_)
+        )
+    {
+        // The outer scoped reference was unwrapped above. Preserve that fact:
+        // plain GC structs cannot become Rust references through a method call.
+        return None;
+    }
     (!owner.conflicts_with(receiver) || receiver.can_weaken_to(&owner)).then_some(substitution)
 }
 

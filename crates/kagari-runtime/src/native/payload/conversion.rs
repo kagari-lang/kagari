@@ -6,13 +6,14 @@ use crate::{
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
         payload::Opaque,
+        rust_type::check_mapping,
         schema::TypeRegistration,
         storage::NativePayload,
         types::Type,
     },
     value::Value,
 };
-use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
+use kagari_types::ty::Ty;
 
 impl<T: NativePayload> KagariType for Opaque<T> {
     fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
@@ -24,28 +25,12 @@ impl<T: NativePayload> KagariType for Opaque<T> {
     }
 
     fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
-        cx.runtime().gc().ensure_no_native_borrow()?;
-        expected.validate(cx.runtime())?;
-        let Ty::NativeObject(nominal) = expected.ty() else {
+        if !matches!(expected.ty(), Ty::NativeObject(_)) {
             return Err(RuntimeError::module_validation(
                 "native object requires an opaque storage type",
             ));
-        };
-        if cx
-            .runtime()
-            .native_entries
-            .storage
-            .get_id(nominal.declaration)
-            .is_some_and(|storage| {
-                storage.layout() == NativeStorageLayout::Opaque && storage.accepts_payload::<T>()
-            })
-        {
-            Ok(())
-        } else {
-            Err(RuntimeError::module_validation(
-                "native object payload mapping differs from its registration",
-            ))
         }
+        check_mapping::<T>(cx.runtime(), cx.owner(), expected)
     }
 }
 
@@ -57,20 +42,7 @@ impl<T: NativePayload> FromKagari for Opaque<T> {
         expected: &TypeArgument,
         value: &Value,
     ) -> NativeResult<Self> {
-        Self::check_type(cx, expected)?;
-        cx.check_value(expected, value)?;
-        let Value::GcHandle(id) = value else {
-            return Err(RuntimeError::module_validation("native object conversion"));
-        };
-        cx.runtime().gc().with_native::<T, _>(*id, |_| Ok(()))?;
-        let native_type = cx
-            .runtime()
-            .prepare_native_type(cx.owner(), expected.clone())?;
-        let root = cx
-            .runtime()
-            .root_value(*value)
-            .ok_or_else(|| RuntimeError::module_validation("native object retention"))?;
-        Ok(Self { root, native_type })
+        Self::from_checked(cx, expected, value)
     }
 }
 
@@ -84,5 +56,28 @@ impl<T: NativePayload> IntoKagari for Opaque<T> {
         let value = self.conversion(cx, expected)?;
         cx.check_value(expected, &value)?;
         Ok(value)
+    }
+}
+
+impl<T: Send + 'static> Opaque<T> {
+    pub(crate) fn from_checked(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        check_mapping::<T>(cx.runtime(), cx.owner(), expected)?;
+        cx.check_value(expected, value)?;
+        let Value::GcHandle(id) = value else {
+            return Err(RuntimeError::module_validation("native object conversion"));
+        };
+        cx.runtime().gc().with_native::<T, _>(*id, |_| Ok(()))?;
+        let native_type = cx
+            .runtime()
+            .prepare_native_type(cx.owner(), expected.clone())?;
+        let root = cx
+            .runtime()
+            .root_value(*value)
+            .ok_or_else(|| RuntimeError::module_validation("native object retention"))?;
+        Ok(Self { root, native_type })
     }
 }

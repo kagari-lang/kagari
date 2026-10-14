@@ -93,8 +93,9 @@ checks its Rust identity and maps only the Opaque wrapper to the module's nomina
 declaration. NativeData's existing proof grants its data/take flags; the default
 payload factory grants read-only traced storage. No Rust method or trait is inferred.
 The optional direct Serde adapter and `KagariSchema` derive now use those same
-checked conversion boundaries. Ordinary Struct lending, generated projections,
-mixed loans and final SDK/legacy integration remain in RI04/RF04/RF05. The historical inventory below is the
+checked conversion boundaries. Ordinary Struct lending now uses the common RustType target descriptor without
+NativePayload. Generated projections, mixed loans and final SDK/legacy integration
+remain in RI04/RF04/RF05. The historical inventory below is the
 activation baseline, not a claim that these newer checkpoints remain unimplemented.
 
 Current owners are the [schema graph](../crates/kagari-runtime/src/native/schema.rs),
@@ -1025,6 +1026,60 @@ projectors; no projector or unsafe change is added by Serde. The earlier selecte
 whole-object RF03 Miri invocation is still running, without a passing result. Full
 workspace/feature/backend/platform coverage and final projector Miri remain CI/
 RF04/RF06-owned; the combined plan remains open.
+
+### RI04/RF03 checkpoint: common Rust targets and ordinary Struct lending
+
+`native::rust_type::RustType<T>` is one metadata-only applied target descriptor.
+NativeType owns its storage policy plus that same descriptor; ordinary registered
+structs bind it directly through Runtime. External scope/loan APIs now require
+Send + 'static rather than NativePayload. Every scope retains runtime exclusivity,
+invariant brand, owner/generation, exact Rust identity, capability and deterministic
+revocation. No new object storage, public NativeObject alias, copying or GC-to-Rust
+reinterpretation is introduced.
+
+Private native read/downcast adapters recover T from exact installed storage TypeId;
+all creation/tracing factories still require NativePayload, direct Opaque editing
+still requires the sealed fixed-data flag, and take still requires its independent
+proof. The same NativeAdapter receiver path accepts external ordinary structs or
+native payloads. Owned GC structs cannot supply Rust loans: source member lookup,
+MIR/bytecode call flow and runtime preflight enforce that distinction. Ordinary DTO
+round trips and explicit methods remain separate. Native constructors/descriptors
+and existing scoped callers migrate directly to the common target API.
+
+The ordinary Struct source-free fixture passes Ref/RefMut to one explicitly bound
+method group, mutates the original Rust object, rejects writer reentry during a
+shared loan, preserves independent DTO copies, and keeps a returned heap String
+rooted through a later scoped call/collection. Scope results now retain temporary
+roots until exit. Zero-sized root reservations no longer conflate independent Rust
+places sharing an address; copying one view still preserves its alias identity.
+
+Actual focused evidence: two `scoped_struct` VM cases passed; six existing native
+payload/method cases passed (generic evidence, explicit traits, take/pinned calls,
+external reentry/cancellation/depth/unwind); five production scope compile-fail
+proofs passed. Core/compiler library checks and scoped contract/HIR/MIR/bytecode/
+runtime/VM Clippy passed. The directly migrated scoped example runs and prints
+`owned hp=70, borrowed hp=70`.
+
+The original full VM Miri selection was stopped after 65 minutes without a result;
+it is not counted as passing or a diagnosed safety failure. Its source analysis and
+standard-library construction ran inside the interpreter. Replaced local safety
+selection with the actual pointer/heap/frame boundary under
+`tests/scoped_loans/mod.rs`, without a substitute implementation or weakened checks:
+
+- `cargo +nightly-2026-07-27 miri test -p kagari-runtime --test host_scopes external_root_actual_pointer -- --nocapture`: one case passed, including nested compatible
+  reads, writer conflicts, completed edits on errors, loan/scope unwind, GC, stale
+  revocation and healthy reuse.
+- `cargo +nightly-2026-07-27 miri test -p kagari-runtime --test host_scopes distinct_zero_sized -- --nocapture`: one case passed; independent zero-sized roots admit
+  simultaneous unique loans and aliases of one root still reject.
+
+Both corresponding ordinary tests passed. Runner: aarch64-apple-darwin,
+nightly-2026-07-27 (1.99.0-nightly), workspace test profile/default parallelism,
+MIRIFLAGS unset; no alias checks disabled. Miri ignores that profile's optimization
+level as documented by its warning. These results establish the RF03 whole-object
+pointer gate; generated projector Miri and exhaustive backend/platform CI are still
+pending. Initial module placement and a test's nonexistent Type::string helper were
+corrected; no carried production/test failure remains. RI04 still owns finite inline
+field descriptors in coordination with RF04. The combined goal remains active.
 
 ## Acceptance and verification
 

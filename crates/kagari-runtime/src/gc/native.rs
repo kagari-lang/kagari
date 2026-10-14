@@ -9,7 +9,7 @@ use crate::{
     native::{
         binding::NativeResult,
         sequence::{NativeElement, SequencePayload},
-        storage::{NativeObject, NativePayload, NativeStorage},
+        storage::{NativeObject, NativeStorage},
         stored_selection::StoredSelection,
     },
     value::Value,
@@ -26,7 +26,7 @@ impl Drop for NativeBorrow<'_> {
 }
 
 impl GcHeap {
-    pub(crate) fn with_native_data_mut<S: NativePayload, R>(
+    pub(crate) fn with_native_data_mut<S: Send + 'static, R>(
         &self,
         id: HeapObjectId,
         edit: impl for<'payload> FnOnce(&'payload mut S) -> NativeResult<R>,
@@ -156,7 +156,7 @@ impl GcHeap {
         self.alloc_object(HeapObject::Native(object))
     }
 
-    pub(crate) fn with_native<S: NativePayload, R>(
+    pub(crate) fn with_native<S: Send + 'static, R>(
         &self,
         id: HeapObjectId,
         access: impl for<'payload> FnOnce(&'payload S) -> NativeResult<R>,

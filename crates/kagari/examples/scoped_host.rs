@@ -91,7 +91,7 @@ fn main() {
     let borrowed_hp = runtime
         .runtime_mut()
         .with_host_scope(|scope| {
-            let view = scope.borrow_mut(&descriptor, &mut external)?;
+            let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             let Value::I32(hp) = Vm::execute_scoped(scope, &loaded, "borrowed", &[view.value()])?
             else {
                 unreachable!()

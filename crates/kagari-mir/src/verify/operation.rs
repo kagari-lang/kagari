@@ -7,7 +7,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
-    callable::receiver::accepts_view,
+    callable::receiver::{accepts_owned, accepts_view},
     contracts,
     contracts::{ContractError, RuntimeHelperKind},
     numeric::NumericSignature,
@@ -307,6 +307,9 @@ pub(super) fn verify(
                             return Err(context.error(Error::UnsupportedCall));
                         }
                         continue;
+                    }
+                    if index == 0 && !accepts_owned(call.receiver_access, param) {
+                        return Err(context.error(Error::UnsupportedCall));
                     }
                     context.expect(
                         arg.ty,

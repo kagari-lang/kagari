@@ -1098,7 +1098,7 @@ error/unwind. The VM scoped entry validates closed concrete parameters, uses its
 ordinary interpreter/session and rejects ephemeral results. Field place facts,
 ordinary Struct lending, multi-loan packs and SDK context/backends remain RF02/RI04/
 RF04/RF05 integration work; the RF03 checklist remains open for that integration
-gate. The current NativePayload bound on external lending is an intermediate
+gate at this checkpoint. The then-current NativePayload bound on external lending was an intermediate
 dependency on NativeType's checked descriptor, not a requirement that host-owned
 DTOs become GC payloads. RI04/RF04 must supply the checked ordinary Struct/Rust
 mapping descriptor and lift that external bound at the common loan owner; RF05
@@ -1378,14 +1378,24 @@ KagariSchema derive; its implementation and focused results are recorded in the
 It uses the same native bind/install boundary and checked object/conversion owners.
 Serialization metadata supplies no Rust projection proof; ordinary Struct lending
 and generated projectors remain the next RI04/RF04 integration slice. The earlier
-whole-object Miri selection still has no result. This does not close RF03-RF06.
+whole-object Miri selection had no result at that checkpoint. The next checkpoint
+provides the focused RF03 pointer gate; RF04-RF06 remain open.
+
+The RI04/RF03 common-target checkpoint lifts that intermediate NativePayload bound
+without weakening storage factories or Rust lifetimes. NativeType and ordinary Struct
+lending share RustType descriptors and one receiver adapter. GC structs cannot supply
+Rust loans. Focused VM tests, production lifetime proofs and actual-pointer Miri now
+establish RF03's whole-object gate; details and the stopped earlier VM selection are
+in the [interop ledger](rust-interop-design.md#ri04rf03-checkpoint-common-rust-targets-and-ordinary-struct-lending).
+Field places, inline descriptors/projectors, atomic packs and SDK/live-host integration
+remain RF02/RI04/RF04/RF05. This closes RF03 only, not combined acceptance.
 
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
 - [x] RF01: compiling scope/adapter proof and finite capability contract frozen.
 - [ ] RF02: checked reference/receiver/escape and portable contracts implemented.
-- [ ] RF03: safe external scopes and whole-object loans implemented.
+- [x] RF03: safe external scopes and whole-object loans implemented.
 - [ ] RF04: generated inline projections and atomic path loans implemented.
 - [ ] RF05: common bind, SDK and source-free reference paths integrated.
 - [ ] RF06: focused safety/integration complete; CI/Miri status recorded separately.
@@ -1393,6 +1403,6 @@ whole-object Miri selection still has no result. This does not close RF03-RF06.
 RI progress remains in the interop plan. The combined order above is the sole
 cross-plan schedule; these lists are not duplicate RI checklists. Current state:
 API/lifetime prototype and RI01-RI02 schema/conversion implemented, no carried production build failure. The
-proof and focused results above do not establish production scope/projector or
-complete combined acceptance. Implementation checkpoints use Conventional Commits with the owning
+proof and focused results above establish the whole-object scope gate, but not
+generated projector or complete combined acceptance. Implementation checkpoints use Conventional Commits with the owning
 phase trailer, for example `Plan-Phase: RF04`.

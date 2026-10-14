@@ -447,19 +447,27 @@ independently. A valid schema/signature alone does not grant runtime Rust access
 installed scope, target, owner/generation and loan capabilities are also required.
 
 The runtime entry `Runtime::with_host_scope` reserves the runtime exclusively and
-supplies a fresh invariant `HostScope`. `scope.borrow(&native_type, &host_value)`
-and `borrow_mut` lend external storage without copying or taking ownership. The
-current whole-object adapter uses an installed `NativeType<T>` descriptor; ordinary
-struct descriptors and field projections are completed by the combined RF/RI work.
+supplies a fresh invariant `HostScope`. `scope.borrow(&rust_type, &host_value)`
+and `borrow_mut` lend external storage without copying or taking ownership.
+`Runtime::bind_rust_type::<T>(&owner)` prepares a registered ordinary struct target;
+`NativeType<T>::rust_type()` supplies that same metadata-only descriptor for native
+storage. Both use one Rust target/owner/generation validator. External T needs
+Send + 'static, without NativePayload or a blanket Sync requirement. Runtime-owned
+creation still requires its storage proof. Field projections remain RF04 work.
 The original host loan lasts until scope exit even if its branded view is dropped.
 Scope/view values cannot transfer between threads. Execution stays within the scope;
 the interpreter's `Vm::execute_scoped` uses the ordinary checked public entry and
-validates its concrete parameter types before execution.
+validates its concrete parameter types before execution. Heap results remain rooted
+until scope exit; an owning handle is required to retain them beyond that scope.
 
 External addresses live in the existing host borrow frame owner. GC view headers
 contain only owner/frame/epoch/object/access identities, never an address. Rust
-payload type and nominal target checks precede access. Compatible shared loans may
-nest; any overlapping loan involving a writer fails. Reservation and an active
+type and nominal target checks precede access. A loan-capable method on an ordinary
+struct accepts an external Ref/RefMut, while owned GC structs retain DTO semantics
+and cannot call that Rust loan. Source and portable flow reject such reinterpretation. Compatible shared loans may
+nest; any overlapping loan involving a writer fails. Distinct zero-sized Rust places
+may share an address, so their reservations receive separate identities; aliases of
+one view retain its original identity and conflict normally. Reservation and an active
 native loan are distinct: lending a mutable root does not block its later methods.
 The same loan-capable binding decodes owned arguments first, selects runtime-owned
 or external storage, lends the receiver, and releases that loan before converting

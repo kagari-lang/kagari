@@ -27,6 +27,7 @@ pub mod primitive;
 pub(crate) mod registry;
 mod result;
 pub mod returns;
+pub mod rust_type;
 pub mod scalar;
 pub mod schema;
 mod selected;

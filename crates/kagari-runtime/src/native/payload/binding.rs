@@ -2,10 +2,11 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::types::{arguments::TypeArgument, bindings::TypeBindings},
-    module::{LoadedModule, ModuleEpochRetention},
+    module::LoadedModule,
     native::{
         binding::NativeResult,
         payload::{NativeType, TypeRecord, managed::AppliedSchema},
+        rust_type::RustType,
         storage::NativePayload,
         types::TypeRef,
     },
@@ -83,7 +84,7 @@ impl Runtime {
         self.prepare_native_type(owner, argument)
     }
 
-    pub(crate) fn prepare_native_type<T: NativePayload>(
+    pub(crate) fn prepare_native_type<T: Send + 'static>(
         &self,
         owner: &LoadedModule,
         argument: TypeArgument,
@@ -103,9 +104,7 @@ impl Runtime {
         if storage.layout() != NativeStorageLayout::Opaque || !storage.accepts_payload::<T>() {
             return Err(invalid());
         }
-        let program = self
-            .retain_program(owner, ModuleEpochRetention::RuntimeValue)
-            .ok_or_else(invalid)?;
+        let rust_type = RustType::prepare(self, owner, argument.clone())?;
         let managed = storage
             .managed_schema()
             .map(|schema| {
@@ -114,11 +113,9 @@ impl Runtime {
             .transpose()?;
         Ok(NativeType {
             record: Arc::new(TypeRecord {
-                argument,
-                owner: owner.clone(),
+                rust_type,
                 storage: storage.clone(),
                 managed,
-                _program: program,
             }),
             mapping: PhantomData,
         })

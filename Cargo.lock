@@ -685,6 +685,7 @@ dependencies = [
  "kagari-common",
  "kagari-compiler",
  "kagari-contract",
+ "kagari-derive",
  "kagari-hir",
  "kagari-mir",
  "kagari-runtime",

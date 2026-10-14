@@ -183,7 +183,7 @@ impl NativeStorage {
         self.entries.editable_data
     }
 
-    pub(crate) fn accepts_payload<S: NativePayload>(&self) -> bool {
+    pub(crate) fn accepts_payload<S: 'static>(&self) -> bool {
         self.entries.rust_type == TypeId::of::<S>()
     }
 
@@ -409,7 +409,7 @@ impl NativeObject {
         })
     }
 
-    pub(crate) fn payload<S: NativePayload>(&self) -> NativeResult<&S> {
+    pub(crate) fn payload<S: 'static>(&self) -> NativeResult<&S> {
         self.payload.downcast_ref().ok_or_else(|| {
             RuntimeError::module_validation(
                 "native payload access codec differs from the installed storage",
@@ -417,7 +417,7 @@ impl NativeObject {
         })
     }
 
-    pub(crate) fn payload_mut<S: NativePayload>(&mut self) -> NativeResult<&mut S> {
+    pub(crate) fn payload_mut<S: 'static>(&mut self) -> NativeResult<&mut S> {
         self.payload.downcast_mut().ok_or_else(|| {
             RuntimeError::module_validation(
                 "native payload access codec differs from the installed storage",

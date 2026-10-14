@@ -8,7 +8,6 @@ use crate::{
         binding::{NativeBinding, NativeResult},
         catalog::DeclarationCatalog,
         conversion::{FromKagari, IntoKagari},
-        storage::NativePayload,
         typed::{
             NativeContext,
             loan_arguments::{LoanArguments, LoanReceiver},
@@ -83,28 +82,36 @@ pub(super) fn check_receiver_storage(
     types: &[TypeArgument],
     values: &[Value],
 ) -> NativeResult<()> {
-    if access == Some(ReferenceAccess::Mutable) {
-        if values
-            .first()
-            .is_some_and(|value| matches!(value, Value::Ephemeral(_)))
-        {
-            // External storage is owned by the host, so the runtime-owned data
-            // edit flag does not govern it. Its installed Rust mapping, target,
-            // scope and mutable capability are checked before converters below.
-            let view = cx.runtime().scoped_view(&values[0])?;
-            if !cx.runtime().host_borrows.scoped_matches(
-                cx.runtime(),
-                view,
-                &types[0],
-                ReferenceAccess::Mutable,
-                cx.conversion.owner(),
-            ) {
-                return Err(RuntimeError::module_validation(
-                    "mutable external receiver capability",
-                ));
-            }
-            return Ok(());
+    let Some(access) = access else {
+        return Ok(());
+    };
+    if values
+        .first()
+        .is_some_and(|value| matches!(value, Value::Ephemeral(_)))
+    {
+        let view = cx.runtime().scoped_view(&values[0])?;
+        if !cx.runtime().host_borrows.scoped_matches(
+            cx.runtime(),
+            view,
+            &types[0],
+            access,
+            cx.conversion.owner(),
+        ) {
+            return Err(RuntimeError::module_validation(
+                "external receiver target or capability",
+            ));
         }
+        return Ok(());
+    }
+    if types
+        .first()
+        .is_some_and(|ty| matches!(ty.ty(), Ty::Struct(_)))
+    {
+        return Err(RuntimeError::module_validation(
+            "Rust struct receiver requires an external scoped location",
+        ));
+    }
+    if access == ReferenceAccess::Mutable {
         let Some(Ty::NativeObject(nominal)) = types.first().map(TypeArgument::ty) else {
             return Err(RuntimeError::module_validation(
                 "unsupported mutable receiver storage",
@@ -129,7 +136,7 @@ macro_rules! receiver_adapters {
     ($count:expr; $($argument:ident:$value:ident),*) => {
         impl<F, T, R, $($argument,)*> NativeAdapter<Shared<T, ($($argument,)*)>, R> for F
         where
-            T: NativePayload,
+            T: Send + 'static,
             R: IntoKagari + 'static,
             $($argument: FromKagari + 'static,)*
             F: for<'loan> Fn(&mut LoanContext<'_>, (&'loan T, $($argument,)*)) -> NativeResult<R>
@@ -156,7 +163,7 @@ macro_rules! receiver_adapters {
 
         impl<F, T, R, $($argument,)*> NativeAdapter<Mutable<T, ($($argument,)*)>, R> for F
         where
-            T: NativePayload,
+            T: Send + 'static,
             R: IntoKagari + 'static,
             $($argument: FromKagari + 'static,)*
             F: for<'loan> Fn(&mut LoanContext<'_>, (&'loan mut T, $($argument,)*)) -> NativeResult<R>

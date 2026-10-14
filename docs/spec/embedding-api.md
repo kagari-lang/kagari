@@ -578,6 +578,14 @@ checks Vec capacity growth. Individual blocking iterator steps are not preempted
 See the [typed_native example](../../crates/kagari/examples/typed_native.rs)
 for registration and a host entry with owned arguments and results.
 
+`RustType<T>` is the runtime-bound target descriptor shared by external scope
+lending and NativeType's storage application. Bind ordinary registered structs with
+`runtime.bind_rust_type::<T>(&owner)`; use `native_type.rust_type()` for a native
+payload. A HostScope reserves the original Rust value, uses checked loan-capable
+methods and releases every address on exit. GC struct values remain owned DTO data
+and cannot become Rust references. See the [scoped consumer](../../crates/kagari/examples/scoped_host.rs)
+and the [scope contract](host-interop.md).
+
 ## Retained objects and prepared calls
 
 `Object`, `Opaque<T>`, `ScriptVec<T>`, `ScriptMap<K, V>`, `ScriptSet<T>`,

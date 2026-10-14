@@ -4,7 +4,7 @@ use crate::{
     error::RuntimeError,
     host::HostBorrowTable,
     host_scope::HostResourceScope,
-    native::{binding::NativeResult, payload::NativeType, storage::NativePayload},
+    native::{binding::NativeResult, rust_type::RustType},
     value::{EphemeralValue, Value},
 };
 use kagari_types::reference::ReferenceAccess;
@@ -37,16 +37,16 @@ impl Runtime {
     ///
     /// A view cannot escape:
     /// ```compile_fail
-    /// use kagari_runtime::{Runtime, native::payload::NativeType};
-    /// fn escape(runtime: &mut Runtime, ty: &NativeType<i32>, value: &i32) {
+    /// use kagari_runtime::{Runtime, native::rust_type::RustType};
+    /// fn escape(runtime: &mut Runtime, ty: &RustType<i32>, value: &i32) {
     ///     let view = runtime.with_host_scope(|scope| scope.borrow(ty, value)).unwrap();
     ///     drop(view);
     /// }
     /// ```
     /// The root remains borrowed until the scope ends, even after dropping its view:
     /// ```compile_fail
-    /// use kagari_runtime::{Runtime, native::payload::NativeType};
-    /// fn modify(runtime: &mut Runtime, ty: &NativeType<i32>, value: &mut i32) {
+    /// use kagari_runtime::{Runtime, native::rust_type::RustType};
+    /// fn modify(runtime: &mut Runtime, ty: &RustType<i32>, value: &mut i32) {
     ///     runtime.with_host_scope(|scope| {
     ///         drop(scope.borrow_mut(ty, value)?);
     ///         *value = 0;
@@ -84,11 +84,11 @@ impl Runtime {
 }
 
 impl<'scope, 'host> HostScope<'scope, 'host> {
-    /// Reserve shared external storage for this scope, using its installed native
+    /// Reserve shared external storage for this scope, using its installed Rust target
     /// descriptor. Foreign descriptors and incompatible root aliases fail.
-    pub fn borrow<T: NativePayload>(
+    pub fn borrow<T: Send + 'static>(
         &self,
-        ty: &NativeType<T>,
+        ty: &RustType<T>,
         value: &'scope T,
     ) -> NativeResult<Ref<'scope, T>> {
         // SAFETY: The signature retains a shared T loan for the invariant brand.
@@ -104,9 +104,9 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
 
     /// Reserve exclusive external storage until scope exit. This is a capability
     /// reservation; active Rust references are lent only by checked operations.
-    pub fn borrow_mut<T: NativePayload>(
+    pub fn borrow_mut<T: Send + 'static>(
         &self,
-        ty: &NativeType<T>,
+        ty: &RustType<T>,
         value: &'scope mut T,
     ) -> NativeResult<RefMut<'scope, T>> {
         // SAFETY: The signature reserves T exclusively for the invariant brand;
@@ -118,9 +118,9 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
         })
     }
 
-    unsafe fn register<T: NativePayload>(
+    unsafe fn register<T: Send + 'static>(
         &self,
-        ty: &NativeType<T>,
+        ty: &RustType<T>,
         pointer: *mut T,
         access: ReferenceAccess,
     ) -> NativeResult<Value> {
@@ -146,7 +146,8 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
 
     /// Execute through the backend's ordinary checked synchronous entry. Arguments
     /// are retained through invocation. Scoped values may never be returned, stored
-    /// in owning values or used by suspended execution.
+    /// in owning values or used by suspended execution. Heap results stay rooted
+    /// until this scope ends; retaining them beyond it requires an owning handle.
     pub fn execute(
         &self,
         arguments: &[Value],
@@ -160,11 +161,12 @@ impl<'scope, 'host> HostScope<'scope, 'host> {
                 "scoped execution result cannot retain an ephemeral value",
             ));
         }
+        self.resources.retain_values(&[result])?;
         Ok(result)
     }
 }
 
-impl<'scope, T: NativePayload> Ref<'scope, T> {
+impl<'scope, T: Send + 'static> Ref<'scope, T> {
     /// Raw script identity for a synchronous scoped argument. It becomes inert at
     /// scope exit and is checked again by execution and every access boundary.
     pub fn value(&self) -> Value {
@@ -184,7 +186,7 @@ impl<'scope, T: NativePayload> Ref<'scope, T> {
     }
 }
 
-impl<'scope, T: NativePayload> RefMut<'scope, T> {
+impl<'scope, T: Send + 'static> RefMut<'scope, T> {
     /// Raw script identity for a synchronous scoped argument. Alias creation does
     /// not bypass exclusive-loan conflict checks or extend the host lifetime.
     pub fn value(&self) -> Value {

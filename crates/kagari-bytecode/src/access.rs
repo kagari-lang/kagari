@@ -13,7 +13,7 @@ use crate::{
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::{
-    callable::receiver::accepts_view,
+    callable::receiver::{accepts_owned, accepts_view},
     operations::IterOp,
     standard::RuntimePrimitive as S,
     types::{PublicItem, inherent::executable_signature_matches},
@@ -70,7 +70,7 @@ fn call_argument_flows(
             .as_ref()
             .is_some_and(|actual| accepts_view(receiver_access, target, actual))
     } else {
-        flows(source, target)
+        accepts_owned(receiver_access, target) && flows(source, target)
     }
 }
 

@@ -11,7 +11,7 @@ use crate::{
             context::ConversionContext,
         },
         payload::Opaque,
-        storage::NativePayload,
+        rust_type::check_mapping,
         types::Type,
     },
     value::Value,
@@ -25,7 +25,7 @@ pub(super) enum LoanReceiver<T> {
 
 pub(super) struct LoanArguments<T, A, const MUTABLE: bool>(pub LoanReceiver<T>, pub A);
 
-impl<T: NativePayload, A: KagariArguments, const MUTABLE: bool> KagariArguments
+impl<T: Send + 'static, A: KagariArguments, const MUTABLE: bool> KagariArguments
     for LoanArguments<T, A, MUTABLE>
 {
     fn argument_types(_: &DeclarationCatalog) -> NativeResult<Vec<Type>> {
@@ -38,12 +38,12 @@ impl<T: NativePayload, A: KagariArguments, const MUTABLE: bool> KagariArguments
         let (receiver, arguments) = expected
             .split_first()
             .ok_or_else(|| RuntimeError::module_validation("missing borrowed receiver"))?;
-        cx.check_type::<Opaque<T>>(receiver)?;
+        check_mapping::<T>(cx.runtime(), cx.owner(), receiver)?;
         A::check_types(cx, arguments)
     }
 }
 
-impl<T: NativePayload, A: FromKagariArguments, const MUTABLE: bool> FromKagariArguments
+impl<T: Send + 'static, A: FromKagariArguments, const MUTABLE: bool> FromKagariArguments
     for LoanArguments<T, A, MUTABLE>
 {
     fn from_arguments(
@@ -77,7 +77,7 @@ impl<T: NativePayload, A: FromKagariArguments, const MUTABLE: bool> FromKagariAr
             }
             LoanReceiver::External(view)
         } else {
-            LoanReceiver::Opaque(cx.decode_value::<Opaque<T>>(&expected[0], &values[0])?)
+            LoanReceiver::Opaque(Opaque::from_checked(cx, &expected[0], &values[0])?)
         };
         // The ordinary invocation owner roots the entire input snapshot. All
         // owned conversions finish before either storage adapter acquires a loan.

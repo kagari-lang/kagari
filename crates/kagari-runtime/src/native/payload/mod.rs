@@ -10,11 +10,12 @@ use crate::{
     error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{GcHeap, roots::RootedValue},
-    module::{LoadedModule, retention::ProgramLease},
+    module::LoadedModule,
     native::{
         binding::NativeResult,
         conversion::context::ConversionContext,
         payload::{data::NativeData, managed::AppliedSchema, take::NativeTake},
+        rust_type::RustType,
         storage::{NativePayload, NativeStorage},
         typed::NativeContext,
     },
@@ -23,18 +24,16 @@ use crate::{
 use std::{marker::PhantomData, sync::Arc};
 
 #[derive(Debug)]
-struct TypeRecord {
-    argument: TypeArgument,
-    owner: LoadedModule,
+struct TypeRecord<T> {
+    rust_type: RustType<T>,
     storage: NativeStorage,
     managed: Option<Arc<AppliedSchema>>,
-    _program: ProgramLease,
 }
 
 /// A prepared native storage application. Clones reuse its checked descriptor.
 #[derive(Debug)]
 pub struct NativeType<T> {
-    record: Arc<TypeRecord>,
+    record: Arc<TypeRecord<T>>,
     mapping: PhantomData<fn() -> T>,
 }
 
@@ -65,12 +64,17 @@ impl<T> Clone for Opaque<T> {
 }
 
 impl<T> NativeType<T> {
+    /// The same checked target descriptor used when lending external Rust storage.
+    pub fn rust_type(&self) -> &RustType<T> {
+        &self.record.rust_type
+    }
+
     pub fn type_argument(&self) -> &TypeArgument {
-        &self.record.argument
+        self.record.rust_type.type_argument()
     }
 
     pub fn owner(&self) -> &LoadedModule {
-        &self.record.owner
+        self.record.rust_type.owner()
     }
 }
 
@@ -103,7 +107,7 @@ impl<T: NativePayload> NativeType<T> {
     }
 }
 
-impl<T: NativePayload> Opaque<T> {
+impl<T: Send + 'static> Opaque<T> {
     pub fn native_type(&self) -> &NativeType<T> {
         &self.native_type
     }

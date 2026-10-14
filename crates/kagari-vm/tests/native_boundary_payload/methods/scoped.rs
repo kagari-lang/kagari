@@ -25,7 +25,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
     let stale = vm
         .runtime_mut()
         .with_host_scope(|scope| {
-            let view = scope.borrow_mut(&descriptor, &mut external)?;
+            let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             view.read(scope, |state| {
                 assert_eq!(state.hp, 10);
                 assert!(view.edit(scope, |_| Ok(())).is_err());
@@ -92,8 +92,12 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
         .unwrap();
     vm.runtime_mut()
         .with_host_scope(|scope| {
-            assert!(scope.borrow(&foreign_descriptor, &external).is_err());
-            let view = scope.borrow(&descriptor, &external)?;
+            assert!(
+                scope
+                    .borrow(foreign_descriptor.rust_type(), &external)
+                    .is_err()
+            );
+            let view = scope.borrow(descriptor.rust_type(), &external)?;
             assert!(Vm::execute_scoped(scope, &owner, "scoped_damage", &[view.value()]).is_err());
             assert!(Vm::execute_scoped(scope, &owner, "scoped_inspect", &[stale]).is_err());
             assert!(
@@ -110,7 +114,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
     assert!(
         catch_unwind(AssertUnwindSafe(|| {
             let _: NativeResult<()> = vm.runtime_mut().with_host_scope(|scope| {
-                let view = scope.borrow_mut(&descriptor, &mut external)?;
+                let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
                 revoked.set(Some(view.value()));
                 view.edit(scope, |state| {
                     state.hp = 8;
@@ -128,7 +132,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                 Vm::execute_scoped(scope, &owner, "scoped_inspect", &[revoked.get().unwrap()])
                     .is_err()
             );
-            let view = scope.borrow_mut(&descriptor, &mut external)?;
+            let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             view.edit(scope, |state| {
                 state.hp = 9;
                 Ok(())
@@ -138,7 +142,7 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
 
     vm.runtime_mut()
         .with_host_scope(|scope| {
-            let view = scope.borrow_mut(&descriptor, &mut external)?;
+            let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             let error =
                 Vm::execute_scoped(scope, &owner, "scoped_recurse", &[view.value()]).unwrap_err();
             assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);

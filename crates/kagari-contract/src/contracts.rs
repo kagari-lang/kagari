@@ -1,5 +1,6 @@
 use crate::numeric::NumericSignature;
 use crate::{
+    callable::receiver::accepts_owned,
     native_import::NativeImport,
     operations::{BinaryOp, UnaryOp},
     representation::{host_representation, semantic_representation},
@@ -106,6 +107,11 @@ pub fn verify_native_call(
             // Semantic flow verification must additionally prove the same target
             // and sufficient view access. This is storage adaptation, not a cast.
             continue;
+        }
+        if index == 0 && !accepts_owned(import.receiver_access, expected) {
+            return Err(ContractError::InvalidOperation {
+                reason: "Rust struct receiver requires an external scoped location",
+            });
         }
         expect_type(
             *actual,

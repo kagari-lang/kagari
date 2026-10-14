@@ -1,3 +1,4 @@
+mod scoped_loans;
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},

@@ -8,12 +8,13 @@ use crate::{
         HostCallGuard, HostFrameId, HostObjectId,
     },
     module::{LoadedModule, ModuleEpochRetention, retention::ProgramLease},
-    native::{binding::NativeResult, payload::NativeType, storage::NativePayload},
+    native::{binding::NativeResult, rust_type::RustType},
     value::{EphemeralValue, Value},
 };
 use kagari_types::{reference::ReferenceAccess, ty::Ty};
 use std::{
     any::TypeId,
+    mem::size_of,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -48,11 +49,11 @@ unsafe impl Send for ScopedRoot {}
 impl HostBorrowTable {
     /// The caller keeps T borrowed and Runtime exclusively reserved until frame
     /// removal. Shared pointers may only be dereferenced under a shared loan.
-    pub(crate) unsafe fn register_scoped<T: NativePayload>(
+    pub(crate) unsafe fn register_scoped<T: Send + 'static>(
         &self,
         runtime: &Runtime,
         frame: &HostCallGuard<'_>,
-        descriptor: &NativeType<T>,
+        descriptor: &RustType<T>,
         pointer: *mut T,
         access: ReferenceAccess,
     ) -> NativeResult<ScopedHostView> {
@@ -63,11 +64,17 @@ impl HostBorrowTable {
             .retain_program(descriptor.owner(), ModuleEpochRetention::RuntimeValue)
             .ok_or_else(invalid)?;
         let mut state = self.state.borrow_mut();
+        // Distinct zero-sized Rust places can share an address. Give each
+        // reservation its own identity; copies of a view still share its key.
         let object = state
             .active_frames
             .values()
             .flat_map(|frame| &frame.roots)
-            .find(|root| root.pointer == pointer.cast() && root.rust_type == TypeId::of::<T>())
+            .find(|root| {
+                size_of::<T>() != 0
+                    && root.pointer == pointer.cast()
+                    && root.rust_type == TypeId::of::<T>()
+            })
             .map(|root| root.object);
         let object = match object {
             Some(object) => object,
@@ -178,7 +185,7 @@ impl HostBorrowTable {
                 .unwrap_or(false)
     }
 
-    fn lend_scoped<T: NativePayload, R>(
+    fn lend_scoped<T: Send + 'static, R>(
         &self,
         runtime: &Runtime,
         view: ScopedHostView,
@@ -217,7 +224,7 @@ impl HostBorrowTable {
         result
     }
 
-    pub(crate) fn read_scoped<T: NativePayload, R>(
+    pub(crate) fn read_scoped<T: Send + 'static, R>(
         &self,
         runtime: &Runtime,
         view: ScopedHostView,
@@ -231,7 +238,7 @@ impl HostBorrowTable {
         })
     }
 
-    pub(crate) fn edit_scoped<T: NativePayload, R>(
+    pub(crate) fn edit_scoped<T: Send + 'static, R>(
         &self,
         runtime: &Runtime,
         view: ScopedHostView,
