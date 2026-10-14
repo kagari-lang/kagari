@@ -118,7 +118,13 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
             let treasury = scope.borrow_mut(treasury_type.rust_type(), &mut external)?;
             let inventory = scope.borrow_mut(&inventory_type, &mut inventory)?;
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "owned", &[raw, inventory.value()])?,
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "owned",
+                    &[raw, inventory.value()],
+                    Default::default()
+                )?,
                 Value::I32(70)
             );
             assert_eq!(
@@ -126,7 +132,8 @@ fn one_registered_pair_method_serves_opaque_and_external_receivers() {
                     scope,
                     &owner,
                     "external",
-                    &[treasury.value(), inventory.value()]
+                    &[treasury.value(), inventory.value()],
+                    Default::default()
                 )?,
                 Value::I32(70)
             );
@@ -280,18 +287,39 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             let second = scope.borrow_mut(&player_type, &mut other)?;
             let stats = whole.field(scope, &stats_field)?;
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "tick", &[whole.value()])?,
+                Vm::execute_scoped(scope, &owner, "tick", &[whole.value()], Default::default())?,
                 Value::I32(70)
             );
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "inspect", &[whole.value()])?,
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "inspect",
+                    &[whole.value()],
+                    Default::default()
+                )?,
                 Value::I32(70)
             );
-            assert!(Vm::execute_scoped(scope, &owner, "duplicate", &[stats.value()]).is_err());
+            assert!(
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "duplicate",
+                    &[stats.value()],
+                    Default::default()
+                )
+                .is_err()
+            );
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             assert_eq!(CONVERSIONS.load(Ordering::SeqCst), 1);
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "replace", &[whole.value()])?,
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "replace",
+                    &[whole.value()],
+                    Default::default()
+                )?,
                 Value::I32(6)
             );
             stats.read(scope, |stats| {
@@ -299,10 +327,22 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
                 Ok(())
             })?;
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "once", &[whole.value(), second.value()])?,
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "once",
+                    &[whole.value(), second.value()],
+                    Default::default()
+                )?,
                 Value::I32(111)
             );
-            let renamed = Vm::execute_scoped(scope, &owner, "rename", &[whole.value()])?;
+            let renamed = Vm::execute_scoped(
+                scope,
+                &owner,
+                "rename",
+                &[whole.value()],
+                Default::default(),
+            )?;
             scope.execute(&[renamed], |runtime, values| {
                 let Value::Str(id) = values[0] else {
                     panic!("string")

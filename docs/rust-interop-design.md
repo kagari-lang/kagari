@@ -1249,6 +1249,31 @@ forwarding, SDK context/backend integration and legacy live-host migration, incl
 its existing dirty-path/commit reporting. HR02/HR03, RF06 and RI05 remain open;
 combined acceptance and goal completion are not claimed.
 
+### RF05 checkpoint: SDK scoped execution context
+
+The SDK now exposes with_host_scope over the existing branded native owner and
+static execute_scoped with required ExecutionContext. The VM scoped entry requires
+explicit ExecutionOptions; every caller is migrated directly, with no default-options
+compatibility entrypoint. The root uses cancellation, deterministic inputs, observer
+attachment and host-call recording from that context. JIT policies reject before
+callback entry; the implemented route is explicitly the interpreter. Native errors
+reuse EmbeddingError's established category/trace mapping. The SDK callback returns
+RunResult while its invariant brand and native cleanup remain unchanged.
+
+Focused results passed: SDK scoped_calls artifact round-trip with the common two-field
+borrowed bind, read-only inspection, changed external hp/gold, cancellation/JIT
+rejection before effects, later healthy calls, deterministic unix time=123 and
+observer/recording options; the SDK scope escape compile-fail doctest (rejected for
+invariant lifetime escape); two selected VM scope/member capability/cleanup cases;
+frontend-free SDK library check (no default features); SDK library/selected test/
+scoped_host example Clippy; structure (1227 files, zero violations), formatting and
+diff checks. The migrated scoped_host example prints owned hp=70, borrowed hp=70.
+No unsafe mechanism changes, so existing actual-pointer Miri remains evidence for
+lending/projection. No full workspace or feature/backend/platform matrix runs locally.
+
+RF05 remains open for raw/reflective shared capability forwarding and live-host
+migration; HR02/HR03 and RF06/RI05 are also open. The active goal is not complete.
+
 ## Acceptance and verification
 
 Required coverage includes:

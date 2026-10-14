@@ -89,9 +89,21 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
     vm.runtime_mut()
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(&descriptor, &mut external)?;
-            let text = Vm::execute_scoped(scope, &owner, "inspect", &[view.value()])?;
+            let text = Vm::execute_scoped(
+                scope,
+                &owner,
+                "inspect",
+                &[view.value()],
+                Default::default(),
+            )?;
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "damage", &[view.value(), Value::I32(3)])?,
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "damage",
+                    &[view.value(), Value::I32(3)],
+                    Default::default()
+                )?,
                 Value::I32(7)
             );
             // A later invocation may collect; the earlier heap result is retained
@@ -113,7 +125,8 @@ fn registered_struct_loans_use_original_host_storage_and_common_methods() {
                     scope,
                     &owner,
                     "damage",
-                    &[view.value(), Value::I32(1)]
+                    &[view.value(), Value::I32(1)],
+                    Default::default()
                 ))
                 .is_err()
             );

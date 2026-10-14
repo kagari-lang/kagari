@@ -35,15 +35,35 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                 })
             })?;
             view.read(scope, |_| {
-                Vm::execute_scoped(scope, &owner, "scoped_read_mut", &[view.value()])?;
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "scoped_read_mut",
+                    &[view.value()],
+                    Default::default(),
+                )?;
                 assert!(
-                    Vm::execute_scoped(scope, &owner, "scoped_damage", &[view.value()]).is_err()
+                    Vm::execute_scoped(
+                        scope,
+                        &owner,
+                        "scoped_damage",
+                        &[view.value()],
+                        Default::default()
+                    )
+                    .is_err()
                 );
                 Ok(())
             })?;
             view.edit(scope, |_| {
                 assert!(
-                    Vm::execute_scoped(scope, &owner, "scoped_read_mut", &[view.value()]).is_err()
+                    Vm::execute_scoped(
+                        scope,
+                        &owner,
+                        "scoped_read_mut",
+                        &[view.value()],
+                        Default::default()
+                    )
+                    .is_err()
                 );
                 Ok(())
             })?;
@@ -70,10 +90,22 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                 Ok(())
             })?;
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "scoped_damage", &[view.value()])?,
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "scoped_damage",
+                    &[view.value()],
+                    Default::default()
+                )?,
                 Value::I32(9)
             );
-            let inspected = Vm::execute_scoped(scope, &owner, "scoped_read_mut", &[view.value()])?;
+            let inspected = Vm::execute_scoped(
+                scope,
+                &owner,
+                "scoped_read_mut",
+                &[view.value()],
+                Default::default(),
+            )?;
             scope.execute(&[inspected], |runtime, arguments| {
                 let Value::Str(id) = arguments[0] else {
                     panic!("string inspection")
@@ -98,14 +130,38 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                     .is_err()
             );
             let view = scope.borrow(descriptor.rust_type(), &external)?;
-            assert!(Vm::execute_scoped(scope, &owner, "scoped_damage", &[view.value()]).is_err());
-            assert!(Vm::execute_scoped(scope, &owner, "scoped_inspect", &[stale]).is_err());
+            assert!(
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "scoped_damage",
+                    &[view.value()],
+                    Default::default()
+                )
+                .is_err()
+            );
+            assert!(
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "scoped_inspect",
+                    &[stale],
+                    Default::default()
+                )
+                .is_err()
+            );
             assert!(
                 scope
                     .execute(&[view.value()], |_, arguments| Ok(arguments[0]))
                     .is_err()
             );
-            Vm::execute_scoped(scope, &owner, "scoped_inspect", &[view.value()])?;
+            Vm::execute_scoped(
+                scope,
+                &owner,
+                "scoped_inspect",
+                &[view.value()],
+                Default::default(),
+            )?;
             Ok(())
         })
         .unwrap();
@@ -129,8 +185,14 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
     vm.runtime_mut()
         .with_host_scope(|scope| {
             assert!(
-                Vm::execute_scoped(scope, &owner, "scoped_inspect", &[revoked.get().unwrap()])
-                    .is_err()
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "scoped_inspect",
+                    &[revoked.get().unwrap()],
+                    Default::default()
+                )
+                .is_err()
             );
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
             view.edit(scope, |state| {
@@ -143,8 +205,14 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
     vm.runtime_mut()
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            let error =
-                Vm::execute_scoped(scope, &owner, "scoped_recurse", &[view.value()]).unwrap_err();
+            let error = Vm::execute_scoped(
+                scope,
+                &owner,
+                "scoped_recurse",
+                &[view.value()],
+                Default::default(),
+            )
+            .unwrap_err();
             assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
             view.read(scope, |state| {
                 assert!(state.hp < 9);
@@ -161,12 +229,24 @@ fn external_scopes_use_registered_payload_methods_and_revoke_old_views() {
                     options.cancellation = token.clone();
                     let _session = runtime.begin_execution(&owner, options)?;
                     token.cancel();
-                    Vm::execute_scoped(scope, &owner, "scoped_damage", &[view.value()])
+                    Vm::execute_scoped(
+                        scope,
+                        &owner,
+                        "scoped_damage",
+                        &[view.value()],
+                        Default::default(),
+                    )
                 })
                 .unwrap_err();
             assert_eq!(error.kind(), RuntimeErrorKind::Cancelled);
             assert_eq!(
-                Vm::execute_scoped(scope, &owner, "scoped_damage", &[view.value()])?,
+                Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "scoped_damage",
+                    &[view.value()],
+                    Default::default()
+                )?,
                 Value::I32(8)
             );
             Ok(())

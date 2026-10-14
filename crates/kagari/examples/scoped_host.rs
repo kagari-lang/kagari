@@ -1,4 +1,5 @@
 //! One registered method set serves runtime-owned and externally borrowed players.
+use kagari::runtime::KagariRuntime;
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{
     native::{
@@ -13,7 +14,6 @@ use kagari_runtime::{
 };
 use kagari_source::source::SourceFile;
 use kagari_types::reference::ReferenceAccess;
-use kagari_vm::vm::Vm;
 
 kagari_runtime::native_data! { struct Player { hp: i32 } }
 
@@ -89,15 +89,26 @@ fn main() {
         .unwrap();
     let mut external = Player { hp: 60 };
     let borrowed_hp = runtime
-        .runtime_mut()
         .with_host_scope(|scope| {
             let view = scope.borrow_mut(descriptor.rust_type(), &mut external)?;
-            let Value::I32(hp) = Vm::execute_scoped(scope, &loaded, "borrowed", &[view.value()])?
+            let Value::I32(hp) = KagariRuntime::execute_scoped(
+                scope,
+                &loaded,
+                "borrowed",
+                &[view.value()],
+                &context,
+            )?
             else {
                 unreachable!()
             };
             assert_eq!(
-                Vm::execute_scoped(scope, &loaded, "inspect", &[view.value()])?,
+                KagariRuntime::execute_scoped(
+                    scope,
+                    &loaded,
+                    "inspect",
+                    &[view.value()],
+                    &context
+                )?,
                 Value::I32(hp)
             );
             Ok(hp)

@@ -472,7 +472,13 @@ fn generic_native_impl_groups_preserve_receiver_and_local_binders() {
         .with_host_scope(|scope| {
             let view = scope.borrow(ty.rust_type(), &external)?;
             assert_eq!(
-                kagari_vm::vm::Vm::execute_scoped(scope, &owner, "external", &[view.value()])?,
+                kagari_vm::vm::Vm::execute_scoped(
+                    scope,
+                    &owner,
+                    "external",
+                    &[view.value()],
+                    Default::default()
+                )?,
                 kagari_runtime::value::Value::I32(17)
             );
             Ok(())

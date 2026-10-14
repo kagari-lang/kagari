@@ -70,3 +70,7 @@ blake3 = { version = "1", optional = true }
 [[example]]
 name = "serde_interop"
 required-features = ["source", "serde"]
+
+[[example]]
+name = "scoped_host"
+required-features = ["source"]

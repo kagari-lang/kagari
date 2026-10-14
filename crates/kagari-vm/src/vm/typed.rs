@@ -17,6 +17,7 @@ use kagari_runtime::{
         function_handle::PinnedFunction,
         typed::NativeContext,
     },
+    session::ExecutionOptions,
     value::Value,
 };
 use std::slice;
@@ -29,6 +30,7 @@ impl Vm {
         module: &LoadedModule,
         entry: impl Into<ProgramEntry<'entry>>,
         arguments: &[Value],
+        options: ExecutionOptions,
     ) -> NativeResult<Value> {
         let entry = entry.into();
         let (owner, function) = entry
@@ -55,7 +57,8 @@ impl Vm {
             for (expected, value) in parameters.iter().zip(arguments) {
                 conversion.check_value(expected, value)?;
             }
-            let _session = runtime.begin_execution(&owner, runtime.execution_options())?;
+            let _session = runtime.begin_execution(&owner, options)?;
+            runtime.attach_execution_observer()?;
             Executor::new(runtime, &owner, function, arguments)
                 .and_then(|mut executor| executor.run())
                 .map_err(native_error)

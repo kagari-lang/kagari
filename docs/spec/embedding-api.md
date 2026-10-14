@@ -507,6 +507,27 @@ preserves completed script effects. Conversion and execution share the active
 session's cancellation and pinned program. The explicit named-entry policy matches
 `execute`.
 
+### Scoped external host entry
+
+KagariRuntime::with_host_scope reserves the mutable runtime and gives its callback
+an invariant native HostScope. The callback returns RunResult, so native lending
+errors use the existing SDK runtime error mapping without string conversion. No
+scope brand, borrowed result or host reference can escape.
+
+Inside that scope, KagariRuntime::execute_scoped(scope, loaded, entry, values,
+execution) delegates to the VM's existing checked scoped entry. ExecutionContext is
+required: cancellation, deterministic inputs, host-call recording and the observer
+apply to this root session. JitPolicy::Disabled explicitly selects the interpreter;
+other policies reject before callback effects. Scoped native reference bodies have
+no implied native backend implementation. The same API is available without source
+or native features and reads only the installed source-free checked product.
+
+A returned raw Value is rooted until scope exit. Decode owned DTO/scalar data or
+retain an owning handle within the scope when a heap result must outlive it. Leaving
+the scope revokes every external view on success, failure and supported Rust unwind.
+The executable [scoped host example](../../crates/kagari/examples/scoped_host.rs)
+uses the SDK facade for the same explicitly registered Opaque/external method body.
+
 ## Typed native registration
 
 `ModuleBuilder::define_function` authors a `FunctionDecl` with explicit parameter

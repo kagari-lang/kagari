@@ -1,5 +1,6 @@
 //! Host-facing runtime linking and execution orchestration.
 pub mod owned;
+mod scoped;
 mod tasks;
 mod typed;
 use crate::{

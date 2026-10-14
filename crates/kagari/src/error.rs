@@ -327,6 +327,12 @@ impl ReloadValidationError {
     }
 }
 
+impl From<RuntimeError> for EmbeddingError {
+    fn from(error: RuntimeError) -> Self {
+        Self::vm(VmError::RuntimeError(error))
+    }
+}
+
 impl From<ArtifactValidationError> for ReloadValidationError {
     fn from(error: ArtifactValidationError) -> Self {
         Self::Artifact(error)

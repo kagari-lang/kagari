@@ -1421,6 +1421,14 @@ records local evidence, the repaired concrete-field transition and pending CI/KB
 batch. This closes RF02/RF04's field/path gates; SDK/context/capability forwarding
 and live-host dirty-path migration remain RF05, followed by HR03/RF06/RI05 retirement.
 
+The RF05 SDK checkpoint adds context-aware scoped entry to the existing native scope
+owner. The VM requires explicit options, the SDK requires ExecutionContext, and JIT
+policies reject before callback entry. Focused SDK, compile-fail, source-free library,
+VM scope regression and example checks pass; the
+[interop ledger](rust-interop-design.md#rf05-checkpoint-sdk-scoped-execution-context)
+records evidence. Raw capability forwarding and live-host migration still own RF05's
+remaining gate; HR02/HR03, RF06 and RI05 remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
