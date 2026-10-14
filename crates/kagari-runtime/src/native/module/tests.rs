@@ -1,5 +1,6 @@
 use crate::{
     Runtime,
+    metadata::{TypeKind, TypeRegistration},
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -220,6 +221,10 @@ fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
     let installation = NativeInstallation::prepare(slice::from_ref(&module)).unwrap();
     let mut first = installation.runtime(Default::default());
     let mut second = installation.runtime(Default::default());
+    let local = first
+        .types
+        .register(TypeRegistration::new("runtime-config", TypeKind::Primitive))
+        .unwrap();
     let before = first.native_entries.catalog.clone();
     assert!(
         application(&["added", "value"])
@@ -227,8 +232,11 @@ fn shared_registrations_keep_installation_and_failure_state_runtime_local() {
             .is_err()
     );
     assert_catalog_eq(&first.native_entries.catalog, &before);
+    assert!(first.types.get(local).is_some());
     // A failed batch must not retain its earlier successful entry.
     application(&["added"]).install(&mut first).unwrap();
+    assert!(first.types.get(local).is_some());
+    assert!(second.types.get_by_name("runtime-config").is_none());
     assert!(module.install(&mut second).is_err());
     assert!(!second.native_entries.catalog.declarations.ids().any(|id| {
         second
@@ -384,7 +392,7 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
         declaration.exports
     );
     let mut empty = Default::default();
-    assert!(module.install_into(&mut empty).is_err());
+    assert!(NativeModule::install_batch(slice::from_ref(&module), &mut empty).is_err());
     assert!(empty.catalog.traits.is_empty() && empty.catalog.types.is_empty());
     let mut runtime = Runtime::default();
     runtime.native_entries.catalog.merge(&providers).unwrap();

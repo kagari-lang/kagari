@@ -4,6 +4,7 @@ mod dependencies;
 use crate::{
     error::RuntimeError,
     host::HostFunctionId,
+    metadata::native::MetadataSnapshot,
     module::VerifiedProgram,
     native::{
         binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
@@ -96,6 +97,7 @@ pub(crate) fn link_host(
 
 #[derive(Debug, Clone)]
 pub(crate) struct NativeRegistry {
+    pub(crate) metadata: MetadataSnapshot,
     entries: DefinitionMap<Arc<BindingRegistration>>,
     pub(crate) storage: DefinitionMap<NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
@@ -106,6 +108,7 @@ impl Default for NativeRegistry {
         let catalog = DeclarationCatalog::default();
         let context = catalog.types.context().clone();
         Self {
+            metadata: MetadataSnapshot::default(),
             entries: DefinitionMap::new(context.clone()),
             storage: DefinitionMap::new(context),
             catalog,

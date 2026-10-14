@@ -163,12 +163,13 @@ impl Runtime {
     fn with_native_registry(config: RuntimeConfig, native_entries: NativeRegistry) -> Self {
         let resources = ResourceState::new(config.limits);
         let host = HostRegistry::new(native_entries.catalog.types.context().clone());
+        let types = native_entries.metadata.runtime_registry();
         Self {
             tasks: RefCell::new(TaskStore::new(config.async_limits)),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
             gc: GcHeap::new(config.gc, resources),
-            types: TypeRegistry::default(),
+            types,
             host,
             native_entries,
             host_borrows: HostBorrowTable::default(),

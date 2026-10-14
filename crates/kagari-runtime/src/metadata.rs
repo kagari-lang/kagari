@@ -1,7 +1,8 @@
 use crate::{error::RuntimeError, reload::ModuleEpoch};
+use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
-    declaration::host::PathAccess, host_interface::value_type::HostValueType,
-    visibility::Visibility,
+    declaration::TypeDef, declaration::host::PathAccess, host_interface::value_type::HostValueType,
+    ty::Ty, visibility::Visibility,
 };
 use std::{
     cell::RefCell,
@@ -165,6 +166,8 @@ pub struct TypeRegistry {
 
 #[derive(Debug, Clone, Default)]
 struct TypeRegistryInner {
+    native_values: HashMap<Ty, TypeId>,
+    native_external: HashMap<DefinitionId, (TypeDef, TypeId)>,
     host_value_types: HashMap<HostValueType, TypeId>,
     by_id: Vec<TypeInfo>,
     by_name: HashMap<String, TypeId>,
@@ -172,6 +175,7 @@ struct TypeRegistryInner {
 }
 
 mod host;
+pub(crate) mod native;
 
 impl TypeRegistry {
     pub fn register(&self, registration: TypeRegistration) -> Result<TypeId, RuntimeError> {

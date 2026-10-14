@@ -242,12 +242,19 @@ impl NativeModule {
     }
 
     pub fn install(&self, runtime: &mut Runtime) -> NativeResult<()> {
-        self.install_into(&mut runtime.native_entries)
+        Self::install_all(slice::from_ref(self), runtime)
     }
 
     /// Publish a mutually dependent foundation as one validated installation.
     pub fn install_all(modules: &[Self], runtime: &mut Runtime) -> NativeResult<()> {
-        Self::install_batch(modules, &mut runtime.native_entries)
+        let mut staged = runtime.native_entries.clone();
+        staged.metadata = runtime.types.snapshot();
+        Self::install_batch(modules, &mut staged)?;
+        // No callbacks run during preparation. Publishing these owned values
+        // together cannot leave entries installed without their reflected schema.
+        runtime.types = staged.metadata.runtime_registry();
+        runtime.native_entries = staged;
+        Ok(())
     }
 
     pub(crate) fn install_batch(
@@ -263,12 +270,9 @@ impl NativeModule {
             module.publish_bindings(&mut staged, &mut imports)?;
         }
         staged.catalog.validate_callable_contracts()?;
+        staged.metadata = staged.metadata.prepare(&staged.catalog)?;
         *registry = staged;
         Ok(())
-    }
-
-    pub(crate) fn install_into(&self, registry: &mut NativeRegistry) -> NativeResult<()> {
-        Self::install_batch(slice::from_ref(self), registry)
     }
 
     fn publish_owners(

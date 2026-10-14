@@ -1719,6 +1719,43 @@ applicable. Complete workspace/feature/backend/platform tests are CI-owned and
 unrun. Shared runtime metadata preparation/installation and legacy retirement
 remain the next HR02/RF05 work; the combined goal is still active.
 
+### HR02 checkpoint: transactional shared external metadata snapshots
+
+The native installation owns an immutable reflection seed prepared directly from
+its checked TypeDefs. External nominal rows are reserved before fields, preserving
+self/mutual recursion. Owned member types use the same Ty/schema identities and
+actual generic substitutions; DTO rows do not acquire methods, traits or external
+storage. Root and field fingerprints include the declaring identity as well as the
+schema, so identical scalar fields in different modules remain distinct contracts.
+Preparation rejects unknown/forged external targets, mismatched nominal storage,
+unresolved/reference member types and metadata name conflicts before publication.
+
+Runtime construction copies the prepared value-only rows into independent mutable
+registries. Runtime-local installation stages from its current metadata, checks
+all owners/bindings and prepares the complete candidate before publishing entries
+and metadata together. Existing runtime-local rows survive successful installation;
+failed preparation cannot publish a partial root or field graph. The Ty-to-row
+index belongs to this registry/definition context and persists only with its
+checked immutable installed schemas; it is neither a Rust pointer cache nor a
+second object store. Legacy metadata remains solely for unmigrated consumers and
+is still scheduled for HR03 retirement.
+
+Selected validation passed: two metadata boundaries cover recursive external and
+ordinary DTO fields, declared visibility/access, distinct-owner fingerprints,
+failure after candidate reservation and independent runtime copies. The existing
+native installation rollback/isolation case now also checks preservation of a
+runtime-local metadata row. Runtime library/test Clippy passed after replacing a
+bool-then filter with an explicit filter/map; initial missing import and nominal
+display formatting compilation errors are repaired. Structure (1238 Rust files,
+zero violations), fmt and diff passed. No unsafe or lifetime changes; previous
+Miri evidence remains applicable. Full workspace/feature/backend/platform coverage
+remains CI-owned and unrun locally.
+
+This seed currently installs fields and owned member types. Explicit common method/
+trait metadata, live-root publication and manual paths remain the next coherent
+integration slice. The external NativeModule execution gate remains closed until
+those consumers use the shared records; HR02/RF05 and the combined goal remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
