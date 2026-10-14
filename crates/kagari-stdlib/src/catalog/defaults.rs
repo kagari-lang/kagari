@@ -15,6 +15,7 @@ use kagari_types::{
         requirement::NativeCallableRequirement,
     },
     range::RangeKind,
+    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
@@ -181,6 +182,16 @@ pub(super) fn declare(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
 ) -> Result<(), DeclarationError> {
+    for access in [ReferenceAccess::Shared, ReferenceAccess::Mutable] {
+        define_type(
+            ids,
+            module,
+            access.name(),
+            NativeTypeConstructor::Reference(access),
+            &["T"],
+            false,
+        )?;
+    }
     define_type(
         ids,
         module,

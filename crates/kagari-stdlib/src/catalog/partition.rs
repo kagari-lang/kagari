@@ -346,6 +346,8 @@ pub(super) fn finish(
     }
     for (name, kind) in [
         ("String", DefinitionKind::AssociatedType),
+        ("Ref", DefinitionKind::AssociatedType),
+        ("RefMut", DefinitionKind::AssociatedType),
         ("Vec", DefinitionKind::AssociatedType),
         ("Option", DefinitionKind::Enum),
         ("Result", DefinitionKind::Enum),

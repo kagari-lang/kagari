@@ -6,6 +6,7 @@ use crate::{
     declarations::Declarations,
     host::HostDeclarations,
     lower::LoweredModule,
+    native::NativeTypeKind,
     typeck::{
         GenericBounds, ModuleSignatures,
         check::{self, MethodComparison},
@@ -20,7 +21,10 @@ use kagari_common::{
     cancellation::CancellationToken, identity::table::DefinitionTable, span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{language::Protocol, range::RangeKind, surface::StandardTypeConstraint};
+use kagari_types::{
+    declaration::native::NativeStorageLayout, language::Protocol, range::RangeKind,
+    surface::StandardTypeConstraint,
+};
 
 /// Checked declaration sources and their retained identity scope for application validation.
 pub(super) struct ApplicationContext<'a> {
@@ -89,6 +93,27 @@ pub(super) fn validate(
             );
         }
         match ty {
+            TypeId::Reference { target, .. } => {
+                if let TypeId::NativeObject(nominal) = target.as_ref()
+                    && !catalog.native_type(&nominal.declaration).is_some_and(|ty| {
+                        matches!(
+                            ty.representation,
+                            NativeTypeKind::Storage {
+                                layout: NativeStorageLayout::Opaque,
+                                ..
+                            }
+                        )
+                    })
+                {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidReference {
+                            reason: "this native storage has no host payload reference contract",
+                        })
+                        .with_span(span),
+                    );
+                }
+                pending.push(target);
+            }
             TypeId::Projection {
                 receiver,
                 interface,

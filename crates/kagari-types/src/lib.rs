@@ -11,6 +11,7 @@ pub mod language;
 pub mod numeric;
 pub mod payload;
 pub mod range;
+pub mod reference;
 pub mod scalar;
 pub mod surface;
 pub mod ty;

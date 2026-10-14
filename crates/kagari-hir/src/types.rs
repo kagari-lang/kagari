@@ -11,6 +11,7 @@ use kagari_types::{
         CollectionAccess::{Mutable, ReadOnly},
     },
     range::RangeKind,
+    reference::ReferenceAccess,
     scalar::BuiltinType,
     surface as standard_surface,
 };
@@ -141,6 +142,11 @@ pub struct NominalType {
 /// they are not yet concrete monomorphized types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId {
+    /// A scoped host location; target schema does not grant a Rust layout by itself.
+    Reference {
+        target: Box<TypeId>,
+        access: ReferenceAccess,
+    },
     /// A body-local constraint variable. Never valid in a checked signature or IR.
     Inference(u32),
     /// An unresolved type requiring inference or a diagnostic.
@@ -404,6 +410,29 @@ impl TypeId {
         self.contains_type(|ty| matches!(ty, Self::Trait(_)))
     }
 
+    /// Reports a reference anywhere in a signature, including callable components.
+    pub fn contains_reference(&self) -> bool {
+        self.contains_type(|ty| matches!(ty, Self::Reference { .. }))
+    }
+
+    /// Check the shared portable target/position rule once inference has resolved.
+    pub fn reference_position_valid(&self) -> bool {
+        !self.contains_reference()
+            || self.is_unresolved()
+            || semantic::lower_type(self).reference_position_valid()
+    }
+
+    /// References in callable signatures are inputs, not captured host locations.
+    pub fn contains_stored_reference(&self) -> bool {
+        if !self.contains_reference() {
+            false
+        } else if self.is_unresolved() {
+            self.contains_reference()
+        } else {
+            semantic::lower_type(self).contains_stored_reference()
+        }
+    }
+
     fn contains_type(&self, predicate: impl Fn(&Self) -> bool) -> bool {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
@@ -426,6 +455,7 @@ impl TypeId {
                     pending.extend(&ty.arguments);
                     pending.extend(ty.associated_types.values());
                 }
+                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(types) => pending.extend(types),
                 Self::Array(ty) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
                     pending.push(ty)
@@ -446,7 +476,7 @@ impl TypeId {
         let mut pending = vec![self];
         while let Some(ty) = pending.pop() {
             match ty {
-                Self::Host(_) => return true,
+                Self::Host(_) | Self::Reference { .. } => return true,
                 Self::Tuple(items) => pending.extend(items),
                 Self::Function { .. } => {}
                 Self::Array(item)
@@ -484,6 +514,7 @@ impl TypeId {
                     pending.extend(interface.associated_types.values());
                 }
                 Self::SelfType(_) => return true,
+                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(items) => pending.extend(items),
                 Self::Array(item)
                 | Self::Set(item, _)
@@ -522,6 +553,10 @@ impl TypeId {
     /// bounded walk; ordinary substitution remains iterative.
     pub fn map_children(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
         match self {
+            Self::Reference { target, access } => Self::Reference {
+                target: Box::new(map(target)),
+                access: *access,
+            },
             Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
             Self::Iter(ty) => Self::Iter(Box::new(map(ty))),
             Self::Range(ty, kind) => Self::Range(Box::new(map(ty)), *kind),
@@ -584,6 +619,10 @@ impl TypeId {
                 continue;
             }
             *target = match source {
+                Self::Reference { access, .. } => Self::Reference {
+                    target: Box::new(Self::Unknown),
+                    access: *access,
+                },
                 Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(|_| Self::Unknown)),
                 Self::Struct(ty) => Self::Struct(ty.map_arguments(|_| Self::Unknown)),
                 Self::Enum(ty) => Self::Enum(ty.map_arguments(|_| Self::Unknown)),
@@ -617,6 +656,9 @@ impl TypeId {
                 _ => source.clone(),
             };
             match (source, target) {
+                (Self::Reference { target: source, .. }, Self::Reference { target, .. }) => {
+                    pending.push((source, target, substitute));
+                }
                 (Self::NativeObject(source), Self::NativeObject(target))
                 | (Self::Struct(source), Self::Struct(target))
                 | (Self::Enum(source), Self::Enum(target))
@@ -742,6 +784,7 @@ impl TypeId {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
                 }
+                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(items) => {
                     pending.extend(items);
                 }
@@ -816,6 +859,7 @@ impl TypeId {
                     pending.extend(&nominal.arguments);
                     pending.extend(nominal.associated_types.values());
                 }
+                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(items) => {
                     pending.extend(items);
                 }
@@ -859,6 +903,7 @@ impl TypeId {
         while let Some(ty) = pending.pop() {
             match ty {
                 Self::Inference(_) | Self::Unknown => return true,
+                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(items) => pending.extend(items),
                 Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
                     pending.extend(&ty.arguments);
@@ -891,6 +936,18 @@ impl TypeId {
             }
             match (left, right) {
                 (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
+                (
+                    Self::Reference {
+                        target: left,
+                        access: la,
+                    },
+                    Self::Reference {
+                        target: right,
+                        access: ra,
+                    },
+                ) if la == ra => {
+                    pending.push((left, right));
+                }
                 (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
                     pending.extend(left.iter_mut().zip(right).rev());
                 }
@@ -965,6 +1022,18 @@ impl TypeId {
                         && left.collection_access() != right.collection_access() =>
                 {
                     return true;
+                }
+                (
+                    Self::Reference {
+                        target: left,
+                        access: la,
+                    },
+                    Self::Reference {
+                        target: right,
+                        access: ra,
+                    },
+                ) if la == ra => {
+                    pending.push((left, right));
                 }
                 (Self::Tuple(left), Self::Tuple(right)) => {
                     if left.len() != right.len() {
@@ -1048,6 +1117,7 @@ impl TypeId {
                 standard_surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
             }
             Self::Tuple(_)
+            | Self::Reference { .. }
             | Self::Function { .. }
             | Self::Iter(_)
             | Self::Range(_, _)

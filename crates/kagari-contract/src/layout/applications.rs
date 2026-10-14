@@ -90,30 +90,42 @@ impl EnumLayout {
 
 impl StructLayout {
     pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
-        parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope(
-                self.arguments
-                    .iter()
-                    .chain(self.fields.iter().map(|field| &field.ty)),
-                &parameters,
-                cancel,
-                definitions,
-            )
-        })
+        self.arguments
+            .iter()
+            .chain(self.fields.iter().map(|field| &field.ty))
+            .all(owning_type_valid)
+            && parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
+                types_in_scope(
+                    self.arguments
+                        .iter()
+                        .chain(self.fields.iter().map(|field| &field.ty)),
+                    &parameters,
+                    cancel,
+                    definitions,
+                )
+            })
     }
 }
 
 impl EnumLayout {
     pub fn types_valid(&self, cancel: &CancellationToken, definitions: &DefinitionTable) -> bool {
-        parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
-            types_in_scope(
-                self.arguments
-                    .iter()
-                    .chain(self.variants.iter().flat_map(|variant| &variant.payload)),
-                &parameters,
-                cancel,
-                definitions,
-            )
-        })
+        self.arguments
+            .iter()
+            .chain(self.variants.iter().flat_map(|variant| &variant.payload))
+            .all(owning_type_valid)
+            && parameters(&self.declaration, &self.arguments).is_some_and(|parameters| {
+                types_in_scope(
+                    self.arguments
+                        .iter()
+                        .chain(self.variants.iter().flat_map(|variant| &variant.payload)),
+                    &parameters,
+                    cancel,
+                    definitions,
+                )
+            })
     }
+}
+
+fn owning_type_valid(ty: &Ty) -> bool {
+    !ty.contains_stored_reference() && ty.reference_position_valid()
 }

@@ -260,6 +260,7 @@ pub fn validate_enum_layouts(
             Ty::Projection { .. } | Ty::SelfType(_) => {
                 return Err(LayoutValidationError::Invalid);
             }
+            Ty::Reference { target, .. } => pending.push(target),
             Ty::Builtin(_) | Ty::Host(_) | Ty::Parameter { .. } => {}
             Ty::Tuple(types) => pending.extend(types),
             Ty::Function { params, result } => {

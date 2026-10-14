@@ -45,7 +45,7 @@ pub fn builtin_representation(ty: BuiltinType) -> ValueType {
 /// Lower a semantic type to the physical slot required by checked execution.
 pub fn semantic_representation(ty: &Ty) -> ValueType {
     match ty {
-        Ty::Host(_) => ValueType::HostHandle,
+        Ty::Host(_) | Ty::Reference { .. } => ValueType::HostHandle,
         Ty::Builtin(ty) => builtin_representation(*ty),
         Ty::Parameter { .. } | Ty::Projection { .. } | Ty::SelfType(_) => ValueType::Generic,
         _ => ValueType::HeapObject,

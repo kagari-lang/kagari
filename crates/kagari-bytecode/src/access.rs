@@ -30,6 +30,10 @@ struct Fact {
 }
 
 impl Fact {
+    fn holds_reference(&self) -> bool {
+        self.ty.as_ref().is_some_and(Ty::contains_stored_reference)
+    }
+
     fn typed(ty: Ty) -> Self {
         let access = ty.collection_access();
         Self {
@@ -47,7 +51,7 @@ fn flows(source: &Fact, target: &Ty) -> bool {
     }
     match &source.ty {
         Some(source) => source == target || source.can_weaken_to(target),
-        None => true,
+        None => !target.contains_stored_reference(),
     }
 }
 
@@ -233,6 +237,11 @@ pub(super) fn verify(
                             return Err(invalid());
                         }
                         changed |= merge(&mut locals[local.index()], value);
+                    }
+                }
+                I::StoreModule { src, .. } => {
+                    if get(*src).is_some_and(|value| value.holds_reference()) {
+                        return Err(invalid());
                     }
                 }
                 I::RangeBound {
@@ -547,6 +556,9 @@ pub(super) fn verify(
                 } => {
                     let signature = &module.functions[target.index()].metadata.semantic;
                     for (index, argument) in arguments.iter().enumerate() {
+                        if get(*argument).is_some_and(|fact| fact.holds_reference()) {
+                            return Err(invalid());
+                        }
                         if let (Some(value), Some(expected)) =
                             (get(*argument), signature.params.get(&index))
                             && !flows(&value, expected)
@@ -564,6 +576,9 @@ pub(super) fn verify(
                     let target = &module.functions[target.index()];
                     let signature = &target.metadata.semantic;
                     for (index, capture) in captures.iter().enumerate() {
+                        if get(*capture).is_some_and(|fact| fact.holds_reference()) {
+                            return Err(invalid());
+                        }
                         if let (Some(value), Some(expected)) =
                             (get(*capture), signature.params.get(&index))
                             && !flows(&value, expected)
@@ -594,6 +609,9 @@ pub(super) fn verify(
                     implementation,
                     arguments,
                 } => {
+                    if get(*value).is_some_and(|value| value.holds_reference()) {
+                        return Err(invalid());
+                    }
                     let owner = owner(*slot).ok_or_else(invalid)?;
                     let linked = &owner.interface_tables[implementation.index()];
                     let table = owner
@@ -705,6 +723,9 @@ pub(super) fn verify(
                 }
                 I::MakeCell { dst, value } => {
                     if let Some(value) = get(*value) {
+                        if value.holds_reference() {
+                            return Err(invalid());
+                        }
                         produced = Some((*dst, value));
                     }
                 }
@@ -714,6 +735,9 @@ pub(super) fn verify(
                     }
                 }
                 I::WriteCell { cell, value } => {
+                    if get(*value).is_some_and(|value| value.holds_reference()) {
+                        return Err(invalid());
+                    }
                     if let (Some(cell), Some(value)) = (get(*cell), get(*value))
                         && let Some(ty) = cell.ty
                         && !flows(&value, &ty)
@@ -765,7 +789,9 @@ pub(super) fn verify(
                                     if !flows(value, ty) {
                                         return Err(invalid());
                                     }
-                                } else if value.access == Some(Access::ReadOnly) {
+                                } else if value.access == Some(Access::ReadOnly)
+                                    || value.holds_reference()
+                                {
                                     return Err(invalid());
                                 }
                             }
@@ -893,6 +919,9 @@ pub(super) fn verify(
                     }
                 }
                 I::Return(Some(value)) => {
+                    if get(*value).is_some_and(|value| value.holds_reference()) {
+                        return Err(invalid());
+                    }
                     if let (Some(value), Some(expected)) = (get(*value), semantic.result.as_ref())
                         && !flows(&value, expected)
                     {
@@ -902,6 +931,13 @@ pub(super) fn verify(
                 _ => {}
             }
             if let Some((dst, mut fact)) = produced {
+                if fact
+                    .ty
+                    .as_ref()
+                    .is_some_and(|ty| !ty.reference_position_valid())
+                {
+                    return Err(invalid());
+                }
                 if let Some(expected) = semantic.registers.get(&dst.index()) {
                     if !flows(&fact, expected) {
                         return Err(invalid());

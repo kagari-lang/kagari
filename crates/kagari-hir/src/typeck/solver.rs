@@ -190,6 +190,10 @@ impl Solver {
                 }
                 _ => {
                     let same_shape = match (&left, &right) {
+                        (
+                            TypeId::Reference { access: a, .. },
+                            TypeId::Reference { access: b, .. },
+                        ) => a == b,
                         (TypeId::Struct(a), TypeId::Struct(b))
                         | (TypeId::NativeObject(a), TypeId::NativeObject(b))
                         | (TypeId::Enum(a), TypeId::Enum(b))

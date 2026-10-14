@@ -128,7 +128,13 @@ pub fn validate_native_declarations(
             left.canonical_cmp(right, table, cancel)
                 .is_ok_and(|order| order.is_lt())
         };
-        if !bounds_with(&function.bounds, &valid, &before)
+        if function.return_type.contains_stored_reference()
+            || !function.return_type.reference_position_valid()
+            || function
+                .params
+                .iter()
+                .any(|p| !p.ty.reference_position_valid())
+            || !bounds_with(&function.bounds, &valid, &before)
             || declaration
                 .concrete_result
                 .as_ref()
@@ -296,6 +302,14 @@ pub fn trait_valid(
 
 pub fn aggregate_shape_valid(ty: &TypeDef, cancel: &CancellationToken) -> bool {
     if ty.name.is_empty()
+        || ty
+            .fields
+            .iter()
+            .any(|field| field.ty.contains_stored_reference())
+        || ty
+            .variants
+            .iter()
+            .any(|variant| variant.payload.iter().any(Ty::contains_stored_reference))
         || match ty.kind {
             TypeDefKind::Struct => !ty.variants.is_empty(),
             TypeDefKind::Enum => !ty.fields.is_empty(),
@@ -438,6 +452,12 @@ pub fn function_valid(
         }
     };
     if function.name.is_empty()
+        || function.return_type.contains_stored_reference()
+        || !function.return_type.reference_position_valid()
+        || function
+            .params
+            .iter()
+            .any(|p| !p.ty.reference_position_valid())
         || !implementation_valid
         || (!function.method_policy.override_allowed
             && !matches!(
@@ -521,6 +541,12 @@ pub fn type_valid(
             return false;
         }
         match ty {
+            Ty::Reference { target, .. } => {
+                if !target.reference_target_valid() {
+                    return false;
+                }
+                pending.push(target);
+            }
             Ty::Projection {
                 receiver,
                 interface,

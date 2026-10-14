@@ -2,6 +2,9 @@
 mod access;
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod reference_tests;
 use crate::{
     hir::{ids::FunctionId, item::function::FunctionKind, ty::TypeKind},
     lower::{LoweredModule, lower_module_controlled},
@@ -215,6 +218,7 @@ fn attach_types(
                 layout,
             },
             TypeDefKind::Native(constructor) => match constructor {
+                NativeTypeConstructor::Reference(access) => NativeTypeKind::Reference(access),
                 NativeTypeConstructor::String => NativeTypeKind::String,
                 NativeTypeConstructor::Map => NativeTypeKind::HashMap,
                 NativeTypeConstructor::Set => NativeTypeKind::HashSet,

@@ -17,6 +17,7 @@ use kagari_common::{
 use kagari_types::{
     collection::CollectionAccess,
     declaration::{TraitDef, TypeDef, TypeDefKind, module::ModuleDecl},
+    reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -34,6 +35,26 @@ pub struct Type {
 }
 
 impl Type {
+    /// Describe a shared scoped host location; this does not borrow during registration.
+    pub fn ref_(target: Self) -> Self {
+        Self::reference(target, ReferenceAccess::Shared)
+    }
+
+    /// Describe a mutable scoped host location without granting ownership of its target.
+    pub fn ref_mut(target: Self) -> Self {
+        Self::reference(target, ReferenceAccess::Mutable)
+    }
+
+    fn reference(target: Self, access: ReferenceAccess) -> Self {
+        Self {
+            ty: Ty::Reference {
+                target: Box::new(target.ty),
+                access,
+            },
+            definitions: target.definitions,
+        }
+    }
+
     /// Retain a checked identity scope, without granting semantic verification.
     pub fn from_semantic(ty: Ty, definitions: &DefinitionTable) -> NativeResult<Self> {
         DefinitionMetadata::checked(

@@ -6,7 +6,8 @@ use crate::{
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     callable::NativeDefaultApplication, collection::CollectionAccess,
-    declaration::native::NativeStorageLayout, range::RangeKind, scalar::BuiltinType,
+    declaration::native::NativeStorageLayout, range::RangeKind, reference::ReferenceAccess,
+    scalar::BuiltinType,
 };
 
 pub(crate) mod adoption;
@@ -31,6 +32,8 @@ pub enum NativeBinding {
 /// Installed representation descriptor used to apply native-backed source type declarations.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeTypeKind {
+    /// A scope-bound host location with a checked target and access capability.
+    Reference(ReferenceAccess),
     /// A nominal registered storage type with explicit layout and generic arity.
     Storage {
         /// Canonical nominal type definition.
@@ -70,6 +73,10 @@ impl NativeTypeKind {
         }
         let first = || Box::new(arguments[0].clone());
         Some(match self {
+            Self::Reference(access) => TypeId::Reference {
+                target: first(),
+                access: *access,
+            },
             Self::Storage { declaration, .. } => TypeId::NativeObject(NominalType {
                 declaration: *declaration,
                 arguments: arguments.to_vec(),

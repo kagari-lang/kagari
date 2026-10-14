@@ -204,6 +204,10 @@ impl RemapDefinitions for TypeId {
         mapper.check()?;
         shape::validate(self, mapper.cancellation())?;
         Ok(match self {
+            Self::Reference { target, access } => TypeId::Reference {
+                target: Box::new(target.remap_definitions(mapper)?),
+                access: *access,
+            },
             Self::Inference(field0) => TypeId::Inference(*(field0)),
             Self::Unknown => TypeId::Unknown,
             Self::Error => TypeId::Error,
@@ -265,6 +269,7 @@ impl DefinitionReferences for TypeId {
         check_cancel(cancel)?;
         shape::validate(self, cancel)?;
         match self {
+            Self::Reference { target, .. } => target.visit_definition_ids(visit, cancel)?,
             Self::Inference(_) => {}
             Self::Unknown => {}
             Self::Error => {}

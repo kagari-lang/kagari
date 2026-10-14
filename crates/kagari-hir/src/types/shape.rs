@@ -19,6 +19,7 @@ pub(super) fn validate(
         }
         let next = depth + 1;
         match ty {
+            TypeId::Reference { target, .. } => pending.push((target, next)),
             TypeId::Tuple(items) => append(items.iter(), next, &mut pending)?,
             TypeId::Function { params, result } => {
                 append(params.iter(), next, &mut pending)?;

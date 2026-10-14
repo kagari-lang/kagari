@@ -9,6 +9,9 @@ use kagari_types::{
 
 pub(crate) fn lower_native_kind(kind: NativeTypeKind) -> TypeDefKind {
     match kind {
+        NativeTypeKind::Reference(access) => {
+            TypeDefKind::Native(NativeTypeConstructor::Reference(access))
+        }
         NativeTypeKind::Storage { layout, .. } => TypeDefKind::NativeStorage(layout),
         NativeTypeKind::String => TypeDefKind::Native(NativeTypeConstructor::String),
         NativeTypeKind::HashMap => TypeDefKind::Native(NativeTypeConstructor::Map),

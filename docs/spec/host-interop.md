@@ -397,6 +397,22 @@ Owned passing is simpler but may be too expensive for large host-owned structure
 
 ## Borrowed Host Values
 
+`core::host::Ref<T>` and `RefMut<T>` are declared through the ordinary native type
+constructor path and exported by the prelude. Their semantic record contains the
+target type and Shared/Mutable capability, never a Rust pointer, field offset or
+second nominal target declaration. The initial target subset is ordinary nominal
+structs and opaque native payload types; generic target binders are checked again
+after application. Collection, Future and Task storage does not grant this payload
+reference contract. Ordinary DTO values cannot implicitly become a Ref/RefMut.
+
+Direct view parameters and locals may be forwarded with their checked capability.
+Views cannot be returned, captured, placed in owning fields/containers or retained
+across suspension; shared capability cannot upgrade to mutable capability. A
+function signature accepting a view is distinct from a function value capturing
+one. Source-free verification checks targets, positions, flows and suspension
+independently. A valid schema/signature alone does not grant runtime Rust access:
+installed scope, target, owner/generation and loan capabilities are also required.
+
 Borrowed host values are the important case for low-copy interop.
 
 Model:

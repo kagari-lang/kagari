@@ -84,6 +84,16 @@ impl TypeOrder<'_> {
             .cmp(&rank(right))
             .then_with(|| match (left, right) {
                 (
+                    Ty::Reference {
+                        target: left,
+                        access: la,
+                    },
+                    Ty::Reference {
+                        target: right,
+                        access: ra,
+                    },
+                ) => self.ty(left, right).then_with(|| la.cmp(ra)),
+                (
                     Ty::Projection {
                         arguments: la,
                         receiver: lr,
@@ -179,5 +189,6 @@ fn rank(ty: &Ty) -> u8 {
         Ty::NativeObject(_) => 13,
         Ty::Enum(_) => 14,
         Ty::Trait(_) => 15,
+        Ty::Reference { .. } => 16,
     }
 }

@@ -174,6 +174,7 @@ fn cranelift_backend_reports_unsupported_instructions_before_native_entry() {
         "fn main() -> i32 { if true { 1 } else { 2 } }",
         "fn main() -> i32 { val x = 1; x }",
         "fn main() -> i32 { 42 / 2 }",
+        "struct Player {} fn main(value: Ref<Player>) -> i32 { 42 }",
     ] {
         let error = compile(&mut backend, &mir(source)).unwrap_err();
         assert!(error.is_unsupported(), "{error:?}");

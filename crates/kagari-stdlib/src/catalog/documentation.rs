@@ -289,6 +289,9 @@ pub(super) fn complete(
         "task" => {
             "Scope-owned asynchronous jobs with retained terminal results and host-controlled scheduling."
         }
+        "host" => {
+            "Scope-bound shared and mutable host locations with checked target and access capabilities. These views retain no host ownership."
+        }
         "convert" => {
             "Explicit infallible and checked conversions, including reverse adapters and error conversion."
         }
@@ -326,6 +329,7 @@ pub(super) fn complete(
         "fmt" => trait_docs("Debug").1,
         "future" => "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
         "task" => "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
+        "host" => "struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }",
         "convert" => trait_docs("From").1,
         "num" | "str" => trait_docs("FromStr").1,
         "string" => "fn clean(text: String) -> String { text.trim() }",
@@ -368,6 +372,14 @@ pub(super) fn complete(
         let kind = ty.kind.definition_kind();
         let id = module.definition(kind, &ty.name, definitions)?;
         let (description, code) = match ty.name.as_str() {
+            "Ref" => (
+                "A shared host location valid only within its execution scope. It cannot be returned, captured, stored in owning values or retained across suspension. The target schema does not grant a Rust reference without an installed host capability.",
+                "struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }",
+            ),
+            "RefMut" => (
+                "A mutable host location valid only within its execution scope. Exclusive access uses checked loans; holding a view neither transfers ownership nor creates an active Rust reference. A shared view cannot upgrade to this capability.",
+                "struct Player {} fn inspect(value: RefMut<Player>) -> i32 { 1 }",
+            ),
             "SpawnError" => (
                 "A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.",
                 "fn closed() -> SpawnError { SpawnError::ScopeClosed }",

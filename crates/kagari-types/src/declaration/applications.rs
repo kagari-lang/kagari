@@ -4,7 +4,7 @@
 
 use crate::{
     callable::CallableImplementation,
-    declaration::{FnDecl, TraitDef, TypeDefKind},
+    declaration::{FnDecl, TraitDef, TypeDefKind, native::NativeStorageLayout},
     ty::{
         Constraint, GenericBound, NominalTy, Ty,
         substitution::{MAX_TYPE_NODES, TypeTransformError},
@@ -70,6 +70,19 @@ where
             }
             remaining -= 1;
             match ty {
+                Ty::Reference { target, .. } => {
+                    if !target.reference_target_valid() {
+                        return Err(TypeTransformError::InvalidContract);
+                    }
+                    if let Ty::NativeObject(nominal) = target.as_ref()
+                        && !(self.nominal)(&nominal.declaration).is_some_and(|(kind, _)| {
+                            kind == TypeDefKind::NativeStorage(NativeStorageLayout::Opaque)
+                        })
+                    {
+                        return Err(TypeTransformError::InvalidContract);
+                    }
+                    pending.push(target);
+                }
                 Ty::Projection {
                     receiver,
                     interface,
@@ -180,6 +193,15 @@ where
     }
 
     pub fn function(&self, function: &FnDecl) -> Result<(), TypeTransformError> {
+        if function.return_type.contains_stored_reference()
+            || !function.return_type.reference_position_valid()
+            || function
+                .params
+                .iter()
+                .any(|p| !p.ty.reference_position_valid())
+        {
+            return Err(TypeTransformError::InvalidContract);
+        }
         if let CallableImplementation::NativeDefault(application) = &function.implementation {
             self.types(&application.arguments)?;
         }

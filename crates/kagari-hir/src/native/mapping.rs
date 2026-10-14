@@ -62,6 +62,7 @@ impl RemapDefinitions for NativeTypeKind {
                 layout: *(layout),
             },
             Self::String => NativeTypeKind::String,
+            Self::Reference(access) => NativeTypeKind::Reference(*access),
             Self::HashMap => NativeTypeKind::HashMap,
             Self::HashSet => NativeTypeKind::HashSet,
             Self::Iter => NativeTypeKind::Iter,
@@ -87,6 +88,7 @@ impl DefinitionReferences for NativeTypeKind {
                 visit(declaration)?;
             }
             Self::String => {}
+            Self::Reference(_) => {}
             Self::HashMap => {}
             Self::HashSet => {}
             Self::Iter => {}

@@ -33,6 +33,20 @@ impl SemanticSlots {
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> bool {
+        if self
+            .result
+            .as_ref()
+            .is_some_and(Ty::contains_stored_reference)
+            || self
+                .params
+                .values()
+                .chain(self.locals.values())
+                .chain(self.registers.values())
+                .chain(self.result.iter())
+                .any(|ty| !ty.reference_position_valid())
+        {
+            return false;
+        }
         let types = self
             .params
             .values()

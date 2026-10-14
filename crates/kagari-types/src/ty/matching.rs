@@ -110,6 +110,16 @@ fn match_pairs<'a>(
         }
         remaining -= 1;
         match (template, actual) {
+            (
+                Ty::Reference {
+                    target: left,
+                    access: la,
+                },
+                Ty::Reference {
+                    target: right,
+                    access: ra,
+                },
+            ) if la == ra => pending.push((left, right)),
             (Ty::Parameter { owner, position }, actual)
                 if parameters
                     .iter()

@@ -238,6 +238,14 @@ impl<'a> BodyChecker<'a> {
             TypeId::Builtin(BuiltinType::Never)
         };
         let result = self.constrain_expression(expr_id, result, expected.as_ref());
+        if !result.reference_position_valid() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidReference {
+                    reason: "views require a nominal target and cannot be nested in owning values",
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            );
+        }
         self.check_call_type_arguments_used(expr_id);
         env.exprs.insert(expr_id, result.clone());
         self.type_table.insert_expr(expr_id, result.clone());

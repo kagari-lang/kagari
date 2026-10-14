@@ -96,6 +96,9 @@ pub enum DiagnosticKind {
     InvalidHostPath {
         reason: String,
     },
+    InvalidReference {
+        reason: &'static str,
+    },
     DuplicateImport {
         name: String,
     },
@@ -394,6 +397,7 @@ impl DiagnosticKind {
             Self::UnsupportedSyntax { .. } => "KG_SYNTAX_UNSUPPORTED",
             Self::InvalidGlobTarget { .. } => "KG_RESOLVE_INVALID_GLOB_TARGET",
             Self::InvalidHostPath { .. } => "KG_HOST_PATH_INVALID",
+            Self::InvalidReference { .. } => "KG_TYPE_INVALID_REFERENCE",
             Self::DuplicateImport { .. } => "KG_RESOLVE_DUPLICATE_IMPORT",
             Self::UnknownTypeAnnotation { .. } => "KG_TYPE_UNKNOWN_ANNOTATION",
             Self::InvalidNumericCast { .. } => "KG_TYPE_INVALID_NUMERIC_CAST",
@@ -551,6 +555,7 @@ impl Display for DiagnosticKind {
                 write!(f, "wildcard import target `{path}` is not a module")
             }
             Self::InvalidHostPath { reason } => write!(f, "invalid host field path: {reason}"),
+            Self::InvalidReference { reason } => write!(f, "invalid scoped reference: {reason}"),
             Self::DuplicateImport { name } => {
                 write!(f, "import `{name}` conflicts with another declaration")
             }

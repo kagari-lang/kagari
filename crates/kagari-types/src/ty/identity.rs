@@ -158,6 +158,7 @@ impl Ty {
                     pending.extend(&interface.arguments);
                     pending.extend(interface.associated_types.values());
                 }
+                Self::Reference { target, .. } => pending.push(target),
                 Self::Tuple(types) => pending.extend(types),
                 Self::Array(ty) | Self::Set(ty, _) | Self::Range(ty, _) | Self::Iter(ty) => {
                     pending.push(ty)
@@ -193,6 +194,10 @@ impl<F> Mapper<'_, F> {
         }
         self.remaining -= 1;
         Ok(match ty {
+            Ty::Reference { target, access } => Ty::Reference {
+                target: Box::new(self.ty(target, depth + 1)?),
+                access: *access,
+            },
             Ty::Host(id) => Ty::Host((self.convert)(id)?),
             Ty::SelfType(id) => Ty::SelfType((self.convert)(id)?),
             Ty::Parameter { owner, position } => Ty::Parameter {

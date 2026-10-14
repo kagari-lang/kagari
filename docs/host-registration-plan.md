@@ -1007,6 +1007,32 @@ HR/RF contracts and cross-plan integration obligations are fulfilled.
 
 ## Validation and acceptance
 
+### RF02 implementation decision: scoped semantic types
+
+Reference target/access facts use Ty::Reference and its HIR counterpart, with the
+existing bounded identity, substitution, wire and application validators. Ref and
+RefMut are ordinary NativeTypeConstructor declarations in core::host, exported by
+the prelude; their record does not add a second nominal target or Rust layout.
+Concrete targets are ordinary structs or opaque native payload storage, with target
+binders rechecked after application. Other native layouts have no reference contract.
+Native runtime scope/projection capabilities are separately required; accepting a
+DTO target schema never interprets its ordinary GC object as a Rust reference.
+
+Direct parameters/locals are non-owning view positions. Owning aggregates, captures,
+returned views and suspension reject. Callable signatures may mention view inputs
+without containing an actual view; capture and invocation flows remain independently
+checked. Source-free access flow rejects missing provenance as well as capability
+upgrades and hidden reference storage. Method receiver access/target lookup, checked
+place operations and installed scope admission remain RF02–RF05-owned; this first
+slice does not mark RF02 complete or claim usable host lending.
+
+The selected Cranelift fallback regression found a pre-existing host-target defect:
+host_isa always enables PIC, while cranelift-jit 0.136.2's JITModule::new only permits
+PIC on x86_64. On the aarch64-apple-darwin development host its final successful
+scalar compilation panics after the unsupported cases. The immediate RF02 integration
+follow-up limits host PIC to the supported architecture and reruns that failure;
+it adds no native reference execution or backend operation family.
+
 Reuse existing test owners and add only uncovered contract cases:
 
 | Contract | Focused evidence |
@@ -1033,6 +1059,37 @@ Record actual commands, rationale, failures and unrun CI scope in the ledger.
 Documentation-only changes need content/link/diff checks, not Cargo validation.
 
 ## Progress ledger
+
+### RF02 checkpoint: reference targets and non-escape facts
+
+Shared portable/HIR types, ordinary core::host/prelude declarations and registration
+Type::ref_/ref_mut now describe nominal host targets and access capabilities. Bounded
+wire/identity/substitution, generic inference/recovery and dependency traversal share
+the existing owners. Declaration/slot/layout validation admits direct views while
+rejecting owning storage and returned views. Source and source-free flows separately
+reject DTO-to-view substitution, shared-to-mutable upgrade, container/cell/interface
+escape, closure capture and async retention. Function input signatures do not count
+as captured locations. Rust pointer/projector installation remains a later gate.
+
+Two selected HIR reference cases passed: same-capability forwarding/generic target
+inference, and rejected target/escape/container/capture/async cases. The forwarding
+case also passed after adding Ref<_> local inference. The existing nested-readonly
+native import regression passed. The VM native-boundary reference artifact case
+passed after KBC encode/decode/adoption/verification, including four corruptions:
+capability upgrade, scalar target, hidden tuple storage and resume-body marking.
+Runtime/HIR/VM lib checks, scoped HIR/runtime/VM lib/native-boundary Clippy and
+source-free SDK `cargo check -p kagari --no-default-features --lib` passed. Structure
+(1190 files, zero findings), formatting and diff checks passed. Initial integration
+failures were missing constructor handling and the new core::host module documentation
+inventory; both are resolved. One Clippy fixture allocation was corrected.
+
+The Cranelift unsupported-input regression currently fails at its final unrelated
+scalar success check with the aarch64 PIC assertion described above. The immediately
+following RF02 checkpoint owns its configuration repair; the check is not counted
+as passed. Full workspace/feature/backend/platform acceptance remains CI-owned.
+No unsafe projection exists in this slice; projector Miri remains RF04/RF06-owned.
+RF02 and RI03 remain open for reference receivers, place/execution contracts and
+the shared borrowed adapters; HR02's live-host migration still depends on them.
 
 ### HR01/RF01 inventory and API proof (2026-10-15)
 

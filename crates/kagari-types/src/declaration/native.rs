@@ -3,6 +3,7 @@
 
 use crate::declaration::TypeDef;
 use crate::range::RangeKind;
+use crate::reference::ReferenceAccess;
 use kagari_common::identity::DefinitionKind;
 use serde::{Deserialize, Serialize};
 
@@ -52,6 +53,7 @@ pub enum NativeTypeConstructor {
     Set,
     Iter,
     Range(RangeKind),
+    Reference(ReferenceAccess),
 }
 
 impl NativeTypeConstructor {
@@ -59,7 +61,7 @@ impl NativeTypeConstructor {
         match self {
             Self::String | Self::Range(RangeKind::Full) => 0,
             Self::Map => 2,
-            Self::Set | Self::Iter | Self::Range(_) => 1,
+            Self::Set | Self::Iter | Self::Range(_) | Self::Reference(_) => 1,
         }
     }
 

@@ -271,6 +271,10 @@ impl<'a, 'b> Transform<'a, 'b> {
             }
         }
         Ok(match ty {
+            Ty::Reference { target, access } => Ty::Reference {
+                target: Box::new(self.visit(target, depth + 1, replace)?),
+                access: *access,
+            },
             Ty::Builtin(kind) => Ty::Builtin(*kind),
             Ty::Host(id) => Ty::Host(*id),
             Ty::SelfType(id) => Ty::SelfType(*id),

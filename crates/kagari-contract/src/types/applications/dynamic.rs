@@ -29,6 +29,7 @@ pub(super) fn validate<'ty, 'declaration>(
                 .checked_sub(1)
                 .ok_or(TypeTransformError::LimitExceeded)?;
             match ty {
+                Ty::Reference { target, .. } => pending.push(target),
                 Ty::Trait(interface) => {
                     interfaces.push(interface);
                     pending.extend(&interface.arguments);

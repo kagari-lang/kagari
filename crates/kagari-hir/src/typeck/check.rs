@@ -179,6 +179,14 @@ pub(crate) fn check_signatures(
                     None,
                 );
             }
+            if ty.contains_stored_reference() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidReference {
+                        reason: "a scoped view cannot be stored in a struct field",
+                    })
+                    .with_span(lowered.source_map.type_span(field.ty)),
+                );
+            }
             type_table.insert_field_type(field.id, ty);
         }
     }
@@ -201,17 +209,27 @@ pub(crate) fn check_signatures(
                     &mut type_table,
                     cancel,
                 ) {
-                    ty if !ty.is_unresolved() => validate_standard_type_constraints(
-                        declarations.definitions(),
-                        &ty,
-                        &type_bounds[declarations
-                            .definition(ResolvedName::Enum(enumeration.id))
-                            .expect("enum declaration")],
-                        lowered.source_map.type_span(*payload),
-                        &mut diagnostics,
-                        cancel,
-                        None,
-                    ),
+                    ty if !ty.is_unresolved() => {
+                        if ty.contains_stored_reference() {
+                            diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::InvalidReference {
+                                    reason: "a scoped view cannot be stored in an enum payload",
+                                })
+                                .with_span(lowered.source_map.type_span(*payload)),
+                            );
+                        }
+                        validate_standard_type_constraints(
+                            declarations.definitions(),
+                            &ty,
+                            &type_bounds[declarations
+                                .definition(ResolvedName::Enum(enumeration.id))
+                                .expect("enum declaration")],
+                            lowered.source_map.type_span(*payload),
+                            &mut diagnostics,
+                            cancel,
+                            None,
+                        );
+                    }
                     ty => {
                         validate_standard_type_constraints(
                             declarations.definitions(),
@@ -340,6 +358,14 @@ pub(crate) fn check_signatures(
             Some(ty_ref) => {
                 let ty =
                     resolve_type_in(&lowered.module, *ty_ref, context, &mut type_table, cancel);
+                if ty.contains_stored_reference() {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidReference {
+                            reason: "a scoped view cannot be returned",
+                        })
+                        .with_span(lowered.source_map.type_span(*ty_ref)),
+                    );
+                }
                 validate_standard_type_constraints(
                     declarations.definitions(),
                     &ty,
@@ -834,12 +860,21 @@ pub(super) fn validate_standard_type_constraints(
     cancel: &CancellationToken,
     catalog: Option<&AggregateCatalog>,
 ) {
+    if !ty.reference_position_valid() {
+        diagnostics.push(
+            Diagnostic::error(DiagnosticKind::InvalidReference {
+                reason: "views require a nominal target and cannot be nested in owning values",
+            })
+            .with_span(span),
+        );
+    }
     let mut pending = vec![ty];
     while let Some(ty) = pending.pop() {
         if cancel.check().is_err() {
             return;
         }
         match ty {
+            TypeId::Reference { target, .. } => pending.push(target),
             TypeId::Map { key, value, .. } => {
                 validate_standard_constraint_type(
                     definitions,
