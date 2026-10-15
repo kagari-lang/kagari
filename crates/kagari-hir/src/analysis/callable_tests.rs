@@ -1,7 +1,6 @@
 use crate::{
     declarations::DeclarationId,
     hir::{expr::ExprKind, stmt::StmtKind},
-    host::HostDeclarations,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     tests::{native as fixture, test_analysis},
@@ -9,7 +8,7 @@ use crate::{
     types::TypeId,
 };
 use kagari_common::identity::{
-    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -19,13 +18,15 @@ use kagari_source::{
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
     callable::NativeDefaultApplication,
-    declaration::host::{HostPassingStyle, HostTypeOwnership},
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter,
-        type_declaration::HostTypeDeclaration, value_type::HostValueType,
+    declaration::{
+        TypeDef, TypeDefKind,
+        host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+        module::ModuleDecl,
     },
     scalar::BuiltinType,
+    ty::Ty,
 };
+use std::sync::Arc;
 
 #[test]
 fn async_callable_typing_contract() {
@@ -181,23 +182,28 @@ fn plain() -> Future<i32> { (|| identity(1))() }
             analysis.result().diagnostics()
         );
     }
-    let mut host = HostTypeDeclaration::new(&context, "host.State").unwrap();
-    host.ownership = HostTypeOwnership::HostRoot;
-    database.set_host_declarations(
-        HostDeclarations::new(
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                HostInterface {
-                    paths: vec![],
-                    types: vec![host],
-                    functions: vec![],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap(),
-    );
+    let mut host = ModuleDecl::new(ModuleIdentity {
+        package: PackageId("host".into()),
+        path: vec![],
+    });
+    host.types.push(TypeDef {
+        name: "State".into(),
+        kind: TypeDefKind::Host(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::None,
+        }),
+        generic_params: vec![],
+        bounds: vec![],
+        fields: vec![],
+        variants: vec![],
+    });
+    host.collect_definitions(&context).unwrap();
+    let mut modules = foundation_catalog::shared().unwrap();
+    modules.push(Arc::new(
+        DefinitionMetadata::checked(context.snapshot(), host, &Default::default()).unwrap(),
+    ));
+    database.set_native_modules(modules);
     for text in [
         "async fn bad(value:host::State) {}",
         "async fn bad(value:(i32,host::State)) {}",
@@ -493,39 +499,29 @@ fn main() -> i32 {
 
 #[test]
 fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_calls() {
-    let context = DefinitionContext::new().unwrap();
     let text = "trait Check { fn verify(self, flag:bool)->i32; } struct Item {} impl Check for Item { fn verify(self, flag:bool)->i32 { 1 } } fn script(value:bool, count:i32)->bool { value } fn main() { script(1); demo::echo(false); Item {}.verify(1); }";
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("signature-help.kgr", text.into(), SourceLayer::Base)
         .unwrap();
-    let host = HostFunctionDeclaration::new(
-        &context,
-        "demo.echo",
-        vec![HostParameter {
-            name: "input".into(),
-            ty: HostValueType::I32,
-            passing: HostPassingStyle::Owned,
-        }],
-        HostValueType::I32,
-    )
-    .unwrap();
-    let mut database = test_analysis();
-    database.set_host_declarations(
-        HostDeclarations::new(
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                HostInterface {
-                    paths: Vec::new(),
-                    types: Vec::new(),
-                    functions: vec![host.clone()],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap(),
+    let host = fixture::function_module(
+        ModuleIdentity {
+            package: PackageId("demo".into()),
+            path: vec![],
+        },
+        "echo",
+        vec![("input", Ty::Builtin(BuiltinType::I32))],
+        Ty::Builtin(BuiltinType::I32),
     );
+    let expected = host
+        .records()
+        .definition(DefinitionKind::Function, "echo", host.definitions())
+        .unwrap();
+    let expected = host.definitions().resolve(expected).unwrap().to_path();
+    let mut database = test_analysis();
+    let mut modules = foundation_catalog::shared().unwrap();
+    modules.push(host);
+    database.set_native_modules(modules);
     let snapshot = database
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -547,11 +543,7 @@ fn call_signature_queries_keep_declared_types_for_invalid_source_trait_and_host_
         .unwrap();
     assert_eq!(
         signature.declaration,
-        DeclarationId::Definition(
-            file.definitions()
-                .lookup(&context.snapshot().resolve(host.id).unwrap().to_path())
-                .unwrap()
-        )
+        DeclarationId::Definition(file.definitions().lookup(&expected).unwrap())
     );
     assert_eq!(
         signature.parameters,

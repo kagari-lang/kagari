@@ -9,6 +9,7 @@ use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
     declaration::{
         FnDecl, Param, TraitDef,
+        host::{HostCallPolicy, HostPassingStyle},
         module::{ImplDecl, ModuleDecl},
     },
     language,
@@ -143,6 +144,43 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         )
         .unwrap();
     Arc::new(DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap())
+}
+
+/// A cold monomorphic application contract consumed by ordinary native analysis.
+pub(crate) fn function_module(
+    identity: ModuleIdentity,
+    name: &str,
+    parameters: Vec<(&str, Ty)>,
+    result: Ty,
+) -> Arc<DefinitionMetadata<ModuleDecl>> {
+    let context = DefinitionContext::new().unwrap();
+    let root = context.intern_root(&identity).unwrap();
+    let function = context
+        .intern_child(root, DefinitionKind::Function, name, 0)
+        .unwrap();
+    let mut module = ModuleDecl::new(identity);
+    module.functions.push(FnDecl {
+        name: name.into(),
+        implementation: CallableImplementation::Native(function),
+        method_policy: MethodPolicy::default(),
+        generic_params: vec![],
+        bounds: vec![],
+        host_policy: Some(HostCallPolicy {
+            passing: vec![HostPassingStyle::Owned; parameters.len()],
+            effects: Default::default(),
+        }),
+        params: parameters
+            .into_iter()
+            .map(|(name, ty)| Param {
+                name: name.into(),
+                ty,
+                mutable: false,
+            })
+            .collect(),
+        return_type: result,
+    });
+    module.collect_definitions(&context).unwrap();
+    Arc::new(DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap())
 }
 
 pub(crate) fn database() -> AnalysisDatabase {

@@ -3,16 +3,13 @@ use crate::{
     builtin::BuiltinFunction, declarations::DeclarationId, hir::expr::ExprKind,
     resolver::resolved::ResolvedName, tests::test_analysis, typeck::table::CallTarget,
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{
-    host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
-    scalar::BuiltinType,
-};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 const HELPERS: [(&str, BuiltinFunction); 5] = [
     ("print", BuiltinFunction::Print),
@@ -292,26 +289,28 @@ fn helper_calls_rebase_on_body_reuse_and_invalidate_on_shadowing() {
 
 #[test]
 fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
-    let context = DefinitionContext::new().unwrap();
     for (name, _) in HELPERS {
         let mut sources = SourceDatabase::default();
-        let text = format!("fn main() -> i32 {{ {name}() }}");
+        let text = format!("use demo::{name}; fn main() -> i32 {{ {name}() }}");
         let file = sources.set("host.kgr", text, SourceLayer::Base).unwrap();
         let mut db = test_analysis();
-        let declarations = HostInterface {
-            paths: vec![],
-            types: Vec::new(),
-            functions: vec![
-                HostFunctionDeclaration::new(&context, name, vec![], HostValueType::I32).unwrap(),
-            ],
-        };
-        let hosts = crate::host::HostDeclarations::new(
-            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
-                .unwrap(),
-        )
-        .unwrap();
-        let expected = hosts.resolve(name).unwrap();
-        db.set_host_declarations(hosts);
+        let module = crate::tests::native::function_module(
+            ModuleIdentity {
+                package: PackageId("demo".into()),
+                path: vec![],
+            },
+            name,
+            vec![],
+            Ty::Builtin(BuiltinType::I32),
+        );
+        let expected = module
+            .records()
+            .definition(DefinitionKind::Function, name, module.definitions())
+            .unwrap();
+        let expected = module.definitions().resolve(expected).unwrap().to_path();
+        let mut modules = foundation_catalog::shared().unwrap();
+        modules.push(module);
+        db.set_native_modules(modules);
         let snapshot = db
             .snapshot(sources.snapshot(), &Default::default())
             .unwrap();
@@ -322,15 +321,20 @@ fn explicit_host_declarations_take_precedence_over_the_helper_prelude() {
             file.result().diagnostics()
         );
         let facts = file.result().facts();
+        let expected = file.definitions().lookup(&expected).unwrap();
         for (id, expr) in facts.lowered.module.body.expressions() {
             match expr.kind {
                 ExprKind::Name { .. } => assert_eq!(
-                    facts.names.expr_resolution(id),
-                    Some(ResolvedName::HostFunction(expected))
+                    facts
+                        .imported_functions
+                        .get(facts.names.expr_resolution(id).unwrap())
+                        .unwrap()
+                        .declaration,
+                    expected
                 ),
                 ExprKind::Call { .. } => assert_eq!(
                     facts.typed.type_table.call_resolution(id).unwrap().target,
-                    CallTarget::HostFunction(expected)
+                    CallTarget::SourceFunction(expected)
                 ),
                 _ => {}
             }

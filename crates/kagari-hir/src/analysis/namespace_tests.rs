@@ -1,23 +1,15 @@
 use super::*;
 use crate::{
     hir::expr::ExprKind,
-    host::HostDeclarations,
     imports::{DirectiveResolution, bindings::LookupOutcome},
     resolver::{resolved::ResolvedName, table::NameResolution},
     tests::native,
 };
-use kagari_common::identity::{
-    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
-};
+use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::{
-    declaration::names::NameNamespace,
-    host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
-    scalar::BuiltinType,
-};
+use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType, ty::Ty};
 
 fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
-    let context = DefinitionContext::new().unwrap();
     let mut sources = SourceDatabase::default();
     sources
         .bind_module(
@@ -35,25 +27,31 @@ fn setup(text: &str) -> (SourceDatabase, AnalysisDatabase, FileId) {
             SourceLayer::Base,
         )
         .unwrap();
+    sources
+        .bind_module(
+            "root.kgr",
+            ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["root".into()],
+            },
+        )
+        .unwrap();
     let file = sources
         .set("root.kgr", text.into(), SourceLayer::Base)
         .unwrap();
     let mut db = native::database();
-    let declarations = HostInterface {
-        paths: vec![],
-        types: Vec::new(),
-        functions: vec![
-            HostFunctionDeclaration::new(&context, "demo.number", vec![], HostValueType::I32)
-                .unwrap(),
-        ],
-    };
-    db.set_host_declarations(
-        HostDeclarations::new(
-            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
-                .unwrap(),
-        )
-        .unwrap(),
-    );
+    let mut modules = kagari_stdlib::catalog::shared().unwrap();
+    modules.push(native::module());
+    modules.push(native::function_module(
+        ModuleIdentity {
+            package: PackageId("demo".into()),
+            path: vec![],
+        },
+        "number",
+        vec![],
+        Ty::Builtin(BuiltinType::I32),
+    ));
+    db.set_native_modules(modules);
     (sources, db, file)
 }
 
@@ -149,18 +147,22 @@ fn qualified_call_navigation_selects_only_the_terminal_name() {
     let host_call = text.find("demo::number()").unwrap();
     for offset in host_call..host_call + "demo::".len() {
         assert!(
-            analysis.host_function_at(offset).is_none(),
+            analysis.source_function_at(offset).is_none(),
             "offset {offset}"
         );
     }
     let host_name = host_call + "demo::".len();
     assert_eq!(
-        analysis.host_function_at(host_name).unwrap().symbol,
-        "demo.number"
+        analysis
+            .source_function_at(host_name)
+            .unwrap()
+            .signature
+            .name,
+        "number"
     );
     assert!(
         analysis
-            .host_function_at(host_name + "number".len())
+            .source_function_at(host_name + "number".len())
             .is_none()
     );
 }

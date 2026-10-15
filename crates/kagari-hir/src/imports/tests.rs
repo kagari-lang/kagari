@@ -4,24 +4,16 @@ use crate::{
     host::HostDeclarations,
     imports::solver::ImportSolveError,
     lower::lower_module,
-    tests::test_analysis,
+    tests::{native::function_module, test_analysis},
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{PackageId, map::DefinitionContext, metadata::DefinitionMetadata},
-};
+use kagari_common::{cancellation::CancellationToken, identity::PackageId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     package::{PackageEnvironment, PackageScope},
     source_database::{CapturedSource, SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{
-    declaration::{host::HostPassingStyle, names::NameNamespace},
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType,
-    },
-};
+use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType, ty::Ty};
 
 fn identity(name: &str) -> ModuleIdentity {
     ModuleIdentity {
@@ -370,7 +362,6 @@ fn package_visibility_covers_siblings_but_not_other_packages_or_public_reexports
 
 #[test]
 fn wildcard_import_expands_offline_host_module_declarations() {
-    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     let root = insert(
         &mut db,
@@ -378,30 +369,18 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         "use demo::*; fn main() -> i32 { echo(42) }",
     );
     let mut analysis = test_analysis();
-    let declarations = HostInterface {
-        paths: vec![],
-        types: vec![],
-        functions: vec![
-            HostFunctionDeclaration::new(
-                &context,
-                "demo.echo",
-                vec![HostParameter {
-                    name: "value".into(),
-                    ty: HostValueType::I32,
-                    passing: HostPassingStyle::Owned,
-                }],
-                HostValueType::I32,
-            )
-            .unwrap(),
-        ],
-    };
-    analysis.set_host_declarations(
-        HostDeclarations::new(
-            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
-                .unwrap(),
-        )
-        .unwrap(),
+    let module = function_module(
+        ModuleIdentity {
+            package: PackageId("demo".into()),
+            path: vec![],
+        },
+        "echo",
+        vec![("value", Ty::Builtin(BuiltinType::I32))],
+        Ty::Builtin(BuiltinType::I32),
     );
+    let mut modules = foundation_catalog::shared().unwrap();
+    modules.push(module);
+    analysis.set_native_modules(modules);
     let snapshot = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
@@ -415,7 +394,7 @@ fn wildcard_import_expands_offline_host_module_declarations() {
             .scope
             .lookup("echo", NameNamespace::Value)
             .and_then(|b| b.target()),
-        Some(ResolvedName::HostFunction(_))
+        Some(ResolvedName::Source(_))
     ));
     assert!(
         snapshot
@@ -782,41 +761,43 @@ fn adding_and_removing_an_overlay_module_reanalyzes_unchanged_importers() {
 
 #[test]
 fn source_host_and_module_item_ambiguities_are_rejected() {
-    let context = DefinitionContext::new().unwrap();
     let mut db = SourceDatabase::default();
     insert(&mut db, "api", "pub fn child() -> i32 { 1 }");
     insert(&mut db, "api::child", "");
     let root = insert(&mut db, "root", "use pkg::api; use pkg::api::child;");
     let mut analysis = test_analysis();
-    let declarations = HostInterface {
-        paths: vec![],
-        types: Vec::new(),
-        functions: vec![
-            HostFunctionDeclaration::new(&context, "pkg.api.external", vec![], HostValueType::Unit)
-                .unwrap(),
-        ],
-    };
-    analysis.set_host_declarations(
-        HostDeclarations::new(
-            DefinitionMetadata::checked(context.snapshot(), declarations, &Default::default())
-                .unwrap(),
-        )
-        .unwrap(),
+    let module = function_module(
+        identity("api"),
+        "external",
+        vec![],
+        Ty::Builtin(BuiltinType::Unit),
     );
-    let snapshot = analysis
-        .snapshot(db.snapshot(), &Default::default())
-        .unwrap();
-    assert_eq!(
-        snapshot
+    let mut modules = foundation_catalog::shared().unwrap();
+    modules.push(module);
+    // A function and child module can share a spelling in distinct namespaces.
+    // Installing a second owner makes the module and its child path ambiguous;
+    // reusing the database must invalidate the previously valid import facts.
+    for (providers, expected) in [
+        (foundation_catalog::shared().unwrap(), vec![]),
+        (modules, vec!["pkg::api", "pkg::api::child"]),
+    ] {
+        analysis.set_native_modules(providers);
+        let snapshot = analysis
+            .snapshot(db.snapshot(), &Default::default())
+            .unwrap();
+        let paths = snapshot
             .file(root)
             .unwrap()
             .result()
             .diagnostics()
             .iter()
-            .filter(|d| matches!(d.kind, DiagnosticKind::AmbiguousImport { .. }))
-            .count(),
-        1
-    );
+            .filter_map(|diagnostic| match &diagnostic.kind {
+                DiagnosticKind::AmbiguousImport { path } => Some(path.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(paths, expected);
+    }
 }
 
 #[test]

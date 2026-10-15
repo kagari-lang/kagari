@@ -61,8 +61,11 @@ missing callbacks. The declaration remains the signature and identity authority.
 
 Installed package names resolve to their unique physical root module when one is
 present. Packages supplied only through child modules use an implicit namespace
-prefix. Qualified types in generated signatures follow the same member visibility
-and ambiguity checks as ordinary source references.
+prefix. Independently installed child modules also populate a unique installed
+native parent's namespace when that name has no explicit declaration. Existing
+declarations retain their visibility and ambiguity rules; source modules require
+their ordinary explicit child declarations. Qualified types in generated signatures
+follow the same member visibility and ambiguity checks as ordinary source references.
 
 `core::future::Future<T>` is the canonical single-drive native storage type, with
 one invariant output parameter. `std::future` and the prelude re-export that exact

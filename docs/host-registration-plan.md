@@ -2898,6 +2898,46 @@ changed, so no new Miri run was needed. HIR/compiler/portable legacy records and
 runtime legacy execution retirement remain HR02/HR03 work; full feature/backend/
 platform acceptance remains pending CI.
 
+### HR02 checkpoint: ordinary HIR import and signature consumers
+
+HIR import wildcard/ambiguity, namespace navigation/shadowing, helper precedence
+and callable-signature fixtures now consume cold ModuleDecl/FnDecl/TypeDef facts
+through set_native_modules. There is no legacy HostInterface producer in these
+four consumer files. Native functions are ordinary source-signature targets;
+terminal-only navigation uses source_function_at and retains UTF-8/CRLF offsets.
+Explicit imports of installed functions shadow runtime helper names. Async
+callable tests retain the host-root rejection cases, including nested tuple and
+inferred/annotated async closure parameters, using the common external schema.
+Invalid native calls retain their declared signature/identity despite diagnostics.
+
+Installing a physical native package root alongside a child exposed a catalog
+boundary defect: prefix indexing skipped any physical parent, so root selection
+hid independently installed child modules. Prefix preparation now inserts child
+namespace candidates into a unique installed native parent when the name is not
+already declared. Missing parents still use prefixes; source/ambiguous physical
+parents are not augmented, and existing visibility and declaration precedence
+remain checked. The standard declaration specification owns this behavior.
+
+Actual local validation: the initial five namespace cases passed two and failed
+three. The fixture needed an explicit source package binding, and root-plus-child
+resolution needed the catalog repair above; all five then passed (4.51 seconds).
+A subsequent prelude fixture compile had an unnecessary borrow passed to get;
+that was corrected without changing lookup checks. Seven selected HIR regressions
+then passed six and failed the ambiguity expectation. Unlike the old independent
+host namespace, a duplicate common module owner makes both its root and child
+imports ambiguous. The repaired case first checks that source function/child
+spellings coexist in distinct namespaces, then installs the duplicate owner in
+the same database and asserts both exact ambiguous paths. Its first baseline
+expectation incorrectly treated distinct namespaces as conflicting; the final
+case passed (1.21 seconds). The other six passed unchanged: wildcard imports,
+helper precedence, async admission, invalid-call signatures, external-ID/native
+prefix admission and installed-package alias protection. HIR lib/tests scoped
+Clippy passed. Structure checked 1254 files with zero findings; formatting/diff
+checks passed. No unsafe or loan kernel changed; no new Miri run was needed.
+Legacy HIR host-owned query/trait/path fixtures and downstream portable/runtime
+record retirement remain open; full workspace/backend/feature/platform checks
+remain CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

@@ -24,7 +24,7 @@ use kagari_source::{
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     iter,
     sync::Arc,
 };
@@ -531,6 +531,11 @@ fn add_installed_prefixes(
     sources: &[&LoweredModule],
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
+    let native_units = sources
+        .iter()
+        .filter(|module| module.registered_native_api)
+        .map(|module| SourceUnit::of(module))
+        .collect::<HashSet<_>>();
     for module in sources.iter().filter(|m| m.registered_native_api) {
         let unit = SourceUnit::of(module);
         for len in 0..unit.module.path.len() {
@@ -539,9 +544,13 @@ fn add_installed_prefixes(
                 package: unit.module.package.clone(),
                 path: unit.module.path[..len].to_vec(),
             };
-            if catalog.modules.contains_key(&identity) {
-                continue;
-            }
+            let namespace = match catalog.modules.get(&identity).map(Vec::as_slice) {
+                Some([parent]) if native_units.contains(parent) => {
+                    NamespaceId::Module(parent.clone())
+                }
+                Some(_) => continue,
+                None => NamespaceId::InstalledPrefix(identity.clone()),
+            };
             let mut child = identity.clone();
             child.path.push(unit.module.path[len].clone());
             let target = catalog
@@ -554,7 +563,7 @@ fn add_installed_prefixes(
                 );
             let table = catalog
                 .namespaces
-                .entry(NamespaceId::InstalledPrefix(identity.clone()))
+                .entry(namespace)
                 .or_insert_with(|| NamespaceTable {
                     owner: identity.clone(),
                     names: Arc::new(NameTable::default()),
