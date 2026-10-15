@@ -93,6 +93,23 @@ diagnostics + retained source revisions -> terminal/JSON renderers
 
 ### Recoverable analysis and strict compilation
 
+Project inputs must reach this boundary before recovery can help. Currently
+[`ModuleTree::load`](../crates/kagari-package/src/modules.rs) returns on the first
+syntax diagnostic, and [`ProjectInputs::load`](../crates/kagari-package/src/project.rs)
+aborts the request if any selected root fails capture. TT01 must address this
+handoff before promising multi-error reporting or independent-root continuation.
+
+Keep source discovery/capture at `kagari-package`, with an explicit distinction
+between unavailable input, captured text with syntax diagnostics, and incomplete
+module discovery. Share module discovery rules rather than implement a second
+loader in CLI. Tooling may consume discovered source and diagnostics; incomplete
+discovery is never a complete `ProgramInputs` or checked compilation result.
+Whole-workspace manifest/resolution failures remain request failures, while a
+root-local source failure must not prevent processing other independently available
+roots. Do not silently change lock publication on partial failure: specify and
+test the timing against existing behavior in TT01. TT03 reuses this discovery
+boundary for fmt without activating dependency resolution.
+
 Lint consumes `AnalysisSnapshot` and the relevant file/body facts, not only a
 successfully constructed `CheckedProgram`. The former can retain diagnostics and
 partial facts; the latter remains evidence of an error-free dependency closure.
@@ -112,6 +129,17 @@ Check reports the return-type error. Lint also reports the unused binding in
 HIR owns the validity of recovered facts; a missing binding/type is unknown, not
 proof of absence. Establish the affected file/body boundary before running a rule;
 an error that invalidates shared signatures may affect more than one body.
+
+The current [`AnalysisResult`](../crates/kagari-hir/src/lib.rs) pairs facts with
+diagnostics but does not by itself certify each body's required facts; diagnostic
+lists can also be truncated. Absence of a diagnostic within a function's span
+therefore cannot prove complete resolution or valid type facts. TT01 must validate
+a narrow HIR-owned eligibility/query contract for complete binding facts, required
+type facts and shared-signature failures; TT04 implements and consumes it. Reuse
+existing evidence where available, adding only what these rules require. Do not
+recheck each function through a second analysis path to establish eligibility.
+Cover truncated diagnostics and errors outside the body as well as ordinary local
+errors. Parser/analysis exhaustion or cancellation must not become a clean result.
 
 ### Diagnostic and policy ownership
 
@@ -177,8 +205,10 @@ kg lint -p app -D warnings
 - Validate conflicting/irrelevant options before processing inputs. Reject JIT,
   executable-output and unsupported fix options for these modes.
 - Fatal workspace discovery/resolution/configuration errors stop that request.
-  Once independent inputs are available, collect diagnostics across them instead
-  of stopping at the first invalid file/root. Cancellation stops further work.
+  Root-local source acquisition and syntax failures follow the recoverable-input
+  contract above: report incomplete roots and continue independently available
+  inputs. Cancellation stops further work; summaries distinguish incomplete work
+  from successfully checked/formatted inputs.
 
 Exit status proposal: 0 for success (including warning-only lint); 1 for language
 errors, denied lints, fmt differences under `--check`, acquisition/IO failures or
@@ -209,14 +239,29 @@ TT01 must resolve the following in this document before consumer implementation:
 | Format options | Indent width 4, maximum width 100, newline mode `preserve` by default; specify mixed-newline normalization and stdin defaults |
 | Lint levels | Six named rules default to `warn`; allow individual `allow`, `warn`, `deny`; `-D warnings` promotes remaining warnings without reviving explicitly allowed rules |
 | Suppression | Reuse supported outer attributes on modules/functions/declarations, with string rule identifiers if required by the existing attribute grammar; no inner `#![...]` or new local-statement attributes |
+| Suppression validation | Prefer the existing `tool::` namespace; specify which of lint, CLI check/build and direct SDK checking validate rule names/arguments, and the dependency owner for each |
+| Suppression inheritance | Define outer/inner declaration precedence and whether a module declaration's policy follows external module files; do not infer cross-file ancestry from byte spans |
 | JSON | Freeze the initial record fields, position conventions and summary semantics using concrete success/error examples |
 | Fmt source selection | Reuse member and declared-module discovery without dependency resolution; define recovery when an invalid file prevents discovering child modules |
+| Recoverable input | Define per-root discovery results, completeness evidence, retained syntax diagnostics and lock publication on partial failure before completing check reporting |
 
 No environment-global config, nested config cascade, plugin system, arbitrary
 rule groups or per-path override language is required initially. Source suppression
 must be recognized by ordinary check/build as tooling metadata; it cannot become
 an unknown-attribute error outside lint or suppress required language diagnostics.
 Specify permitted targets, inheritance and invalid arguments alongside the syntax.
+
+HIR already preserves structured attributes under `tool::` without treating them
+as unknown language attributes. Prefer that extension point over adding bare
+`allow`/`warn`/`deny` attributes to the language. For a proposed spelling such as
+`#[tool::allow("unused_parameter")] mod child;`, TT01 must specify whether the
+policy reaches `child.kgr`, how nested overrides work and where rule-name validation
+runs. The existing attribute `target_span` alone cannot represent that ancestry;
+use declaration/module identity and the source graph for inherited policy. HIR
+owns those facts, and the tooling policy owner interprets them. Checking names in
+additional commands requires an explicit tool-layer integration, not HIR importing
+the rule registry. No command may accidentally reject valid tooling metadata as a
+language error or silently treat an invalid policy as an applied suppression.
 
 ## Formatter acceptance
 
@@ -257,6 +302,13 @@ error alone does not block fmt. Unsupported valid syntax must produce an explici
 diagnostic during development, never silently drop text or claim full coverage.
 Do not mark TT03 complete while ordinary grammar forms are unsupported.
 
+At TT02 start, record a bounded grammar coverage inventory in this plan against
+the current syntax kinds, grammar and existing fixtures. Each form needs a rule,
+representative coverage and an explicit completion state; update the inventory
+deliberately when language changes affect this milestone. TT03 closes that fixed
+inventory. Do not let "all syntax" expand silently during implementation, or count
+an unchanged-text fallback as support for a form's formatting rules.
+
 Project fmt owns only files of selected members, including their declared modules.
 It does not follow their dependency closures, scan arbitrary `.kgr` trees, or edit
 generated native declarations. Deduplicate canonical files and retain existing
@@ -271,11 +323,27 @@ assumption and lack of a whole-project transaction; successful files may already
 be written when a later file fails. `--check` never writes even temporary source
 replacements. Verify replacement behavior on Windows and Unix in their CI jobs.
 
+Before writeback implementation, TT03 must fix the policy for symbolic links,
+directory links/junctions, hard links and read-only files, including whether the
+write target is the requested path or canonical referent. Existing approved-root
+reads permit internal symbolic links; replacing a link path can destroy the link,
+and replacing a hard-linked file can sever its shared identity. Preserve the
+documented relationship or explicitly reject unsupported writeback before changing
+it. Do not silently turn links into ordinary files or change permissions to force
+a write. Cover applicable link behavior and unchanged-file cases on each platform.
+
 Acceptance combines expected-output fixtures with idempotence, reparse success,
 non-whitespace token preservation, comment order/attachment and normalized CST
 structure equivalence. Reuse representative grammar fixtures without rewriting
 the entire example corpus in the implementation commit. CRLF, Unicode, malformed
 input, empty files and cancellation belong in the selected boundary coverage.
+
+Token preservation checks must cover grammar-sensitive adjacency. The current
+parser combines adjacent angle tokens into shift operators: an unchanged sequence
+of lexer kinds after whitespace removal does not prove equivalent syntax. Include
+`>>`/`<<`, nested generic closers, line-comment termination and interpolation
+boundaries in reparse/CST-equivalence cases. Preserve literal text and compare
+non-whitespace tokens explicitly; do not drop comments using a generic trivia filter.
 
 ## Checker acceptance
 
@@ -346,7 +414,8 @@ change identifier resolution, normalize source names, or demand ASCII-only names
 Each rule needs a stable ID, rationale, defaults, supported scope, positive and
 negative examples, diagnostic spans and documented limitations. Provide rule
 listing/explanation through the CLI without loading a project. Unknown suppression
-names and malformed policy are errors, not silent no-ops.
+names and malformed policy are errors in lint, not silent no-ops. TT01 specifies
+the validation behavior of other commands and SDK consumers as described above.
 
 ## Execution phases
 
@@ -356,13 +425,16 @@ continue by weakening checks, stubbing production behavior or hiding test failur
 
 | Phase | Deliverable | Focused acceptance |
 | --- | --- | --- |
-| TT01 | Resolve the decision table; source-owned presentation records and common renderers, strict config and command contracts; complete check reporting | Existing CLI check/project cases, type-error source spans, revision-correct Unicode/CRLF JSON, HIR-independent rendering, root continuation and lock behavior |
-| TT02 | `kagari-format` syntax/comment/layout modules and single-file/stdin commands, initial core syntax | Independent comment/printer tests, small grammar representatives, interpolation, idempotence, malformed-file preservation and no HIR dependency |
-| TT03 | Remaining ordinary grammar forms, project fmt discovery/writeback and `--check` | Grammar coverage inventory, selected members, unresolved dependency independence, alias/concurrent-edit/write failure checks |
-| TT04 | `kagari-lint`, static syntax/semantic registry, policy/suppression, six rules and recoverable-snapshot integration | Rule positive/negative cases, closure/shadowing/write semantics, selected-source scope, mixed valid/invalid bodies, analysis reuse, level precedence and required-error retention |
+| TT01 | Resolve the decision table, recoverable acquisition handoff and HIR eligibility interface; source-owned diagnostics/renderers, strict config and complete check reporting | Existing CLI check/project cases, independent roots after source/syntax failure, lock timing, HIR eligibility feasibility, revision-correct JSON and HIR-independent rendering |
+| TT02 | Fix the grammar inventory; `kagari-format` syntax/comment/layout modules and single-file/stdin commands | Independent comment/printer tests, initial grammar forms, adjacency/interpolation, idempotence, malformed-file preservation and no HIR dependency |
+| TT03 | Close the grammar inventory; reuse recoverable discovery for project fmt, implement explicit link/writeback policy and `--check` | Selected members, unresolved dependency independence, incomplete discovery, platform link/read-only behavior, alias/concurrent-edit/write failures |
+| TT04 | `kagari-lint`, static registry, HIR-owned eligibility, policy/suppression, six rules and shared analysis | Rule cases, captures/writes, mixed valid/invalid bodies, truncated diagnostics, shared-signature errors, cross-file suppression, selected-source scope and analysis reuse |
 | TT05 | Focused cross-tool acceptance, user docs/examples and CI wiring | fmt/check/lint on one representative workspace, direct SDK/check agreement, JSON/exit contracts and production dependency guards |
 
-TT01 owns specification decisions, not speculative lint or formatter scaffolding.
+TT01 owns specification decisions and the concrete acquisition/eligibility handoff,
+not speculative lint or formatter scaffolding. Record eligibility feasibility
+evidence and the selected API before TT01 closes; a larger required analysis
+refactor needs an explicit scope update rather than being discovered during TT04.
 TT02 may have explicitly diagnosed incomplete syntax coverage; TT03 closes it.
 TT04 must finish all six rules or explicitly revise this plan's accepted scope.
 Use `Toolchain-Tools-Phase: TTxx` commit trailers for implementation checkpoints.
@@ -375,7 +447,7 @@ arguments, output and filesystem behavior. Do not add one integration executable
 per rule or grammar form. Reuse existing fixtures and contract tests before adding
 distinct boundary cases.
 
-Three architectural acceptance checks are mandatory in the relevant phases:
+Architectural acceptance checks are mandatory in the relevant phases:
 
 1. TT04: the mixed valid/invalid function example retains its language error and
    reliable lint, while the same input still fails strict program checking.
@@ -385,6 +457,15 @@ Three architectural acceptance checks are mandatory in the relevant phases:
    test probe; do not introduce a production telemetry framework for this test.
 3. TT01/TT02: render diagnostics from presentation records and retained text without
    HIR objects; test comment attachment and layout printing at their separate owners.
+4. TT01/TT03: a syntax error in package A retains diagnostics and incomplete status
+   where appropriate; independent package B still runs. Missing/ambiguous modules
+   never become complete compilation inputs. Assert lock behavior on partial failure.
+5. TT04: diagnostic truncation or a shared-signature error cannot make unavailable
+   facts appear valid. Test the agreed suppression behavior across `mod child;`
+   and its external source, including invalid names and nested overrides.
+6. TT02/TT03: grammar-sensitive token adjacency survives formatting, and writeback
+   honors the agreed symbolic-link/hard-link/read-only policy without altering
+   unsupported inputs. Complete the local platform's selected cases; CI covers the rest.
 
 These checks validate ownership and behavior, not internal struct layouts or a
 performance claim. Source revision mismatch must not silently produce a misleading
@@ -437,7 +518,10 @@ side effects. None is silently added to this milestone.
 - [x] Record first-release scope, ownership, phase order and validation policy.
 - [x] Incorporate reference-informed architecture: recoverable snapshots, staged
   lint rules, diagnostic/policy ownership, formatter modules and focused acceptance.
-- [ ] TT01: resolve command/config/diagnostic decisions and complete check tooling.
+- [x] Incorporate execution review: acquisition recovery, fact eligibility,
+  suppression ownership/inheritance, link writeback, token adjacency and grammar scope.
+- [ ] TT01: resolve command/config/diagnostic decisions, acquisition and eligibility
+  contracts; complete check tooling.
 - [ ] TT02: single-file formatter foundation and stdin integration.
 - [ ] TT03: complete syntax coverage and project formatting.
 - [ ] TT04: lint policy and six initial rules.
