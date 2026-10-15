@@ -3036,6 +3036,51 @@ path cases remain unaffected evidence. No unsafe or loan kernel changed; no new
 Miri run was needed. HIR catalog/origin legacy producers plus downstream portable/
 runtime retirement remain open, and exhaustive acceptance stays CI-owned.
 
+### HR02/RF05: compiler portable trait consumers use common declarations
+
+The compiler's nine bytecode host-contract cases now use the common native
+contract owners. Trait fixtures first compile the source owner to obtain its exact
+public or private TraitDef, explicitly reference that contract from a cold
+ModuleDecl, register Counter and its trait impl through implement_trait, and compile
+the complete source/native closure through HIR, MIR and bytecode. The former
+post-lowering add_readable_host/host_trait_test_program producers and their legacy
+HostTypeDeclaration/HostMethodDeclaration imports are removed. These are cold
+compiler fixtures, not an additional runtime binding or compatibility projection.
+
+Public/private trait argument, result and member tampering now edits the actual
+InterfaceTable. Duplicate and public/private contract collisions remain rejected.
+A foreign private declaration is rejected by validate_trait_contracts at its owner;
+the complete graph rejects it earlier as InvalidInterfaceTable because the native
+provider's explicit requirement no longer matches. The test asserts both checks.
+The imported-contract copy case retains the actual owner and a dependency edge,
+rather than copying a foreign implementation into a second owner. Standard Eq/Hash,
+local script, imported script and native-impl bounds retain source-free rejection
+coverage. Forged bound arguments and method/native results change together, so
+the cases still exercise the bound rather than an unrelated return disagreement.
+
+Cross-module type conflicts now compare a shared external TypeDeclaration with
+its provider's public TypeDef. The identical copy is accepted; changing its ownership
+policy is rejected before linking. Documentation is outside that executable schema;
+the documentation-only acceptance case is already owned by runtime offline_types
+type_contract_changes_reject_artifacts_before_publication_but_documentation_does_not,
+and is not duplicated with a legacy field. Existing native-import signature checks
+and dynamic-call rejection cases remain intact.
+
+Validation selected this compiler contract group and its changed fixtures only.
+The initial public case exposed an importer fixture carrying the former root's
+ProgramExports after replacing the root; clearing that unrelated export map passed
+the case (9.97 seconds). The first nine-case run passed eight and failed the private
+foreign-identity error classification described above (12.18 seconds). After the
+owner/graph assertions were corrected, that case passed (10.66 seconds). The two
+newly migrated native/imported bound cases passed (11.40 seconds), and the shared
+external-type conflict case passed (7.78 seconds). An initial fixture compilation
+incorrectly assumed HostCallPolicy implemented Default; explicitly supplying its
+effects resolved it. Compiler lib/tests scoped Clippy passed; structure checked 1256
+Rust files with zero findings; formatting and diff checks passed. No carried compiler
+failure remains. No unsafe/loan code changed
+and no new Miri run is claimed. Remaining portable/runtime legacy producers and
+HR03 retirement still block combined completion; exhaustive acceptance remains CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
