@@ -2091,6 +2091,42 @@ fixture-only authoring migration. Standard log/print, remaining live-root/path
 consumers and HR03 producer/callable retirement remain required. Exhaustive
 workspace, feature, backend and platform validation remains CI-owned.
 
+### HR02/RF05 checkpoint: composite native consumers and pinned reentry
+
+The offline composite fixture now uses shared Type/FnDecl authoring, one bind per
+callback and NativeModule installation. Its Array/Map/Set/Option/Result tuple keeps
+ordinary checked types, native argument/result validation and existing temporary
+roots. The make callback resolves `payload` in the current execution root's pinned
+bytecode, then uses the existing synchronous reentry service. It can therefore be
+bound before source compilation without capturing a later compiler-owned function
+ID. Its declared effects include allocation, host services and traps. Echo still
+collects inside the callback and returns its rooted input; retained nested values
+are checked after collection on direct, KBC/interpreter and host-Cranelift routes.
+
+The other existing cases retain nested source type rejection, contextual empty
+Array inference, completed/terminating operand behavior, exact callback counts and
+invalid source diagnostics. Bindings and captured counters are installed once;
+each execution route resets only its fixture observations. No cold callback or
+metadata-only inspection executes application services. The obsolete KHI producer,
+interface installer and late HostFunction registrations leave this entire file.
+
+The initial compile attempt used the private catalog `definitions` helper.
+The fixture now supplies the actual public retained ModuleDecl identity scope to
+Type::from_semantic instead of widening catalog visibility. No production build
+failure, unchecked shape conversion, pointer or Rust lifetime change remains.
+
+Focused local validation passed:
+
+- `cargo test -p kagari --test offline_composite --no-fail-fast`: all three existing
+  affected cases passed (32.93 seconds).
+- `cargo clippy -p kagari --test offline_composite -- -D warnings`: passed.
+- Structure, formatting and diff checks passed, with 1248 Rust files and zero
+  structure violations. Previous unchanged pointer/token Miri evidence applies;
+  no new Miri result is claimed for this consumer-only migration.
+
+Remaining legacy producers/consumers, HR03 removal and RF06/RI05 acceptance remain
+required. Complete workspace/features/backends/platforms are still pending CI.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
