@@ -1,10 +1,12 @@
-# Test preparation and scheduling
+# Test preparation, scheduling and source ownership
 
 This finite task improves test preparation boundaries and selected contract owners.
-The initial three SDK pilots are complete. The authorized next slice consolidates
-six ordinary SDK runners and removes invariant preparation from compiler ABI,
-provider cancellation and standard documentation loops. Native collection
-migration, compiler pipeline redesign and the remaining suites are outside scope.
+The initial three SDK pilots and TP04's six additional SDK runners are complete.
+TP04 also removes invariant preparation from compiler ABI, provider cancellation
+and standard documentation loops. TP05-TP09 below propose source-owned test
+organization after the user's 2026-10-15 review request; implementation of that
+extension is not yet activated. Native collection migration and compiler pipeline
+redesign remain outside scope.
 
 ## Contract
 
@@ -165,3 +167,270 @@ cargo test -p kagari-compiler --lib tests::bytecode::artifacts::rejects_
 cargo test -p kagari-stdlib --test documentation
 cargo clippy -p kagari --test standard_traits --test instantiation --test associated_types --test conversion_traits --test collection_interfaces --test collection_access --test native_provider_reset --test syntax_examples --test default_methods -- -D warnings
 ```
+
+## Proposed in-source test organization (TP05-TP09)
+
+Status: proposal requested on 2026-10-15, based on `e98064da`. Implementation is
+unstarted; the current change updates planning documents only.
+TP01-TP04 above are implemented; their outstanding measurement remains open.
+This section extends the same task rather than creating a parallel test-cost plan.
+
+### Objective and observed cause
+
+Default to tests inside the owning crate's source tree. Keep an integration target
+only when its separately compiled consumer or process boundary establishes a
+specific contract that an in-source test cannot establish equivalently.
+Moving a test does not change the behavior it covers: SDK source/artifact/native
+end-to-end cases remain SDK tests, even when they are now library unit tests.
+
+The current `cargo metadata --no-deps --format-version 1` inventory contains
+97 integration targets, excluding library/binary unit harnesses and doctests.
+The SDK owns 51 and runtime 22. The ordinary Cargo runner executes binaries
+sequentially and schedules tests within each binary concurrently
+([Cargo execution model](https://doc.rust-lang.org/cargo/commands/cargo-test.html)).
+A binary with seven short cases and one long case cannot fill freed workers with
+cases from the next binary. More build jobs do not remove this execution barrier.
+
+Source inspection also identifies repeated process-local preparation:
+`crates/kagari/tests/support/execution.rs` owns a `OnceLock<Mutex<KagariEngine>>`.
+Compiling that helper separately into multiple targets creates independent
+baselines. Its lock protects session creation, not source compilation/execution.
+A single source-owned helper can share preparation across the migrated SDK cases.
+Do not assume every current case uses that helper.
+
+These are scheduling/setup mechanisms, not a measured attribution of the user's
+whole run. The earlier timing tables are historical. Library tests still have
+per-crate barriers, and a single long case still runs serially. Neither a speedup
+percentage nor full CPU utilization is an acceptance promise.
+
+### Destination inventory
+
+The proposed end state has five integration targets: two external SDK consumers,
+one external runtime macro/Serde consumer, one VM allocation-contract target and
+one ignored VM measurement target. This is an outcome of the exception inventory,
+not a quota that permits deleting required coverage. TP05 must record any further
+concrete exception here before changing that estimate.
+
+| Crate | Current integration targets | Proposed remaining targets | In-source owner |
+| --- | ---: | ---: | --- |
+| kagari | 51 | 2 | Engine, prepared-program and runtime contract test modules |
+| kagari-runtime | 22 | 1 | Native, host, module, frame, session, GC and resource owners |
+| kagari-vm | 7 | 2 | Existing `src/tests/` for ordinary execution contracts |
+| kagari-bytecode | 1 | 0 | Program/portable identity tests |
+| kagari-contract | 3 | 0 | Instantiation, native-default and public-wire contract tests |
+| kagari-types | 2 | 0 | Language/metadata identity tests |
+| kagari-stdlib | 2 | 0 | Documentation and registration tests |
+| kagari-compiler | 3 | 0 | Existing source/program contract tests |
+| kagari-hir | 2 | 0 | Type display and language-contract tests |
+| kagari-package | 4 | 0 | Input, graph, workspace and analysis contract tests |
+| **Total** | **97** | **5** | **92 fewer integration targets; cases retained** |
+
+SDK target destinations below cover all 49 targets proposed for migration. Keep
+the old target basename as a leaf module and retain test function names, making
+the old-target/new-filter mapping explicit. These are source module owners, not
+four replacement integration binaries.
+
+| Proposed source module | Existing target names |
+| --- | --- |
+| `engine::tests` | `engine_sessions`, `package_inputs`, `registration_sources`, `source_modules`, `source_snapshots`, `standard_declarations` |
+| `program::tests` | `cranelift_preparation`, `native_artifacts`, `native_preparation` |
+| `runtime::tests::embedding` | `conformance`, `embedding_api`, `error_traces`, `generic_reload`, `host_interfaces`, `native_provider_reset`, `offline_composite`, `offline_functions`, `offline_nominal`, `runtime_transfer`, `scoped_calls`, `typed_calls` |
+| `runtime::tests::language` | `array_operations`, `associated_constants`, `associated_types`, `callable_traits`, `collection_access`, `collection_callbacks`, `collection_interfaces`, `conversion_traits`, `default_methods`, `enum_payloads`, `generic_associated_types`, `instantiation`, `interface_identity`, `iteration_traits`, `library_namespaces`, `list_algorithms`, `native_enums`, `never`, `numeric_operations`, `operator_traits`, `result_option`, `standard_traits`, `string_interpolation`, `string_methods`, `syntax_examples`, `trait_inheritance`, `try_protocols`, `type_inference` |
+
+The ordinary language cases belong under `src/runtime/tests/language/`; this
+does not replace the existing `runtime::language_contract` runner or its route
+assertions. Common stateless preparation belongs under `src/test_support/`,
+declared once by the library, with source/native gates on the relevant modules.
+Local tests can stay beside their implementation instead of entering a central
+test directory. Library roots and `mod.rs` contain declarations/orchestration,
+not the accumulated test bodies.
+
+Runtime placement is similarly responsibility-based:
+
+| Owner | Existing target names |
+| --- | --- |
+| Native registration/call contracts | `native_builder`, `native_conversion`, `native_execution`, `native_registration`, `host_registration`, `installation_access`, `offline_host`, `offline_types`, `host_nominal` |
+| Host scopes and access | `host_borrows`, `host_objects`, `host_scopes`, `typed_path_views` |
+| Module/layout contracts | `enum_declarations`, `package_exports`, `struct_layouts` |
+| Frame/session owners | `execution_frames`, `execution_sessions` |
+| GC/resource owners | `gc_ownership`, `mutation_resources` |
+| Existing cross-subsystem runtime tests | `runtime_substrate` |
+
+Move ordinary VM `library_collections`, `native_boundary`, `package_exports`
+and `prepared_execution` into the existing `src/tests/` tree. Keep the native
+boundary's current submodules rather than flattening its cases into one file.
+
+The smaller crates' complete target inventory is: bytecode `identity`;
+contract `instantiation`, `native_defaults`, `public_abi_wire`; types
+`language_identity`, `metadata_identity`; stdlib `documentation`,
+`registration`; compiler `language_foundation`, `package_exports`,
+`source_programs`; HIR `identity_display`, `language_contracts`; package
+`analysis`, `graph`, `inputs`, `workspace`. Move each into its existing
+semantic owner, or a focused source test module when it spans several owners.
+Using a filesystem, a backend or several crates is not by itself a reason for
+an integration executable.
+
+### Retained external/process boundaries
+
+| Retained target | Required distinction and planned treatment |
+| --- | --- |
+| SDK `artifact_features` | `scripts/check_features.py` compiles this exact source in a standalone consumer outside workspace dev-feature unification. Keep its real imports, malformed-artifact/linking checks and source-free execution. Preserve the independent async artifact consumer and shared emitter providers. |
+| SDK `async_execution` | The same script compiles this source without source/native features. Retain the native-wait/owned-execution consumer; move its source-only child suites into the SDK runtime test tree. Shared fixture construction must still compile in the external consumer without private SDK access. |
+| Runtime `native_schema` | Preserve representative existing derive, `native_data!` and Serde cases compiled from another crate against ordinary runtime visibility. Move manual schema/conversion-only cases to their source owner when they do not establish that external boundary. Keep the existing Serde feature gate and lifetime/compile-fail doctests. |
+| VM `allocation_contracts` (proposed) | Combine existing `native_allocations` and `interface_allocations` as ordinary submodules of one integration target. Both use `native_allocations_counter` with a custom global allocator and thread-local measurement windows. Declare that allocator once; retain counter self-checks, warmup boundaries and exact assertions. Keep instrumentation outside the ordinary VM unit-test binary. |
+| VM `library_measurements` | Keep the ignored manual timing workload and its custom allocator separate from ordinary correctness execution. Preserve its inputs, profile and explicit measurement invocation; do not count ignored timing cases as passed tests. |
+
+The three VM targets currently include the same allocator implementation; that
+does not justify three separate binaries. The two allocation-contract modules
+can share it because their counters are thread-local. Manual timing remains
+separate to avoid treating a correctness run as performance evidence.
+
+Retain standalone AOT deployment under `scripts/check_aot.py`, executable
+examples, and Rust lifetime/API compile-pass/compile-fail doctests. These are
+distinct contracts, not extra integration targets to eliminate. Existing SDK
+external consumers also exercise ordinary dependency builds of lower layers.
+Do not replace proof of a production dependency graph with a library-unit build.
+
+### Migration rules and risks
+
+1. **Preserve cases before reorganizing semantics.** Record each old binary/test
+   name, new qualified name, feature/platform gates, ignored status and exercised
+   routes. Compare harness discovery where buildable and review macro-generated
+   cases. Preserve fixtures, negative checks, GC thresholds, cancellation points,
+   ordering and cleanup assertions. Do not merge tests into a single loop, remove
+   cases, or add replacement smoke tests merely to compensate for a move.
+2. **Audit the changed compilation boundary.** A library unit harness builds its
+   own crate with `cfg(test)`; the old integration target tested the library as
+   a normal dependency. Review conditional hooks, macros and feature availability.
+   For example, HIR declaration queries have a test-only import-solver limit;
+   migrated ordinary cases must not accidentally acquire different limits.
+   Keep concrete external visibility/lifetime proof at the retained consumers or
+   existing doctests. Never call a test-only bypass to make a moved case pass.
+3. **Use real ownership and ordinary modules.** Rewrite imports of the tested
+   crate to `crate::...`; keep other crates as dependencies. No new self aliases,
+   broad re-exports, public test helpers, production dependencies, handwritten
+   `include!`, or new umbrella test crate. Preserve the runtime's existing
+   macro-required self alias. Use `#[path]` only for reviewed fixtures that really
+   serve distinct external targets, not as a permanent way to leave every migrated
+   test under `tests/`.
+4. **Share preparation at the correct scope.** Declare SDK `test_support::execution`
+   once and update all migrated consumers to that module; moving many copies of
+   the helper would not unify their statics. Share sealed standard preparation,
+   then create fresh sessions/runtimes. Custom registration, captured host state
+   and invalidation cases retain independent setup. Do not unify the separate
+   language-contract/analysis runner merely because both prepare declarations.
+5. **Preserve consumer fixture ownership.** Inventory all `#[path]`,
+   `include_str!`/`include_bytes!` and `CARGO_MANIFEST_DIR` uses before moving
+   files. The feature consumer, example emitters and VM currently share some
+   runtime/SDK fixtures. Move ordinary helpers into source; retain a narrow shared
+   fixture location for actual cross-target consumers, with corrected relative
+   paths. Do not copy providers or register the same cases twice.
+6. **Check newly concurrent state.** Review static counters, temporary paths,
+   generated artifact writes, environment/current-directory changes and callbacks
+   previously separated by processes. Package scratch directories already use
+   unique identifiers; preserve that property. Keep a mutable runtime, heap,
+   cancellation token and captured application state per case. Process isolation
+   is a justified exception only where scoped state cannot preserve the contract.
+7. **Keep feature/platform coverage intact.** Place source/native/Serde/AOT gates
+   on the smallest correct owner. A no-default-features library selection must
+   still discover source-free cases and compile without source-only imports.
+   Dev dependencies remain dev dependencies; standalone graph guards remain the
+   authority for production isolation.
+8. **Control the larger harness cost.** Fewer binaries can reduce barriers and
+   duplicate preparation, but a larger library test binary may increase compile,
+   link and peak-memory costs. Shared analysis retains interned IDs longer. Measure
+   these effects and lock/session-fork contention; do not add a global runtime pool,
+   unsafe Send/Sync, a nested worker pool or a whole-suite serial lock.
+9. **Do not broaden into test deduplication or runner replacement.** Long serial
+   scenarios such as the 4096-entry native cache test still need their stateful
+   sequence. The stdlib documentation example loop also remains a separate future
+   scheduling question. Keep current assertions and scenario boundaries in this
+   layout migration. Nextest adoption, whole compiler optimization and collection
+   migration are outside TP05-TP09.
+
+Review changed Rust structure at each implementation checkpoint, including
+effective LOC and shared-fixture ownership. An existing large test file is not
+permission to create an oversized source module; split at scenario boundaries
+as required, keeping each scenario's assertions together.
+
+### Proposed checkpoints and validation
+
+- [ ] **TP05: freeze inventory and pilot.** Confirm the 97-target mapping, external
+  exceptions, feature gates and `cfg(test)` differences. Use SDK
+  `associated_types`, `collection_interfaces` and `conversion_traits` as the
+  first migration batch: all already use the standard preparation helper.
+  Declare one source-owned helper and migrate those three targets to
+  `runtime::tests::language`. Keep the remaining old targets runnable until
+  their owning batch; remove the pilot's obsolete roots immediately. Compare
+  matched pilot execution, compile/link costs and memory before expanding to
+  TP06; record uncertain measurements without claiming performance acceptance.
+- [ ] **TP06: finish SDK ownership.** Migrate the other 46 ordinary targets in
+  coherent engine/program/runtime batches. Move source-only async suites while
+  retaining the external native-wait target. Resolve all emitter/consumer fixture
+  paths in the same batch, with no forwarding integration entrypoints.
+- [ ] **TP07: runtime and VM.** Migrate the 21 ordinary runtime targets and manual
+  schema cases, retaining external derive/Serde coverage. Migrate the four ordinary
+  VM targets and combine the two allocation targets. Reconcile shared fixtures
+  used by runtime unit cases, VM and retained consumers without widening APIs.
+- [ ] **TP08: smaller owners and references.** Migrate the remaining 17 targets,
+  preserving existing unit-test ownership. Update affected CLI invocations in
+  guides/scripts/CI and the testing guide's default placement rule. Do not silently
+  activate unrelated queued plans or reclassify historical performance numbers.
+- [ ] **TP09: focused acceptance and handoff.** Verify mapping/discovery, selected
+  correctness and representative external consumers. Record matched pilot timing,
+  compile/link effects and memory limits together with the earlier TP measurement
+  debt. CI performs the complete workspace/feature/platform matrix. Transfer lasting
+  placement/exception rules to `testing.md`; retire this plan only when its required
+  acceptance is satisfied, retaining unresolved follow-ups in the roadmap.
+
+Each batch must build in its selected scope; this layout task has no planned
+broken-build phase. Record failures and repair them before continuing to a new
+owner. Conventional implementation commits use `Test-Preparation-Phase: TPxx`
+trailers; this proposal's documentation commit is not an implementation checkpoint.
+
+Local validation stays focused. For the TP05 pilot, list/build only the three
+original targets and the new filtered library harness, compare the full selected
+case-name inventory, and run their existing cases with `--no-fail-fast`.
+The intended post-migration selection is:
+
+```text
+cargo test -p kagari --lib --no-fail-fast -- runtime::tests::language::associated_types:: runtime::tests::language::collection_interfaces:: runtime::tests::language::conversion_traits::
+```
+
+For later batches select moved behavior plus a small adjacent regression set:
+registration/install rejection and GC cleanup for runtime; native callbacks and
+pinned reload for VM; identity/codec rejection for the small contract owners;
+filesystem alias rejection for package tests. Check each selected scope finishes;
+a successful build or name listing is not a passed test. Use scoped Clippy when
+imports/modules change, structure, formatting and `git diff --check`.
+
+The external checks retain their own selection: SDK artifact/native-wait consumers
+through the standalone manifest, runtime external derives with the relevant
+Serde mode, the combined allocation target's existing allocation assertions,
+and AOT only when its paths/contracts change. Do not run all package tests in
+sequence as a disguised workspace sweep. Exhaustive no-default/source/native/
+Serde/AOT/platform combinations and all doctests stay in CI.
+
+Separate performance from correctness: build the selected old/new products first,
+then compare exactly the pilot case set under the same toolchain, machine, profile,
+features, default concurrency and fixture/cache state. Alternate at least three
+old/new runs on an idle machine, record wall time, process CPU time, active-worker
+tail and peak memory; report compile/link time separately. The old result is the
+sum of its three sequential binaries, the new result is the same cases within
+one harness. Keep scratch binaries/logs under `target/` and record conclusions
+here. A broader shared-baseline lifetime sample must also account for retained
+identity growth; a small pilot alone cannot prove whole-suite memory behavior.
+
+Structural acceptance is the justified target inventory and preserved discovery/
+contracts. Performance acceptance needs repeatable evidence; if results overlap
+noise or compilation/memory worsens materially, record uncertainty and investigate
+the relevant owner before claiming improvement. Local passing cases do not mark
+CI acceptance complete.
+
+### Proposal ledger
+
+2026-10-15: inventoried 97 integration targets at `e98064da`; inspected SDK shared
+preparation, standalone feature/AOT consumers, runtime derive/Serde coverage,
+VM allocator instrumentation, existing source test modules and CI commands.
+Proposed 92 target removals/consolidations with five justified remaining targets.
+No Rust implementation changes, migrations or performance runs have been made.
