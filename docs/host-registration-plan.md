@@ -2781,6 +2781,40 @@ Remaining runtime consumers are offline_types, host_nominal and typed_path_views
 compiler/tooling producers and HR03 retirement remain open. Full workspace, backend,
 feature/platform and exhaustive safety acceptance remain CI-owned and unrun locally.
 
+### HR02/RF05 checkpoint: offline nominal and trait contracts
+
+All four runtime offline_types cases now use common declarations, explicit binding
+and decoded/loader-validated KBC. Cold Player/Team schemas retain mutual nominal
+references, array element provenance, writable score metadata, an explicit self
+parameter and an inherent Result-returning method. Runtime metadata uses resolved
+canonical types and shared field fingerprints. No HostInterface/KHI or legacy type,
+method or trait registration remains in this target.
+
+Cold method binding exposed a concrete API gap: from_declaration could select only
+free functions. ModuleBuilder::declared_method now selects a local impl by its
+ModuleDecl position and member name, producing the existing FunctionRef token for
+the same bind preparation, policy/signature checks and installation. Unknown impls
+or members reject; no second binding/invocation mechanism was added. The standard
+declaration specification documents these selection semantics.
+
+Explicit trait contracts reject an unbound module before installation, reject a
+source-free trait caller when only type/trait declarations are installed, and reject
+a differently bound receiver passing policy. A matching installed impl loads the
+same decoded program. Invalid missing/duplicate schema members and repeated module
+installation retain transactional rejection. Four independently valid alternate
+contracts (field type, field access, receiver passing, effects) reject before module
+publication against the original installation. Type/field/method/module documentation
+changes produce byte-identical executable KBC and load successfully.
+
+Actual focused validation: all four offline_types cases passed in 39.06 seconds;
+after replacing the invalid-field case with a duplicate-field declaration, that
+selected case passed separately (0.62 seconds). Scoped runtime library/offline_types
+Clippy and structure (1254 files, zero findings) passed. Formatting required import
+and function wrapping and passed after rustfmt; diff checks passed. No unsafe,
+pointer/loan or root kernel changed, so no new Miri run was required. Runtime
+host_nominal and typed_path_views, compiler/tooling consumers and HR03 retirement
+remain open. Complete workspace/backend/feature/platform acceptance remains CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

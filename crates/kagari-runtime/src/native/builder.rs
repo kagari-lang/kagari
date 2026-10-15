@@ -186,6 +186,27 @@ impl ModuleBuilder {
         })
     }
 
+    /// Select a member from an already authored local implementation for `bind`.
+    /// The index is its position in the adopted ModuleDecl's implementation list;
+    /// the member retains that impl's identity even when another impl uses its name.
+    pub fn declared_method(&self, implementation: usize, name: &str) -> NativeResult<FunctionRef> {
+        let Some(group) = self.declaration.implementations.get(implementation) else {
+            return Err(conflict("unknown implementation declaration"));
+        };
+        if !group.methods.iter().any(|method| method.name == name) {
+            return Err(conflict("unknown method declaration"));
+        }
+        let definitions = self.providers.definitions();
+        let owner = self
+            .declaration
+            .implementation_id(implementation, &definitions)
+            .map_err(conflict)?;
+        Ok(FunctionRef {
+            id: ModuleDecl::method_id(owner, name, &definitions).map_err(conflict)?,
+            definitions,
+        })
+    }
+
     pub fn define_function(&mut self, mut declaration: FunctionDecl) -> NativeResult<FunctionRef> {
         if self
             .declaration

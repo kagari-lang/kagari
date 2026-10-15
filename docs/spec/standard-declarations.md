@@ -52,6 +52,13 @@ bindings, missing dependencies and declaration mismatches are rejected. A finish
 both portable declarations and runtime-local Rust entries/storage descriptors.
 Compiler-only consumers can read the same declarations without a runtime.
 
+`ModuleBuilder::from_declaration` adopts separately authored `ModuleDecl` records
+into its own definition scope. `declared_function(name)` selects a free function;
+`declared_method(implementation, name)` selects a member using its position in that
+declaration's implementation list. Both return the same binding token for `bind`.
+Missing implementation/member selections reject immediately, and `finish` rejects
+missing callbacks. The declaration remains the signature and identity authority.
+
 `core::future::Future<T>` is the canonical single-drive native storage type, with
 one invariant output parameter. `std::future` and the prelude re-export that exact
 declaration. It has no public constructor or trait-based await protocol. Typed
