@@ -1,6 +1,6 @@
 # Formatter, checker and linter implementation plan
 
-Status: implementation authorized on 2026-10-15; TT01–TT02 complete, TT03 next.
+Status: implementation authorized on 2026-10-15; TT01–TT03 complete, TT04 next.
 This plan owns the first usable `kg fmt`, `kg check` and `kg lint` milestone.
 Command spellings and configuration examples below describe planned behavior,
 not commands already supported by the current binary.
@@ -431,20 +431,20 @@ CST rules plus expected-output and preservation witnesses before TT03 closes.
 
 | Family | CST owners / witnesses | State |
 | --- | --- | --- |
-| Declarations | FnDef, MethodDef, StructDef/FieldList, EnumDef/VariantList, TraitDef, ImplBlock, ConstDef, AssociatedType; grammar-witnesses | Implemented; TT03 layout review pending |
-| Modules/imports | SourceFile, ModuleDef/ModuleBlock, UseDecl/UseTree/UseTreeList, Path; inline-modules/import examples | Implemented; TT03 layout review pending |
-| Attributes | Attribute, AttributeArgs/ArgList/Arg/Value; attributes | Implemented; TT03 layout review pending |
-| Type syntax | TypeRef, TupleType, ArrayType, FunctionType, QualifiedType, TypeList; grammar-witnesses/generic-associated-types | Implemented; TT03 layout review pending |
-| Generics | GenericParamList/Param, GenericArgList, AssociatedTypeBinding, TraitBoundList/TraitRef, WhereClause/Predicate | Implemented; TT03 layout review pending |
-| Statements | BindingStmt, AssignStmt, ReturnStmt, BreakStmt, ContinueStmt, ExprStmt, BlockExpr | Implemented; TT03 layout review pending |
-| Control flow | IfExpr, BindingCondition, WhileStmt, ForStmt, LoopStmt/LoopExpr, MatchExpr/ArmList/Arm | Implemented; TT03 layout review pending |
-| Expressions | PathExpr, Literal, ParenExpr, PrefixExpr, BinaryExpr, CastExpr, RangeExpr, PropagateExpr | Implemented; TT03 layout review pending |
-| Calls/collections | CallExpr, FieldExpr, IndexExpr, TupleExpr, ArrayExpr, StructExpr/FieldInitList/FieldInit | Implemented; TT03 layout review pending |
-| Patterns | Pattern, PatternField; matching/destructuring examples | Implemented; TT03 layout review pending |
-| Closures/async | ClosureExpr/ParamList/Param, async declarations, AwaitExpr; async | Implemented; TT03 layout review pending |
-| Interpolation | InterpolatedString/Interpolation plus Format tokens; string-interpolation | Implemented; TT03 layout review pending |
-| Comments/layout | Leading/trailing/dangling, nested block, line termination, blank lines, CRLF/Unicode, empty source | Implemented; TT03 layout review pending |
-| Adjacency | Shift tokens, nested generic closers, operator/prefix boundaries, interpolation holes | Implemented; TT03 layout review pending |
+| Declarations | FnDef, MethodDef, StructDef/FieldList, EnumDef/VariantList, TraitDef, ImplBlock, ConstDef, AssociatedType; grammar-witnesses | Complete: syntax rules and preservation/layout contracts |
+| Modules/imports | SourceFile, ModuleDef/ModuleBlock, UseDecl/UseTree/UseTreeList, Path; inline-modules/import examples | Complete: syntax rules and preservation/layout contracts |
+| Attributes | Attribute, AttributeArgs/ArgList/Arg/Value; attributes | Complete: syntax rules and preservation/layout contracts |
+| Type syntax | TypeRef, TupleType, ArrayType, FunctionType, QualifiedType, TypeList; grammar-witnesses/generic-associated-types | Complete: syntax rules and preservation/layout contracts |
+| Generics | GenericParamList/Param, GenericArgList, AssociatedTypeBinding, TraitBoundList/TraitRef, WhereClause/Predicate | Complete: syntax rules and preservation/layout contracts |
+| Statements | BindingStmt, AssignStmt, ReturnStmt, BreakStmt, ContinueStmt, ExprStmt, BlockExpr | Complete: syntax rules and preservation/layout contracts |
+| Control flow | IfExpr, BindingCondition, WhileStmt, ForStmt, LoopStmt/LoopExpr, MatchExpr/ArmList/Arm | Complete: syntax rules and preservation/layout contracts |
+| Expressions | PathExpr, Literal, ParenExpr, PrefixExpr, BinaryExpr, CastExpr, RangeExpr, PropagateExpr | Complete: syntax rules and preservation/layout contracts |
+| Calls/collections | CallExpr, FieldExpr, IndexExpr, TupleExpr, ArrayExpr, StructExpr/FieldInitList/FieldInit | Complete: syntax rules and preservation/layout contracts |
+| Patterns | Pattern, PatternField; matching/destructuring examples | Complete: syntax rules and preservation/layout contracts |
+| Closures/async | ClosureExpr/ParamList/Param, async declarations, AwaitExpr; async | Complete: syntax rules and preservation/layout contracts |
+| Interpolation | InterpolatedString/Interpolation plus Format tokens; string-interpolation | Complete: syntax rules and preservation/layout contracts |
+| Comments/layout | Leading/trailing/dangling, nested block, line termination, blank lines, CRLF/Unicode, empty source | Complete: syntax rules and preservation/layout contracts |
+| Adjacency | Shift tokens, nested generic closers, operator/prefix boundaries, interpolation holes | Complete: syntax rules and preservation/layout contracts |
 
 Single-file formatting is TT02's first consumer of writeback. The core replacement
 helper therefore lands with that command; TT03 extends it to project discovery
@@ -639,7 +639,7 @@ side effects. None is silently added to this milestone.
 - [x] TT01: resolve command/config/diagnostic decisions, acquisition and eligibility
   contracts; complete check tooling.
 - [x] TT02: single-file formatter foundation and stdin integration.
-- [ ] TT03: complete syntax coverage and project formatting.
+- [x] TT03: complete syntax coverage and project formatting.
 - [ ] TT04: lint policy and six initial rules.
 - [ ] TT05: focused acceptance, documentation migration and CI integration.
 
@@ -700,3 +700,35 @@ Windows replacement uses Rust's [documented rename operation](https://doc.rust-l
 and the Win32 handle API for identity/link counts because the corresponding
 [standard metadata methods](https://doc.rust-lang.org/stable/std/os/windows/fs/trait.MetadataExt.html)
 remain experimental. Windows execution belongs to CI, not local acceptance.
+
+### TT03 membership boundary decision
+
+The first project-format test found that `WorkspaceInputs::load` expands automatic
+in-workspace path dependencies before graph resolution. Missing dependency manifests
+therefore blocked fmt. Discovery now takes an explicit `MemberDiscovery` policy:
+compilation retains `WithLocalDependencies`; fmt uses `Declared`, covering explicit
+workspace members, explicit default-members and a package at the workspace root.
+Standalone packages retain their existing selection. Fmt `-p` names this declared
+set; implicit dependency members must be listed as members/default-members before
+project fmt can select them. This formatter-specific membership distinction is
+intentional: no dependency-manifest acquisition is required to format a member.
+It adds one policy to the existing loader, not a second loader or resolver.
+
+TT03 validation in progress: project selection first exposed dependency-member
+expansion and passed after the explicit discovery-policy change. Local Unix
+writeback tests pass for permission preservation, concurrent content, unchanged
+read-only/hard-linked files, rejected link writes and failed replacement. Windows
+symlink/junction/identity cases are compiled only on Windows and remain CI-owned.
+Expected-output contracts now also cover declarations, attributes, generic types,
+trait members, use trees, collections and match patterns; the fixed inventory is
+closed with the representative preservation cases and grammar rules. No token
+rewrites or unchanged-text syntax fallback were introduced.
+
+TT03 checkpoint acceptance: six CLI formatting/project/writeback tests, one
+workspace auto-member/default-selection regression and the declaration/type/pattern
+layout contract passed. Updated command option validation passed. Workspace Clippy,
+structure (1257 files, zero findings), rustfmt and diff checks passed after routine
+import/conditional cleanup. No known local failures remain. Exhaustive grammar and
+Windows/platform matrices remain CI-owned. Fmt summaries count successful/failed
+files and incomplete acquisition/writeback operations; an incomplete discovery
+operation can represent unknown child files, so these are not a total-file census.

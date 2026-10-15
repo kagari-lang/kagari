@@ -145,3 +145,36 @@ fn complete_grammar_fixture_inventory() {
         check_fixture(name);
     }
 }
+
+#[test]
+fn declarations_types_attributes_and_patterns_have_canonical_layout() {
+    for (input, expected) in [
+        (
+            "#[tool::allow(\"unused_parameter\")]struct Boxed<T>{var value:T}",
+            "#[tool::allow(\"unused_parameter\")]\nstruct Boxed<T> {\n    var value: T\n}\n",
+        ),
+        (
+            "enum Value{Empty,Number(i32),}",
+            "enum Value {\n    Empty,\n    Number(i32),\n}\n",
+        ),
+        (
+            "trait Item{type Value;const LIMIT:i32;fn get(self)->i32;}",
+            "trait Item {\n    type Value;\n    const LIMIT: i32;\n    fn get(self) -> i32;\n}\n",
+        ),
+        (
+            "use thing::{name,other as alias};",
+            "use thing::{ name, other as alias };\n",
+        ),
+        (
+            "fn f(value:Option<i32>)->i32{match value{Some(x)=>x+1,None=>0}}",
+            "fn f(value: Option<i32>) -> i32 {\n    match value {\n        Some(x) => x + 1,\n        None => 0\n    }\n}\n",
+        ),
+        (
+            "fn f(x:fn((i32,bool),[i32])->i32){val values=[1,2,3];val pair=(1,true);}",
+            "fn f(x: fn((i32, bool), [i32]) -> i32) {\n    val values = [1, 2, 3];\n    val pair = (1, true);\n}\n",
+        ),
+    ] {
+        assert_eq!(formatted(input, 100), expected, "{input}");
+        assert_eq!(formatted(expected, 100), expected);
+    }
+}

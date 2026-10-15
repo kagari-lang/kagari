@@ -58,6 +58,16 @@ pub enum MemberSelection {
     Names(Vec<String>),
 }
 
+/// Whether workspace membership expands through local dependency declarations.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MemberDiscovery {
+    /// Formatting owns explicitly declared members without dependency acquisition.
+    Declared,
+    /// Compilation preserves implicit in-workspace local dependency membership.
+    #[default]
+    WithLocalDependencies,
+}
+
 impl WorkspaceInputs {
     /// Discovers a workspace from the directory containing the invoking manifest.
     ///
@@ -69,9 +79,10 @@ impl WorkspaceInputs {
         directory: &str,
         namespace: Option<&str>,
         limits: WorkspaceLimits,
+        discovery: MemberDiscovery,
         cancel: &CancellationToken,
     ) -> Result<Self, PackageError> {
-        loader::load(input, directory, namespace, limits, cancel)
+        loader::load(input, directory, namespace, limits, discovery, cancel)
     }
 
     /// Returns deterministic selected roots, rejecting unknown or empty explicit selections.

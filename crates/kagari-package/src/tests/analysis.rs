@@ -25,8 +25,15 @@ fn sources(files: &[(&str, &str)]) -> VirtualSources {
 fn capture(files: &[(&str, &str)], hosts: BTreeMap<String, Arc<HostPackage>>) -> ProgramInputs {
     let input = sources(files);
     let cancel = CancellationToken::default();
-    let workspace =
-        WorkspaceInputs::load(&input, "", None, WorkspaceLimits::default(), &cancel).unwrap();
+    let workspace = WorkspaceInputs::load(
+        &input,
+        "",
+        None,
+        WorkspaceLimits::default(),
+        Default::default(),
+        &cancel,
+    )
+    .unwrap();
     let graph = ResolvedGraph::resolve(
         &input,
         &workspace,

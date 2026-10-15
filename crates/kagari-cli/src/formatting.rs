@@ -1,13 +1,15 @@
 //! Formatter command IO; layout remains in the pure formatter crate.
 
+pub(crate) mod project;
 mod writeback;
 
 use crate::{
     CliError,
     args::FormatArgs,
     report::{MessageFormat, Report},
+    tool_config::{FormatConfig, Newline as ConfigNewline},
 };
-use kagari_format::{FormatError, Options, format};
+use kagari_format::{FormatError, Newline, Options, format};
 use kagari_source::source::SourceFile;
 use std::{
     io::{self, Error, Read, Write},
@@ -47,15 +49,33 @@ fn run_into(path: &Path, args: &FormatArgs, report: &mut Report) -> io::Result<(
         text
     };
     let source = SourceFile::new(path.display().to_string(), text);
-    let options = Options {
-        indent_width: args.indent_width.unwrap_or(4),
-        max_width: args.max_width.unwrap_or(100),
-        newline: args.newline.unwrap_or_default(),
-    };
+    let options = options(args, &Default::default());
+    format_captured(source, captured, args.check, options, report)
+}
+
+fn options(args: &FormatArgs, config: &FormatConfig) -> Options {
+    Options {
+        indent_width: args.indent_width.unwrap_or(config.indent_width),
+        max_width: args.max_width.unwrap_or(config.max_width),
+        newline: args.newline.unwrap_or(match config.newline {
+            ConfigNewline::Preserve => Newline::Preserve,
+            ConfigNewline::Lf => Newline::Lf,
+            ConfigNewline::Crlf => Newline::Crlf,
+        }),
+    }
+}
+
+fn format_captured(
+    source: SourceFile,
+    captured: Option<CapturedFile>,
+    check: bool,
+    options: Options,
+    report: &mut Report,
+) -> io::Result<()> {
     match format(&source, options, &Default::default()) {
         Ok(output) => {
             if let Some(captured) = captured {
-                if args.check && captured.text != output {
+                if check && captured.text != output {
                     report.summary.failed += 1;
                     report.operational(
                         source.name(),
@@ -64,7 +84,7 @@ fn run_into(path: &Path, args: &FormatArgs, report: &mut Report) -> io::Result<(
                     );
                     return Ok(());
                 }
-                if !args.check {
+                if !check {
                     captured.replace(&output)?;
                 }
             } else {

@@ -95,6 +95,10 @@ impl CapturedFile {
         file.set_permissions(self.metadata.permissions())?;
         file.sync_all()?;
         drop(file);
+        self.commit(&temporary)
+    }
+
+    fn commit(&self, temporary: &Temporary) -> io::Result<()> {
         self.validate()?;
         // std::fs::rename replaces a file on Unix and Windows. There is no
         // compare-and-swap guarantee against a hostile edit after validation.
@@ -222,5 +226,134 @@ mod tests {
                 .contains("concurrently")
         );
         assert_eq!(fs::read_to_string(&path).unwrap(), "fn f() {}\n");
+    }
+
+    #[test]
+    fn unchanged_readonly_and_hardlinked_sources_never_need_replacement() {
+        let path = source();
+        let permissions = fs::metadata(&path).unwrap().permissions();
+        let mut readonly = permissions.clone();
+        readonly.set_readonly(true);
+        fs::set_permissions(&path, readonly).unwrap();
+        let captured = CapturedFile::read(&path).unwrap();
+        captured.replace(&captured.text).unwrap();
+        assert!(
+            captured
+                .replace("changed")
+                .unwrap_err()
+                .to_string()
+                .contains("read-only")
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), captured.text);
+        fs::set_permissions(&path, permissions).unwrap();
+        let linked = path.with_extension("link.kgr");
+        fs::hard_link(&path, &linked).unwrap();
+        let captured = CapturedFile::read(&path).unwrap();
+        captured.replace(&captured.text).unwrap();
+        assert!(
+            captured
+                .replace("changed")
+                .unwrap_err()
+                .to_string()
+                .contains("hard-linked")
+        );
+        assert_eq!(fs::read_to_string(&linked).unwrap(), captured.text);
+    }
+
+    #[test]
+    fn failed_replacement_leaves_original_bytes_and_no_staged_file() {
+        let path = source();
+        let captured = CapturedFile::read(&path).unwrap();
+        let absent = Temporary(path.with_extension("absent"));
+        assert!(captured.commit(&absent).is_err());
+        assert_eq!(fs::read_to_string(&path).unwrap(), captured.text);
+        assert!(!absent.0.exists());
+    }
+
+    #[cfg(any(unix, windows))]
+    #[test]
+    fn symbolic_file_and_directory_links_keep_their_relationship() {
+        let path = source().canonicalize().unwrap();
+        let link = path.with_extension("symlink.kgr");
+        file_link(&path, &link);
+        let captured = CapturedFile::read(&link).unwrap();
+        captured.replace(&captured.text).unwrap();
+        assert!(
+            captured
+                .replace("changed")
+                .unwrap_err()
+                .to_string()
+                .contains("links")
+        );
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), captured.text);
+        let parent_link = path.with_extension("directory");
+        directory_link(path.parent().unwrap(), &parent_link);
+        let through_directory =
+            CapturedFile::read(&parent_link.join(path.file_name().unwrap())).unwrap();
+        assert!(
+            through_directory
+                .replace("changed")
+                .unwrap_err()
+                .to_string()
+                .contains("links")
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), captured.text);
+    }
+
+    #[cfg(unix)]
+    fn file_link(source: &Path, target: &Path) {
+        use std::os::unix::fs::symlink;
+        symlink(source, target).unwrap();
+    }
+
+    #[cfg(unix)]
+    fn directory_link(source: &Path, target: &Path) {
+        file_link(source, target);
+    }
+
+    #[cfg(windows)]
+    fn file_link(source: &Path, target: &Path) {
+        use std::os::windows::fs::symlink_file;
+        symlink_file(source, target).expect("CI requires symlink capability");
+    }
+
+    #[cfg(windows)]
+    fn directory_link(source: &Path, target: &Path) {
+        use std::os::windows::fs::symlink_dir;
+        symlink_dir(source, target).expect("CI requires directory symlink capability");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn directory_junctions_are_rejected_without_replacing_the_referent() {
+        use std::process::Command;
+        let path = source().canonicalize().unwrap();
+        let junction = path.with_extension("junction");
+        let result = Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&junction)
+            .arg(path.parent().unwrap())
+            .output()
+            .unwrap();
+        assert!(
+            result.status.success(),
+            "{}",
+            String::from_utf8_lossy(&result.stderr)
+        );
+        let captured = CapturedFile::read(&junction.join(path.file_name().unwrap())).unwrap();
+        assert!(
+            captured
+                .replace("changed")
+                .unwrap_err()
+                .to_string()
+                .contains("links")
+        );
+        assert_eq!(fs::read_to_string(path).unwrap(), captured.text);
     }
 }

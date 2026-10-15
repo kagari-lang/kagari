@@ -135,6 +135,7 @@ impl<T: InputTree> Resolver<'_, T> {
                         directory,
                         None,
                         self.limits.workspace,
+                        Default::default(),
                         self.cancel,
                     )?;
                     self.locals.extend(workspace.members);

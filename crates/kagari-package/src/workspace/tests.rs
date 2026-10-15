@@ -26,6 +26,7 @@ fn load(files: &[(&str, &str)], directory: &str) -> WorkspaceInputs {
         directory,
         None,
         WorkspaceLimits::default(),
+        Default::default(),
         &CancellationToken::default(),
     )
     .unwrap()
@@ -186,6 +187,7 @@ fn excluded_packages_can_be_standalone_but_unlisted_packages_cannot_inherit_memb
         "unlisted",
         None,
         WorkspaceLimits::default(),
+        Default::default(),
         &CancellationToken::default(),
     )
     .unwrap_err();
@@ -243,6 +245,7 @@ fn nested_workspaces_are_not_merged_and_duplicate_member_names_are_rejected() {
             "",
             None,
             WorkspaceLimits::default(),
+            Default::default(),
             &cancel,
         )
         .unwrap_err();
@@ -271,6 +274,7 @@ fn whole_workspace_configuration_errors_block_single_member_selection() {
         "good",
         None,
         WorkspaceLimits::default(),
+        Default::default(),
         &CancellationToken::default(),
     )
     .unwrap_err();
@@ -306,7 +310,7 @@ fn discovery_checks_namespace_input_bounds_and_cancellation() {
         },
     ] {
         assert!(
-            WorkspaceInputs::load(&sources, "", None, limits, &cancel)
+            WorkspaceInputs::load(&sources, "", None, limits, Default::default(), &cancel)
                 .unwrap_err()
                 .to_string()
                 .contains("limit")
@@ -318,6 +322,7 @@ fn discovery_checks_namespace_input_bounds_and_cancellation() {
             "",
             Some("different/root"),
             WorkspaceLimits::default(),
+            Default::default(),
             &cancel
         )
         .unwrap_err()
@@ -326,10 +331,17 @@ fn discovery_checks_namespace_input_bounds_and_cancellation() {
     );
     cancel.cancel();
     assert!(
-        WorkspaceInputs::load(&sources, "", None, WorkspaceLimits::default(), &cancel)
-            .unwrap_err()
-            .to_string()
-            .contains("cancelled")
+        WorkspaceInputs::load(
+            &sources,
+            "",
+            None,
+            WorkspaceLimits::default(),
+            Default::default(),
+            &cancel
+        )
+        .unwrap_err()
+        .to_string()
+        .contains("cancelled")
     );
 }
 
@@ -362,6 +374,7 @@ fn filesystem_workspace_matches_virtual_members_and_defaults_after_relocation() 
             "project",
             None,
             WorkspaceLimits::default(),
+            Default::default(),
             &CancellationToken::default(),
         )
         .unwrap();
@@ -399,6 +412,7 @@ fn recursive_workspace_patterns_fail_at_depth_bounds_instead_of_publishing_parti
             max_depth: 1,
             ..WorkspaceLimits::default()
         },
+        Default::default(),
         &cancel,
     )
     .unwrap_err();
@@ -427,6 +441,7 @@ fn workspace_rejects_two_members_pointing_at_one_physical_manifest() {
         "",
         None,
         WorkspaceLimits::default(),
+        Default::default(),
         &CancellationToken::default(),
     )
     .unwrap_err();

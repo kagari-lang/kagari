@@ -29,6 +29,7 @@ fn workspace(input: &VirtualSources) -> WorkspaceInputs {
         "",
         None,
         WorkspaceLimits::default(),
+        Default::default(),
         &CancellationToken::default(),
     )
     .unwrap()
@@ -733,6 +734,7 @@ fn relocated_acquisition_roots_keep_identical_locks_and_program_fingerprints() {
             directory,
             None,
             WorkspaceLimits::default(),
+            Default::default(),
             &cancel,
         )
         .unwrap();

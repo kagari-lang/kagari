@@ -5,7 +5,7 @@ use crate::{
     manifest::{DependencySource, Inheritance, MANIFEST_NAME, MAX_MANIFEST_BYTES, Manifest},
     path,
     workspace::{
-        WorkspaceInputs, WorkspaceLimits, WorkspacePackage,
+        MemberDiscovery, WorkspaceInputs, WorkspaceLimits, WorkspacePackage,
         discovery::{self, Discovery},
     },
 };
@@ -29,6 +29,7 @@ pub(super) fn load(
     directory: &str,
     namespace: Option<&str>,
     limits: WorkspaceLimits,
+    policy: MemberDiscovery,
     cancel: &CancellationToken,
 ) -> Result<WorkspaceInputs, PackageError> {
     cancel.check()?;
@@ -77,6 +78,11 @@ pub(super) fn load(
     let mut pending = loader
         .discovery
         .expand(&owner, &configuration.members, &root.origin)?;
+    if policy == MemberDiscovery::Declared
+        && let Some(defaults) = &configuration.default_members
+    {
+        pending.extend(loader.discovery.expand(&owner, defaults, &root.origin)?);
+    }
     pending.retain(|directory| !discovery::is_excluded(directory, &exclusions));
     if root.manifest.package.is_some() {
         pending.insert(owner.clone());
@@ -126,7 +132,8 @@ pub(super) fn load(
             )?
             .expect("package checked");
         for dependency in normalized.dependencies.values() {
-            if let DependencySource::Path(target) = &dependency.source
+            if policy == MemberDiscovery::WithLocalDependencies
+                && let DependencySource::Path(target) = &dependency.source
                 && within(target, &owner)
                 && !discovery::is_excluded(target, &exclusions)
                 && !members.contains_key(target)

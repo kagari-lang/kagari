@@ -6,7 +6,10 @@ mod project;
 mod report;
 mod tool_config;
 
-use crate::args::{Cli, Command, usage};
+use crate::{
+    args::{Cli, Command, usage},
+    formatting::project as format_project,
+};
 use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
@@ -51,6 +54,7 @@ fn main() -> ExitCode {
 
 fn run_cli(cli: Cli) -> Result<(), CliError> {
     match cli.command {
+        Command::FormatProject { project, options } => format_project::run(&project, &options),
         Command::Format { source, options } => formatting::run(&source, &options),
         Command::BuildAot { source, output } => aot::build(&source, &output),
         Command::RunAot { bundle } => aot::run(&bundle),

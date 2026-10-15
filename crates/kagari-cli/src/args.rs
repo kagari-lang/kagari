@@ -12,6 +12,10 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
+    FormatProject {
+        project: ProjectArgs,
+        options: FormatArgs,
+    },
     Format {
         source: PathBuf,
         options: FormatArgs,
@@ -239,6 +243,21 @@ impl Cli {
                 "--output applies only to emit, build or build-aot",
             ));
         }
+        if name == "fmt" && (parsed.project.locked || parsed.project.offline) {
+            return Err(CliError::message(
+                2,
+                "fmt does not accept resolution or lock options",
+            ));
+        }
+        if name == "fmt" && rest.is_empty() {
+            return Ok(Self {
+                command: Command::FormatProject {
+                    project: parsed.project,
+                    options: parsed.format,
+                },
+                jit: false,
+            });
+        }
         if matches!(name, "check" | "build" | "run") && rest.is_empty() {
             let action = match name {
                 "check" => ProjectAction::Check,
@@ -317,7 +336,7 @@ fn value(args: &mut impl Iterator<Item = String>, option: &str) -> Result<String
 pub(crate) fn usage() -> String {
     [
         "usage:",
-        "  kg fmt <script.kgr|-> [--check] [--indent-width N] [--max-width N] [--newline preserve|lf|crlf]",
+        "  kg fmt [script.kgr|-] [project options] [--check] [--indent-width N] [--max-width N] [--newline preserve|lf|crlf]",
         "  kg parse <script.kgr>",
         "  kg build-aot <script.kgr> [-o bundle-dir] (feature aot; KAGARI_AOT_LINKER selects linker)",
         "  kg run-aot <trusted-bundle-dir> (feature aot; executes trusted native code)",
@@ -386,6 +405,7 @@ mod tests {
             vec!["check", "--fix"],
             vec!["fmt", "-", "--check"],
             vec!["fmt", "file.kgr", "--locked"],
+            vec!["fmt", "--workspace", "--frozen"],
             vec!["fmt", "file.kgr", "--max-width", "0"],
             vec!["check", "-"],
             vec!["check", "--check"],

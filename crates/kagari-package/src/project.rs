@@ -69,6 +69,7 @@ impl ProjectDiscovery {
             directory,
             options.namespace.as_deref(),
             options.graph_limits.workspace,
+            Default::default(),
             cancel,
         )?;
         let selected = workspace.select(&options.selection)?;
