@@ -32,8 +32,8 @@ handoffs, not circular requirements to finish both implementations first.
 Build on current [native registration](spec/standard-declarations.md) and
 [execution control](spec/execution.md). The implemented
 [runtime ownership design](runtime-ownership-and-host-api-design.md) supplies
-conversion/root/call contracts; [Rust interoperability](rust-interop-design.md)
-extends them with DTO derives, Serde and runtime-owned opaque access/extraction.
+conversion/root/call contracts; [Rust interoperability](spec/embedding-api.md#typed-native-registration) supplies
+DTO derives, Serde and runtime-owned opaque access/extraction.
 The [roadmap](implementation-roadmap.md) owns activation and scheduling.
 
 This track owns the coherent host-facing facade, default workflows, call argument

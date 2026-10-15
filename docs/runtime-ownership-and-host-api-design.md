@@ -17,11 +17,12 @@ This document owns the runtime stores, automatic script-object retention,
 thread-transfer contract, typed native adapters, managed object access, scoped
 payload editing and object/function/trait invocation described below.
 
-The [Rust interop plan](rust-interop-design.md) owns ordinary Rust DTO derives,
-schema-backed Serde and new borrowed method adapters. Runtime-owned `Opaque<T>`
+The [embedding guide](spec/embedding-api.md#typed-native-registration) owns ordinary
+Rust DTO derives and schema-backed Serde; [host interop](spec/host-interop.md) owns
+borrowed method adapters. Runtime-owned `Opaque<T>`
 uses the storage and roots described here; checked read, fixed-data edit and
 edge-free take are implemented. External Ref/RefMut scopes retain their separate
-host ownership and remain in the active combined implementation. Shared resources
+host ownership under the implemented branded scope contract. Shared resources
 inside a payload need their own Rust access guarantees.
 
 The [host facade proposal](host-api-refactor.md) continues to own the cohesive
@@ -254,13 +255,14 @@ execution or a promise of cooperative Tokio scheduling.
 Engine/module registration owns declarations and callback bindings. Invocation
 receives NativeContext for the current runtime, never an unvalidated global engine
 lookup. The existing declaration catalog is the sole semantic owner. Concrete
-Rust signatures can generate their parameter/result types; explicit declarations
-remain available for generics, trait bounds and associated outputs. Both routes
-use the same validation and binding implementation.
+functions and members declare their parameter/result types, generic bounds and
+associated outputs explicitly. One `bind` entrypoint checks the Rust adapter
+against that declaration and also accepts preauthored raw/primitive bindings.
 
-Reuse the KagariType, IntoKagari and FromKagari concepts from the RI proposal.
+Use the common KagariType, IntoKagari and FromKagari conversion traits.
 Conversions are fallible and receive a scoped context for type identity, allocation
-and temporary roots. The current infallible NativeOutput::encode is insufficient.
+and temporary roots. NativeResult carries conversion/call failures; a business
+Result remains script data.
 One adapter handles parameters, results, fields and collection elements. Separate
 input/output capabilities allow return-only types.
 

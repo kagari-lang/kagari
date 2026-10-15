@@ -11,7 +11,7 @@ behavior; queued designs do not imply implemented APIs.
 | Source and types | [Syntax](spec/syntax.md), [traits](spec/traits.md), [builtins](spec/builtins.md), [value semantics](spec/value-semantics.md) |
 | Collections and native modules | [Collection interfaces/storage](spec/collection-access.md), [native declarations](spec/standard-declarations.md) |
 | Failure and execution | [Failure semantics](spec/failure-semantics.md), [execution](spec/execution.md), [runtime](spec/runtime.md), [security/access](spec/security.md), [error reporting](spec/error-reporting.md) |
-| Host integration | [Embedding](spec/embedding-api.md), [host interop](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
+| Host integration | [Embedding and Rust DTO/Serde conversion](spec/embedding-api.md), [unified registration, Opaque and scoped Ref/RefMut](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
 | Modules and reload | [Packages/workspaces](spec/packages.md), [Modules](spec/modules.md), [loading](spec/module-loading.md), [activation](spec/module-activation.md) |
 | Executable products | [Bytecode](spec/bytecode.md), [artifacts](spec/artifacts.md), [backend contract](spec/codegen-backend.md), [JIT](spec/jit.md), [AOT deployment](spec/aot.md) |
 | Tooling | [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
@@ -41,12 +41,6 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   host/library integration while keeping explicit native coverage requirements.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
-- [Unified host registration and API proposal](host-registration-plan.md):
-  selected combined delivery with HR01-HR03 registration and RF01-RF06 scopes,
-  generated projections, disjoint field loans and common method binding. The plan
-  owns cross-plan sequencing and focused safety gates; implementation is unstarted.
-- [Rust value/opaque interoperability](rust-interop-design.md): RI00-RI05 join that
-  delivery with schemas/conversions, runtime-owned Opaque read/edit/take and derives.
 - [Host API unification](host-api-refactor.md).
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI naming, formatting, linting and REPL; source packages are specified above.

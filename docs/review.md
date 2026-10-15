@@ -393,81 +393,67 @@ the agreed future design only; implementation remains deferred.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 
-Common NativeModule declarations, bind and installation now own host registration.
-The [implementation plan and API proposal](host-registration-plan.md) owns
-HR01-HR03, RF01-RF06, registration/reference acceptance and the combined delivery
-order with RI00-RI05. Core implementation and legacy retirement are implemented;
-combined focused acceptance and final documentation remain active. Ordinary by-value conversion,
-runtime-owned Opaque and scoped Ref/RefMut are included in one selected delivery;
-their distinct phase owners preserve a finite migration and safety gates.
-Their metadata is not a required part of by-value usage.
+Registration, runtime-owned Opaque and scoped Ref/RefMut are implemented.
+Common NativeModule declarations, one bind entrypoint and atomic installation
+replace the former host aggregate, standalone format and parallel registration.
+Existing live-host consumers retain their checked root/path behavior. The completed
+HR/RF/RI plans are retired; Git history retains their phase ledgers.
 
-### Registration unification
+The [host interop specification](spec/host-interop.md) owns the storage/passing
+matrix, scoped loans, generated inline field paths and explicit method/trait
+registration. The [embedding guide](spec/embedding-api.md#typed-native-registration)
+owns DTO/Serde conversion and runnable consumers. Rust traits and Kagari traits
+remain independent. Borrowed returns, general view trait forwarding, async
+retention and wider native reference execution remain outside this implementation;
+[the roadmap](implementation-roadmap.md#host-registration-and-interop-delivery)
+records those limits and pending exhaustive CI.
 
-Standard, application and host APIs use shared declarations, Native bindings and
-Engine installation through [NativeModule](../crates/kagari-runtime/src/native/module.rs).
-The former host aggregate, standalone format and parallel runtime function/type
-registration are removed; root/path execution services retain their safety owners.
+### Call-boundary cost follow-up
 
-Move general type/member/function declarations to shared semantic and executable
-owners. Ordinary struct values use checked converters and normal Kagari fields.
-Inventory existing live-host/root/path consumers separately; preserve their checked
-execution while migrating declaration/install ownership. Freeze a bounded removal
-map before retiring the old aggregate, format and entrypoints, explicitly recording
-the RF checkpoint for any reference dependency. Reuse
-[unified library registration](architecture.md#unified-library-registration).
+Static review confirms the following remaining preparation costs. These are
+code-derived costs, not benchmark results or speedup claims:
 
-Runtime-local host identities, scoped borrow checks and prepared path commits
-remain focused services. Preserve existing field/path semantics, roots, alias and
-escape checks, cancellation, schema ownership, atomic installation and pinned
-reentry/reload. Unification does not move external Rust state into the GC or
-require new script wrappers or unrestricted Rust references. Converting existing
-live host access to snapshots would change semantics and is not implied by this
-migration. DTO schema/derive dependencies remain owned by the interoperability plan.
+- [RootTable::insert](../crates/kagari-runtime/src/gc/roots.rs) calls `prune` over
+  every slot before each insertion, including when reusable slots already exist.
+  [Vec conversion](../crates/kagari-runtime/src/native/conversion/composites.rs)
+  calls `encode_value` per element; the
+  [conversion context](../crates/kagari-runtime/src/native/conversion/context.rs)
+  retains temporary roots for heap-backed results until the enclosing scope ends.
+  For n such elements and initial slot high-water mark R, scanning can cost
+  O(nR + n^2) when live temporary roots force table growth. Existing free capacity
+  can avoid the quadratic growth term, but not the repeated high-water scan.
+- [Typed native invocation](../crates/kagari-runtime/src/native/typed.rs) builds a
+  `Vec<Value>`; [argument decoding](../crates/kagari-runtime/src/native/conversion/arguments.rs)
+  copies it into rooted storage and creates a root lease even for scalar packs.
+  Mapping checks recur at pack and element conversion boundaries. Value/handle
+  copying here is not necessarily a deep object copy. Individual scalar conversion
+  avoids an object root, which does not eliminate the pack-level allocation.
 
-### Scoped borrowing and field-view implementation
+The GC root owner should evaluate scope/batch storage or bounded amortized reclaim;
+the typed invocation owner should evaluate borrowed argument windows and reuse of
+checked mapping facts. Preserve snapshot/retention across user conversion and
+reentry, collection during conversion, owner/generation/value checks, cancellation
+and cleanup on every exit. Separate stable declaration proofs from invocation-time
+facts before relocating validation. Root reclamation must still handle last-lease
+drop and runtime transfer safely. Do not remove roots merely because the simple
+scalar case does not need GC protection.
 
-The [reference proposal and complete example](host-registration-plan.md#ref-and-refmut-execution-contract)
-use `Ref<T>`/`RefMut<T>` path handles and derive-generated field projections.
-Register the target descriptor once; reference capabilities reuse its explicit
-host members and any validated projection schema. Native payload and ordinary DTO
-representations remain distinct; a data schema alone does not expose Rust methods.
-Native calls batch-check loans before constructing short-lived `&T`/`&mut T`;
-disjoint fields of one host object may be borrowed mutably at the same time.
-Users do not write path-to-field lookup callbacks. Existing root-level checks
-remain in force until their coherent path-aware replacement is implemented.
+Keep owned conversion, scoped borrowing and explicit raw/primitive implementations
+behind one validated binding entrypoint without forcing one data-movement path.
+The [VM allocation tests](../crates/kagari-vm/tests/native_allocations.rs) establish
+warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
+general typed adapter is allocation-free. Preserve those existing contracts during
+registration migration.
 
-The plan owns overlap rules, scope cleanup, reentry, replacement behavior and
-the finite inline-struct projection boundary. Its
-[receiver proposal](host-registration-plan.md#method-receivers-and-trait-selection)
-adds the conversion matrix and shared/mutable host receiver requirements. Methods
-are registered once for a host target type. Rust and Kagari traits are independent;
-script trait exposure requires explicit declaration/impl/binding registration,
-without imposing three separate view impls for ordinary method calls. Safe scope
-signatures and callback lifetimes require RF01 compiling proofs. Generated
-projections must not create overlapping ancestor references. RF01-RF06 remain unstarted;
-the proposal is not evidence that current typed adapters support Rust references.
-
-Persistent returns borrowed from an input are a separate optional extension.
-They require origin/lifetime records, conflict protection, deterministic cleanup
-and a policy for alias invalidation; ordinary independent outputs do not establish
-that borrow relationship. Do not use GC timing to release Rust borrow protection.
-
-The runtime-owned `Opaque<T>` proposal remains owned by the
-[interoperability plan](rust-interop-design.md#opaque-ownership-and-access), using
-the shared registration model and existing NativeObject storage/roots. The host
-moves T into runtime, accesses it through checked read/edit, or explicitly takes it
-back with atomic alias invalidation. Ref/RefMut instead lend host-owned storage.
-The new facade, extraction and method adapter capabilities remain unimplemented;
-RI03 and RF01-RF06 are now part of the selected combined delivery, with their own
-gates rather than additional work hidden inside HR01-HR03.
-
-The plan also owns the bounded
-[call-boundary cost follow-up](host-registration-plan.md#call-boundary-cost-follow-up):
-per-insertion root-table scans and repeated typed argument packing are confirmed
-by static inspection, without measured speed claims. Registration must preserve
-existing low-level allocation contracts. RF phases own reference acceptance in the
-combined delivery; performance optimization remains a separate follow-up.
+This is a queued, bounded follow-up, separate from completed registration/interop
+delivery. Before optimization, measure equivalent raw/typed/owned cases and the
+implemented Ref/RefMut adapters. Vary argument/payload size, root-table high-water
+mark, path depth and active loans where applicable. Separate compile,
+installation, conversion and warm-call costs; report allocations, retained memory
+and timing with revision, machine, toolchain, profile/features, parallelism and
+cache state. Include representative bulk calls and small frequent calls without
+assuming one is faster. Reuse focused correctness tests for GC/reentry/trap cleanup;
+no retained performance conclusion can be inferred from registration unification.
 
 ## SA22 Generic bounds do not supply interface construction witnesses
 

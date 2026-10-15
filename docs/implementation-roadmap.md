@@ -82,8 +82,8 @@ Native acceptance requires actual compiled script bodies and separately identifi
 runtime helpers/mixed callees, with source-free artifacts, GC/reentry, cancellation
 and pinned reload evidence. Async suspension, native debugging, automatic hotness,
 LLVM, AOT and machine-code persistence are outside J01-J06; the separate
-[AOT contract](spec/aot.md) describes the implemented scalar deployment route. NC and HR/SA21 remain
-independent migrations; reuse their current contracts instead of activating them.
+[AOT contract](spec/aot.md) describes the implemented scalar deployment route. NC remains an independent
+migration; reuse implemented host registration contracts without expanding scope.
 
 ## Toolchain distribution and modes
 
@@ -148,8 +148,8 @@ Libraries should own concrete storage and algorithms; runtime should supply chec
 dynamic access, accounting, GC, short operation protection, revision checks and pinned calls. NC01 identifies
 missing public storage and constructor/host evidence capabilities before migration.
 The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and source-free
-consumers, with an external collection proof. Builtin Array and the full SA21
-host-registration migration remain separate.
+consumers, with an external collection proof. Builtin Array remains separate; reuse the
+implemented host registration and scoped borrowing contracts.
 
 ## Test execution cost
 
@@ -190,25 +190,41 @@ open compiler follow-up; shared-identity benchmarks do not prove that capability
 
 ## Host registration and interop delivery
 
-The user selected registration, runtime-owned Opaque and scoped Ref/RefMut for one
-combined delivery. Implementation is unstarted. The
-[host plan](host-registration-plan.md#combined-delivery-order) owns the cross-plan
-order, HR01-HR03 and RF01-RF06; the [interop plan](rust-interop-design.md#implementation-phases)
-continues to own RI00-RI05 and its ledger. Existing NativeObject storage, roots,
-typed adapters and host borrow services are reused rather than rebuilt.
+Unified registration, Rust DTO/Serde conversion, runtime-owned Opaque and scoped
+Ref/RefMut are implemented. Common NativeModule declarations, explicit bind and
+atomic installation serve stdlib, application and live-host consumers. The former
+host aggregate/format and parallel registration/invocation APIs are removed.
+The HR01-HR03, RI00-RI05 and RF01-RF06 plans are retired; Git history retains their
+phase decisions and validation ledgers.
 
-Start with HR01/RI00/RF01 inventory and compiling API/lifetime proofs; establish
-schemas/conversions and unified registration; implement Opaque and portable reference
-contracts; add external scopes and generated inline projections; integrate one
-binding/SDK/source-free path; then retire dependent legacy registration and close
-HR/RF/RI acceptance. Opaque supports checked read/edit/take with alias invalidation.
-Ref/RefMut lend host-owned data and reuse explicit host methods. Rust traits never
-automatically supply Kagari impls. General view trait forwarding and borrowed
-returns remain excluded, along with the independent call-cost optimization track.
+Current contracts live in [host interop](spec/host-interop.md),
+[the embedding guide](spec/embedding-api.md#typed-native-registration),
+[runtime ownership](spec/runtime.md), [traits](spec/traits.md),
+[artifacts](spec/artifacts.md) and [reload](spec/module-activation.md).
+The [scoped SDK example](../crates/kagari/examples/scoped_host.rs) registers one
+method set for Opaque, Ref and RefMut and demonstrates read/edit/take with old
+alias invalidation. [DTO/Opaque](../crates/kagari/examples/value_interop.rs),
+[optional Serde](../crates/kagari/examples/serde_interop.rs) and
+[cold source-free registration](../crates/kagari-runtime/examples/offline_host.rs)
+provide the other runnable boundary cases. No implicit Rust trait exposure or GC
+object reinterpretation supplies host references.
 
-Focused local checks and supported-runner projector Miri evidence have explicit
-owners in RF01-RF06. Full workspace/feature/backend/platform validation remains CI
-work; no new implementation, test or performance result is claimed by this plan.
+Focused local declaration/proof/codec/installation, VM and SDK contract checks,
+production lifetime compile-pass/compile-fail evidence and actual generated-field
+Miri passed. The final Miri selection used nightly-2026-07-27 on
+aarch64-apple-darwin with MIRIFLAGS unset and default target/profile/parallelism.
+Full workspace, feature/backend/platform and broader Miri acceptance remains
+CI-owned and unrun locally; focused checks are not complete CI acceptance.
+No known selected local integration or safety failure remains.
+
+Remaining scope stays separate: general view trait forwarding, borrowed returns,
+retaining references across suspension, packed/union/variant/index projections,
+unrestricted editing/extraction of managed script-edge payloads and wider native
+reference execution are not implemented. Current unsupported native reference
+bodies select the interpreter before entry. Automatic derive/Serde supports the
+finite subset documented in the embedding guide. [Call preparation costs](review.md#call-boundary-cost-follow-up)
+remain a bounded follow-up with no speedup claim; NC and the Host API facade
+remain independently queued.
 
 ## Other queued designs
 
@@ -264,8 +280,9 @@ and exhaustive feature/backend acceptance remain unrun locally and belong to CI.
 The completed plan and resolved findings are retained in Git history.
 
 [SA22 generic construction witnesses](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses),
-source interface impl targets, blanket impls, derive/downcast additions and NC/SA21
-migrations remain outside this work; their completion is not implied.
+source interface impl targets, blanket impls, derive/downcast additions and NC
+migration remain outside this work; their completion is not implied. Host
+registration/interop is implemented separately as described above.
 
 ## Review follow-up order
 
@@ -273,7 +290,7 @@ The following is the proposed default order for the unresolved [SA review](revie
 work, chosen to reduce replacement of newly implemented models. It does not
 activate implementation, settle open language/API choices or merge these findings
 into one migration. Each activated task retains a finite scope and focused gates.
-SA21 is explicitly selected in the combined delivery above; the other entries
+SA21 registration/interop is implemented as described above; the other entries
 remain queued until separately selected.
 
 Ordinary collection-interface ownership is implemented. Current contracts live in
@@ -293,14 +310,13 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access): existing host registration unification | Follow [HR01-HR03](host-registration-plan.md): unify declaration/registration ownership and ordinary by-value binding. Inventory existing live-host consumers separately and bound retirement without replacing them with snapshots. RF01-RF06 and RI00-RI05 now join the selected combined delivery; follow its shared dependency order and defer dependent legacy retirement until references integrate. |
-| 2 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
-| 3 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
-| 4 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
-| 5 | [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-): explicit struct-pattern omission | Establish the rest marker and field-completeness checking once, for existing patterns and subsequent declarations. |
-| 6 | [SA17](review.md#sa17-ordinary-valvar-declarations-should-support-destructuring-patterns): pattern-based declarations | Replace simple bindings with the unified pattern model using SA16 rules; establish local visibility, writeability and checked extraction before local functions consume the binding/capture model. |
-| 7 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 8 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 1 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
+| 2 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
+| 3 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
+| 4 | [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-): explicit struct-pattern omission | Establish the rest marker and field-completeness checking once, for existing patterns and subsequent declarations. |
+| 5 | [SA17](review.md#sa17-ordinary-valvar-declarations-should-support-destructuring-patterns): pattern-based declarations | Replace simple bindings with the unified pattern model using SA16 rules; establish local visibility, writeability and checked extraction before local functions consume the binding/capture model. |
+| 6 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 7 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
 Important ordering constraints and limits:
 
@@ -315,22 +331,20 @@ Important ordering constraints and limits:
   Collection readonly views and Rust host borrow capabilities remain distinct
   contracts; the removed trait marker must not be recreated by host adaptation.
 - Frontend pattern/local-function work need not wait for the complete host track.
-  Host-read destructuring must preserve the current checked access contract; if
-  SA21 runs later, adapt that boundary rather than resolve/extract patterns again.
+  Host-read destructuring must preserve the implemented checked access contract
+  and consume prepared field facts rather than resolving/extracting patterns again.
 - [Native collections](native-collections-plan.md) remain a separate NC01-NC06
   task. NC01 reuses the implemented content protocols/helpers and ordinary interface
   contracts while replacing concrete storage. Reconcile the shared
-  NativeStorage/access API contract before NC/SA21 changes to it. Do not require
-  the full SA21 migration or persistent borrowed returns for NC implementation,
-  or silently absorb host registration unification into NC scope.
-- SA21 typed Rust `&T`/`&mut T` inputs and generated field projections have a
-  [execution contract](host-registration-plan.md#ref-and-refmut-execution-contract) for scoped
-  handles and disjoint mutable fields. RF01-RF06 implement them in the selected
-  combined delivery after their registration/RI dependencies; keep existing borrow/path
-  checks during migration. The same plan owns the receiver conversion matrix,
-  explicit host method/trait registration and a bounded root/typed-call cost follow-up;
-  reference implementation now has its own RF gates, while cost optimization
-  remains outside the combined delivery. Persistent borrowed returns remain a separate extension.
+  NativeStorage/access API contract before NC changes to it. Reuse implemented
+  host registration; do not require persistent borrowed returns for NC or expand
+  its scope into host facade or call-cost work.
+- SA21 typed Rust `&T`/`&mut T` inputs and generated field projections have an
+  [execution contract](spec/host-interop.md#borrowed-host-values) for scoped
+  handles and disjoint mutable fields. It also owns the passing matrix and explicit
+  host method/trait registration. The bounded root/typed-call cost follow-up remains
+  queued at [SA21](review.md#call-boundary-cost-follow-up). Persistent borrowed
+  returns remain a separate extension.
 - [Focused validation policy](../AGENTS.md#verification-and-tooling) applies
   throughout: reuse already implemented preparation. Coordinate any further
   preparation changes with the existing [test preparation task](test-preparation-plan.md),

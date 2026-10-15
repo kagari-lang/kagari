@@ -54,15 +54,15 @@ belongs to the current concrete Map/Set families, typed host paths/handles and
 source-free access-flow checks. NC replaces those families coherently and preserves
 exact readonly admission, checked setters, roots and supplying generations. SA21
 consumes the same ordinary declarations while owning Rust borrowing and registration.
-Neither migration may turn an interface into a second storage/access authority.
+Neither owner may turn an interface into a second storage/access authority.
 
 Scope includes collection declarations, public native storage capabilities,
 retained checked calls, collection cursors, host collection adapters, executable
 contracts and source-free validation. Migrate affected collection paths end to end.
 Generic iteration mechanisms follow the implemented iteration contracts.
 
-Exclude a kgr rewrite of collection algorithms, dynamic-library loading, the full
-SA21 host-registration migration, changes to the implemented interface contracts, further identity
+Exclude a kgr rewrite of collection algorithms, dynamic-library loading, changes
+to the implemented host registration/interface contracts, further identity
 redesign, new language syntax, a borrow checker, async collections, new collection
 methods and production
 BTreeMap/IndexMap libraries. Small external collection fixtures prove extensibility;
@@ -274,7 +274,7 @@ invoke selected methods rather than infer storage from the trait name.
 Review prior optimizations. Retain compact buffers and validated primitive hashing;
 remove repeated preparation/checks only when their guarantees have a new owner.
 Exact standard-Vec fast paths may remain as library paths with checked identity
-and call evidence. NativeObject, GcHandle or a buffer capability alone never
+and call evidence. Opaque, GcHandle or a buffer capability alone never
 authorizes bypassing custom iteration or overrides. Do not add caches or blanket
 boxed storage merely to simplify migration.
 
@@ -296,8 +296,8 @@ the historical baseline signatures as a compatibility requirement.
 Implementation begins with NC01,
 using the existing retained slots, adapters, terminal consumers and FromIterator
 implementations. Do not add another Iterable phase or make the trait surface
-depend on this storage migration. The full SA21 host-registration work remains
-separate; the roadmap owns subsequent activation changes.
+depend on this storage migration. Reuse implemented host registration/scoped
+borrowing; the roadmap owns subsequent activation changes.
 
 | Phase | Scope and exit condition |
 | --- | --- |

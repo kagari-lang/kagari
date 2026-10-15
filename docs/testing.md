@@ -31,6 +31,32 @@ user workflow. It complements boundary assertions rather than duplicating anothe
 integration suite. CI owns the exhaustive feature/backend/platform matrix;
 `scripts/check_features.py` also checks source-free production dependencies.
 
+## Host interop contract owners
+
+For host interop changes, select the affected owner: runtime `native_schema` for
+DTO/derive/Serde, `host_registration`/`installation_access` for exact contracts,
+VM `native_boundary` for Opaque take, scoped method/argument and portable reference
+semantics, and SDK `scoped_calls` for execution-context integration. Production
+scope and callback lifetime proofs live beside their API as rustdoc tests; the
+standalone prototype is retired. A focused selection is:
+
+```text
+cargo test -p kagari-runtime --doc -- host_scope::scoped native::typed::loans
+```
+
+Raw projection changes also need actual-pointer Miri coverage. The runtime library
+case `executable_inline_field_codecs` exercises generated nested access, replacement,
+disjoint paths and rooted results without a frontend execution workload:
+
+```text
+cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib executable_inline_field_codecs -- --nocapture
+```
+
+Use a supported runner, default Miri target/profile/parallelism and no flags that
+disable alias validation. Select other pointer kernels when their mechanism changes;
+do not run the VM or workspace suite under Miri as a substitute. Broader platform
+and feature/backend acceptance remains CI-owned.
+
 ## Prepare once, execute with fresh state
 
 Ordinary SDK tests can use

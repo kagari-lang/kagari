@@ -73,6 +73,20 @@ offline declarations, compile without callbacks, then bind and execute. The
 `host_interfaces` integration test also covers encoded artifacts, JIT-enabled
 execution, GC, reentry, permissions and hot reload.
 
+Rust embedding examples use common declarations, explicit `bind` and installation:
+
+| Boundary | Command | Result |
+| --- | --- | --- |
+| One method set for runtime-owned Opaque and scoped Ref/RefMut; checked read/edit/take | `cargo run -p kagari --example scoped_host` | Both calls return hp=70; take returns hp=71 and old aliases reject access |
+| DTO derive with a retained Opaque field | `cargo run -p kagari --example value_interop` | `Applied(Response { amount: 40 })` |
+| Optional schema-backed Serde | `cargo run -p kagari --example serde_interop --no-default-features --features source,serde` | `Applied(7, 20)` |
+| Cold declarations, encoded contracts and installed callbacks | `cargo run -p kagari-runtime --example offline_host` | Immutable configuration returns 42 |
+
+The [embedding guide](../docs/spec/embedding-api.md#typed-native-registration)
+describes supported schemas and payload capabilities. The
+[host interop contract](../docs/spec/host-interop.md) defines scope/loan and explicit
+Kagari trait registration; Rust methods/traits are never exposed by DTO registration.
+
 The examples cover executable forms; parser-only recovery cases remain in the
 syntax crate tests. The [grammar-witnesses.kgr](syntax/grammar-witnesses.kgr)
 file combines grammar branches for the syntax audit and is not a standalone
