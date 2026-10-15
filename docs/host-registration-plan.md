@@ -2277,6 +2277,41 @@ claimed. Standard print/log, remaining old consumers, HR03 retirement and RF06/R
 integration remain required. Complete feature/backend/platform validation stays
 CI-owned and unrun locally.
 
+### HR02/RF05 checkpoint: common nominal type and method consumers
+
+The offline nominal handle fixture now declares left::Item, its right::Item field
+dependency and an unrelated unused::Other through ordinary ModuleBuilder schemas.
+It binds make/take and the explicit add member once before engine construction;
+each route creates only runtime-local roots and resets observed application state.
+The full carried schemas are compared after scoped adoption, including the field
+dependency and original ownership/reflection/access policies. Annotation-only
+dependencies reject when omitted from the executable product or absent from the
+runtime installation. The unrelated installed type remains outside that closure.
+
+The member fixture retains exact access-policy mismatch rejection, missing-member
+binding rejection, receiver-before-argument once-only evaluation and GC cleanup.
+Its recursive conflict now uses a checked source entry and synchronous reentry
+under the existing pinned execution root, instead of invoke_host's retired parallel
+registration route. The exclusive lease rejects the nested add before its callback;
+two outer calls still produce 42 and 44 on the existing three routes.
+
+The first migrated navigation case failed because host_type_at only queries the
+legacy HostDeclarations table. Common providers already own ordinary generated
+declaration locations and checked external schemas. The case now uses the existing
+definition_at plus Declarations::external_type APIs, preserving terminal-position,
+UTF-8/CRLF and signature/full-analysis agreement. No forwarding query or metadata
+projection was added. This is the intended unified tooling model; the old query's
+remaining legacy callers still require HR03 migration and removal.
+
+Actual `cargo test -p kagari --test offline_nominal handles::` passed all four
+changed cases (14.43 seconds). After strengthening full schema/return-identity
+comparisons, the two affected dependency cases passed again (14.52 seconds).
+The initial wrong-query failure is resolved. Selected Clippy, structure, formatting
+and diff checks pass; structure checks 1251 Rust files with zero violations.
+No unsafe pointer, loan or root kernel changed, and no new Miri run is claimed.
+The remaining nominal path consumers and other legacy producer/callable retirement
+remain required. Complete workspace/features/backends/platforms stay pending CI.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

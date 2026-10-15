@@ -30,7 +30,7 @@ use kagari_types::{
     },
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter,
-        type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
+        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
     ty::Ty,
@@ -299,6 +299,7 @@ fn assert_source_index_path(field_prefix: bool) {
 
 mod handles;
 mod paths;
+mod schema;
 mod traits;
 
 fn scoped<T: DefinitionReferences>(
