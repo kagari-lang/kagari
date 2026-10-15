@@ -51,7 +51,14 @@ fn scoped_validation_preserves_kind_member_and_host_identity_rules() {
         .unwrap();
     nominal.associated_types.insert(wrong_member, value);
     cases.push((Ty::Trait(nominal), false));
-    let host = host_type_identity("game.Entity");
+    let host = DefinitionPath {
+        module: ModuleIdentity::single_file("game"),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Struct,
+            name: "Entity".into(),
+            occurrence: 0,
+        }],
+    };
     cases.push((Ty::Host(context.intern(&host).unwrap()), true));
     let mut wrong_host = host;
     wrong_host.path.last_mut().unwrap().kind = DefinitionKind::Function;
