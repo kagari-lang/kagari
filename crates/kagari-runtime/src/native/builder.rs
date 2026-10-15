@@ -3,6 +3,7 @@ pub mod enum_builder;
 pub mod implementation;
 pub mod inherent;
 mod paths;
+mod references;
 pub mod trait_builder;
 pub mod type_builder;
 use crate::{

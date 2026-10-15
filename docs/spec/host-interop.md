@@ -973,6 +973,36 @@ Reflection is defined in [reflection.md](reflection.md).
 
 ## Interaction with Traits
 
+Rust traits and Kagari traits have independent declarations. Implementing a Rust
+trait on a struct exposes no script member or impl. A callback may use that Rust
+implementation after the host explicitly declares or references a Kagari trait,
+registers its impl and binds each required member through the ordinary module API.
+Registering a DTO schema supplies neither those members nor Rust reference access.
+
+`ModuleBuilder::reference_trait` accepts a portable declaration path and scoped
+expected `TraitDef` for a source-defined trait. It records the expectation in
+`ModuleDecl::trait_references` and returns the ordinary `TraitRef` used by
+`trait_impl`; it defines and exports no second trait. The contract may come from
+the source module's checked public ABI. Required members still need explicit
+bindings. Associated outputs use `MethodsBuilder::associated_type`, and omitted
+source defaults retain their script bodies. Native adapters, reserved protocols
+and duplicate/conflicting references cannot be introduced through this API.
+
+The declaring script module must supply the actual trait. Checked native
+declaration dependencies resolve only in that native importer's scope and retain
+ordinary visibility checks; they create no global source package aliases. Engine
+construction validates the closed source-independent native set immediately.
+Source-dependent generated signatures/bodies are checked with the user snapshot;
+a missing source provider cannot compile. Source-free loading compares the actual
+public trait ABI with the installed exact expectation, including unused members,
+associated output contracts and default policies. A changed source default body
+with the same ABI follows normal generation-pinned script execution semantics.
+
+The [portable source-trait contract fixture](../../crates/kagari/tests/offline_nominal/traits.rs)
+demonstrates explicit binding, an associated output, a script default and exact
+ABI rejection. The legacy table producer described below remains HR03 migration
+work under the [combined plan](../host-registration-plan.md).
+
 Host types may implement script-visible traits.
 
 An offline host type declares a trait identity, ordered concrete input types,

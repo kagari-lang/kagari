@@ -44,7 +44,12 @@ impl DeclarationCatalog {
                     .map_err(conflict)
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let catalog = Self::declared(&modules, &context)?;
+        let mut catalog = Self::declared(&modules, &context)?;
+        for module in &modules {
+            for (id, contract) in &module.trait_references {
+                catalog.insert(*id, contract.clone())?;
+            }
+        }
         let definitions = catalog.definitions();
         let owners = catalog.receiver_owners(None)?;
         for module in &modules {

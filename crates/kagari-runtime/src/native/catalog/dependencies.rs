@@ -212,6 +212,13 @@ impl DeclarationCatalog {
         for module in modules {
             references.pending.extend(
                 module
+                    .trait_references
+                    .keys()
+                    .copied()
+                    .map(Reference::Trait),
+            );
+            references.pending.extend(
+                module
                     .paths
                     .iter()
                     .map(|path| Reference::External(path.root)),

@@ -8,111 +8,254 @@ use kagari_types::declaration::host::PathAccess;
 use std::sync::{Arc, Mutex};
 
 #[test]
-fn artifact_host_trait_table_requires_callback_before_publication() {
-    let definitions = DefinitionContext::new().unwrap();
-    let mut counter = HostTypeDeclaration::new(&definitions, "demo.Counter").unwrap();
-    let method =
-        HostMethodDeclaration::new(&definitions, counter.id, "read", vec![], HostValueType::I32)
-            .unwrap();
-    counter.methods.push(method.clone());
-    let trait_id = DefinitionPath {
-        module: ModuleIdentity {
-            package: PackageId("pkg".into()),
-            path: vec!["api".into()],
-        },
+fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
+    use kagari_runtime::{
+        host::HostCallContext,
+        native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    };
+    use kagari_types::declaration::host::{
+        HostCallPolicy, HostFunctionEffects, HostReflectionPolicy, HostTypePolicy,
+    };
+
+    let trait_source = "pub trait Readable { type Output; fn get(self) -> Self::Output; fn again(self) -> Self::Output { self.get() } }";
+    let module_identity = ModuleIdentity {
+        package: PackageId("pkg".into()),
+        path: vec!["api".into()],
+    };
+    let trait_path = DefinitionPath {
+        module: module_identity.clone(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
             name: "Readable".into(),
             occurrence: 0,
         }],
     };
-    let mut trait_method = trait_id.clone();
-    trait_method.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: "get".into(),
-        occurrence: 0,
-    });
-    let trait_id = definitions.intern(&trait_id).unwrap();
-    let trait_method = definitions.intern(&trait_method).unwrap();
-    counter
-        .trait_implementations
-        .push(HostTraitImplementationDeclaration::new(
-            trait_id,
-            vec![],
-            vec![HostTraitMethodBinding {
-                trait_method,
-                host_method: method.id,
-            }],
-        ));
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(scoped(
-            &definitions,
-            HostInterface {
-                paths: vec![],
-                types: vec![counter.clone()],
-                functions: vec![],
-            },
-        ))
+    // Obtain the exact portable expectation from the trait's checked source ABI.
+    let author = KagariEngine::default();
+    let file = author
+        .bind_module("mem://readable", module_identity.clone())
         .unwrap();
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "host-trait.kgr",
-                "use demo::Counter; pub fn identity(value: Counter) -> Counter { value } fn main() {}",
-            ),
-
-            ArtifactOptions::default(),
-        )
+    author
+        .set_source("mem://readable", trait_source.into(), SourceLayer::Base)
         .unwrap();
-    let encoded =
-        KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
-            .unwrap();
-    let encoded = adopt_artifact(&definitions, encoded);
-    let required =
-        &encoded.records().program.modules[encoded.records().program.root.index()].host_interface;
-    assert_eq!(
-        required.types[0].trait_implementations,
-        counter.trait_implementations
-    );
-    let context = ExecutionContext {
-        ..Default::default()
-    };
-    let mut runtime = engine.runtime(context);
-    runtime
-        .register_host_type(HostTypeRegistration::new(
-            scoped(&definitions, counter.clone()),
-            "Counter",
-        ))
+    let checked = author
+        .compile_snapshot(author.source_snapshot(), file, &Default::default())
         .unwrap();
+    let contract = author
+        .emit_bytecode(&checked, ArtifactOptions::default())
+        .unwrap();
+    let definition = contract
+        .records()
+        .program
+        .modules
+        .iter()
+        .find(|module| module.identity == module_identity)
+        .unwrap()
+        .public_items
+        .iter()
+        .find_map(|item| match item {
+            PublicItem::Trait(trait_) => Some(trait_.clone()),
+            _ => None,
+        })
+        .unwrap();
+    let definition = DefinitionMetadata::checked(
+        contract.definitions().clone(),
+        definition,
+        &Default::default(),
+    )
+    .unwrap();
+    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
+        .catalog()
+        .unwrap();
+    let mut builder = ModuleBuilder::new("demo::counter", &catalog).unwrap();
+    let mut native_contract = definition.records().clone();
+    let trait_id = definition.definitions().lookup(&trait_path).unwrap();
+    let method_id = definition
+        .definitions()
+        .lookup_child(trait_id, DefinitionKind::Method, "get", 0)
+        .unwrap();
+    native_contract.methods[0].implementation =
+        kagari_types::callable::CallableImplementation::Native(method_id);
     assert!(
-        runtime
-            .load_program(
-                &PreparedProgram::from_artifact(
-                    encoded.clone(),
-                    &Default::default(),
+        builder
+            .reference_trait(
+                &trait_path,
+                DefinitionMetadata::checked(
+                    definition.definitions().clone(),
+                    native_contract,
                     &Default::default()
                 )
-                .unwrap(),
-                Default::default()
+                .unwrap()
             )
             .is_err()
     );
-    runtime
-        .register_host_function(
-            HostFunction::method(&scoped(&definitions, counter.clone()), method.id, |_, _| {
-                Ok(Value::I32(42))
+    let interface = builder
+        .reference_trait(&trait_path, definition.clone())
+        .unwrap();
+    assert!(builder.reference_trait(&trait_path, definition).is_err());
+    let mut counter = builder.define_type("Counter").unwrap();
+    counter
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Metadata,
+            path_access: PathAccess::ReadOnly,
+        })
+        .unwrap();
+    let counter = counter.finish().unwrap();
+    // Required members must bind; the source default remains owned by the script.
+    assert!(
+        builder
+            .implement(counter.clone(), |group| group
+                .trait_impl(interface.apply([])?, |methods| {
+                    methods.associated_type("Output", Type::i32())
+                }))
+            .is_err()
+    );
+    builder
+        .implement(counter.clone(), |group| {
+            group.trait_impl(interface.apply([])?, |methods| {
+                methods.associated_type("Output", Type::i32())?;
+                methods.host_policy(
+                    "get",
+                    HostCallPolicy {
+                        passing: vec![HostPassingStyle::SharedBorrow],
+                        effects: Default::default(),
+                    },
+                )?;
+                methods.bind("get", |context: &HostCallContext<'_>, values: &[Value]| {
+                    context.runtime().collect_garbage().unwrap();
+                    let [Value::HostRoot(id)] = values else {
+                        panic!("root")
+                    };
+                    assert_eq!(
+                        context.runtime().gc().host_root(*id).unwrap().object_id(),
+                        HostObjectId(7)
+                    );
+                    Ok(Value::I32(42))
+                })
             })
-            .unwrap(),
+        })
+        .unwrap();
+    let make = builder
+        .define_function(
+            FunctionDecl::new("make")
+                .returns(counter.apply([]).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        ..Default::default()
+                    },
+                }),
         )
         .unwrap();
+    builder
+        .bind(make, |context: &HostCallContext<'_>, _: &[Value]| {
+            let root = context.runtime().host().root(HostObjectId(7)).unwrap();
+            context
+                .runtime()
+                .gc()
+                .alloc_host_root(root)
+                .map_err(|error| HostError::new(error.to_string()))
+        })
+        .unwrap();
+    let module = builder.finish().unwrap();
+    assert_eq!(module.declaration().trait_references.len(), 1);
+    assert!(module.declaration().traits.is_empty());
+    let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
+    engine
+        .bind_module(
+            "mem://counter-main",
+            ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["main".into()],
+            },
+        )
+        .unwrap();
+    let main = engine.set_source("mem://counter-main", "use demo::counter::make; use pkg::api::Readable; pub fn main() -> i32 { make().again() }".into(), SourceLayer::Base).unwrap();
+    assert!(
+        engine
+            .compile_snapshot(engine.source_snapshot(), main, &Default::default())
+            .is_err()
+    );
+    engine
+        .bind_module("mem://readable", module_identity.clone())
+        .unwrap();
+    engine
+        .set_source("mem://readable", trait_source.into(), SourceLayer::Base)
+        .unwrap();
+    let foreign = engine
+        .set_source(
+            "mem://foreign-trait-user",
+            "use pkg::api::Readable;".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let signatures = engine
+        .signatures(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        signatures
+            .file(foreign)
+            .unwrap()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::UnknownName { .. }))
+    );
+    engine.close_overlay("mem://foreign-trait-user").unwrap();
+    let checked = engine
+        .compile_snapshot(engine.source_snapshot(), main, &Default::default())
+        .unwrap();
+    let artifact = engine
+        .emit_bytecode(&checked, ArtifactOptions::default())
+        .unwrap();
+    let artifact =
+        KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
+    let prepared =
+        PreparedProgram::from_artifact(artifact.clone(), &Default::default(), &Default::default())
+            .unwrap();
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Disabled,
+        ..Default::default()
+    };
+    let mut runtime = engine.runtime(context.clone());
+    let ty = runtime
+        .runtime()
+        .types()
+        .get_by_name("demo::counter::Counter")
+        .unwrap()
+        .id;
     runtime
-        .load_program(
-            &PreparedProgram::from_artifact(encoded, &Default::default(), &Default::default())
-                .unwrap(),
-            Default::default(),
-        )
+        .runtime_mut()
+        .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
+    let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
+    let report = runtime
+        .execute(&loaded, ProgramEntry::Main, &[], &context)
+        .unwrap();
+    assert_eq!(
+        report.return_value.value(runtime.runtime().gc()),
+        Some(Value::I32(42))
+    );
+    // Compile a coherent changed source ABI, then reject its portable program
+    // against the previously installed exact expectation.
+    let changed = "pub trait Readable { type Output; fn get(self) -> Self::Output; fn again(self) -> Self::Output { self.get() } fn extra(self) -> i32 { 0 } }";
+    engine
+        .set_source("mem://readable", changed.into(), SourceLayer::Base)
+        .unwrap();
+    let changed = engine
+        .compile_snapshot(engine.source_snapshot(), main, &Default::default())
+        .unwrap();
+    let changed = engine
+        .emit_bytecode(&changed, ArtifactOptions::default())
+        .unwrap();
+    let changed =
+        KbcArtifact::from_bytes(&changed.records().to_bytes(changed.definitions()).unwrap())
+            .unwrap();
+    let changed =
+        PreparedProgram::from_artifact(changed, &Default::default(), &Default::default()).unwrap();
+    assert!(runtime.load_program(&changed, Default::default()).is_err());
 }
 
 #[test]

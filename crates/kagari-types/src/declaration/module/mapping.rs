@@ -79,6 +79,12 @@ impl RemapDefinitions for ModuleDecl {
                     .map(|(name, id)| Ok((name.clone(), mapper.reference(id)?))),
             )?,
             traits: map_sequence(&self.traits, |value| (value).remap_definitions(mapper))?,
+            trait_references: map_entries(
+                self.trait_references.len(),
+                self.trait_references.iter().map(|(id, contract)| {
+                    Ok((mapper.reference(id)?, contract.remap_definitions(mapper)?))
+                }),
+            )?,
             implementations: map_sequence(&self.implementations, |value| {
                 (value).remap_definitions(mapper)
             })?,
@@ -133,6 +139,10 @@ impl DefinitionReferences for ModuleDecl {
         }
         for value0 in &self.traits {
             (value0).visit_definition_ids(visit, cancel)?;
+        }
+        for (id, contract) in &self.trait_references {
+            visit(id)?;
+            contract.visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.implementations {
             (value0).visit_definition_ids(visit, cancel)?;

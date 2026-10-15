@@ -7,8 +7,8 @@ use crate::{
         names::{ExportName, NameNamespace},
         requirement::NativeCallableRequirement,
         verify::{
-            Parameters, function_valid, native_bounds_valid, trait_valid, type_definition_valid,
-            validate_native_declarations,
+            Parameters, function_valid, native_bounds_valid, trait_reference_valid, trait_valid,
+            type_definition_valid, validate_native_declarations,
         },
     },
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
@@ -74,6 +74,9 @@ pub struct ModuleDecl {
     /// Public type/trait/variant aliases retain the identity of their owner.
     pub exports: BTreeMap<ExportName, DefinitionId>,
     pub traits: Vec<TraitDef>,
+    /// Expected contracts of explicitly referenced source traits. These do not
+    /// define or export a trait; the checked program supplies its actual owner.
+    pub trait_references: BTreeMap<DefinitionId, TraitDef>,
     pub implementations: Vec<ImplDecl>,
     pub functions: Vec<FnDecl>,
     /// Registered templates remain addressable by identity without public exports.
@@ -99,6 +102,7 @@ impl ModuleDecl {
             variant_exports: BTreeSet::new(),
             exports: BTreeMap::new(),
             traits: vec![],
+            trait_references: BTreeMap::new(),
             implementations: vec![],
             functions: vec![],
             private_functions: BTreeSet::new(),
@@ -113,6 +117,7 @@ impl ModuleDecl {
         self.types
             .len()
             .saturating_add(self.traits.len())
+            .saturating_add(self.trait_references.len())
             .saturating_add(self.functions.len())
             .saturating_add(self.implementations.len())
             .saturating_add(self.paths.len())
@@ -280,6 +285,13 @@ impl ModuleDecl {
             let owner = self.definition(DefinitionKind::Trait, &item.name, definitions)?;
             if !trait_valid(item, owner, &cancel, definitions) {
                 return Err(fail());
+            }
+        }
+        for (id, contract) in &self.trait_references {
+            if !trait_reference_valid(contract, *id, &self.identity, &cancel, definitions) {
+                return Err(DeclarationError(
+                    "invalid source trait reference contract".into(),
+                ));
             }
         }
         for function in &self.functions {

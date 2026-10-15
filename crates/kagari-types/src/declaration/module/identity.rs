@@ -57,6 +57,13 @@ impl ModuleDecl {
                     .map_err(invalid)?;
             }
         }
+        for (owner, contract) in &self.trait_references {
+            for method in &contract.methods {
+                context
+                    .intern_child(*owner, DefinitionKind::Method, &method.name, 0)
+                    .map_err(invalid)?;
+            }
+        }
         for function in &self.functions {
             context
                 .intern_child(root, DefinitionKind::Function, &function.name, 0)

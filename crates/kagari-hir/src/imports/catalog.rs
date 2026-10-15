@@ -53,6 +53,9 @@ pub struct NamespaceCatalog {
     pub(crate) namespaces: HashMap<NamespaceId, NamespaceTable>,
     /// Installed package aliases; multiple package targets make an alias ambiguous.
     pub(crate) installed_aliases: BTreeMap<String, BTreeSet<PackageId>>,
+    /// Canonical dependency modules retained by checked native declarations.
+    /// These resolve only for that native importer, never as global source aliases.
+    pub(crate) native_dependencies: BTreeMap<ModuleIdentity, BTreeSet<ModuleIdentity>>,
     pub(crate) packages: PackageEnvironment,
 }
 
@@ -599,7 +602,11 @@ impl NamespaceCatalog {
             let direct = dependencies.is_some_and(|aliases| {
                 aliases.values().any(|package| package == &identity.package)
             });
-            if (own || (direct && identity.path.is_empty()))
+            let native = self
+                .native_dependencies
+                .get(ctx.importer)
+                .is_some_and(|dependencies| dependencies.contains(identity));
+            if (own || native || (direct && identity.path.is_empty()))
                 && units.len() == 1
                 && self.module_accessible(ctx, identity, cancel)?
             {
@@ -788,7 +795,9 @@ impl NamespaceCatalog {
                 }
             }
         }
-        Ok(self.installed_aliases == other.installed_aliases && self.packages == other.packages)
+        Ok(self.installed_aliases == other.installed_aliases
+            && self.native_dependencies == other.native_dependencies
+            && self.packages == other.packages)
     }
 }
 
@@ -824,6 +833,13 @@ impl NamespaceCatalog {
     fn package_targets(&self, importer: &ModuleIdentity, name: &str) -> BTreeSet<PackageId> {
         if name == importer.package.0 {
             return [importer.package.clone()].into();
+        }
+        if let Some(dependencies) = self.native_dependencies.get(importer)
+            && let Some(dependency) = dependencies
+                .iter()
+                .find(|dependency| dependency.package.0 == name)
+        {
+            return [dependency.package.clone()].into();
         }
         if let Some(target) = self
             .packages

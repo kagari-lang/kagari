@@ -64,6 +64,10 @@ impl ModuleGraph {
                 .push(unit);
             if module.registered_native_api {
                 let package = &module.source.module_identity().package;
+                base.native_dependencies.insert(
+                    module.source.module_identity().clone(),
+                    module.native_dependencies.iter().cloned().collect(),
+                );
                 for alias in module
                     .native_package_alias
                     .iter()

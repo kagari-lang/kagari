@@ -6,6 +6,7 @@ use crate::{
     },
     decode_limits::MAX_NESTED_RECORDS,
     host_interface::validate_host_type_identity,
+    language::Protocol,
     range::RangeKind,
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, Ty},
@@ -211,6 +212,31 @@ fn constraints_with(
         && constraints.iter().all(|constraint| match constraint {
             Constraint::Standard(_) => true,
             Constraint::Trait(ty) => valid(&Ty::Trait(ty.clone())),
+        })
+}
+
+/// Check an exact source-trait expectation without granting native adapter authority.
+/// The referenced owner is foreign to the registering module; its required and
+/// script-default members still obey the ordinary bounded trait declaration rules.
+pub fn trait_reference_valid(
+    contract: &TraitDef,
+    owner: DefinitionId,
+    registering_module: &ModuleIdentity,
+    cancel: &CancellationToken,
+    table: &DefinitionTable,
+) -> bool {
+    trait_valid(contract, owner, cancel, table)
+        && table
+            .resolve(owner)
+            .is_ok_and(|view| view.module() != registering_module)
+        && Protocol::from_definition(&owner, table).is_none()
+        && contract.conversion_adapter.is_none()
+        && contract.methods.iter().all(|method| {
+            method.host_policy.is_none()
+                && matches!(
+                    method.implementation,
+                    CallableImplementation::Required | CallableImplementation::Script
+                )
         })
 }
 

@@ -1,13 +1,15 @@
 //! Source presentation and filesystem publication belong to the embedding SDK.
 use crate::{engine::builder::KagariEngineBuilder, error::EmbeddingError};
 use blake3::hash as content_hash;
-use kagari_common::cancellation::CancellationToken;
+use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_hir::{
     analysis::AnalysisDatabase,
     native::render::{DeclarationSource, declaration_source},
 };
 use kagari_source::source_database::{SourceDatabase, normalize_source_name};
+use kagari_types::declaration::module::ModuleDecl;
 use std::{
+    collections::BTreeSet,
     fs::{self, OpenOptions},
     io::{Error, ErrorKind, Write},
     path::{Path, PathBuf},
@@ -44,12 +46,37 @@ pub(super) fn prepare(
     }
     let mut analysis = AnalysisDatabase::default();
     analysis
-        .set_native_sources(providers, sources.clone())
+        .set_native_sources(providers.clone(), sources.clone())
         .map_err(|error| EmbeddingError::Source {
             message: format!("{error:?}"),
         })?;
-    // Validate all generated modules before publishing navigation locations.
-    let snapshot = analysis
+    // Source-dependent declarations retain checked expected contracts, but their
+    // actual trait definitions arrive with the user's source snapshot. Validate
+    // the closed source-independent subset now; ordinary compilation validates
+    // the complete set after those source providers are available.
+    let mut validation = source_independent_modules(&providers)
+        .map(|indices| {
+            let mut validation = analysis.clone();
+            validation
+                .set_native_sources(
+                    indices
+                        .iter()
+                        .map(|index| providers[*index].clone())
+                        .collect(),
+                    indices
+                        .iter()
+                        .map(|index| sources[*index].clone())
+                        .collect(),
+                )
+                .map_err(|error| EmbeddingError::Source {
+                    message: format!("{error:?}"),
+                })?;
+            Ok::<_, EmbeddingError>(validation)
+        })
+        .transpose()?;
+    let snapshot = validation
+        .as_mut()
+        .unwrap_or(&mut analysis)
         .snapshot(
             SourceDatabase::default().snapshot(),
             &CancellationToken::default(),
@@ -77,6 +104,45 @@ pub(super) fn prepare(
         }
     }
     Ok((analysis, sources))
+}
+
+/// Preserve the fully warmed baseline when every provider is source independent.
+/// Otherwise select the closed subset whose source can be checked before user input.
+fn source_independent_modules(
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+) -> Option<Vec<usize>> {
+    let mut deferred = providers
+        .iter()
+        .filter(|module| !module.records().trait_references.is_empty())
+        .map(|module| module.records().identity.clone())
+        .collect::<BTreeSet<_>>();
+    if deferred.is_empty() {
+        return None;
+    }
+    loop {
+        let before = deferred.len();
+        for module in providers {
+            if module
+                .records()
+                .dependencies
+                .iter()
+                .any(|dependency| deferred.contains(dependency))
+            {
+                deferred.insert(module.records().identity.clone());
+            }
+        }
+        if deferred.len() == before {
+            break;
+        }
+    }
+    Some(
+        providers
+            .iter()
+            .enumerate()
+            .filter(|(_, module)| !deferred.contains(&module.records().identity))
+            .map(|(index, _)| index)
+            .collect(),
+    )
 }
 
 fn cache_error(path: &Path, error: Error) -> EmbeddingError {

@@ -58,6 +58,10 @@ impl NativeModule {
                 &definitions,
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let mut providers = providers.clone();
+        for (id, contract) in &declaration.trait_references {
+            providers.insert(*id, contract.clone())?;
+        }
         let mut owned = DeclarationCatalog::declared([&declaration], context)?;
         let mut path_bindings = path_bindings;
         let mut indexed_paths = DefinitionMap::new(context.clone());
@@ -82,7 +86,7 @@ impl NativeModule {
                 "unknown or duplicate manual path binding",
             ));
         }
-        owned.copy_rust_types(providers)?;
+        owned.copy_rust_types(&providers)?;
         let mut entries = BTreeMap::new();
         for declaration in owned.declarations.values() {
             let CallableImplementation::Native(binding) = declaration.function.implementation
@@ -113,7 +117,7 @@ impl NativeModule {
             ));
         }
         let mut available = owned.clone();
-        available.merge(providers)?;
+        available.merge(&providers)?;
         available.validate_paths()?;
         let definitions = available.definitions();
         for target in declaration.exports.values() {
@@ -339,6 +343,16 @@ impl NativeModule {
             }
         }
         registry.catalog.merge(&owned)?;
+        let referenced = self
+            .declaration
+            .import_into(
+                registry.catalog.types.context(),
+                &CancellationToken::default(),
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        for (id, contract) in &referenced.records().trait_references {
+            registry.catalog.insert(*id, contract.clone())?;
+        }
         let path_ids = registry
             .path_bindings
             .context()

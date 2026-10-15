@@ -1981,6 +1981,62 @@ source-trait references, legacy producer/callable retirement and RF06/RI05 final
 integration remain required. Exhaustive workspace/features/backends/platforms are
 pending CI; HR02/RF05/HR03 and the combined goal remain open.
 
+### HR02/RF05 checkpoint: explicit source-trait requirements
+
+`ModuleBuilder::reference_trait` adopts a scoped expected `TraitDef` plus portable
+identity and returns the existing `TraitRef`. `ModuleDecl::trait_references` owns
+that expectation; it defines/exports no synthetic source trait. Identity traversal,
+canonical compiler inputs, declaration catalogs and binding dependency closure
+retain its exact contract, including unused references. A shared bounded validator
+rejects reserved/native adapter authority, invalid identities and wrong ownership;
+authoring additionally rejects duplicate references. Required method bindings and
+associated outputs use the existing trait impl/bind owner. Script defaults may be
+omitted from the native impl and retain their actual source bodies.
+
+Installation publishes checked expectations with the ordinary native catalog,
+without a second callable route. Existing source-free dependency and installed
+trait validation require the defining program's exact public ABI. Foreign source
+module dependencies resolve only for their checked native importer; nominal
+surface preparation includes those exact modules and cache comparison retains
+their identities. No global package alias is added, and normal visibility checks
+still apply. SDK construction checks the closed source-independent native subset;
+the complete generated set is checked with actual user source. Source-independent
+engine baselines retain their warmed analysis rather than warming a discarded
+clone. The split is necessary because reference expectations cannot manufacture
+the source trait being referenced.
+
+The existing callback-publication/portable trait fixture migrates to this API,
+renamed `source_trait_reference_uses_explicit_binding_and_portable_abi`. It obtains
+the expectation from checked source ABI, retains a live external Counter root,
+requires `get` binding, supplies Output=i32, executes the source `again` default
+through KBC roundtrip and returns 42. It rejects native authority, duplicate
+references, missing actual source, unbound required members and a coherent changed
+source ABI at runtime loading; ordinary foreign scripts still cannot use the native
+importer's source dependency alias. GC runs inside the bound callback.
+
+Initial fixture compilation exposed nonexistent TypeRef/PreparedProgram helpers;
+the test uses actual type application and the artifact's retained scope. Required
+member identities were initially absent after record adoption; implicit member
+identity collection now precedes shape validation in both authoring and declaration
+construction. Native foreign-source name resolution needed both dependency package
+lookup and nominal surface preparation; the scoped module dependency owner handles
+both. A policy-only manual artifact corruption was rejected by the existing
+interface verifier; the final negative case instead recompiles a coherent changed
+source contract, preserving verifier strength. No carried production failure or
+lifetime/unsafe change; prior pointer Miri evidence remains applicable. Additional
+legacy consumers and combined HR03/RF06/RI05 acceptance remain open.
+
+Focused local checks passed:
+
+- `cargo test -p kagari --test offline_nominal source_trait_reference_uses_explicit_binding_and_portable_abi`: one migrated source/source-free contract passed after the final SDK validation split (17.66 seconds).
+- `cargo test -p kagari --test default_methods defaults_can_call_inherited_methods_and_use_associated_outputs`: one directly affected script default/associated output regression passed.
+- `cargo test -p kagari-hir --lib body_edits_rebase_impl_trait_references_in_signature_cache`: one signature cache/trait identity regression passed.
+- `cargo clippy -p kagari --lib --test offline_nominal -- -D warnings` and `cargo clippy -p kagari-hir -p kagari-runtime -p kagari-types --lib -- -D warnings`: affected SDK target and declaration/import/binding libraries passed. Structure checked 1248 Rust files with zero violations; formatting and diff checks passed.
+
+No new Miri run is claimed for this address-free metadata/source checkpoint.
+The previous token and projector checks cover unchanged lifetime/pointer kernels;
+full workspace, feature, backend and platform matrices remain pending CI.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

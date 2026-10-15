@@ -41,6 +41,7 @@ struct ModuleInput<'a> {
     variant_exports: &'a BTreeSet<String>,
     exports: BTreeMap<(u8, &'a str), PortableDefinitionRef>,
     traits: Vec<TraitDefRecord>,
+    trait_references: BTreeMap<PortableDefinitionRef, TraitDefRecord>,
     implementations: Vec<ImplementationInput>,
     functions: Vec<FnDeclRecord>,
     private_functions: BTreeSet<PortableDefinitionRef>,
@@ -112,6 +113,7 @@ impl<'a> ModuleInput<'a> {
             variant_exports,
             exports,
             traits,
+            trait_references,
             implementations,
             functions,
             private_functions,
@@ -150,6 +152,15 @@ impl<'a> ModuleInput<'a> {
                 .iter()
                 .map(|value| TraitDefRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
+            trait_references: trait_references
+                .iter()
+                .map(|(id, contract)| {
+                    Ok((
+                        encoding.reference(*id)?,
+                        TraitDefRecord::encode(contract, encoding, cancel)?,
+                    ))
+                })
+                .collect::<Result<_, DefinitionMappingError>>()?,
             implementations: implementations
                 .iter()
                 .map(|value| ImplementationInput::encode(value, encoding, cancel))
