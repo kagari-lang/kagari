@@ -59,6 +59,11 @@ declaration's implementation list. Both return the same binding token for `bind`
 Missing implementation/member selections reject immediately, and `finish` rejects
 missing callbacks. The declaration remains the signature and identity authority.
 
+Installed package names resolve to their unique physical root module when one is
+present. Packages supplied only through child modules use an implicit namespace
+prefix. Qualified types in generated signatures follow the same member visibility
+and ambiguity checks as ordinary source references.
+
 `core::future::Future<T>` is the canonical single-drive native storage type, with
 one invariant output parameter. `std::future` and the prelude re-export that exact
 declaration. It has no public constructor or trait-based await protocol. Typed

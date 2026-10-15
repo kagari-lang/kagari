@@ -2815,6 +2815,55 @@ pointer/loan or root kernel changed, so no new Miri run was required. Runtime
 host_nominal and typed_path_views, compiler/tooling consumers and HR03 retirement
 remain open. Complete workspace/backend/feature/platform acceptance remains CI-owned.
 
+### HR02/RF05 checkpoint: nominal roots and installed package scopes
+
+All eight host_nominal cases now use common schemas/bind/install and ordinary native
+frames. The source-free free-function fixture carries the external schema closure
+and reachable defining modules; callback counts still distinguish rejection before
+invocation from invalid callback results. Same-spelled Player declarations in
+different canonical modules remain distinct for roots and live borrow tokens.
+Foreign runtimes with equal object/type/epoch/fingerprint numbers still cannot pass
+wrapped arguments or return handles. Failed calls release frame roots without
+quarantining a valid runtime. The obsolete independent display/export label is gone;
+shared type names and definition owners are authoritative.
+
+Manual paths bind through ModuleBuilder and resolve against the same installed
+schemas. Field visibility/access, foreign field owners, wrong physical result slots,
+unregistered virtual targets and unchanged descriptor counts retain their negative
+coverage. Path fingerprints remain independent of physical slots and docs while
+tracking field access/type and schema epoch. Kagari's lexer and common declarations
+use ASCII identifiers; the old Unicode field label now exercises the supported
+Unicode virtual-segment name after a valid hp field, preserving UTF-8 path metadata
+coverage without silently expanding language identifiers. Low-level descriptor
+admission remains the existing checked execution service for invalid physical inputs.
+
+The nested Option<Player> source-free case exposed a production import defect:
+implicit installed package bindings always selected InstalledPrefix, even when a
+physical root existed and no prefix table was created. This made game::Player in
+another native module's generated signature resolve as NotNamespace. Implicit package
+selection now uses a unique physical root when present and otherwise the prefix.
+Existing exact source-unit, visibility, package-alias and ambiguity checks remain.
+The case now compiles its actual nested signature, round-trips/validates KBC, rejects
+missing providers before installation/publication, and loads after atomic installation.
+
+Actual focused validation: the first host_nominal compile found four fixture API/type
+mistakes (epoch width, private catalog merge, nonexistent mutable metadata accessor)
+and an unused import; these were corrected through existing public owners. Its first
+run passed three cases and failed five. Two source-free cases needed their external
+schema/dependency closure, one unbound-target fixture needed declaration collection
+after scope import, and the Unicode case needed the language/path distinction above.
+The nested signature remained failing until the installed-root fix (a temporary debug
+probe first had a partial-move compile error, then was corrected and fully removed).
+The five failing cases each passed after their repairs; the nested KBC case took
+7.59 seconds and the other four under 0.01 seconds each. Initial passing cases retain
+their unaffected evidence. Selected HIR native-host prefix/reference-admission and
+source-alias rejection regressions passed (2.23 and 0.13 seconds). Runtime library/
+host_nominal and HIR library scoped Clippy passed. Structure checked 1254 files with
+zero findings; formatting and diff checks passed. No unsafe/pointer/root kernel
+changed and no new Miri run is needed. Remaining runtime legacy consumer is
+typed_path_views; compiler/tooling producers and HR03 retirement still block combined
+completion. Full workspace/backend/feature/platform acceptance stays CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

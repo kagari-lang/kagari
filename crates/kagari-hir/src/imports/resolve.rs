@@ -502,10 +502,14 @@ fn add_implicit(
             .as_deref()
             .unwrap_or(&installed.module.package.0);
         if let Some(name) = LocalName::new(alias) {
-            let ns = NamespaceId::InstalledPrefix(ModuleIdentity {
+            let root = ModuleIdentity {
                 package: installed.module.package.clone(),
                 path: vec![],
-            });
+            };
+            let ns = match catalog.modules.get(&root).map(Vec::as_slice) {
+                Some([unit]) => NamespaceId::Module(unit.clone()),
+                _ => NamespaceId::InstalledPrefix(root),
+            };
             let candidate = candidate(
                 unit,
                 Some(ResolvedTarget::Namespace(ns)),
