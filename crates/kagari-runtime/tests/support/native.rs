@@ -5,7 +5,8 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{
-    metadata::DefinitionMetadata, scoped::DefinitionReferences, table::DefinitionTable,
+    DefinitionKind, metadata::DefinitionMetadata, scoped::DefinitionReferences,
+    table::DefinitionTable,
 };
 use kagari_contract::{
     native_import::NativeImport,
@@ -14,16 +15,22 @@ use kagari_contract::{
 use kagari_runtime::{Runtime, module::LoadedModule, native::binding::NativeResult, value::Value};
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::module::ModuleDecl,
+    declaration::{TypeDeclaration, TypeDefKind, module::ModuleDecl},
 };
 
 /// Carry every free-function contract, including unused entries, without source analysis.
-/// These fixtures deliberately have no generic proof, nominal layout or trait impl input.
+/// External schemas retain their nominal owners. Generic proofs, GC layouts and trait impls
+/// remain at their dedicated fixtures.
 pub fn free_function_program(
     declarations: &DefinitionMetadata<ModuleDecl>,
 ) -> DefinitionMetadata<BytecodeProgram> {
     let module = declarations.records();
-    assert!(module.types.is_empty());
+    assert!(
+        module
+            .types
+            .iter()
+            .all(|ty| matches!(ty.kind, TypeDefKind::Host(_)))
+    );
     assert!(module.traits.is_empty());
     assert!(module.implementations.is_empty());
     assert!(module.paths.is_empty());
@@ -62,16 +69,28 @@ pub fn free_function_program(
             }
         })
         .collect();
+    let external_types = module
+        .types
+        .iter()
+        .map(|ty| TypeDeclaration {
+            declaration: module
+                .definition(DefinitionKind::Struct, &ty.name, declarations.definitions())
+                .unwrap(),
+            definition: ty.clone(),
+        })
+        .collect();
     let program = BytecodeProgram {
         exports: Default::default(),
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule {
             identity: module.identity.clone(),
             source_name: "native-contract-fixture".into(),
+            external_types,
             public_items: native_declarations
                 .iter()
                 .filter(|declaration| !module.private_functions.contains(&declaration.declaration))
                 .map(|declaration| PublicItem::Function(declaration.function.clone()))
+                .chain(module.types.iter().cloned().map(PublicItem::Type))
                 .collect(),
             native_declarations,
             native_imports,

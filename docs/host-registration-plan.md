@@ -2722,6 +2722,36 @@ Miri run is warranted. Remaining runtime registration/nominal/type/path fixtures
 compiler/tooling legacy consumers and HR03 producer/format/callable retirement remain
 open; exhaustive workspace/backend/features/platform checks stay CI-owned.
 
+### HR02/RF05 checkpoint: runtime registration contract consumers
+
+All six host_registration cases now use common ModuleBuilder declarations/bindings
+and installation. The source-free fixture was extended only for their concrete
+external schemas: each retained TypeDeclaration and public type shares the original
+canonical owner; generic proofs, GC layouts, paths and trait impls remain excluded.
+No legacy type/function registration or assumed physical primitive slot remains.
+
+Borrowed callback results still reject with HostBorrowEscape and release the unique
+lease; a following scope can reacquire it with no leaked roots. Function metadata
+retains exact unique/owned passing, effects, canonical identity and common imports,
+then invokes the original receiver/argument result. Duplicate functions/types reject
+before replacing a published callback or metadata slot. The metadata case compares
+schema/field/method fingerprints across independent runtime installations, validates
+all scalar/self parameter slots, then creates a root of that installed type. The
+obsolete arbitrary rust_type_name label is replaced by the actual canonical shared
+schema name. Reflection methods now expose their explicit self parameter followed
+by hp, matching their ordinary FnDecl rather than a second member signature.
+
+Actual focused validation: the six-case host_registration run passed five tests
+and failed only a fixture assertion expecting define_type to reject immediately.
+A TypeBuilder is provisional; completing a duplicate external declaration is the
+publication boundary. That focused corrected case passed (under 0.01 seconds).
+Scoped host_registration Clippy, structure (1254 files, zero findings), formatting
+and diff checks passed. No production/unsafe/root/loan implementation changed and
+no new Miri run was needed. Remaining runtime legacy consumers are host_scopes,
+offline_types, host_nominal and typed_path_views; compiler/tooling producers and
+HR03 format/callable retirement remain open. Full workspace/backend/features/platform
+acceptance remains CI-owned and unrun locally.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
