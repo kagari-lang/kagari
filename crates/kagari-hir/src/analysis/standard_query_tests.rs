@@ -547,57 +547,66 @@ mod interpolation_queries {
 
     #[test]
     fn trait_method_completion_requires_matching_associated_items() {
-        for (body, available) in [
-            ("[1].", false),
-            ("[\"one\"].", true),
-            ("[1].iter().", false),
-            ("[\"one\"].iter().", true),
-            // Erased interfaces expose their own declared/inherited methods;
-            // importing another trait does not extend the interface surface.
-            ("val xs: List<i32> = Vec::from([1]); xs.", false),
-            ("val xs: List<String> = Vec::from([\"one\"]); xs.", false),
-            (
-                "val xs: MutableList<String> = Vec::from([\"one\"]); xs.",
-                false,
-            ),
-        ] {
-            let text = format!(
-                "use std::collections::{{List, MutableList}}; use demo::text_items::TextItems; fn main() {{ {body} }}"
-            );
-            let mut sources = SourceDatabase::default();
-            let file = sources
-                .set("completion.kgr", text.clone(), SourceLayer::Base)
-                .unwrap();
-            let mut db = test_analysis();
-            db.set_native_modules(
-                foundation_catalog::shared()
+        for interface_implementations in [false, true] {
+            for (body, available, interface_output_matches) in [
+                ("[1].", false, false),
+                ("[\"one\"].", true, false),
+                ("[1].iter().", false, false),
+                ("[\"one\"].iter().", true, false),
+                // Importing a trait alone grants no methods. Explicit native impls
+                // for an interface participate and retain their output constraints.
+                ("val xs: List<i32> = Vec::from([1]); xs.", false, false),
+                (
+                    "val xs: List<String> = Vec::from([\"one\"]); xs.",
+                    false,
+                    true,
+                ),
+                (
+                    "val xs: MutableList<String> = Vec::from([\"one\"]); xs.",
+                    false,
+                    true,
+                ),
+            ] {
+                let text = format!(
+                    "use std::collections::{{List, MutableList}}; use demo::text_items::TextItems; fn main() {{ {body} }}"
+                );
+                let mut sources = SourceDatabase::default();
+                let file = sources
+                    .set("completion.kgr", text.clone(), SourceLayer::Base)
+                    .unwrap();
+                let mut db = test_analysis();
+                db.set_native_modules(
+                    foundation_catalog::shared()
+                        .unwrap()
+                        .into_iter()
+                        .chain([crate::tests::native::text_items_module(
+                            interface_implementations,
+                        )])
+                        .collect(),
+                );
+                let snapshot = db
+                    .snapshot(sources.snapshot(), &Default::default())
+                    .unwrap();
+                let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
+                assert!(
+                    diagnostics.iter().all(|diagnostic| matches!(
+                        diagnostic.kind,
+                        kagari_source::diagnostic::DiagnosticKind::ExpectedFieldName
+                    )),
+                    "{text}: {diagnostics:?}"
+                );
+                let completions = snapshot
+                    .file(file)
                     .unwrap()
-                    .into_iter()
-                    .chain([crate::tests::native::text_items_module()])
-                    .collect(),
-            );
-            let snapshot = db
-                .snapshot(sources.snapshot(), &Default::default())
-                .unwrap();
-            let diagnostics = snapshot.file(file).unwrap().result().diagnostics();
-            assert!(
-                diagnostics.iter().all(|diagnostic| matches!(
-                    diagnostic.kind,
-                    kagari_source::diagnostic::DiagnosticKind::ExpectedFieldName
-                )),
-                "{text}: {diagnostics:?}"
-            );
-            let completions = snapshot
-                .file(file)
-                .unwrap()
-                .method_completions(text.find(". }").unwrap() + 1);
-            assert_eq!(
-                completions.iter().any(|item| item.name == "text_items"),
-                available,
-                "{body}: {:?}; diagnostics={:?}",
-                completions,
-                snapshot.file(file).unwrap().result().diagnostics()
-            );
+                    .method_completions(text.find(". }").unwrap() + 1);
+                assert_eq!(
+                    completions.iter().any(|item| item.name == "text_items"),
+                    available || interface_implementations && interface_output_matches,
+                    "{body} with interface impls={interface_implementations}: {:?}; diagnostics={:?}",
+                    completions,
+                    snapshot.file(file).unwrap().result().diagnostics()
+                );
+            }
         }
     }
 }

@@ -159,7 +159,7 @@ pub(crate) fn database() -> AnalysisDatabase {
 
 #[test]
 fn native_fixture_source_is_a_valid_offline_declaration() {
-    for module in [module(), text_items_module()] {
+    for module in [module(), text_items_module(false)] {
         let generated =
             declaration_source(&module, &foundation_catalog::shared().unwrap()).unwrap();
         let source = kagari_source::source::SourceFile::new(&generated.uri, &generated.text);
@@ -180,7 +180,9 @@ fn native_fixture_source_is_a_valid_offline_declaration() {
 
 /// A constrained native trait method can name its receiver in a predicate.
 /// Registration owns the contract; generated source is only its presentation.
-pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
+pub(crate) fn text_items_module(
+    interface_implementations: bool,
+) -> Arc<DefinitionMetadata<ModuleDecl>> {
     let context = fixture_context();
     let mut module = ModuleDecl::new(ModuleIdentity {
         package: PackageId("demo".into()),
@@ -238,6 +240,9 @@ pub(crate) fn text_items_module() -> Arc<DefinitionMetadata<ModuleDecl>> {
         }],
     });
     for family in 0..4 {
+        if !interface_implementations && matches!(family, 1 | 2) {
+            continue;
+        }
         let owner = context
             .intern_child(
                 root,

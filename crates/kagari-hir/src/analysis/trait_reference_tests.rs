@@ -218,6 +218,15 @@ fn imported_supertraits_resolve_native_associated_members_from_source_facts() {
         )
         .unwrap();
     let text = "use pkg::library::Stream; fn identity<S: Stream>(source: S, item: S::Item) -> S::Item { item }";
+    sources
+        .bind_module(
+            "root",
+            ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["consumer".into()],
+            },
+        )
+        .unwrap();
     let root = sources.set("root", text.into(), SourceLayer::Base).unwrap();
     let snapshot = analyze(&mut test_analysis(), &sources);
     let file = snapshot.file(root).unwrap();

@@ -567,3 +567,37 @@ fn main() -> i32 {{ val view: Read<Item = i32> = Reader {{}}; view.read() }}
         }
     }
 }
+
+#[test]
+fn associated_impl_bounds_require_the_concrete_self_receiver() {
+    for (receiver, valid) in [("Reader", true), ("Other", false)] {
+        let source = SourceFile::new(
+            "associated-impl-self.kgr",
+            format!(
+                r#"
+trait Related<T> {{}}
+trait Read {{ type Item: Related<Self>; }}
+struct Reader {{}}
+struct Other {{}}
+struct Item {{}}
+impl Related<{receiver}> for Item {{}}
+impl Read for Reader {{ type Item = Item; }}
+fn main() {{}}
+"#
+            ),
+        );
+        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        if valid {
+            result.into_checked().expect("Item: Related<Reader>");
+        } else {
+            assert!(
+                result.diagnostics().iter().any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::InvalidAssociatedType { .. }
+                )),
+                "{:?}",
+                result.diagnostics()
+            );
+        }
+    }
+}

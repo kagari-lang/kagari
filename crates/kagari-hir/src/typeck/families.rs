@@ -104,6 +104,7 @@ pub(super) fn validate(
                     definitions: declarations.definitions(),
                     catalog,
                     hosts: &declarations.hosts,
+                    receiver: None,
                 },
                 &family.value,
                 &available,

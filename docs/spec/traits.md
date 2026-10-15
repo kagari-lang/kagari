@@ -365,6 +365,13 @@ are checked against implementation definitions and concrete call arguments, and
 are available for static method lookup on the projected value. Generic impls may
 define outputs in terms of their own type parameters.
 
+Implementation checking substitutes the concrete receiver for the declaring
+trait's `Self` in output bounds. For `Reader { type Item: Describe<Self>; }`, an
+`impl Reader for Counter { type Item = Other; }` requires `Other: Describe<Counter>`;
+an implementation for another receiver does not satisfy that requirement. Sibling
+associated projections use the same substitution. Nested trait value types retain
+their own receiver context and the ordinary restrictions on erased `Self`.
+
 Projection templates remain in checked signatures and canonical ABI metadata.
 Reachable static calls normalize them to concrete types during monomorphization;
 no runtime generic specialization or runtime projection lookup is introduced.

@@ -31,6 +31,8 @@ pub(super) struct ApplicationContext<'a> {
     pub definitions: &'a DefinitionTable,
     pub catalog: &'a AggregateCatalog,
     pub hosts: &'a HostDeclarations,
+    /// Concrete receiver of the root impl application; nested trait values keep their own Self.
+    pub receiver: Option<&'a TypeId>,
 }
 
 pub(super) fn validate(
@@ -45,13 +47,14 @@ pub(super) fn validate(
         definitions,
         catalog,
         hosts,
+        receiver,
     } = context;
     let expanded = catalog
         .expanded_bounds(bounds, cancel)
         .unwrap_or_else(|_| bounds.clone());
     let bounds = &expanded;
-    let mut pending = vec![ty];
-    while let Some(ty) = pending.pop() {
+    let mut pending = vec![(ty, receiver)];
+    while let Some((ty, receiver)) = pending.pop() {
         if cancel.check().is_err() {
             return;
         }
@@ -112,7 +115,7 @@ pub(super) fn validate(
                         .with_span(span),
                     );
                 }
-                pending.push(target);
+                pending.push((target, None));
             }
             TypeId::Projection {
                 receiver,
@@ -198,10 +201,10 @@ pub(super) fn validate(
                         .with_span(span),
                     );
                 }
-                pending.push(receiver);
-                pending.extend(arguments);
-                pending.extend(&interface.arguments);
-                pending.extend(interface.associated_types.values());
+                pending.push((receiver, None));
+                pending.extend(arguments.iter().map(|ty| (ty, None)));
+                pending.extend(interface.arguments.iter().map(|ty| (ty, None)));
+                pending.extend(interface.associated_types.values().map(|ty| (ty, None)));
             }
             TypeId::NativeObject(instance)
             | TypeId::Struct(instance)
@@ -223,11 +226,14 @@ pub(super) fn validate(
                     _ => unreachable!(),
                 };
                 if let Some((parameters, required)) = contract {
-                    let substitution = parameters
+                    let mut substitution: TypeSubstitution = parameters
                         .iter()
                         .cloned()
                         .zip(instance.arguments.iter().cloned())
                         .collect();
+                    if let Some(receiver) = receiver {
+                        substitution.insert_receiver(instance.declaration, receiver.clone());
+                    }
                     for (parameter, actual) in parameters.iter().zip(&instance.arguments) {
                         for constraint in required
                             .get(&TypeId::Generic(parameter.clone()))
@@ -290,12 +296,15 @@ pub(super) fn validate(
                 if let TypeId::Trait(_) = ty
                     && let Some(contract) = catalog.trait_(&instance.declaration)
                 {
-                    let substitution = contract
+                    let mut substitution: TypeSubstitution = contract
                         .generic_params
                         .iter()
                         .cloned()
                         .zip(instance.arguments.iter().cloned())
                         .collect();
+                    if let Some(receiver) = receiver {
+                        substitution.insert_receiver(instance.declaration, receiver.clone());
+                    }
                     for (member, actual) in &instance.associated_types {
                         for constraint in
                             contract.associated_types.get(member).into_iter().flatten()
@@ -315,7 +324,9 @@ pub(super) fn validate(
                                         TypeId::Trait(required.instantiate(&substitution))
                                             .with_associated_types(
                                                 instance,
-                                                &TypeId::SelfType(instance.declaration),
+                                                receiver.unwrap_or(&TypeId::SelfType(
+                                                    instance.declaration,
+                                                )),
                                             )
                                     else {
                                         unreachable!()
@@ -346,20 +357,20 @@ pub(super) fn validate(
                         }
                     }
                 }
-                pending.extend(&instance.arguments);
-                pending.extend(instance.associated_types.values());
+                pending.extend(instance.arguments.iter().map(|ty| (ty, None)));
+                pending.extend(instance.associated_types.values().map(|ty| (ty, None)));
             }
-            TypeId::Tuple(types) => pending.extend(types),
+            TypeId::Tuple(types) => pending.extend(types.iter().map(|ty| (ty, None))),
             TypeId::Function { params, result } => {
-                pending.extend(params);
-                pending.push(result);
+                pending.extend(params.iter().map(|ty| (ty, None)));
+                pending.push((result, None));
             }
             TypeId::Array(ty) | TypeId::Set(ty, _) | TypeId::Iter(ty) | TypeId::Range(ty, _) => {
-                pending.push(ty)
+                pending.push((ty, None))
             }
             TypeId::Map { key, value, .. } => {
-                pending.push(key);
-                pending.push(value);
+                pending.push((key, None));
+                pending.push((value, None));
             }
             _ => {}
         }
@@ -394,6 +405,7 @@ pub(crate) fn validate_signatures(
                     definitions,
                     catalog,
                     hosts: &declarations.hosts,
+                    receiver: None,
                 },
                 &parameter.ty,
                 &function.bounds,
@@ -415,6 +427,7 @@ pub(crate) fn validate_signatures(
                 definitions,
                 catalog,
                 hosts: &declarations.hosts,
+                receiver: None,
             },
             &function.return_type,
             &function.bounds,
@@ -438,20 +451,6 @@ pub(crate) fn validate_signatures(
         let Some(contract) = catalog.trait_(&instance.declaration) else {
             continue;
         };
-        let available =
-            constraints::implementation_bounds(impl_block, declarations, signatures.type_table());
-        validate(
-            ApplicationContext {
-                definitions,
-                catalog,
-                hosts: &declarations.hosts,
-            },
-            &TypeId::Trait(instance.clone()),
-            &available,
-            lowered.source_map.type_span(trait_ref.ty),
-            diagnostics,
-            cancel,
-        );
         let Some(receiver) = impl_block
             .for_type
             .and_then(|ty| signatures.type_table().type_ref(ty))
@@ -459,6 +458,21 @@ pub(crate) fn validate_signatures(
         else {
             continue;
         };
+        let available =
+            constraints::implementation_bounds(impl_block, declarations, signatures.type_table());
+        validate(
+            ApplicationContext {
+                definitions,
+                catalog,
+                hosts: &declarations.hosts,
+                receiver: Some(receiver),
+            },
+            &TypeId::Trait(instance.clone()),
+            &available,
+            lowered.source_map.type_span(trait_ref.ty),
+            diagnostics,
+            cancel,
+        );
         let span = lowered.source_map.impl_span(impl_block.id);
         for method in &contract.methods {
             let Some(implementation) = impl_block
@@ -554,6 +568,7 @@ pub(crate) fn validate_signatures(
                     definitions,
                     catalog,
                     hosts: &declarations.hosts,
+                    receiver: None,
                 },
                 &field.ty,
                 &structure.bounds,
@@ -585,6 +600,7 @@ pub(crate) fn validate_signatures(
                         definitions,
                         catalog,
                         hosts: &declarations.hosts,
+                        receiver: None,
                     },
                     payload,
                     &enumeration.bounds,

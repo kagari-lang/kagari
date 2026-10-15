@@ -852,6 +852,7 @@ impl<'a> BodyChecker<'a> {
                 definitions: self.declarations.definitions(),
                 catalog: self.aggregates,
                 hosts: &self.declarations.hosts,
+                receiver: None,
             },
             &ty,
             &env.generic_bounds,

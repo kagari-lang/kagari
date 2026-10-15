@@ -2432,6 +2432,80 @@ interface and low-level consumer migration, HR03 retirement and RF06/RI05 final
 integration remain required. Complete workspace/features/backends/platforms stay
 CI-owned and unrun locally.
 
+### HR02/RF05 checkpoint: common dynamic interface consumers and receiver bounds
+
+The SDK host_interfaces target now uses one cold ModuleBuilder fixture for Counter,
+its explicit private/public source Reader impl, associated output and make binding.
+All eight existing interface cases have migrated; no HostInterface producer,
+HostFunction registration or late host-type registration remains in this target.
+The ordinary directory test entry separates shared registration from behavior.
+Callbacks bind once before engine construction; roots remain runtime-local and
+cold compilation asserts that no callback ran. The direct/KBC/interpreter/host
+Cranelift cases retain exact call traces and now also check released result roots.
+
+Child-to-parent upcasting, imported generic inputs, associated output mismatches,
+nested foreign-root rejection, shared receiver conflicts, trap cleanup, collection,
+foreign owner/scoped-ref rejection and reload pinning retain their original
+boundaries. Interface tables now belong to the native provider. The initial
+root-module table-count assertion failed (zero versus one); it now inspects the
+actual provider. Interface construction has a successful owner-matched control
+before the foreign/scoped negative cases. Synchronous interface reentry initially
+looked for answer in the provider entry module; program_root selects the original
+source root within that same pinned graph. Old/new interface calls still return
+42/43 after reload. No latest-generation lookup or root/borrow relaxation is used.
+
+The six portable tamper cases use common impl/dispatch records: missing associated
+outputs, an unsupported Eq/Hash output, a method/output disagreement, an unauthorized
+legacy bridge flag, a missing method slot and a redirected native target. Obsolete
+host-script shim body mutations are replaced by direct dispatch-slot validation;
+the common native path has no such script shim. Both graph verification and
+artifact construction must reject every mutation.
+
+The migrated cold output-bound case exposed a shared HIR defect: validating
+Reader::Item: Describe<Self> in an impl retained the trait's abstract Self instead
+of substituting the concrete Counter receiver. ApplicationContext now carries the
+root impl receiver into the existing generic/associated constraint substitution.
+Nested type applications deliberately start with no receiver binding. The first
+repair changed projection ownership without substituting its Self, so the Vec
+foundation rejected Iter<T>; binding Self before resolving sibling projections
+restores the existing Iterable contract. A mechanical traversal edit also initially
+failed compilation with an iterator-reference error; explicit borrowed iterators
+resolved it. No checks are skipped. The pure source receiver test checks both
+Related<Reader> acceptance and Related<Other> rejection. The portable native case
+still rejects removal of Other's Describe<Counter> evidence without calling Rust.
+The trait specification records the substitution contract beside associated outputs.
+
+Actual focused local validation:
+
+- SDK host_interfaces selected direct/KBC/Cranelift dispatch passed (16.05 seconds),
+  child upcasting passed (11.51 seconds), six tamper cases passed (10.58 seconds),
+  GC/reentry/reload/trap cleanup passed (15.18 seconds), and the cold output-bound
+  case passed after repair (10.37 seconds). Imported generic dispatch, registered
+  output mismatch and nested-root validation passed together in the four-case run
+  that first exposed the output-bound failure (32.63 seconds); only the failing
+  case was rerun after that repair.
+- The HIR `associated_` filter selected 14 related tests: 12 passed, including the
+  new concrete receiver proof, erased-Self rejection, generic families, projection
+  ownership and cached query cases. Two pre-existing fixture failures were
+  reproduced independently with the prior application checker (the first baseline
+  attempt failed to initialize the new context field and ran no tests; the corrected
+  baseline ran both). Imported Stream used an unbound anonymous consumer for a named
+  package; binding the consumer to pkg preserves the original imported-supertrait
+  assertions. The completion fixture explicitly registered interface impls while
+  expecting absence of methods. It now tests both absence of an impl and explicit
+  native interface impls, retaining the original negative assertions and matching
+  associated-output requirements. Their focused reruns passed (0.64/7.87 seconds).
+- Scoped HIR library and SDK host_interfaces Clippy passed. SDK Clippy initially
+  rejected a post-Default fixture field assignment; direct configuration initialization
+  resolved it. Structure passed for 1252 Rust files with zero violations. Formatting
+  and diff checks passed; no workspace or feature/backend/platform sweep ran.
+
+No unsafe pointer or loan/root kernel changed; a new Miri run is not warranted for
+this metadata/checker/consumer checkpoint. Remaining low-level SDK/standalone example
+consumers, dependent legacy producer/callable retirement and HR03/RF06/RI05 final
+integration remain open. Complete workspace/feature/backend/platform acceptance is
+CI-owned and not claimed from these focused results.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
