@@ -8,7 +8,6 @@ use crate::{
             validate_native_declarations,
         },
     },
-    host_interface::host_type_identity,
     scalar::BuiltinType,
     ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeTransformError},
 };

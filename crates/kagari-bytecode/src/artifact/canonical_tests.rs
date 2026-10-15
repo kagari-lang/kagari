@@ -6,21 +6,22 @@ use crate::{
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, MAX_IDENTITY_PATH_SEGMENTS,
-    map::DefinitionContext, mapping::DefinitionMappingError, table::DefinitionTableError,
+    map::DefinitionContext, table::DefinitionTableError,
 };
 use kagari_contract::{
     layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
-    types::{PublicItem, TraitContract},
+    types::{ConcreteFunctionIdentity, PublicItem, TraitContract},
 };
 
+use kagari_contract::native_import::NativeImport;
 use kagari_types::{
-    collection::CollectionAccess,
+    callable::{CallableImplementation, Signature},
     declaration::{
-        AssociatedConstDef, ConstDef, FieldDef, TraitDef, TypeDef, TypeDefKind,
+        AssociatedConstDef, ConstDef, FieldDef, FnDecl, NativeDeclaration, TraitDef, TypeDef,
+        TypeDefKind,
         host::PathAccess,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
-    host_interface::{HostFunctionDeclaration, host_type_identity, value_type::HostValueType},
     scalar::BuiltinType,
     ty::Ty,
     visibility::Visibility,
@@ -143,8 +144,14 @@ fn oversized_memory_identity_paths_reject_before_fingerprinting() {
         context.intern_root(&oversized_identity),
         Err(DefinitionTableError::PathLimit)
     );
-    let mut host = host_type_identity("demo.Player");
-    host.module.path = oversized_identity.path.clone();
+    let host = DefinitionPath {
+        module: oversized_identity.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Struct,
+            name: "Player".into(),
+            occurrence: 0,
+        }],
+    };
     assert_eq!(context.intern(&host), Err(DefinitionTableError::PathLimit));
     let mut program = valid.clone();
     program.modules[0].identity = oversized_identity;
@@ -372,29 +379,72 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
     for _ in 0..64 {
         deep = Ty::Array(Box::new(deep));
     }
-    let mut program = valid.clone();
-    program.modules[0]
+    let root = context.intern_root(&valid.modules[0].identity).unwrap();
+    let declaration = context
+        .intern_child(root, DefinitionKind::Function, "deep", 0)
+        .unwrap();
+    let mut constant = valid.clone();
+    constant.modules[0]
         .public_items
         .push(PublicItem::Const(ConstDef {
             name: "deep".into(),
-            ty: deep,
+            ty: deep.clone(),
             value: "0".into(),
         }));
-    assert!(matches!(
-        KbcArtifact::from_program(program.clone(), Default::default(), &context),
-        Err(ArtifactValidationError::ResourceLimit(
-            "ABI type resource limit exceeded"
-        ))
-    ));
-    let mut artifact = KbcArtifact::from_program(valid, Default::default(), &context).unwrap();
-    artifact.program = program;
-    assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
-        Err(ArtifactValidationError::ResourceLimit(
-            "ABI type resource limit exceeded"
-        ))
-    ));
-    assert!(artifact.to_bytes(&context.snapshot()).is_err());
+    let function = FnDecl {
+        host_policy: None,
+        method_policy: Default::default(),
+        name: "deep".into(),
+        implementation: CallableImplementation::Native(declaration),
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: deep.clone(),
+    };
+    let mut native = valid.clone();
+    native.modules[0]
+        .native_declarations
+        .push(NativeDeclaration {
+            declaration,
+            function,
+            callable_requirements: vec![],
+            concrete_result: None,
+        });
+    let mut import = valid.clone();
+    import.modules[0].native_imports.push(NativeImport {
+        receiver_access: None,
+        result_adapter: None,
+        generic: None,
+        instance: ConcreteFunctionIdentity {
+            declaration,
+            arguments: vec![],
+        },
+        binding: declaration,
+        signature: Signature {
+            params: vec![],
+            result: deep,
+        },
+        requirements: vec![],
+        callables: vec![],
+    });
+    for program in [constant, native, import] {
+        assert!(matches!(
+            KbcArtifact::from_program(program.clone(), Default::default(), &context),
+            Err(ArtifactValidationError::ResourceLimit(
+                "ABI type resource limit exceeded"
+            ))
+        ));
+        let mut artifact =
+            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        artifact.program = program;
+        assert!(matches!(
+            artifact.validate_for_loader(&Default::default(), &context),
+            Err(ArtifactValidationError::ResourceLimit(
+                "ABI type resource limit exceeded"
+            ))
+        ));
+        assert!(artifact.to_bytes(&context.snapshot()).is_err());
+    }
 }
 
 #[test]
@@ -452,8 +502,7 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
 
     let mut host_path = valid.clone();
     host_path.modules[0]
-        .host_interface
-        .paths
+        .path_declarations
         .push(HostPathDeclaration {
             root: id(DefinitionKind::Struct),
             segments: vec![
@@ -658,55 +707,6 @@ fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
             ),
             "change {change}"
         );
-    }
-}
-
-#[test]
-fn invalid_host_types_are_rejected_before_fingerprinting_memory_artifacts() {
-    let context = DefinitionContext::new().unwrap();
-
-    let valid = BytecodeProgram {
-        exports: Default::default(),
-        root: ModuleRef::new(0),
-        modules: vec![BytecodeModule::default()],
-    };
-    let mut deep = HostValueType::I32;
-    for _ in 0..64 {
-        deep = HostValueType::Array(Box::new(deep));
-    }
-    for ty in [
-        HostValueType::Set(Box::new(HostValueType::F32), CollectionAccess::Mutable),
-        deep,
-    ] {
-        let mut program = valid.clone();
-        program.modules[0]
-            .host_interface
-            .functions
-            .push(HostFunctionDeclaration::new(&context, "host.bad", vec![], ty).unwrap());
-        assert!(matches!(
-            VerificationMetadata::from_program(&program, &Default::default(), &context),
-            Err(ArtifactValidationError::Bytecode(_))
-        ));
-        // Artifact resource preflight visits bounded host types before encoding
-        // or fingerprinting; direct verification still rejects the host contract.
-        let error =
-            KbcArtifact::from_program(program.clone(), Default::default(), &context).unwrap_err();
-        assert!(
-            matches!(
-                error,
-                ArtifactValidationError::Identity(DefinitionMappingError::InvalidContract)
-            ),
-            "{error:?}"
-        );
-        let mut artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
-        artifact.program = program;
-        assert!(matches!(
-            artifact.validate_for_loader(&Default::default(), &context),
-            Err(ArtifactValidationError::Identity(
-                DefinitionMappingError::InvalidContract
-            ))
-        ));
     }
 }
 

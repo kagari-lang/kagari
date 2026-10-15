@@ -396,15 +396,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .iter()
         .map(|module| module.native_imports.len())
         .sum();
-    assert!(
-        decoded
-            .records()
-            .program
-            .modules
-            .iter()
-            .flat_map(|module| &module.native_imports)
-            .all(|import| import.host.is_none())
-    );
     println!(
         "compiled {imports} common native applications and {function_records} executable records; artifact is {} bytes",
         artifact.records().to_bytes(artifact.definitions())?.len()

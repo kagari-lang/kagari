@@ -233,10 +233,7 @@ pub(crate) fn verify_with_budget(
         context.check_cancel()?;
         // A table may retain a default from another module. Linked validation
         // authenticates the target against that owner's declaration and closure.
-        if target.host.is_some()
-            || !target.structurally_valid(context.definitions)
-            || !native.insert(&target.instance)
-        {
+        if !target.structurally_valid(context.definitions) || !native.insert(&target.instance) {
             return Err(context.error(MirVerificationErrorKind::InvalidNativeTarget));
         }
     }

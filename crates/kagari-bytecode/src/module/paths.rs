@@ -11,23 +11,14 @@ impl BytecodeModule {
         &self,
         definitions: &DefinitionTable,
     ) -> Result<Vec<(&HostPathDeclaration, HostPathContract)>, DefinitionMappingError> {
-        let mut schemas = self.external_types.clone();
-        // Temporary legacy producer conversion; the shared path resolver is the
-        // sole semantic owner. This bridge retires with HostInterface in HR03.
-        schemas.extend(
-            self.host_interface
-                .path_types(definitions)
-                .map_err(|_| DefinitionMappingError::InvalidContract)?,
-        );
         let mut seen = HashSet::new();
         self.path_declarations
             .iter()
-            .chain(&self.host_interface.paths)
             .map(|path| {
                 if !seen.insert(path) {
                     return Err(DefinitionMappingError::InvalidContract);
                 }
-                Ok((path, path.contract(&schemas, definitions)?))
+                Ok((path, path.contract(&self.external_types, definitions)?))
             })
             .collect()
     }

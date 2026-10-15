@@ -84,10 +84,6 @@ pub(super) fn validate(
     .map_err(|_| TypeTransformError::InvalidContract)?;
     let catalog = ProofCatalog::new(
         tables,
-        closure
-            .iter()
-            .flat_map(|module| &module.host_types)
-            .collect(),
         closure.iter().flat_map(|module| &module.enumerations),
         declarations,
         closure
@@ -238,12 +234,6 @@ pub(super) fn validate(
         return Ok(false);
     }
     for import in caller.native_applications() {
-        if import.host.is_some() {
-            if !import.structurally_valid(catalog.definitions()) {
-                return Ok(false);
-            }
-            continue;
-        }
         let Some(owner) = closure.iter().find(|owner| {
             definitions
                 .resolve(import.instance.declaration)
@@ -299,7 +289,6 @@ pub(super) fn validate(
                     target.instance == callable.instance
                         && &target.binding == binding
                         && target.signature == callable.signature
-                        && target.host.is_none()
                 })
         {
             return Ok(false);
@@ -446,7 +435,6 @@ fn native_slots_valid(
             for target in &module.native_targets {
                 if target.instance.declaration != target_instance.declaration
                     || target.binding != binding
-                    || target.host.is_some()
                 {
                     continue;
                 }

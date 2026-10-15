@@ -946,18 +946,15 @@ node/binding vectors, then explicit decoding checks shape, depth, canonical bind
 order and references while building scoped types. It creates no execution evidence.
 The type-set path does not instantiate the semantic type model with file references.
 
-The KHI envelope and Host fingerprints also use codec-owned declaration and flat
-value records with private fields. Encoding visits the scoped reference closure
-and builds the canonical file table before writing records. Decoding validates that table, resolves
-file references directly into IDs, checks bounded value shape and Host contracts,
-and returns records with their retained scope. Declaration/member/node/byte limits
-remain at their existing owners; no file-reference Host semantic model or execution
-seal is produced. Fields, parameters, trait arguments and path segments retain order.
-
-KBC's required-Host-ABI fingerprint reuses the opaque HostInterfaceRecord encoder
-at the types owner. KBC owns documentation/path exclusion, declaration ordering and
-domain separation; the shared record owns only serialization and ID conversion.
-The codec API accepts an explicit canonical file table, never a global context.
+Common native declarations, external type schemas and path requirements use the
+same codec-owned declaration/type records in KBC and portable MIR. Each codec
+visits the scoped reference closure and builds a canonical file table before
+encoding. Decoding checks that table, resolves file references into IDs and checks
+bounded shapes before semantic verification. Fields, parameters, concrete trait
+arguments and path segments retain their contract order. There is no standalone
+host declaration envelope, parallel host value tree or host-only ABI summary.
+Canonical program/module hashes cover the surviving requirements; public ABI,
+dependency and path summaries retain their distinct validation owners.
 
 Public ABI fingerprints use opaque PublicItemRecord values at the contract owner,
 with declaration records at kagari-types. Signatures, constraints, trait members,
@@ -1616,7 +1613,7 @@ parallel model:
 | Executable memory lifetime | NativeCodeOwner, physical product portion of NativeCompilationProduct | An opaque owner retaining executable pages while installed code is reachable; no backend implementation or runtime state |
 | Physical safe points and roots | Physical portions of ExecutableSafepoint/ExecutableStackMap when supported | Native code offsets and real machine root locations understood by the runtime/backend |
 
-Move ValueType's BuiltinType/HostValueType conversion policy to contract-side
+Keep ValueType's BuiltinType/Ty conversion policy in contract-side
 lowering; the ABI enum must not import semantic type definitions. A tagged generic
 representation does not erase generic typing: binders, arguments and proofs remain
 in the contract and are checked before execution.

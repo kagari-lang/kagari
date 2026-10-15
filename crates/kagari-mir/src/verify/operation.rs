@@ -20,7 +20,6 @@ use kagari_types::{
     declaration::{
         TypeDefKind, host::PathAccess, native::NativeStorageLayout, verify::types_in_scope,
     },
-    host_interface::HostInterface,
     reference::{ReferenceAccess, field_read_type},
     ty::Ty,
 };
@@ -36,18 +35,8 @@ pub(super) fn verify(
     if let Some(path) = instruction.path_reference()
         && let Some(declaration) = &path.declaration
     {
-        let catalog = HostInterface {
-            types: module.host_types.clone(),
-            ..Default::default()
-        };
-        let mut schemas = module.external_types.clone();
-        schemas.extend(
-            catalog
-                .path_types(context.definitions)
-                .map_err(|_| context.error(Error::InvalidHostInterface))?,
-        );
         let resolved = declaration
-            .contract(&schemas, context.definitions)
+            .contract(&module.external_types, context.definitions)
             .map_err(|_| context.error(Error::InvalidHostInterface))?;
         if resolved
             .fingerprint(context.definitions)

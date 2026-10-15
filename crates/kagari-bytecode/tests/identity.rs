@@ -2,19 +2,15 @@
 use bincode::{DefaultOptions, Options};
 use kagari_bytecode::{
     artifact::{
-        ArtifactBuildOptions, ArtifactFingerprint, ArtifactHeader, ArtifactValidationError,
-        KBC_ARTIFACT_FORMAT_VERSION, KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_MODULES,
-        encode_program_facts,
+        ArtifactBuildOptions, ArtifactHeader, ArtifactValidationError, KBC_ARTIFACT_FORMAT_VERSION,
+        KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_MODULES, encode_program_facts,
     },
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
-        metadata::DefinitionMetadata,
-    },
+    identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext},
 };
 use kagari_types::ty::Ty;
 use std::io::Cursor;
@@ -325,109 +321,4 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     let mut forged = bytes;
     forged[reference_offset..reference_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
     assert!(KbcArtifact::from_bytes(&forged).is_err());
-}
-
-#[test]
-fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
-    use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface,
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    };
-    let context = DefinitionContext::new().unwrap();
-    let cancel = CancellationToken::default();
-    let output =
-        HostFunctionDeclaration::new(&context, "host.output", vec![], HostValueType::I32).unwrap();
-    let root = context
-        .intern_root(&ModuleIdentity {
-            package: PackageId("host".into()),
-            path: vec!["host".into()],
-        })
-        .unwrap();
-    let other = HostFunctionDeclaration {
-        id: context
-            .intern_child(root, DefinitionKind::Function, "other", 0)
-            .unwrap(),
-        symbol: "host.other".into(),
-        params: vec![],
-        return_type: HostValueType::Unit,
-        effects: Default::default(),
-        documentation: String::new(),
-    };
-    let mut object = HostTypeDeclaration::new(&context, "host.Object").unwrap();
-    object
-        .fields
-        .push(HostFieldDeclaration::new(&context, object.id, "count", HostValueType::I32).unwrap());
-    let interface = HostInterface {
-        paths: vec![],
-        types: vec![object],
-        functions: vec![output, other],
-    };
-    let definitions = context.snapshot();
-    let fingerprint = ArtifactFingerprint::of_host_interface(&interface, &definitions).unwrap();
-    let mut reordered = interface.clone();
-    reordered.functions.reverse();
-    reordered.functions[0].documentation = "different docs".into();
-    reordered.types[0].documentation = "different type docs".into();
-    reordered.types[0].fields[0].documentation = "different member docs".into();
-    assert_eq!(
-        fingerprint,
-        ArtifactFingerprint::of_host_interface(&reordered, &definitions).unwrap()
-    );
-    let independent_context = DefinitionContext::new().unwrap();
-    let independent_root = independent_context
-        .intern_root(&ModuleIdentity {
-            package: PackageId("host".into()),
-            path: vec!["host".into()],
-        })
-        .unwrap();
-    independent_context
-        .intern_child(independent_root, DefinitionKind::Function, "other", 0)
-        .unwrap();
-    let independent = DefinitionMetadata::checked(definitions.clone(), reordered.clone(), &cancel)
-        .unwrap()
-        .import_into(&independent_context, &cancel)
-        .unwrap();
-    assert_eq!(
-        fingerprint,
-        ArtifactFingerprint::of_host_interface(independent.records(), independent.definitions())
-            .unwrap()
-    );
-    assert!(ArtifactFingerprint::of_host_interface(&interface, independent.definitions()).is_err());
-    let mut changed_member = reordered.clone();
-    changed_member.types[0].fields[0].ty = HostValueType::I64;
-    assert_ne!(
-        fingerprint,
-        ArtifactFingerprint::of_host_interface(&changed_member, &definitions).unwrap()
-    );
-    reordered.functions[0].effects.may_trap = true;
-    assert_ne!(
-        fingerprint,
-        ArtifactFingerprint::of_host_interface(&reordered, &definitions).unwrap()
-    );
-    let mut artifact = KbcArtifact::from_program(
-        BytecodeProgram {
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![BytecodeModule {
-                host_interface: interface,
-                ..Default::default()
-            }],
-        },
-        Default::default(),
-        &context,
-    )
-    .unwrap();
-    assert_eq!(
-        artifact.verification.host_interface_fingerprint,
-        ArtifactFingerprint::of_program_hosts(&artifact.program, &definitions).unwrap()
-    );
-    artifact.verification.host_interface_fingerprint = ArtifactFingerprint::empty();
-    artifact.header.content_hash = ArtifactFingerprint::empty();
-    artifact.header.content_hash =
-        ArtifactFingerprint::of_artifact(&artifact, &definitions).unwrap();
-    assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
-        Err(ArtifactValidationError::HostInterfaceFingerprintMismatch { .. })
-    ));
 }

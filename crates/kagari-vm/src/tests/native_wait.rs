@@ -280,7 +280,6 @@ impl Fixture {
                     generic: None,
                     requirements: vec![],
                     callables: vec![],
-                    host: None,
                 })
                 .collect(),
             public_items: declaration

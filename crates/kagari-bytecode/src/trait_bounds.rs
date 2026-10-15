@@ -10,7 +10,7 @@ use crate::{
     instruction::{BinaryOp, BytecodeInstruction, CallTarget},
     module::BytecodeModule,
     program::BytecodeProgram,
-    trait_bounds::associated::{associated_bounds_match, host_bounds_match},
+    trait_bounds::associated::associated_bounds_match,
     verifier::BytecodeVerificationError,
 };
 use kagari_common::{
@@ -26,7 +26,7 @@ use kagari_contract::{
     types as abi,
     types::{
         PublicItem,
-        proofs::{ProofCatalog, host_application, implementation::Implementation},
+        proofs::{ProofCatalog, implementation::Implementation},
         verify,
     },
 };
@@ -194,10 +194,6 @@ fn linked_bounds_match(
             .iter()
             .copied()
             .map(Implementation::Interface)
-            .collect(),
-        closure
-            .iter()
-            .flat_map(|module| &module.host_interface.types)
             .collect(),
         closure.iter().flat_map(|module| &module.enumerations),
         declarations.iter().copied(),
@@ -370,14 +366,6 @@ fn linked_bounds_match(
         return Ok(false);
     }
     for import in &module.native_imports {
-        if let Some(host) = &import.host {
-            if !import.structurally_valid(definitions)
-                || !module.host_interface.functions.contains(host)
-            {
-                return Ok(false);
-            }
-            continue;
-        }
         let Some(owner) = closure.iter().find(|owner| {
             definitions
                 .resolve(import.instance.declaration)
@@ -433,23 +421,7 @@ fn linked_bounds_match(
             return Ok(false);
         }
     }
-    for host in closure
-        .iter()
-        .flat_map(|module| &module.host_interface.types)
-    {
-        for implementation in &host.trait_implementations {
-            if !parents_proven(
-                &host_application(implementation),
-                &Ty::Host(host.id),
-                &[],
-                &catalog,
-                closure,
-                &cancel,
-            )? {
-                return Ok(false);
-            }
-        }
-    }
+
     for item in &module.public_items {
         let PublicItem::InterfaceTable(table) = item else {
             continue;
@@ -507,7 +479,7 @@ fn linked_bounds_match(
             return Ok(false);
         }
     }
-    Ok(host_bounds_match(module, closure, &catalog, &cancel)?)
+    Ok(true)
 }
 
 fn parents_proven(

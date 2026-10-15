@@ -8,41 +8,11 @@ use kagari_contract::{
     layout::{LayoutValidationError, validate_layouts},
     types::{inherent::native_signatures_match, verify as abi_verify},
 };
-use kagari_types::{
-    declaration::verify::validate_native_declarations, host_interface::HostInterface,
-};
-use std::{collections::BTreeMap, iter};
+use kagari_types::declaration::verify::validate_native_declarations;
+use std::iter;
 
 pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), MirVerificationError> {
-    let mut functions = BTreeMap::new();
-    for instruction in module
-        .functions
-        .iter()
-        .flat_map(|f| &f.blocks)
-        .flat_map(|b| &b.instructions)
-    {
-        context
-            .cancel
-            .check()
-            .map_err(|_| context.error(Error::Cancelled))?;
-        if let Instruction::Call {
-            callee: CallTarget::Native(import),
-            ..
-        } = instruction
-            && let Some(function) = &import.host
-            && functions
-                .insert(function.id, function.clone())
-                .is_some_and(|previous| !previous.matches_binding(function))
-        {
-            return Err(context.error(Error::InvalidHostInterface));
-        }
-    }
     host::validate(
-        &HostInterface {
-            paths: vec![],
-            types: module.host_types.clone(),
-            functions: functions.into_values().collect(),
-        },
         &module.external_types,
         &module.abi.public_items,
         &module.structures,
@@ -57,10 +27,6 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
         })
     })?;
     if !host::references_present(
-        &HostInterface {
-            types: module.host_types.clone(),
-            ..Default::default()
-        },
         &module.external_types,
         module
             .abi
@@ -168,21 +134,7 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
             _ => Error::InvalidPublicAbi,
         })
     })?;
-    if !host::trait_bindings_match(
-        &HostInterface {
-            types: module.host_types.clone(),
-            ..Default::default()
-        },
-        &module.identity,
-        &module.abi.public_items,
-        &module.abi.trait_contracts,
-        context.cancel,
-        context.definitions,
-    )
-    .map_err(|_| context.error(Error::Cancelled))?
-    {
-        return Err(context.error(Error::InvalidHostInterface));
-    }
+
     if !layout::struct_abi_matches(
         &module.structures,
         &module.identity,

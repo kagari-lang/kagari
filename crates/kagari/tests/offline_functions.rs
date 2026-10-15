@@ -121,7 +121,6 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 module.native_imports[0].instance.declaration,
                 expected[0].declaration
             );
-            assert!(module.native_imports[0].host.is_none());
         } else if module.identity.package.0 == "pkg" {
             assert!(module.native_imports.is_empty());
         } else if module.identity.package.0 == "demo" {
@@ -240,7 +239,6 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
         &artifact.records().program.modules[artifact.records().program.root.index()].native_imports;
     assert_eq!(imports.len(), 1);
     assert_eq!(imports[0].instance.declaration, expected[0].declaration);
-    assert!(imports[0].host.is_none());
     assert!(calls.lock().unwrap().is_empty());
     let artifact =
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())

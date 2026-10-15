@@ -51,9 +51,7 @@ pub(super) fn valid(
                 }
                 CallableImplementation::Native(binding) => {
                     let Some(import) = caller.native_targets.iter().find(|import| {
-                        import.instance == call.instance
-                            && import.binding == *binding
-                            && import.host.is_none()
+                        import.instance == call.instance && import.binding == *binding
                     }) else {
                         return Ok(false);
                     };

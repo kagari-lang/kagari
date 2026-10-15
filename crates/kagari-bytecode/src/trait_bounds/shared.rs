@@ -44,9 +44,7 @@ pub(crate) fn entry(module: &BytecodeModule, target: CallableTarget) -> Option<S
         }
         CallableTarget::Native(target) => {
             let import = module.native_imports.get(target.index())?;
-            if import.host.is_some() {
-                return None;
-            }
+
             SharedEntry {
                 receiver_access: import.receiver_access,
                 identity: &import.instance,

@@ -12,9 +12,8 @@ pub mod substitution;
 pub mod wire;
 
 use crate::{
-    collection::CollectionAccess, host_interface::value_type::HostValueType, range::RangeKind,
-    reference::ReferenceAccess, scalar::BuiltinType, surface::StandardTypeConstraint,
-    ty::substitution::TypeSubstitution,
+    collection::CollectionAccess, range::RangeKind, reference::ReferenceAccess,
+    scalar::BuiltinType, surface::StandardTypeConstraint, ty::substitution::TypeSubstitution,
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use std::collections::BTreeMap;
@@ -156,58 +155,7 @@ pub enum Constraint {
     Trait(NominalTy),
 }
 
-impl Ty {
-    pub fn from_host_type(ty: &HostValueType) -> Self {
-        match ty {
-            HostValueType::Unit => Self::Builtin(BuiltinType::Unit),
-            HostValueType::Bool => Self::Builtin(BuiltinType::Bool),
-            HostValueType::I32 => Self::Builtin(BuiltinType::I32),
-            HostValueType::I64 => Self::Builtin(BuiltinType::I64),
-            HostValueType::F32 => Self::Builtin(BuiltinType::F32),
-            HostValueType::F64 => Self::Builtin(BuiltinType::F64),
-            HostValueType::String => Self::Builtin(BuiltinType::String),
-            HostValueType::Opaque(id) => Self::Host(*id),
-            HostValueType::Tuple(types) => {
-                Self::Tuple(types.iter().map(Self::from_host_type).collect())
-            }
-            HostValueType::Array(ty) => Self::Array(Box::new(Self::from_host_type(ty))),
-            HostValueType::Vec(declaration, item) | HostValueType::List(declaration, item) => {
-                let nominal = NominalTy {
-                    declaration: *declaration,
-                    arguments: vec![Self::from_host_type(item)],
-                    associated_types: Default::default(),
-                };
-                if matches!(ty, HostValueType::Vec(..)) {
-                    Self::NativeObject(nominal)
-                } else {
-                    Self::Trait(nominal)
-                }
-            }
-            HostValueType::Map { key, value, access } => Self::Map {
-                key: Box::new(Self::from_host_type(key)),
-                value: Box::new(Self::from_host_type(value)),
-                access: *access,
-            },
-            HostValueType::Set(ty, access) => {
-                Self::Set(Box::new(Self::from_host_type(ty)), *access)
-            }
-            HostValueType::Option(declaration, ty) => Self::Enum(NominalTy {
-                declaration: *declaration,
-                arguments: vec![Self::from_host_type(ty)],
-                associated_types: Default::default(),
-            }),
-            HostValueType::Result {
-                declaration,
-                ok,
-                error,
-            } => Self::Enum(NominalTy {
-                declaration: *declaration,
-                arguments: vec![Self::from_host_type(ok), Self::from_host_type(error)],
-                associated_types: Default::default(),
-            }),
-        }
-    }
-}
+impl Ty {}
 
 impl Ty {
     pub fn instantiate(&self, owner: &DefinitionId, arguments: &[Ty]) -> Option<Self> {

@@ -28,7 +28,6 @@ use kagari_types::{
         FnDecl, NativeDeclaration, TraitDef,
         verify::{DeclarationValidationError, validate_native_declarations},
     },
-    host_interface::type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
     ty::{
         Constraint, GenericBound, GenericParam, NominalTy, Ty, inheritance,
         substitution::{TypeSubstitution, TypeTransformError},
@@ -48,7 +47,6 @@ const MAX_DEPTH: usize = 64;
 pub struct ProofCatalog<'a> {
     definitions: DefinitionTable,
     implementations: Vec<Implementation<'a>>,
-    hosts: Vec<&'a HostTypeDeclaration>,
     enumerations: BTreeMap<NominalTy, Vec<&'a Ty>>,
     contracts: BTreeMap<DefinitionId, &'a TraitDef>,
     native_declarations: BTreeMap<DefinitionId, &'a NativeDeclaration>,
@@ -113,13 +111,12 @@ impl<'a> ProofCatalog<'a> {
 
     /// Check linked contracts in an immutable, already registered identity scope.
     ///
-    /// Registration must collect implicit method, Host implementation and language
+    /// Registration must collect implicit method, declared implementation and language
     /// names before taking this snapshot. Missing or foreign references reject;
     /// names alone never establish an implementation or a valid declaration.
     /// Cancellation, proof limits and invalid contracts return an error.
     pub fn new(
         implementations: Vec<Implementation<'a>>,
-        hosts: Vec<&'a HostTypeDeclaration>,
         enumerations: impl IntoIterator<Item = &'a EnumLayout>,
         contracts: impl IntoIterator<Item = (DefinitionId, &'a TraitDef)>,
         native_declarations: impl IntoIterator<Item = &'a NativeDeclaration>,
@@ -169,30 +166,6 @@ impl<'a> ProofCatalog<'a> {
             )?;
             copier.apply(implementation.receiver(), cancel)?;
             copier.apply_bounds(implementation.bounds(), definitions, cancel)?;
-        }
-        let mut host_ids = HashSet::new();
-        let mut unique_hosts = Vec::new();
-        for host in hosts {
-            validate_references(host, definitions, cancel)?;
-            if !host_ids.insert(&host.id) {
-                continue;
-            }
-            for (index, implementation) in host.trait_implementations.iter().enumerate() {
-                let occurrence =
-                    u32::try_from(index).map_err(|_| TypeTransformError::LimitExceeded)?;
-                let id = definitions
-                    .lookup_child(host.id, DefinitionKind::Impl, "", occurrence)
-                    .ok_or(TypeTransformError::InvalidContract)?;
-                if !ids.insert(id) {
-                    return Err(TypeTransformError::InvalidContract);
-                }
-                count += 1;
-                if count > MAX_IMPLEMENTATIONS {
-                    return Err(TypeTransformError::LimitExceeded);
-                }
-                copier.apply_nominal(&host_application(implementation), cancel)?;
-            }
-            unique_hosts.push(host);
         }
         let mut payloads = BTreeMap::new();
         for layout in enumerations {
@@ -262,7 +235,6 @@ impl<'a> ProofCatalog<'a> {
         let result = Self {
             definitions: definitions.clone(),
             implementations,
-            hosts: unique_hosts,
             enumerations: payloads,
             contracts: declarations,
             native_declarations: templates,
@@ -342,22 +314,6 @@ impl<'a> ProofCatalog<'a> {
             bound.constraints.extend(additional);
         }
         Ok(expanded)
-    }
-}
-
-pub fn host_application(implementation: &HostTraitImplementationDeclaration) -> NominalTy {
-    NominalTy {
-        declaration: implementation.trait_id,
-        arguments: implementation
-            .trait_arguments
-            .iter()
-            .map(Ty::from_host_type)
-            .collect(),
-        associated_types: implementation
-            .associated_types
-            .iter()
-            .map(|output| (output.declaration, Ty::from_host_type(&output.ty)))
-            .collect(),
     }
 }
 

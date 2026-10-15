@@ -26,10 +26,7 @@ use kagari_contract::{
     slots::wire::SemanticSlotsRecord,
     types::wire::module::{ConcreteFunctionIdentityRecord, ModuleContractRecord},
 };
-use kagari_types::{
-    declaration::wire::declarations::TypeDeclarationRecord,
-    host_interface::wire::declarations::WireHostTypeDeclaration,
-};
+use kagari_types::declaration::wire::declarations::TypeDeclarationRecord;
 use serde::{Deserialize, Serialize};
 
 /// File-local MirModule facts; no verification evidence is serialized.
@@ -41,8 +38,6 @@ pub(crate) struct MirModuleRecord {
     interface_instances: Vec<ConcreteFunctionIdentityRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     external_types: Vec<TypeDeclarationRecord>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    host_types: Vec<WireHostTypeDeclaration>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     dependencies: Vec<ModuleIdentity>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
@@ -82,15 +77,6 @@ impl MirModuleRecord {
                 .external_types
                 .iter()
                 .map(|value| TypeDeclarationRecord::encode(value, encoding, cancel))
-                .collect::<Result<_, _>>()?,
-            host_types: value
-                .host_types
-                .iter()
-                .map(|value| {
-                    Ok::<_, DefinitionMappingError>(WireHostTypeDeclaration::encode(
-                        value, encoding, cancel,
-                    )?)
-                })
                 .collect::<Result<_, _>>()?,
             dependencies: value.dependencies.clone(),
             structures: value
@@ -138,11 +124,6 @@ impl MirModuleRecord {
                 .external_types
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
-                .collect::<Result<_, _>>()?,
-            host_types: self
-                .host_types
-                .into_iter()
-                .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
                 .collect::<Result<_, _>>()?,
             dependencies: self.dependencies,
             structures: self

@@ -319,7 +319,6 @@ pub(super) fn verify_module_with_program(
     )
     .map_err(|_| BytecodeVerificationError::InvalidEnumLayout)?;
     host::validate(
-        &module.host_interface,
         &module.external_types,
         &module.public_items,
         &module.structures,
@@ -329,7 +328,6 @@ pub(super) fn verify_module_with_program(
     )
     .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
     if !host::references_present(
-        &module.host_interface,
         &module.external_types,
         module
             .native_declarations
@@ -366,20 +364,7 @@ pub(super) fn verify_module_with_program(
             "missing external type dependency".into(),
         ));
     }
-    if !host::trait_bindings_match(
-        &module.host_interface,
-        &module.identity,
-        &module.public_items,
-        &module.trait_contracts,
-        &Default::default(),
-        definitions,
-    )
-    .expect("bytecode verification uses an uncancelled token")
-    {
-        return Err(BytecodeVerificationError::InvalidHostInterface(
-            "host trait table disagrees with script trait ABI".into(),
-        ));
-    }
+
     if module.function_table.len() != module.functions.len() {
         return Err(BytecodeVerificationError::FunctionTableLengthMismatch {
             functions: module.functions.len(),
@@ -543,7 +528,6 @@ fn verify_interface_tables(
                         .get(target.index())
                         .ok_or(BytecodeVerificationError::InvalidInterfaceTable)?;
                     if abi.bridge.is_some()
-                        || import.host.is_some()
                         || match &method.implementation {
                             CallableImplementation::Native(binding) => binding != &import.binding,
                             CallableImplementation::NativeDefault(application) => {

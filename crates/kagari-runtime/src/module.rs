@@ -20,7 +20,7 @@ mod tests;
 use crate::{
     cache::ReloadDependencySnapshot,
     error::RuntimeError,
-    host::{HostFunctionId, HostPathDescriptorId, HostRegistryId},
+    host::{HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
     module::{
         execution::ExecutionModule,
@@ -345,14 +345,12 @@ pub struct LinkedModule {
     pub bytecode: Arc<BytecodeModule>,
     registry_owner: HostRegistryId,
     host_types: HashMap<DefinitionId, TypeId>,
-    pub(crate) host_functions: Vec<HostFunctionId>,
     pub(crate) host_paths: Vec<HostPathDescriptorId>,
 }
 
 #[derive(Debug, Default)]
 pub(crate) struct LinkedHostBindings {
     pub types: HashMap<DefinitionId, TypeId>,
-    pub functions: Vec<HostFunctionId>,
     pub native: Vec<Arc<LinkedNativeFunction>>,
     pub paths: Vec<HostPathDescriptorId>,
 }
@@ -722,7 +720,6 @@ impl ModuleStore {
                 };
                 let LinkedHostBindings {
                     types,
-                    functions,
                     native,
                     paths,
                 } = host_bindings;
@@ -734,7 +731,6 @@ impl ModuleStore {
                     bytecode,
                     registry_owner,
                     host_types: types,
-                    host_functions: functions,
                     host_paths: paths,
                 }
             })

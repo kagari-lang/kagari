@@ -42,7 +42,6 @@ use kagari_mir::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::path::HostPathDeclaration,
-    host_interface::HostInterface,
     ty::{NominalTy, Ty},
 };
 use std::{collections::HashMap, slice};
@@ -127,11 +126,6 @@ fn lower_linked_module(
         enumerations: &ir.enumerations,
         identity: Some(&ir.identity),
         ir: Some(ir),
-        host_interface: HostInterface {
-            paths: vec![],
-            types: ir.host_types.clone(),
-            functions: Vec::new(),
-        },
         ..Default::default()
     };
     context.native_imports = ir.native_targets.clone();
@@ -151,7 +145,6 @@ fn lower_linked_module(
         dependencies,
         external_types: ir.external_types.clone(),
         path_declarations: context.path_declarations,
-        host_interface: context.host_interface,
         native_imports: context.native_imports,
         native_declarations: ir.abi.native_declarations.clone(),
         identity: ir.identity.clone(),
@@ -191,7 +184,6 @@ struct BytecodeLoweringContext<'a> {
     identity: Option<&'a ModuleIdentity>,
     ir: Option<&'a VerifiedMirModule>,
     interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>>,
-    host_interface: HostInterface,
     path_declarations: Vec<HostPathDeclaration>,
     native_imports: Vec<NativeImport>,
     paths: Vec<PathRecord>,
@@ -265,15 +257,6 @@ impl BytecodeLoweringContext<'_> {
     }
 
     fn native_import(&mut self, contract: &NativeImport) -> NativeImportId {
-        if let Some(host) = &contract.host
-            && !self
-                .host_interface
-                .functions
-                .iter()
-                .any(|existing| existing.id == host.id)
-        {
-            self.host_interface.functions.push(host.clone());
-        }
         if let Some(index) = self
             .native_imports
             .iter()

@@ -3,11 +3,11 @@
 mod dependencies;
 use crate::{
     error::RuntimeError,
-    host::{HostFunctionId, HostPathAdapter},
+    host::HostPathAdapter,
     metadata::native::MetadataSnapshot,
     module::VerifiedProgram,
     native::{
-        binding::{Codec, LinkedNativeFunction, NativeBinding, NativeResult},
+        binding::{LinkedNativeFunction, NativeBinding, NativeResult},
         catalog::{DeclarationCatalog, import::CatalogImports},
         context::{CallableOwner, LinkedCallable, LinkedOperation},
         result::LinkedResultAdapter,
@@ -75,31 +75,6 @@ impl BindingRegistration {
             required_catalog,
         })
     }
-}
-
-pub(crate) fn link_host(
-    import: &NativeImport,
-    binding: HostFunctionId,
-) -> Arc<LinkedNativeFunction> {
-    let signature = import.signature.clone();
-    let entry = NativeBinding::new(
-        vec![Codec::Value; signature.params.len()],
-        Codec::Value,
-        move |context| {
-            let arguments = (0..context.arguments.len())
-                .map(|slot| context.argument(slot))
-                .collect::<NativeResult<Vec<_>>>()?;
-            context.runtime.invoke_bound_host(binding, &arguments)
-        },
-    );
-    Arc::new(LinkedNativeFunction {
-        declaration: import.instance.declaration,
-        binding: entry,
-        signature,
-        prepared_signature: Default::default(),
-        selected: Box::new([]),
-        result_adapter: None,
-    })
 }
 
 #[derive(Debug, Clone)]

@@ -29,7 +29,6 @@ impl HostRegistry {
                 "host linking requires the runtime definition context",
             ));
         }
-        let functions = self.link_interface(&module.host_interface, definitions)?;
         for (required, contract) in module
             .path_contracts(definitions)
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?
@@ -52,16 +51,7 @@ impl HostRegistry {
                 ));
             }
         }
-        let mut host_types = module
-            .host_interface
-            .types
-            .iter()
-            .map(|required| {
-                self.host_type_by_declaration(&required.id)
-                    .map(|host| (required.id, host.type_id))
-                    .ok_or_else(|| RuntimeError::module_validation("linked host type is absent"))
-            })
-            .collect::<Result<HashMap<_, _>, _>>()?;
+        let mut host_types = HashMap::new();
         for required in &module.external_types {
             let id = types
                 .external_type(required)
@@ -92,13 +82,9 @@ impl HostRegistry {
                         "required path contract has ambiguous bindings",
                     ));
                 }
-                let result = self
-                    .host_type(actual.result_type)
-                    .map(|ty| Ty::Host(ty.declaration.id))
-                    .or_else(|| types.path_value_type(actual.result_type))
-                    .ok_or_else(|| {
-                        RuntimeError::typed_path_validation("missing path result contract")
-                    })?;
+                let result = types.path_value_type(actual.result_type).ok_or_else(|| {
+                    RuntimeError::typed_path_validation("missing path result contract")
+                })?;
                 if required.root_ty != ValueType::HostHandle
                     || required.result_ty != semantic_representation(&result)
                     || (!required.read_only && actual.access != PathAccess::ReadWrite)
@@ -139,13 +125,9 @@ impl HostRegistry {
                     ));
                 }
                 for (argument, parameter) in args.iter().zip(&descriptor.dynamic_parameters) {
-                    let expected = self
-                        .host_type(parameter.ty)
-                        .map(|ty| Ty::Host(ty.declaration.id))
-                        .or_else(|| types.path_value_type(parameter.ty))
-                        .ok_or_else(|| {
-                            RuntimeError::typed_path_validation("missing path parameter contract")
-                        })?;
+                    let expected = types.path_value_type(parameter.ty).ok_or_else(|| {
+                        RuntimeError::typed_path_validation("missing path parameter contract")
+                    })?;
                     if function.metadata.registers.get(argument.index()).copied()
                         != Some(semantic_representation(&expected))
                     {
@@ -158,7 +140,6 @@ impl HostRegistry {
         }
         Ok(LinkedHostBindings {
             types: host_types,
-            functions,
             paths,
             native: vec![],
         })
@@ -169,15 +150,8 @@ impl HostRegistry {
         declaration: &HostPathDeclaration,
         types: &TypeRegistry,
     ) -> Result<HostPathContract, RuntimeError> {
-        let mut schemas = types.external_declarations();
-        schemas.extend(
-            self.interface()
-                .records()
-                .path_types(&self.definitions())
-                .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?,
-        );
         declaration
-            .contract(&schemas, &self.definitions())
+            .contract(&types.external_declarations(), &self.definitions())
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))
     }
 

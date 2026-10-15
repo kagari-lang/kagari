@@ -139,7 +139,6 @@ impl InstancePlanner<'_> {
             requirements,
             instance,
             binding: *binding,
-            host: None,
             callables: vec![],
         };
         Ok(import)

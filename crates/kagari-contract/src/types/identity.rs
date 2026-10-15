@@ -7,16 +7,13 @@ use kagari_common::{
     },
 };
 
-use kagari_types::{
-    host_interface::type_declaration::HostTypeDeclaration,
-    language::{self, Protocol, binding},
-};
+use kagari_types::language::{self, Protocol, binding};
 
 /// Register implicit ABI names without granting declaration or execution authority.
 ///
 /// Callers must validate all input references against their original context prefix
 /// before collecting names for any module in a batch. This operation appends module,
-/// public item, method, Host implementation and language identities; existing IDs
+/// public item, method, implementation and language identities; existing IDs
 /// remain unchanged. A marker trait
 /// with no identity-bearing members still receives its named declaration identity.
 ///
@@ -26,7 +23,6 @@ pub fn collect(
     module: &ModuleIdentity,
     items: &[PublicItem],
     contracts: &[TraitContract],
-    hosts: &[HostTypeDeclaration],
     context: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<(), DefinitionMappingError> {
@@ -76,16 +72,7 @@ pub fn collect(
             )?;
         }
     }
-    for host in hosts {
-        for (index, _) in host.trait_implementations.iter().enumerate() {
-            cancel
-                .check()
-                .map_err(|_| DefinitionMappingError::Cancelled)?;
-            let occurrence =
-                u32::try_from(index).map_err(|_| DefinitionMappingError::LimitExceeded)?;
-            context.intern_child(host.id, DefinitionKind::Impl, "", occurrence)?;
-        }
-    }
+
     Ok(())
 }
 

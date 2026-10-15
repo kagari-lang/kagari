@@ -303,7 +303,6 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     let mir = MirModule {
         native_targets: planner.native_targets,
         interface_instances: planner.interface_instances,
-        host_types: Vec::new(),
         external_types,
         dependencies: module.names.imports.dependencies.clone(),
         structures,
@@ -318,7 +317,6 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         &mir.identity,
         &mir.abi.public_items,
         &mir.abi.trait_contracts,
-        &mir.host_types,
         context,
         &options.cancel,
     )?;

@@ -885,13 +885,14 @@ The following artifact and implementation details are not fixed by this document
 
 These details are finalized as the typed IR, host path metadata, VM frame model, and module reload model stabilize.
 
-Host calls use CallTarget::HostFunction(HostImportId). Each import indexes a
-complete offline declaration in BytecodeModule.host_interface. IR and bytecode
-verification check declaration validity, argument count and physical argument and
-result types; conflicting IR contracts cannot collapse into one import. The
-loader resolves identities to registry-owned function slots. Execution does not
-look up a host call by its diagnostic label and still checks declared effects and cancellation at the call boundary. Scalar callback arguments/results are checked
-against the declaration; nominal opaque-object type validation remains pending.
+Host calls use `CallTarget::Native(NativeImportId)` and the same ordinary native
+import/declaration contract as standard and application callbacks. Verification
+checks exact declaration identity, concrete arguments, callable requirements,
+receiver access and semantic/physical signatures. External `TypeDeclaration`
+schemas and explicit path requirements accompany the module. Loading checks them
+against installed common modules and pins the selected entries to the loaded
+version; diagnostic labels never select callbacks. Invocation retains effect,
+cancellation, roots, scoped borrow and result validation.
 
 `VerifiedProgram` checks a complete bytecode dependency closure before splitting
 its modules into shared immutable code handles. Separate runtimes can link the

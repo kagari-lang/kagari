@@ -9,7 +9,6 @@ use kagari_contract::types::PublicItem;
 use kagari_hir::types::semantic::{lower_type, raise_type};
 use kagari_types::{
     collection::CollectionAccess::{Mutable, ReadOnly},
-    host_interface::value_type::HostValueType,
     scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty, identity::PortableTypes},
 };
@@ -286,7 +285,7 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
 }
 
 #[test]
-fn collection_access_survives_checked_host_and_wire_conversions() {
+fn collection_access_survives_checked_and_wire_conversions() {
     let context = DefinitionContext::new().unwrap();
 
     let integer = Ty::Builtin(BuiltinType::I32);
@@ -316,21 +315,8 @@ fn collection_access_survives_checked_host_and_wire_conversions() {
                 .unwrap();
             assert_eq!(decoded.types, [ty]);
         }
-        for host in [
-            HostValueType::Set(Box::new(HostValueType::String), access),
-            HostValueType::Map {
-                key: Box::new(HostValueType::String),
-                value: Box::new(HostValueType::Array(Box::new(HostValueType::I32))),
-                access,
-            },
-        ] {
-            assert_eq!(
-                raise_type(&Ty::from_host_type(&host)).collection_access(),
-                Some(access)
-            );
-        }
     }
-    let array = Ty::from_host_type(&HostValueType::Array(Box::new(HostValueType::I32)));
+    let array = Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)));
     assert_eq!(raise_type(&array).collection_access(), None);
     assert_eq!(lower_type(&raise_type(&array)), array);
     assert_eq!(

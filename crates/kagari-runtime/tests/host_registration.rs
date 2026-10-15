@@ -160,7 +160,6 @@ fn registers_host_function_metadata_and_invokes_handler() {
     let registered = &loaded.bytecode.native_declarations[0];
     assert_eq!(registered.function.name, "heal");
     assert_eq!(registered.function.host_policy.as_ref(), Some(&policy));
-    assert!(loaded.bytecode.native_imports[0].host.is_none());
     let identity = loaded
         .definitions()
         .resolve(registered.declaration)

@@ -5,7 +5,6 @@ use crate::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind, host::function_policy_valid,
     },
     decode_limits::MAX_NESTED_RECORDS,
-    host_interface::validate_host_type_identity,
     language::Protocol,
     range::RangeKind,
     scalar::BuiltinType,
@@ -644,7 +643,14 @@ pub fn type_valid(
             }
             Ty::Builtin(_) => {}
             Ty::Host(id) => {
-                if validate_host_type_identity(id, table).is_err() {
+                if !table.resolve(*id).is_ok_and(|view| {
+                    !view.module().package.0.is_empty()
+                        && !view.module().path.iter().any(String::is_empty)
+                        && !view.segments().any(|part| part.name.is_empty())
+                        && view
+                            .last()
+                            .is_some_and(|part| part.kind == DefinitionKind::Struct)
+                }) {
                     return false;
                 }
             }

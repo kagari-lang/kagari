@@ -6,7 +6,6 @@ use crate::{
         LinkedHostBindings, LoadedModule, ModuleEpochRetention, ModuleKey, VerifiedProgram,
         retention::ProgramLease, staging::StagedProgram,
     },
-    native::registry::link_host,
     reload::{
         ModuleEpoch, ReloadValidationError, validate_reload_artifact_candidate,
         validate_reload_candidate, validate_verified_reload_candidate,
@@ -63,24 +62,7 @@ impl Runtime {
         bindings.native = module
             .native_imports
             .iter()
-            .map(|import| {
-                if let Some(required) = &import.host {
-                    let slot = module
-                        .host_interface
-                        .functions
-                        .iter()
-                        .position(|host| host == required)
-                        .ok_or_else(|| {
-                            RuntimeError::module_validation("missing host authority contract")
-                        })?;
-                    let binding = *bindings.functions.get(slot).ok_or_else(|| {
-                        RuntimeError::module_validation("missing host native entry")
-                    })?;
-                    Ok(link_host(import, binding))
-                } else {
-                    self.native_entries.link(import, program)
-                }
-            })
+            .map(|import| self.native_entries.link(import, program))
             .collect::<Result<_, _>>()?;
         Ok(bindings)
     }
@@ -290,7 +272,7 @@ impl Runtime {
             let current = self
                 .link_native_module(module, &program)
                 .map_err(ReloadValidationError::Runtime)?;
-            if current.functions != prepared.functions || current.paths != prepared.paths {
+            if current.paths != prepared.paths {
                 return Err(ReloadValidationError::Runtime(
                     RuntimeError::module_validation(
                         "host bindings changed after reload preparation",
@@ -369,7 +351,7 @@ impl Runtime {
             let current = self
                 .link_native_module(&member.bytecode, member.verified_program())
                 .map_err(ReloadValidationError::Runtime)?;
-            if current.functions != member.host_functions || current.paths != member.host_paths {
+            if current.paths != member.host_paths {
                 return Err(ReloadValidationError::Runtime(
                     RuntimeError::module_validation(
                         "host bindings changed during candidate initialization",

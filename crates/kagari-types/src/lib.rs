@@ -5,7 +5,6 @@ pub mod collection;
 pub mod conversion;
 pub mod declaration;
 pub mod decode_limits;
-pub mod host_interface;
 pub mod integer;
 pub mod language;
 pub mod numeric;

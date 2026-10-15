@@ -112,7 +112,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         requirements: vec![],
         callables: vec![],
-        host: None,
     };
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {

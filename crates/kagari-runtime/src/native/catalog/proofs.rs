@@ -19,7 +19,6 @@ impl DeclarationCatalog {
                     implementation,
                 })
                 .collect(),
-            vec![],
             [],
             self.traits.entries(),
             self.declarations.values(),

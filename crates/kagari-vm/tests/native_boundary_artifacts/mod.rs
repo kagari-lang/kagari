@@ -98,7 +98,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
     assert!(
         imports
             .iter()
-            .all(|import| import.host.is_none() && import.structurally_valid(&definitions))
+            .all(|import| import.structurally_valid(&definitions))
     );
     let decoded = round_trip_program(
         DefinitionMetadata::checked(definitions.clone(), program.clone(), &Default::default())

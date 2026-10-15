@@ -25,7 +25,6 @@ use kagari_common::{
 use kagari_contract::{
     contracts,
     exports::{ProgramExports, entry_function_matches, public_function_matches},
-    host,
     host::external::bindings_match as external_bindings_match,
     layout::LayoutValidationError,
     representation::semantic_representation,
@@ -34,8 +33,6 @@ use kagari_contract::{
 };
 use kagari_types::{
     declaration::TypeDefKind,
-    host_interface::HostInterface,
-    language::Protocol,
     ty::{Ty, inheritance, substitution::TypeTransformError},
 };
 use std::collections::{HashMap, HashSet};
@@ -384,49 +381,6 @@ pub fn verify_program(
                 },
             )
         })?;
-        let host_interface = HostInterface {
-            types: module.host_types.clone(),
-            ..Default::default()
-        };
-        for implementation in host_interface
-            .types
-            .iter()
-            .flat_map(|host| &host.trait_implementations)
-        {
-            let id = &implementation.trait_id;
-            let owner = indices.get(
-                definitions
-                    .resolve(*id)
-                    .map_err(|_| error(&module.identity, ProgramErrorKind::InvalidGraph))?
-                    .module(),
-            );
-            if Protocol::from_definition(id, &definitions).is_some()
-                && !owner.is_some_and(|owner| *owner == index || dependencies.contains(owner))
-            {
-                return Err(error(
-                    &module.identity,
-                    ProgramErrorKind::InterfaceContract(path(*id)),
-                ));
-            }
-            if let Some(owner) = owner {
-                let owner = &modules[*owner];
-                if !host::trait_bindings_match(
-                    &host_interface,
-                    &owner.identity,
-                    &owner.abi.public_items,
-                    &owner.abi.trait_contracts,
-                    cancel,
-                    &definitions,
-                )
-                .map_err(|_| error(&module.identity, ProgramErrorKind::Cancelled))?
-                {
-                    return Err(error(
-                        &module.identity,
-                        ProgramErrorKind::InterfaceContract(path(*id)),
-                    ));
-                }
-            }
-        }
         for request in &module.interface_instances {
             let valid = indices
                 .get(

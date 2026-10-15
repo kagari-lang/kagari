@@ -1,10 +1,6 @@
 use crate::{module::BytecodeModule, trait_bounds::contract};
 use kagari_common::cancellation::CancellationToken;
-use kagari_contract::types::{
-    InterfaceTable,
-    proofs::{ProofCatalog, host_application},
-    type_contract,
-};
+use kagari_contract::types::{InterfaceTable, proofs::ProofCatalog, type_contract};
 use kagari_types::{
     declaration::TypeDefKind,
     declaration::{TraitDef, applications::ApplicationValidator},
@@ -196,79 +192,6 @@ pub(super) fn associated_bounds_match(
             .collect::<Result<Vec<_>, TypeTransformError>>()?;
         if !catalog.constraints_hold(&actual, &constraints, &available, cancel)? {
             return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-pub(super) fn host_bounds_match(
-    module: &BytecodeModule,
-    closure: &[&BytecodeModule],
-    catalog: &ProofCatalog<'_>,
-    cancel: &CancellationToken,
-) -> Result<bool, TypeTransformError> {
-    for host in &module.host_interface.types {
-        for implementation in &host.trait_implementations {
-            if !closure.iter().any(|member| {
-                catalog
-                    .definitions()
-                    .resolve(implementation.trait_id)
-                    .is_ok_and(|view| view.module() == &member.identity)
-            }) {
-                continue;
-            }
-            let Some(record) = contract(&implementation.trait_id, closure, catalog.definitions())
-            else {
-                return Ok(false);
-            };
-            let applied = host_application(implementation);
-            let receiver = Ty::Host(host.id);
-            let mut substitution = TypeSubstitution::default();
-            substitution.bind_receiver(&applied.declaration, &receiver);
-            for (parameter, actual) in record.generic_params.iter().zip(&applied.arguments) {
-                substitution.bind(&parameter.owner, parameter.position, actual);
-            }
-            let mut obligations = record.bounds.clone();
-            for member in &record.associated_types {
-                let Some(actual) = applied.associated_types.get(&member.declaration) else {
-                    return Ok(false);
-                };
-                obligations.push(GenericBound {
-                    ty: actual.clone(),
-                    constraints: member.bounds.clone(),
-                });
-            }
-            let normalize = |ty: &Ty| {
-                let ty = resolve_associated_outputs(
-                    ty,
-                    &applied,
-                    &Ty::SelfType(applied.declaration),
-                    cancel,
-                )?;
-                catalog.normalize(&substitution.apply(&ty, cancel)?, cancel)
-            };
-            for bound in obligations {
-                let actual = normalize(&bound.ty)?;
-                for constraint in bound.constraints {
-                    let proven = match constraint {
-                        Constraint::Standard(required) => catalog.constraints_hold(
-                            &actual,
-                            &[Constraint::Standard(required)],
-                            &[],
-                            cancel,
-                        )?,
-                        Constraint::Trait(required) => {
-                            let Ty::Trait(required) = normalize(&Ty::Trait(required))? else {
-                                return Ok(false);
-                            };
-                            catalog.implementation_count(&required, &actual, &[], cancel)? == 1
-                        }
-                    };
-                    if !proven {
-                        return Ok(false);
-                    }
-                }
-            }
         }
     }
     Ok(true)

@@ -51,10 +51,6 @@ pub(super) fn catalog<'a>(
                 (table.bridge.is_none()).then_some(Implementation::Interface(table.as_ref()))
             })
             .collect(),
-        modules
-            .iter()
-            .flat_map(|module| &module.host_types)
-            .collect(),
         modules.iter().flat_map(|module| &module.enumerations),
         contracts,
         modules

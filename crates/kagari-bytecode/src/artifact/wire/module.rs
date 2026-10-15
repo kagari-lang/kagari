@@ -23,12 +23,9 @@ use kagari_contract::{
     native_import::wire::NativeImportRecord,
     types::wire::{PublicItemRecord, module::TraitContractRecord},
 };
-use kagari_types::{
-    declaration::wire::{
-        declarations::TypeDeclarationRecord, native::NativeDeclarationRecord,
-        path::PathDeclarationRecord,
-    },
-    host_interface::wire::HostInterfaceRecord,
+use kagari_types::declaration::wire::{
+    declarations::TypeDeclarationRecord, native::NativeDeclarationRecord,
+    path::PathDeclarationRecord,
 };
 use serde::{Deserialize, Serialize};
 
@@ -90,7 +87,6 @@ pub(in crate::artifact) struct BytecodeModuleRecord {
     external_types: Vec<TypeDeclarationRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     path_declarations: Vec<PathDeclarationRecord>,
-    host_interface: HostInterfaceRecord,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     native_imports: Vec<NativeImportRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
@@ -139,7 +135,6 @@ impl BytecodeModuleRecord {
                 .iter()
                 .map(|value| TypeDeclarationRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
-            host_interface: HostInterfaceRecord::encode(&value.host_interface, encoding, cancel)?,
             path_declarations: value
                 .path_declarations
                 .iter()
@@ -219,7 +214,6 @@ impl BytecodeModuleRecord {
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
-            host_interface: self.host_interface.decode(decoding, cancel)?,
             path_declarations: self
                 .path_declarations
                 .into_iter()

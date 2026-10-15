@@ -3,12 +3,11 @@ use crate::{
     error::RuntimeError,
     gc::GcHeap,
     host::{
-        DynamicPathArgSlot, DynamicPathArguments, HostBorrowTable, HostCallContext, HostFunction,
-        HostFunctionId, HostObjectId, HostPathAdapter, HostPathContext, HostPathDescriptor,
-        HostPathDescriptorId, HostPathDescriptorRegistration, HostPathMutationRecord,
-        HostPathOperation, HostPathSegment, HostPathViewHandle, HostRegistry, HostRegistryId,
-        HostRootHandle, HostSchemaEpoch, HostTypeInfo, RegisteredHostType, apply_path_modify,
-        dynamic_args_for_descriptor, path_access_allows, path_scope_error,
+        DynamicPathArgSlot, DynamicPathArguments, HostBorrowTable, HostCallContext, HostObjectId,
+        HostPathAdapter, HostPathContext, HostPathDescriptor, HostPathDescriptorId,
+        HostPathDescriptorRegistration, HostPathMutationRecord, HostPathOperation, HostPathSegment,
+        HostPathViewHandle, HostRegistry, HostRegistryId, HostRootHandle, HostSchemaEpoch,
+        apply_path_modify, dynamic_args_for_descriptor, path_access_allows, path_scope_error,
         validate_dynamic_arguments, validate_path_access,
     },
     metadata::{TypeId, TypeRegistry},
@@ -27,10 +26,9 @@ use kagari_common::{
 
 use kagari_types::{
     declaration::{
-        host::{HostTypeOwnership, HostTypePolicy, PathAccess},
+        host::{HostTypeOwnership, PathAccess},
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
-    host_interface::{self, HostInterface, HostInterfaceError},
     ty::Ty,
     visibility::Visibility,
 };
@@ -48,11 +46,6 @@ impl HostRegistry {
             definitions,
             owner: HostRegistryId::default(),
             next_path_descriptor_id: 0,
-            functions: Vec::new(),
-            function_names: Default::default(),
-            function_declarations: Default::default(),
-            types: Default::default(),
-            type_names: Default::default(),
             type_declarations: Default::default(),
             registered_types: Default::default(),
             roots: Default::default(),
@@ -60,10 +53,6 @@ impl HostRegistry {
             path_adapters: Default::default(),
             dirty_paths: Default::default(),
         }
-    }
-
-    pub(crate) fn definition_context(&self) -> &DefinitionContext {
-        &self.definitions
     }
 
     pub fn definitions(&self) -> DefinitionTable {
@@ -85,260 +74,6 @@ impl HostRegistry {
 
     pub(crate) fn owner(&self) -> HostRegistryId {
         self.owner
-    }
-
-    pub fn bound_function(&self, id: HostFunctionId) -> Option<&HostFunction> {
-        (id.owner == self.owner)
-            .then(|| self.functions.get(id.slot))
-            .flatten()
-    }
-
-    pub fn register(&mut self, mut function: HostFunction) -> Result<HostFunctionId, RuntimeError> {
-        let cancel = CancellationToken::default();
-        let input =
-            DefinitionMetadata::checked(function.definitions, function.declaration, &cancel)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        let adopted = if input.definitions().id() == self.definitions().id() {
-            input
-        } else {
-            input
-                .import_into(&self.definitions, &cancel)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
-        };
-        (function.definitions, function.declaration) = adopted.into_parts();
-        let definitions = self.definitions();
-        function
-            .declaration
-            .validate(&definitions)
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        if let Some(owner) = function.declaration.method_owner(&definitions) {
-            let ty = self.host_type_by_declaration(&owner).ok_or_else(|| {
-                RuntimeError::metadata_conflict("host method owner is not registered")
-            })?;
-            let required = ty
-                .declaration
-                .method_contract(&function.declaration.id, &definitions)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-            if !required.matches_binding(&function.declaration) {
-                return Err(RuntimeError::metadata_conflict(
-                    "host method binding differs from its member declaration",
-                ));
-            }
-        }
-        let symbol = function.declaration.symbol.to_owned();
-        if self.function_names.contains_key(&symbol)
-            || self
-                .functions
-                .iter()
-                .any(|existing| existing.declaration.id == function.declaration.id)
-        {
-            return Err(RuntimeError::metadata_conflict(symbol));
-        }
-        let id = HostFunctionId {
-            owner: self.owner,
-            slot: self.functions.len(),
-        };
-        function.assign_id(id);
-        self.function_names.insert(symbol, id);
-        self.function_declarations
-            .insert(function.declaration.id, id);
-        self.functions.push(function);
-        Ok(id)
-    }
-
-    pub fn interface(&self) -> DefinitionMetadata<HostInterface> {
-        let definitions = self.definitions();
-        let mut paths = Vec::new();
-        for declaration in self.path_descriptors().map(|path| &path.declaration) {
-            if !paths.contains(declaration) {
-                paths.push(declaration.clone());
-            }
-        }
-        let mut functions = self
-            .functions
-            .iter()
-            .map(|f| f.declaration.clone())
-            .collect::<Vec<_>>();
-        functions.sort_by(|a, b| {
-            definitions
-                .compare(a.id, b.id)
-                .expect("registered definition")
-        });
-        let mut types = self
-            .types
-            .values()
-            .map(|info| info.declaration.clone())
-            .collect::<Vec<_>>();
-        types.sort_by(|a, b| {
-            definitions
-                .compare(a.id, b.id)
-                .expect("registered definition")
-        });
-        DefinitionMetadata::checked(
-            definitions,
-            HostInterface {
-                paths,
-                types,
-                functions,
-            },
-            &CancellationToken::default(),
-        )
-        .expect("registered interface scope")
-    }
-
-    /// Checks scoped declarations without invoking callbacks or publishing bindings.
-    /// Foreign identities are imported into this registry before binding comparison.
-    pub fn link_interface(
-        &self,
-        interface: &HostInterface,
-        source: &DefinitionTable,
-    ) -> Result<Vec<HostFunctionId>, RuntimeError> {
-        interface
-            .validate(source)
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        let adopted;
-        let definitions = self.definitions();
-        let interface = if source.id() == definitions.id() {
-            interface
-        } else {
-            adopted = DefinitionMetadata::checked(
-                source.clone(),
-                interface.clone(),
-                &CancellationToken::default(),
-            )
-            .and_then(|input| input.import_into(&self.definitions, &CancellationToken::default()))
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-            adopted.records()
-        };
-        let definitions = self.definitions();
-        for required in &interface.paths {
-            let fingerprint = interface
-                .path_contract(required, &definitions)
-                .and_then(|contract| {
-                    contract
-                        .fingerprint(&definitions)
-                        .map_err(|_| HostInterfaceError::InvalidDeclaration)
-                })
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-            if self
-                .path_descriptors()
-                .filter(|path| {
-                    path.abi_fingerprint.0 == fingerprint && &path.declaration == required
-                })
-                .count()
-                != 1
-            {
-                return Err(RuntimeError::typed_path_validation(
-                    "required host path has missing or ambiguous bindings",
-                ));
-            }
-        }
-        for required in &interface.types {
-            let actual = self.host_type_by_declaration(&required.id).ok_or_else(|| {
-                RuntimeError::metadata_conflict(format!(
-                    "missing host type binding `{}`",
-                    required.symbol
-                ))
-            })?;
-            if !required.matches_binding(&actual.declaration) {
-                return Err(RuntimeError::metadata_conflict(format!(
-                    "host type binding `{}` differs from its declaration",
-                    required.symbol
-                )));
-            }
-            for implementation in &required.trait_implementations {
-                for method in &implementation.methods {
-                    let bound = self
-                        .function_declarations
-                        .get(&method.host_method)
-                        .and_then(|id| self.bound_function(*id))
-                        .ok_or_else(|| {
-                            RuntimeError::metadata_conflict(format!(
-                                "missing host trait method binding `{}`",
-                                definitions
-                                    .resolve(method.host_method)
-                                    .ok()
-                                    .and_then(|view| view.last().map(|part| part.name))
-                                    .unwrap_or("")
-                            ))
-                        })?;
-                    let declared = actual
-                        .declaration
-                        .method_contract(&method.host_method, &definitions)
-                        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-                    if !declared.matches_binding(&bound.declaration) {
-                        return Err(RuntimeError::metadata_conflict(
-                            "host trait method binding differs from its declaration",
-                        ));
-                    }
-                }
-            }
-        }
-        interface
-            .functions
-            .iter()
-            .map(|required| {
-                let bound = self
-                    .function_declarations
-                    .get(&required.id)
-                    .and_then(|id| self.bound_function(*id))
-                    .ok_or_else(|| {
-                        RuntimeError::metadata_conflict(format!(
-                            "missing host binding `{}`",
-                            required.symbol
-                        ))
-                    })?;
-                if !required.matches_binding(&bound.declaration) {
-                    return Err(RuntimeError::metadata_conflict(format!(
-                        "host binding `{}` differs from its declaration",
-                        required.symbol
-                    )));
-                }
-                bound
-                    .id
-                    .ok_or_else(|| RuntimeError::metadata_conflict("unregistered host binding"))
-            })
-            .collect()
-    }
-
-    pub(crate) fn install_types(&mut self, bindings: Vec<HostTypeInfo>) {
-        for info in bindings {
-            self.registered_types.insert(
-                info.type_id,
-                RegisteredHostType {
-                    policy: HostTypePolicy {
-                        ownership: info.declaration.ownership,
-                        reflection: info.declaration.reflection,
-                        path_access: info.declaration.path_access,
-                    },
-                    abi_fingerprint: info.abi_fingerprint,
-                },
-            );
-            self.type_names
-                .insert(info.declaration.symbol.clone(), info.type_id);
-            self.type_declarations
-                .insert(info.declaration.id, info.type_id);
-            self.types.insert(info.type_id, info);
-        }
-    }
-
-    pub(crate) fn validate_type_identity(
-        &self,
-        declaration: &DefinitionId,
-        symbol: &str,
-    ) -> Result<(), RuntimeError> {
-        host_interface::validate_host_type_identity(declaration, &self.definitions())
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        if symbol.is_empty()
-            || symbol.split('.').any(str::is_empty)
-            || self.type_declarations.contains_key(declaration)
-            || self.type_names.contains_key(symbol)
-        {
-            return Err(RuntimeError::metadata_conflict(
-                "invalid or duplicate host type declaration",
-            ));
-        }
-        Ok(())
     }
 
     pub(super) fn matches_type(&self, type_id: TypeId, declaration: &DefinitionId) -> bool {
@@ -1019,32 +754,5 @@ impl HostRegistry {
             prepared.commit();
             dirty.push(record);
         })
-    }
-
-    pub fn function(&self, symbol: &str) -> Option<&HostFunction> {
-        self.function_names
-            .get(symbol)
-            .and_then(|id| self.bound_function(*id))
-    }
-
-    pub fn functions(&self) -> impl Iterator<Item = &HostFunction> {
-        self.functions.iter()
-    }
-
-    pub fn host_type(&self, type_id: TypeId) -> Option<&HostTypeInfo> {
-        self.types.get(&type_id)
-    }
-
-    pub fn host_type_by_declaration(&self, declaration: &DefinitionId) -> Option<&HostTypeInfo> {
-        self.types.get(self.type_declarations.get(declaration)?)
-    }
-
-    pub fn host_type_by_name(&self, script_name: &str) -> Option<&HostTypeInfo> {
-        let type_id = self.type_names.get(script_name)?;
-        self.types.get(type_id)
-    }
-
-    pub fn host_types(&self) -> impl Iterator<Item = &HostTypeInfo> {
-        self.types.values()
     }
 }

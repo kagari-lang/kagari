@@ -60,7 +60,6 @@ pub fn free_function_program(
                 },
                 requirements: vec![],
                 callables: vec![],
-                host: None,
             }
         })
         .collect();

@@ -152,7 +152,6 @@ impl Fixture {
     fn catalog(&self) -> Result<ProofCatalog<'_>, TypeTransformError> {
         ProofCatalog::new(
             vec![(&self.table).into()],
-            vec![],
             [],
             [(self.owner, &self.contract)],
             [&self.template],
@@ -612,7 +611,6 @@ fn registered_impl_inherits_the_same_checked_default_as_an_executable_table() {
             declaration: &fixture.table.declaration,
             implementation: &native,
         }],
-        vec![],
         [],
         [(fixture.owner, &fixture.contract)],
         [&fixture.template],
@@ -659,7 +657,6 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
                 implementation: &native,
             },
         ],
-        vec![],
         [],
         [(fixture.owner, &fixture.contract)],
         [&fixture.template],
@@ -764,7 +761,6 @@ fn hidden_associated_arguments_are_rechecked_against_linked_contracts() {
         ));
         let catalog = ProofCatalog::new(
             vec![(&fixture.table).into(), (&output_table).into()],
-            vec![],
             [],
             [
                 (fixture.owner, &fixture.contract),
@@ -814,7 +810,6 @@ fn unspecified_associated_output_proves_only_its_own_projection() {
         .unwrap();
     let other = identity(&fixture.context, DefinitionKind::Trait, "Other");
     let catalog = ProofCatalog::new(
-        vec![],
         vec![],
         [],
         [(fixture.owner, &contract)],

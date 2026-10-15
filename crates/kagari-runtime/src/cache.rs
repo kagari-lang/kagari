@@ -33,7 +33,6 @@ pub struct ReloadDependencySnapshot {
     pub public_abi_fingerprints: Vec<PublicAbiFingerprint>,
     pub typed_path_fingerprints: Vec<PathDescriptorFingerprint>,
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
-    pub host_interface_fingerprint: ArtifactFingerprint,
     pub runtime_helper_abi_version: String,
 }
 
@@ -45,8 +44,6 @@ impl ReloadDependencySnapshot {
         let mut snapshot =
             Self::from_bytecode(&program.modules[program.root.index()], definitions)?;
         snapshot.module_fingerprint = ArtifactFingerprint::of_program(program, definitions)?;
-        snapshot.host_interface_fingerprint =
-            ArtifactFingerprint::of_program_hosts(program, definitions)?;
         snapshot.dependency_fingerprints = program.dependency_fingerprints(definitions)?;
         Ok(snapshot)
     }
@@ -60,10 +57,6 @@ impl ReloadDependencySnapshot {
             public_abi_fingerprints: public_abi_fingerprints_for_module(module, definitions)?,
             typed_path_fingerprints: path_fingerprints_for_module(module),
             dependency_fingerprints: Vec::new(),
-            host_interface_fingerprint: ArtifactFingerprint::of_host_interface(
-                &module.host_interface,
-                definitions,
-            )?,
             runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
         })
     }

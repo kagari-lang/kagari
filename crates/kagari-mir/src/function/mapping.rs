@@ -25,7 +25,6 @@ impl RemapDefinitions for MirModule {
             external_types: map_sequence(&self.external_types, |value| {
                 value.remap_definitions(mapper)
             })?,
-            host_types: map_sequence(&self.host_types, |value| (value).remap_definitions(mapper))?,
             dependencies: self.dependencies.clone(),
             structures: map_sequence(&self.structures, |value| (value).remap_definitions(mapper))?,
             enumerations: map_sequence(&self.enumerations, |value| {
@@ -56,9 +55,7 @@ impl DefinitionReferences for MirModule {
         for value0 in &self.interface_instances {
             (value0).visit_definition_ids(visit, cancel)?;
         }
-        for value0 in &self.host_types {
-            (value0).visit_definition_ids(visit, cancel)?;
-        }
+
         for value0 in &self.structures {
             (value0).visit_definition_ids(visit, cancel)?;
         }

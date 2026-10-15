@@ -13,10 +13,7 @@ use kagari_contract::{
     slots::SemanticSlots,
     types::{ConcreteFunctionIdentity, ModuleContract},
 };
-use kagari_types::{
-    declaration::TypeDeclaration, host_interface::type_declaration::HostTypeDeclaration,
-    ty::NominalTy,
-};
+use kagari_types::{declaration::TypeDeclaration, ty::NominalTy};
 use serde::{Deserialize, Serialize};
 use std::{borrow::Cow, iter};
 
@@ -33,7 +30,6 @@ pub struct MirModule {
     /// source allocation instruction of their own.
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
     pub external_types: Vec<TypeDeclaration>,
-    pub host_types: Vec<HostTypeDeclaration>,
     pub dependencies: Vec<ModuleIdentity>,
     pub structures: Vec<StructLayout>,
     pub enumerations: Vec<EnumLayout>,

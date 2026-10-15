@@ -12,7 +12,6 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     exports::ProgramExports,
-    host,
     host::external::bindings_match as external_bindings_match,
     layout, types as abi,
     types::{InterfaceBridge, PublicItem, verify},
@@ -89,10 +88,6 @@ pub(crate) fn verify_graph(
     let mut identities = HashSet::new();
     let mut layouts = HashMap::new();
     let mut enum_layouts = HashMap::new();
-    let mut hosts = HashMap::new();
-    let mut symbols = HashMap::new();
-    let mut host_types = HashMap::new();
-    let mut host_type_symbols = HashMap::new();
     for (index, module) in program.modules.iter().enumerate() {
         if !identities.insert(&module.identity) {
             return Err(invalid());
@@ -135,55 +130,14 @@ pub(crate) fn verify_graph(
                 return Err(BytecodeVerificationError::InvalidEnumLayout);
             }
         }
-        for declaration in &module.host_interface.functions {
-            if hosts
-                .insert(&declaration.id, declaration)
-                .is_some_and(|previous| !previous.matches_binding(declaration))
-                || symbols
-                    .insert(&declaration.symbol, &declaration.id)
-                    .is_some_and(|previous| previous != &declaration.id)
-            {
-                return Err(BytecodeVerificationError::InvalidHostInterface(
-                    "conflicting declarations across program members".into(),
-                ));
-            }
-        }
-        for declaration in &module.host_interface.types {
-            if host_types
-                .insert(&declaration.id, declaration)
-                .is_some_and(|previous| !previous.matches_binding(declaration))
-                || host_type_symbols
-                    .insert(&declaration.symbol, &declaration.id)
-                    .is_some_and(|previous| previous != &declaration.id)
-            {
-                return Err(BytecodeVerificationError::InvalidHostInterface(
-                    "conflicting host type declarations across program members".into(),
-                ));
-            }
-        }
+
         suspensions.push(verifier::verify_module_with_program(
             module,
             Some(program),
             &mut flow_budget,
             definitions,
         )?);
-        for owner in &program.modules {
-            if owner.identity != module.identity
-                && !host::trait_bindings_match(
-                    &module.host_interface,
-                    &owner.identity,
-                    &owner.public_items,
-                    &owner.trait_contracts,
-                    &Default::default(),
-                    definitions,
-                )
-                .expect("bytecode verification uses an uncancelled token")
-            {
-                return Err(BytecodeVerificationError::InvalidHostInterface(
-                    "host trait table disagrees with dependency trait ABI".into(),
-                ));
-            }
-        }
+
         for layout in &module.enumerations {
             let Some(owner) = program.modules.iter().find(|owner| {
                 definitions

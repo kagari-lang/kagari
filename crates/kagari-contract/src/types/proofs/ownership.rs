@@ -17,23 +17,7 @@ impl ProofCatalog<'_> {
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let budget = Budget::new(cancel);
-        for host in &self.hosts {
-            for implementation in &host.trait_implementations {
-                budget.step(0)?;
-                if let Some(kind) =
-                    Protocol::from_definition(&implementation.trait_id, &self.definitions)
-                {
-                    if kind.equality_protocol() || !kind.host_implementable() {
-                        return Ok(false);
-                    }
-                    if kind.iteration()
-                        && self.iteration_conflict(kind, &Ty::Host(host.id), &budget)?
-                    {
-                        return Ok(false);
-                    }
-                }
-            }
-        }
+
         for table in &self.implementations {
             budget.step(0)?;
             if !self.table_override_valid(table, owners, &budget)? {
@@ -63,17 +47,7 @@ impl ProofCatalog<'_> {
                 return Ok(true);
             }
         }
-        for host in &self.hosts {
-            for implementation in &host.trait_implementations {
-                budget.step(0)?;
-                if Protocol::from_definition(&implementation.trait_id, &self.definitions)
-                    == Some(other)
-                    && *receiver == Ty::Host(host.id)
-                {
-                    return Ok(true);
-                }
-            }
-        }
+
         Ok(false)
     }
 

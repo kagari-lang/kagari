@@ -34,11 +34,6 @@ impl RemapDefinitions for NativeImport {
                 (value).remap_definitions(mapper)
             })?,
             callables: map_sequence(&self.callables, |value| (value).remap_definitions(mapper))?,
-            host: self
-                .host
-                .as_ref()
-                .map(|value| (value).remap_definitions(mapper))
-                .transpose()?,
         })
     }
 }
@@ -64,9 +59,6 @@ impl DefinitionReferences for NativeImport {
             (value0).visit_definition_ids(visit, cancel)?;
         }
         for value0 in &self.callables {
-            (value0).visit_definition_ids(visit, cancel)?;
-        }
-        if let Some(value0) = self.host.as_ref() {
             (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())

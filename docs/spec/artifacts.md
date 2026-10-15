@@ -76,11 +76,12 @@ serialized. Native API packages install ordinary declaration records directly al
 handlers. The minimal route has no standalone binary declaration payload. Source
 compilation must emit the same contracts as the registered definitions.
 
-Synchronous host calls use the same import table and invocation driver. Their full
-optional HostFunctionDeclaration must match the required HostInterface and installed
-registration; declared access, passing styles, schemas and borrow checks remain.
-Source declarations, layouts, interfaces and private dependencies accompany the
-program. Executable contracts have no source-analysis dependency.
+Synchronous host calls use this same import table and invocation driver. Manual
+external-ID passing and effect policies belong to the common FnDecl and must
+match installation exactly. Shared external schemas and explicit manual path
+requirements remain independently validated. Source declarations, layouts,
+interfaces and private dependencies accompany the program; executable contracts
+have no source-analysis dependency.
 
 Callable method policy remains independent of binding identity. Final methods
 cannot be replaced; required and non-trait declarations cannot be final.
@@ -164,377 +165,73 @@ KbcArtifact {
 }
 ```
 
-Format version 110 uses `bincode` with fixed-width integers, little-endian byte order,
-and declaration-order fields. Runtime path binding identity uses index and
-virtual segment fingerprints from resolved contract fields. All earlier versions are rejected; no
-migration or compatibility decoder exists. The format stores a complete
-stable ordered BytecodeProgram, its
-root ModuleRef, and module/function call slots. Structs use nominal layout tables,
-positional initializers and layout/slot field operands.
+The current format identifiers are defined in
+[artifact.rs](../../crates/kagari-bytecode/src/artifact.rs),
+[version.rs](../../crates/kagari-abi/src/version.rs) and the
+[MIR codec](../../crates/kagari-mir/src/codec.rs). They remain unchanged for
+unpublished internal schema edits; development artifacts must be regenerated.
+There is no compatibility reader for retired layouts.
 
-Version 103 added the optional opaque `PortableMir { bytes }` payload. The envelope
-content hash covers the payload, and a `PortableMir` section records its presence
-and fingerprint. Its declared byte count is bounded before element decoding; the
-complete artifact, including MIR, must fit the existing 64 MiB limit. Runtime ABI
-v102 and helper ABI v6 were unchanged by that envelope-only revision.
+KBC uses fixed-width integers, little-endian byte order and declaration-order
+fields. It contains a complete ordered BytecodeProgram, root ModuleRef and
+module/function call slots. Struct and enum layout tables retain nominal
+identities, concrete arguments and field/variant contracts. Physical aggregate
+instructions are checked against these layouts and their defining public ABI.
+Public items, private trait contracts and native declarations use one ordinary
+semantic type tree. Generic binders retain declaration owner and position;
+foreign/unbound parameters, escaped Self, invalid constructor arities and
+noncanonical bounds reject verification.
 
-Version 104 adds the uninhabited Never semantic and physical type and changes the
-DebugPanic result contract to Never. Runtime ABI v103 and portable MIR format v2
-reject previous products; helper ABI v6 is unchanged. No runtime Value can satisfy
-a Never parameter or result, and verifiers reject normal returns from Never
-functions even when a forged return register is also marked Never.
+The codec stores a canonical exact definition table and local u32 references.
+Process-local table discriminators never enter portable bytes. Only referenced
+definitions and their ancestors are included; unrelated names and allocation
+order do not change identity. Duplicate identities, invalid parents, cycles and
+out-of-range references reject before adoption. Scope validation and semantic
+verification remain separate; interning a name does not supply a declaration.
 
-The bytecode crate does not depend on MIR and does not interpret this payload.
-Bytecode-only loading validates envelope integrity, resource limits, metadata and
-bytecode contracts. Native preparation must additionally decode the versioned
-`KMIR` v8 input, check its runtime/helper ABI versions, reverify the complete MIR
-program and rebuild program-point analyses. It then lowers MIR through the canonical
-frontend-free bytecode path and compares the entire resulting program encoding.
-Independent payload checksums are insufficient. Preparation precedes script effects.
-Verification state is not serialized, and the decoded input does not retain source
-text or source-analysis arenas.
+ABI types use bounded flat preorder nodes. Decoding checks at most 4,096 nodes
+and depth 64 before rebuilding recursive types. Module, function and instruction
+sequences preflight at 1,024, 65,536 and 1,000,000 records respectively. Module-owned
+tables preflight at 1,000,000 records; nested members, parameters, path segments and
+instruction operand vectors preflight at 4,096. Aggregate quotas also apply across
+the program. Native declaration/import signatures and external type fields use
+the same semantic shape guards. Attached and detached debug frame layouts are
+bounded before validation, fingerprinting or encoding.
 
-SDK source emission includes portable MIR by default. `NativeInputExport::BytecodeOnly`
-explicitly omits it; such artifacts remain interpreter-loadable and lack input for
-native compilation. Presence alone does not prove native eligibility: malformed or
-inconsistent MIR and backend-unsupported functions must be distinguished during
-preparation. Compiler-generated payloads come from the same verified program as
-bytecode, replacing any caller-supplied opaque payload in low-level build options.
+Construction measures canonical encoded size before verification and bounds the
+completed artifact before fingerprinting. In-memory loading and encoding repeat
+the 64 MiB size check; byte decoding checks the input length first. This bounds
+strings and signature bytes without a conflicting second per-field limit.
+`from_bytes` checks magic and current format before decoding and rejects trailing
+bytes. Decode alone grants no execution trust: header, bytecode, dependency,
+metadata and content-hash checks still run. Invalid in-memory records return
+structured errors before serialization or hashing.
 
-Version 70 and runtime ABI v70 name the native iterator type and instruction Iter.
-The former Cursor type name is removed from the source API. Iterator remains the
-stepping protocol, and Iterable::Iter remains its independent associated type.
-Earlier artifacts are rejected before execution; no compatibility alias or decoder
-is provided. Runtime-helper ABI remains v6.
+Native calls use ordinary NativeImportId slots and exact NativeDeclarations.
+Concrete identities and generic/callable requirements must match the retained
+provider closure. Implementation tables use unique local Impl identities and
+trait-owned member IDs; output contracts, bounds and signatures are rechecked
+against reachable public or private trait contracts. Explicit native impls and
+script impls share selection and overlap rules. Only intrinsic protocol evidence
+uses a bridge marker; it must forward to the exact checked protocol adapter.
+Runtime linking pins checked callable owners to the loaded generation.
 
-Version 62 and runtime ABI v62 add the ArrayJoin native contract used by string
-interpolation and `[String].join`. Previous artifacts are rejected before execution;
-the runtime-helper ABI remains v6 and KHI remains v11.
+External TypeDeclarations retain the complete shared schema closure, including
+annotation-only uses and executable semantic types. Ordinary DTO layouts cannot
+satisfy external Rust storage requirements. Explicit HostPathDeclarations retain
+field, index and virtual segments, access and schema epoch. Each physical path
+record must match a resolved declared contract. Loading requires exactly one
+installed matching descriptor and adapter, including unused requirements; it
+checks dynamic arguments and write access before publication. Program-local path
+slots do not select runtime descriptor IDs directly. Diagnostic labels are
+excluded from path identity and cannot retarget pinned bindings.
 
-Version 61 and runtime ABI v61 add the verified MapResultError operation to
-change an Err payload while preserving its origin. KHI remains v11; helper ABI
-remains v6. Prior products are rejected without migration.
-
-Version 60 and runtime ABI v60 preserve source URIs and one-based line/UTF-8 byte
-columns for failure stacks, even without optional debug metadata. Runtime helper
-ABI v6 publishes native instruction offsets before polling cancellation.
-
-Version 59 and runtime ABI v59 add iteration contracts, Iter ABI types and
-verified native iterator instructions. Script iterators use ordinary linked calls.
-Prior products are rejected; KHI remains v11.
-
-Version 58 and runtime ABI v58 register explicit conversion contracts, derived
-reverse conversion proofs and static associated conversion calls. Prior products
-are rejected without migration; KHI remains v11.
-
-Version 57 and runtime ABI v57 register read-only Index. Custom reads are ordinary
-linked calls; builtin Array reads retain aggregate-index instructions. KHI remains v11.
-
-Version 56 and runtime ABI v56 register Neg/Not with associated outputs. No
-short-circuit or compound-assignment override is introduced.
-
-Version 55 and runtime ABI v55 register generic arithmetic contracts with associated
-outputs. Applied standard signatures are validated by the same portable rules as
-source checking; matching numeric operations remain direct instructions.
-
-Version 54 and runtime ABI v54 add Ordering and builtin comparison protocol calls.
-Canonical trait contracts include their declared parameters and associated outputs.
-
-Version 53 and runtime ABI v53 add guarded custom-key preparation and commit
-intrinsics. Custom comparison/hash methods and generated composite helpers use
-ordinary linked function slots. Verification accepts script Struct/enum protocol
-overrides, checks defining-module ownership and explicit prerequisite impls, and
-rejects host equality/hash overrides. KHI remains v11.
-
-Version 52 and runtime ABI v52 add checked object identity equality and inequality
-operations. Value categories without identity are rejected by source checking;
-runtime identity operations validate object category and handle ownership.
-
-Version 51 and runtime ABI v51 add standard protocol intrinsic calls and the
-canonical standard declaration registry. Artifacts cannot redefine the reserved
-`kagari-std` package. The verifier
-checks standard impl contracts and applied bounds using the same canonical
-protocols. KHI v11 rejects previous declaration products.
-
-Version 50 and runtime ABI v50 add concrete typed standard-enum construction,
-variant tests and payload reads, plus Option conversion intrinsic identities.
-Verification checks operand/result representations, family arity and bounded
-concrete ABI types before execution. `?` and script combinators lower to ordinary
-branches, calls and returns; no exception-unwinding instruction is introduced.
-
-Version 49 and runtime ABI v49 encode separate trait and associated-constructor
-arguments in projection nodes, constructor-owned parameter identities and bounds,
-and impl family bodies. Decoding bounds their arrays and type nodes; linked
-verification rechecks arity, binder ownership, method contracts, input and output
-bounds, recursion and static-only interface restrictions before execution.
-
-Version 48 and runtime ABI v48 added checked scalar associated constants and
-default values in canonical `const-v1` form. Constant-bearing traits and their
-descendants cannot produce dynamic interface values.
-
-Version 47 and runtime ABI v47 retain trait default-method ordinals and each
-function's original source-module slot. Script default bodies are specialized
-into impl-owned method instances with ordinary verified call slots. Source-module
-slots must be local or reachable through the retained dependency closure; method
-ordinals must be unique and refer to existing declarations. This adds no runtime
-fallback lookup or runtime specialization.
-
-Version 46 and runtime ABI v46 retained applied supertrait contracts and the explicit
-`UpcastInterface` operation. Loading checks bounded acyclic inheritance, required
-parent implementations, concrete parent dispatch tables and upcast ancestry
-before execution. Parent tables are compiled ahead of time and retain the same
-execution family as the original interface.
-
-Explicitly registered native trait implementations use ordinary interface tables
-and native imports. Loading verifies output identities, bounds, signatures and
-the exact native method bindings through their shared declarations. There is no
-separate host bridge table or implementation-proof catalog. The remaining bridge
-marker retains intrinsic protocol evidence and must forward to its exact checked
-protocol adapter. Standalone KHI versions before 11 are rejected without migration.
-
-Version 44 added ordered concrete impl arguments to linked interface table
-records. Generic tables are deduplicated by declaration and arguments; each
-executable instance contains all its concrete method slots. Loading validates
-argument arity, concreteness, bounds, uniqueness and exact method instance keys
-against the retained template. A generic template record is not an executable
-instance. Runtime ABI v44 uses these concrete slots; it does not specialize
-methods at execution time.
-
-Version 24 encodes each ABI type as bounded flat preorder nodes. The decoder
-checks at most 4,096 nodes and depth 64 before rebuilding a recursive type, so
-untrusted ABI types cannot grow the decoder call stack without a checked bound.
-Module, function and instruction sequence lengths are checked as the decoder
-reads each sequence header, before reading their elements. Their limits are
-1,024, 65,536 and 1,000,000 respectively; aggregate post-decode limits still
-apply across modules and functions. Module-owned table vectors have a
-1,000,000-record sequence limit; concrete layout and public ABI member vectors
-have a 4,096-record sequence limit. Function metadata, debug tables, artifact
-section tables, verification summaries and signature lists use the same
-1,000,000-record preflight limit as artifact tables.
-Per-instruction operand vectors (calls, aggregate constructors and dynamic path
-arguments) preflight at 4,096 registers; the executable program also limits
-their combined count to 1,000,000 before verification or fingerprinting.
-Construction measures the canonical encoded size of the program and build
-metadata before verification, then measures the completed artifact before
-fingerprinting. In-memory loading and encoding repeat the 64 MiB size check.
-This also bounds strings and signature bytes without a second, conflicting
-per-field byte limit. Byte decoding checks the input length before reading it.
-In-memory artifact checks include function-table parameter layouts and the
-parameter/local/register vectors in both attached and detached debug frame
-layouts before validation, fingerprinting or encoding.
-Embedded host interfaces and standalone KHI declarations preflight their type,
-function and field-path lists at 1,000,000 records, and fields, methods,
-parameters and path segments at 4,096 records. In-memory host declaration
-validation enforces these limits before encoding or linking.
-
-Current KBC and portable MIR projections encode a canonical exact identity table
-plus local u32 references. Process-local table discriminators never enter portable
-bytes. Only referenced definitions and their ancestors are included; insertion
-order and unrelated interned nodes do not affect fingerprints. Reject duplicate
-identities, out-of-range references, invalid parents and cycles before adopting
-scoped metadata. Table counts preflight at 1,000,000 records. Semantic verification,
-module generations, runtime ABI and format identifiers remain independent checks.
-KBC decoding retains scoped unverified records and their immutable table; it does
-not expand them back into authoring paths. The loader checks all envelope references
-against the supplied input scope before collecting any implicit declaration names.
-The program verifier then checks the complete dependency graph and reconstructs
-its non-serializable evidence. Editable extraction preserves the scope and drops
-that evidence. Content, dependency, public ABI and required Host fingerprints
-encode their referenced identity closures canonically rather than serializing
-process-local IDs. Unpublished development fixtures use this layout directly
-without old-layout readers.
-
-Every serialized module and declaration identity checks its path length before
-reading segments, with a limit of 64. This applies to artifact headers and
-embedded identities as well as standalone host declarations.
-In-memory artifact construction, loader validation and encoding also reject
-overlong module, host and public ABI identities before fingerprinting or
-publication.
-
-Version 23 stores complete concrete ABI types for struct fields. Runtime ABI v24
-checks nested field values before allocation or replacement, including nominal
-identity and container element types. Prior representation-only layouts are rejected.
-Validation compares concrete struct instances with their public templates, including
-instances emitted only by dependent modules. Equal physical representations do not
-permit different field types or permissions. Public aggregate templates are validated
-even without executable instances: declaration and member names must be nonempty,
-aggregate names and member names must be unique in their respective scopes, and
-structs cannot carry variants nor enums fields. The same check validates binders
-and member types for IR and bytecode.
-
-Version 20 adds the required host path contract fingerprint to each IR/bytecode
-path record. Loading links each module-local path to exactly one registered runtime
-descriptor with that contract, checks operand representations and write access,
-and stores the resulting binding in the immutable executable version. Missing or
-ambiguous bindings reject publication. Path IDs are never runtime descriptor IDs.
-Reload path fingerprints cover the contract and operand shape; diagnostic labels
-are excluded.
-
-Version 21 carries portable field path declarations in required host interfaces.
-KHI v6 uses the same records, including field identities, access and schema. Linking rejects required field paths without a unique matching
-runtime binding before program publication.
-Version 26 replaces those field-only records with `HostPathDeclaration`
-records. Ordered field, index and virtual segments share one portable contract;
-the loader rejects older artifact and interface formats before execution.
-Version 27 adds the declaration identity of each interface implementation to its
-public ABI record. Verification requires a unique local `Impl` identity, method
-binders owned by it, and a complete method roster and substituted signatures for
-local public traits. Reload
-keys encode this identity canonically; the human-readable
-`Type as Trait` label is diagnostic only. Older formats are rejected before execution.
-Version 28 carries concrete function declaration identities and type arguments in
-both executable functions and their directory records. The verifier checks their
-agreement, module ownership, concrete type arguments and uniqueness; source
-lowering always emits identities. Identity argument vectors obey the artifact
-record limits. Older formats are rejected before execution.
-Version 29 carries executable interface implementation tables. Each table uses
-the public implementation declaration identity and maps trait method identities
-to concrete function slots. Verification requires a matching public table,
-checks method and implementation ownership, and requires exactly one executable
-slot for each non-generic method of a concrete implementation. Source lowering
-emits uncalled concrete implementation methods so those slots remain linkable.
-Generic implementations and methods retain only their reachable instances;
-runtime interface dispatch is a separate linking step. Table and method counts
-obey the artifact resource limits. Older formats are rejected before execution.
-For generic implementations, the table owns implementation binders and bounds;
-each method record owns only its additional method binders and bounds. Executable
-method slots carry the full concrete argument list in implementation-then-method
-parameter order. Verification rejects slots with a different argument count.
-Applied local generic trait arguments remain part of the public interface-table
-type and method contract; they cannot be replaced by a bare trait declaration.
-Version 30 records applied trait arguments in generic bound constraints, including
-inline and `where` bounds. Canonical ordering compares the complete structural
-trait type. Verification checks bound argument shapes and identities; artifact
-resource limits include their argument vectors. Older formats are rejected.
-Version 11 adds ordered enum payload types to public variant ABI records. These
-use structural `AbiType` encoding, preserving nominal declaration identity and
-container arguments instead of display strings or erased instruction ValueTypes.
-Changing a payload type therefore changes the public ABI fingerprint and rejects
-reload before publication. Body-only changes retain the same enum ABI.
-Version 12 adds nominal enum/variant layout tables and `MakeEnum` layout/variant
-slots. IR and bytecode verification check declaration ownership, payload type
-references, slot existence, argument count and representations. Program linking
-rejects conflicting layouts for the same nominal declaration across modules.
-Public enum ABI records must match their executable variant names and payloads;
-recomputing an artifact checksum cannot authorize a contradictory ABI record.
-Version 13 records each nominal ABI type as a declaration identity plus ordered
-type arguments. Conversion from checked types and fingerprinting preserve nested
-arguments. Version 14 adds concrete type arguments to struct and enum layouts;
-verification and program linking compare the complete instance identity. Public
-type records retain their generic parameter declarations. Public enum payload
-templates encode parameters by declaring owner and position, and must instantiate
-to each executable layout, including instances emitted only by an importer.
-Unused public templates still validate parameter ownership and position. Template
-parameters are rejected in executable layout arguments and enum payloads.
-Version 15 stores host value types as bounded flat preorder nodes and supports
-nested tuple/container/standard-enum host contracts. Type encoding has a 4096-node
-and 64-depth limit, including during artifact decoding. Runtime call boundaries
-validate nested host arguments and results instead of accepting any heap object.
-Version 16 includes portable host type/member declarations in each required host
-interface. Validation checks member ownership and referenced-type closure. Host
-interface fingerprints include those contracts with documentation removed; host
-section counts include both function and type declarations.
-Version 17 extends structural `AbiType` encoding to public parameters, results,
-const types, struct fields, trait methods and interface implementation targets.
-Generic binders use declaration owner and position rather than parameter spelling.
-Constraints encode standard constraint tags or nominal trait identities, grouped
-by parameter identity and sorted/deduplicated. Inline and `where` forms produce the
-same bound contract. Trait receiver templates carry their owning trait identity;
-`Self` cannot escape into a concrete signature or executable layout. Shared IR and
-bytecode validation rejects unbound/foreign template parameters, noncanonical
-bounds, invalid nominal kinds and wrong standard-enum argument counts. Public
-top-level functions remain concrete. Names retained on members are declaration
-labels; display strings no longer encode the types of public members.
-Version 18 adds `AbiType::Host(DefinitionId)` and the distinct `HostHandle`
-operand representation. Source lowering carries required portable host types,
-including the transitive closure of member references. IR and bytecode validation
-reject semantic host references absent from the required interface, including
-annotation-only public signatures and concrete layout arguments. Registration and
-linking still validate full declaration contracts before execution.
-Version 19 permits required host call records with member declaration identities.
-These records must equal the declaring host type's generated method contract,
-including its explicit nominal receiver and passing style. KHI v8 carries the
-same checked method call contracts; old interface versions are rejected.
-Version 31 and runtime ABI v31 add the KHI v8 host trait implementation table to
-portable host type contracts. Old KBC and KHI products reject before execution.
-Version 32 and runtime ABI v32 add ordered applied trait arguments in KHI v9;
-distinct applications on one host type are separate identity keys. Older KBC and
-KHI formats are rejected before execution.
-Version 33 and runtime ABI v33 add bounded private trait contracts to executable
-modules. Public traits retain their single public ABI record; private contracts
-allow loading to recheck host method mappings even when the trait is not
-exported. Version 32 products are rejected without migration.
-Version 38 and runtime ABI v38 require program-point and lexical-scope local
-visibility in debugger metadata. Earlier products, which could expose locals
-outside their scope, are rejected before execution.
-At the v38 checkpoint, the runtime ABI identity was `kagari-runtime-abi-v38` and
-runtime-helper ABI was v5. Previous ABI artifacts are rejected even when requested
-by the caller: v5 lacks shared mutation accounting; v6 lacks prepared path commits and quarantine;
-v7 lacks root-call sessions and cancellation; v8 lacks scoped host contexts and
-checked synchronous script reentry; v9 lacks session-owned frame stacks and
-nested execution observation; v10 lacks session-registered host resources, owned
-borrow tokens and contextual path callbacks; v11 lacks enum version handles and
-typed standard-enum tags. Runtime ABI v16 additionally requires nominal host type
-bindings and registry-owned host roots. ABI v17 requires complete member contract
-linking and declaration-derived registration. ABI v18 requires structured public
-type and bound contracts for reload validation. ABI v19 requires the distinct host
-handle representation and source nominal host contracts. ABI v20 requires
-declaration-derived method binding and receiver contracts. ABI v21 requires
-contract-linked path slots. ABI v22 requires declared field path bindings; all prior ABI products
-are rejected.
-ABI v26 requires complete portable path declarations, including index and virtual
-segments, in the required host interface.
-ABI v27 requires identity-bearing interface implementation records and rejects
-display-label-only reload keys.
-ABI v28 requires identity-bearing executable function records.
-ABI v29 requires verified executable interface method tables.
-ABI v30 requires applied trait bound identity in public signatures and templates.
-The helper ABI preserves cancellation
-and commit EngineFault independently of resource/trap status.
-Host calls use HostImportId operands and a required HostInterface declaration
-table. There is no arbitrary host-registry
-fingerprint option or duplicate string dependency table. The obsolete BuiltinMethod
-call operand is also absent;
-standard-library calls use StandardIntrinsic and its verified call contract.
-The current format also excludes artifacts produced by the old generic
-template lowering: current compilation emits concrete function instances and
-does not treat uninstantiated generic parameters as heap-object representations.
-`from_bytes()` checks magic and the current version before decoding, imposes a
-64 MiB encoded-size and decoding budget, and rejects trailing data. Decoding alone
-does not establish trust: header, content, dependency, and bytecode checks still
-run before execution.
-
-`KbcArtifact::from_program()` and `VerificationMetadata::from_program()` return
-structured validation errors for invalid programs. Both verify before deriving
-metadata or computing fingerprints. In-memory loader validation likewise checks
-bytecode before hashing, so invalid host type declarations cannot cause a
-serialization panic. A checksum cannot substitute for bytecode validation.
-
-The language contract version is `kagari-language-v2`, independent of Rust crate
-versions and the binary format version. Artifacts carrying the former crate-based
-language version are rejected before execution; they may encode older assignment
-evaluation rules even when their binary layout is readable.
-
-Source analysis, IR and bytecode carry the same `ModuleIdentity { package, path }`.
-Artifact header and loader copies must equal the identity carried by the bytecode.
-Physical source names are diagnostic metadata, separate from logical identity.
-Artifact build options cannot override identity after analysis.
-
-Compatibility fingerprints use FNV-1a-64 over this canonical serialization with
-the `kagari-canonical-v2` domain prefix. Rust `Debug` output is never fingerprint
-input. The artifact content fingerprint includes the header (with its content
-fingerprint zeroed) and every payload section. This is a compatibility checksum,
-not cryptographic authentication; signature policy is a separate host concern.
-
-Public scalar const values use the `const-v1:` encoding followed by the type and
-value: bool is `0` or `1`, i32 is decimal, f32 is eight lowercase hexadecimal
-digits of IEEE bits, and String is its decimal UTF-8 byte length, a colon, and
-the UTF-8 contents. Unit has tag `unit` and no payload. This preserves signed
-zero and string boundaries without relying on Rust formatting traits for values.
-Additional integer types use `const-v2:<type>:<decimal-value>`, including the
-full u64/usize range. f64 uses `const-v2:f64:<bits>` with sixteen lowercase
-hexadecimal IEEE-bit digits. The enclosing format/ABI version rejects old
-artifacts before these values participate in linking.
+PortableMir is an optional opaque byte payload covered by the content hash and
+section table. Its declared length is bounded before element decoding and the
+complete envelope must fit the same 64 MiB limit. The bytecode crate neither
+depends on MIR nor interprets the payload. A MIR-aware consumer validates and
+adopts it through the MIR codec and verifies the resulting executable lowering;
+bytecode-only loading still validates its envelope integrity and limits.
 
 ## Header
 
@@ -564,7 +261,7 @@ Artifact tables include:
 - module slot table
 - path descriptor table
 - interface table
-- required host declarations in BytecodeModule.host_interface
+- ordinary native imports/declarations, shared external schemas and explicit path requirements
 - string table
 - source file table
 - debug name table
@@ -595,7 +292,6 @@ Verification metadata includes:
 - typed path descriptor fingerprints
 - public ABI fingerprints
 - dependency fingerprints
-- required host-interface fingerprints
 
 The loader verifies every member even when metadata is present. Root-level function,
 effect, control-flow, public-ABI and path summaries refer to the root ModuleRef;
@@ -607,9 +303,7 @@ Dependency fingerprints carry ModuleIdentity and are derived from the canonical
 bytes of every non-root module in program order. ArtifactBuildOptions has
 no dependency-fingerprint input. ArtifactCompatibility may pin an exact dependency
 set with Some; None omits that external pin but still requires metadata/payload
-agreement. The required-host fingerprint covers each program member's declarations,
-excluding documentation and declaration order within each interface. Runtime code
-fingerprints derive from BytecodeProgram for both source and artifact loads; the
+agreement. Runtime code fingerprints derive from BytecodeProgram for both source and artifact loads; the
 artifact content hash separately covers packaging, headers and auxiliary metadata.
 
 ## Debug Metadata
@@ -652,7 +346,6 @@ An artifact is compatible only when all required versions and fingerprints match
 - compiler compatibility version
 - runtime ABI version
 - runtime helper ABI version
-- required host-interface fingerprint
 - dependency module fingerprints
 - public ABI fingerprints
 - typed path descriptor fingerprints
@@ -672,7 +365,7 @@ read bytes
   -> decode tables
   -> validate module identity
   -> verify bytecode
-  -> validate dependencies and required host-interface fingerprints
+  -> validate common declarations, dependencies and path requirements
   -> register loaded module candidate
   -> publish only after module/reload validation succeeds
 ```
@@ -702,13 +395,12 @@ The artifact format is complete when:
 - artifacts carry enough metadata for hot reload, GC safepoints, typed path validation, and JIT compilation
 - source loading and artifact loading produce the same module identity model
 
-The required host-interface fingerprint is derived from the identity-sorted
-declaration contracts, excluding documentation. Import slot order is irrelevant
-to this ABI fingerprint; the content checksum still covers the exact module.
-Loading checks the derived fingerprint and resolves every required declaration
-against the actual runtime registry by nominal identity. Signature, borrow,
-effect differences reject the module before publication or
-initialization. Unrelated installed host functions do not affect compatibility.
+Loading compares required common native declarations and external schema/path
+contracts against installed modules before initialization or publication. Signature,
+borrow, effect and storage differences reject. Unrelated installed modules do not
+change the required contracts. Canonical code fingerprints cover the complete
+BytecodeProgram, including these requirements; there is no second host aggregate
+or host-only fingerprint summary.
 
 ## Associated type metadata
 

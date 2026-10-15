@@ -1,11 +1,10 @@
 //! Artifact envelope fields and claimed verification summaries, without seals.
 use crate::{
     artifact::{
-        ArtifactFingerprint, ArtifactHeader, ArtifactSignatures, ArtifactTables,
-        ControlFlowTargetMetadataBuffer, DebugMetadata, DependencyFingerprintBuffer,
-        FunctionEffectBuffer, FunctionLayoutMetadata, KbcArtifact, LoaderValidationMetadata,
-        PathFingerprintBuffer, PublicAbiFingerprintBuffer, VerificationMetadata,
-        wire::module::BytecodeProgramRecord,
+        ArtifactHeader, ArtifactSignatures, ArtifactTables, ControlFlowTargetMetadataBuffer,
+        DebugMetadata, DependencyFingerprintBuffer, FunctionEffectBuffer, FunctionLayoutMetadata,
+        KbcArtifact, LoaderValidationMetadata, PathFingerprintBuffer, PublicAbiFingerprintBuffer,
+        VerificationMetadata, wire::module::BytecodeProgramRecord,
     },
     module::RootSlotLayout,
     native_input::PortableMir,
@@ -93,7 +92,6 @@ pub(in crate::artifact) struct VerificationMetadataRecord {
     public_abi_fingerprints: PublicAbiFingerprintBuffer,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     dependency_fingerprints: DependencyFingerprintBuffer,
-    host_interface_fingerprint: ArtifactFingerprint,
     loader: LoaderValidationMetadata,
 }
 
@@ -118,7 +116,6 @@ impl VerificationMetadataRecord {
             typed_path_fingerprints: value.typed_path_fingerprints.clone(),
             public_abi_fingerprints: value.public_abi_fingerprints.clone(),
             dependency_fingerprints: value.dependency_fingerprints.clone(),
-            host_interface_fingerprint: value.host_interface_fingerprint,
             loader: value.loader.clone(),
         })
     }
@@ -143,7 +140,6 @@ impl VerificationMetadataRecord {
             typed_path_fingerprints: self.typed_path_fingerprints,
             public_abi_fingerprints: self.public_abi_fingerprints,
             dependency_fingerprints: self.dependency_fingerprints,
-            host_interface_fingerprint: self.host_interface_fingerprint,
             loader: self.loader,
         })
     }

@@ -270,6 +270,9 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
     let mut foreign = standard_runtime(Default::default());
+    logging_module(|_, _| Ok(Value::Unit))
+        .install(&mut foreign)
+        .unwrap();
     let foreign_module = foreign
         .load_program(
             "foreign.kgr",
@@ -296,13 +299,6 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         }
         Ok(Value::Unit)
     }).install(&mut runtime).unwrap();
-    // A direct host call supplies a context, but cannot create a script root implicitly.
-    runtime
-        .invoke_host(
-            "host.log",
-            &[runtime.gc().alloc_string("enter".into()).unwrap()],
-        )
-        .unwrap();
     let loaded = runtime.load_program("inputs.kgr", module).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
@@ -314,7 +310,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
         Value::I32(42)
     );
     assert!(foreign.gc().validate_value(&retained_foreign_value));
-    assert_eq!(calls.load(Ordering::SeqCst), 2);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
 }

@@ -741,7 +741,8 @@ Concrete host types with a checked applied trait table satisfy matching static
 trait bounds. Ordered arguments distinguish `Readable<i32>` from
 `Readable<bool>` on the same host type. A specialized bound call selects the
 mapped host method by declaration identity and uses the normal host call
-contract. Host declaration arguments and associated outputs use `HostValueType`.
+contract. Native declaration arguments and associated outputs use the common `Ty`
+model and explicit nominal identities.
 Durable host root handles can also be converted to concrete interface values.
 
 ## Implemented Feature Set
@@ -895,10 +896,9 @@ returns `42` from both numeric and string interface instances.
 
 ### Host Associated Outputs and Interfaces
 
-An offline `HostTraitImplementationDeclaration` contains the trait identity,
-ordered concrete inputs, an `associated_types` list of `HostAssociatedTypeBinding`
-records, and the method mapping. Each output is keyed by its trait-owned member
-identity and has a portable `HostValueType`. Every declared output must appear
+An offline common `ImplDecl` contains the trait application, ordered concrete
+inputs, associated type bindings and the method mapping. Each output is keyed by
+its trait-owned member identity and has a portable `Ty`. Every declared output must appear
 exactly once, even when no method is called. Signature analysis and artifact
 verification check output bounds and substitute outputs, trait inputs and `Self`
 into the full method contract. Host projections normalize at compile time.

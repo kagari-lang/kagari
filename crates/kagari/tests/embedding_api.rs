@@ -223,7 +223,6 @@ fn host_path_artifact(
         },
         requirements: vec![],
         callables: vec![],
-        host: None,
     };
     let path = module.paths[0].clone();
     let schema = TypeDeclaration {

@@ -120,7 +120,6 @@ fn detached_copy(loaded: &LoadedModule) -> LoadedModule {
                     bytecode: module.bytecode.clone(),
                     registry_owner: module.registry_owner,
                     host_types: module.host_types.clone(),
-                    host_functions: module.host_functions.clone(),
                     host_paths: module.host_paths.clone(),
                 })
                 .collect(),

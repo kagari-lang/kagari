@@ -329,7 +329,6 @@ impl Fixture {
                 generic: None,
                 requirements: vec![],
                 callables: vec![],
-                host: None,
             }],
             public_items,
             native_declarations: request,

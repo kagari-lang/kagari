@@ -36,10 +36,6 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
     for import in &module.native_imports {
         if !add(import.instance.arguments.len())
             || !add(import.signature.params.len())
-            || !import
-                .host
-                .as_ref()
-                .is_none_or(|host| add(host.params.len()))
             || !add(import.requirements.len())
             || !add_abi_bounds(&import.requirements, &mut add)
             || !import
@@ -173,26 +169,8 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             }
         }
     }
-    for ty in &module.host_interface.types {
-        if !add(ty.fields.len()) || !add(ty.methods.len()) {
-            return false;
-        }
-        for method in &ty.methods {
-            if !add(method.params.len()) {
-                return false;
-            }
-        }
-    }
-    for function in &module.host_interface.functions {
-        if !add(function.params.len()) {
-            return false;
-        }
-    }
-    for path in module
-        .path_declarations
-        .iter()
-        .chain(&module.host_interface.paths)
-    {
+
+    for path in module.path_declarations.iter() {
         if !add(path.segments.len()) {
             return false;
         }
@@ -379,21 +357,16 @@ pub(super) fn module_abi_type_limit(
     definitions: &DefinitionTable,
 ) -> bool {
     let valid = |ty: &Ty| ty.within_wire_limits();
-    if !module
-        .path_declarations
-        .iter()
-        .chain(&module.host_interface.paths)
-        .all(|path| {
-            path.segments.len() <= 256
-                && path.segments.iter().all(|segment| match segment {
-                    HostPathSegmentDeclaration::Field(_) => true,
-                    HostPathSegmentDeclaration::Index(index) => {
-                        valid(&index.collection) && valid(&index.index) && valid(&index.result)
-                    }
-                    HostPathSegmentDeclaration::Virtual(step) => valid(&step.result),
-                })
-        })
-    {
+    if !module.path_declarations.iter().all(|path| {
+        path.segments.len() <= 256
+            && path.segments.iter().all(|segment| match segment {
+                HostPathSegmentDeclaration::Field(_) => true,
+                HostPathSegmentDeclaration::Index(index) => {
+                    valid(&index.collection) && valid(&index.index) && valid(&index.result)
+                }
+                HostPathSegmentDeclaration::Virtual(step) => valid(&step.result),
+            })
+    }) {
         return false;
     }
     module
@@ -555,11 +528,8 @@ pub(super) fn program_count_limit(
             [
                 module.dependencies.len(),
                 module.external_types.len(),
-                module.host_interface.types.len(),
-                module.host_interface.functions.len(),
                 module.native_imports.len(),
                 module.native_declarations.len(),
-                module.host_interface.paths.len(),
                 module.path_declarations.len(),
                 module.module_slots.len(),
                 module.constants.len(),

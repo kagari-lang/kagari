@@ -1,8 +1,7 @@
 use crate::{error::RuntimeError, reload::ModuleEpoch};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
-    declaration::TypeDef, declaration::host::PathAccess, host_interface::value_type::HostValueType,
-    ty::Ty, visibility::Visibility,
+    declaration::TypeDef, declaration::host::PathAccess, ty::Ty, visibility::Visibility,
 };
 use std::{
     cell::RefCell,
@@ -169,13 +168,11 @@ struct TypeRegistryInner {
     native_values: HashMap<Ty, TypeId>,
     native_external: HashMap<DefinitionId, (TypeDef, TypeId)>,
     native_methods: HashMap<(TypeId, DefinitionId), MethodMetadataId>,
-    host_value_types: HashMap<HostValueType, TypeId>,
     by_id: Vec<TypeInfo>,
     by_name: HashMap<String, TypeId>,
     public_abi_fingerprints: HashSet<AbiFingerprint>,
 }
 
-mod host;
 pub(crate) mod native;
 
 impl TypeRegistry {
@@ -201,21 +198,6 @@ impl TypeRegistry {
         inner
             .public_abi_fingerprints
             .insert(registration.abi_fingerprint);
-        if registration.kind == TypeKind::Primitive {
-            let portable = match registration.name.as_str() {
-                "()" => Some(HostValueType::Unit),
-                "bool" => Some(HostValueType::Bool),
-                "i32" => Some(HostValueType::I32),
-                "i64" => Some(HostValueType::I64),
-                "f32" => Some(HostValueType::F32),
-                "f64" => Some(HostValueType::F64),
-                "String" => Some(HostValueType::String),
-                _ => None,
-            };
-            if let Some(portable) = portable {
-                inner.host_value_types.insert(portable, id);
-            }
-        }
         inner.by_name.insert(registration.name, id);
         inner.by_id.push(info);
         Ok(id)

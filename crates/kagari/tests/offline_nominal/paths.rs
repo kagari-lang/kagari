@@ -321,7 +321,6 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         "use game::objects as api; fn main() -> i32 { var player = api::make(); player[api::first()][api::second()].selected.score += api::rhs(); player[1][2].selected.score }"), Default::default()).unwrap();
     let root_module = &artifact.records().program.modules[artifact.records().program.root.index()];
     assert_eq!(root_module.path_declarations.len(), 1);
-    assert!(root_module.host_interface.paths.is_empty());
     assert_eq!(root_module.external_types.len(), 2);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         state.store(10, Ordering::SeqCst);

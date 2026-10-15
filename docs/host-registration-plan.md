@@ -1,6 +1,6 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: active combined execution plan; HR01/RF01 proof and RI01-RI02 schema/conversion complete; HR02 unified bind and inferred registration retirement implemented; live-host declaration migration remains. The user
+Status: active combined execution plan; HR01-HR03 and RF01-RF05 implemented. RF06/RI05 final integration and durable documentation remain. The user
 included Ref/RefMut in the same delivery as registration and Opaque. The
 [roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
 placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
@@ -3446,14 +3446,69 @@ affected runtime integration targets passed scoped Clippy. Structure, formatting
 and diff checks passed. Production function-table/type-schema and portable legacy
 retirement remain the next HR03 work; the exhaustive matrix stays CI-owned.
 
+### HR03 checkpoint: retire parallel registration and portable host models
+
+Common ModuleDecl/NativeDeclaration, Ty, ImplDecl and explicit path declarations
+now own every production declaration, proof, codec, installation and invocation
+path. Removed HostInterface/KHI, HostValueType, legacy function/type registration,
+rootless invoke_host and their forwarding adapter. External root/path services,
+scoped loans, dirty commits, cancellation and checked HostCallContext remain at
+their existing owners. NativeImport has one signature authority; source-free
+linking always selects the installed common entry. Immutable native registrations
+and exact contract rechecks still pin calls across reload publication.
+
+Removed the KHI-only artifact fingerprint, section and reload-cache summary. They
+summarized the retired model and carried no common-declaration facts. Canonical
+program/content hashes, exact native/external/impl validation, public ABI,
+dependency and path summaries remain enforced; no replacement duplicate cache was
+introduced. Unpublished format/runtime identifiers remain unchanged. Development
+artifacts need regeneration; no compatibility reader or public alias remains.
+The artifact specification now states current contracts instead of retaining a
+superseded format-version changelog.
+
+Preserved metadata scope/adoption/cancellation coverage in metadata_identity and
+migrated the native proof/ambiguity fixture to an actual common ImplDecl. The
+existing deep ABI guard now covers native declarations/imports as well as public
+constants. KHI codec/catalog-only tests were removed with their sole production
+owner; common codec, identity, portable forgery and strict installation tests own
+the surviving contracts. Rootless invocation is no longer public: reentry tests
+enter the actual common execution frame and retain foreign/stale input assertions.
+
+Initial compilation exposed orphaned encoder/error attributes, removed-helper
+references, missed macro argument lists and stale fixture fields. All were repaired
+without disabling checks. The selected reentry fixture also carried an unused log
+declaration in its foreign program without installing the callback. Explicitly
+installing that binding repaired strict installation; no loader relaxation was
+needed. A malformed Clippy command repeated --lib and did not run; corrected
+selected target commands passed.
+
+Focused evidence: six affected production libraries passed Clippy. Metadata
+identity (one), native projection/uniqueness (one), deep ABI and nested path/layout
+preflight (two), portable artifact identity/forgery (two), compiler host contracts
+(nine), unused-declaration installation (one), runtime registration (two), nested
+VM native/reference boundary (two), path commit cleanup (one), and SDK associated
+trait/interface cases (three) passed. The repaired VM foreign/stale reentry case
+passed separately (8.51 seconds). Forged MIR control flow passed (one). SDK selected
+host_interfaces/offline_functions/conformance/example Clippy, runtime registration/
+installation target Clippy and bytecode identity target Clippy passed. Structure
+checked 1236 Rust files with zero findings; formatting and diff checks passed.
+
+Selection covers changed portable/proof/installation owners and representative
+VM/SDK dependents; full workspace and feature/backend/platform matrices remain
+CI-owned. No unsafe, roots or loan kernel changed; existing targeted Miri evidence
+remains applicable. HR02, RF05 and HR03 registration retirement gates are complete.
+RF06/RI05 still own production lifetime-proof consolidation, final runnable
+examples, durable contracts and plan retirement; combined delivery is not yet
+complete.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
-- [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
-- [ ] HR03: dependent legacy retirement complete after RF05.
+- [x] HR02: shared registration and selected by-value/legacy consumers migrated.
+- [x] HR03: dependent legacy retirement complete after RF05.
 - [x] RF01: compiling scope/adapter proof and finite capability contract frozen.
 - [x] RF02: checked reference/receiver/escape and portable contracts implemented.
 - [x] RF03: safe external scopes and whole-object loans implemented.
 - [x] RF04: generated inline projections and atomic path loans implemented.
-- [ ] RF05: common bind, SDK and source-free reference paths integrated.
+- [x] RF05: common bind, SDK and source-free reference paths integrated.
 - [ ] RF06: focused safety/integration complete; CI/Miri status recorded separately.
 
 RI progress remains in the interop plan. The combined order above is the sole

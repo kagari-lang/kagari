@@ -56,7 +56,6 @@ pub(super) fn import(
         },
         requirements: Vec::new(),
         callables: Vec::new(),
-        host: None,
     })
 }
 
@@ -83,7 +82,7 @@ pub(super) fn attach(
     if !modules.iter().any(|module| {
         module
             .native_applications()
-            .any(|import| import.host.is_none() && import.instance.declaration == id)
+            .any(|import| import.instance.declaration == id)
     }) {
         return Ok(());
     }
@@ -138,7 +137,6 @@ pub(super) fn attach(
             native_targets: vec![target],
             interface_instances: Vec::new(),
             external_types: Vec::new(),
-            host_types: Vec::new(),
             dependencies: Vec::new(),
             structures: Vec::new(),
             enumerations: Vec::new(),

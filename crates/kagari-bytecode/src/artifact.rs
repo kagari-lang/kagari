@@ -31,7 +31,6 @@ use kagari_contract::{
     slots::SemanticSlots,
     types::{PublicItem, wire::PublicItemRecord},
 };
-use kagari_types::host_interface::{HostInterface, wire::HostInterfaceRecord};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashSet, io, io::Write};
 
@@ -331,15 +330,6 @@ impl KbcArtifact {
         {
             return Err(ArtifactValidationError::DependencyFingerprintMismatch);
         }
-        if self.verification.host_interface_fingerprint
-            != ArtifactFingerprint::of_program_hosts(&self.program, &definitions)?
-        {
-            return Err(ArtifactValidationError::HostInterfaceFingerprintMismatch {
-                expected: ArtifactFingerprint::of_program_hosts(&self.program, &definitions)?,
-                found: self.verification.host_interface_fingerprint,
-            });
-        }
-
         if self.verification.typed_path_fingerprints
             != self.verification.loader.typed_path_fingerprints
         {
@@ -504,65 +494,6 @@ pub struct ModuleEpoch(pub u64);
 pub struct ArtifactFingerprint(pub u64);
 
 impl ArtifactFingerprint {
-    /// Canonical required ABI set; documentation and import slot order do not affect it.
-    pub fn of_host_interface(
-        interface: &HostInterface,
-        definitions: &DefinitionTable,
-    ) -> Result<Self, DefinitionMappingError> {
-        let cancel = CancellationToken::default();
-        let mut interface =
-            DefinitionMetadata::checked(definitions.clone(), interface.clone(), &cancel)?
-                .into_records();
-        interface.paths.clear();
-        for function in &mut interface.functions {
-            function.documentation.clear();
-        }
-        for ty in &mut interface.types {
-            ty.clear_documentation();
-        }
-        interface.functions.sort_by(|a, b| {
-            definitions
-                .compare(a.id, b.id)
-                .expect("checked host identities")
-        });
-        interface.types.sort_by(|a, b| {
-            definitions
-                .compare(a.id, b.id)
-                .expect("checked host identities")
-        });
-        let mut references = HashSet::new();
-        interface.visit_definition_ids(
-            &mut |id| {
-                references.insert(*id);
-                Ok(())
-            },
-            &cancel,
-        )?;
-        let encoding = definitions.encode(references)?;
-        let records = HostInterfaceRecord::encode(&interface, &encoding, &cancel)?;
-        Ok(Self::of_serialized(&(
-            "kagari-required-host-interface-v3",
-            (records, encoding.table),
-        )))
-    }
-
-    pub fn of_program_hosts(
-        program: &BytecodeProgram,
-        definitions: &DefinitionTable,
-    ) -> Result<Self, DefinitionMappingError> {
-        let hosts = program
-            .modules
-            .iter()
-            .map(|module| {
-                Ok((
-                    &module.identity,
-                    Self::of_host_interface(&module.host_interface, definitions)?,
-                ))
-            })
-            .collect::<Result<Vec<_>, DefinitionMappingError>>()?;
-        Ok(Self::of_serialized(&("kagari-program-hosts-v1", hosts)))
-    }
-
     /// Hash public ABI facts through their codec-owned records and reference table.
     /// Scope validation does not grant ABI verification or reload compatibility.
     pub fn of_public_item(
@@ -704,10 +635,6 @@ impl ArtifactTables {
                 count(|m| m.enumerations.len()),
             ),
             (ArtifactSectionId::Paths, count(|m| m.paths.len())),
-            (
-                ArtifactSectionId::HostDependencies,
-                count(|m| m.host_interface.functions.len() + m.host_interface.types.len()),
-            ),
             (ArtifactSectionId::SourceFiles, program.modules.len()),
             (
                 ArtifactSectionId::Verification,
@@ -785,7 +712,6 @@ pub enum ArtifactSectionId {
     StructLayouts,
     EnumLayouts,
     Paths,
-    HostDependencies,
     StringTable,
     SourceFiles,
     DebugNames,
@@ -813,7 +739,6 @@ pub struct VerificationMetadata {
     pub typed_path_fingerprints: PathFingerprintBuffer,
     pub public_abi_fingerprints: PublicAbiFingerprintBuffer,
     pub dependency_fingerprints: DependencyFingerprintBuffer,
-    pub host_interface_fingerprint: ArtifactFingerprint,
     pub loader: LoaderValidationMetadata,
 }
 
@@ -893,10 +818,6 @@ impl VerificationMetadata {
             typed_path_fingerprints: typed_path_fingerprints.clone(),
             public_abi_fingerprints: public_abi_fingerprints.clone(),
             dependency_fingerprints: program.dependency_fingerprints(definitions)?,
-            host_interface_fingerprint: ArtifactFingerprint::of_program_hosts(
-                program,
-                definitions,
-            )?,
 
             loader: LoaderValidationMetadata {
                 module_identity: module.identity.clone(),
@@ -1086,11 +1007,6 @@ pub enum ArtifactValidationError {
     ResourceLimit(&'static str),
     #[error("artifact dependency fingerprints mismatch")]
     DependencyFingerprintMismatch,
-    #[error("artifact host interface fingerprint mismatch: expected {}, found {}", .expected.to_hex(), .found.to_hex())]
-    HostInterfaceFingerprintMismatch {
-        expected: ArtifactFingerprint,
-        found: ArtifactFingerprint,
-    },
 
     #[error("artifact typed path fingerprints mismatch")]
     PathFingerprintMismatch,
@@ -1136,9 +1052,6 @@ impl ArtifactValidationError {
             Self::TableMismatch => "KG_ARTIFACT_TABLE_MISMATCH",
             Self::ResourceLimit(_) => "KG_ARTIFACT_RESOURCE_LIMIT",
             Self::DependencyFingerprintMismatch => "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH",
-            Self::HostInterfaceFingerprintMismatch { .. } => {
-                "KG_ARTIFACT_HOST_INTERFACE_FINGERPRINT_MISMATCH"
-            }
 
             Self::PathFingerprintMismatch => "KG_ARTIFACT_PATH_FINGERPRINT_MISMATCH",
             Self::PublicAbiFingerprintMismatch => "KG_ARTIFACT_PUBLIC_ABI_FINGERPRINT_MISMATCH",

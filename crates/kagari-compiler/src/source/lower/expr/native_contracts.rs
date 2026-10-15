@@ -121,7 +121,6 @@ impl FunctionLowerer<'_, '_> {
                 arguments,
             },
             binding,
-            host: None,
             signature: Signature {
                 params: params
                     .iter()
@@ -268,7 +267,6 @@ impl FunctionLowerer<'_, '_> {
                     arguments: applied_arguments,
                 },
                 binding: *binding,
-                host: None,
                 signature: Signature {
                     params: params
                         .iter()
@@ -361,7 +359,6 @@ impl FunctionLowerer<'_, '_> {
                         .collect(),
                 },
                 binding: *binding,
-                host: None,
                 signature: Signature {
                     params: params
                         .iter()

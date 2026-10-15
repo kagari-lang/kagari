@@ -1,7 +1,6 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    host::HostFunction,
     session::ExecutionPhase,
     value::Value,
 };
@@ -21,30 +20,6 @@ impl Runtime {
             ));
         }
         Ok(())
-    }
-
-    pub fn validate_host_function_boundary(&self, symbol: &str) -> Result<(), RuntimeError> {
-        self.resources().poll_execution()?;
-        let function = self.host.function(symbol);
-        self.validate_bound_host_boundary(symbol, function)
-    }
-
-    pub(super) fn validate_bound_host_boundary(
-        &self,
-        symbol: &str,
-        function: Option<&HostFunction>,
-    ) -> Result<(), RuntimeError> {
-        self.resources().poll_execution()?;
-        let Some(function) = function else {
-            return Err(RuntimeError::host_call_failure(format!(
-                "unregistered host function `{symbol}`"
-            )));
-        };
-        let metadata = function.declaration();
-        self.validate_external_call_effects(
-            &metadata.effects,
-            metadata.params.iter().map(|parameter| parameter.passing),
-        )
     }
 
     pub(crate) fn validate_native_host_policy(

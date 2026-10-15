@@ -172,12 +172,7 @@ impl TypeRegistry {
 
     pub(crate) fn path_type(&self, ty: &Ty) -> Option<TypeId> {
         let inner = self.inner.borrow();
-        inner.native_values.get(ty).copied().or_else(|| {
-            inner
-                .host_value_types
-                .iter()
-                .find_map(|(legacy, id)| (Ty::from_host_type(legacy) == *ty).then_some(*id))
-        })
+        inner.native_values.get(ty).copied()
     }
 
     pub(crate) fn path_value_type(&self, id: TypeId) -> Option<Ty> {
@@ -186,12 +181,6 @@ impl TypeRegistry {
             .native_values
             .iter()
             .find_map(|(ty, actual)| (*actual == id).then(|| ty.clone()))
-            .or_else(|| {
-                inner
-                    .host_value_types
-                    .iter()
-                    .find_map(|(ty, actual)| (*actual == id).then(|| Ty::from_host_type(ty)))
-            })
     }
 
     pub(crate) fn external_type(&self, declaration: &TypeDeclaration) -> Option<TypeId> {

@@ -13,27 +13,17 @@ use crate::{
     metadata::{AbiFingerprint, FieldMetadataId, TypeId},
     numeric,
     resource::ResourceState,
-    value::{EnumTag, EphemeralValue, Value},
+    value::Value,
 };
 use kagari_bytecode::instruction::BinaryOp;
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        map::DefinitionContext,
-        metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTable},
-    },
+use kagari_common::identity::{
+    map::DefinitionContext,
+    table::{DefinitionId, DefinitionTable},
 };
 
-use kagari_types::{
-    declaration::{
-        host::{HostPassingStyle, HostTypePolicy, PathAccess},
-        path::{HostPathDeclaration, HostPathSegmentDeclaration},
-    },
-    host_interface::{
-        HostFunctionDeclaration, type_declaration::HostTypeDeclaration, value_type::HostValueType,
-    },
-    ty::Ty,
+use kagari_types::declaration::{
+    host::{HostTypePolicy, PathAccess},
+    path::{HostPathDeclaration, HostPathSegmentDeclaration},
 };
 use std::{
     cell::RefCell,
@@ -824,12 +814,6 @@ impl Drop for HostCallGuard<'_> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct HostFunctionId {
-    owner: HostRegistryId,
-    slot: usize,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct HostRegistryId(u64);
 
 impl Default for HostRegistryId {
@@ -840,40 +824,6 @@ impl Default for HostRegistryId {
                 .expect("host registry identity exhausted"),
         )
     }
-}
-
-impl HostFunctionId {
-    pub fn index(self) -> usize {
-        self.slot
-    }
-}
-
-/// A host type input with its checked identity scope, before semantic validation.
-#[derive(Debug, Clone)]
-pub struct HostTypeRegistration {
-    pub declaration: DefinitionMetadata<HostTypeDeclaration>,
-    pub rust_type_name: String,
-}
-
-impl HostTypeRegistration {
-    pub fn new(
-        declaration: DefinitionMetadata<HostTypeDeclaration>,
-        rust_type_name: impl Into<String>,
-    ) -> Self {
-        Self {
-            declaration,
-            rust_type_name: rust_type_name.into(),
-        }
-    }
-}
-
-/// Installed host metadata; declaration IDs resolve through the registry's table.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HostTypeInfo {
-    pub type_id: TypeId,
-    pub declaration: HostTypeDeclaration,
-    pub rust_type_name: String,
-    pub abi_fingerprint: AbiFingerprint,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -943,327 +893,11 @@ impl<'a> HostCallContext<'a> {
     }
 }
 
-pub type HostCallback =
-    dyn Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError> + Send + Sync + 'static;
-
-#[derive(Clone)]
-pub struct HostFunction {
-    id: Option<HostFunctionId>,
-    declaration: HostFunctionDeclaration,
-    definitions: DefinitionTable,
-    handler: Arc<HostCallback>,
-}
-
-impl fmt::Debug for HostFunction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("HostFunction")
-            .field("symbol", &self.declaration.symbol)
-            .field("id", &self.id)
-            .field("params", &self.declaration.params)
-            .field("return_type", &self.declaration.return_type)
-            .field("effects", &self.declaration.effects)
-            .field("declaration_id", &self.declaration.id)
-            .finish_non_exhaustive()
-    }
-}
-
-impl HostFunction {
-    pub fn method(
-        owner: &DefinitionMetadata<HostTypeDeclaration>,
-        method: DefinitionId,
-        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
-        + Send
-        + Sync
-        + 'static,
-    ) -> Result<Self, RuntimeError> {
-        let declaration = owner
-            .records()
-            .method_contract(&method, owner.definitions())
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        let declaration = DefinitionMetadata::checked(
-            owner.definitions().clone(),
-            declaration,
-            &CancellationToken::default(),
-        )
-        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        Ok(Self::new(declaration, handler))
-    }
-
-    pub fn new(
-        declaration: DefinitionMetadata<HostFunctionDeclaration>,
-        handler: impl Fn(&HostCallContext<'_>, &[Value]) -> Result<Value, HostError>
-        + Send
-        + Sync
-        + 'static,
-    ) -> Self {
-        let (definitions, declaration) = declaration.into_parts();
-        Self {
-            id: None,
-            declaration,
-            definitions,
-            handler: Arc::new(handler),
-        }
-    }
-
-    pub fn id(&self) -> Option<HostFunctionId> {
-        self.id
-    }
-
-    pub fn declaration(&self) -> &HostFunctionDeclaration {
-        &self.declaration
-    }
-
-    pub fn definitions(&self) -> &DefinitionTable {
-        &self.definitions
-    }
-
-    pub fn symbol(&self) -> &str {
-        &self.declaration.symbol
-    }
-
-    pub(crate) fn invoke(
-        &self,
-        context: &HostCallContext<'_>,
-        args: &[Value],
-    ) -> Result<Value, RuntimeError> {
-        let invalid_arguments = || {
-            RuntimeError::host_call_failure("host arguments do not match the declared signature")
-        };
-        if args.len() != self.declaration.params.len() {
-            return Err(invalid_arguments());
-        }
-        for (value, parameter) in args.iter().zip(&self.declaration.params) {
-            if parameter.passing == HostPassingStyle::Owned {
-                HostBorrowTable::validate_no_escape(context.runtime().gc(), value)?;
-            }
-            if !host_value_matches(context.runtime(), value, &parameter.ty)? {
-                return Err(invalid_arguments());
-            }
-        }
-        let heap = context.runtime().gc();
-        for (value, parameter) in args.iter().zip(&self.declaration.params) {
-            match (value, parameter.passing) {
-                (Value::HostRoot(id), HostPassingStyle::SharedBorrow) => {
-                    let root = heap.host_root(*id).ok_or_else(invalid_arguments)?;
-                    context
-                        .borrows()
-                        .borrow_shared(root.object_id(), root.type_id())?;
-                }
-                (Value::HostRoot(id), HostPassingStyle::UniqueBorrow) => {
-                    let root = heap.host_root(*id).ok_or_else(invalid_arguments)?;
-                    context
-                        .borrows()
-                        .borrow_unique(root.object_id(), root.type_id())?;
-                }
-                (Value::Ephemeral(id), passing) => {
-                    let Some(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)) =
-                        heap.ephemeral(*id)
-                    else {
-                        return Err(invalid_arguments());
-                    };
-                    let required = match passing {
-                        HostPassingStyle::SharedBorrow => HostBorrowKind::Shared,
-                        HostPassingStyle::UniqueBorrow => HostBorrowKind::Unique,
-                        HostPassingStyle::Owned => {
-                            return Err(RuntimeError::host_borrow_escape(
-                                "borrowed host argument cannot satisfy owned passing",
-                            ));
-                        }
-                    };
-                    context.runtime().validate_host_borrow(token, required)?;
-                }
-                _ => {}
-            }
-        }
-        let result = (self.handler)(context, args).map_err(|error| {
-            let failure = RuntimeError::host_call_failure(error.message());
-            match error.trace() {
-                Some(trace) => failure.with_trace(trace.clone()),
-                None => failure,
-            }
-        })?;
-        if !context.runtime().gc().validate_candidate_value(&result) {
-            return Err(RuntimeError::execution_phase_violation(
-                "external object in candidate host result",
-            ));
-        }
-        if !host_value_matches(context.runtime(), &result, &self.declaration.return_type)? {
-            return Err(RuntimeError::host_call_failure(
-                "host result does not match the declared signature",
-            ));
-        }
-        Ok(result)
-    }
-
-    fn assign_id(&mut self, id: HostFunctionId) {
-        self.id = Some(id);
-    }
-}
-
-fn host_value_matches(
-    runtime: &Runtime,
-    value: &Value,
-    ty: &HostValueType,
-) -> Result<bool, RuntimeError> {
-    let heap = runtime.gc();
-    let mut pending = vec![(*value, ty)];
-    while let Some((value, ty)) = pending.pop() {
-        runtime.resources().poll_execution()?;
-        if !heap.validate_value(&value) {
-            return Ok(false);
-        }
-        match (value, ty) {
-            (Value::Unit, HostValueType::Unit)
-            | (Value::Bool(_), HostValueType::Bool)
-            | (Value::I32(_), HostValueType::I32)
-            | (Value::I64(_), HostValueType::I64)
-            | (Value::F32(_), HostValueType::F32)
-            | (Value::F64(_), HostValueType::F64)
-            | (Value::Str(_), HostValueType::String) => {}
-            (Value::HostRoot(id), HostValueType::Opaque(declaration)) => {
-                let Some(root) = heap.host_root(id) else {
-                    return Ok(false);
-                };
-                if !runtime.host().matches_root(root)
-                    || !runtime.host().matches_type(root.type_id(), declaration)
-                {
-                    return Ok(false);
-                }
-            }
-            (Value::Ephemeral(id), HostValueType::Opaque(declaration)) => {
-                let Some(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token)) =
-                    heap.ephemeral(id)
-                else {
-                    return Ok(false);
-                };
-                if !runtime.host().matches_type(token.type_id(), declaration) {
-                    return Ok(false);
-                }
-            }
-            (Value::Tuple(id), HostValueType::Tuple(types)) => {
-                let Some(values) = heap.tuple(id) else {
-                    return Ok(false);
-                };
-                if values.len() != types.len() {
-                    return Ok(false);
-                }
-                pending.extend(values.iter().copied().zip(types))
-            }
-            (Value::GcHandle(id), HostValueType::Vec(_, element)) => {
-                let Some(contract) = heap.sequence_contract(id) else {
-                    return Ok(false);
-                };
-                let expected = runtime
-                    .resolve_type_arguments(&contract.owner, &[Ty::from_host_type(ty)])?
-                    .remove(0);
-                if !expected.matches(runtime, &Value::GcHandle(id), &contract.owner) {
-                    return Ok(false);
-                }
-                let Some(values) = heap.sequence_snapshot(id) else {
-                    return Ok(false);
-                };
-                pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
-            }
-            (Value::Interface(id), HostValueType::List(_, _)) => {
-                let Some(snapshot) = heap.interface_snapshot(id) else {
-                    return Ok(false);
-                };
-                let owner = &snapshot.receiver_table.owner;
-                let expected = runtime
-                    .resolve_type_arguments(owner, &[Ty::from_host_type(ty)])?
-                    .remove(0);
-                if !expected.matches(runtime, &Value::Interface(id), owner) {
-                    return Ok(false);
-                }
-            }
-            (Value::Array(id), HostValueType::Array(element)) => {
-                let Some(contract) = heap.array_contract(id) else {
-                    return Ok(false);
-                };
-                let expected = runtime
-                    .resolve_type_arguments(&contract.owner, &[Ty::from_host_type(ty)])?
-                    .remove(0);
-                if !expected.matches(runtime, &Value::Array(id), &contract.owner) {
-                    return Ok(false);
-                }
-                let Some(values) = heap.array_snapshot(id) else {
-                    return Ok(false);
-                };
-                pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
-            }
-            (Value::Map(id), HostValueType::Map { key, value, .. }) => {
-                let Some(entries) = heap.map_snapshot(id) else {
-                    return Ok(false);
-                };
-                for (k, v) in entries {
-                    pending.push((k, key.as_ref()));
-                    pending.push((v, value.as_ref()));
-                }
-            }
-            (Value::Set(id), HostValueType::Set(element, _)) => {
-                let Some(values) = heap.set_snapshot(id) else {
-                    return Ok(false);
-                };
-                pending.extend(values.into_iter().map(|value| (value, element.as_ref())));
-            }
-            (Value::Enum(id), HostValueType::Option(_, _) | HostValueType::Result { .. }) => {
-                let Some((layout, field, field_count)) = heap.enum_view(id).map(|view| {
-                    let EnumTag::Declared(layout) = &view.tag;
-                    (
-                        layout.clone(),
-                        view.fields.first().copied(),
-                        view.fields.len(),
-                    )
-                }) else {
-                    return Ok(false);
-                };
-                let expected = runtime
-                    .resolve_type_arguments(layout.module(), &[Ty::from_host_type(ty)])?
-                    .remove(0);
-                if !expected.matches(runtime, &Value::Enum(id), layout.module()) {
-                    return Ok(false);
-                }
-                let declaration = match ty {
-                    HostValueType::Option(declaration, _)
-                    | HostValueType::Result { declaration, .. } => declaration,
-                    _ => unreachable!(),
-                };
-                if *declaration != layout.layout().declaration {
-                    return Ok(false);
-                }
-                let member = layout
-                    .module()
-                    .definition_name(layout.variant().declaration);
-                let expected = match (ty, member) {
-                    (HostValueType::Option(_, _), Some("None")) if field_count == 0 => {
-                        continue;
-                    }
-                    (HostValueType::Option(_, element), Some("Some")) => element,
-                    (HostValueType::Result { ok, .. }, Some("Ok")) => ok,
-                    (HostValueType::Result { error, .. }, Some("Err")) => error,
-                    _ => return Ok(false),
-                };
-                if field_count != 1 {
-                    return Ok(false);
-                }
-                pending.extend(field.map(|value| (value, expected.as_ref())));
-            }
-            _ => return Ok(false),
-        }
-    }
-    Ok(true)
-}
-
 #[derive(Debug)]
 pub struct HostRegistry {
     definitions: DefinitionContext,
     owner: HostRegistryId,
     next_path_descriptor_id: usize,
-    functions: Vec<HostFunction>,
-    function_names: HashMap<String, HostFunctionId>,
-    function_declarations: HashMap<DefinitionId, HostFunctionId>,
-    types: HashMap<TypeId, HostTypeInfo>,
-    type_names: HashMap<String, TypeId>,
     type_declarations: HashMap<DefinitionId, TypeId>,
     registered_types: HashMap<TypeId, RegisteredHostType>,
     roots: HashMap<HostObjectId, HostRootHandle>,

@@ -20,7 +20,6 @@ pub fn collect(
             &module.identity,
             &module.public_items,
             &module.trait_contracts,
-            &module.host_interface.types,
             context,
             &cancel,
         )

@@ -393,21 +393,21 @@ the agreed future design only; implementation remains deferred.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 
-The next scope is merging the existing HostInterface into NativeModule.
+Common NativeModule declarations, bind and installation now own host registration.
 The [implementation plan and API proposal](host-registration-plan.md) owns
 HR01-HR03, RF01-RF06, registration/reference acceptance and the combined delivery
-order with RI00-RI05. Implementation is unstarted. Ordinary by-value conversion,
+order with RI00-RI05. Core implementation and legacy retirement are implemented;
+combined focused acceptance and final documentation remain active. Ordinary by-value conversion,
 runtime-owned Opaque and scoped Ref/RefMut are included in one selected delivery;
 their distinct phase owners preserve a finite migration and safety gates.
 Their metadata is not a required part of by-value usage.
 
 ### Registration unification
 
-Standard and application native modules use shared declarations, Native bindings
-and Engine installation. Host APIs separately use
-[HostInterface](../crates/kagari-types/src/host_interface/mod.rs), host type/function/
-path bindings and runtime registration. Their overlapping declaration and install
-paths should become one NativeModule model.
+Standard, application and host APIs use shared declarations, Native bindings and
+Engine installation through [NativeModule](../crates/kagari-runtime/src/native/module.rs).
+The former host aggregate, standalone format and parallel runtime function/type
+registration are removed; root/path execution services retain their safety owners.
 
 Move general type/member/function declarations to shared semantic and executable
 owners. Ordinary struct values use checked converters and normal Kagari fields.

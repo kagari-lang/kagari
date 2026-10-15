@@ -22,7 +22,6 @@ use kagari_types::{
         native::{NativeCallableRequirementRecord, SignatureRecord},
         signature::GenericBoundRecord,
     },
-    host_interface::wire::declarations::WireHostFunctionDeclaration,
     reference::ReferenceAccess,
     ty::wire::WireType,
 };
@@ -41,7 +40,6 @@ pub struct NativeImportRecord {
     requirements: Vec<GenericBoundRecord>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     callables: Vec<OperationWitnessRecord>,
-    host: Option<WireHostFunctionDeclaration>,
 }
 
 impl NativeImportRecord {
@@ -78,15 +76,6 @@ impl NativeImportRecord {
                 .iter()
                 .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
-            host: value
-                .host
-                .as_ref()
-                .map(|value| {
-                    Ok::<_, DefinitionMappingError>(WireHostFunctionDeclaration::encode(
-                        value, encoding, cancel,
-                    )?)
-                })
-                .transpose()?,
         })
     }
 
@@ -121,10 +110,6 @@ impl NativeImportRecord {
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
-            host: self
-                .host
-                .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
-                .transpose()?,
         })
     }
 }

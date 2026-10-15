@@ -56,7 +56,6 @@ impl RemapDefinitions for VerificationMetadata {
             typed_path_fingerprints: self.typed_path_fingerprints.clone(),
             public_abi_fingerprints: self.public_abi_fingerprints.clone(),
             dependency_fingerprints: self.dependency_fingerprints.clone(),
-            host_interface_fingerprint: self.host_interface_fingerprint,
             loader: self.loader.clone(),
         })
     }

@@ -17,7 +17,6 @@ use kagari_types::{
         NativeDeclaration,
         verify::{native_bounds_valid, types_in_scope},
     },
-    host_interface::HostFunctionDeclaration,
     reference::ReferenceAccess,
     ty::{GenericBound, Ty, substitution::TypeTransformError},
 };
@@ -54,34 +53,6 @@ pub struct NativeImport {
     pub signature: Signature,
     pub requirements: Vec<GenericBound>,
     pub callables: Vec<OperationWitness>,
-    /// Existing host borrow/schema/authority facts belong to the host adapter.
-    pub host: Option<HostFunctionDeclaration>,
-}
-
-impl NativeImport {
-    pub fn from_host(declaration: &HostFunctionDeclaration) -> Self {
-        Self {
-            receiver_access: None,
-            result_adapter: None,
-            generic: None,
-            instance: ConcreteFunctionIdentity {
-                declaration: declaration.id,
-                arguments: vec![],
-            },
-            binding: declaration.id,
-            signature: Signature {
-                params: declaration
-                    .params
-                    .iter()
-                    .map(|p| Ty::from_host_type(&p.ty))
-                    .collect(),
-                result: Ty::from_host_type(&declaration.return_type),
-            },
-            requirements: vec![],
-            callables: vec![],
-            host: Some(declaration.clone()),
-        }
-    }
 }
 
 impl NativeImport {
@@ -117,9 +88,6 @@ impl NativeImport {
                         &Default::default(),
                         definitions,
                     )
-            })
-            && self.host.as_ref().is_none_or(|declaration| {
-                declaration.validate(definitions).is_ok() && *self == Self::from_host(declaration)
             })
             && definitions.resolve(self.binding).is_ok_and(|view| {
                 !view.module().package.0.is_empty()

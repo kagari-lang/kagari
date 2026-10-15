@@ -74,9 +74,6 @@ impl HostRegistry {
         let mut staged = Self::new(self.definitions.clone());
         staged.registered_types = types;
         staged.type_declarations = declarations;
-        // Retain legacy producer schemas only while its callers migrate. Roots,
-        // loans and dirty records remain solely in the live registry.
-        staged.types = self.types.clone();
         staged.path_descriptors = self.path_descriptors.clone();
         staged.path_adapters = self.path_adapters.clone();
         staged.next_path_descriptor_id = self.next_path_descriptor_id;

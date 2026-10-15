@@ -103,9 +103,8 @@ readonly parents cannot create writable children or satisfy a unique parameter.
 The caller's original view retains its capability. Manual path callbacks borrow
 the actual whole root while running, preserving their existing reentry conflicts.
 Metadata does not authorize unrestricted Rust references or turn a DTO into a
-borrowed host object. The remaining legacy host producer and its consumers are
-being retired under the [combined implementation plan](../host-registration-plan.md);
-they do not supply a separate shared-schema or path semantic implementation.
+borrowed host object. Common declarations are the sole schema owner for both
+source compilation and source-free path validation.
 
 ## Function Registration
 
@@ -148,18 +147,15 @@ use ordinary NativeValue conversions and roots, including arbitrary script objec
 packages along with the optional default package. Generated `.kgr` provides
 navigation and documentation, while compiler signatures are imported directly.
 Advanced NativeApi::new/NativeFactory registrations retain runtime result,
-application, ownership and callback validation. Migration of existing host
-opaque/type/path adapters remains pending; their identity, declared access, scoped
-borrow, schema and output checks below continue to apply.
+application, ownership and callback validation. External root and path adapters
+use the same declaration, bind and installation owners.
 
-The current function API is `HostFunction::new(declaration, callback)`. Its
-`HostFunctionDeclaration` comes from `kagari_types::host_interface`, which has no
-runtime dependency. It carries a `DefinitionPath`, export label, typed parameters
-and result, passing styles, effects and documentation.
-`HostValueType` covers scalar and composite representations plus opaque nominal
-types. Opaque references use declaration identities, not runtime type slots.
-The old callback-owned metadata model, arbitrary ABI fingerprint field, static
-string type names and `with_metadata` constructor have been removed.
+Declare a function with `FunctionDecl`, including its parameter/result `Type`
+handles, then attach its callback with `ModuleBuilder::bind`. Signatures use the
+ordinary scoped `Ty` tree. Manual external-ID callbacks explicitly attach a
+`HostCallPolicy` for argument passing and effects. Common native entries retain
+that checked declaration and its complete dependency closure; there is no second
+runtime function registry or inferred signature authority.
 
 Host parameter types from offline declarations provide expression context before
 argument checking, including nested containers and empty Array literals. The same
@@ -218,38 +214,20 @@ linked entry through ordinary rooted native frames, and retains trace inputs,
 immutable configuration access and candidate initialization across reload.
 Run `cargo run -p kagari-runtime --example offline_host`.
 
-One declaration can be cloned into a `HostInterface` for offline tooling and into
-the runtime binding. `HostRegistry::link_interface` checks required declarations
-against installed bindings without calling them. It rejects missing bindings,
-identity/signature/borrow/effect mismatches. Documentation changes
-do not change the call contract. Registration rejects duplicate identities and
-labels, and invalid declarations leave the registry unchanged.
+`NativeModule::to_declaration` produces cold, address-free `ModuleDecl` metadata
+for analysis and tooling. It retains its definition table and imports IDs
+explicitly when combined with another scope. KBC and portable MIR serialize their
+common native, external schema and path contracts through the codec-owned records.
+The standalone host declaration format and its reader are removed.
 
-Interface encoding uses the `KHI\0` magic and version 12, fixed-width little-endian
-fields and a 4 MiB limit. The envelope contains Host records with file-local
-references and a canonical definition table; process-local IDs are never encoded.
-Types and functions are sorted by canonical declaration identity, and paths by
-canonical encoded contract. Decoding creates a fresh identity scope, resolves all
-file references, then validates the Host schema. The result retains its table;
-callers import its IDs explicitly before combining it with another context.
-Decoding rejects other versions, malformed input, unresolved references, duplicates
-and trailing data. The decoder
-checks declaration-list lengths before reading elements (at most 1,000,000 each),
-and member, parameter and path-segment vectors at 4,096 each. In-memory
-validation uses the same limits before encoding or linking. Module and declaration
-identities reject encoded paths longer than 64 segments before reading them.
-Host declaration validation rejects overlong in-memory identity paths before
-portable encoding or runtime binding.
-Function and member fingerprints use domain-separated FNV-1a-64 over canonical
-file-local contract records and their referenced definition closure; documentation
-is excluded. Independent scopes, allocation order and unrelated definitions do not
-change these fingerprints. Binding checks compare the complete contract rather
-than treating a matching fingerprint as sufficient evidence. Each value type uses
-a flat preorder node sequence, limited to 4096 nodes and depth 64. Invalid child
-counts, trailing nodes, excessive depth and invalid Map/Set key types are rejected.
-The function fingerprint domain is `kagari-host-function-v3`; type, field and
-method fingerprints have separate v1 domains. Member declaration order is retained
-because it determines runtime slots. Versions 1 through 5 are not decoded.
+Loading checks all required common declarations against installed bindings without
+calling them, including unused schemas, trait references and paths. It rejects
+missing or conflicting identities, signatures, access policies, passing styles,
+effects and storage capabilities. Documentation is outside the semantic contract.
+Canonical encoding uses only referenced definitions and their ancestor closure;
+independent scopes and unrelated definitions do not change semantic identity.
+Binding compares complete contracts; a matching fingerprint alone is insufficient.
+[Artifact limits](artifacts.md#logical-layout) apply before encoding and hashing.
 
 `HostFunctionEffects::may_read_immutable_configuration` is part of the binding
 contract and function fingerprint. It permits snapshot configuration reads during
@@ -1050,25 +1028,14 @@ with the same ABI follows normal generation-pinned script execution semantics.
 
 The [portable source-trait contract fixture](../../crates/kagari/tests/offline_nominal/traits.rs)
 demonstrates explicit binding, an associated output, a script default and exact
-ABI rejection. The legacy table producer described below remains HR03 migration
-work under the [combined plan](../host-registration-plan.md).
+ABI rejection.
 
-Host types may implement script-visible traits.
-
-An offline host type declares a trait identity, ordered concrete input types,
-associated outputs keyed by trait-owned member identities, and a complete mapping
-from trait methods to declared host methods. KHI v10 validates ownership,
-uniqueness and bounded portable types; all these records participate in the host
-type ABI fingerprint. Inputs and outputs use `HostValueType`, including nested
-values and opaque host types. Script nominal types are not portable host types.
-Associated output references participate in the required host-type closure.
-
-```rust,ignore
-implementation.associated_types.push(HostAssociatedTypeBinding {
-    declaration: item_member_id, // the trait's `type Item` identity
-    ty: HostValueType::I32,
-});
-```
+Host types implement script-visible traits only through explicit common
+implementation declarations. `ImplBuilder` names the trait application, receiver
+and associated outputs; each member is declared and bound through the ordinary
+native module. Rust trait implementation bodies can supply those callbacks, but
+Rust trait membership never creates a Kagari impl. Ordinary DTO schema registration
+also creates no methods or trait impls.
 
 Signature analysis and artifact verification check the complete output schema,
 input/output bounds, receiver and substituted method signatures against the
@@ -1078,9 +1045,9 @@ methods. A script implementation of the same applied trait for that host type
 is an overlap; associated outputs do not distinguish implementations.
 
 A concrete host receiver satisfies static bounds and may convert to a fully bound
-dynamic interface. Generated IR forwarding functions call the mapped host method
-through the ordinary installation, effect, cancellation and borrow checks.
-Artifact verification checks the exact forwarding call and method mapping.
+dynamic interface. The ordinary interface table selects a verified native import
+through the shared installation, effect, cancellation and borrow checks. Artifact
+verification checks the exact implementation identity, method signature and binding.
 The interface retains only a checked durable `HostRoot`; temporary borrow tokens
 and path views cannot be boxed. It keeps its linked execution version across
 reentry and hot reload. Hosts must explicitly root retained interface objects;

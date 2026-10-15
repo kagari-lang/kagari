@@ -107,11 +107,6 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
             .dependency_fingerprints,
         expected_dependencies
     );
-    assert_eq!(
-        artifact.records().verification.host_interface_fingerprint,
-        ArtifactFingerprint::of_program_hosts(&artifact.records().program, artifact.definitions())
-            .unwrap()
-    );
 
     let compatibility = exact_compatibility(artifact.records(), identity.clone());
     let definitions = DefinitionContext::new().unwrap();

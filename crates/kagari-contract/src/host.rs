@@ -2,287 +2,19 @@
 
 use crate::{
     layout::{EnumLayout, LayoutValidationError, StructLayout},
-    types as abi,
-    types::{PublicItem, TraitContract},
+    types::PublicItem,
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{
-        DefinitionKind, ModuleIdentity,
-        table::{DefinitionId, DefinitionTable},
-    },
+    identity::table::{DefinitionId, DefinitionTable},
 };
 use kagari_types::{
-    declaration::{FnDecl, TraitDef, TypeDeclaration},
-    host_interface::{
-        HostInterface,
-        constraints::satisfies_standard_constraint,
-        type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
-    },
-    language::Protocol,
-    ty::{Constraint, Ty},
+    declaration::{FnDecl, TypeDeclaration},
+    ty::Ty,
 };
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    slice,
-};
+use std::{collections::BTreeSet, slice};
 
 pub mod external;
-
-/// Check host method tables against the defining module's executable trait
-/// contracts, including declarations absent from its public ABI.
-pub fn trait_bindings_match(
-    interface: &HostInterface,
-    module: &ModuleIdentity,
-    items: &[PublicItem],
-    contracts: &[TraitContract],
-    cancel: &CancellationToken,
-    definitions: &DefinitionTable,
-) -> Result<bool, Cancelled> {
-    for host in &interface.types {
-        cancel.check()?;
-        for implementation in &host.trait_implementations {
-            cancel.check()?;
-            let id = &implementation.trait_id;
-            if Protocol::from_definition(id, definitions)
-                .is_some_and(|kind| !kind.host_implementable())
-            {
-                return Ok(false);
-            }
-            let Ok(owner) = definitions.resolve(*id) else {
-                return Ok(false);
-            };
-            if owner.module() != module {
-                continue;
-            }
-            let Some(trait_abi) = abi::trait_contract(module, items, contracts, id, definitions)
-            else {
-                return Ok(false);
-            };
-            if !host_trait_matches(implementation, host, trait_abi, cancel, definitions)? {
-                return Ok(false);
-            }
-        }
-    }
-    Ok(true)
-}
-
-fn host_trait_matches(
-    implementation: &HostTraitImplementationDeclaration,
-    host: &HostTypeDeclaration,
-    trait_abi: &TraitDef,
-    cancel: &CancellationToken,
-    definitions: &DefinitionTable,
-) -> Result<bool, Cancelled> {
-    let args = implementation
-        .trait_arguments
-        .iter()
-        .map(Ty::from_host_type)
-        .collect::<Vec<_>>();
-    let outputs: BTreeMap<_, _> = implementation
-        .associated_types
-        .iter()
-        .map(|output| (output.declaration, Ty::from_host_type(&output.ty)))
-        .collect();
-    if !trait_abi.associated_consts.is_empty()
-        || trait_abi
-            .associated_types
-            .iter()
-            .any(|member| !member.generic_params.is_empty())
-        || args.len() != trait_abi.generic_params.len()
-        || outputs.len() != trait_abi.associated_types.len()
-        || trait_abi
-            .associated_types
-            .iter()
-            .any(|member| !outputs.contains_key(&member.declaration))
-        || implementation.methods.len() != trait_abi.methods.len()
-    {
-        return Ok(false);
-    }
-    for member in &trait_abi.associated_types {
-        let output = implementation
-            .associated_types
-            .iter()
-            .find(|output| output.declaration == member.declaration)
-            .expect("validated output schema");
-        for constraint in &member.bounds {
-            if let Constraint::Standard(standard) = constraint
-                && !satisfies_standard_constraint(&output.ty, *standard)
-            {
-                return Ok(false);
-            }
-        }
-    }
-    for bound in &trait_abi.bounds {
-        cancel.check()?;
-        let Ty::Parameter { owner, position } = &bound.ty else {
-            return Ok(false);
-        };
-        if owner != &implementation.trait_id {
-            return Ok(false);
-        }
-        let Some(argument) = implementation.trait_arguments.get(*position) else {
-            return Ok(false);
-        };
-        for constraint in &bound.constraints {
-            cancel.check()?;
-            if let Constraint::Standard(standard) = constraint
-                && !satisfies_standard_constraint(argument, *standard)
-            {
-                return Ok(false);
-            }
-        }
-    }
-    for method in &trait_abi.methods {
-        cancel.check()?;
-        if !method.generic_params.is_empty() || method.params.is_empty() {
-            return Ok(false);
-        }
-        let Some(binding) = implementation.methods.iter().find(|binding| {
-            definitions
-                .resolve(binding.trait_method)
-                .ok()
-                .and_then(|view| view.last())
-                .is_some_and(|part| {
-                    part.name == method.name
-                        && part.kind == DefinitionKind::Method
-                        && part.occurrence == 0
-                })
-        }) else {
-            return Ok(false);
-        };
-        let Some(host_method) = host
-            .methods
-            .iter()
-            .find(|candidate| candidate.id == binding.host_method)
-        else {
-            return Ok(false);
-        };
-        let receiver = Ty::Host(host.id);
-        if method.params.len() != host_method.params.len() + 1
-            || !matches_host_type(
-                &method.params[0].ty,
-                &receiver,
-                &implementation.trait_id,
-                &args,
-                &outputs,
-                &receiver,
-                cancel,
-            )?
-        {
-            return Ok(false);
-        }
-        for (expected, actual) in method.params[1..].iter().zip(&host_method.params) {
-            cancel.check()?;
-            if !matches_host_type(
-                &expected.ty,
-                &Ty::from_host_type(&actual.ty),
-                &implementation.trait_id,
-                &args,
-                &outputs,
-                &receiver,
-                cancel,
-            )? {
-                return Ok(false);
-            }
-        }
-        if !matches_host_type(
-            &method.return_type,
-            &Ty::from_host_type(&host_method.return_type),
-            &implementation.trait_id,
-            &args,
-            &outputs,
-            &receiver,
-            cancel,
-        )? {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-fn matches_host_type(
-    expected: &Ty,
-    actual: &Ty,
-    owner: &DefinitionId,
-    arguments: &[Ty],
-    outputs: &BTreeMap<DefinitionId, Ty>,
-    receiver: &Ty,
-    cancel: &CancellationToken,
-) -> Result<bool, Cancelled> {
-    let mut pending = vec![(expected, actual)];
-    while let Some((expected, actual)) = pending.pop() {
-        cancel.check()?;
-        match (expected, actual) {
-            (
-                Ty::Projection {
-                    receiver: source,
-                    interface,
-                    member,
-                    arguments: member_arguments,
-                },
-                actual,
-            ) if member_arguments.is_empty()
-                && interface.declaration == *owner
-                && matches!(source.as_ref(), Ty::SelfType(id) if id == owner) =>
-            {
-                let Some(output) = outputs.get(member) else {
-                    return Ok(false);
-                };
-                pending.push((output, actual));
-            }
-            (Ty::SelfType(id), actual) if id == owner => pending.push((receiver, actual)),
-            (
-                Ty::Parameter {
-                    owner: id,
-                    position,
-                },
-                actual,
-            ) if id == owner => {
-                let Some(argument) = arguments.get(*position) else {
-                    return Ok(false);
-                };
-                pending.push((argument, actual));
-            }
-            (Ty::Builtin(a), Ty::Builtin(b)) if a == b => {}
-            (Ty::Host(a), Ty::Host(b)) if a == b => {}
-            (Ty::Tuple(a), Ty::Tuple(b)) if a.len() == b.len() => {
-                pending.extend(a.iter().zip(b));
-            }
-            (
-                Ty::Function {
-                    params: ap,
-                    result: ar,
-                },
-                Ty::Function {
-                    params: bp,
-                    result: br,
-                },
-            ) if ap.len() == bp.len() => {
-                pending.push((ar, br));
-                pending.extend(ap.iter().zip(bp));
-            }
-            (Ty::Iter(a), Ty::Iter(b))
-            | (Ty::Array(a), Ty::Array(b))
-            | (Ty::Set(a, _), Ty::Set(b, _)) => {
-                pending.push((a, b));
-            }
-            (
-                Ty::Map {
-                    key: ak, value: av, ..
-                },
-                Ty::Map {
-                    key: bk, value: bv, ..
-                },
-            ) => {
-                pending.extend([(ak.as_ref(), bk.as_ref()), (av.as_ref(), bv.as_ref())]);
-            }
-
-            _ => return Ok(false),
-        }
-    }
-    Ok(true)
-}
 
 pub fn references(
     items: &[PublicItem],
@@ -349,7 +81,9 @@ pub fn type_references<'ty>(
                 pending.extend(params);
                 pending.push(result);
             }
-            Ty::Array(ty) | Ty::Set(ty, _) | Ty::Iter(ty) => pending.push(ty),
+            Ty::Array(ty) | Ty::Set(ty, _) | Ty::Iter(ty) | Ty::Reference { target: ty, .. } => {
+                pending.push(ty)
+            }
             Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
             Ty::NativeObject(ty) | Ty::Struct(ty) | Ty::Enum(ty) | Ty::Trait(ty) => {
                 pending.extend(&ty.arguments);
@@ -362,7 +96,6 @@ pub fn type_references<'ty>(
 }
 
 pub fn validate(
-    interface: &HostInterface,
     external_types: &[TypeDeclaration],
     items: &[PublicItem],
     structures: &[StructLayout],
@@ -373,10 +106,7 @@ pub fn validate(
     cancel
         .check()
         .map_err(|_| LayoutValidationError::Cancelled)?;
-    interface
-        .validate(definitions)
-        .map_err(|_| LayoutValidationError::Invalid)?;
-    let mut ids: BTreeSet<_> = interface.types.iter().map(|ty| ty.id).collect();
+    let mut ids = BTreeSet::new();
     external::validate(external_types, cancel, definitions)?;
     if external_types.iter().any(|ty| !ids.insert(ty.declaration)) {
         return Err(LayoutValidationError::Invalid);
@@ -402,17 +132,11 @@ pub fn validate(
 /// Require executable semantic types to use a declared external dependency.
 /// Callers validate dependency schemas first; the linked provider check follows.
 pub fn references_present<'ty>(
-    interface: &HostInterface,
     external_types: &[TypeDeclaration],
     types: impl IntoIterator<Item = &'ty Ty>,
     cancel: &CancellationToken,
 ) -> Result<bool, Cancelled> {
-    let ids: BTreeSet<_> = interface
-        .types
-        .iter()
-        .map(|ty| ty.id)
-        .chain(external_types.iter().map(|ty| ty.declaration))
-        .collect();
+    let ids: BTreeSet<_> = external_types.iter().map(|ty| ty.declaration).collect();
     Ok(type_references(types, cancel)?
         .iter()
         .all(|id| ids.contains(id)))

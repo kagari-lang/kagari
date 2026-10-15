@@ -11,10 +11,7 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionStack,
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, roots::RootedValue},
-    host::{
-        FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostCallContext, HostFunction,
-        HostFunctionId, HostRegistry, HostTypeRegistration,
-    },
+    host::{FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostRegistry},
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
     module::{
@@ -411,30 +408,6 @@ impl Runtime {
         HostResourceScope::new(self, values)
     }
 
-    pub fn register_host_function(
-        &mut self,
-        function: HostFunction,
-    ) -> Result<HostFunctionId, RuntimeError> {
-        self.host.register(function)
-    }
-
-    pub fn register_host_type(
-        &mut self,
-        registration: HostTypeRegistration,
-    ) -> Result<TypeId, RuntimeError> {
-        Ok(self.register_host_types(vec![registration])?[0])
-    }
-
-    pub fn register_host_types(
-        &mut self,
-        registrations: Vec<HostTypeRegistration>,
-    ) -> Result<Vec<TypeId>, RuntimeError> {
-        let bindings = self.types.register_host_types(&registrations, &self.host)?;
-        let ids = bindings.iter().map(|binding| binding.type_id).collect();
-        self.host.install_types(bindings);
-        Ok(ids)
-    }
-
     pub fn register_host_root(
         &mut self,
         object_id: host::HostObjectId,
@@ -648,65 +621,6 @@ impl Runtime {
             self.collect_garbage()?;
         }
         Ok(())
-    }
-
-    pub fn invoke_host(
-        &self,
-        symbol: &str,
-        args: &[value::Value],
-    ) -> Result<value::Value, RuntimeError> {
-        let function = self.host.function(symbol).ok_or_else(|| {
-            RuntimeError::host_call_failure(format!("unknown host function `{symbol}`"))
-        })?;
-        self.invoke_bound_host(
-            function.id().expect("registered function has an identity"),
-            args,
-        )
-    }
-
-    pub fn invoke_bound_host(
-        &self,
-        id: HostFunctionId,
-        args: &[value::Value],
-    ) -> Result<value::Value, RuntimeError> {
-        let function = self.host.bound_function(id).ok_or_else(|| {
-            RuntimeError::module_validation(
-                "host binding belongs to another registry or is missing",
-            )
-        })?;
-        if !args
-            .iter()
-            .all(|value| self.gc.validate_candidate_value(value))
-        {
-            return Err(RuntimeError::execution_phase_violation(
-                "external object in candidate host arguments",
-            ));
-        }
-        self.validate_bound_host_boundary(function.symbol(), Some(function))?;
-        let session = self.resources().active_session();
-        let trace_index = session
-            .as_ref()
-            .and_then(|session| session.begin_host_call(&self.gc, function.symbol(), args));
-        let session = session.map(|session| session.id);
-        let result = (|| {
-            let context = HostCallContext::new(self, args)?;
-            let result = function.invoke(&context, args);
-            self.resources().poll_execution()?;
-            let value = result?;
-            HostBorrowTable::validate_no_escape(&self.gc, &value)?;
-            if !self.gc.validate_value(&value) {
-                return Err(RuntimeError::host_call_failure(
-                    "invalid heap reference in host result",
-                ));
-            }
-            Ok(value)
-        })();
-        if let (Some(id), Some(index)) = (session, trace_index)
-            && let Some(session) = self.resources().sessions.get(id)
-        {
-            session.finish_host_call(&self.gc, index, &result);
-        }
-        result
     }
 
     pub fn reflect_type_of(&self, value: &value::Value) -> Result<value::Value, RuntimeError> {

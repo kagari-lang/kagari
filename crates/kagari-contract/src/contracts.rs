@@ -3,12 +3,11 @@ use crate::{
     callable::receiver::accepts_owned,
     native_import::NativeImport,
     operations::{BinaryOp, UnaryOp},
-    representation::{host_representation, semantic_representation},
+    representation::semantic_representation,
     standard::RuntimePrimitive,
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionTable;
-use kagari_types::host_interface::HostFunctionDeclaration;
 
 mod intrinsics;
 
@@ -121,28 +120,6 @@ pub fn verify_native_call(
     }
 
     verify_call_dst(dst, semantic_representation(&import.signature.result))
-}
-
-pub fn verify_host_call(
-    dst: Option<ValueType>,
-    declaration: &HostFunctionDeclaration,
-    args: &[ValueType],
-    definitions: &DefinitionTable,
-) -> Result<(), ContractError> {
-    declaration
-        .validate(definitions)
-        .map_err(|_| ContractError::InvalidOperation {
-            reason: "invalid host declaration",
-        })?;
-    if args.len() != declaration.params.len() {
-        return Err(ContractError::InvalidOperation {
-            reason: "host call arity mismatch",
-        });
-    }
-    for (arg, param) in args.iter().zip(&declaration.params) {
-        expect_type(*arg, host_representation(&param.ty), "host call argument")?;
-    }
-    verify_call_dst(dst, host_representation(&declaration.return_type))
 }
 
 pub fn expect_type(

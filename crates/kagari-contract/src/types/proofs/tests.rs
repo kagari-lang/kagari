@@ -6,10 +6,9 @@ use kagari_common::identity::{
 use kagari_types::{
     collection::CollectionAccess,
     declaration::{
-        AssociatedTypeFamily, TypeDef, TypeDefKind, native::NativeTypeConstructor,
-        ownership::ReceiverOwners,
+        AssociatedTypeFamily, TypeDef, TypeDefKind, module::ImplDecl,
+        native::NativeTypeConstructor, ownership::ReceiverOwners,
     },
-    host_interface::{type_declaration::HostAssociatedTypeBinding, value_type::HostValueType},
     language::{self, Protocol, binding},
     scalar::BuiltinType,
     ty::GenericParam,
@@ -112,8 +111,7 @@ fn scalar_aggregation_is_not_a_source_free_intrinsic_proof() {
     let cancel = CancellationToken::default();
     let interfaces = ["Sum", "Product"]
         .map(|name| nominal(id(&context, DefinitionKind::Trait, name), vec![scalar()]));
-    let catalog =
-        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
+    let catalog = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     for interface in interfaces {
         assert!(
             intrinsic::requirements(&interface, &scalar(), &cancel, None, &context.snapshot())
@@ -143,7 +141,6 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
     let query = |item| Ty::Array(Box::new(item));
     let catalog = ProofCatalog::new(
         vec![(&generic).into()],
-        vec![],
         [],
         [],
         [],
@@ -164,7 +161,6 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
     let another = table(&context, "concrete", marker.clone(), query(scalar()));
     let catalog = ProofCatalog::new(
         vec![(&generic).into(), (&another).into()],
-        vec![],
         [],
         [],
         [],
@@ -187,7 +183,6 @@ fn linked_proofs_discharge_generic_bounds_and_reject_ambiguity_and_cycles() {
     recursive.bounds.push(bound(scalar(), marker.clone()));
     let catalog = ProofCatalog::new(
         vec![(&recursive).into()],
-        vec![],
         [],
         [],
         [],
@@ -241,7 +236,6 @@ fn registered_collection_equality_requires_explicit_prerequisites() {
                 .iter()
                 .map(|index| (&tables[*index]).into())
                 .collect(),
-            vec![],
             [],
             [],
             [],
@@ -283,7 +277,6 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
     );
     let catalog = ProofCatalog::new(
         vec![(&partial).into()],
-        vec![],
         [],
         [],
         [],
@@ -308,7 +301,6 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
     );
     let catalog = ProofCatalog::new(
         vec![(&partial).into(), (&hash).into()],
-        vec![],
         [],
         [],
         [],
@@ -323,7 +315,6 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
     );
     let catalog = ProofCatalog::new(
         vec![(&partial).into(), (&eq).into(), (&hash).into()],
-        vec![],
         [],
         [],
         [],
@@ -350,7 +341,6 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
     assert!(
         !ProofCatalog::new(
             vec![(&foreign).into()],
-            vec![],
             [],
             [],
             [],
@@ -364,7 +354,6 @@ fn nominal_equality_overrides_disable_defaults_and_require_owned_explicit_prereq
     assert!(
         ProofCatalog::new(
             vec![(&partial).into(), (&partial).into()],
-            vec![],
             [],
             [],
             [],
@@ -415,7 +404,6 @@ fn family_projection_normalization_applies_both_binders_and_rejects_cycles() {
     };
     let catalog = ProofCatalog::new(
         vec![(&implementation).into()],
-        vec![],
         [],
         [],
         [],
@@ -430,7 +418,6 @@ fn family_projection_normalization_applies_both_binders_and_rejects_cycles() {
     implementation.associated_type_families[0].value = projection.clone();
     let catalog = ProofCatalog::new(
         vec![(&implementation).into()],
-        vec![],
         [],
         [],
         [],
@@ -470,7 +457,6 @@ fn member_defaults_are_limited_to_core_enums_and_proven_payloads() {
         let layout = wrapper_layout(&context, payload.clone());
         let wrapper = Ty::Enum(nominal(layout.declaration, vec![payload]));
         let catalog = ProofCatalog::new(
-            vec![],
             vec![],
             [&layout, &user_layout],
             [],
@@ -518,7 +504,6 @@ fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
     ));
     let catalog = ProofCatalog::new(
         vec![(&growing).into()],
-        vec![],
         [],
         [],
         [],
@@ -530,9 +515,7 @@ fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
         catalog.holds(&marker, &scalar(), &[], &cancel),
         Err(TypeTransformError::LimitExceeded)
     );
-    let mut host = HostTypeDeclaration::new(&context, "proof_host").unwrap();
-    let mut implementation =
-        HostTraitImplementationDeclaration::new(marker.declaration, vec![], vec![]);
+    let host = id(&context, DefinitionKind::Struct, "proof_host");
     let member = context
         .intern_child(
             marker.declaration,
@@ -541,20 +524,22 @@ fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
             0,
         )
         .unwrap();
-    implementation
-        .associated_types
-        .push(HostAssociatedTypeBinding {
-            declaration: member,
-            ty: HostValueType::I32,
-        });
-    host.trait_implementations.push(implementation);
-    context
-        .intern_child(host.id, DefinitionKind::Impl, "", 0)
-        .unwrap();
-    let receiver = Ty::Host(host.id);
+    let receiver = Ty::Host(host);
+    let mut applied = marker.clone();
+    applied.associated_types.insert(member, scalar());
+    let native_id = id(&context, DefinitionKind::Impl, "host_native");
+    let native = ImplDecl {
+        generic_params: vec![],
+        bounds: vec![],
+        trait_type: Some(applied.clone()),
+        for_type: receiver.clone(),
+        methods: vec![],
+    };
     let catalog = ProofCatalog::new(
-        vec![],
-        vec![&host],
+        vec![Implementation::Native {
+            declaration: &native_id,
+            implementation: &native,
+        }],
         [],
         [],
         [],
@@ -575,15 +560,15 @@ fn recursive_growth_is_bounded_and_host_candidates_participate_in_uniqueness() {
         arguments: vec![],
     };
     assert_eq!(catalog.normalize(&projection, &cancel).unwrap(), scalar());
-    let script = table(
-        &context,
-        "host_script",
-        host_application(&host.trait_implementations[0]),
-        receiver.clone(),
-    );
+    let script = table(&context, "host_script", applied, receiver.clone());
     let catalog = ProofCatalog::new(
-        vec![(&script).into()],
-        vec![&host],
+        vec![
+            (&script).into(),
+            Implementation::Native {
+                declaration: &native_id,
+                implementation: &native,
+            },
+        ],
         [],
         [],
         [],
@@ -667,8 +652,7 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
             vec![ty],
         )
     };
-    let empty =
-        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
+    let empty = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     assert!(
         !empty
             .holds(&requested(scalar()), &storage(scalar()), &[], &cancel)
@@ -676,7 +660,6 @@ fn carried_native_implementations_preserve_key_bounds_and_wrapper_lifting() {
     );
     let catalog = ProofCatalog::new(
         vec![(&set).into(), (&lifted).into()],
-        vec![],
         [],
         [],
         [],
@@ -781,7 +764,6 @@ fn carried_iterator_outputs_supply_identity_iterable_and_reject_forged_items() {
     );
     let catalog = ProofCatalog::new(
         vec![(&implementation).into()],
-        vec![],
         [],
         [],
         [],
@@ -837,7 +819,6 @@ fn equality_composition_uses_carried_payloads_and_explicit_storage_implementatio
     };
     let catalog = ProofCatalog::new(
         vec![(&partial).into()],
-        vec![],
         [&layout],
         [],
         [],
@@ -867,7 +848,6 @@ fn equality_composition_uses_carried_payloads_and_explicit_storage_implementatio
         .collect::<Vec<_>>();
     let catalog = ProofCatalog::new(
         vec![(&partial).into()],
-        vec![],
         iter::once(&layout).chain(wrappers.iter()),
         [],
         [],
@@ -889,8 +869,7 @@ fn equality_composition_uses_carried_payloads_and_explicit_storage_implementatio
                 .unwrap()
         );
     }
-    let empty =
-        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
+    let empty = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     assert_eq!(
         empty.uses_custom_equality(&chain, &cancel),
         Err(TypeTransformError::InvalidContract)

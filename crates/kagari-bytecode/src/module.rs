@@ -21,7 +21,6 @@ use kagari_contract::{
 use kagari_types::{
     declaration::path::HostPathDeclaration,
     declaration::{NativeDeclaration, TypeDeclaration},
-    host_interface::HostInterface,
     ty::{NominalTy, Ty},
 };
 use serde::{Deserialize, Serialize};
@@ -32,7 +31,6 @@ pub struct BytecodeModule {
     pub external_types: Vec<TypeDeclaration>,
     /// Explicit portable path requirements over the shared external schemas.
     pub path_declarations: Vec<HostPathDeclaration>,
-    pub host_interface: HostInterface,
     pub native_imports: Vec<NativeImport>,
     pub native_declarations: Vec<NativeDeclaration>,
     pub identity: ModuleIdentity,

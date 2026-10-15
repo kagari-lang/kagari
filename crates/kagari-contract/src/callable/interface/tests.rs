@@ -81,8 +81,7 @@ fn interface_application_substitutes_both_binders_inside_callbacks_and_results()
     let context = DefinitionContext::new().unwrap();
     let (mut call, contract) = fixture(&context);
     let cancel = CancellationToken::default();
-    let catalog =
-        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
+    let catalog = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     for key in [
         Ty::Builtin(BuiltinType::I32),
         Ty::Tuple(vec![Ty::Builtin(BuiltinType::String)]),
@@ -147,7 +146,6 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
     };
     let catalog = ProofCatalog::new(
         vec![],
-        vec![],
         [],
         [(marker.declaration, &marker_contract)],
         [],
@@ -210,8 +208,7 @@ fn malformed_applications_and_erased_self_positions_are_rejected() {
     }
     let mut bad = contract.clone();
     bad.methods[0].return_type = Ty::SelfType(call.interface.declaration);
-    let catalog =
-        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
+    let catalog = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     assert!(!call.check(&bad, &catalog, &[], &[], &cancel).unwrap());
 }
 
@@ -266,7 +263,6 @@ fn partial_associated_outputs_require_scoped_receiver_evidence() {
         constraints: vec![Constraint::Trait(call.interface.clone())],
     };
     let catalog = ProofCatalog::new(
-        vec![],
         vec![],
         [],
         [(call.interface.declaration, &contract)],
@@ -349,7 +345,6 @@ fn static_constraint_calls_do_not_invent_a_receiver_argument() {
     };
     let catalog = ProofCatalog::new(
         vec![],
-        vec![],
         [],
         [(call.interface.declaration, &contract)],
         [],
@@ -399,8 +394,7 @@ fn supplied_normalization_cannot_override_a_declared_signature() {
             .result,
         forged
     );
-    let catalog =
-        ProofCatalog::new(vec![], vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
+    let catalog = ProofCatalog::new(vec![], [], [], [], &context.snapshot(), &cancel).unwrap();
     assert!(!call.check(&contract, &catalog, &[], &[], &cancel).unwrap());
 }
 

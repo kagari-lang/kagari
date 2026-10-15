@@ -1,6 +1,6 @@
 use crate::{
     language::primitive as intrinsic,
-    types::proofs::{Budget, ProofCatalog, host_application, satisfies, validate_references},
+    types::proofs::{Budget, ProofCatalog, satisfies, validate_references},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
@@ -376,22 +376,7 @@ impl ProofCatalog<'_> {
                     return Ok(2);
                 }
             }
-            if let Ty::Host(id) = receiver {
-                for host in &self.hosts {
-                    if host.id != *id {
-                        continue;
-                    }
-                    for implementation in &host.trait_implementations {
-                        budget.step(depth)?;
-                        if satisfies(&host_application(implementation), interface) {
-                            count += 1;
-                        }
-                        if count >= 2 {
-                            return Ok(2);
-                        }
-                    }
-                }
-            }
+
             Ok(count)
         })();
         search.visiting.remove(&key);

@@ -561,9 +561,9 @@ and output capabilities are independent, and no borrowed input reference escapes
 NativeResult is the runtime-failure channel; a nested business Result remains data.
 Conversion does not implicitly install nominal providers or ignore type origins.
 Rust Vec<T> and ScriptVec<T> refer to the installed nominal Vec declaration and
-reject builtin arrays, including empty ones. Portable HostValueType::Array carries
-only its element schema; Vec and List schemas carry their explicit declaration
-identity plus element schema. Runtime matching preserves these families and checks
+reject builtin arrays, including empty ones. Portable `Ty::Array` carries only its
+element schema; nominal collection types carry their explicit declaration identity
+and type arguments. Runtime matching preserves these families and checks
 empty-container element contracts as well as each stored value. CallContext exposes
 allocate_array and allocate_vec explicitly; native storage factories allocate
 fixed arrays with allocate_array.
