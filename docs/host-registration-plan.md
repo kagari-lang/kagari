@@ -2347,6 +2347,48 @@ feature/backend/platform matrix remain CI-owned. No unsafe/kernel lifetime code
 changed and no new Miri run is claimed. Other legacy consumers and HR03 retirement
 remain required; combined acceptance remains open.
 
+### HR02/RF05 checkpoint: common manual path consumers and imported fields
+
+All remaining offline nominal path/index fixtures now declare types, functions and
+manual paths through ModuleBuilder, bind callbacks/adapters once and install the
+ordinary modules before creating execution runtimes. The whole offline_nominal
+target no longer authors HostInterface/KHI or registers legacy host functions/types
+and paths. It retains the same explicit roots and existing checked path service;
+neither field DTO copies nor Rust object references replace live host state.
+
+The field-chain case compares complete carried schemas and the exact path after
+adoption, rejects a separately installed schema/function module that omits the
+path, and evaluates the root once. Both index cases retain index-before-RHS order
+and one prepared read/write, including skipping an intermediate array field read.
+The existing write case retains all ten assignment/rebinding scenarios across its
+three execution routes: post-RHS reads, overflow/division traps, deleted targets,
+original-root capture, prepare-before-commit, dirty values and completed RHS effects.
+
+The first compile attempt accessed a private root field in a fixture; the checked
+root is now compared in full against the runtime's existing root record. Execution
+then exposed a real catalog omission: importing TypeDef records collected implicit
+variants but not field identities. collect_implicit_definitions now interns each
+declared field under its exact type owner, matching ModuleDecl's existing identity
+collector. This grants no access or ABI authority and adds no second resolver.
+An intermediate fixture attempted finish before binding a declared path and was
+correctly rejected. The negative installation now omits the path declaration;
+finished production modules still require every declared path binding.
+
+Actual focused local validation:
+
+- `cargo test -p kagari --test offline_nominal source_field_chains_use_offline_contracts_and_evaluate_the_root_once`: passed (20.81 seconds) after the recorded repairs.
+- `cargo test -p kagari --test offline_nominal paths::source_host_`: all three
+  selected index/write cases passed (111.63 seconds), including all existing
+  assignment/rebinding scenarios. The unchanged multi-index case was not rerun.
+
+- `cargo test -p kagari-runtime --test native_registration scoped_type_inputs_preserve_snapshots_and_compare_complete_identity`: passed.
+- Scoped Clippy passed for the runtime library and SDK offline_nominal target.
+
+Structure, formatting and diff checks pass (1251 Rust files, zero structure
+violations). No pointer, Rust loan or root kernel changes; no new Miri run is
+claimed. The complete workspace/features/backends/platform matrix remains CI-owned.
+Other legacy consumers and HR03/RF06/RI05 integration remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

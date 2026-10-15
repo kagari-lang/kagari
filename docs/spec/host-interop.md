@@ -67,6 +67,12 @@ registered APIs. A Rust struct's methods or trait impls are never inferred from 
 data schema. Runtime-owned `Opaque<T>` and branded `Ref<T>`/`RefMut<T>` have their
 own checked storage/lending adapters under this same callable contract.
 
+Catalog imports retain implicit field identities from the checked TypeDef under
+the canonical type owner, as they retain enum variant identities. Scoped type
+references can therefore name a foreign field when declaring a manual path.
+An identity alone grants neither field access nor a runtime binding; ordinary
+visibility, schema, path capability and installed adapter validation still apply.
+
 `ModuleDecl::paths` carries explicit manual paths owned by a root in that declaring
 module. `ModuleBuilder::define_path` adopts a scoped declaration;
 `bind_path` checks its read/prepared-write operations against declared access.

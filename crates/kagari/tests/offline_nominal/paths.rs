@@ -1,3 +1,4 @@
+use super::schema::NominalSchema;
 use super::*;
 use kagari::{context::JitPolicy, program::PreparedProgram};
 use kagari_bytecode::artifact::KbcArtifact;
@@ -30,32 +31,28 @@ use std::sync::{
 
 #[test]
 fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
+    let mut schema = NominalSchema::with_count(PathAccess::ReadOnly);
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    schema.make(trace.clone(), "root");
+    let unbound = schema.builder.clone().finish().unwrap();
+    let path = schema.count_path(PathAccess::ReadOnly, 7);
     let definitions = DefinitionContext::new().unwrap();
-    let mut declarations = interface(&definitions);
-    declarations.types[0].fields[0].path_access = PathAccess::ReadOnly;
-    let mut count = HostFieldDeclaration::new(
-        &definitions,
-        declarations.types[1].id,
-        "count",
-        HostValueType::I32,
-    )
-    .unwrap();
-    count.path_access = PathAccess::ReadOnly;
-    let path = HostPathDeclaration {
-        root: declarations.types[0].id,
-        segments: vec![
-            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id),
-            HostPathSegmentDeclaration::Field(count.id),
-        ],
-        access: PathAccess::ReadOnly,
-        schema_epoch: 7,
-    };
-    declarations.types[1].fields.push(count);
-    declarations.paths.push(path.clone());
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(scoped(&definitions, declarations.clone()))
+    let path = path.import_into(&definitions, &Default::default()).unwrap();
+    let calls = trace.clone();
+    schema
+        .builder
+        .bind_path(
+            &path,
+            HostPathAdapter::new().with_read(move |context, _| {
+                calls.lock().unwrap().push("read");
+                context.runtime().collect_garbage().unwrap();
+                Ok(Value::I32(42))
+            }),
+        )
         .unwrap();
+    let expected = schema.required_types(&definitions);
+    let providers = schema.providers.clone();
+    let engine = schema.engine();
 
     let artifact = engine
         .compile_to_artifact(
@@ -68,8 +65,11 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         .unwrap();
     let artifact = adopt_artifact(&definitions, artifact);
     let required = &artifact.records().program.modules[artifact.records().program.root.index()];
-    assert_eq!(required.path_declarations, vec![path.clone()]);
-    assert_eq!(required.host_interface.types.len(), 2);
+    assert_eq!(required.path_declarations, vec![path.records().clone()]);
+    assert_eq!(required.external_types.len(), expected.len());
+    for schema in &expected {
+        assert!(required.external_types.contains(schema));
+    }
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
@@ -86,32 +86,25 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let ids = runtime
-            .register_host_types(
-                declarations.types[..2]
-                    .iter()
-                    .cloned()
-                    .map(|ty| HostTypeRegistration::new(scoped(&definitions, ty), "Object"))
-                    .collect(),
-            )
-            .unwrap();
-        let root = runtime
-            .runtime_mut()
-            .register_host_root(HostObjectId(7), ids[0], HostSchemaEpoch::new(7))
-            .unwrap();
-        let trace = Arc::new(Mutex::new(Vec::new()));
-        let calls = trace.clone();
+        let ty = runtime
+            .runtime()
+            .types()
+            .get_by_name("left::Item")
+            .unwrap()
+            .id;
         runtime
-            .register_host_function(HostFunction::new(
-                scoped(&definitions, declarations.functions[0].clone()),
-                move |cx, _| {
-                    calls.lock().unwrap().push("root");
-                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-                },
-            ))
+            .runtime_mut()
+            .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(7))
             .unwrap();
+        trace.lock().unwrap().clear();
+        let unbound_engine = KagariEngine::with_native_modules(
+            Default::default(),
+            vec![providers[0].clone(), providers[1].clone(), unbound.clone()],
+        )
+        .unwrap();
         assert!(
-            runtime
+            unbound_engine
+                .runtime(context.clone())
                 .load_program(
                     &PreparedProgram::from_artifact(
                         artifact.clone(),
@@ -124,22 +117,6 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
                 .is_err()
         );
         assert!(trace.lock().unwrap().is_empty());
-        let descriptor = runtime
-            .runtime_mut()
-            .register_host_path(&scoped(&definitions, path.clone()))
-            .unwrap();
-        let calls = trace.clone();
-        runtime
-            .runtime_mut()
-            .register_host_path_adapter(
-                descriptor,
-                HostPathAdapter::new().with_read(move |context, _| {
-                    calls.lock().unwrap().push("read");
-                    context.runtime().collect_garbage().unwrap();
-                    Ok(Value::I32(42))
-                }),
-            )
-            .unwrap();
         let loaded_program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
@@ -417,40 +394,6 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
 
 #[test]
 fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_failure() {
-    let definitions = DefinitionContext::new().unwrap();
-
-    let mut declarations = interface(&definitions);
-    declarations.types[0].path_access = PathAccess::ReadWrite;
-    declarations.types[0].fields[0].path_access = PathAccess::ReadWrite;
-    declarations.types[0].fields[0].writable = true;
-    let mut count = HostFieldDeclaration::new(
-        &definitions,
-        declarations.types[1].id,
-        "count",
-        HostValueType::I32,
-    )
-    .unwrap();
-    count.path_access = PathAccess::ReadWrite;
-    count.writable = true;
-    let path = HostPathDeclaration {
-        root: declarations.types[0].id,
-        segments: vec![
-            HostPathSegmentDeclaration::Field(declarations.types[0].fields[0].id),
-            HostPathSegmentDeclaration::Field(count.id),
-        ],
-        access: PathAccess::ReadWrite,
-        schema_epoch: 0,
-    };
-    declarations.types[1].fields.push(count);
-    declarations.paths.push(path.clone());
-    let rhs =
-        HostFunctionDeclaration::new(&definitions, "left.rhs", vec![], HostValueType::I32).unwrap();
-    declarations.functions.push(rhs.clone());
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(scoped(&definitions, declarations.clone()))
-        .unwrap();
-
     for rebind in [false, true] {
         for (op, rhs_value, after_rhs, deleted, expected) in [
             ("=", 2, 100, false, Some(2)),
@@ -468,6 +411,95 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     "use left as api; fn main() {{ api::make().related.count {op} api::rhs(); }}"
                 )
             };
+            let mut schema = NominalSchema::with_count(PathAccess::ReadWrite);
+            let path = schema.count_path(PathAccess::ReadWrite, 0);
+            let trace = Arc::new(Mutex::new(Vec::new()));
+            let state = Arc::new(AtomicI32::new(10));
+            let removed = Arc::new(AtomicBool::new(false));
+            let root_calls = Arc::new(AtomicUsize::new(0));
+            let make = schema
+                .builder
+                .define_function(
+                    FunctionDecl::new("make")
+                        .returns(schema.item.apply([]).unwrap())
+                        .host_policy(HostCallPolicy {
+                            passing: vec![],
+                            effects: HostFunctionEffects {
+                                may_allocate: true,
+                                ..Default::default()
+                            },
+                        }),
+                )
+                .unwrap();
+            let (calls, times) = (trace.clone(), root_calls.clone());
+            schema
+                .builder
+                .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
+                    calls.lock().unwrap().push("root");
+                    let object = if times.fetch_add(1, Ordering::SeqCst) == 0 {
+                        7
+                    } else {
+                        8
+                    };
+                    let root = cx.runtime().host().root(HostObjectId(object)).unwrap();
+                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
+                })
+                .unwrap();
+            let rhs = schema
+                .builder
+                .define_function(FunctionDecl::new("rhs").returns(Type::i32()).host_policy(
+                    HostCallPolicy {
+                        passing: vec![],
+                        effects: HostFunctionEffects {
+                            may_mutate_host_state: true,
+                            ..Default::default()
+                        },
+                    },
+                ))
+                .unwrap();
+            let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
+            schema
+                .builder
+                .bind(rhs, move |_: &HostCallContext<'_>, _: &[Value]| {
+                    calls.lock().unwrap().push("rhs");
+                    value.store(after_rhs, Ordering::SeqCst);
+                    absent.store(deleted, Ordering::SeqCst);
+                    Ok(Value::I32(rhs_value))
+                })
+                .unwrap();
+            let (reads, value, absent) = (trace.clone(), state.clone(), removed.clone());
+            let (writes, target) = (trace.clone(), state.clone());
+            schema
+                .builder
+                .bind_path(
+                    &path,
+                    HostPathAdapter::new()
+                        .with_read(move |cx, path| {
+                            assert_eq!(
+                                path.root,
+                                cx.runtime().host().root(HostObjectId(7)).unwrap()
+                            );
+                            reads.lock().unwrap().push("read");
+                            if absent.load(Ordering::SeqCst) {
+                                return Err(HostError::new("target removed by RHS"));
+                            }
+                            Ok(Value::I32(value.load(Ordering::SeqCst)))
+                        })
+                        .with_prepare_write(move |context, _, record| {
+                            writes.lock().unwrap().push("prepare");
+                            context.runtime().collect_garbage().unwrap();
+                            let Value::I32(next) = record.new_value else {
+                                return Err(HostError::new("expected i32"));
+                            };
+                            let (writes, target) = (writes.clone(), target.clone());
+                            Ok(PreparedHostPathWrite::new(move || {
+                                writes.lock().unwrap().push("commit");
+                                target.store(next, Ordering::SeqCst);
+                            }))
+                        }),
+                )
+                .unwrap();
+            let engine = schema.engine();
             let artifact = engine
                 .compile_to_artifact(
                     SourceFile::new("write.kgr", text.clone()),
@@ -492,86 +524,23 @@ fn source_host_writes_commit_after_rhs_and_preserve_completed_rhs_effects_on_fai
                     ..Default::default()
                 };
                 let mut runtime = engine.runtime(context.clone());
-                let ids = runtime
-                    .register_host_types(
-                        declarations.types[..2]
-                            .iter()
-                            .cloned()
-                            .map(|ty| HostTypeRegistration::new(scoped(&definitions, ty), "Object"))
-                            .collect(),
-                    )
-                    .unwrap();
-                let root = runtime
-                    .runtime_mut()
-                    .register_host_root(HostObjectId(7), ids[0], HostSchemaEpoch::new(0))
-                    .unwrap();
-                let replacement = runtime
-                    .runtime_mut()
-                    .register_host_root(HostObjectId(8), ids[0], HostSchemaEpoch::new(0))
-                    .unwrap();
-                let trace = Arc::new(Mutex::new(Vec::new()));
-                let state = Arc::new(AtomicI32::new(10));
-                let removed = Arc::new(AtomicBool::new(false));
-                let calls = trace.clone();
-                let root_calls = AtomicUsize::new(0);
-                runtime
-                    .register_host_function(HostFunction::new(
-                        scoped(&definitions, declarations.functions[0].clone()),
-                        move |cx, _| {
-                            calls.lock().unwrap().push("root");
-                            let first = root_calls.fetch_add(1, Ordering::SeqCst) == 0;
-                            Ok(cx
-                                .runtime()
-                                .gc()
-                                .alloc_host_root(if first { root } else { replacement })
-                                .unwrap())
-                        },
-                    ))
-                    .unwrap();
-                let (calls, value, absent) = (trace.clone(), state.clone(), removed.clone());
-                runtime
-                    .register_host_function(HostFunction::new(
-                        scoped(&definitions, rhs.clone()),
-                        move |_, _| {
-                            calls.lock().unwrap().push("rhs");
-                            value.store(after_rhs, Ordering::SeqCst);
-                            absent.store(deleted, Ordering::SeqCst);
-                            Ok(Value::I32(rhs_value))
-                        },
-                    ))
-                    .unwrap();
-                let descriptor = runtime
-                    .runtime_mut()
-                    .register_host_path(&scoped(&definitions, path.clone()))
-                    .unwrap();
-                let (reads, value, absent) = (trace.clone(), state.clone(), removed.clone());
-                let (writes, target) = (trace.clone(), state.clone());
+                trace.lock().unwrap().clear();
+                state.store(10, Ordering::SeqCst);
+                removed.store(false, Ordering::SeqCst);
+                root_calls.store(0, Ordering::SeqCst);
+                let ty = runtime
+                    .runtime()
+                    .types()
+                    .get_by_name("left::Item")
+                    .unwrap()
+                    .id;
                 runtime
                     .runtime_mut()
-                    .register_host_path_adapter(
-                        descriptor,
-                        HostPathAdapter::new()
-                            .with_read(move |_, path| {
-                                assert_eq!(path.root, root);
-                                reads.lock().unwrap().push("read");
-                                if absent.load(Ordering::SeqCst) {
-                                    return Err(HostError::new("target removed by RHS"));
-                                }
-                                Ok(Value::I32(value.load(Ordering::SeqCst)))
-                            })
-                            .with_prepare_write(move |context, _, record| {
-                                writes.lock().unwrap().push("prepare");
-                                context.runtime().collect_garbage().unwrap();
-                                let Value::I32(next) = record.new_value else {
-                                    return Err(HostError::new("expected i32"));
-                                };
-                                let (writes, target) = (writes.clone(), target.clone());
-                                Ok(PreparedHostPathWrite::new(move || {
-                                    writes.lock().unwrap().push("commit");
-                                    target.store(next, Ordering::SeqCst);
-                                }))
-                            }),
-                    )
+                    .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
+                    .unwrap();
+                runtime
+                    .runtime_mut()
+                    .register_host_root(HostObjectId(8), ty, HostSchemaEpoch::new(0))
                     .unwrap();
                 let loaded_program = PreparedProgram::from_artifact(
                     artifact,

@@ -17,7 +17,9 @@ use kagari_types::{
             HostCallPolicy, HostFieldPolicy, HostFunctionEffects, HostReflectionPolicy,
             HostTypeOwnership, HostTypePolicy, PathAccess,
         },
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
+    scalar::BuiltinType,
     ty::Ty,
     visibility::Visibility,
 };
@@ -27,17 +29,26 @@ pub(super) struct NominalSchema {
     pub builder: ModuleBuilder,
     pub providers: [NativeModule; 2],
     pub item: TypeRef,
+    related: TypeRef,
 }
 
 impl NominalSchema {
     pub fn new() -> Self {
+        Self::build(None)
+    }
+
+    pub fn with_count(access: PathAccess) -> Self {
+        Self::build(Some(access))
+    }
+
+    fn build(count: Option<PathAccess>) -> Self {
         let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
             .catalog()
             .unwrap();
         let policy = HostTypePolicy {
             ownership: HostTypeOwnership::HostRoot,
             reflection: HostReflectionPolicy::Hidden,
-            path_access: PathAccess::ReadOnly,
+            path_access: count.unwrap_or(PathAccess::ReadOnly),
         };
         let mut right = ModuleBuilder::new("right", &catalog).unwrap();
         let mut related = right.define_type("Item").unwrap();
@@ -48,6 +59,27 @@ impl NominalSchema {
                 ..policy
             })
             .unwrap();
+        if let Some(access) = count {
+            related
+                .field(
+                    DefinitionMetadata::checked(
+                        DefinitionContext::new().unwrap().snapshot(),
+                        FieldDef {
+                            host_policy: Some(HostFieldPolicy {
+                                readable: true,
+                                path_access: access,
+                            }),
+                            visibility: Visibility::Public,
+                            name: "count".into(),
+                            ty: Ty::Builtin(BuiltinType::I32),
+                            mutable: access == PathAccess::ReadWrite,
+                        },
+                        &Default::default(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+        }
         let related = related.finish().unwrap();
         let related_path = related
             .definitions()
@@ -82,12 +114,12 @@ impl NominalSchema {
                 FieldDef {
                     host_policy: Some(HostFieldPolicy {
                         readable: true,
-                        path_access: PathAccess::None,
+                        path_access: count.unwrap_or(PathAccess::None),
                     }),
                     visibility: Visibility::Public,
                     name: "related".into(),
                     ty: Ty::Host(related.id()),
-                    mutable: false,
+                    mutable: count == Some(PathAccess::ReadWrite),
                 },
                 &Default::default(),
             )
@@ -99,7 +131,40 @@ impl NominalSchema {
             builder,
             providers: [right, unused],
             item,
+            related,
         }
+    }
+
+    pub fn count_path(
+        &mut self,
+        access: PathAccess,
+        schema_epoch: u64,
+    ) -> DefinitionMetadata<HostPathDeclaration> {
+        let definitions = self.item.definitions();
+        let related = definitions
+            .lookup_child(self.item.id(), DefinitionKind::Field, "related", 0)
+            .unwrap();
+        let count = definitions
+            .lookup_child(self.related.id(), DefinitionKind::Field, "count", 0)
+            .unwrap();
+        self.builder
+            .define_path(
+                DefinitionMetadata::checked(
+                    definitions.clone(),
+                    HostPathDeclaration {
+                        root: self.item.id(),
+                        segments: vec![
+                            HostPathSegmentDeclaration::Field(related),
+                            HostPathSegmentDeclaration::Field(count),
+                        ],
+                        access,
+                        schema_epoch,
+                    },
+                    &Default::default(),
+                )
+                .unwrap(),
+            )
+            .unwrap()
     }
 
     pub fn make(&mut self, trace: Arc<Mutex<Vec<&'static str>>>, label: &'static str) {

@@ -328,6 +328,11 @@ impl DeclarationCatalog {
         let context = self.types.context();
         identity::collect_language(context, &CancellationToken::default()).map_err(conflict)?;
         for (owner, ty) in self.types.entries() {
+            for field in &ty.fields {
+                context
+                    .intern_child(owner, DefinitionKind::Field, &field.name, 0)
+                    .map_err(conflict)?;
+            }
             for variant in &ty.variants {
                 context
                     .intern_child(owner, DefinitionKind::Variant, &variant.name, 0)
