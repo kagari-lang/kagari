@@ -23,16 +23,11 @@ use kagari_common::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 use kagari_types::{
-    declaration::{
-        names::NameNamespace,
-        path::{HostPathContract, HostPathDeclaration},
-    },
+    declaration::names::NameNamespace,
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError,
         constraints::satisfies_standard_constraint,
-        type_declaration::{
-            HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,
-        },
+        type_declaration::{HostTraitImplementationDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
     language::Protocol,
@@ -48,7 +43,6 @@ use std::{
 
 mod adoption;
 pub mod callable;
-pub(crate) mod paths;
 
 #[cfg(test)]
 mod tests;
@@ -72,12 +66,6 @@ pub struct HostModuleId {
 pub struct HostTypeId {
     revision: u64,
     index: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum HostSourcePathStep {
-    Member(String),
-    Index(TypeId),
 }
 
 /// Immutable offline host declarations, signature projections and lookup indexes.
@@ -713,19 +701,6 @@ impl HostDeclarations {
         self.interface.to_bytes(&self.definitions)
     }
 
-    pub(crate) fn source_path(
-        &self,
-        root: &DefinitionId,
-        steps: &[HostSourcePathStep],
-    ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
-        let declaration = paths::select(&self.interface.paths, &self.definitions, *root, steps)?;
-        let contract = self
-            .interface
-            .path_contract(declaration, &self.definitions)
-            .map_err(|_| "invalid declared host path")?;
-        Ok((declaration.clone(), contract))
-    }
-
     /// Finds a host type by its normalized `::` path.
     pub fn resolve_type(&self, path: &str) -> Option<HostTypeId> {
         self.type_paths.get(path).copied()
@@ -741,15 +716,6 @@ impl HostDeclarations {
         (id.revision == self.revision)
             .then(|| self.interface.types.get(id.index))
             .flatten()
-    }
-
-    /// Finds a field using its retained definition parent; foreign or absent IDs return `None`.
-    pub fn field(&self, id: &DefinitionId) -> Option<&HostFieldDeclaration> {
-        let owner = self.definitions.parent(*id).ok()??;
-        self.type_declaration(self.nominal_type(&owner)?)?
-            .fields
-            .iter()
-            .find(|field| &field.id == id)
     }
 }
 

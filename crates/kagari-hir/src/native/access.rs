@@ -1,7 +1,8 @@
 //! Select source paths from checked module records without inspecting host storage.
 use crate::{
-    declarations::Declarations, host::HostSourcePathStep, native::NativeTypeKind,
-    types::semantic::raise_type,
+    declarations::Declarations,
+    native::NativeTypeKind,
+    types::{TypeId, semantic::raise_type},
 };
 use kagari_common::identity::{
     DefinitionKind,
@@ -12,11 +13,18 @@ use kagari_types::declaration::path::{
 };
 use std::collections::HashSet;
 
-pub(crate) fn select<'a>(
+/// Checked source operations used to select an installed external path contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum SourcePathStep {
+    Member(String),
+    Index(TypeId),
+}
+
+fn select<'a>(
     paths: &'a [HostPathDeclaration],
     definitions: &DefinitionTable,
     root: DefinitionId,
-    steps: &[HostSourcePathStep],
+    steps: &[SourcePathStep],
 ) -> Result<&'a HostPathDeclaration, &'static str> {
     let mut matches = paths.iter().filter(|path| {
         if path.root != root || path.segments.len() != steps.len() {
@@ -27,7 +35,7 @@ pub(crate) fn select<'a>(
             .iter()
             .zip(steps)
             .all(|(segment, source)| match (segment, source) {
-                (HostPathSegmentDeclaration::Field(id), HostSourcePathStep::Member(name)) => {
+                (HostPathSegmentDeclaration::Field(id), SourcePathStep::Member(name)) => {
                     definitions
                         .resolve(*id)
                         .ok()
@@ -36,10 +44,10 @@ pub(crate) fn select<'a>(
                             leaf.kind == DefinitionKind::Field && leaf.name == *name
                         })
                 }
-                (HostPathSegmentDeclaration::Virtual(step), HostSourcePathStep::Member(name)) => {
+                (HostPathSegmentDeclaration::Virtual(step), SourcePathStep::Member(name)) => {
                     step.name == *name
                 }
-                (HostPathSegmentDeclaration::Index(index), HostSourcePathStep::Index(ty)) => {
+                (HostPathSegmentDeclaration::Index(index), SourcePathStep::Index(ty)) => {
                     slots.insert(index.slot) && raise_type(&index.index) == *ty
                 }
                 _ => false,
@@ -56,7 +64,7 @@ impl Declarations {
     pub(crate) fn source_host_path(
         &self,
         root: DefinitionId,
-        steps: &[HostSourcePathStep],
+        steps: &[SourcePathStep],
     ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
         let Some((paths, schemas)) = self.native_types().find_map(|kind| match kind {
             NativeTypeKind::Host {
@@ -67,7 +75,7 @@ impl Declarations {
             } if *declaration == root => Some((paths, schemas)),
             _ => None,
         }) else {
-            return self.hosts.source_path(&root, steps);
+            return Err("path has no declared host contract");
         };
         let declaration = select(paths, self.definitions(), root, steps)?;
         let contract = declaration

@@ -9,8 +9,7 @@ use crate::{
         ids::{ExprId, PlaceId},
         place::PlaceKind,
     },
-    host,
-    host::HostSourcePathStep,
+    native::access::SourcePathStep,
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv,
@@ -302,22 +301,13 @@ impl<'a> BodyChecker<'a> {
         let TypeId::Host(id) = owner else {
             return None;
         };
-        if let Some(owner) = self.declarations.external_type(*id) {
-            let field = owner.fields.iter().find(|field| field.name == name)?;
-            let field_id = self.declarations.definitions().lookup_child(
-                *id,
-                DefinitionKind::Field,
-                name,
-                0,
-            )?;
-            return Some((field_id, raise_type(&field.ty)));
-        }
-        self.names
-            .hosts
-            .nominal_type(id)
-            .and_then(|id| self.names.hosts.type_declaration(id))
-            .and_then(|owner| owner.fields.iter().find(|field| field.name == name))
-            .map(|field| (field.id, host::signature_type(&field.ty)))
+        let owner = self.declarations.external_type(*id)?;
+        let field = owner.fields.iter().find(|field| field.name == name)?;
+        let field_id =
+            self.declarations
+                .definitions()
+                .lookup_child(*id, DefinitionKind::Field, name, 0)?;
+        Some((field_id, raise_type(&field.ty)))
     }
 
     pub(super) fn infer_host_path_read(
@@ -364,9 +354,9 @@ impl<'a> BodyChecker<'a> {
         let source = steps
             .iter()
             .map(|step| match step {
-                HostPathNode::Member { name, .. } => HostSourcePathStep::Member(name.clone()),
+                HostPathNode::Member { name, .. } => SourcePathStep::Member(name.clone()),
                 HostPathNode::Index { argument, .. } => {
-                    HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
+                    SourcePathStep::Index(self.infer_expr_type(*argument, env))
                 }
             })
             .collect::<Vec<_>>();
@@ -494,9 +484,9 @@ impl<'a> BodyChecker<'a> {
         let source = steps
             .iter()
             .map(|step| match step {
-                HostPathNode::Member { name, .. } => HostSourcePathStep::Member(name.clone()),
+                HostPathNode::Member { name, .. } => SourcePathStep::Member(name.clone()),
                 HostPathNode::Index { argument, .. } => {
-                    HostSourcePathStep::Index(self.infer_expr_type(*argument, env))
+                    SourcePathStep::Index(self.infer_expr_type(*argument, env))
                 }
             })
             .collect::<Vec<_>>();

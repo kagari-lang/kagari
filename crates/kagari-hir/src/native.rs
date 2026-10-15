@@ -16,6 +16,7 @@ use kagari_types::{
 
 use std::sync::Arc;
 
+pub(crate) mod access;
 pub(crate) mod adoption;
 pub(crate) mod api;
 pub(crate) mod paths;

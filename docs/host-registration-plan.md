@@ -3229,6 +3229,34 @@ type/facade revision query and native view location/snapshot query (three tests,
 with zero findings; formatting and diff checks passed. Full workspace,
 feature/backend/platform coverage remains CI-owned; no new Miri run is needed.
 
+### HR03: give common native declarations sole HIR path ownership
+
+The checked source path selector moves from host/paths.rs to native/access.rs.
+Its SourcePathStep is owned there, with no old-name alias or re-export; selection
+is private to that owner. Declarations::source_host_path now selects only the
+installed NativeTypeKind::Host paths and their retained shared TypeDeclaration
+schemas. It still rejects missing/ambiguous contracts, mismatched member/index
+steps and invalid schema contracts. A missing native root rejects with the same
+missing-contract error instead of consulting the now-empty legacy catalog.
+
+HostDeclarations::source_path and its public field projection are removed. Typed
+field error recovery reads only Declarations::external_type and the actual field
+identity/type. It no longer falls back to HostFieldDeclaration/signature_type.
+Both executable path selection and malformed-source field facts thus use the
+shared schema owner; these HIR consumers no longer select a parallel legacy model.
+The legacy callable/namespace catalog still requires its separate remaining HR03
+removal, as does the portable runtime legacy model.
+
+Selected validation passed three existing cases (2.93 seconds), covering read/write path facts with body reuse,
+readonly diagnostics, missing/ambiguous paths and complete mixed source/external
+suffixes. An initial mechanical removal left the obsolete field method body after
+dropping its import and failed compilation; removing that unused body resolved the
+compile error before rerunning the selected cases. HIR lib/tests scoped Clippy
+passed; structure checked 1254 Rust files with zero findings; formatting and diff
+checks passed. No runtime unsafe, GC, loan or
+execution mechanism changed; no new Miri run is needed. The exhaustive matrix
+remains CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
