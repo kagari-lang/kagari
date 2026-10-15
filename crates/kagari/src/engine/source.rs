@@ -1,7 +1,10 @@
 //! Source analysis and artifact emission are optional SDK capabilities.
+
+pub mod analysis;
+
 use crate::{
     BytecodeArtifact, CompileResult,
-    engine::{KagariEngine, packages::PackageBuildInput},
+    engine::{KagariEngine, packages::PackageBuildInput, source::analysis::SourceAnalysis},
     error::{CompilationPhase, EmbeddingError},
 };
 
@@ -29,8 +32,7 @@ use kagari_hir::{
         AnalysisSnapshot, body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
         error::AnalysisError, signature_queries::SignatureSnapshot,
     },
-    imports::ModuleOrderError,
-    program::{CheckedProgram, ProgramCheckError},
+    program::CheckedProgram,
     typeck::const_budget::ConstLimits,
 };
 use kagari_mir::{
@@ -41,7 +43,6 @@ use kagari_mir::{
 use kagari_package::{error::PackageError, snapshot::ProgramInputs};
 use kagari_source::{
     identity::FileId,
-    presentation::DiagnosticRecord,
     source::SourceFile,
     source_database::{SourceLayer, SourceSnapshot},
 };
@@ -173,8 +174,22 @@ impl KagariEngine {
     }
 
     pub fn compile_source(&self, source: SourceFile) -> CompileResult<CheckedModule> {
-        let id = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
-        self.compile_snapshot(self.source_snapshot(), id, &CancellationToken::default())
+        self.analyze_source(source, &CancellationToken::default())?
+            .check(&CancellationToken::default())
+    }
+
+    /// Retains source facts and diagnostics for checking and optional source tools.
+    pub fn analyze_source(
+        &self,
+        source: SourceFile,
+        cancel: &CancellationToken,
+    ) -> CompileResult<SourceAnalysis> {
+        let root = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
+        Ok(SourceAnalysis {
+            snapshot: self.analyze(self.source_snapshot(), cancel)?,
+            root,
+            package_inputs: None,
+        })
     }
 
     /// Checks one captured package and its complete declared dependency closure.
@@ -194,6 +209,17 @@ impl KagariEngine {
         inputs: &ProgramInputs,
         cancel: &CancellationToken,
     ) -> CompileResult<CheckedModule> {
+        self.analyze_package(inputs, cancel)?.check(cancel)
+    }
+
+    /// Captures a complete package closure and retains recoverable semantic facts.
+    /// Source completeness remains a package-owned prerequisite; errors in bodies
+    /// remain diagnostics in the returned analysis rather than executable evidence.
+    pub fn analyze_package(
+        &self,
+        inputs: &ProgramInputs,
+        cancel: &CancellationToken,
+    ) -> CompileResult<SourceAnalysis> {
         let source = inputs
             .source_snapshot(&mut self.sources.borrow_mut(), cancel)
             .map_err(|error| match error {
@@ -212,9 +238,11 @@ impl KagariEngine {
                 message: format!("captured package root is absent: {root}"),
             })?
             .id();
-        let mut checked = self.compile_snapshot(source, file, cancel)?;
-        checked.package_inputs = Some(PackageBuildInput::capture(self, inputs, cancel)?);
-        Ok(checked)
+        Ok(SourceAnalysis {
+            snapshot: self.analyze(source, cancel)?,
+            root: file,
+            package_inputs: Some(PackageBuildInput::capture(self, inputs, cancel)?),
+        })
     }
 
     pub fn set_source(
@@ -308,65 +336,12 @@ impl KagariEngine {
         file: FileId,
         cancel: &CancellationToken,
     ) -> CompileResult<CheckedModule> {
-        let snapshot = self.analyze(source, cancel)?;
-        let analysis = snapshot.file(file).ok_or_else(|| EmbeddingError::Source {
-            message: "file is absent from this source snapshot".into(),
-        })?;
-        let source = analysis.source();
-
-        let program = snapshot
-            .check_program(file, cancel)
-            .map_err(|error| match error {
-                ProgramCheckError::Cancelled => EmbeddingError::Cancelled,
-                ProgramCheckError::Exports(message) => EmbeddingError::Source { message },
-                ProgramCheckError::Identity(error) => EmbeddingError::Source {
-                    message: format!("invalid analysis definition metadata: {error}"),
-                },
-                ProgramCheckError::MissingFile(file) => EmbeddingError::Source {
-                    message: format!("missing source file {file:?}"),
-                },
-                ProgramCheckError::Diagnostics(records) => EmbeddingError::Diagnostics {
-                    diagnostics: records
-                        .into_iter()
-                        .map(|record| {
-                            DiagnosticRecord::from_diagnostic(
-                                record.diagnostic,
-                                snapshot.file(record.file).expect("checked source").source(),
-                            )
-                        })
-                        .collect(),
-                },
-                ProgramCheckError::Graph(error) => {
-                    let failed = match error {
-                        ModuleOrderError::Cancelled => return EmbeddingError::Cancelled,
-                        ModuleOrderError::InvalidImports(module) => vec![module],
-                        ModuleOrderError::Missing(module) => {
-                            return EmbeddingError::Source {
-                                message: format!("missing source module {module}"),
-                            };
-                        }
-                    };
-                    let mut diagnostics = Vec::new();
-                    for module in failed {
-                        let node = snapshot
-                            .module_graph()
-                            .node(&module)
-                            .expect("failed graph node");
-                        let file = snapshot.file(node.file).expect("graph source");
-                        diagnostics.extend(node.imports.diagnostics.iter().cloned().map(
-                            |diagnostic| {
-                                DiagnosticRecord::from_diagnostic(diagnostic, file.source())
-                            },
-                        ));
-                    }
-                    EmbeddingError::Diagnostics { diagnostics }
-                }
-            })?;
-        Ok(CheckedModule {
-            source_name: source.name().to_owned(),
-            program,
+        SourceAnalysis {
+            snapshot: self.analyze(source, cancel)?,
+            root: file,
             package_inputs: None,
-        })
+        }
+        .check(cancel)
     }
 
     pub fn emit_bytecode(

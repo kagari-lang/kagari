@@ -421,6 +421,7 @@ pub(crate) fn check_bodies_controlled(
     if !lowered.source.module_identity().within_path_limit() {
         return AnalysisResult {
             facts: TypedModule {
+                valid_bodies: Default::default(),
                 checked_bodies: 0,
                 reused_bodies: 0,
                 functions: Default::default(),
@@ -439,6 +440,7 @@ pub(crate) fn check_bodies_controlled(
         aggregates,
     } = inputs;
     let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
+    let mut valid_bodies = HashSet::new();
     let mut checked_bodies = 0;
     let mut reused_bodies = 0;
     let mut diagnostics = if matches!(selection, BodySelection::All) {
@@ -589,6 +591,9 @@ pub(crate) fn check_bodies_controlled(
             &mut const_budget,
         );
 
+        let shared_valid = !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error);
         for function in &lowered.module.functions {
             if cancel.check().is_err() {
                 break;
@@ -610,9 +615,13 @@ pub(crate) fn check_bodies_controlled(
                 continue;
             }
             if reuse.is_some_and(|reuse| reuse.restore(lowered, function, &mut type_table)) {
+                if shared_valid {
+                    valid_bodies.insert(function.id);
+                }
                 reused_bodies += 1;
                 continue;
             }
+            let diagnostic_start = diagnostics.len();
             checked_bodies += 1;
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
@@ -712,6 +721,14 @@ pub(crate) fn check_bodies_controlled(
                         .with_span(lowered.source_map.function_span(function.id)),
                     );
                 }
+                if shared_valid
+                    && cancel.check().is_ok()
+                    && !diagnostics[diagnostic_start..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == Severity::Error)
+                {
+                    valid_bodies.insert(function.id);
+                }
             }
         }
 
@@ -758,6 +775,7 @@ pub(crate) fn check_bodies_controlled(
         }
         AnalysisResult {
             facts: TypedModule {
+                valid_bodies,
                 checked_bodies,
                 reused_bodies,
                 functions,

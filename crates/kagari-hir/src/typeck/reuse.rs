@@ -1,13 +1,17 @@
 //! Cache semantic facts by source content, remapping every arena ID on reuse.
 
 use crate::{
-    hir::item::function::{Function, FunctionKind},
+    hir::{
+        ids::FunctionId,
+        item::function::{Function, FunctionKind},
+    },
     lower::LoweredModule,
     typeck::table::TypeTable,
 };
 
 use kagari_source::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
+use std::collections::HashSet;
 
 /// Prior body facts plus old/new text used to attempt arena-aware reuse.
 ///
@@ -16,6 +20,8 @@ use kagari_syntax::{lexer, token::Token};
 /// and a source-map correspondence. Local IDs are remapped into the new arena;
 /// old IDs cannot simply be copied. Failed correspondence falls back to checking.
 pub struct BodyReuse<'a> {
+    /// Positive eligibility evidence retained before diagnostic truncation.
+    pub previous_valid_bodies: &'a HashSet<FunctionId>,
     /// Previous analysis diagnostics used to exclude unsafe reuse.
     pub previous_diagnostics: &'a [Diagnostic],
     /// Old source, nodes and source-map ownership for remapping.
@@ -70,6 +76,9 @@ impl BodyReuse<'_> {
         else {
             return false;
         };
+        if !self.previous_valid_bodies.contains(&old.id) {
+            return false;
+        }
         let old_span = self.previous_lowered.source_map.function_span(old.id);
         for diagnostic in self.previous_diagnostics {
             let Some(span) = diagnostic.span else {
@@ -209,6 +218,7 @@ mod tests {
             };
             let diagnostics = [diagnostic];
             let reuse = BodyReuse {
+                previous_valid_bodies: &facts.typed.valid_bodies,
                 previous_diagnostics: &diagnostics,
                 previous_lowered: &facts.lowered,
                 previous_types: &facts.typed.type_table,

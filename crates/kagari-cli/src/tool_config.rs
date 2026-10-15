@@ -1,6 +1,10 @@
 //! Strict project tooling configuration; never part of executable input identity.
 
 use crate::CliError;
+use kagari_lint::{
+    policy::{Level, Policy},
+    registry::LintId,
+};
 use serde::Deserialize;
 use std::{fs, io::ErrorKind, path::Path};
 use toml::from_str;
@@ -41,14 +45,6 @@ pub(crate) enum Newline {
     Crlf,
 }
 
-#[derive(Debug, Clone, Copy, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Level {
-    Allow,
-    Warn,
-    Deny,
-}
-
 #[derive(Debug, Default, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub(crate) struct LintConfig {
@@ -58,6 +54,23 @@ pub(crate) struct LintConfig {
     pub non_snake_case: Option<Level>,
     pub non_upper_camel_case: Option<Level>,
     pub non_upper_case_globals: Option<Level>,
+}
+
+impl LintConfig {
+    pub fn apply(&self, policy: &mut Policy) {
+        for (id, level) in [
+            (LintId::UnusedBinding, self.unused_binding),
+            (LintId::UnusedParameter, self.unused_parameter),
+            (LintId::UnnecessaryVar, self.unnecessary_var),
+            (LintId::NonSnakeCase, self.non_snake_case),
+            (LintId::NonUpperCamelCase, self.non_upper_camel_case),
+            (LintId::NonUpperCaseGlobals, self.non_upper_case_globals),
+        ] {
+            if let Some(level) = level {
+                policy.configured.insert(id, level);
+            }
+        }
+    }
 }
 
 impl ToolConfig {

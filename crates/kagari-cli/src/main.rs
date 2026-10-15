@@ -61,6 +61,24 @@ fn run_cli(cli: Cli) -> Result<(), CliError> {
         Command::Project { action, options } => project::run(action, options, cli.jit),
         Command::Parse { source } => parse_source(&source),
         Command::Check { source, format } => checking::source(&source, format),
+        Command::Lint {
+            source,
+            format,
+            policy,
+        } => checking::lint_source(&source, format, &policy),
+        Command::LintProject { project, policy } => checking::lint_project(
+            &project,
+            &env::current_dir().map_err(|error| CliError::message(1, error.to_string()))?,
+            &policy,
+        ),
+        Command::ListRules => {
+            checking::rule_help(None);
+            Ok(())
+        }
+        Command::Explain { rule } => {
+            checking::rule_help(Some(rule));
+            Ok(())
+        }
         Command::Emit { source, output } => emit_artifact(&source, &output),
         Command::RunSource { source } => run_source(&source, cli.jit),
         Command::RunArtifact { artifact } => run_artifact(&artifact, cli.jit),

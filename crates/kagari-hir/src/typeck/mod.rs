@@ -66,7 +66,7 @@ pub(crate) mod signature_reuse;
 pub mod table;
 mod ty;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// Checked function records with eight inline slots before heap allocation.
 pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
@@ -138,6 +138,8 @@ impl ModuleSignatures {
 /// the checked conversion gate. The table is not embedded into each HIR node.
 #[derive(Debug, Clone)]
 pub struct TypedModule {
+    /// Bodies completed without errors, recorded before presentation truncation.
+    pub(crate) valid_bodies: HashSet<FunctionId>,
     /// Number of function bodies freshly checked for this result.
     pub checked_bodies: usize,
     /// Number of function bodies restored from compatible prior facts.

@@ -470,6 +470,7 @@ dependencies = [
  "kagari-codegen-cranelift",
  "kagari-common",
  "kagari-format",
+ "kagari-lint",
  "kagari-package",
  "kagari-runtime",
  "kagari-source",
@@ -591,6 +592,18 @@ dependencies = [
  "serde",
  "smallvec",
  "thiserror",
+]
+
+[[package]]
+name = "kagari-lint"
+version = "0.1.0"
+dependencies = [
+ "kagari-common",
+ "kagari-hir",
+ "kagari-source",
+ "kagari-stdlib",
+ "kagari-syntax",
+ "serde",
 ]
 
 [[package]]

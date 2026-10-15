@@ -1,6 +1,6 @@
 # Formatter, checker and linter implementation plan
 
-Status: implementation authorized on 2026-10-15; TT01–TT03 complete, TT04 next.
+Status: implementation authorized on 2026-10-15; TT01–TT04 complete, TT05 next.
 This plan owns the first usable `kg fmt`, `kg check` and `kg lint` milestone.
 Command spellings and configuration examples below describe planned behavior,
 not commands already supported by the current binary.
@@ -640,7 +640,7 @@ side effects. None is silently added to this milestone.
   contracts; complete check tooling.
 - [x] TT02: single-file formatter foundation and stdin integration.
 - [x] TT03: complete syntax coverage and project formatting.
-- [ ] TT04: lint policy and six initial rules.
+- [x] TT04: lint policy and six initial rules.
 - [ ] TT05: focused acceptance, documentation migration and CI integration.
 
 Initial implementation inspection: clean worktree at `82bbf09f`; current package
@@ -732,3 +732,42 @@ import/conditional cleanup. No known local failures remain. Exhaustive grammar a
 Windows/platform matrices remain CI-owned. Fmt summaries count successful/failed
 files and incomplete acquisition/writeback operations; an incomplete discovery
 operation can represent unknown child files, so these are not a total-file census.
+
+### TT04 in progress (2026-10-16)
+
+HIR now retains successful body IDs before diagnostic truncation and only reuses
+that positive evidence with matching body/environment inputs. Shared parser,
+declaration/import and signature failures conservatively disable semantic optional
+queries across the snapshot; a local type error disables its body only. Binding
+usage is one HIR query over resolved binding/place identities, shared by the three
+usage rules and local naming. Captured variables are conservatively excluded from
+`unnecessary_var`: changing their capture mode needs evidence outside this release.
+Deferred initialization currently fails ordinary checking, so supplies no eligible
+usage facts. No required diagnostic is inferred from lint eligibility.
+
+The SDK now exposes a retained `SourceAnalysis`; strict checking and optional lint
+consume that same snapshot. Compilation continues through the unchanged strict
+checked-program gate. The lint crate owns levels, its six-entry registry and
+suppression argument validation. HIR exposes uninterpreted attribute targets,
+including module identities for external inheritance. Trait implementation method
+names are exempt through HIR implementation membership, never text matching.
+
+Focused validation so far: HIR truncation/shared-signature eligibility passed;
+SDK and CLI scoped checks passed. Initial lint tests had two invalid fixtures
+(a field omitted `val`, and deferred initialization is not accepted by current
+semantics). Those fixtures were corrected without changing language behavior;
+remaining lint/CLI acceptance and structural checks are in progress.
+
+TT04 checkpoint: six rule/policy contract tests pass, including cross-file shared
+signature errors at diagnostic limit zero, external/inline suppression inheritance,
+invalid policy under allow, captured reads/rebindings, patterns, member mutation,
+trait naming exemptions and unchanged-analysis identity across levels. Both real
+CLI lint tests pass (JSON severity/exit/rule help and project/dependency/config
+precedence). The initial project fixture omitted its standalone dependency namespace;
+adding the required manifest metadata resolved the acquisition failure. No product
+validation was relaxed. The existing HIR body-reuse regression and CLI argument
+contract pass. Full-workspace Clippy passes after removing an unnecessary owned
+name conversion. Structural check reports 1267 files, zero violations/exceptions.
+A last manifest-fixture line needed rustfmt and was corrected before commit.
+Focused CLI independent-root regression, final fmt/diff/structure checks are recorded
+in the checkpoint commit; exhaustive feature/backend/platform tests remain CI-only.

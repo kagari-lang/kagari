@@ -207,13 +207,20 @@ impl Report {
     }
 }
 
-fn sort_key(record: &Record) -> (&str, &str, usize, &str, &str) {
+fn sort_key(record: &Record) -> (&str, usize, &str, &str, &str, &str) {
     let (path, offset) = record
         .location
         .as_ref()
         .map(|location| (location.path.as_str(), location.byte_start))
         .unwrap_or(("", 0));
-    (&record.context, path, offset, &record.code, &record.message)
+    (
+        path,
+        offset,
+        record.severity,
+        &record.code,
+        &record.context,
+        &record.message,
+    )
 }
 
 fn location(span: FileSpan, source: &SourceFile) -> Option<Location> {

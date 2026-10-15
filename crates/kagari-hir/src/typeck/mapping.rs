@@ -79,6 +79,7 @@ impl RemapDefinitions for TypedModule {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(TypedModule {
+            valid_bodies: self.valid_bodies.clone(),
             checked_bodies: self.checked_bodies,
             reused_bodies: self.reused_bodies,
             functions: map_sequence(self.functions.as_slice(), |value| {

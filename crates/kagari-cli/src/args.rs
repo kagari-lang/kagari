@@ -2,6 +2,10 @@
 
 use crate::{CliError, report::MessageFormat};
 use kagari_format::Newline;
+use kagari_lint::{
+    policy::{Level, Policy},
+    registry::LintId,
+};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -12,6 +16,19 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
+    Lint {
+        source: PathBuf,
+        format: MessageFormat,
+        policy: Policy,
+    },
+    LintProject {
+        project: ProjectArgs,
+        policy: Policy,
+    },
+    ListRules,
+    Explain {
+        rule: LintId,
+    },
     FormatProject {
         project: ProjectArgs,
         options: FormatArgs,
@@ -79,6 +96,10 @@ pub(crate) struct FormatArgs {
 
 #[derive(Default)]
 struct Arguments {
+    lint: Policy,
+    lint_option: bool,
+    list_rules: bool,
+    explain: Option<LintId>,
     positionals: Vec<String>,
     project: ProjectArgs,
     jit: bool,
@@ -94,6 +115,29 @@ impl Arguments {
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--list-rules" => {
+                    result.list_rules = true;
+                    result.lint_option = true;
+                }
+                "--explain" => {
+                    result.explain = Some(lint_id(&value(&mut args, &arg)?)?);
+                    result.lint_option = true;
+                }
+                "-A" | "-W" | "-D" => {
+                    result.lint_option = true;
+                    let rule = value(&mut args, &arg)?;
+                    if arg == "-D" && rule == "warnings" {
+                        result.lint.deny_warnings = true;
+                    } else {
+                        let id = lint_id(&rule)?;
+                        let level = match arg.as_str() {
+                            "-A" => Level::Allow,
+                            "-W" => Level::Warn,
+                            _ => Level::Deny,
+                        };
+                        result.lint.overrides.insert(id, level);
+                    }
+                }
                 "--check" => {
                     result.format.check = true;
                     result.format_option = true;
@@ -208,6 +252,7 @@ impl Cli {
         let explicit = matches!(
             first.as_str(),
             "fmt"
+                | "lint"
                 | "parse"
                 | "check"
                 | "emit"
@@ -225,13 +270,38 @@ impl Cli {
             ));
         }
         let name = if explicit { first.as_str() } else { "implicit" };
+        if parsed.lint_option && name != "lint" {
+            return Err(CliError::message(2, "lint options apply only to lint"));
+        }
+        if name == "lint" && (parsed.list_rules || parsed.explain.is_some()) {
+            parsed.source_options()?;
+            if !rest.is_empty()
+                || parsed.list_rules && parsed.explain.is_some()
+                || parsed.message_option
+                || parsed.jit_option
+                || parsed.format_option
+                || parsed.project.output.is_some()
+                || parsed.lint != Policy::default()
+            {
+                return Err(CliError::message(
+                    2,
+                    "rule help cannot be combined with execution options",
+                ));
+            }
+            return Ok(Self {
+                command: parsed
+                    .explain
+                    .map_or(Command::ListRules, |rule| Command::Explain { rule }),
+                jit: false,
+            });
+        }
         if parsed.format_option && name != "fmt" {
             return Err(CliError::message(2, "format options apply only to fmt"));
         }
-        if parsed.message_option && name != "check" {
+        if parsed.message_option && !matches!(name, "check" | "lint") {
             return Err(CliError::message(
                 2,
-                "--message-format applies only to check",
+                "--message-format applies only to check or lint",
             ));
         }
         if parsed.jit_option && !matches!(name, "run" | "run-artifact" | "implicit") {
@@ -248,6 +318,15 @@ impl Cli {
                 2,
                 "fmt does not accept resolution or lock options",
             ));
+        }
+        if name == "lint" && rest.is_empty() {
+            return Ok(Self {
+                command: Command::LintProject {
+                    project: parsed.project,
+                    policy: parsed.lint,
+                },
+                jit: false,
+            });
         }
         if name == "fmt" && rest.is_empty() {
             return Ok(Self {
@@ -290,6 +369,11 @@ impl Cli {
             ));
         }
         let command = match name {
+            "lint" => Command::Lint {
+                source,
+                format: parsed.project.message_format,
+                policy: parsed.lint,
+            },
             "fmt" => Command::Format {
                 source,
                 options: parsed.format,
@@ -327,6 +411,10 @@ impl Cli {
     }
 }
 
+fn lint_id(name: &str) -> Result<LintId, CliError> {
+    LintId::parse(name).ok_or_else(|| CliError::message(2, format!("unknown lint rule `{name}`")))
+}
+
 fn value(args: &mut impl Iterator<Item = String>, option: &str) -> Result<String, CliError> {
     args.next()
         .filter(|value| !value.is_empty() && !value.starts_with('-'))
@@ -340,6 +428,8 @@ pub(crate) fn usage() -> String {
         "  kg parse <script.kgr>",
         "  kg build-aot <script.kgr> [-o bundle-dir] (feature aot; KAGARI_AOT_LINKER selects linker)",
         "  kg run-aot <trusted-bundle-dir> (feature aot; executes trusted native code)",
+        "  kg lint [script.kgr] [project options] [-A RULE|-W RULE|-D RULE|-D warnings] [--message-format human|json]",
+        "  kg lint --list-rules | --explain RULE",
         "  kg check [script.kgr] [project options] [--message-format human|json]",
         "  kg build [-o artifact.kbc] [project options]",
         "  kg emit [-o artifact.kbc] <script.kgr>",

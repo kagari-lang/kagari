@@ -63,8 +63,11 @@ pub mod method_queries;
 #[cfg(test)]
 mod standard_query_tests;
 
+pub mod attributes;
 pub mod body_queries;
 mod cache;
+pub mod eligibility;
+pub mod usage;
 
 pub mod declaration_queries;
 pub(crate) mod ownership;
@@ -85,6 +88,7 @@ pub struct FileAnalysis {
     signatures_reused: bool,
     /// Borrows the immutable source revision analyzed by this result.
     source: Arc<SourceFile>,
+    shared_valid: bool,
 
     parsed: Parse,
     /// Semantic facts and diagnostics paired with the table owning their definition IDs.
@@ -784,6 +788,11 @@ impl AnalysisDatabase {
     ) -> Result<AnalysisSnapshot, AnalysisError> {
         cancel.check()?;
         let signature_snapshot = self.prepare_signatures(source.clone(), cancel)?;
+        let shared_valid = signature_snapshot.files.values().all(|file| {
+            file.declaration.parsed.diagnostics().is_empty()
+                && file.prepared.names.diagnostics().is_empty()
+                && file.prepared.signatures.diagnostics().is_empty()
+        });
         let graph = signature_snapshot.declarations.graph.clone();
         let signatures = signature_snapshot
             .files
@@ -808,15 +817,16 @@ impl AnalysisDatabase {
             let environment = environments.remove(&id).expect("prepared body environment");
             let analysis = match self.files.get(&id) {
                 Some(previous)
-                    if previous.can_retain(
-                        &prepared,
-                        previous_facts
-                            .as_ref()
-                            .expect("previous scoped facts")
-                            .facts(),
-                        &environment,
-                        cancel,
-                    ) =>
+                    if previous.shared_valid == shared_valid
+                        && previous.can_retain(
+                            &prepared,
+                            previous_facts
+                                .as_ref()
+                                .expect("previous scoped facts")
+                                .facts(),
+                            &environment,
+                            cancel,
+                        ) =>
                 {
                     previous.clone()
                 }
@@ -837,6 +847,7 @@ impl AnalysisDatabase {
                             )
                         })
                         .map(|old| BodyReuse {
+                            previous_valid_bodies: &old.result().facts().typed.valid_bodies,
                             previous_diagnostics: old.result.records().diagnostics(),
                             previous_lowered: &old.result.records().facts().lowered,
                             previous_types: &previous_facts
@@ -871,6 +882,7 @@ impl AnalysisDatabase {
                     let result = DefinitionMetadata::checked(definitions, records, cancel)?;
                     let type_hits = target_queries::type_hits(result.records().facts(), cancel)?;
                     Arc::new(FileAnalysis {
+                        shared_valid,
                         type_hits,
                         signatures_reused,
                         source: file,

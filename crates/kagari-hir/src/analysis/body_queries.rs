@@ -265,6 +265,7 @@ impl AnalysisDatabase {
                             .same_contracts(&environment.aggregates)
                 })
                 .map(|old| BodyReuse {
+                    previous_valid_bodies: &old.typed.facts().valid_bodies,
                     previous_diagnostics: old.diagnostics(),
                     previous_lowered: old.lowered(),
                     previous_types: &previous_types
