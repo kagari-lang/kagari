@@ -864,8 +864,11 @@ later cannot retarget an existing version. Debug names are diagnostic text only.
 Source field reads select a unique declared nominal field chain. HIR owns the
 field identities, result types, root expression and selected contract; missing or
 ambiguous paths produce `KG_HOST_PATH_INVALID` while keeping known field facts
-available to tools. Offline field documentation is available through
-`FileAnalysis::host_field_at`. Nested chains lower to one `ReadPath`, evaluating
+available to tools. `FileAnalysis::field_at` selects the common field identity;
+resolve its type/access facts in the owning shared schema and its documentation
+in the declaring ModuleDecl's documentation map. External fields need not have a
+source declaration location. These recovery facts do not supply an executable
+path or make an invalid program loadable. Nested chains lower to one `ReadPath`, evaluating
 the root exactly once. IR validates the selected contract against required host
 types; bytecode carries the required field declaration and linked path record.
 Reusing an unchanged function body remaps its path root to the new analysis arena.

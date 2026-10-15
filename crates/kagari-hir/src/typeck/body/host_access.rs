@@ -21,13 +21,14 @@ use crate::{
     },
     types::{TypeId, semantic::raise_type},
 };
-use kagari_common::cancellation::Cancelled;
+use kagari_common::{
+    cancellation::Cancelled,
+    identity::{DefinitionKind, table::DefinitionId},
+};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::declaration::path::HostPathSegmentDeclaration;
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::{FnDecl, host::PathAccess, logging},
-    host_interface::type_declaration::HostFieldDeclaration,
+    declaration::{FnDecl, host::PathAccess, logging, path::HostPathSegmentDeclaration},
     scalar::BuiltinType,
 };
 
@@ -297,16 +298,26 @@ impl<'a> BodyChecker<'a> {
         &self,
         owner: &TypeId,
         name: &str,
-    ) -> Option<HostFieldDeclaration> {
+    ) -> Option<(DefinitionId, TypeId)> {
         let TypeId::Host(id) = owner else {
             return None;
         };
+        if let Some(owner) = self.declarations.external_type(*id) {
+            let field = owner.fields.iter().find(|field| field.name == name)?;
+            let field_id = self.declarations.definitions().lookup_child(
+                *id,
+                DefinitionKind::Field,
+                name,
+                0,
+            )?;
+            return Some((field_id, raise_type(&field.ty)));
+        }
         self.names
             .hosts
             .nominal_type(id)
             .and_then(|id| self.names.hosts.type_declaration(id))
             .and_then(|owner| owner.fields.iter().find(|field| field.name == name))
-            .cloned()
+            .map(|field| (field.id, host::signature_type(&field.ty)))
     }
 
     pub(super) fn infer_host_path_read(
@@ -403,13 +414,14 @@ impl<'a> BodyChecker<'a> {
                 for step in &steps {
                     match step {
                         HostPathNode::Member { node, name } => {
-                            let Some(field) = self.resolve_host_declared_field(&current, name)
+                            let Some((field, ty)) =
+                                self.resolve_host_declared_field(&current, name)
                             else {
                                 recovered_all_members = false;
                                 break;
                             };
-                            self.type_table.insert_expr_field(*node, field.id);
-                            current = host::signature_type(&field.ty);
+                            self.type_table.insert_expr_field(*node, field);
+                            current = ty;
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;
@@ -540,13 +552,14 @@ impl<'a> BodyChecker<'a> {
                 for step in &steps {
                     match step {
                         HostPathNode::Member { node, name } => {
-                            let Some(field) = self.resolve_host_declared_field(&current, name)
+                            let Some((field, ty)) =
+                                self.resolve_host_declared_field(&current, name)
                             else {
                                 recovered_all_members = false;
                                 break;
                             };
-                            self.type_table.insert_place_field(*node, field.id);
-                            current = host::signature_type(&field.ty);
+                            self.type_table.insert_place_field(*node, field);
+                            current = ty;
                         }
                         HostPathNode::Index { .. } => {
                             recovered_all_members = false;

@@ -1188,6 +1188,8 @@ mod namespace_tests;
 #[cfg(test)]
 mod native_facade_tests;
 #[cfg(test)]
+mod native_path_tests;
+#[cfg(test)]
 mod owner_tests;
 #[cfg(test)]
 mod payload_tests;

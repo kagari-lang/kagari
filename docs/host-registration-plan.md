@@ -2964,6 +2964,43 @@ zero findings; formatting/diff checks passed. No unsafe or execution kernel chan
 so no new Miri run was needed. Remaining HIR legacy type/trait/origin and downstream
 portable/runtime retirement remain open. Exhaustive acceptance stays CI-owned.
 
+### HR02 checkpoint: shared path query recovery
+
+Moved the three legacy HIR read/write/mixed-chain scenarios into ordinary analysis
+native_path_tests with cold ModuleDecl/TypeDef/FieldDef/path inputs. Their common
+field_at queries validate canonical identity plus the actual checked external
+schema's field type, visibility, mutability and host access policy. Neighbor body
+edits still reuse exactly one body and remap read/write root arenas while retaining
+the declaration. Missing/ambiguous read contracts and readonly writes retain field
+facts, issue InvalidHostPath and block codegen. Mixed source-to-external chains
+retain the complete external suffix, exact root spans and one read/write path.
+No synthetic field declaration/location or legacy metadata projection was added.
+Documentation stays in the common ModuleDecl map; the specification now states
+how field identities resolve to schema facts and that documentation owner.
+
+Migration exposed a production recovery gap: source_host_path failure consulted
+only legacy HostDeclarations for member facts. Recovery now obtains shared field
+identities and semantic types from the already checked external schema; the same
+helper serves reads and writes. Invalid paths still have diagnostics and never
+receive executable path facts. The temporary legacy fallback remains for its
+four unmigrated receiver/type fixtures and is owned by HR03 removal, rather than
+creating another shared field representation.
+
+Actual local validation: the first compile attempted to wrap a bare DefinitionId
+in DefinitionMetadata, which has no such record implementation; the fixture now
+uses the existing checked identity-context import/remap. Two cases passed and the
+read case initially queried source documentation for an external field without a
+source site. That query is outside the established field_at contract and was
+replaced by common field/schema queries, preserving type/access checks. The read
+case then exposed the recovery gap above. After repair and strengthening actual
+schema comparisons, all three cases passed (2.79 seconds). An unused fixture
+context was removed; HIR lib/tests scoped Clippy passed. The selected remaining
+legacy invalid-call/member-recovery regression passed (2.25 seconds). Structure
+checked 1255 files with zero findings; formatting/diff checks passed. No unsafe or
+loan kernel changed, so no new Miri run was needed. Remaining HIR receiver/type/
+trait/origin consumers and downstream record/call retirement still block combined
+completion; full workspace/backend/feature/platform acceptance remains CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
