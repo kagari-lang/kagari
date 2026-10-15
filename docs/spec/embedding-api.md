@@ -421,7 +421,10 @@ reload_program(previous, prepared_candidate, reload_options) -> ReloadResult<Loa
 
 Convenience functions may combine these operations for CLI use, but the underlying phases remain separate.
 
-The current Rust facade uses `KagariEngine` for compile and artifact emission and `KagariRuntime` for load, execute, reload, host registration, and optional backend execution.
+The current Rust facade uses `KagariEngine` for compile and artifact emission and
+`KagariRuntime` for load, execute, reload and optional backend execution. Native
+declarations and bindings are installed through `KagariEngineBuilder` before engine
+construction; live object roots and scoped host access belong to the runtime.
 `KagariRuntime::reload_program` stages and validates the candidate before publishing,
 following [module-activation.md](module-activation.md). Validation errors retain their
 reload codes.

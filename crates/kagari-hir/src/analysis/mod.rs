@@ -898,14 +898,6 @@ impl AnalysisDatabase {
         self.files.clear();
     }
 
-    /// Replaces Host inputs; the first declaration query adopts their identities into this analysis.
-    /// Later query reuse compares the immutable Host revision, independently of definition IDs.
-    pub fn set_host_declarations(&mut self, hosts: Arc<HostDeclarations>) {
-        self.environment_fingerprint.take();
-        self.hosts = hosts;
-        self.adopted_hosts.take();
-    }
-
     /// Prepares signatures and checks or reuses bodies for every supplied/discovered file.
     ///
     /// Returns an immutable result even when source diagnostics exist. Use

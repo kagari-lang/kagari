@@ -12,9 +12,6 @@ use crate::{
 
 use kagari_runtime::{
     Runtime,
-    error::RuntimeError,
-    host::{HostFunction, HostFunctionId, HostTypeRegistration},
-    metadata::TypeId,
     module::{LoadedModule, entry::ProgramEntry},
     value::Value,
 };
@@ -47,27 +44,6 @@ impl KagariRuntime {
 
     pub fn default_context(&self) -> &ExecutionContext {
         &self.default_context
-    }
-
-    pub fn register_host_function(
-        &mut self,
-        function: HostFunction,
-    ) -> Result<HostFunctionId, RuntimeError> {
-        self.vm.runtime_mut().register_host_function(function)
-    }
-
-    pub fn register_host_type(
-        &mut self,
-        registration: HostTypeRegistration,
-    ) -> Result<TypeId, RuntimeError> {
-        self.vm.runtime_mut().register_host_type(registration)
-    }
-
-    pub fn register_host_types(
-        &mut self,
-        registrations: Vec<HostTypeRegistration>,
-    ) -> Result<Vec<TypeId>, RuntimeError> {
-        self.vm.runtime_mut().register_host_types(registrations)
     }
 
     pub fn load_program(

@@ -85,17 +85,17 @@ fn hash_bytes(
 #[cfg(test)]
 mod tests {
     use crate::{
-        analysis::AnalysisDatabase, host::HostDeclarations, typeck::const_budget::ConstLimits,
+        analysis::AnalysisDatabase, tests::native::function_module,
+        typeck::const_budget::ConstLimits,
     };
     use kagari_common::{
         cancellation::CancellationToken,
-        identity::{ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata},
+        identity::{
+            ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+        },
     };
     use kagari_syntax::parser::ParseLimits;
-    use kagari_types::{
-        declaration::module::ModuleDecl,
-        host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
-    };
+    use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType, ty::Ty};
     use std::sync::Arc;
 
     fn provider(name: &str) -> Arc<DefinitionMetadata<ModuleDecl>> {
@@ -110,23 +110,20 @@ mod tests {
         )
     }
 
-    fn hosts(result: HostValueType) -> Arc<HostDeclarations> {
-        let context = DefinitionContext::new().unwrap();
-        let function =
-            HostFunctionDeclaration::new(&context, "example.number", vec![], result).unwrap();
-        HostDeclarations::new(
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                HostInterface {
-                    types: vec![],
-                    functions: vec![function],
-                    paths: vec![],
+    fn native_inputs(result: BuiltinType) -> Vec<Arc<DefinitionMetadata<ModuleDecl>>> {
+        vec![
+            provider("a"),
+            provider("b"),
+            function_module(
+                ModuleIdentity {
+                    package: PackageId("example".into()),
+                    path: vec![],
                 },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap()
+                "number",
+                vec![],
+                Ty::Builtin(result),
+            ),
+        ]
     }
 
     #[test]
@@ -139,18 +136,18 @@ mod tests {
         assert_ne!(native, empty);
         db.set_native_modules(vec![provider("b"), provider("a")]);
         assert_eq!(native, db.environment_fingerprint(&token).unwrap());
-        db.set_host_declarations(hosts(HostValueType::I32));
-        let host = db.environment_fingerprint(&token).unwrap();
-        assert_ne!(host, native);
-        db.set_host_declarations(hosts(HostValueType::I32));
+        db.set_native_modules(native_inputs(BuiltinType::I32));
+        let callable = db.environment_fingerprint(&token).unwrap();
+        assert_ne!(callable, native);
+        db.set_native_modules(native_inputs(BuiltinType::I32));
         assert_eq!(
-            host,
+            callable,
             db.environment_fingerprint(&token).unwrap(),
-            "process Host revisions are not portable inputs"
+            "independent definition contexts are not portable inputs"
         );
-        db.set_host_declarations(hosts(HostValueType::I64));
-        assert_ne!(host, db.environment_fingerprint(&token).unwrap());
-        db.set_host_declarations(HostDeclarations::empty().unwrap());
+        db.set_native_modules(native_inputs(BuiltinType::I64));
+        assert_ne!(callable, db.environment_fingerprint(&token).unwrap());
+        db.set_native_modules(vec![provider("a"), provider("b")]);
         assert_eq!(native, db.environment_fingerprint(&token).unwrap());
         db.set_const_limits(ConstLimits {
             max_steps: 7,

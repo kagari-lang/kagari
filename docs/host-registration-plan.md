@@ -3143,6 +3143,36 @@ passed. No unsafe,
 root, loan, cancellation or execution path changed; no new Miri run is claimed.
 Full workspace/feature/backend/platform acceptance remains CI-owned.
 
+### HR02/HR03: migrate environment identity and remove unused input forwarders
+
+The environment-fingerprint test was the last nonempty legacy Host input producer
+outside the three direct catalog unit cases. It now authors example::number through
+the shared cold function_module helper and set_native_modules. Existing assertions
+still prove provider order independence, identical fingerprints across independently
+allocated definition contexts, signature changes, provider removal, every query
+limit, clone ownership and cancellation even when an identity is cached. The production
+fingerprint still includes the temporary empty legacy catalog until that owner is
+removed with the resolver; this checkpoint does not add another encoding or cache.
+
+Repository-wide call-site review now finds no caller of
+AnalysisDatabase::set_host_declarations, so that public setter is removed directly.
+The SDK KagariRuntime register_host_function/register_host_type/register_host_types
+forwarders likewise have no remaining callers after the shared module migrations;
+they and their old imports are removed. No forwarding alias replaces any of these
+entrypoints. Common provider authoring/installation belongs to the sealed engine
+builder; live object roots and scopes retain their existing runtime owners. Lower-level
+runtime legacy registration and its remaining VM/unit consumers still require HR03
+retirement and are not claimed removed by this SDK cleanup.
+
+The focused environment identity case passed (under 0.01 seconds). HIR lib/tests
+scoped Clippy passed after setter removal. The prior offline_functions execution
+case remains evidence for its unchanged common install/load/call behavior; the SDK
+lib/offline_functions scoped Clippy passed after removal of unused registration
+methods; structure checked 1254 Rust files with zero findings; formatting and diff
+checks passed. No unsafe, GC root or
+execution mechanism changed; no new Miri run is needed. Full workspace and the
+complete feature/backend/platform matrix remain CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
