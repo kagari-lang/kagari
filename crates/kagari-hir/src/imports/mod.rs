@@ -4,7 +4,6 @@ use crate::{
         ConstId, EnumId, FunctionId, HirArenaId, ModuleId, OpaqueTypeId, StructId, TraitId,
         VariantId,
     },
-    host::{HostFunctionId, HostModuleId, HostTypeId},
     imports::bindings::{LookupOutcome, PerNamespace},
     lower::LoweredModule,
     resolver::{resolved::ResolvedName, table::NameTable},
@@ -162,8 +161,6 @@ pub enum NamespaceId {
     Module(SourceUnit),
     /// Associated members of a canonical source declaration, such as enum variants.
     Associated(SourceDeclRef),
-    /// A host module whose members come from installed host declarations.
-    Host(HostModuleId),
     /// A package/module prefix synthesized from installed inputs, without a source body.
     InstalledPrefix(ModuleIdentity),
 }
@@ -175,18 +172,13 @@ pub enum ResolvedTarget {
     Namespace(NamespaceId),
     /// A declaration owned by a qualified source unit.
     Source(SourceDeclRef),
-    /// An installed host function identity.
-    HostFunction(HostFunctionId),
-    /// An installed host type identity.
-    HostType(HostTypeId),
 }
 
 impl ResolvedTarget {
     /// The binding category of this canonical declaration or namespace.
     pub fn namespace(&self) -> NameNamespace {
         match self {
-            Self::Namespace(_) | Self::HostType(_) => NameNamespace::Type,
-            Self::HostFunction(_) => NameNamespace::Value,
+            Self::Namespace(_) => NameNamespace::Type,
             Self::Source(source) => source.item.namespace(),
         }
     }
@@ -203,8 +195,6 @@ impl ResolvedTarget {
                 ResolvedName::Source(source.clone())
             }
             Self::Namespace(ns) => ResolvedName::Namespace(ns.clone()),
-            Self::HostFunction(id) => ResolvedName::HostFunction(*id),
-            Self::HostType(id) => ResolvedName::HostType(*id),
         }
     }
 }

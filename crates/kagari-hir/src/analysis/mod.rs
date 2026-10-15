@@ -12,7 +12,6 @@ use crate::{
     analyze_parsed,
     declarations::{Declaration, DeclarationId, Declarations},
     hir::{expr::ExprKind, place::PlaceKind},
-    host::HostDeclarations,
     imports::{
         ModuleGraph, ResolvedTarget, SourceItem, catalog::LookupHit, functions::ImportedFunction,
     },
@@ -504,7 +503,6 @@ fn type_reference_at<'a>(
     type_reference_target_at(lowered, table, offset).map(|target| {
         target.and_then(|target| match target {
             TypeTarget::OpaqueType(id) => declarations.target(ResolvedName::OpaqueType(id)),
-            TypeTarget::Host(_) => None,
             TypeTarget::Source(id) => declarations
                 .imported_types()
                 .by_declaration(&id)
@@ -532,10 +530,8 @@ fn type_reference_target_at(
         .min_by_key(|(_, span)| span.end - span.start)?;
     let type_id = lowered.source_map.type_id(index);
     let resolved = table.type_ref(type_id)?;
-    let name_span = if matches!(
-        resolved.target,
-        Some(TypeTarget::AssociatedType(_) | TypeTarget::Host(_))
-    ) || matches!(resolved.ty, TypeId::Host(_))
+    let name_span = if matches!(resolved.target, Some(TypeTarget::AssociatedType(_)))
+        || matches!(resolved.ty, TypeId::Host(_))
     {
         lowered.source_map.type_terminal_span(type_id)
     } else {
@@ -642,13 +638,13 @@ fn member_receiver_type_in(
 /// solver failure or invalid inputs/identity metadata; ordinary source errors are retained as diagnostics.
 ///
 /// Caches retain immutable `Arc` results. A matching revision alone is insufficient:
-/// imports, reachable namespaces, registered hosts and semantic dependencies also
+/// imports, reachable namespaces, installed declarations and semantic dependencies also
 /// participate in reuse. Publication checks cancellation and does not replace newer
 /// published snapshots with older revisions. Earlier returned snapshots remain valid.
 ///
 /// Cloning forks query state while retaining immutable results and the append-only
 /// definition identity context. Later input changes and cache publication belong
-/// to the individual database; reuse still checks source and host revisions.
+/// to the individual database; reuse still checks source revisions and installed declarations.
 #[derive(Debug, Clone)]
 pub struct AnalysisDatabase {
     #[cfg(test)]
@@ -669,8 +665,6 @@ pub struct AnalysisDatabase {
     /// Latest fully analyzed files, retained independently of selected-body queries.
     files: HashMap<FileId, Arc<FileAnalysis>>,
     latest_revision: Revision,
-    hosts: Arc<HostDeclarations>,
-    adopted_hosts: OnceCell<Arc<HostDeclarations>>,
     /// Stable synthetic file IDs keyed by parent file and inline-module name.
     inline_ids: RefCell<HashMap<(FileId, String), FileId>>,
     native_modules: Vec<Arc<DefinitionMetadata<ModuleDecl>>>,
@@ -697,8 +691,6 @@ impl Default for AnalysisDatabase {
             signature_cache: None,
             files: HashMap::new(),
             latest_revision: Revision::default(),
-            hosts: HostDeclarations::empty().expect("empty host definition context exhausted"),
-            adopted_hosts: OnceCell::new(),
             inline_ids: RefCell::new(HashMap::new()),
             native_modules: vec![],
             native_sources: None,

@@ -142,7 +142,6 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_)
-                    | ResolvedName::HostType(_)
             ) && self
                 .declarations
                 .imported_types()

@@ -86,10 +86,7 @@ impl<'a> TypeCatalog<'a> {
     ) -> Result<ImportedTypes, Cancelled> {
         self.prepare_surfaces(cancel)?;
         let mut result = ImportedTypes::default();
-        for source in names
-            .catalog
-            .reachable_sources(&names.items, &names.hosts, cancel)?
-        {
+        for source in names.catalog.reachable_sources(&names.items, cancel)? {
             cancel.check()?;
             if let Some(ty) = self.resolve(&source, cancel)? {
                 result.resolutions.insert(source.clone(), ty);

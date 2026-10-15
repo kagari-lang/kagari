@@ -841,7 +841,7 @@ pub(crate) fn normalize(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{declare_analysis, host::HostDeclarations, lower::lower_module};
+    use crate::{declare_analysis, lower::lower_module};
     use kagari_common::identity::map::DefinitionContext;
     use kagari_source::source_database::{SourceDatabase, SourceLayer};
     use kagari_types::{language as standard_traits, language::Protocol};
@@ -865,7 +865,6 @@ mod tests {
         let lowered = Arc::new(lower_module(&source));
         let declared = declare_analysis(
             lowered,
-            HostDeclarations::empty().unwrap(),
             Default::default(),
             Default::default(),
             &DefinitionContext::new().unwrap(),

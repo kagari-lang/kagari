@@ -195,6 +195,6 @@ fn module_identity(namespace: &NamespaceId) -> Option<&ModuleIdentity> {
     match namespace {
         NamespaceId::Module(source) => Some(&source.module),
         NamespaceId::InstalledPrefix(identity) => Some(identity),
-        NamespaceId::Associated(_) | NamespaceId::Host(_) => None,
+        NamespaceId::Associated(_) => None,
     }
 }

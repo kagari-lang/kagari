@@ -734,7 +734,7 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
                             .collect(),
                     })
                 }
-                MethodDefault::Native(binding) => native_implementation_abi(module, binding),
+                MethodDefault::Native(binding) => native_implementation_abi(binding),
             },
             generic_params: method_params
                 .iter()
@@ -813,7 +813,7 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
                         .collect(),
                 })
             }
-            FunctionImplementation::Native(binding) => native_implementation_abi(module, binding),
+            FunctionImplementation::Native(binding) => native_implementation_abi(binding),
         },
         generic_params: generic_param_abi(module, &function.generic_params),
         bounds: checked_bounds(
@@ -834,23 +834,12 @@ fn function_abi(module: &AnalyzedModule, function: &Function) -> Option<FnDecl> 
     })
 }
 
-fn native_implementation_abi(
-    module: &AnalyzedModule,
-    binding: NativeBinding,
-) -> CallableImplementation {
+fn native_implementation_abi(binding: NativeBinding) -> CallableImplementation {
     let binding = match binding {
         NativeBinding::Default(_) => {
             unreachable!("native defaults require forwarding-call emission")
         }
         NativeBinding::Entry(binding) => binding,
-        NativeBinding::Host(id) => {
-            module
-                .names
-                .hosts
-                .function(id)
-                .expect("checked host callable")
-                .id
-        }
     };
     CallableImplementation::Native(binding)
 }

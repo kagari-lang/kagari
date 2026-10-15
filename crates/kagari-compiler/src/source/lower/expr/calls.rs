@@ -3,10 +3,7 @@ use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
 use kagari_abi::representation::ValueType;
-use kagari_contract::{
-    callable::interface::InterfaceCallContract, native_import::NativeImport,
-    standard::RuntimePrimitive,
-};
+use kagari_contract::{callable::interface::InterfaceCallContract, standard::RuntimePrimitive};
 use kagari_hir::{
     aggregates::traits::MethodDefault,
     builtin::BuiltinFunction,
@@ -727,17 +724,6 @@ impl FunctionLowerer<'_, '_> {
                                 params,
                                 return_type,
                             }))
-                        }
-                        TypeckCallTarget::HostFunction(id) => {
-                            CallTarget::Native(Box::new(NativeImport::from_host(
-                                &self
-                                    .analyzed
-                                    .names
-                                    .hosts
-                                    .function(id)
-                                    .ok_or(MirLoweringError::MissingBinding("host declaration"))?
-                                    .clone(),
-                            )))
                         }
                         TypeckCallTarget::TraitMethod { .. } => linked_trait_target.ok_or(
                             MirLoweringError::MissingBinding("imported implementation contract"),

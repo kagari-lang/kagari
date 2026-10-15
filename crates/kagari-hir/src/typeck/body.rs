@@ -302,10 +302,7 @@ impl<'a> BodyChecker<'a> {
                     | ResolvedName::RuntimeHelper(_)
                     | ResolvedName::Source(_)
                     | ResolvedName::Namespace(_)
-                    | ResolvedName::HostType(_)
-                    | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_)
-                    | ResolvedName::HostFunction(_)
                     | ResolvedName::OpaqueType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
@@ -485,14 +482,6 @@ impl<'a> BodyChecker<'a> {
                     ty
                 } else if let Some(ty) =
                     self.infer_enum_constructor(expr_id, *callee, args, env, expected)
-                {
-                    ty
-                } else if let Some(ty) =
-                    self.infer_host_call_type(expr_id, *callee, args, env, expected)
-                {
-                    ty
-                } else if let Some(ty) =
-                    self.infer_host_method_call(expr_id, *callee, args, env, expected)
                 {
                     ty
                 } else if let Some(method_ty) =

@@ -1,4 +1,4 @@
-//! Check registered host calls and typed host field/index paths.
+//! Check logging calls and typed declared host field/index paths.
 //! Records declared access contracts and path selections for lowering; HIR analysis
 //! does not borrow host state or invoke the registered Rust implementation.
 
@@ -32,50 +32,6 @@ use kagari_types::{
 };
 
 impl<'a> BodyChecker<'a> {
-    pub(super) fn infer_host_call_type(
-        &mut self,
-        call: ExprId,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-        expected: Option<&TypeId>,
-    ) -> Option<TypeId> {
-        let ResolvedName::HostFunction(id) = self.names.expr_resolution(callee)? else {
-            return None;
-        };
-        let hosts = self.names.hosts.clone();
-        let callable = hosts.callable(id)?;
-        self.type_table
-            .insert_call(call, CallTarget::HostFunction(id), None);
-        Some(self.infer_checked_function_call(&callable, call, callee, args, env, expected))
-    }
-
-    pub(super) fn infer_host_method_call(
-        &mut self,
-        call: ExprId,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-        expected: Option<&TypeId>,
-    ) -> Option<TypeId> {
-        let ExprKind::Field { receiver, name } = &self.lowered.module.expr(callee).kind else {
-            return None;
-        };
-        let receiver = *receiver;
-        let ty = self.infer_expr_type(receiver, env);
-        let TypeId::Host(owner) = ty else {
-            return None;
-        };
-        let id = self.names.hosts.method(&owner, name)?;
-        let hosts = self.names.hosts.clone();
-        let callable = hosts.callable(id)?;
-        self.type_table
-            .insert_call(call, CallTarget::HostFunction(id), Some(receiver));
-        let mut operands = vec![receiver];
-        operands.extend_from_slice(args);
-        Some(self.infer_checked_function_call(&callable, call, callee, &operands, env, expected))
-    }
-
     pub(super) fn infer_log_signature(
         &mut self,
         declaration: &FnDecl,

@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     analysis::{AnalysisSnapshot, error::AnalysisError},
-    host::HostDeclarations,
     imports::solver::ImportSolveError,
     lower::lower_module,
     tests::{native::function_module, test_analysis},
@@ -542,18 +541,8 @@ fn cycles_are_reachable_without_invalidating_dependents() {
         .files()
         .map(|file| lower_module(file))
         .collect::<Vec<_>>();
-    let forward = ModuleGraph::build(
-        &lowered,
-        &HostDeclarations::empty().unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
-    let reverse = ModuleGraph::build(
-        lowered.iter().rev(),
-        &HostDeclarations::empty().unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
+    let forward = ModuleGraph::build(&lowered, &Default::default()).unwrap();
+    let reverse = ModuleGraph::build(lowered.iter().rev(), &Default::default()).unwrap();
     assert_eq!(forward.catalog, reverse.catalog);
     assert_eq!(forward.source_facts, reverse.source_facts);
 }
@@ -856,12 +845,7 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
         .files()
         .map(|file| lower_module(file))
         .collect::<Vec<_>>();
-    let graph = ModuleGraph::build(
-        &lowered,
-        &HostDeclarations::empty().unwrap(),
-        &Default::default(),
-    )
-    .unwrap();
+    let graph = ModuleGraph::build(&lowered, &Default::default()).unwrap();
     assert_eq!(
         graph
             .reachable_order(&identity("m0"), &Default::default())

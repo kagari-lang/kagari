@@ -287,7 +287,7 @@ The operand model includes:
 - `ConstId` or inline `ConstantOperand`
 - `CallTarget`
 - `FunctionRef`
-- `HostFunctionId`
+- `NativeImportId`
 - `RuntimeHelperId`
 - `TypeId`
 - `PathId`

@@ -84,12 +84,6 @@ pub(super) fn resolve_named_type(name: &str, context: TypeContext<'_>) -> Resolv
                 .declarations
                 .resolve_name(name, NameNamespace::Type)
                 .and_then(|resolved| {
-                    if let ResolvedName::HostType(id) = resolved {
-                        target = Some(TypeTarget::Host(id));
-                        return Some(TypeId::Host(
-                            context.declarations.hosts.type_declaration(id)?.id,
-                        ));
-                    }
                     if let Some(imported) = context
                         .declarations
                         .imported_types()

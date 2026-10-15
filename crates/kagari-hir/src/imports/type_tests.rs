@@ -1,5 +1,4 @@
 use super::tests::{analyze, insert};
-use crate::host::HostDeclarations;
 use crate::{tests::test_analysis, types::TypeId};
 use kagari_source::{
     diagnostic::DiagnosticKind,
@@ -170,7 +169,6 @@ fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
         .unwrap();
     let ctx = crate::imports::catalog::LookupContext {
         importer: first.file(root).unwrap().source().module_identity(),
-        hosts: &HostDeclarations::empty().unwrap(),
         observations: None,
         avoid: None,
     };

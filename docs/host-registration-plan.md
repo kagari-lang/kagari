@@ -3300,6 +3300,61 @@ intrinsic_interface_bridges_retain_checked_protocol_targets case passed (5.51
 seconds). HIR/compiler/contract/bytecode lib/tests scoped Clippy passed. Structure
 checked 1254 Rust files with zero findings; formatting and diff checks passed.
 
+### HR03: retire the HIR host catalog and legacy callable universe
+
+All nonempty HIR producers had already migrated to checked common declarations.
+HostDeclarations, its adoption/signature projection and three direct unit cases
+are now removed, together with the old HIR host function/module/type slot IDs.
+NativeBinding, ResolvedName, ResolvedTarget, NamespaceId, TypeTarget and CallTarget
+no longer carry legacy catalog variants. Ordinary source-unit declarations and
+canonical native entry IDs own imports, native method inference, callable queries,
+name/type navigation and compiler call lowering. No compatibility aliases remain.
+Runtime host service/loan APIs are separate and are not removed by this checkpoint.
+
+AnalysisDatabase, resolver/declaration inputs and namespace lookup no longer retain
+or thread an empty HostDeclarations value. Fingerprints encode actual common
+providers/settings; cache retention and body/signature reuse still compare import
+bindings, reachable namespaces, installed type/function surfaces and aggregate
+contracts. Source revision/arena and qualified source-unit validity checks remain.
+Resolution facts themselves retain no canonical DefinitionIds; their metadata
+visitor still checks cancellation and namespace lookup owns source-unit validation.
+The obsolete host revision comparison adds no replacement global cache key.
+
+Compiler external-schema collection now reads only retained common TypeDeclaration
+schemas from the current/checked defining module. Missing dependencies still fail
+with MissingHostDeclaration; recursive field/path/native-signature closure,
+canonical ordering and cancellation remain. The remaining portable MirModule
+host_types field is emitted empty by this source compiler; its wire/runtime owner
+and standalone legacy fixtures remain open HR03 retirement work. This is not a
+new adapter or reader, and no old schema is manufactured from common declarations.
+
+The deleted tests asserted old catalog revisions, dotted-label rules and a
+HostCallable wrapper. Their retained contracts already have common owners: field
+schema/documentation/snapshot invalidation in native_path_tests and
+native_facade_tests; callable declarations and portable binding/policy validation;
+ordinary namespace categories, duplicate modules/strong collisions and stale
+source-unit rejection in import provenance tests. Obsolete revision-slot IDs and
+the legacy-only std/dotted-label ban are not compatibility requirements. No
+runtime/portable contract assertions were relaxed. The HIR architecture guide and
+bytecode operand guide now describe current declaration/native-import ownership.
+
+Selected validation passed the existing type/facade snapshot cases (two tests,
+1.69 seconds), then method documentation, value/type namespaces, installed
+snapshot retention and two import provenance boundaries (five tests, 4.73 seconds).
+The environment fingerprint contract passed (one test, below 0.01 seconds).
+Compiler host_contracts passed all nine cases (15.81 seconds). Initial compilation
+required an explicit BTreeSet type after deleting a legacy glob branch, removal
+of now-unreachable namespace matches and six compiler classifications of deleted
+ResolvedName variants; all were repaired before these results. No source
+analysis fallback, validation relaxation, unsafe/root/loan or GC kernel change
+was introduced, so no new Miri run is needed. Exhaustive acceptance stays CI-owned.
+
+Three SDK offline_nominal cases passed (113.66 seconds), covering once-only field
+roots, explicit source trait binding/portable ABI, write commit ordering and
+completed RHS side effects across traps. HIR/compiler lib/tests scoped Clippy
+passed; structure checked 1250 Rust files with zero findings; formatting and diff
+checks passed. No required selected check remains pending at this checkpoint.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

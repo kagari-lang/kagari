@@ -328,7 +328,7 @@ step. Position queries route physical offsets to the corresponding inline analys
 
 | Change | Actual reuse boundary |
 | --- | --- |
-| Unchanged source and dependencies | A file result can retain its `Arc` when revision/arena, host revision, imports, reachable namespaces, imported types/functions and aggregate facts match. |
+| Unchanged source and dependencies | A file result can retain its `Arc` when revision/arena, imports, reachable namespaces, imported types/functions and aggregate facts match. Installed native declarations participate through these ordinary facts. |
 | Body-only edit | Changed source is lowered into a new arena. Signature reuse compares the source surface with eligible function bodies removed and remaps local IDs. Other bodies may reuse facts if environment tokens, diagnostics, body contents and source-map correspondence permit it. |
 | Signature/export edit | Imports/namespaces and imported type/callable/aggregate contracts are compared again; failed reuse predicates force checking. This is not guaranteed minimal dependency invalidation. |
 | Registry/policy change | Native registration clears dependent caches; parse policy clears parse-dependent caches; body/constant limits clear body/file caches. Host replacement is checked through registry revisions during later reuse decisions. |
@@ -349,13 +349,17 @@ deterministic, not a topological execution order. These are inputs to the compil
 HIR does not generate bytecode, verify MIR or run the functions.
 
 For where non-source declarations enter this flow, follow
-[host declarations](../../crates/kagari-hir/src/host.rs),
 [native declaration import](../../crates/kagari-hir/src/native/api.rs),
 [generated source views](../../crates/kagari-hir/src/native/render.rs),
 [validated language roles](../../crates/kagari-hir/src/language/items.rs) and
 [builtin bridges](../../crates/kagari-hir/src/builtin/mod.rs). The runnable semantic
 examples install `kagari_stdlib::catalog::shared()` explicitly, as required by the
 current foundation contract.
+
+Native types and methods use the same source-unit names, declaration identities,
+call checking and namespace lookup as source declarations. Analysis retains no
+separate host callable/type catalog or host revision; shared schema and binding
+facts remain attached to their installed native declarations.
 
 Registered native defaults follow an additional checked path:
 

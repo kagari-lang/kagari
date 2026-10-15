@@ -10,7 +10,6 @@ use crate::{
         item::Module,
         pattern::PatternKind,
     },
-    host::{HostDeclarations, HostFunctionId, HostModuleId, HostTypeId},
     imports::{
         ModuleImportFacts, NamespaceId, SourceDeclRef,
         catalog::{LookupHit, NamespaceCatalog},
@@ -54,12 +53,6 @@ pub enum ResolvedName {
     Source(SourceDeclRef),
     /// A member container identified through the namespace catalog.
     Namespace(NamespaceId),
-    /// An installed host module.
-    HostModule(HostModuleId),
-    /// An installed host function.
-    HostFunction(HostFunctionId),
-    /// An installed host type.
-    HostType(HostTypeId),
     /// A local function slot.
     Function(FunctionId),
     /// A local constant slot.
@@ -87,8 +80,6 @@ pub struct DeclarationNames {
     pub imports: Arc<ModuleImportFacts>,
     /// Shared immutable namespace catalog for qualified lookup.
     pub catalog: Arc<NamespaceCatalog>,
-    /// Shared installed host declaration universe.
-    pub hosts: Arc<HostDeclarations>,
     /// The module's shared name table; separate from body lexical scopes.
     pub items: Arc<NameTable>,
 }
@@ -125,8 +116,6 @@ pub struct ResolvedNames {
     pub imports: Arc<ModuleImportFacts>,
     /// Shared immutable namespace catalog for qualified lookup.
     pub catalog: Arc<NamespaceCatalog>,
-    /// Shared installed host declaration universe.
-    pub hosts: Arc<HostDeclarations>,
     /// The module's shared name table; separate from body lexical scopes.
     pub items: Arc<NameTable>,
     pub(crate) scopes: Vec<LexicalScope>,
@@ -167,14 +156,12 @@ impl ResolvedNames {
 
     pub(crate) fn new(
         items: Arc<NameTable>,
-        hosts: Arc<HostDeclarations>,
         imports: Arc<ModuleImportFacts>,
         catalog: Arc<NamespaceCatalog>,
     ) -> Self {
         Self {
             imports,
             catalog,
-            hosts,
             items,
             scopes: Vec::new(),
             exprs: HashMap::new(),

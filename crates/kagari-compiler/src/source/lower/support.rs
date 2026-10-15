@@ -150,11 +150,8 @@ impl FunctionLowerer<'_, '_> {
             ResolvedName::Const(_)
             | ResolvedName::Function(_)
             | ResolvedName::Module(_)
-            | ResolvedName::HostFunction(_)
             | ResolvedName::Source(_)
             | ResolvedName::Namespace(_)
-            | ResolvedName::HostType(_)
-            | ResolvedName::HostModule(_)
             | ResolvedName::RuntimeHelper(_)
             | ResolvedName::OpaqueType(_)
             | ResolvedName::Struct(_)
@@ -336,11 +333,8 @@ impl FunctionLowerer<'_, '_> {
             ResolvedName::Function(_) => Err(MirLoweringError::UnsupportedExpr(
                 "bare function values are not lowered yet",
             )),
-            ResolvedName::HostFunction(_)
-            | ResolvedName::Source(_)
+            ResolvedName::Source(_)
             | ResolvedName::Namespace(_)
-            | ResolvedName::HostType(_)
-            | ResolvedName::HostModule(_)
             | ResolvedName::RuntimeHelper(_) => Err(MirLoweringError::UnsupportedExpr(
                 "bare standard functions are not lowered yet",
             )),

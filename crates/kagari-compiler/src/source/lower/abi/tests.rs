@@ -244,9 +244,6 @@ fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
                     Some(MethodDefault::Native(HirNativeBinding::Default(application))) => {
                         CallableImplementation::NativeDefault(application.clone())
                     }
-                    Some(MethodDefault::Native(HirNativeBinding::Host(_))) => {
-                        panic!("installed host default")
-                    }
                 };
                 assert_eq!(record.methods[slot].implementation, expected);
                 assert_eq!(record.methods[slot].method_policy, method.policy);

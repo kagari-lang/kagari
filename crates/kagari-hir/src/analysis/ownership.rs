@@ -1,7 +1,7 @@
 //! Scoped cache publication and recovery for unrepresentable source identities.
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule, aggregates::AggregateCatalog,
-    analysis::error::AnalysisError, analyze_parsed, declare_analysis, host::HostDeclarations,
+    analysis::error::AnalysisError, analyze_parsed, declare_analysis,
     lower::lower_module_controlled,
 };
 use kagari_syntax::parser::parse_with_limits;
@@ -55,7 +55,6 @@ pub(crate) fn recover_invalid_identity(
     let definitions = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
     let declared = declare_analysis(
         lowered,
-        HostDeclarations::empty()?,
         Default::default(),
         Default::default(),
         &definitions,

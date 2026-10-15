@@ -89,7 +89,6 @@ impl DefinitionReferences for Declarations {
             check_cancel(cancel)?;
             visit(id)?;
         }
-        self.hosts.visit_definition_ids(visit, cancel)?;
         self.imported_types.visit_definition_ids(visit, cancel)?;
         for value0 in self.targets.values() {
             (value0).visit_definition_ids(visit, cancel)?;

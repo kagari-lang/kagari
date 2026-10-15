@@ -13,7 +13,6 @@ use crate::{
         place::PlaceKind,
         stmt::StmtKind,
     },
-    host::HostDeclarations,
     imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog},
     resolver::{
         resolved::{LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding},
@@ -56,7 +55,6 @@ impl<'a> BodyResolver<'a> {
         names: &'a Arc<NameTable>,
         module: &'a Module,
         source_map: &'a SourceMap,
-        hosts: Arc<HostDeclarations>,
         imports: Arc<ModuleImportFacts>,
         catalog: Arc<NamespaceCatalog>,
         cancel: CancellationToken,
@@ -66,7 +64,7 @@ impl<'a> BodyResolver<'a> {
             names,
             module,
             source_map,
-            resolved: ResolvedNames::new(names.clone(), hosts, imports, catalog),
+            resolved: ResolvedNames::new(names.clone(), imports, catalog),
             scopes: Vec::new(),
             closures: Vec::new(),
         }
@@ -209,7 +207,6 @@ impl<'a> BodyResolver<'a> {
                     if let Some(resolved) = self.resolve_name(prefix, namespace)
                         && let Some(hit) = self.resolved.catalog.resolve_name(
                             self.names,
-                            &self.resolved.hosts,
                             prefix,
                             namespace,
                             &self.cancel,
@@ -223,7 +220,6 @@ impl<'a> BodyResolver<'a> {
                     self.resolved.insert_expr(expr_id, resolved.clone());
                     if let Some(hit) = self.resolved.catalog.resolve_name(
                         self.names,
-                        &self.resolved.hosts,
                         name,
                         NameNamespace::Value,
                         &self.cancel,
@@ -481,13 +477,11 @@ impl<'a> BodyResolver<'a> {
         if let Some(binding) = self.binding(name, namespace) {
             return binding.target();
         }
-        if let Some(hit) = self.resolved.catalog.resolve_name(
-            self.names,
-            &self.resolved.hosts,
-            name,
-            namespace,
-            &self.cancel,
-        ) {
+        if let Some(hit) =
+            self.resolved
+                .catalog
+                .resolve_name(self.names, name, namespace, &self.cancel)
+        {
             return Some(hit.target.resolved(self.names.unit.as_ref()));
         }
         if namespace == NameNamespace::Value

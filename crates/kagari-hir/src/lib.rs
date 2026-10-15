@@ -76,7 +76,6 @@ pub mod builtin;
 pub mod callable;
 pub mod declarations;
 pub mod hir;
-pub mod host;
 pub mod imports;
 pub mod language;
 pub mod lower;
@@ -352,12 +351,11 @@ impl DeclaredAnalysis {
         self.declarations
             .publish_definitions(self.declarations.context().snapshot());
         let previous = previous_analysis.and_then(|old| {
-            if !(old.names.facts.hosts.revision() == self.names.facts.hosts.revision()
-                && old
-                    .names
-                    .facts
-                    .imports
-                    .same_signature_bindings(&self.names.facts.imports)
+            if !(old
+                .names
+                .facts
+                .imports
+                .same_signature_bindings(&self.names.facts.imports)
                 && old
                     .names
                     .facts
@@ -366,7 +364,6 @@ impl DeclaredAnalysis {
                         &self.names.facts.catalog,
                         &old.names.facts.items,
                         &self.names.facts.items,
-                        &self.names.facts.hosts,
                         cancel,
                     )
                     .unwrap_or(false)
@@ -413,14 +410,13 @@ impl DeclaredAnalysis {
 
 fn declare_analysis(
     lowered: Arc<lower::LoweredModule>,
-    hosts: Arc<host::HostDeclarations>,
     imports: Arc<ModuleImportFacts>,
     catalog: Arc<NamespaceCatalog>,
     definitions: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<DeclaredAnalysis, AnalysisError> {
     let (imports, catalog) = if imports.scope.unit.is_none() {
-        let graph = ModuleGraph::build([lowered.as_ref()], &hosts, cancel)?;
+        let graph = ModuleGraph::build([lowered.as_ref()], cancel)?;
         (
             graph
                 .imports_for(&SourceUnit::of(&lowered))
@@ -431,7 +427,7 @@ fn declare_analysis(
     } else {
         (imports, catalog)
     };
-    let mut names = collect_declarations(&lowered, hosts, imports, catalog, cancel);
+    let mut names = collect_declarations(&lowered, imports, catalog, cancel);
     if !lowered.source.module_identity().within_path_limit() {
         names
             .diagnostics

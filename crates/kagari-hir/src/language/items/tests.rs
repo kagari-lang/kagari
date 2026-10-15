@@ -1,7 +1,6 @@
 use super::*;
 use crate::{
     declare_analysis,
-    host::HostDeclarations,
     imports::{ModuleGraph, types::TypeCatalog},
     lower,
     native::{adoption, api, render::declaration_source},
@@ -56,11 +55,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             Arc::new(lowered)
         })
         .collect::<Vec<_>>();
-    let hosts = HostDeclarations::empty()
-        .unwrap()
-        .adopt(&context, &cancel)
-        .unwrap();
-    let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &hosts, &cancel).unwrap();
+    let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &cancel).unwrap();
     let declared = lowered
         .into_iter()
         .map(|lowered| {
@@ -69,15 +64,7 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
                 .unwrap()
                 .imports
                 .clone();
-            declare_analysis(
-                lowered,
-                hosts.clone(),
-                imports,
-                graph.catalog.clone(),
-                &context,
-                &cancel,
-            )
-            .unwrap()
+            declare_analysis(lowered, imports, graph.catalog.clone(), &context, &cancel).unwrap()
         })
         .collect::<Vec<_>>();
     let types = TypeCatalog::new(declared.iter());
@@ -198,7 +185,6 @@ fn copied_module_identity_does_not_authorize_application_roles() {
     let lowered = Arc::new(lower::lower_module(&source));
     let declared = declare_analysis(
         lowered,
-        HostDeclarations::empty().unwrap(),
         Arc::default(),
         Arc::default(),
         &DefinitionContext::new().unwrap(),

@@ -200,10 +200,7 @@ impl<'a> BodyChecker<'a> {
                         ResolvedName::Function(_)
                         | ResolvedName::Source(_)
                         | ResolvedName::Namespace(_)
-                        | ResolvedName::HostType(_)
-                        | ResolvedName::HostModule(_)
                         | ResolvedName::Module(_)
-                        | ResolvedName::HostFunction(_)
                         | ResolvedName::RuntimeHelper(_)
                         | ResolvedName::OpaqueType(_)
                         | ResolvedName::Struct(_)
@@ -285,13 +282,9 @@ impl<'a> BodyChecker<'a> {
                         None => "unresolved assignment target".to_string(),
                     },
                     ResolvedName::Const(_) => "`const` item cannot be reassigned".to_string(),
-                    ResolvedName::HostFunction(_) | ResolvedName::Function(_) => {
-                        "function item is not assignable".to_string()
-                    }
+                    ResolvedName::Function(_) => "function item is not assignable".to_string(),
                     ResolvedName::Source(_)
                     | ResolvedName::Namespace(_)
-                    | ResolvedName::HostType(_)
-                    | ResolvedName::HostModule(_)
                     | ResolvedName::Module(_) => "module item is not assignable".to_string(),
                     ResolvedName::RuntimeHelper(_) => {
                         "standard function item is not assignable".to_string()

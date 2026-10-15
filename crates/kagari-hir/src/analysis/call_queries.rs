@@ -69,15 +69,6 @@ impl FileAnalysis {
                     receiver_offset,
                 )
             }
-            CallTarget::HostFunction(function) => {
-                let callable = facts.names.hosts.callable(*function)?;
-                callable_signature(
-                    DeclarationId::Definition(callable.contract().id),
-                    callable.parameters().map(|(name, _)| name),
-                    applied,
-                    receiver_offset,
-                )
-            }
             CallTarget::TraitMethod { method, .. } => {
                 let method = facts.aggregates.trait_method(method)?;
                 callable_signature(

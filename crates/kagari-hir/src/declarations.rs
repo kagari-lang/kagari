@@ -9,7 +9,6 @@ use crate::{
         ids::{BodyOwner, FieldId, GenericParamId, ImplId, OpaqueTypeId, TypeRefId, VariantId},
         item::{Item, behavior::GenericParam, function::FunctionKind},
     },
-    host::HostDeclarations,
     imports::{SourceItem, catalog::NamespaceCatalog, types::ImportedTypes},
     lower::LoweredModule,
     native::NativeTypeKind,
@@ -111,7 +110,6 @@ pub struct Declarations {
     /// Module-level name table used to resolve declaration references.
     pub(crate) names: Arc<NameTable>,
     /// Shared registered host declaration inputs.
-    pub(crate) hosts: Arc<HostDeclarations>,
     catalog: Arc<NamespaceCatalog>,
     analysis: AnalysisId,
     definitions: DefinitionTable,
@@ -161,7 +159,6 @@ impl Declarations {
             language_items: BTreeMap::new(),
             imported_types: Default::default(),
             names: names.items.clone(),
-            hosts: names.hosts.clone(),
             catalog: names.catalog.clone(),
             analysis,
             definitions: context.snapshot(),
@@ -677,13 +674,7 @@ impl Declarations {
         namespace: NameNamespace,
     ) -> Option<ResolvedName> {
         self.catalog
-            .resolve_name(
-                &self.names,
-                &self.hosts,
-                name,
-                namespace,
-                &Default::default(),
-            )
+            .resolve_name(&self.names, name, namespace, &Default::default())
             .map(|hit| hit.target.resolved(self.names.unit.as_ref()))
     }
 

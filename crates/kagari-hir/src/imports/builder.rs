@@ -1,7 +1,6 @@
 //! Mutable fixed-point preparation; immutable publication contains no pending edges.
 use crate::{
     hir::{item::function::FunctionKind, ty::TypeKind},
-    host::HostDeclarations,
     imports::{
         BindingCandidate, BindingOrigin, LocalName, ModuleGraph, ModuleImportFacts, ModuleNode,
         ModuleOrderError, NamespaceId, ResolvedTarget, SourceDeclRef, SourceItem, SourceUnit,
@@ -36,15 +35,13 @@ impl ModuleGraph {
     /// No draft is returned on cancellation, exhaustion or non-convergence.
     pub(crate) fn build<'a>(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
-        hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<Self, ImportSolveError> {
-        Self::build_with_limits(sources, hosts, &PackageEnvironment::default(), cancel, None)
+        Self::build_with_limits(sources, &PackageEnvironment::default(), cancel, None)
     }
 
     pub(crate) fn build_with_limits<'a>(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
-        hosts: &HostDeclarations,
         packages: &PackageEnvironment,
         cancel: &CancellationToken,
         limits: Option<SolverLimits>,
@@ -134,7 +131,7 @@ impl ModuleGraph {
             catalog,
             facts: resolved,
             work: _work,
-        } = solve(&sources, base, hosts, cancel, limits)?;
+        } = solve(&sources, base, cancel, limits)?;
         // A package hub retains the complete module set without a quadratic clique.
         // Normalized packages have an empty-path root; manually bound analysis inputs
         // use their first deterministic module as the same traversal anchor.

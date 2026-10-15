@@ -1,7 +1,6 @@
 //! Rebuild one module's contributions from an immutable catalog observation.
 use crate::{
     hir::item::module::ImportLeaf,
-    host::HostDeclarations,
     imports::{
         BindingOrigin, DirectiveId, DirectiveResolution, ImportDirective, ImportKind, LocalName,
         ModuleImportFacts, NamespaceId, ResolvedTarget, SourceUnit,
@@ -38,7 +37,6 @@ pub(super) struct ResolutionInputs<'a> {
     pub base: &'a NamespaceCatalog,
     pub catalog: &'a NamespaceCatalog,
     pub sources: &'a [&'a LoweredModule],
-    pub hosts: &'a HostDeclarations,
     pub cancel: &'a CancellationToken,
     pub closed: &'a HashSet<(DirectiveId, NameNamespace)>,
     pub observations: &'a RefCell<HashSet<Observation>>,
@@ -52,7 +50,6 @@ pub(super) fn resolve_imports(
         base,
         catalog,
         sources,
-        hosts,
         cancel,
         closed,
         observations,
@@ -60,7 +57,6 @@ pub(super) fn resolve_imports(
     let unit = SourceUnit::of(module);
     let ctx = LookupContext {
         importer: &unit.module,
-        hosts,
         observations: Some(observations),
         avoid: None,
     };
@@ -114,7 +110,6 @@ pub(super) fn resolve_imports(
         for &namespace in categories {
             let lookup_context = LookupContext {
                 importer: &unit.module,
-                hosts,
                 observations: Some(observations),
                 avoid: Some((id.clone(), namespace)),
             };
@@ -254,7 +249,6 @@ pub(super) fn resolve_imports(
             } {
                 let ctx = LookupContext {
                     importer: &unit.module,
-                    hosts,
                     observations: Some(observations),
                     avoid: Some((
                         id.clone(),
@@ -313,13 +307,7 @@ fn expand_glob(
     if let NamespaceResult::Found(namespace) = &ns {
         ctx.observe(namespace);
     }
-    let members = match &ns {
-        NamespaceResult::Found(NamespaceId::Host(id)) => ctx
-            .hosts
-            .members_of_module(*id)
-            .into_iter()
-            .map(|(name, _)| name)
-            .collect::<BTreeSet<_>>(),
+    let members: BTreeSet<_> = match &ns {
         NamespaceResult::Found(ns)
             if catalog
                 .namespaces

@@ -5,11 +5,11 @@ use crate::{
     typeck::const_budget::ConstLimits,
 };
 use blake3::Hasher;
-use kagari_common::{cancellation::CancellationToken, identity::mapping::DefinitionMappingError};
+use kagari_common::cancellation::CancellationToken;
 use kagari_syntax::parser::ParseLimits;
 
 impl AnalysisDatabase {
-    /// Identifies native/Host declarations and query limits without checking source.
+    /// Identifies native declarations and query limits without checking source.
     ///
     /// Includes complete canonical provider records rather than process IDs or only
     /// rendered signatures. Native provider registration order is irrelevant. Source
@@ -38,11 +38,6 @@ impl AnalysisDatabase {
                 .compiler_input_bytes(provider.definitions(), cancel)?;
             hash_bytes(&mut hash, &bytes, cancel)?;
         }
-        let host = self
-            .hosts
-            .compiler_input_bytes()
-            .map_err(DefinitionMappingError::from)?;
-        hash_bytes(&mut hash, &host, cancel)?;
         let ConstLimits {
             max_steps,
             max_depth,

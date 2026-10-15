@@ -4,7 +4,6 @@ use crate::{
     AnalysisResult,
     analysis::error::AnalysisError,
     hir::{ids::BodySelection, item::function::FunctionKind},
-    host::HostDeclarations,
     imports::{
         BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
     },
@@ -21,7 +20,7 @@ use {
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
-/// Resolves all bodies of one lowering with an empty host universe.
+/// Resolves all bodies of one lowering without installed native providers.
 ///
 /// This convenience entrypoint builds a single-module import graph and retains
 /// declaration/import diagnostics. It neither installs foundation modules nor
@@ -29,16 +28,10 @@ use {
 pub fn resolve_names(
     lowered: &LoweredModule,
 ) -> Result<AnalysisResult<ResolvedNames>, AnalysisError> {
-    let hosts = HostDeclarations::empty()?;
-    let graph = ModuleGraph::build([lowered], &hosts, &Default::default())?;
+    let graph = ModuleGraph::build([lowered], &Default::default())?;
     let imports = graph.imports_for(&SourceUnit::of(lowered)).unwrap().clone();
-    let declarations = collect_declarations(
-        lowered,
-        hosts,
-        imports,
-        graph.catalog.clone(),
-        &Default::default(),
-    );
+    let declarations =
+        collect_declarations(lowered, imports, graph.catalog.clone(), &Default::default());
     Ok(AnalysisResult {
         facts: resolve_bodies(
             lowered,
@@ -53,7 +46,6 @@ pub fn resolve_names(
 /// Shares the graph's exact scope table and adds declaration conflicts without traversing bodies.
 pub(crate) fn collect_declarations(
     lowered: &LoweredModule,
-    hosts: Arc<HostDeclarations>,
     imports: Arc<ModuleImportFacts>,
     catalog: Arc<NamespaceCatalog>,
     cancel: &CancellationToken,
@@ -166,7 +158,6 @@ pub(crate) fn collect_declarations(
         facts: DeclarationNames {
             items: names,
             catalog,
-            hosts,
             imports,
         },
         diagnostics,
@@ -184,7 +175,6 @@ pub(crate) fn resolve_bodies(
         &names.items,
         &lowered.module,
         &lowered.source_map,
-        names.hosts.clone(),
         names.imports.clone(),
         names.catalog.clone(),
         cancel.clone(),

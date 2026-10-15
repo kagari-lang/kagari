@@ -160,7 +160,7 @@ impl AnalysisDatabase {
     /// through its retained [`SignatureSnapshot`].
     ///
     /// An unchanged signature result and equal body environment permit retaining the old
-    /// `Arc`. Otherwise compatible imports, hosts, types and aggregate contracts may permit
+    /// `Arc`. Otherwise compatible imports, types and aggregate contracts may permit
     /// body-fact remapping; edits are not assumed reusable merely because the name matches.
     ///
     /// # Errors
@@ -234,8 +234,6 @@ impl AnalysisDatabase {
                     old.diagnostics().is_empty()
                         && old.file.diagnostics().is_empty()
                         && file.diagnostics().is_empty()
-                        && old.file.prepared.names.facts.hosts.revision()
-                            == prepared.names.facts.hosts.revision()
                         && old
                             .file
                             .prepared
@@ -250,7 +248,6 @@ impl AnalysisDatabase {
                                 &prepared.names.facts.catalog,
                                 &old.names.items,
                                 &prepared.names.facts.items,
-                                &prepared.names.facts.hosts,
                                 cancel,
                             )
                             .unwrap_or(false)

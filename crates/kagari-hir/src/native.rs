@@ -1,8 +1,5 @@
 //! HIR representation hooks supplied only by an installed native declaration.
-use crate::{
-    host::HostFunctionId,
-    types::{NominalType, TypeId},
-};
+use crate::types::{NominalType, TypeId};
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     callable::NativeDefaultApplication,
@@ -22,14 +19,12 @@ pub(crate) mod api;
 pub(crate) mod paths;
 pub mod render;
 
-/// Installed entry identity, checked host catalog index or symbolic default mapping.
+/// Installed entry identity or symbolic default mapping.
 /// Selection resolves defaults to ordinary entries; bindings are not function pointers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeBinding {
     /// Canonical identity of an installed native entry, not its machine address.
     Entry(DefinitionId),
-    /// Revision-scoped callable in the immutable host declaration universe.
-    Host(HostFunctionId),
     /// Registered recipe for a generated trait forwarding body.
     /// Source lowering also requires [`crate::typeck::table::TypeTable::native_default_call`];
     /// source-free linking independently validates the portable recipe.

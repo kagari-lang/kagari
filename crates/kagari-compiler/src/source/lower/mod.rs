@@ -291,10 +291,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         )
         .map_err(|_| MirLoweringError::Cancelled)?,
     );
-    let host::Dependencies {
-        legacy: host_types,
-        shared: external_types,
-    } = host::collect(
+    let external_types = host::collect(
         module,
         modules,
         planner.host_types,
@@ -306,7 +303,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     let mir = MirModule {
         native_targets: planner.native_targets,
         interface_instances: planner.interface_instances,
-        host_types,
+        host_types: Vec::new(),
         external_types,
         dependencies: module.names.imports.dependencies.clone(),
         structures,

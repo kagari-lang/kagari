@@ -50,15 +50,13 @@ pub fn check_module(
     names: &ResolvedNames,
     reuse: Option<&BodyReuse<'_>>,
 ) -> AnalysisResult<TypedModule> {
-    let mut names = names.clone();
-    names.hosts = names.hosts.adopt(context, &Default::default()).unwrap();
+    let names = names.clone();
     let mut declarations = Declarations::collect_named(
         &lowered.source,
         lowered,
         &DeclarationNames {
             catalog: names.catalog.clone(),
             items: names.items.clone(),
-            hosts: names.hosts.clone(),
             imports: names.imports.clone(),
         },
         context,

@@ -1,7 +1,6 @@
 //! Import solver work accounting and completion boundary.
 use crate::{
     hir::item::module::ImportLeaf,
-    host::HostDeclarations,
     imports::{
         BindingOrigin, DirectiveId, DirectiveResolution, LocalName, ModuleImportFacts, NamespaceId,
         SourceUnit,
@@ -127,7 +126,6 @@ struct Checkpoint {
 pub(super) fn solve(
     sources: &[&LoweredModule],
     base: NamespaceCatalog,
-    hosts: &HostDeclarations,
     cancel: &CancellationToken,
     limits: Option<SolverLimits>,
 ) -> Result<SolvedImports, ImportSolveError> {
@@ -177,7 +175,6 @@ pub(super) fn solve(
                     base: &base,
                     catalog: &catalog,
                     sources,
-                    hosts,
                     cancel,
                     closed: &closed,
                     observations: &observations,

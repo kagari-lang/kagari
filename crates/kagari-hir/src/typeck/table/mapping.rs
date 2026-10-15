@@ -54,7 +54,6 @@ impl RemapDefinitions for TypeTarget {
         mapper.check()?;
         Ok(match self {
             Self::OpaqueType(field0) => TypeTarget::OpaqueType(*(field0)),
-            Self::Host(field0) => TypeTarget::Host(*(field0)),
             Self::Source(field0) => TypeTarget::Source(mapper.reference(field0)?),
             Self::AssociatedType(field0) => TypeTarget::AssociatedType(mapper.reference(field0)?),
             Self::Struct(field0) => TypeTarget::Struct(*(field0)),
@@ -74,7 +73,6 @@ impl DefinitionReferences for TypeTarget {
         check_cancel(cancel)?;
         match self {
             Self::OpaqueType(_) => {}
-            Self::Host(_) => {}
             Self::Source(field0) => {
                 check_cancel(cancel)?;
                 visit(field0)?;
@@ -133,7 +131,6 @@ impl RemapDefinitions for CallTarget {
         Ok(match self {
             Self::TerminatingCallee => CallTarget::TerminatingCallee,
             Self::SourceFunction(field0) => CallTarget::SourceFunction(mapper.reference(field0)?),
-            Self::HostFunction(field0) => CallTarget::HostFunction(*(field0)),
             Self::Function(field0) => CallTarget::Function(*(field0)),
             Self::Value => CallTarget::Value,
             Self::RuntimeHelper(field0) => CallTarget::RuntimeHelper(*(field0)),
@@ -158,7 +155,6 @@ impl DefinitionReferences for CallTarget {
                 check_cancel(cancel)?;
                 visit(field0)?;
             }
-            Self::HostFunction(_) => {}
             Self::Function(_) => {}
             Self::Value => {}
             Self::RuntimeHelper(_) => {}

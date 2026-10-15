@@ -20,7 +20,6 @@ impl RemapDefinitions for NativeBinding {
         mapper.check()?;
         Ok(match self {
             Self::Entry(field0) => NativeBinding::Entry(mapper.reference(field0)?),
-            Self::Host(field0) => NativeBinding::Host(*(field0)),
             Self::Default(field0) => NativeBinding::Default((field0).remap_definitions(mapper)?),
         })
     }
@@ -38,7 +37,6 @@ impl DefinitionReferences for NativeBinding {
                 check_cancel(cancel)?;
                 visit(field0)?;
             }
-            Self::Host(_) => {}
             Self::Default(field0) => {
                 (field0).visit_definition_ids(visit, cancel)?;
             }

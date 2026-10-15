@@ -1,5 +1,4 @@
 use crate::{
-    host::HostDeclarations,
     imports::{
         BindingOrigin, DirectiveResolution, ImportKind, LocalName, ModuleGraph, ModuleOrderError,
         NamespaceId, ResolvedTarget, SourceUnit,
@@ -172,8 +171,7 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
         "same",
         "fn right() -> i32 { 2 } use missing::two;",
     ));
-    let hosts = HostDeclarations::empty().unwrap();
-    let graph = ModuleGraph::build([&left, &right], &hosts, &Default::default()).unwrap();
+    let graph = ModuleGraph::build([&left, &right], &Default::default()).unwrap();
     for (lowered, own, other) in [(&left, "left", "right"), (&right, "right", "left")] {
         let unit = SourceUnit::of(lowered);
         let facts = graph.imports_for(&unit).unwrap();
@@ -193,7 +191,6 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
     ));
     let ctx = LookupContext {
         importer: left.source.module_identity(),
-        hosts: &hosts,
         observations: None,
         avoid: None,
     };
@@ -215,12 +212,10 @@ fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter
     );
     let first = lower_module(&source);
     let second = lower_module(&source);
-    let hosts = HostDeclarations::empty().unwrap();
-    let old = ModuleGraph::build([&first], &hosts, &Default::default()).unwrap();
-    let new = ModuleGraph::build([&second], &hosts, &Default::default()).unwrap();
+    let old = ModuleGraph::build([&first], &Default::default()).unwrap();
+    let new = ModuleGraph::build([&second], &Default::default()).unwrap();
     let ctx = LookupContext {
         importer: &kagari_common::identity::ModuleIdentity::single_file("other"),
-        hosts: &hosts,
         observations: None,
         avoid: None,
     };

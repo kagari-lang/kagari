@@ -7,7 +7,6 @@ use crate::{
         EnumId, ExprId, FieldId, FunctionId, GenericParamId, LocalId, OpaqueTypeId, PatternId,
         PlaceId, StructId, TraitId, TypeRefId,
     },
-    host::{HostFunctionId, HostTypeId},
     language::semantics as traits,
     source_map::SourceMap,
     typeck::{constraints, scalar::ScalarValue, table::propagation::ResolvedPropagation},
@@ -45,8 +44,6 @@ pub enum ConstraintTarget {
 pub enum TypeTarget {
     /// Local native-backed type slot.
     OpaqueType(OpaqueTypeId),
-    /// Installed host type slot.
-    Host(HostTypeId),
     /// Canonical source type definition.
     Source(DefinitionId),
     /// Canonical associated type/family definition.
@@ -78,8 +75,6 @@ pub enum CallTarget {
     TerminatingCallee,
     /// A canonical semantic function definition, including cross-module calls.
     SourceFunction(DefinitionId),
-    /// An installed host callable identified by its host declaration slot.
-    HostFunction(HostFunctionId),
     /// A function slot in the matching lowered module.
     Function(FunctionId),
     /// A callable value whose callee expression must be evaluated.

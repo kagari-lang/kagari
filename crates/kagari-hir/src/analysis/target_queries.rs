@@ -31,13 +31,12 @@ pub(super) fn type_hits(
         else {
             continue;
         };
-        let Some(hit) = facts.names.catalog.resolve_name(
-            &facts.names.items,
-            &facts.names.hosts,
-            name,
-            NameNamespace::Type,
-            cancel,
-        ) else {
+        let Some(hit) =
+            facts
+                .names
+                .catalog
+                .resolve_name(&facts.names.items, name, NameNamespace::Type, cancel)
+        else {
             continue;
         };
         let admitted = match (target, &hit.target) {
@@ -46,7 +45,6 @@ pub(super) fn type_hits(
                 .imported_types()
                 .resolved(hit.target.resolved(facts.names.items.unit.as_ref()))
                 .is_some_and(|ty| ty.declaration.id == DeclarationId::Definition(*expected)),
-            (TypeTarget::Host(expected), ResolvedTarget::HostType(actual)) => expected == actual,
             (TypeTarget::Struct(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Struct(actual) if actual == *expected)
                     && source.unit.matches(&facts.lowered)
@@ -72,7 +70,6 @@ pub(super) fn type_hits(
             cancel.check()?;
             if let Some(hit) = facts.names.catalog.resolve_name(
                 &facts.names.items,
-                &facts.names.hosts,
                 prefix,
                 NameNamespace::Type,
                 cancel,

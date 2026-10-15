@@ -40,9 +40,6 @@ impl FunctionLowerer<'_, '_> {
                 "unimplemented callable requirement",
             )),
             FunctionImplementation::Native(NativeBinding::Entry(_)) => Ok(true),
-            FunctionImplementation::Native(NativeBinding::Host(_)) => Err(
-                MirLoweringError::MissingBinding("source callable has a host binding"),
-            ),
             FunctionImplementation::Native(NativeBinding::Default(_)) => Err(
                 MirLoweringError::MissingBinding("default requires a checked trait application"),
             ),

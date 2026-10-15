@@ -1,4 +1,5 @@
-//! Definition references held by resolution inputs; source/Host slot handles stay unchanged.
+//! Resolution inputs retain source-unit handles, not canonical definition IDs.
+//! Namespace lookup validates those handles against the retained catalog.
 
 use crate::resolver::resolved::{DeclarationNames, ResolvedNames};
 use kagari_common::{
@@ -13,11 +14,10 @@ use kagari_common::{
 impl DefinitionReferences for DeclarationNames {
     fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        _visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.hosts.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }
@@ -25,11 +25,10 @@ impl DefinitionReferences for DeclarationNames {
 impl DefinitionReferences for ResolvedNames {
     fn visit_definition_ids(
         &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        _visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        self.hosts.visit_definition_ids(visit, cancel)?;
         Ok(())
     }
 }

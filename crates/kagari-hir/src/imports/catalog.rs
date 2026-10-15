@@ -1,13 +1,12 @@
 //! Snapshot-owned, unfiltered namespaces. Targets never carry member tables.
 use crate::{
-    host::HostDeclarations,
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
         SourceItem, SourceUnit, bindings::LookupOutcome, cache::same_name_tables,
         solver::Observation,
     },
     native::paths::source_package_alias,
-    resolver::{resolved::ResolvedName, table::NameTable},
+    resolver::table::NameTable,
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
@@ -18,7 +17,6 @@ use kagari_types::declaration::names::NameNamespace;
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    iter,
     sync::Arc,
 };
 
@@ -121,17 +119,14 @@ pub enum NamespaceResult {
 pub struct LookupContext<'a> {
     /// Logical module requesting access.
     pub importer: &'a ModuleIdentity,
-    /// Installed host namespace/type/function declarations.
-    pub hosts: &'a HostDeclarations,
     pub(crate) avoid: Option<(DirectiveId, NameNamespace)>,
     pub(crate) observations: Option<&'a RefCell<HashSet<Observation>>>,
 }
 
 impl<'a> LookupContext<'a> {
-    pub fn new(importer: &'a ModuleIdentity, hosts: &'a HostDeclarations) -> Self {
+    pub fn new(importer: &'a ModuleIdentity) -> Self {
         Self {
             importer,
-            hosts,
             observations: None,
             avoid: None,
         }
@@ -155,7 +150,7 @@ impl NamespaceCatalog {
 
     /// Selects one member, checking source validity, precedence and importer visibility.
     ///
-    /// Host namespaces delegate to host declarations. Lookup failures are returned as
+    /// Lookup failures are returned as
     /// [`LookupResult`] variants, not as cancellation errors.
     ///
     /// # Errors
@@ -174,20 +169,6 @@ impl NamespaceCatalog {
             observations
                 .borrow_mut()
                 .insert(Observation::Namespace(ns.clone()));
-        }
-        if let NamespaceId::Host(id) = ns {
-            return Ok(ctx
-                .hosts
-                .resolve_name_in(*id, name, namespace)
-                .and_then(host_target)
-                .map_or(LookupResult::Missing, |target| {
-                    LookupResult::Found(LookupHit {
-                        support: HashSet::new(),
-                        namespace,
-                        target,
-                        via: vec![],
-                    })
-                }));
         }
         if let NamespaceId::Module(unit) = ns
             && !self.valid(unit)
@@ -213,37 +194,6 @@ impl NamespaceCatalog {
             return Ok(LookupResult::Unresolved);
         }
         let Some((candidates, strong)) = selected else {
-            if let NamespaceId::InstalledPrefix(identity) = ns {
-                let aliases = iter::once(identity.package.0.as_str()).chain(
-                    self.installed_aliases
-                        .iter()
-                        .filter(|(_, packages)| {
-                            packages.len() == 1 && packages.contains(&identity.package)
-                        })
-                        .map(|(alias, _)| alias.as_str()),
-                );
-                for alias in aliases {
-                    {
-                        let path = iter::once(alias)
-                            .chain(identity.path.iter().map(String::as_str))
-                            .chain(iter::once(name))
-                            .collect::<Vec<_>>()
-                            .join("::");
-                        if let Some(target) = ctx
-                            .hosts
-                            .resolve_name(&path, namespace)
-                            .and_then(host_target)
-                        {
-                            return Ok(LookupResult::Found(LookupHit {
-                                support: HashSet::new(),
-                                namespace,
-                                target,
-                                via: vec![],
-                            }));
-                        }
-                    }
-                }
-            }
             return Ok(LookupResult::Missing);
         };
         if strong
@@ -317,7 +267,6 @@ impl NamespaceCatalog {
                     NamespaceResult::NotNamespace
                 }
             }
-            _ => NamespaceResult::NotNamespace,
         })
     }
 
@@ -382,18 +331,7 @@ impl NamespaceCatalog {
             return Ok(LookupResult::Ambiguous(vec![]));
         }
         let Some(package) = packages.first() else {
-            return Ok(ctx
-                .hosts
-                .resolve_name(path, namespace)
-                .and_then(host_target)
-                .map_or(LookupResult::Missing, |target| {
-                    LookupResult::Found(LookupHit {
-                        support: HashSet::new(),
-                        namespace,
-                        target,
-                        via: vec![],
-                    })
-                }));
+            return Ok(LookupResult::Missing);
         };
         for end in 0..=components.len() {
             let identity = ModuleIdentity {
@@ -425,26 +363,12 @@ impl NamespaceCatalog {
                 let physical_collision = namespace == NameNamespace::Type && self.modules.get(&terminal).is_some_and(|units| {
                     matches!(&result, LookupResult::Found(hit) if !matches!(&hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if units.as_slice() == [unit.clone()]))
                 });
-                return Ok(
-                    if physical_collision || ctx.hosts.resolve_name(path, namespace).is_some() {
-                        LookupResult::Ambiguous(vec![])
-                    } else {
-                        result
-                    },
-                );
+                return Ok(if physical_collision {
+                    LookupResult::Ambiguous(vec![])
+                } else {
+                    result
+                });
             }
-        }
-        if let Some(target) = ctx
-            .hosts
-            .resolve_name(path, namespace)
-            .and_then(host_target)
-        {
-            return Ok(LookupResult::Found(LookupHit {
-                support: HashSet::new(),
-                namespace,
-                target,
-                via: vec![],
-            }));
         }
         let prefix = NamespaceId::InstalledPrefix(ModuleIdentity {
             package: package.clone(),
@@ -501,7 +425,6 @@ impl NamespaceCatalog {
     pub(crate) fn reachable_sources(
         &self,
         names: &NameTable,
-        hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<HashSet<SourceDeclRef>, Cancelled> {
         let Some(unit) = names.unit.as_ref() else {
@@ -509,7 +432,6 @@ impl NamespaceCatalog {
         };
         let ctx = LookupContext {
             importer: &unit.module,
-            hosts,
             observations: None,
             avoid: None,
         };
@@ -561,7 +483,6 @@ impl NamespaceCatalog {
     pub(crate) fn resolve_name(
         &self,
         names: &NameTable,
-        hosts: &HostDeclarations,
         name: &str,
         namespace: NameNamespace,
         cancel: &CancellationToken,
@@ -569,7 +490,6 @@ impl NamespaceCatalog {
         let unit = names.unit.as_ref()?;
         let ctx = LookupContext {
             importer: &unit.module,
-            hosts,
             observations: None,
             avoid: None,
         };
@@ -627,15 +547,6 @@ impl NamespaceCatalog {
     }
 }
 
-fn host_target(name: ResolvedName) -> Option<ResolvedTarget> {
-    Some(match name {
-        ResolvedName::HostModule(id) => ResolvedTarget::Namespace(NamespaceId::Host(id)),
-        ResolvedName::HostFunction(id) => ResolvedTarget::HostFunction(id),
-        ResolvedName::HostType(id) => ResolvedTarget::HostType(id),
-        _ => return None,
-    })
-}
-
 impl NamespaceCatalog {
     /// A retained file may keep its catalog only when every namespace it can
     /// enter still has the same qualified targets, candidates and access facts.
@@ -643,10 +554,9 @@ impl NamespaceCatalog {
         &self,
         other: &Self,
         names: &NameTable,
-        hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
-        self.same_namespace_inputs(other, names, None, hosts, cancel, false)
+        self.same_namespace_inputs(other, names, None, cancel, false)
     }
 
     /// Reuse checked facts across a local lowering only after comparing all
@@ -657,7 +567,6 @@ impl NamespaceCatalog {
         other: &Self,
         names: &NameTable,
         other_names: &NameTable,
-        hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
         let (Some(unit), Some(other_unit)) = (&names.unit, &other_names.unit) else {
@@ -666,7 +575,7 @@ impl NamespaceCatalog {
         if unit.module != other_unit.module || unit.file != other_unit.file {
             return Ok(false);
         }
-        self.same_namespace_inputs(other, names, Some(other_unit), hosts, cancel, false)
+        self.same_namespace_inputs(other, names, Some(other_unit), cancel, false)
     }
 
     /// Compare signature namespace bindings independently of foreign function body revisions.
@@ -676,7 +585,6 @@ impl NamespaceCatalog {
         other: &Self,
         names: &NameTable,
         other_names: &NameTable,
-        hosts: &HostDeclarations,
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
         let (Some(unit), Some(other_unit)) = (&names.unit, &other_names.unit) else {
@@ -685,7 +593,7 @@ impl NamespaceCatalog {
         if unit.module != other_unit.module || unit.file != other_unit.file {
             return Ok(false);
         }
-        self.same_namespace_inputs(other, names, Some(other_unit), hosts, cancel, true)
+        self.same_namespace_inputs(other, names, Some(other_unit), cancel, true)
     }
 
     fn same_namespace_inputs(
@@ -693,7 +601,6 @@ impl NamespaceCatalog {
         other: &Self,
         names: &NameTable,
         rebased_unit: Option<&SourceUnit>,
-        hosts: &HostDeclarations,
         cancel: &CancellationToken,
         signature: bool,
     ) -> Result<bool, Cancelled> {
@@ -702,7 +609,6 @@ impl NamespaceCatalog {
         };
         let ctx = LookupContext {
             importer: &unit.module,
-            hosts,
             observations: None,
             avoid: None,
         };

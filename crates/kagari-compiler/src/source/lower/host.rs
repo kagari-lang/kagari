@@ -9,18 +9,11 @@ use kagari_mir::{
     function::MirFunction,
     instruction::{CallTarget, Instruction},
 };
-use kagari_types::declaration::TypeDeclaration;
-use kagari_types::declaration::path::HostPathSegmentDeclaration;
-use kagari_types::host_interface::type_declaration::HostTypeDeclaration;
+use kagari_types::declaration::{TypeDeclaration, path::HostPathSegmentDeclaration};
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,
 };
-
-pub(super) struct Dependencies {
-    pub legacy: Vec<HostTypeDeclaration>,
-    pub shared: Vec<TypeDeclaration>,
-}
 
 pub(super) fn collect(
     module: &AnalyzedModule,
@@ -29,7 +22,7 @@ pub(super) fn collect(
     functions: &[MirFunction],
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
-) -> Result<Dependencies, MirLoweringError> {
+) -> Result<Vec<TypeDeclaration>, MirLoweringError> {
     let mut pending: Vec<_> = roots.into_iter().collect();
     for instruction in functions
         .iter()
@@ -87,11 +80,10 @@ pub(super) fn collect(
             );
         }
     }
-    let mut declarations = BTreeMap::new();
     let mut shared = BTreeMap::new();
     while let Some(id) = pending.pop() {
         cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
-        if declarations.contains_key(&id) || shared.contains_key(&id) {
+        if shared.contains_key(&id) {
             continue;
         }
         let owner = definitions
@@ -124,28 +116,12 @@ pub(super) fn collect(
             );
             continue;
         }
-        let hosts = &module.names.hosts;
-        let ty = hosts
-            .nominal_type(&id)
-            .and_then(|id| hosts.type_declaration(id))
-            .ok_or_else(|| {
-                definitions
-                    .resolve(id)
-                    .map(|view| MirLoweringError::MissingHostDeclaration(view.to_path()))
-                    .unwrap_or_else(|error| MirLoweringError::Identity(error.into()))
-            })?;
-        for member in ty.value_types() {
-            pending.extend(member.nominal_references().into_iter().cloned());
-        }
-        declarations.insert(id, ty.clone());
+        return Err(definitions
+            .resolve(id)
+            .map(|view| MirLoweringError::MissingHostDeclaration(view.to_path()))
+            .unwrap_or_else(|error| MirLoweringError::Identity(error.into())));
     }
     // IDs deduplicate the closure, but allocation history must not order emitted contracts.
-    let mut declarations: Vec<_> = declarations.into_values().collect();
-    declarations.sort_by(|left, right| {
-        definitions
-            .compare(left.id, right.id)
-            .expect("checked Host type identities")
-    });
     cancel.check().map_err(|_| MirLoweringError::Cancelled)?;
     let mut shared: Vec<_> = shared.into_values().collect();
     shared.sort_by(|left, right| {
@@ -153,8 +129,5 @@ pub(super) fn collect(
             .compare(left.declaration, right.declaration)
             .expect("checked external type identities")
     });
-    Ok(Dependencies {
-        legacy: declarations,
-        shared,
-    })
+    Ok(shared)
 }
