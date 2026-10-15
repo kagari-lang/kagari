@@ -1,4 +1,6 @@
 mod scoped_loans;
+mod support;
+
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
@@ -8,19 +10,16 @@ use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    host::{
-        HostBorrowKind, HostError, HostFunction, HostObjectId, HostSchemaEpoch,
-        HostTypeRegistration,
-    },
+    host::{HostBorrowKind, HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     session::TraceValue,
     value::Value,
 };
 use kagari_types::{
-    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
-    host_interface::{
-        HostFunctionDeclaration, HostParameter, type_declaration::HostTypeDeclaration,
-        value_type::HostValueType,
+    declaration::host::{
+        HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
+        HostTypeOwnership, HostTypePolicy, PathAccess,
     },
     scalar::BuiltinType,
     ty::Ty,
@@ -33,6 +32,7 @@ use std::{
     cell::Cell,
     panic::{AssertUnwindSafe, catch_unwind},
 };
+use support::native::{free_function_program, invoke};
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {
@@ -40,43 +40,13 @@ fn runtime() -> Runtime {
     })
 }
 
-fn root(runtime: &mut Runtime) -> Value {
-    let context = DefinitionContext::new().unwrap();
-    let mut declaration = HostTypeDeclaration::new(&context, "game.Object").unwrap();
-    declaration.ownership = HostTypeOwnership::HostRoot;
-    declaration.path_access = PathAccess::ReadWrite;
-    let registration = HostTypeRegistration::new(
-        DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap(),
-        "Object",
-    );
-    let ty = runtime.register_host_type(registration).unwrap();
-    let root = runtime
-        .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
-        .unwrap();
-    runtime.gc().alloc_host_root(root).unwrap()
-}
-
-fn declaration(
-    name: &str,
-    passing: HostPassingStyle,
-) -> DefinitionMetadata<HostFunctionDeclaration> {
-    let context = DefinitionContext::new().unwrap();
-    let declaration = HostFunctionDeclaration::new(
-        &context,
-        name,
-        vec![HostParameter {
-            name: "object".into(),
-            ty: HostValueType::Opaque(
-                HostTypeDeclaration::new(&context, "game.Object")
-                    .unwrap()
-                    .id,
-            ),
-            passing,
-        }],
-        HostValueType::Unit,
-    )
-    .unwrap();
-    DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap()
+fn function(name: &str, result: Type) -> FunctionDecl {
+    FunctionDecl::new(name)
+        .returns(result)
+        .host_policy(HostCallPolicy {
+            passing: vec![],
+            effects: Default::default(),
+        })
 }
 
 #[test]
@@ -291,64 +261,110 @@ fn host_scopes_keep_root_cancellation_until_all_resources_are_released() {
 
 #[test]
 fn declared_borrows_conflict_during_callbacks_and_release_after_failure() {
-    let mut runtime = runtime();
-    let object = root(&mut runtime);
+    let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let mut object = module.define_type("Object").unwrap();
+    object
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadWrite,
+        })
+        .unwrap();
+    let object = object.finish().unwrap();
+    let write = module
+        .define_function(
+            FunctionDecl::new("write")
+                .parameter("object", object.apply([]).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![HostPassingStyle::UniqueBorrow],
+                    effects: HostFunctionEffects {
+                        may_trap: true,
+                        ..Default::default()
+                    },
+                }),
+        )
+        .unwrap();
+    let read = module
+        .define_function(
+            FunctionDecl::new("read")
+                .parameter("object", object.apply([]).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow],
+                    effects: Default::default(),
+                }),
+        )
+        .unwrap();
     let invoked = Arc::new(AtomicUsize::new(0));
     let called = invoked.clone();
-    runtime
-        .register_host_function(HostFunction::new(
-            declaration("game.write", HostPassingStyle::UniqueBorrow),
-            move |context, args| {
+    module
+        .bind(
+            write,
+            move |context: &HostCallContext<'_>, args: &[Value]| {
                 called.fetch_add(1, Ordering::SeqCst);
+                let owner = context.runtime().execution_root().unwrap();
                 assert_eq!(
-                    context
-                        .runtime()
-                        .invoke_host("game.read", args)
+                    invoke(context.runtime(), &owner, 1, args)
                         .unwrap_err()
                         .kind(),
                     RuntimeErrorKind::HostBorrowConflict
                 );
                 Err(HostError::new("business failure"))
             },
-        ))
+        )
         .unwrap();
-    runtime
-        .register_host_function(HostFunction::new(
-            declaration("game.read", HostPassingStyle::SharedBorrow),
-            |_, _| Ok(Value::Unit),
-        ))
+    module
+        .bind(read, |_: &HostCallContext<'_>, _: &[Value]| Ok(Value::Unit))
         .unwrap();
+    let module = module.finish().unwrap();
+    let program = free_function_program(&module.to_declaration());
+    let mut runtime = runtime();
+    module.install(&mut runtime).unwrap();
+    let ty = runtime.types().get_by_name("game::Object").unwrap().id;
+    let object = runtime
+        .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
+        .unwrap();
+    let object = runtime.gc().alloc_host_root(object).unwrap();
+    let loaded = runtime.load_program("borrows", program).unwrap();
     assert_eq!(
-        runtime
-            .invoke_host("game.write", std::slice::from_ref(&object))
+        invoke(&runtime, &loaded, 0, std::slice::from_ref(&object))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::HostCallFailure
     );
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
-    runtime.invoke_host("game.read", &[object]).unwrap();
+    invoke(&runtime, &loaded, 1, &[object]).unwrap();
     let scope = runtime.host_scope(&[]).unwrap();
-    let token = scope
-        .borrows()
-        .borrow_shared(HostObjectId(1), TypeId::new(0))
-        .unwrap();
+    let token = scope.borrows().borrow_shared(HostObjectId(1), ty).unwrap();
     assert_eq!(
-        runtime
-            .invoke_host("game.write", &[runtime.gc().alloc_host_ref(token).unwrap()])
-            .unwrap_err()
-            .kind(),
+        invoke(
+            &runtime,
+            &loaded,
+            0,
+            &[runtime.gc().alloc_host_ref(token).unwrap()]
+        )
+        .unwrap_err()
+        .kind(),
         RuntimeErrorKind::HostBorrowConflict
     );
-    runtime
-        .invoke_host("game.read", &[runtime.gc().alloc_host_ref(token).unwrap()])
-        .unwrap();
+    invoke(
+        &runtime,
+        &loaded,
+        1,
+        &[runtime.gc().alloc_host_ref(token).unwrap()],
+    )
+    .unwrap();
     drop(scope);
+    let error = invoke(
+        &runtime,
+        &loaded,
+        1,
+        &[runtime.gc().alloc_host_ref(token).unwrap()],
+    )
+    .unwrap_err();
     assert_eq!(
-        runtime
-            .invoke_host("game.read", &[runtime.gc().alloc_host_ref(token).unwrap()])
-            .unwrap_err()
-            .kind(),
-        RuntimeErrorKind::ExpiredHostBorrow
+        error.kind(),
+        RuntimeErrorKind::ExpiredHostBorrow,
+        "{error:?}"
     );
     assert_eq!(invoked.load(Ordering::SeqCst), 1);
     assert_eq!(runtime.gc().active_roots(), 0);
@@ -419,57 +435,44 @@ fn quarantine_does_not_block_host_scope_cleanup() {
 
 #[test]
 fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
-    let context = DefinitionContext::new().unwrap();
-    let mut runtime = runtime();
-    let module = runtime
-        .load_program(
-            "allocation-owner",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
     let raw = Arc::new(Mutex::new(None));
     let saved = raw.clone();
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "game.make",
-                    vec![],
-                    HostValueType::Unit,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
+    let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let make = module
+        .define_function(FunctionDecl::new("make").host_policy(HostCallPolicy {
+            passing: vec![],
+            effects: HostFunctionEffects {
+                may_allocate: true,
+                may_trap: true,
+                ..Default::default()
             },
-            move |context, _| {
-                let value = Value::Array(
-                    context
-                        .runtime()
-                        .alloc_array(&module, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-                        .unwrap(),
-                );
-                context
-                    .retain_temporaries(std::slice::from_ref(&value))
-                    .unwrap();
-                context.runtime().collect_garbage().unwrap();
-                assert!(context.runtime().gc().validate_value(&value));
-                *saved.lock().unwrap() = Some(value);
-                Err(HostError::new("stop"))
-            },
-        ))
+        }))
         .unwrap();
+    module
+        .bind(make, move |context: &HostCallContext<'_>, _: &[Value]| {
+            let owner = context.runtime().execution_root().unwrap();
+            let value = Value::Array(
+                context
+                    .runtime()
+                    .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+                    .unwrap(),
+            );
+            context
+                .retain_temporaries(std::slice::from_ref(&value))
+                .unwrap();
+            context.runtime().collect_garbage().unwrap();
+            assert!(context.runtime().gc().validate_value(&value));
+            *saved.lock().unwrap() = Some(value);
+            Err(HostError::new("stop"))
+        })
+        .unwrap();
+    let module = module.finish().unwrap();
+    let program = free_function_program(&module.to_declaration());
+    let mut runtime = runtime();
+    module.install(&mut runtime).unwrap();
+    let loaded = runtime.load_program("temporaries", program).unwrap();
     assert_eq!(
-        runtime.invoke_host("game.make", &[]).unwrap_err().kind(),
+        invoke(&runtime, &loaded, 0, &[]).unwrap_err().kind(),
         RuntimeErrorKind::HostCallFailure
     );
     assert_eq!(runtime.gc().active_roots(), 0);
@@ -483,54 +486,33 @@ fn callback_temporaries_survive_nested_collection_and_drop_on_error() {
 
 #[test]
 fn host_callbacks_observe_replayable_root_inputs() {
-    let context = DefinitionContext::new().unwrap();
-    let mut runtime = runtime();
     let observed = Arc::new(Mutex::new(Vec::new()));
     let captured = observed.clone();
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "game.sample",
-                    vec![],
-                    HostValueType::Unit,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            move |context, _| {
-                captured.lock().unwrap().push((
-                    context.execution_time_millis().unwrap(),
-                    context.next_execution_random_u64().unwrap(),
-                ));
-                Ok(Value::Unit)
-            },
-        ))
+    let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let sample = module
+        .define_function(function("sample", Type::unit()))
         .unwrap();
-    let module = runtime
-        .load_program(
-            "inputs",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
+    module
+        .bind(sample, move |context: &HostCallContext<'_>, _: &[Value]| {
+            captured.lock().unwrap().push((
+                context.execution_time_millis().unwrap(),
+                context.next_execution_random_u64().unwrap(),
+            ));
+            Ok(Value::Unit)
+        })
         .unwrap();
+    let module = module.finish().unwrap();
+    let program = free_function_program(&module.to_declaration());
+    let mut runtime = runtime();
+    module.install(&mut runtime).unwrap();
+    let loaded = runtime.load_program("inputs", program).unwrap();
     let mut options = runtime.execution_options();
     options.inputs.unix_time_millis = 987_654;
     options.inputs.random_seed = 52;
     for _ in 0..2 {
-        let session = runtime.begin_execution(&module, options.clone()).unwrap();
-        runtime.invoke_host("game.sample", &[]).unwrap();
-        runtime.invoke_host("game.sample", &[]).unwrap();
+        let session = runtime.begin_execution(&loaded, options.clone()).unwrap();
+        invoke(&runtime, &loaded, 0, &[]).unwrap();
+        invoke(&runtime, &loaded, 0, &[]).unwrap();
         drop(session);
     }
     let records = observed.lock().unwrap();
@@ -541,81 +523,56 @@ fn host_callbacks_observe_replayable_root_inputs() {
 
 #[test]
 fn host_trace_keeps_invocation_order_across_reentry() {
-    let context = DefinitionContext::new().unwrap();
-    let mut runtime = runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "game.inner",
-                    vec![],
-                    HostValueType::I32,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            |_, _| Ok(Value::I32(2)),
-        ))
+    let mut builder = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let inner = builder
+        .define_function(function("inner", Type::i32()))
         .unwrap();
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "game.outer",
-                    vec![],
-                    HostValueType::I32,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            |context, _| {
-                let inner = context.runtime().invoke_host("game.inner", &[]).unwrap();
-                assert_eq!(inner, Value::I32(2));
-                Ok(Value::I32(3))
-            },
-        ))
+    let outer = builder
+        .define_function(function("outer", Type::i32()))
         .unwrap();
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let declaration =
-                    HostFunctionDeclaration::new(&context, "game.fail", vec![], HostValueType::I32)
-                        .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            |_, _| Err(HostError::new("expected failure")),
-        ))
-        .unwrap();
-    let module = runtime
-        .load_program(
-            "trace",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
+    let fail = builder
+        .define_function(FunctionDecl::new("fail").returns(Type::i32()).host_policy(
+            HostCallPolicy {
+                passing: vec![],
+                effects: HostFunctionEffects {
+                    may_trap: true,
+                    ..Default::default()
                 },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
+            },
+        ))
         .unwrap();
+    builder
+        .bind(inner, |_: &HostCallContext<'_>, _: &[Value]| {
+            Ok(Value::I32(2))
+        })
+        .unwrap();
+    builder
+        .bind(outer, |context: &HostCallContext<'_>, _: &[Value]| {
+            let owner = context.runtime().execution_root().unwrap();
+            assert_eq!(
+                invoke(context.runtime(), &owner, 0, &[]).unwrap(),
+                Value::I32(2)
+            );
+            Ok(Value::I32(3))
+        })
+        .unwrap();
+    builder
+        .bind(fail, |_: &HostCallContext<'_>, _: &[Value]| {
+            Err(HostError::new("expected failure"))
+        })
+        .unwrap();
+    let declarations = builder.finish().unwrap();
+    let program = free_function_program(&declarations.to_declaration());
+    let mut runtime = runtime();
+    declarations.install(&mut runtime).unwrap();
+    let module = runtime.load_program("trace", program).unwrap();
     let mut options = runtime.execution_options();
     options.record_host_calls = true;
     options.inputs.unix_time_millis = 10;
     let session = runtime.begin_execution(&module, options).unwrap();
+    assert_eq!(invoke(&runtime, &module, 1, &[]).unwrap(), Value::I32(3));
     assert_eq!(
-        runtime.invoke_host("game.outer", &[]).unwrap(),
-        Value::I32(3)
-    );
-    assert_eq!(
-        runtime.invoke_host("game.fail", &[]).unwrap_err().kind(),
+        invoke(&runtime, &module, 2, &[]).unwrap_err().kind(),
         RuntimeErrorKind::HostCallFailure
     );
     let trace = session.trace().unwrap();
@@ -629,7 +586,7 @@ fn host_trace_keeps_invocation_order_across_reentry() {
             .iter()
             .map(|call| call.symbol.as_str())
             .collect::<Vec<_>>(),
-        vec!["game.outer", "game.inner", "game.fail"]
+        vec!["game::outer", "game::inner", "game::fail"]
     );
     assert_eq!(trace.host_calls[0].outcome, Some(Ok(TraceValue::I32(3))));
     assert_eq!(trace.host_calls[1].outcome, Some(Ok(TraceValue::I32(2))));

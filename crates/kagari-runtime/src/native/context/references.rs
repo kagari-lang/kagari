@@ -36,6 +36,15 @@ impl CallContext<'_> {
             if !matches!(original, Value::Ephemeral(_) | Value::HostPathView(_)) {
                 continue;
             }
+            // Validate the live capability before boolean type matching can
+            // erase an expired/foreign borrow's diagnostic. The alias remains
+            // inert until the declaration check succeeds and it is rooted below.
+            let narrowed = if external_shared {
+                self.runtime.narrow_host_argument(&original)?
+            } else {
+                self.runtime
+                    .narrow_scoped(&original, ReferenceAccess::Shared)?
+            };
             if !parameter.matches(self.runtime, &original, self.owner)
                 && !self.runtime.matches_scoped_receiver(
                     &original,
@@ -47,12 +56,6 @@ impl CallContext<'_> {
             {
                 return Err(invalid());
             }
-            let narrowed = if external_shared {
-                self.runtime.narrow_host_argument(&original)?
-            } else {
-                self.runtime
-                    .narrow_scoped(&original, ReferenceAccess::Shared)?
-            };
             if let Some(narrowed) = narrowed {
                 if arguments.narrowed.is_none() {
                     let values = (0..arguments.len())

@@ -2752,6 +2752,35 @@ offline_types, host_nominal and typed_path_views; compiler/tooling producers and
 HR03 format/callable retirement remain open. Full workspace/backend/features/platform
 acceptance remains CI-owned and unrun locally.
 
+### HR02/RF05 checkpoint: common frames preserve scoped callbacks
+
+The four callback-bearing host_scopes cases now declare/bind/install once through
+ModuleBuilder and use ordinary rooted native frames. They retain nested shared/unique
+conflicts, callback failure cleanup, temporary values across nested collection,
+deterministic execution inputs, and outer/inner/failing trace invocation order. Their
+physical external type comes from installed metadata; allocation and reentry use the
+actual executing module. The separate owner/epoch, cancellation, unwind, quarantine
+and actual-pointer loan fixtures remain at their existing owners.
+
+Migration exposed a production diagnostic defect: shared argument narrowing first
+used boolean type matching, which swallowed ExpiredHostBorrow and returned generic
+ModuleValidation before the host adapter could validate the token. The existing
+capability owner now validates/narrows first, then the exact declaration check runs
+before publishing the inert alias into rooted arguments. Expired/foreign capabilities
+retain their specific diagnostic; no identity, lifetime, access or root check was
+removed, and no callback executes on rejection.
+
+Actual focused validation: the borrow/reentry case initially failed only its expired
+token assertion (all prior conflict and release assertions passed). It passed after
+the narrowing fix. The temporary-collection, replayable-input and trace-reentry cases
+each passed separately (all four under 0.01 seconds). Scoped runtime library and
+host_scopes Clippy passed; structure checked 1254 files with zero findings. Formatting
+required one assertion wrap and passed after rustfmt; diff checks passed. No unsafe
+pointer/loan or root-lifetime implementation changed, so no new Miri run is warranted.
+Remaining runtime consumers are offline_types, host_nominal and typed_path_views;
+compiler/tooling producers and HR03 retirement remain open. Full workspace, backend,
+feature/platform and exhaustive safety acceptance remain CI-owned and unrun locally.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
