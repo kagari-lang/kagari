@@ -2389,6 +2389,49 @@ violations). No pointer, Rust loan or root kernel changes; no new Miri run is
 claimed. The complete workspace/features/backends/platform matrix remains CI-owned.
 Other legacy consumers and HR03/RF06/RI05 integration remain open.
 
+### HR02/RF05 checkpoint: anonymous source traits and runnable interface example
+
+The host_interfaces example now explicitly references the private Reader owned by
+its standalone source module, registers Counter's impl/associated Item and binds
+read exactly once through the common ModuleBuilder. make uses the same installation
+and resolves its runtime-local root. Static generic calls, associated projection
+and boxed interface dispatch execute after ordinary KBC encoding/decoding and
+return I32(42). No HostInterface bytes, HostFunction registration, duplicate inherent
+member or runtime source analysis remains in the example. Cold source contract
+checking runs before any runtime or root exists; it executes no callback.
+
+The initial example run rejected generated syntax: standalone canonical package
+families contain `source-file:` and cannot appear literally in source paths. The
+native path renderer now gives these families a valid generated qualifier and
+avoids a trailing separator for root modules. Namespace lookup resolves this
+spelling only against that native importer's explicit canonical dependencies,
+without adding a global source/package alias. All matching dependencies participate
+in lookup, so a spelling collision remains ambiguous rather than selecting one.
+Canonical IDs, private-trait admission and exact ABI requirements are unchanged.
+
+The new focused anonymous-source fixture checks successful explicit native impl
+checking and rejects ordinary import of a public sibling through that generated
+qualifier. This distinguishes absence of a global alias from a private-member
+visibility rejection. Existing named-source package alias isolation is reused as
+the small directly affected regression boundary.
+
+Actual focused local validation:
+
+- `cargo run -p kagari --example host_interfaces`: passed after fixing the recorded
+  syntax failure; printed `static + dynamic host interface result: I32(42)`.
+- `cargo test -p kagari --test offline_nominal anonymous_source_trait_qualifiers_remain_scoped_to_native_importers`: passed (6.12 seconds).
+- `cargo test -p kagari-hir --lib declared_source_aliases_cannot_shadow_installed_native_packages`: passed (0.14 seconds).
+- HIR library and scoped SDK example/target Clippy passed. Structure, formatting
+  and diff checks passed (1251
+  Rust files, zero structure violations).
+
+The embedding guide now describes the common registration entry, and the owning
+interop spec records scoped anonymous qualifiers and the runnable example. No
+unsafe/root/loan kernel changed; no new Miri run is claimed. Remaining legacy
+interface and low-level consumer migration, HR03 retirement and RF06/RI05 final
+integration remain required. Complete workspace/features/backends/platforms stay
+CI-owned and unrun locally.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

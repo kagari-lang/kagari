@@ -6,6 +6,7 @@ use crate::{
         SourceItem, SourceUnit, bindings::LookupOutcome, cache::same_name_tables,
         solver::Observation,
     },
+    native::paths::source_package_alias,
     resolver::{resolved::ResolvedName, table::NameTable},
 };
 use kagari_common::{
@@ -874,12 +875,18 @@ impl NamespaceCatalog {
         if name == importer.package.0 {
             return [importer.package.clone()].into();
         }
-        if let Some(dependencies) = self.native_dependencies.get(importer)
-            && let Some(dependency) = dependencies
+        if let Some(dependencies) = self.native_dependencies.get(importer) {
+            let targets = dependencies
                 .iter()
-                .find(|dependency| dependency.package.0 == name)
-        {
-            return [dependency.package.clone()].into();
+                .filter(|dependency| {
+                    dependency.package.0 == name
+                        || source_package_alias(&dependency.package).as_deref() == Some(name)
+                })
+                .map(|dependency| dependency.package.clone())
+                .collect::<BTreeSet<_>>();
+            if !targets.is_empty() {
+                return targets;
+            }
         }
         if let Some(target) = self
             .packages

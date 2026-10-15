@@ -188,12 +188,14 @@ requires this handle; editing its `into_unverified()` result requires `verify_mi
 again. The verification and linked-program boundaries are defined in
 [bytecode.md](bytecode.md#verified-mir-boundary).
 
-Host function registration takes `HostFunction::new(HostFunctionDeclaration,
-callback)`. The declaration can be read, encoded and compared offline without
-creating a runtime; see [host-interop.md](host-interop.md#function-registration).
-`runtime.host().link_interface(...)` checks it against installed bindings without
-executing callbacks. Artifact loading links required host interfaces against runtime registrations
-before script execution.
+Host registration uses explicit ModuleDecl facts and ModuleBuilder declarations.
+`bind` checks one callback against its authored function or method; installing the
+finished NativeModule publishes the checked declaration/binding set atomically.
+Cold declarations can be read, encoded, adopted and compared without creating a
+runtime or executing a callback. Source-free loading verifies the required native
+contracts and installed schemas before script execution. See
+[the shared registration contract](host-interop.md#type-registration) and the
+[private source-trait example](../../crates/kagari/examples/host_interfaces.rs).
 
 `FileAnalysis::host_field_at(offset)` returns the checked host field declaration
 only when the byte offset lies on the field name. Offsets on the receiver or `.`

@@ -1,162 +1,153 @@
-//! Offline host associated-output declarations and dynamic interface binding.
+//! Explicit private source-trait references and common native interface binding.
 //! Run with `cargo run -p kagari --example host_interfaces`.
-
-use {
-    kagari_common::identity::{
-        DefinitionKind, DefinitionPath, DefinitionPathSegment, map::DefinitionContext,
-        metadata::DefinitionMetadata,
-    },
-    kagari_source::source_database::SourceLayer,
-    kagari_types::{
-        declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
-        host_interface::{
-            HostFunctionDeclaration, HostInterface, HostParameter,
-            type_declaration::{
-                HostAssociatedTypeBinding, HostMethodDeclaration,
-                HostTraitImplementationDeclaration, HostTraitMethodBinding, HostTypeDeclaration,
-            },
-            value_type::HostValueType,
-        },
-    },
-};
-
 use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::KagariEngine,
     program::PreparedProgram,
 };
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, metadata::DefinitionMetadata,
+};
 use kagari_runtime::{
-    host::{HostError, HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     module::entry::ProgramEntry,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     value::Value,
+};
+use kagari_source::source_database::SourceLayer;
+use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::declaration::host::{
+    HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy, HostTypeOwnership,
+    HostTypePolicy, PathAccess,
 };
 
 const SOURCE: &str = include_str!("../../../examples/host-interfaces.kgr");
+const SOURCE_URI: &str = "mem://host-interface";
 
-fn compile_offline() -> (
-    KagariEngine,
-    DefinitionMetadata<BytecodeArtifact>,
-    DefinitionMetadata<HostTypeDeclaration>,
-    DefinitionMetadata<HostFunctionDeclaration>,
-) {
-    let definitions = DefinitionContext::new().unwrap();
-    let engine = KagariEngine::default();
-    let file = engine
-        .set_source("mem://host-interface", SOURCE.into(), SourceLayer::Base)
+fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
+    // Read the trait's checked ABI independently of its host implementation.
+    // The source owns this private trait; Rust does not declare or export it.
+    let author = KagariEngine::default();
+    let contract_source = SOURCE
+        .split("\nfn read<")
+        .next()
+        .unwrap()
+        .replace("use demo::{Counter, make};", "");
+    let file = author
+        .set_source(SOURCE_URI, contract_source, SourceLayer::Base)
         .unwrap();
-    let trait_id = DefinitionPath {
-        module: engine
-            .source_snapshot()
-            .file(file)
-            .unwrap()
-            .module_identity()
-            .clone(),
+    let checked = author
+        .compile_snapshot(author.source_snapshot(), file, &Default::default())
+        .unwrap();
+    let contract = author.emit_bytecode(&checked, Default::default()).unwrap();
+    let source_module =
+        &contract.records().program.modules[contract.records().program.root.index()];
+    let reader = source_module
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Reader")
+        .unwrap();
+    let path = DefinitionPath {
+        module: source_module.identity.clone(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
             name: "Reader".into(),
             occurrence: 0,
         }],
     };
-    let trait_id = definitions.intern(&trait_id).unwrap();
-    let mut host = HostTypeDeclaration::new(&definitions, "demo.Counter").unwrap();
-    host.ownership = HostTypeOwnership::HostRoot;
-    host.path_access = PathAccess::ReadOnly;
-    let method = HostMethodDeclaration::new(
-        &definitions,
-        host.id,
-        "read",
-        vec![HostParameter {
-            name: "amount".into(),
-            ty: HostValueType::I32,
-            passing: HostPassingStyle::Owned,
-        }],
-        HostValueType::I32,
+    let reader = DefinitionMetadata::checked(
+        contract.definitions().clone(),
+        reader.abi.clone(),
+        &Default::default(),
     )
     .unwrap();
-    let mut implementation = HostTraitImplementationDeclaration::new(
-        trait_id,
-        vec![],
-        vec![HostTraitMethodBinding {
-            trait_method: definitions
-                .intern_child(trait_id, DefinitionKind::Method, "read", 0)
-                .unwrap(),
-            host_method: method.id,
-        }],
-    );
-    implementation
-        .associated_types
-        .push(HostAssociatedTypeBinding {
-            declaration: definitions
-                .intern_child(trait_id, DefinitionKind::AssociatedType, "Item", 0)
-                .unwrap(),
-            ty: HostValueType::I32,
-        });
-    host.trait_implementations.push(implementation);
-    host.methods.push(method);
-    let make = HostFunctionDeclaration::new(
-        &definitions,
-        "demo.make",
-        vec![],
-        HostValueType::Opaque(host.id),
-    )
-    .unwrap();
-    let interface = HostInterface {
-        types: vec![host.clone()],
-        functions: vec![make.clone()],
-        paths: vec![],
-    };
-    // Reading these declarations does not register any runtime callback.
-    let interface =
-        HostInterface::from_bytes(&interface.to_bytes(&definitions.snapshot()).unwrap()).unwrap();
-    engine.set_host_interface(interface).unwrap();
-    let checked = engine
-        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut module = ModuleBuilder::new("demo", &catalog).unwrap();
+    let reader = module.reference_trait(&path, reader).unwrap();
+    let mut counter = module.define_type("Counter").unwrap();
+    counter
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadOnly,
+        })
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
-    let host =
-        DefinitionMetadata::checked(definitions.snapshot(), host, &Default::default()).unwrap();
-    let make =
-        DefinitionMetadata::checked(definitions.snapshot(), make, &Default::default()).unwrap();
-    (engine, artifact, host, make)
-}
-
-fn context(jit: bool) -> ExecutionContext {
-    ExecutionContext {
-        jit_policy: if jit {
-            JitPolicy::Enabled
-        } else {
-            JitPolicy::Disabled
-        },
-        ..Default::default()
-    }
-}
-
-fn main() {
-    // Compilation consumes only the offline declarations, before any callbacks exist.
-    let (engine, artifact, host, make) = compile_offline();
-    let context = context(false);
-    let mut runtime = engine.runtime(context.clone());
-    let ty = runtime
-        .register_host_type(HostTypeRegistration::new(host.clone(), "Counter"))
+    let counter = counter.finish().unwrap();
+    module
+        .implement(counter.clone(), |group| {
+            group.trait_impl(reader.apply([])?, |methods| {
+                methods.associated_type("Item", Type::i32())?;
+                methods.host_policy(
+                    "read",
+                    HostCallPolicy {
+                        passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+                        effects: Default::default(),
+                    },
+                )?;
+                methods.bind("read", |_: &HostCallContext<'_>, args: &[Value]| {
+                    let [Value::HostRoot(_), Value::I32(amount)] = args else {
+                        return Err(HostError::new("checked Counter receiver and i32 argument"));
+                    };
+                    Ok(Value::I32(*amount))
+                })
+            })
+        })
         .unwrap();
-    let root = runtime
-        .runtime_mut()
-        .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
+    let make = module
+        .define_function(
+            FunctionDecl::new("make")
+                .returns(counter.apply([]).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        ..Default::default()
+                    },
+                }),
+        )
         .unwrap();
-    runtime
-        .register_host_function(HostFunction::new(make, move |cx, _| {
+    module
+        .bind(make, |cx: &HostCallContext<'_>, _: &[Value]| {
+            let root = cx.runtime().host().root(HostObjectId(7)).unwrap();
             cx.runtime()
                 .gc()
                 .alloc_host_root(root)
                 .map_err(|error| HostError::new(error.to_string()))
-        }))
+        })
         .unwrap();
+    // One checked installation owns both declarations and callbacks. Compilation
+    // consumes the cold declarations and never executes either callback.
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), vec![module.finish().unwrap()])
+            .unwrap();
+    let file = engine.bind_module(SOURCE_URI, path.module).unwrap();
+    engine
+        .set_source(SOURCE_URI, SOURCE.into(), SourceLayer::Base)
+        .unwrap();
+    let checked = engine
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
+        .unwrap();
+    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    (engine, artifact)
+}
+
+fn main() {
+    let (engine, artifact) = compile_offline();
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Disabled,
+        ..Default::default()
+    };
+    let mut runtime = engine.runtime(context.clone());
+    let ty = runtime
+        .runtime()
+        .types()
+        .get_by_name("demo::Counter")
+        .unwrap()
+        .id;
     runtime
-        .register_host_function(
-            HostFunction::method(&host, host.records().methods[0].id, |_, args| Ok(args[1]))
-                .unwrap(),
-        )
+        .runtime_mut()
+        .register_host_root(HostObjectId(7), ty, HostSchemaEpoch::new(0))
         .unwrap();
     let artifact =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
@@ -167,18 +158,7 @@ fn main() {
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)
         .unwrap();
-    assert_eq!(
-        result
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
-    println!(
-        "static + dynamic host interface result: {:?}",
-        result
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result")
-    );
+    let value = result.return_value.value(runtime.runtime().gc()).unwrap();
+    assert_eq!(value, Value::I32(42));
+    println!("static + dynamic host interface result: {value:?}");
 }

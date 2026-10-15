@@ -1011,6 +1011,11 @@ registered trait reference admits its canonical private trait in that scope;
 ordinary script imports retain their visibility checks. References create no
 global source package aliases. Engine
 construction validates the closed source-independent native set immediately.
+Standalone source families use a valid generated qualifier in the native view;
+only that native importer's explicit dependency set resolves it. This spelling
+does not expose even a public sibling to an ordinary source import. Canonical
+module identities remain unchanged, and colliding dependency spellings remain
+ambiguous rather than selecting an arbitrary owner.
 Source-dependent generated signatures/bodies are checked with the user snapshot;
 a missing source provider cannot compile. MIR and bytecode carry the reference
 requirements separately from trait definitions and compare them with the actual
@@ -1061,6 +1066,10 @@ Runtime downcast syntax remains future work.
 
 Run `cargo run -p kagari --example host_interfaces` for
 [the complete binding example](../../crates/kagari/examples/host_interfaces.rs).
+It reads the private source Reader contract, explicitly binds its associated Item
+and read member once, then uses the same installation for static calls and boxed
+interface dispatch after KBC decoding. Its runtime-local Counter root remains
+host-owned. Compilation imports cold declarations without executing callbacks.
 
 Trait-system behavior is defined in [traits.md](traits.md).
 

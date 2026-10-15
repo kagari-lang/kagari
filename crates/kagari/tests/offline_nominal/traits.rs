@@ -8,6 +8,86 @@ use kagari_types::declaration::{TraitDef, host::PathAccess};
 use std::sync::{Arc, Mutex};
 
 #[test]
+fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
+    let uri = "mem://anonymous-trait.kgr";
+    let source = "trait Marker {} pub trait Visible {} fn main() {}";
+    let author = KagariEngine::default();
+    let file = author
+        .set_source(uri, source.into(), SourceLayer::Base)
+        .unwrap();
+    let checked = author
+        .compile_snapshot(author.source_snapshot(), file, &Default::default())
+        .unwrap();
+    let artifact = author.emit_bytecode(&checked, Default::default()).unwrap();
+    let root = &artifact.records().program.modules[artifact.records().program.root.index()];
+    let abi = root
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Marker")
+        .unwrap();
+    let path = DefinitionPath {
+        module: root.identity.clone(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: "Marker".into(),
+            occurrence: 0,
+        }],
+    };
+    let expected = DefinitionMetadata::checked(
+        artifact.definitions().clone(),
+        abi.abi.clone(),
+        &Default::default(),
+    )
+    .unwrap();
+    let mut builder = ModuleBuilder::new(
+        "native_scope",
+        &kagari_stdlib::declarations::StandardDeclarations::default()
+            .catalog()
+            .unwrap(),
+    )
+    .unwrap();
+    let marker = builder.reference_trait(&path, expected).unwrap();
+    let mut counter = builder.define_type("Counter").unwrap();
+    counter
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::None,
+        })
+        .unwrap();
+    let counter = counter.finish().unwrap();
+    builder
+        .implement(counter, |group| {
+            group.trait_impl(marker.apply([])?, |_| Ok(()))
+        })
+        .unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
+            .unwrap();
+    let file = engine
+        .set_source(uri, source.into(), SourceLayer::Base)
+        .unwrap();
+    engine
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
+        .unwrap();
+
+    // Even the public sibling cannot be imported through the generated qualifier
+    // by an ordinary source file. Only the explicit native dependency resolves it.
+    let family = path.module.package.0.strip_prefix("source-file:").unwrap();
+    assert!(
+        engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "ordinary.kgr",
+                    format!("use __kagari_source_{family}::Visible; fn main() {{}}")
+                ),
+                Default::default(),
+            )
+            .is_err()
+    );
+}
+
+#[test]
 fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
     use kagari_runtime::{
         host::HostCallContext,
