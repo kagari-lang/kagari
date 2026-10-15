@@ -3173,6 +3173,36 @@ checks passed. No unsafe, GC root or
 execution mechanism changed; no new Miri run is needed. Full workspace and the
 complete feature/backend/platform matrix remain CI-owned.
 
+### HR02/RF05: migrate remaining container/representation root fixtures
+
+The VM native-boundary container case now installs external::External through a
+common ModuleBuilder external type declaration and reads its actual installed
+physical type. The HostTypeRegistration producer is removed. Host roots and frame
+borrows still fail Map/Set key/value insertion before mutation, with unchanged
+allocation statistics and empty containers.
+
+Runtime GC, Value and reflection tests duplicated an entire Player/hp path-view
+factory three times. They now share path_view_value in the existing layouts test
+support owner. It declares fixtures::Player and its writable i32 field once through
+common schema metadata, installs it, resolves the field's canonical ID in the runtime
+scope and creates the view through the existing checked descriptor kernel. The
+helper obtains the actual installed primitive type instead of assuming a physical
+slot. It retains the former fixture's lifetime: only representation/category or
+payload rejection is tested after its separate runtime drops; no caller dereferences
+that host path. The three legacy HostTypeRegistration/HostFieldDeclaration producers
+and their imports are removed. This changes test authoring, not heap storage or
+reference-lifetime semantics; lower-level callable consumers remain open.
+
+Focused validation: the VM native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation
+case passed (4.63 seconds). The first three runtime cases failed because the new
+fixture attempted to register i32 metadata already installed by common registration.
+Reading that existing metadata resolved all three; the affected value-category case
+was included in the rerun, and all four runtime cases passed (0.01 seconds). No
+assertion was weakened and no production kernel changed. VM native_boundary and
+runtime lib/tests scoped Clippy passed; structure checked 1254 Rust files with zero
+findings; formatting and diff checks passed. No new Miri run is needed;
+exhaustive workspace/feature/backend/platform acceptance remains CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

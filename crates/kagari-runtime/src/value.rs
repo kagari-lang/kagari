@@ -394,23 +394,9 @@ impl Value {
 mod tests {
     use super::*;
     use crate::{
-        host::{
-            DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-            HostRootHandle, HostSchemaEpoch, HostTypeRegistration,
-        },
+        host::{HostBorrowTable, HostObjectId, HostRootHandle, HostSchemaEpoch},
+        layout_fixtures::path_view_value,
         metadata::{AbiFingerprint, TypeId},
-    };
-    use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-
-    use kagari_types::{
-        declaration::{
-            host::{HostTypeOwnership, PathAccess},
-            path::HostPathSegmentDeclaration,
-        },
-        host_interface::{
-            type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-            value_type::HostValueType,
-        },
     };
 
     fn host_root(object_id: u64) -> HostRootHandle {
@@ -421,63 +407,6 @@ mod tests {
             HostSchemaEpoch::new(0),
             AbiFingerprint(1),
         )
-    }
-
-    fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
-        let result_type = TypeId::new(1);
-        let mut runtime = crate::Runtime::default();
-        let context = DefinitionContext::new().unwrap();
-        let mut declaration = HostTypeDeclaration::new(&context, "Player").unwrap();
-        declaration.ownership = HostTypeOwnership::HostRoot;
-        declaration.path_access = PathAccess::ReadWrite;
-        let mut hp =
-            HostFieldDeclaration::new(&context, declaration.id, "hp", HostValueType::I32).unwrap();
-        hp.writable = true;
-        hp.path_access = PathAccess::ReadWrite;
-        declaration.fields.push(hp);
-        let root_type = runtime
-            .register_host_type(HostTypeRegistration::new(
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap(),
-                "Player",
-            ))
-            .unwrap();
-        let root = runtime
-            .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
-            .unwrap();
-        let descriptor = runtime
-            .register_host_path_descriptor(HostPathDescriptorRegistration {
-                definitions: runtime.host().definitions(),
-                root_type,
-                result_type,
-                segments: vec![HostPathSegmentDeclaration::Field(
-                    runtime
-                        .host()
-                        .host_type(root_type)
-                        .unwrap()
-                        .declaration
-                        .fields
-                        .iter()
-                        .find(|field| field.name == "hp")
-                        .unwrap()
-                        .id,
-                )],
-                access: PathAccess::ReadWrite,
-                schema_epoch: HostSchemaEpoch::new(0),
-            })
-            .unwrap();
-        heap.alloc_host_path(
-            runtime
-                .host()
-                .make_path_view(
-                    runtime.gc(),
-                    root,
-                    descriptor,
-                    DynamicPathArguments::empty(),
-                )
-                .unwrap(),
-        )
-        .unwrap()
     }
 
     fn shared_borrow_value(heap: &GcHeap, object_id: u64) -> Value {

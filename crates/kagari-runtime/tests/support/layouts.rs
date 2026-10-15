@@ -12,23 +12,106 @@ use kagari_contract::{
 };
 use kagari_runtime::{
     Runtime,
+    gc::GcHeap,
+    host::{DynamicPathArguments, HostObjectId, HostPathDescriptorRegistration, HostSchemaEpoch},
     module::{LoadedModule, StructLayoutRef},
     native::{builder::ModuleBuilder, storage::NativeStorage},
     value::Value,
 };
 use kagari_types::{
-    declaration::TraitDef,
+    declaration::{
+        FieldDef, TraitDef,
+        host::{
+            HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
+        path::HostPathSegmentDeclaration,
+    },
+    scalar::BuiltinType,
     ty::{NominalTy, Ty},
     visibility::Visibility,
 };
 
+/// A real checked path view for GC/value/reflection representation boundaries.
+/// Its runtime is intentionally not retained: these callers inspect or reject the
+/// value as a payload and never dereference the host path.
+#[allow(dead_code)] // Shared support module is also compiled by integration tests.
+pub fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
+    let mut runtime = Runtime::default();
+    let mut module = ModuleBuilder::new("fixtures", &Default::default()).unwrap();
+    let mut player = module.define_type("Player").unwrap();
+    player
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadWrite,
+        })
+        .unwrap();
+    player
+        .field(
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                FieldDef {
+                    name: "hp".into(),
+                    ty: Ty::Builtin(BuiltinType::I32),
+                    visibility: Visibility::Public,
+                    mutable: true,
+                    host_policy: Some(HostFieldPolicy {
+                        readable: true,
+                        path_access: PathAccess::ReadWrite,
+                    }),
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    player.finish().unwrap();
+    let module = module.finish().unwrap();
+    let declared = module.to_declaration();
+    let owner = declared
+        .records()
+        .definition(DefinitionKind::Struct, "Player", declared.definitions())
+        .unwrap();
+    let field = declared
+        .definitions()
+        .lookup_child(owner, DefinitionKind::Field, "hp", 0)
+        .unwrap();
+    let field = declared.definitions().resolve(field).unwrap().to_path();
+    module.install(&mut runtime).unwrap();
+    let root_type = runtime.types().get_by_name("fixtures::Player").unwrap().id;
+    let result_type = runtime.types().get_by_name("i32").unwrap().id;
+    let definitions = runtime.host().definitions();
+    let field = definitions.lookup(&field).unwrap();
+    let root = runtime
+        .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
+        .unwrap();
+    let descriptor = runtime
+        .register_host_path_descriptor(HostPathDescriptorRegistration {
+            definitions,
+            root_type,
+            result_type,
+            segments: vec![HostPathSegmentDeclaration::Field(field)],
+            access: PathAccess::ReadWrite,
+            schema_epoch: HostSchemaEpoch::new(0),
+        })
+        .unwrap();
+    heap.alloc_host_path(
+        runtime
+            .host()
+            .make_path_view(
+                runtime.gc(),
+                root,
+                descriptor,
+                DynamicPathArguments::empty(),
+            )
+            .unwrap(),
+    )
+    .unwrap()
+}
+
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.
 pub fn interface_value(runtime: &mut Runtime) -> Value {
-    interface_value_with(
-        runtime,
-        Ty::Builtin(kagari_types::scalar::BuiltinType::I32),
-        Value::I32(7),
-    )
+    interface_value_with(runtime, Ty::Builtin(BuiltinType::I32), Value::I32(7))
 }
 
 #[allow(dead_code)] // Shared support module is also compiled by integration tests.

@@ -9,17 +9,19 @@ use kagari_common::identity::{
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    host::{HostFunction, HostObjectId, HostSchemaEpoch, HostTypeRegistration},
+    host::{HostFunction, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
     module::{LoadedModule, entry::ProgramEntry},
-    native::module::NativeModule,
+    native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
 use kagari_stdlib::{identity, namespaces};
 use kagari_types::{
     collection::CollectionAccess,
     declaration::{
-        host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+        host::{
+            HostPassingStyle, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
         module::ModuleDecl,
     },
     host_interface::{
@@ -451,17 +453,25 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         panic!("handles")
     };
     let runtime = vm.runtime_mut();
-    let context = DefinitionContext::new().unwrap();
-    let mut declaration = HostTypeDeclaration::new(&context, "External").unwrap();
-    declaration.ownership = HostTypeOwnership::HostRoot;
-    declaration.path_access = PathAccess::ReadOnly;
-    let ty = runtime
-        .register_host_type(HostTypeRegistration::new(
-            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                .unwrap(),
-            "External",
-        ))
+    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
+        .catalog()
         .unwrap();
+    let mut builder = ModuleBuilder::new("external", &catalog).unwrap();
+    let mut external = builder.define_type("External").unwrap();
+    external
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadOnly,
+        })
+        .unwrap();
+    external.finish().unwrap();
+    builder.finish().unwrap().install(runtime).unwrap();
+    let ty = runtime
+        .types()
+        .get_by_name("external::External")
+        .unwrap()
+        .id;
     let host = runtime
         .register_host_root(HostObjectId(1), ty, HostSchemaEpoch::new(0))
         .unwrap();
