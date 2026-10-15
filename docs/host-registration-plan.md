@@ -2682,6 +2682,46 @@ Remaining nominal/type/path and trait-table consumers plus legacy production own
 still block HR02/HR03/RF05 completion. Full workspace/backend/features/platforms remain
 CI-owned and unrun locally.
 
+### HR02/RF05 checkpoint: runtime roots, path values and explicit trait example
+
+The shared_host_callbacks root-lease test now binds its captured RootedValue through
+ModuleBuilder, carries the exact source-free native contract, and invokes the
+ordinary frame driver. It retains the original array across collection and verifies
+that the callback's one owning root remains after frame cleanup. The substrate path
+fixture now declares Player/hp and its path through the same module builder and
+bind_path, installs once, then creates a runtime-local root. It uses resolved physical
+types instead of the old assumed result slot. Existing category, non-storable,
+GC-payload rejection and trace-root assertions remain at their original owner.
+
+host_trait_table is now a runnable common-registration example. It registers
+Opaque<Counter>, explicitly declares Kagari Readable and its impl, marks get's shared
+receiver access, and binds a LoanContext callback calling RustReadable::read. It
+compiles source against cold declarations, encodes/decodes and validates KBC, installs
+the ordinary native modules, checks the exact Kagari trait table and invokes its
+native application with a runtime-owned Opaque root. It returns 42 and releases all
+object roots. Rust trait implementation alone adds no Kagari declaration or member.
+No runtime example now uses legacy HostInterface/HostFunction/type registration.
+
+The example initially applied ? to compiler diagnostic enums lacking Error; explicit
+checked-stage expectations fixed compilation without changing those APIs. A borrowed
+iterator over temporary LoadedModule handles also failed compilation; table counting
+now completes within each retained member's scope. The first run correctly rejected
+an unregistered Rust representation when only native storage was declared. Using the
+existing register_type::<Opaque<Counter>> schema entry supplies the local Rust mapping
+before the trait callback is bound, while explicit trait/impl/member declarations
+remain mandatory. No new registration shortcut or weakened proof was introduced.
+
+Actual focused local validation: selected GC captured-root case passed (0.01 seconds),
+substrate categories and host_objects_are_not_gc_payloads_or_trace_targets passed
+separately (under 0.01 seconds each), and cargo run -p kagari-runtime --example
+host_trait_table passed with its explicit impl/Rust callback result 42. Scoped Clippy
+for the example and these two integration targets passed. Structure passed for 1254
+files with zero violations after importing the standard module constructor directly;
+formatting and diff checks passed. No unsafe/loan/projector kernel changed, so no new
+Miri run is warranted. Remaining runtime registration/nominal/type/path fixtures,
+compiler/tooling legacy consumers and HR03 producer/format/callable retirement remain
+open; exhaustive workspace/backend/features/platform checks stay CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

@@ -2,30 +2,32 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
     gc::GcHeap,
     host::{
-        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathDescriptorRegistration,
-        HostSchemaEpoch, HostTypeRegistration,
+        DynamicPathArguments, HostBorrowTable, HostObjectId, HostPathAdapter, HostPathDescriptorId,
+        HostSchemaEpoch, PreparedHostPathWrite,
     },
     metadata::{
         AbiFingerprint, FieldInfo, FieldMetadataId, MethodInfo, MethodMetadataId, MethodOrigin,
         ParameterInfo, TraitInfo, TypeId, TypeKind, TypeRegistration,
     },
+    native::builder::ModuleBuilder,
     value::{Value, ValueCategory},
 };
 
 use kagari_types::{
     declaration::{
-        host::{HostTypeOwnership, PathAccess},
-        path::HostPathSegmentDeclaration,
-    },
-    host_interface::{
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
+        FieldDef,
+        host::{
+            HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
+        path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
     scalar::BuiltinType,
     ty::Ty,
@@ -44,48 +46,69 @@ fn host_root_value(heap: &GcHeap, object_id: u64) -> Value {
 }
 
 fn path_view_value(heap: &GcHeap, object_id: u64) -> Value {
-    let result_type = TypeId::new(1);
-    let mut runtime = kagari_runtime::Runtime::default();
-    let context = DefinitionContext::new().unwrap();
-    let mut declaration = HostTypeDeclaration::new(&context, "Player").unwrap();
-    declaration.ownership = HostTypeOwnership::HostRoot;
-    declaration.path_access = PathAccess::ReadWrite;
-    let mut hp =
-        HostFieldDeclaration::new(&context, declaration.id, "hp", HostValueType::I32).unwrap();
-    hp.writable = true;
-    hp.path_access = PathAccess::ReadWrite;
-    declaration.fields.push(hp);
-    let root_type = runtime
-        .register_host_type(HostTypeRegistration::new(
-            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                .unwrap(),
-            "Player",
-        ))
+    let mut module = ModuleBuilder::new("game", &Default::default()).unwrap();
+    let mut player = module.define_type("Player").unwrap();
+    player
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::ReadWrite,
+        })
         .unwrap();
+    player
+        .field(
+            DefinitionMetadata::checked(
+                DefinitionContext::new().unwrap().snapshot(),
+                FieldDef {
+                    name: "hp".into(),
+                    ty: Ty::Builtin(BuiltinType::I32),
+                    visibility: Visibility::Public,
+                    mutable: true,
+                    host_policy: Some(HostFieldPolicy {
+                        readable: true,
+                        path_access: PathAccess::ReadWrite,
+                    }),
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let player = player.finish().unwrap();
+    let hp = player
+        .definitions()
+        .lookup_child(player.id(), DefinitionKind::Field, "hp", 0)
+        .unwrap();
+    let path = module
+        .define_path(
+            DefinitionMetadata::checked(
+                player.definitions().clone(),
+                HostPathDeclaration {
+                    root: player.id(),
+                    segments: vec![HostPathSegmentDeclaration::Field(hp)],
+                    access: PathAccess::ReadWrite,
+                    schema_epoch: 0,
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    module
+        .bind_path(
+            &path,
+            HostPathAdapter::new()
+                .with_read(|_, _| Ok(Value::I32(10)))
+                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
+        )
+        .unwrap();
+    let mut runtime = Runtime::default();
+    module.finish().unwrap().install(&mut runtime).unwrap();
+    let root_type = runtime.types().get_by_name("game::Player").unwrap().id;
     let root = runtime
         .register_host_root(HostObjectId(object_id), root_type, HostSchemaEpoch::new(0))
         .unwrap();
-    let descriptor = runtime
-        .register_host_path_descriptor(HostPathDescriptorRegistration {
-            definitions: runtime.host().definitions(),
-            root_type,
-            result_type,
-            segments: vec![HostPathSegmentDeclaration::Field(
-                runtime
-                    .host()
-                    .host_type(root_type)
-                    .unwrap()
-                    .declaration
-                    .fields
-                    .iter()
-                    .find(|field| field.name == "hp")
-                    .unwrap()
-                    .id,
-            )],
-            access: PathAccess::ReadWrite,
-            schema_epoch: HostSchemaEpoch::new(0),
-        })
-        .unwrap();
+    let descriptor = HostPathDescriptorId::new(0);
     heap.alloc_host_path(
         runtime
             .host()

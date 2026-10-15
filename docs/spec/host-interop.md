@@ -1007,6 +1007,13 @@ implementation after the host explicitly declares or references a Kagari trait,
 registers its impl and binds each required member through the ordinary module API.
 Registering a DTO schema supplies neither those members nor Rust reference access.
 
+The [trait table example](../../crates/kagari-runtime/examples/host_trait_table.rs)
+registers runtime-owned `Opaque<Counter>` separately from a Kagari `Readable` trait
+and its explicit impl. The bound `get` callback takes a checked shared loan and calls
+Rust's `RustReadable::read`. It then compiles and decodes KBC, installs the common
+module, checks the linked trait table and invokes that native application with an
+Opaque root. Run `cargo run -p kagari-runtime --example host_trait_table`.
+
 `ModuleBuilder::reference_trait` accepts a portable declaration path and scoped
 expected `TraitDef` for a source-defined trait. It records the expectation in
 `ModuleDecl::trait_references` and returns the ordinary `TraitRef` used by

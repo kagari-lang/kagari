@@ -1,17 +1,16 @@
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+mod support;
+
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    host::HostFunction,
+    host::HostCallContext,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
     value::Value,
     value_semantics::{identity_equal, script_equal},
 };
-use kagari_types::{
-    host_interface::{HostFunctionDeclaration, value_type::HostValueType},
-    scalar::BuiltinType,
-    ty::Ty,
-};
+use kagari_types::{declaration::host::HostCallPolicy, scalar::BuiltinType, ty::Ty};
 use layouts::allocation_owner;
+use support::native::{free_function_program, invoke};
 
 #[path = "support/layouts.rs"]
 mod layouts;
@@ -206,26 +205,34 @@ fn shared_host_callbacks_can_retain_checked_root_leases() {
         )
         .unwrap();
     let retained = runtime.root_value(Value::Array(object)).unwrap();
-    let context = DefinitionContext::new().unwrap();
-    let declaration =
-        HostFunctionDeclaration::new(&context, "host.retained", vec![], HostValueType::Bool)
-            .unwrap();
-    runtime
-        .register_host_function(HostFunction::new(
-            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                .unwrap(),
-            move |cx, _| {
-                Ok(Value::Bool(
-                    retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
-                ))
-            },
-        ))
+    let mut builder = ModuleBuilder::new("host", &Default::default()).unwrap();
+    let function = builder
+        .define_function(
+            FunctionDecl::new("retained")
+                .returns(Type::bool())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                }),
+        )
         .unwrap();
+    builder
+        .bind(function, move |cx: &HostCallContext<'_>, _: &[Value]| {
+            Ok(Value::Bool(
+                retained.value(cx.runtime().gc()).unwrap() == Value::Array(object),
+            ))
+        })
+        .unwrap();
+    let module = builder.finish().unwrap();
+    let program = free_function_program(&module.to_declaration());
+    module.install(&mut runtime).unwrap();
+    let loaded = runtime.load_program("retained", program).unwrap();
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
     assert_eq!(
-        runtime.invoke_host("host.retained", &[]).unwrap(),
+        invoke(&runtime, &loaded, 0, &[]).unwrap(),
         Value::Bool(true)
     );
+    assert_eq!(runtime.gc().active_roots(), 1);
     assert_eq!(runtime.gc().array_get(object, 0), Some(Value::I32(7)));
 }
 
