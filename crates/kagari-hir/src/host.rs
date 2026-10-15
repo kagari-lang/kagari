@@ -54,8 +54,6 @@ pub mod origin;
 pub(crate) mod paths;
 
 #[cfg(test)]
-mod facade_tests;
-#[cfg(test)]
 mod tests;
 #[cfg(test)]
 mod type_tests;

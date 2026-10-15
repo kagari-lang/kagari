@@ -2938,6 +2938,32 @@ Legacy HIR host-owned query/trait/path fixtures and downstream portable/runtime
 record retirement remain open; full workspace/backend/feature/platform checks
 remain CI-owned.
 
+### HR02 checkpoint: native facade/query ownership
+
+Moved the two legacy host facade scenarios into ordinary analysis/native_facade_tests
+and replaced their HostInterface input and host_function_at queries with the
+common module/signature owner. Multi-hop re-export/import/call aliases retain one
+canonical declaration identity, unchanged snapshots retain their Arc, and changing
+the installed return type invalidates body reuse while old snapshots retain their
+old signature and documentation. The equivalent legacy snapshot test was merged
+into this semantic owner instead of duplicated; its source-revision, call-signature
+and retained-doc assertions now use the ordinary analysis APIs. Invalid import/
+call neighbor recovery moved to the same owner and retains its four diagnostic
+categories, valid neighbor types and codegen rejection. Local value shadowing and
+duplicate facade export failures remain checked. The old facade module is removed.
+
+Actual local validation: the initial two migrated facade cases passed (1.73 seconds)
+after waiting for an external IDE Cargo check's build lock; that external command
+was not started, interrupted or counted as validation by this task. Extending the
+consolidated suite passed the shadowing/recovery cases and exposed a fixture query
+at an import rather than a call. call_signature_at is now checked at the actual
+aliased call; the revised snapshot case passed (1.51 seconds), including docs and
+old/new signature assertions. Unused imports left in the reduced legacy fixture
+were removed. Scoped HIR lib/tests Clippy passed; structure checked 1254 files with
+zero findings; formatting/diff checks passed. No unsafe or execution kernel changed,
+so no new Miri run was needed. Remaining HIR legacy type/trait/origin and downstream
+portable/runtime retirement remain open. Exhaustive acceptance stays CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
