@@ -21,7 +21,7 @@ use kagari_types::{
             HostCallPolicy, HostFieldPolicy, HostPassingStyle, HostReflectionPolicy,
             HostTypeOwnership, HostTypePolicy, PathAccess,
         },
-        module::ModuleDecl,
+        module::{ImplDecl, ModuleDecl},
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
     scalar::BuiltinType,
@@ -135,6 +135,58 @@ impl Hosts {
             }),
         });
         id
+    }
+
+    fn method(&mut self, name: &str, result: Ty) -> DefinitionId {
+        let root = self
+            .context
+            .snapshot()
+            .lookup_root(&self.modules[0].identity)
+            .unwrap();
+        let owner = self
+            .context
+            .intern_child(
+                root,
+                DefinitionKind::Impl,
+                "",
+                self.modules[0].implementations.len().try_into().unwrap(),
+            )
+            .unwrap();
+        let method = self
+            .context
+            .intern_child(owner, DefinitionKind::Method, name, 0)
+            .unwrap();
+        self.modules[0].implementations.push(ImplDecl {
+            generic_params: vec![],
+            bounds: vec![],
+            trait_type: None,
+            for_type: Ty::Host(self.owners[0]),
+            methods: vec![FnDecl {
+                name: name.into(),
+                implementation: CallableImplementation::Native(method),
+                method_policy: Default::default(),
+                generic_params: vec![],
+                bounds: vec![],
+                params: vec![
+                    Param {
+                        name: "self".into(),
+                        ty: Ty::Host(self.owners[0]),
+                        mutable: false,
+                    },
+                    Param {
+                        name: "amount".into(),
+                        ty: Ty::Builtin(BuiltinType::I32),
+                        mutable: false,
+                    },
+                ],
+                return_type: result,
+                host_policy: Some(HostCallPolicy {
+                    passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+                    effects: Default::default(),
+                }),
+            }],
+        });
+        method
     }
 
     fn install(&self, database: &mut AnalysisDatabase) {
@@ -521,3 +573,5 @@ fn mixed_field_chains_resolve_the_complete_host_suffix() {
     assert_eq!(&text[read_span.start..read_span.end], "value.inner.host");
     assert_eq!(&text[write_span.start..write_span.end], "value.inner.host");
 }
+
+mod queries;

@@ -3001,6 +3001,41 @@ loan kernel changed, so no new Miri run was needed. Remaining HIR receiver/type/
 trait/origin consumers and downstream record/call retirement still block combined
 completion; full workspace/backend/feature/platform acceptance remains CI-owned.
 
+### HR02 checkpoint: shared external member/type queries
+
+The remaining four host/type_tests scenarios now live below the existing common
+external-schema fixture in analysis/native_path_tests/queries. Cold ImplDecl/FnDecl
+members use one shared receiver contract; queries retain the checked native entry
+identity, explicit shared passing policy from the provider's actual retained
+NativeDeclaration, full receiver parameter, hidden-self user signature, docs and
+correct/incorrect argument behavior. No host-catalog callable or query adapter is
+used. Nominal types navigate through genuine generated declarations and shared
+external schemas; expression types are checked separately from declaration sites.
+Re-export aliases, signature/full query agreement, terminal-only positions, old
+snapshot docs/return identities and changed-provider diagnostics remain covered.
+
+The malformed-call cases retain the declared host result and complete field schema
+while checking both wrong arity and the available incorrect scalar argument. The
+nominal restriction cases retain distinct left/right Item rejection, unavailable
+equality/construction/generic applications, value/type namespace separation,
+missing imports, incomplete member completion and valid neighbor/codegen facts.
+The legacy host/type_tests file and its module declaration are removed entirely.
+The shared fixture and child queries remain test-only ordinary Rust modules;
+there is no public forwarding surface or alternate registration model.
+
+Actual local validation: the four-case selection initially passed the method,
+invalid-call and nominal restriction cases and failed the facade case because its
+source root lacked an explicit same-package binding. That fixture correction then
+exposed use of FileAnalysis::definition_at at an import site; using the existing
+snapshot-level query at those sites passed the type/facade case (1.31 seconds).
+No production semantics were changed. Strengthening the member policy assertion
+to read the actual checked NativeDeclaration passed its focused case (2.50 seconds).
+Unused fixture mutability was removed. HIR lib/tests scoped Clippy passed; structure
+checked 1255 files with zero findings; formatting/diff checks passed. Earlier shared
+path cases remain unaffected evidence. No unsafe or loan kernel changed; no new
+Miri run was needed. HIR catalog/origin legacy producers plus downstream portable/
+runtime retirement remain open, and exhaustive acceptance stays CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

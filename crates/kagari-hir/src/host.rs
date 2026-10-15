@@ -55,8 +55,6 @@ pub(crate) mod paths;
 
 #[cfg(test)]
 mod tests;
-#[cfg(test)]
-mod type_tests;
 
 /// Scoped to one immutable declaration input, never a runtime binding slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
