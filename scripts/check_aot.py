@@ -11,7 +11,14 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(*args: str, **kwargs: object) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(args, cwd=ROOT, check=True, text=True, **kwargs)
+    try:
+        return subprocess.run(args, cwd=ROOT, check=True, text=True, **kwargs)
+    except subprocess.CalledProcessError as error:
+        if error.stdout:
+            print(error.stdout, file=sys.stderr)
+        if error.stderr:
+            print(error.stderr, file=sys.stderr)
+        raise
 
 
 def main() -> None:
@@ -22,7 +29,7 @@ def main() -> None:
     output.mkdir(parents=True, exist_ok=True)
     manifest = ["[workspace]", "[package]", 'name = "kagari-aot-consumer"',
                 'version = "0.0.0"', 'edition = "2024"', "[dependencies]"]
-    for name in ["kagari", "kagari-runtime", "kagari-vm"]:
+    for name in ["kagari", "kagari-runtime", "kagari-types", "kagari-vm"]:
         options = f'path = {json.dumps(str(ROOT / "crates" / name))}'
         if name == "kagari":
             options += ', default-features = false, features = ["aot-load"]'

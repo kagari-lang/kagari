@@ -218,7 +218,6 @@ fn default_contracts_reject_missing_templates_wrong_shapes_and_stronger_bounds()
     assert!(
         ProofCatalog::new(
             vec![(&original.table).into()],
-            vec![],
             [],
             [(original.owner, &original.contract)],
             [],
@@ -305,7 +304,6 @@ fn default_template_obligations_include_declared_parent_traits() {
     assert!(
         ProofCatalog::new(
             vec![],
-            vec![],
             [],
             [(fixture.owner, &fixture.contract), (parent_owner, &parent)],
             [&fixture.template],
@@ -317,7 +315,6 @@ fn default_template_obligations_include_declared_parent_traits() {
     fixture.contract.supertraits.clear();
     assert!(
         ProofCatalog::new(
-            vec![],
             vec![],
             [],
             [(fixture.owner, &fixture.contract), (parent_owner, &parent)],
