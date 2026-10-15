@@ -39,7 +39,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use support::native::{invoke, program::free_function_program};
+use support::native::{invoke::invoke, program::free_function_program};
 
 pub fn scoped<T>(definitions: &DefinitionTable, records: T) -> DefinitionMetadata<T>
 where

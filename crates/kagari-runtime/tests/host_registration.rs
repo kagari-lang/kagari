@@ -27,7 +27,7 @@ use kagari_types::{
     visibility::Visibility,
 };
 use std::sync::{Arc, Mutex};
-use support::native::{invoke, program::free_function_program};
+use support::native::{invoke::invoke, program::free_function_program};
 
 fn player(module: &mut ModuleBuilder, reflection: HostReflectionPolicy, field: bool) -> TypeRef {
     let mut player = module.define_type("Player").unwrap();

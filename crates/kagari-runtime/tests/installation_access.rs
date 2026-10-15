@@ -31,7 +31,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
 use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
 use std::collections::BTreeSet;
-use support::native::{invoke, program::free_function_program};
+use support::native::{invoke::invoke, program::free_function_program};
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {

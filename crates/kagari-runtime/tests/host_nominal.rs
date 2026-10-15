@@ -46,7 +46,7 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use support::native::{invoke, program::free_function_program};
+use support::native::{invoke::invoke, program::free_function_program};
 
 fn field(name: &str, ty: Ty, access: PathAccess, visibility: Visibility) -> FieldDef {
     FieldDef {

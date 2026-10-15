@@ -32,7 +32,7 @@ use std::{
     cell::Cell,
     panic::{AssertUnwindSafe, catch_unwind},
 };
-use support::native::{invoke, program::free_function_program};
+use support::native::{invoke::invoke, program::free_function_program};
 
 fn runtime() -> Runtime {
     Runtime::new(RuntimeConfig {

@@ -4,15 +4,17 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{
-    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionTable,
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
-    host::{HostFunction, HostObjectId, HostSchemaEpoch},
+    host::{HostCallContext, HostObjectId, HostSchemaEpoch},
     metadata::TypeId,
     module::{LoadedModule, entry::ProgramEntry},
-    native::{builder::ModuleBuilder, module::NativeModule},
+    native::{
+        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
+    },
     value::Value,
 };
 use kagari_stdlib::{identity, namespaces};
@@ -20,23 +22,52 @@ use kagari_types::{
     collection::CollectionAccess,
     declaration::{
         host::{
-            HostPassingStyle, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+            HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
+            HostTypeOwnership, HostTypePolicy, PathAccess,
         },
         module::ModuleDecl,
     },
-    host_interface::{
-        HostFunctionDeclaration, HostParameter, type_declaration::HostTypeDeclaration,
-        value_type::HostValueType as Type,
-    },
     language::binding,
     scalar::BuiltinType,
-    ty::Ty,
+    ty::{NominalTy, Ty},
 };
 use kagari_vm::vm::Vm;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+// Reuse the runtime contract owners without another invocation or ABI implementation.
+#[path = "../../../kagari-runtime/tests/support/native/invoke.rs"]
+mod native_invocation;
+#[path = "../../../kagari-runtime/tests/support/native/program.rs"]
+mod native_program;
+
+fn host_policy(parameters: usize) -> HostCallPolicy {
+    HostCallPolicy {
+        passing: vec![HostPassingStyle::Owned; parameters],
+        effects: HostFunctionEffects {
+            may_allocate: true,
+            ..Default::default()
+        },
+    }
+}
+
+fn native_slot(
+    runtime: &Runtime,
+    owner: &LoadedModule,
+    provider: &NativeModule,
+    name: &str,
+) -> usize {
+    let query = super::support::declaration_query(provider, DefinitionKind::Function, name);
+    let declaration = runtime.host().definitions().lookup(&query).unwrap();
+    owner
+        .bytecode
+        .native_imports
+        .iter()
+        .position(|import| import.instance.declaration == declaration)
+        .unwrap()
+}
 
 fn runtime() -> Runtime {
     let mut runtime = Runtime::new(RuntimeConfig::default());
@@ -60,23 +91,6 @@ fn allocation_owner(runtime: &mut Runtime) -> LoadedModule {
             .unwrap(),
         )
         .unwrap()
-}
-
-fn echo(
-    name: &str,
-    ty: Type,
-    definitions: &DefinitionTable,
-) -> DefinitionMetadata<HostFunctionDeclaration> {
-    signature(
-        name,
-        vec![HostParameter {
-            name: "value".into(),
-            ty: ty.clone(),
-            passing: HostPassingStyle::Owned,
-        }],
-        ty,
-        definitions,
-    )
 }
 
 #[test]
@@ -164,7 +178,10 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
     };
     let cases = [
         (
-            Type::Tuple(vec![Type::Array(Box::new(Type::I32)), Type::String]),
+            Ty::Tuple(vec![
+                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+                Ty::Builtin(BuiltinType::String),
+            ]),
             runtime
                 .gc()
                 .alloc_tuple(vec![
@@ -180,53 +197,60 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
                 ])
                 .unwrap(),
         ),
-        (Type::Array(Box::new(Type::I32)), *array, *wrong_array),
-        (Type::Array(Box::new(Type::I32)), *array, *vector),
         (
-            Type::Vec(
-                ModuleDecl::new(namespaces::type_owner("Vec"))
+            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+            *array,
+            *wrong_array,
+        ),
+        (
+            Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+            *array,
+            *vector,
+        ),
+        (
+            Ty::NativeObject(NominalTy {
+                declaration: ModuleDecl::new(namespaces::type_owner("Vec"))
                     .definition(DefinitionKind::AssociatedType, "Vec", &definitions)
                     .unwrap(),
-                Box::new(Type::I32),
-            ),
+                arguments: vec![Ty::Builtin(BuiltinType::I32)],
+                associated_types: Default::default(),
+            }),
             *vector,
             *array,
         ),
         (
-            Type::List(
-                definitions.lookup(&identity::trait_id("List")).unwrap(),
-                Box::new(Type::I32),
-            ),
+            Ty::Trait(NominalTy {
+                declaration: definitions.lookup(&identity::trait_id("List")).unwrap(),
+                arguments: vec![Ty::Builtin(BuiltinType::I32)],
+                associated_types: Default::default(),
+            }),
             *list,
             *vector,
         ),
         (
-            Type::Map {
+            Ty::Map {
                 access: CollectionAccess::Mutable,
-                key: Box::new(Type::String),
-                value: Box::new(Type::Array(Box::new(Type::I32))),
+                key: Box::new(Ty::Builtin(BuiltinType::String)),
+                value: Box::new(Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32)))),
             },
             *map,
             *wrong_map,
         ),
         (
-            Type::Set(Box::new(Type::String), CollectionAccess::Mutable),
+            Ty::Set(
+                Box::new(Ty::Builtin(BuiltinType::String)),
+                CollectionAccess::Mutable,
+            ),
             *set,
             *wrong_set,
         ),
         (
-            Type::Option(
-                definitions.lookup(&binding::option_declaration()).unwrap(),
-                Box::new(Type::I32),
-            ),
+            binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
             some(Value::I32(7)),
             some(Value::Bool(true)),
         ),
         (
-            Type::Option(
-                definitions.lookup(&binding::option_declaration()).unwrap(),
-                Box::new(Type::I32),
-            ),
+            binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
             enumeration(
                 binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
                 "None",
@@ -235,10 +259,7 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             result("Ok", Value::I32(7)),
         ),
         (
-            Type::Option(
-                definitions.lookup(&binding::option_declaration()).unwrap(),
-                Box::new(Type::I32),
-            ),
+            binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
             enumeration(
                 binding::option(&definitions, Ty::Builtin(BuiltinType::I32)).unwrap(),
                 "None",
@@ -251,59 +272,101 @@ fn nested_arguments_and_results_obey_the_complete_host_signature() {
             ),
         ),
         (
-            Type::Result {
-                declaration: definitions.lookup(&binding::result_declaration()).unwrap(),
-                ok: Box::new(Type::I32),
-                error: Box::new(Type::String),
-            },
+            binding::result(
+                &definitions,
+                Ty::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::String),
+            )
+            .unwrap(),
             result("Ok", Value::I32(7)),
             result("Err", Value::I32(7)),
         ),
         (
-            Type::Result {
-                declaration: definitions.lookup(&binding::result_declaration()).unwrap(),
-                ok: Box::new(Type::I32),
-                error: Box::new(Type::String),
-            },
+            binding::result(
+                &definitions,
+                Ty::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::String),
+            )
+            .unwrap(),
             result("Err", runtime.gc().alloc_string("error".into()).unwrap()),
             some(Value::I32(7)),
         ),
     ];
+    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
+        .catalog()
+        .unwrap();
+    let mut builder = ModuleBuilder::new("fixtures::composites", &catalog).unwrap();
+    let mut source =
+        String::from("use std::collections::{HashMap, HashSet, List}; use fixtures::composites;\n");
+    let syntax = [
+        "([i32], String)",
+        "[i32]",
+        "[i32]",
+        "Vec<i32>",
+        "List<i32>",
+        "HashMap<String,[i32]>",
+        "HashSet<String>",
+        "Option<i32>",
+        "Option<i32>",
+        "Option<i32>",
+        "Result<i32,String>",
+        "Result<i32,String>",
+    ];
+    let mut checks = Vec::new();
     for (index, (ty, good, bad)) in cases.into_iter().enumerate() {
+        let ty = Type::from_semantic(ty, &definitions).unwrap();
         let calls = Arc::new(AtomicUsize::new(0));
         let called = calls.clone();
-        let id = runtime
-            .register_host_function(HostFunction::new(
-                echo(&format!("host.echo{index}"), ty.clone(), &definitions),
-                move |_, args| {
-                    called.fetch_add(1, Ordering::SeqCst);
-                    Ok(args[0])
-                },
-            ))
+        let echo = builder
+            .define_function(
+                FunctionDecl::new(format!("echo{index}"))
+                    .parameter("value", ty.clone())
+                    .returns(ty.clone())
+                    .host_policy(host_policy(1)),
+            )
             .unwrap();
+        builder
+            .bind(echo, move |_: &HostCallContext<'_>, args: &[Value]| {
+                called.fetch_add(1, Ordering::SeqCst);
+                Ok(args[0])
+            })
+            .unwrap();
+        let called = calls.clone();
+        let output = builder
+            .define_function(
+                FunctionDecl::new(format!("bad{index}"))
+                    .returns(ty)
+                    .host_policy(host_policy(0)),
+            )
+            .unwrap();
+        builder
+            .bind(output, move |_: &HostCallContext<'_>, _: &[Value]| {
+                called.fetch_add(1, Ordering::SeqCst);
+                Ok(bad)
+            })
+            .unwrap();
+        let ty = syntax[index];
+        source.push_str(&format!(
+            "fn echo{index}(value: {ty}) -> {ty} {{ composites::echo{index}(value) }} fn bad{index}() -> {ty} {{ composites::bad{index}() }}\n"
+        ));
+        checks.push((good, bad, calls));
+    }
+    let provider = builder.finish().unwrap();
+    let program = compile_program(&source, Some(&provider));
+    provider.install(runtime).unwrap();
+    let owner = runtime
+        .load_program("composite-boundaries", program)
+        .unwrap();
+    for (index, (good, bad, calls)) in checks.into_iter().enumerate() {
+        let echo = native_slot(runtime, &owner, &provider, &format!("echo{index}"));
+        let output = native_slot(runtime, &owner, &provider, &format!("bad{index}"));
         assert_eq!(
-            runtime
-                .invoke_bound_host(id, std::slice::from_ref(&good))
-                .unwrap(),
+            native_invocation::invoke(runtime, &owner, echo, &[good]).unwrap(),
             good
         );
-        assert!(
-            runtime
-                .invoke_bound_host(id, std::slice::from_ref(&bad))
-                .is_err()
-        );
+        assert!(native_invocation::invoke(runtime, &owner, echo, &[bad]).is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-        let called = calls.clone();
-        let output = runtime
-            .register_host_function(HostFunction::new(
-                signature(format!("host.bad{index}"), vec![], ty, &definitions),
-                move |_, _| {
-                    called.fetch_add(1, Ordering::SeqCst);
-                    Ok(bad)
-                },
-            ))
-            .unwrap();
-        assert!(runtime.invoke_bound_host(output, &[]).is_err());
+        assert!(native_invocation::invoke(runtime, &owner, output, &[]).is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 2);
     }
 }
@@ -314,28 +377,42 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
     let owner = allocation_owner(&mut runtime);
     let calls = Arc::new(AtomicUsize::new(0));
     let called = calls.clone();
-    let id = runtime
-        .register_host_function(HostFunction::new(
-            echo(
-                "host.echo",
-                Type::Tuple(vec![Type::Array(Box::new(Type::I32))]),
-                &runtime.host().definitions(),
-            ),
-            move |context, args| {
+    let mut builder = ModuleBuilder::new("fixtures::rooted", &Default::default()).unwrap();
+    let ty = Type::tuple([Type::from_semantic(
+        Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+        &DefinitionContext::new().unwrap().snapshot(),
+    )
+    .unwrap()])
+    .unwrap();
+    let echo = builder
+        .define_function(
+            FunctionDecl::new("echo")
+                .parameter("value", ty.clone())
+                .returns(ty)
+                .host_policy(host_policy(1)),
+        )
+        .unwrap();
+    builder
+        .bind(
+            echo,
+            move |context: &HostCallContext<'_>, args: &[Value]| {
                 called.fetch_add(1, Ordering::SeqCst);
                 context.runtime().collect_garbage().unwrap();
                 Ok(args[0])
             },
-        ))
+        )
         .unwrap();
+    let provider = builder.finish().unwrap();
+    let program = native_program::free_function_program(&provider.to_declaration());
+    provider.install(&mut runtime).unwrap();
+    let entry = runtime.load_program("rooted-composite", program).unwrap();
+    let id = native_slot(&runtime, &entry, &provider, "echo");
     let array = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
     let value = runtime.gc().alloc_tuple(vec![Value::Array(array)]).unwrap();
     assert_eq!(
-        runtime
-            .invoke_bound_host(id, std::slice::from_ref(&value))
-            .unwrap(),
+        native_invocation::invoke(&runtime, &entry, id, std::slice::from_ref(&value)).unwrap(),
         value
     );
     assert!(runtime.gc().array_snapshot(array).is_some());
@@ -354,10 +431,10 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
                 .unwrap(),
         )])
         .unwrap();
-    assert!(runtime.invoke_bound_host(id, &[foreign]).is_err());
+    assert!(native_invocation::invoke(&runtime, &entry, id, &[foreign]).is_err());
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc().array_snapshot(array).is_none());
-    assert!(runtime.invoke_bound_host(id, &[value]).is_err());
+    assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
     assert_eq!(calls.load(Ordering::SeqCst), 1);
 }
 
@@ -365,26 +442,36 @@ fn composite_arguments_are_rooted_during_callbacks_and_reject_foreign_or_stale_h
 fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
     let mut runtime = runtime();
     let owner = allocation_owner(&mut runtime);
-    let context = DefinitionContext::new().unwrap();
-    let object = HostTypeDeclaration::new(&context, "host.Object")
-        .unwrap()
-        .id;
-    let definitions = context.snapshot();
-    let id = runtime
-        .register_host_function(HostFunction::new(
-            signature(
-                "host.consume",
-                vec![HostParameter {
-                    name: "value".into(),
-                    ty: Type::Tuple(vec![Type::Tuple(vec![Type::Opaque(object)])]),
-                    passing: HostPassingStyle::Owned,
-                }],
-                Type::Unit,
-                &definitions,
-            ),
-            |_, _| panic!("an owned parameter must reject nested borrows before the callback"),
-        ))
+    let mut builder = ModuleBuilder::new("fixtures::escape", &Default::default()).unwrap();
+    let mut object = builder.define_type("Object").unwrap();
+    object
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Hidden,
+            path_access: PathAccess::None,
+        })
         .unwrap();
+    let object = object.finish().unwrap();
+    let consume = builder
+        .define_function(
+            FunctionDecl::new("consume")
+                .parameter(
+                    "value",
+                    Type::tuple([Type::tuple([object.apply([]).unwrap()]).unwrap()]).unwrap(),
+                )
+                .host_policy(host_policy(1)),
+        )
+        .unwrap();
+    builder
+        .bind(consume, |_: &HostCallContext<'_>, _: &[Value]| {
+            panic!("an owned parameter must reject nested borrows before the callback")
+        })
+        .unwrap();
+    let provider = builder.finish().unwrap();
+    let program = native_program::free_function_program(&provider.to_declaration());
+    provider.install(&mut runtime).unwrap();
+    let entry = runtime.load_program("owned-composite", program).unwrap();
+    let id = native_slot(&runtime, &entry, &provider, "consume");
     for unique in [false, true] {
         let scope = runtime.host_scope(&[]).unwrap();
         let value = if unique {
@@ -413,8 +500,7 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
             .alloc_tuple(vec![runtime.gc().alloc_tuple(vec![value]).unwrap()])
             .unwrap();
         assert_eq!(
-            runtime
-                .invoke_bound_host(id, std::slice::from_ref(&value))
+            native_invocation::invoke(&runtime, &entry, id, std::slice::from_ref(&value))
                 .unwrap_err()
                 .kind(),
             RuntimeErrorKind::HostBorrowEscape
@@ -425,7 +511,7 @@ fn owned_composites_cannot_hide_frame_scoped_host_borrows() {
                 .is_err()
         );
         drop(scope);
-        assert!(runtime.invoke_bound_host(id, &[value]).is_err());
+        assert!(native_invocation::invoke(&runtime, &entry, id, &[value]).is_err());
     }
     assert!(!runtime.is_quarantined());
 }
@@ -491,26 +577,4 @@ fn native_hash_payloads_reject_host_roots_and_frame_borrows_before_mutation() {
         assert_eq!(heap.map_len(*map), Some(0));
         assert_eq!(heap.set_len(*set), Some(0));
     }
-}
-
-fn signature(
-    name: impl Into<String>,
-    parameters: Vec<HostParameter>,
-    result: Type,
-    definitions: &DefinitionTable,
-) -> DefinitionMetadata<HostFunctionDeclaration> {
-    let context = DefinitionContext::new().unwrap();
-    let parameters =
-        DefinitionMetadata::checked(definitions.clone(), parameters, &Default::default())
-            .unwrap()
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
-    let result = DefinitionMetadata::checked(definitions.clone(), result, &Default::default())
-        .unwrap()
-        .import_into(&context, &Default::default())
-        .unwrap()
-        .into_records();
-    let declaration = HostFunctionDeclaration::new(&context, name, parameters, result).unwrap();
-    DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap()
 }

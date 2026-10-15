@@ -10,7 +10,7 @@ use kagari_runtime::{
 };
 use kagari_types::{declaration::host::HostCallPolicy, scalar::BuiltinType, ty::Ty};
 use layouts::allocation_owner;
-use support::native::{invoke, program::free_function_program};
+use support::native::{invoke::invoke, program::free_function_program};
 
 #[path = "support/layouts.rs"]
 mod layouts;

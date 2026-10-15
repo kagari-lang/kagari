@@ -3420,6 +3420,32 @@ formatting and diff checks passed. No unsafe, GC roots or loan kernel changed;
 existing Miri evidence remains applicable. Legacy composite fixtures and production
 registration/portable retirement remain open; exhaustive matrix acceptance is CI-owned.
 
+### HR02/RF05: migrate the remaining VM composite function consumers
+
+The last three VM consumers of register_host_function/invoke_bound_host now
+use common FunctionDecl/Type authoring, bind and NativeModule installation.
+The twelve nested signature cases share one explicit module and source wrappers
+compiled against its cold declarations, including tuple/array, Vec versus array,
+List versus concrete Vec, map/set and nominal Option/Result distinctions. Entry
+slots resolve exact declared identities. Wrong inputs still reject before the
+callback, wrong results after it, with the original exact call counts.
+
+The source-free composite root and borrow-escape fixtures use the same cold
+program factory as runtime boundary tests. Their native execution driver now has
+its own shared test module, reused through a justified cross-target `#[path]`.
+It enters ordinary ExecutionStack frames; no alternate invocation or value
+validation semantics were introduced. The live-GC case still retains argument
+arrays during callbacks and rejects foreign/stale handles. Nested scoped borrows
+still return HostBorrowEscape before callback entry and cannot enter array storage;
+scope exit leaves the runtime usable.
+
+An initial mechanical replacement also matched scalar names inside BuiltinType;
+the nine compile diagnostics were repaired before execution. All three selected
+VM integration tests then passed (9.29 seconds). VM native_boundary and seven
+affected runtime integration targets passed scoped Clippy. Structure, formatting
+and diff checks passed. Production function-table/type-schema and portable legacy
+retirement remain the next HR03 work; the exhaustive matrix stays CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
