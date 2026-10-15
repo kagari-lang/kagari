@@ -379,6 +379,50 @@ fn reflection_helpers_reject_unknown_members_and_invalid_index_targets_in_hir() 
 }
 
 #[test]
+fn reflection_helpers_reject_scoped_views_without_hiding_argument_errors() {
+    for (receiver, body, extra_errors) in [
+        ("Ref<Point>", "get_field(point, \"x\");", 0),
+        ("RefMut<Point>", "get_field(point, \"x\");", 0),
+        ("Ref<Point>", "set_field(point, \"x\", 7);", 0),
+        ("RefMut<Point>", "set_field(point, \"x\", 7);", 0),
+        (
+            "Ref<Point>",
+            "set_field(point, missing_name, missing_value);",
+            2,
+        ),
+    ] {
+        let source =
+            format!("struct Point {{ var x: i32 }} fn bad(point: {receiver}) {{ {body} }}");
+        let analysis = crate::analyze_source(
+            &SourceFile::new("reflection-views.kgr", source.clone()),
+            foundation_catalog::shared().unwrap(),
+        )
+        .unwrap();
+        let diagnostics = analysis.diagnostics();
+        assert_eq!(
+            diagnostics.len(),
+            1 + extra_errors,
+            "{source}: {diagnostics:?}"
+        );
+        let invalid = diagnostics
+            .iter()
+            .find(|d| matches!(d.kind, DiagnosticKind::InvalidReference { .. }))
+            .unwrap_or_else(|| panic!("{source}: {diagnostics:?}"));
+        let span = invalid.span.unwrap();
+        assert_eq!(span.start, source.rfind("point").unwrap());
+        assert_eq!(span.end, span.start + "point".len());
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|d| matches!(d.kind, DiagnosticKind::UnknownName { .. }))
+                .count(),
+            extra_errors
+        );
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
 fn reflection_helpers_do_not_cascade_errors_from_unknown_operands() {
     for body in [
         "get_field(missing, \"x\");",

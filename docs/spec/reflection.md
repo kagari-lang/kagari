@@ -302,6 +302,13 @@ type_of(player).field("info").field("level").set(player, 12)
 
 Reflection metadata may help build or validate path descriptors, but execution uses resolved `PathId` values and host adapters rather than string field lookup.
 
+The current `get_field` and `set_field` helpers accept supported Kagari heap
+objects, including ordinary structs declared by Native Modules. They do not
+accept scoped `Ref<T>` or `RefMut<T>` views of host storage; source checking
+rejects those receivers. Use declared typed field access such as `player.hp`
+for a view, subject to its shared/mutable capability and member exposure.
+Host type metadata alone does not install a reflective access adapter.
+
 This distinction is important for:
 
 - static type checking

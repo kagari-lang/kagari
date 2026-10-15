@@ -203,7 +203,9 @@ The activated interop review fixes have three bounded checkpoints:
   The SDK regression reproduced the rejected old descriptor before the fix;
   SDK `scoped_calls` (2 tests) and runtime `host_scopes` (11 tests) pass, covering
   shared arguments, mutable receivers, pinned code and loan cleanup/ownership.
-- [ ] R2: reject field reflection on scoped views during source checking.
+- [x] R2: reject field reflection on scoped views during source checking.
+  The HIR reproduction failed before the fix; the 8 selected `reflection` tests
+  pass, including receiver diagnostics, argument recovery and member navigation.
 - [ ] R3: validate reference positions in applied callable signatures.
 
 Local validation selects SDK `scoped_calls`, runtime `host_scopes` and HIR
