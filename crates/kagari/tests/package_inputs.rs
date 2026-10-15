@@ -6,10 +6,7 @@ use kagari::{
     error::EmbeddingError,
     program::PreparedProgram,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{map::DefinitionContext, metadata::DefinitionMetadata},
-};
+use kagari_common::cancellation::CancellationToken;
 use kagari_package::{
     filesystem::FilesystemSources,
     input::InputTree,
@@ -19,10 +16,13 @@ use kagari_package::{
     snapshot::ProgramInputs,
     workspace::MemberSelection,
 };
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+use kagari_runtime::{
+    module::entry::ProgramEntry,
+    native::{
+        builder::ModuleBuilder, context::CallContext, declarations::FunctionDecl, types::Type,
+    },
 };
+use kagari_stdlib::declarations::StandardDeclarations;
 use std::{
     fs,
     path::PathBuf,
@@ -270,22 +270,23 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         44
     );
     assert_eq!(runtime.call(&pinned, (), &Default::default()).unwrap(), 42);
-    let definitions = DefinitionContext::new().unwrap();
-    let interface = HostInterface {
-        functions: vec![
-            HostFunctionDeclaration::new(&definitions, "unused.number", vec![], HostValueType::I32)
-                .unwrap(),
-        ],
-        ..Default::default()
-    };
-    engine
-        .set_host_interface(
-            DefinitionMetadata::checked(definitions.snapshot(), interface, &cancel).unwrap(),
-        )
+    let mut builder = ModuleBuilder::new(
+        "unused",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap();
+    let number = builder
+        .define_function(FunctionDecl::new("number").returns(Type::i32()))
         .unwrap();
+    builder
+        .bind(number, |_: &mut CallContext<'_>| Ok(1i32))
+        .unwrap();
+    let configured =
+        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
+            .unwrap();
+    let configured_fingerprint = configured.package_fingerprint(inputs, &cancel).unwrap();
     assert_ne!(
-        fingerprint,
-        engine.package_fingerprint(inputs, &cancel).unwrap(),
+        fingerprint, configured_fingerprint,
         "provider changes invalidate even unchanged source"
     );
     assert_eq!(
@@ -293,9 +294,9 @@ fn captured_packages_share_the_sdk_pipeline_and_retain_generations() {
         Some(fingerprint.as_str()),
         "checked input identity is retained"
     );
-    let isolated = engine.new_session(Default::default());
+    let isolated = configured.new_session(Default::default());
     assert_eq!(
-        fingerprint,
+        configured_fingerprint,
         isolated.package_fingerprint(inputs, &cancel).unwrap(),
         "fresh sessions retain only native providers"
     );

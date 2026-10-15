@@ -6,20 +6,19 @@ use kagari::{
 };
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_codegen_cranelift::CraneliftBackend;
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::map::DefinitionContext;
 use kagari_runtime::{
-    host::HostFunction,
+    host::HostCallContext,
     module::entry::ProgramEntry,
-    native::{conversion::context::ConversionContext, types::Type},
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, declarations::FunctionDecl,
+        types::Type,
+    },
     value::Value,
 };
 use kagari_source::source::SourceFile;
 use kagari_stdlib::declarations::StandardDeclarations;
-use kagari_types::{
-    host_interface::{HostFunctionDeclaration, HostInterface, value_type::HostValueType},
-    scalar::BuiltinType,
-    ty::Ty,
-};
+use kagari_types::{declaration::host::HostCallPolicy, scalar::BuiltinType};
 use std::sync::{Arc, Mutex};
 
 fn execute(source: &str) {
@@ -153,46 +152,37 @@ fn shifts_reject_negative_and_width_counts() {
 
 #[test]
 fn failed_shift_keeps_target_and_completed_rhs_effects() {
-    let definitions = DefinitionContext::new().unwrap();
-    let vector = StandardDeclarations::default().vec(Type::i32()).unwrap();
-    let Ty::NativeObject(vector) = DefinitionMetadata::checked(
-        vector.definitions().unwrap().clone(),
-        vector.abi().clone(),
-        &Default::default(),
-    )
-    .unwrap()
-    .import_into(&definitions, &Default::default())
-    .unwrap()
-    .into_records() else {
-        panic!("Vec declaration");
-    };
-    let declaration = HostFunctionDeclaration::new(
-        &definitions,
-        "demo.memory",
-        vec![],
-        HostValueType::Vec(vector.declaration, Box::new(HostValueType::I32)),
-    )
-    .unwrap();
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(
-            DefinitionMetadata::checked(
-                definitions.snapshot(),
-                HostInterface {
-                    functions: vec![declaration.clone()],
-                    ..Default::default()
-                },
-                &Default::default(),
-            )
-            .unwrap(),
+    let standard = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new("demo", &standard.catalog().unwrap()).unwrap();
+    let memory = builder
+        .define_function(
+            FunctionDecl::new("memory")
+                .returns(standard.vec(Type::i32()).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                }),
         )
         .unwrap();
+    let memory_slot = Arc::new(Mutex::new(None));
+    let captured_memory = memory_slot.clone();
+    builder
+        .bind(memory, move |_: &HostCallContext<'_>, _: &[Value]| {
+            Ok(Value::GcHandle(
+                captured_memory.lock().unwrap().expect("initialized memory"),
+            ))
+        })
+        .unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
+            .unwrap();
 
     let artifact = engine
         .compile_to_artifact(
             SourceFile::new(
                 "commit.kgr",
                 r#"
+        use demo;
         fn index(log: Vec<i32>) -> usize { log.push(1); 0usize }
         fn count(log: Vec<i32>) -> u16 { log.push(2); 32u16 }
         fn main() { val memory = demo::memory(); memory[index(memory)] <<= count(memory); }
@@ -206,19 +196,6 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
     };
 
     let mut runtime = engine.runtime(context.clone());
-    let memory_slot = Arc::new(Mutex::new(None));
-    let captured_memory = memory_slot.clone();
-    runtime
-        .register_host_function(HostFunction::new(
-            DefinitionMetadata::checked(definitions.snapshot(), declaration, &Default::default())
-                .unwrap(),
-            move |_, _| {
-                Ok(Value::GcHandle(
-                    captured_memory.lock().unwrap().expect("initialized memory"),
-                ))
-            },
-        ))
-        .unwrap();
     let loaded_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime

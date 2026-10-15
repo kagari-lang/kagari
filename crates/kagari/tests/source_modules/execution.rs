@@ -6,13 +6,10 @@ use kagari_bytecode::{
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::{host::HostFunction, module::ModuleEpochRetention, session::TraceValue};
+use kagari_runtime::{module::ModuleEpochRetention, session::TraceValue};
 
 use kagari::program::PreparedProgram;
-use std::{
-    collections::HashSet,
-    sync::{Arc, Mutex},
-};
+use std::collections::HashSet;
 
 #[test]
 fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
@@ -44,7 +41,7 @@ fn unused_dependency_body_errors_prevent_compilation_with_owned_locations() {
 
 #[test]
 fn execution_report_records_code_inputs_and_ordered_host_results() {
-    let (engine, artifact, mut context, declaration) = host_fixture();
+    let (engine, artifact, mut context, _) = host_fixture();
     context.tracing_enabled = true;
     context.inputs.unix_time_millis = 31_415;
     context.inputs.random_seed = 27;
@@ -54,12 +51,6 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
     let mut traces = Vec::new();
     for artifact in [artifact, decoded] {
         let mut runtime = engine.runtime(context.clone());
-        runtime
-            .register_host_function(HostFunction::new(
-                declaration.clone(),
-                |_, args| Ok(args[0]),
-            ))
-            .unwrap();
         let loaded_program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
@@ -100,7 +91,7 @@ fn execution_report_records_code_inputs_and_ordered_host_results() {
 
 #[test]
 fn dependency_bindings_are_checked_before_execution() {
-    let (engine, _, context, declaration) = host_fixture();
+    let (engine, _, context, calls) = host_fixture();
     let root = insert(
         &engine,
         "root",
@@ -109,13 +100,12 @@ fn dependency_bindings_are_checked_before_execution() {
     let artifact = compile(&engine, root);
     assert!(
         artifact.records().program.modules[artifact.records().program.root.index()]
-            .host_interface
-            .functions
+            .native_imports
             .is_empty()
     );
-    let mut runtime = engine.runtime(context.clone());
+    let mut missing = KagariEngine::default().runtime(context.clone());
     assert!(
-        runtime
+        missing
             .load_program(
                 &PreparedProgram::from_artifact(
                     artifact.clone(),
@@ -127,15 +117,8 @@ fn dependency_bindings_are_checked_before_execution() {
             )
             .is_err()
     );
-    assert_eq!(runtime.runtime().modules().loaded_count(), 0);
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let recorded = calls.clone();
-    runtime
-        .register_host_function(HostFunction::new(declaration, move |_, args| {
-            recorded.lock().unwrap().push(args[0]);
-            Ok(args[0])
-        }))
-        .unwrap();
+    assert_eq!(missing.runtime().modules().loaded_count(), 0);
+    let mut runtime = engine.runtime(context.clone());
     let loaded_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime

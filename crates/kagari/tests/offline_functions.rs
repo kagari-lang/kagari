@@ -5,52 +5,57 @@ use kagari::{
     runtime::LoadOptions,
 };
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_common::identity::{
-    ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
-};
+use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::{host::HostFunction, value::Value};
-use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_types::{
-    declaration::host::HostPassingStyle,
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType,
+use kagari_runtime::{
+    host::HostCallContext,
+    native::{
+        builder::ModuleBuilder, declarations::FunctionDecl, module::NativeModule, types::Type,
     },
+    value::Value,
 };
+use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::declaration::host::{HostCallPolicy, HostPassingStyle};
 use std::sync::{Arc, Mutex};
 
-fn declaration() -> DefinitionMetadata<HostFunctionDeclaration> {
-    let context = DefinitionContext::new().unwrap();
-    let declaration = HostFunctionDeclaration::new(
-        &context,
-        "demo.echo",
-        vec![HostParameter {
-            name: "value".into(),
-            ty: HostValueType::I32,
-            passing: HostPassingStyle::Owned,
-        }],
-        HostValueType::I32,
-    )
-    .unwrap();
-    DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default()).unwrap()
+fn echo_module(result: Type, calls: Arc<Mutex<Vec<i32>>>) -> NativeModule {
+    let returns_bool = result.abi() == Type::bool().abi();
+    let mut builder =
+        ModuleBuilder::new("demo", &StandardDeclarations::default().catalog().unwrap()).unwrap();
+    let echo = builder
+        .define_function(
+            FunctionDecl::new("echo")
+                .parameter("value", Type::i32())
+                .returns(result)
+                .host_policy(HostCallPolicy {
+                    passing: vec![HostPassingStyle::Owned],
+                    effects: Default::default(),
+                }),
+        )
+        .unwrap();
+    builder
+        .bind(echo, move |_: &HostCallContext<'_>, args: &[Value]| {
+            let [Value::I32(value)] = args else {
+                unreachable!()
+            };
+            calls.lock().unwrap().push(*value);
+            Ok(if returns_bool {
+                Value::Bool(true)
+            } else {
+                Value::I32(value + 1)
+            })
+        })
+        .unwrap();
+    builder.finish().unwrap()
 }
 
 #[test]
 fn offline_host_facades_preserve_linking_and_backend_call_traces() {
-    let engine = KagariEngine::default();
-    let definition = declaration();
-    let interface = interface(&definition);
-    engine
-        .set_host_interface(
-            HostInterface::from_bytes(
-                &interface
-                    .records()
-                    .to_bytes(interface.definitions())
-                    .unwrap(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let module = echo_module(Type::i32(), calls.clone());
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), vec![module.clone()]).unwrap();
     let mut root = None;
     for (name, source) in [
         ("facade", "pub use demo::echo as call; pub use demo as api;"),
@@ -90,11 +95,14 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
     let artifact = artifact
         .import_into(&comparison, &Default::default())
         .unwrap();
-    let expected = definition
-        .clone()
+    let declaration = module
+        .to_declaration()
         .import_into(&comparison, &Default::default())
-        .unwrap()
-        .into_records();
+        .unwrap();
+    let expected = declaration
+        .records()
+        .native_declarations(declaration.definitions())
+        .unwrap();
     assert_eq!(
         artifact
             .records()
@@ -107,14 +115,18 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         ["facade", "relay", "root"]
     );
     for module in &artifact.records().program.modules {
-        assert_eq!(
-            module.host_interface.functions,
-            if module.identity.path == ["root"] {
-                vec![expected.clone()]
-            } else {
-                vec![]
-            }
-        );
+        if module.identity.path == ["root"] {
+            assert_eq!(module.native_imports.len(), 1);
+            assert_eq!(
+                module.native_imports[0].instance.declaration,
+                expected[0].declaration
+            );
+            assert!(module.native_imports[0].host.is_none());
+        } else if module.identity.package.0 == "pkg" {
+            assert!(module.native_imports.is_empty());
+        } else if module.identity.package.0 == "demo" {
+            assert_eq!(module.native_declarations, expected);
+        }
     }
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
@@ -131,17 +143,14 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
             },
             ..Default::default()
         };
-        let calls = Arc::new(Mutex::new(Vec::new()));
-        let called = calls.clone();
-        let mut incompatible = engine.runtime(context.clone());
-        let (definitions, mut wrong) = definition.clone().into_parts();
-        wrong.return_type = HostValueType::Bool;
-        incompatible
-            .register_host_function(HostFunction::new(
-                DefinitionMetadata::checked(definitions, wrong, &Default::default()).unwrap(),
-                |_, _| panic!("linking cannot invoke the callback"),
-            ))
-            .unwrap();
+        calls.lock().unwrap().clear();
+        let wrong_calls = Arc::new(Mutex::new(Vec::new()));
+        let incompatible_engine = KagariEngine::with_native_modules(
+            Default::default(),
+            vec![echo_module(Type::bool(), wrong_calls.clone())],
+        )
+        .unwrap();
+        let mut incompatible = incompatible_engine.runtime(context.clone());
         assert!(
             incompatible
                 .load_program(
@@ -155,9 +164,10 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                 )
                 .is_err()
         );
-        let mut runtime = engine.runtime(context.clone());
+        assert!(wrong_calls.lock().unwrap().is_empty());
+        let mut missing = KagariEngine::default().runtime(context.clone());
         assert!(
-            runtime
+            missing
                 .load_program(
                     &PreparedProgram::from_artifact(
                         artifact.clone(),
@@ -165,19 +175,11 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
                         &Default::default()
                     )
                     .unwrap(),
-                    LoadOptions::default()
+                    LoadOptions::default(),
                 )
                 .is_err()
         );
-        runtime
-            .register_host_function(HostFunction::new(definition.clone(), move |_, args| {
-                let [Value::I32(value)] = args else {
-                    unreachable!()
-                };
-                called.lock().unwrap().push(*value);
-                Ok(Value::I32(value + 1))
-            }))
-            .unwrap();
+        let mut runtime = engine.runtime(context.clone());
         let loaded_program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
@@ -217,44 +219,38 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
 
 #[test]
 fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
-    let definition = declaration();
-    let interface = interface(&definition);
-    let encoded = interface
-        .records()
-        .to_bytes(interface.definitions())
-        .unwrap();
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(HostInterface::from_bytes(&encoded).unwrap())
-        .unwrap();
-
-    let artifact = engine.compile_to_artifact(SourceFile::new("host.kgr", "use demo::echo as call; use demo as api; fn main() -> i32 { call(api::echo(demo::echo(39))) }"),  ArtifactOptions::default()).unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let module = echo_module(Type::i32(), calls.clone());
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), vec![module.clone()]).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("host.kgr", "use demo::echo as call; use demo as api; fn main() -> i32 { call(api::echo(api::echo(39))) }"),  ArtifactOptions::default()).unwrap();
     let comparison = DefinitionContext::new().unwrap();
     let artifact = artifact
         .import_into(&comparison, &Default::default())
         .unwrap();
-    let expected = definition
-        .clone()
+    let declaration = module
+        .to_declaration()
         .import_into(&comparison, &Default::default())
-        .unwrap()
-        .into_records();
-    assert_eq!(
-        artifact.records().program.modules[artifact.records().program.root.index()]
-            .host_interface
-            .functions,
-        vec![expected.clone()]
-    );
+        .unwrap();
+    let expected = declaration
+        .records()
+        .native_declarations(declaration.definitions())
+        .unwrap();
+    let imports =
+        &artifact.records().program.modules[artifact.records().program.root.index()].native_imports;
+    assert_eq!(imports.len(), 1);
+    assert_eq!(imports[0].instance.declaration, expected[0].declaration);
+    assert!(imports[0].host.is_none());
+    assert!(calls.lock().unwrap().is_empty());
     let artifact =
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
     let context = ExecutionContext {
         ..Default::default()
     };
-    let calls = Arc::new(Mutex::new(Vec::new()));
-    let called = calls.clone();
-    let mut runtime = engine.runtime(context.clone());
+    let mut missing = KagariEngine::default().runtime(context.clone());
     assert!(
-        runtime
+        missing
             .load_program(
                 &PreparedProgram::from_artifact(
                     artifact.clone(),
@@ -262,19 +258,11 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
                     &Default::default()
                 )
                 .unwrap(),
-                LoadOptions::default()
+                LoadOptions::default(),
             )
             .is_err()
     );
-    runtime
-        .register_host_function(HostFunction::new(definition, move |_, args| {
-            called.lock().unwrap().push(args.to_vec());
-            let [Value::I32(value)] = args else {
-                unreachable!()
-            };
-            Ok(Value::I32(value + 1))
-        }))
-        .unwrap();
+    let mut runtime = engine.runtime(context.clone());
     let loaded_program =
         PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
@@ -290,48 +278,29 @@ fn offline_declarations_compile_without_a_runtime_then_link_and_execute() {
             .expect("retained execution result"),
         Value::I32(42)
     );
-    assert_eq!(
-        *calls.lock().unwrap(),
-        vec![
-            vec![Value::I32(39)],
-            vec![Value::I32(40)],
-            vec![Value::I32(41)]
-        ]
-    );
+    assert_eq!(*calls.lock().unwrap(), [39, 40, 41]);
 }
 
 #[test]
 fn declared_host_calls_compile_but_cannot_run_in_scalar_constants() {
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(interface(&declaration()))
-        .unwrap();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let engine = KagariEngine::with_native_modules(
+        Default::default(),
+        vec![echo_module(Type::i32(), calls.clone())],
+    )
+    .unwrap();
     assert!(
         engine
             .compile_source(SourceFile::new(
                 "host.kgr",
-                "fn main() -> i32 { demo::echo(7) }"
+                "use demo; fn main() -> i32 { demo::echo(7) }"
             ))
             .is_ok()
     );
     let constant = engine.compile_source(SourceFile::new(
         "const.kgr",
-        "const N: i32 = demo::echo(7); fn main() -> i32 { N }",
+        "use demo; const N: i32 = demo::echo(7); fn main() -> i32 { N }",
     ));
     assert!(constant.is_err());
-}
-
-fn interface(
-    definition: &DefinitionMetadata<HostFunctionDeclaration>,
-) -> DefinitionMetadata<HostInterface> {
-    DefinitionMetadata::checked(
-        definition.definitions().clone(),
-        HostInterface {
-            paths: vec![],
-            types: vec![],
-            functions: vec![definition.records().clone()],
-        },
-        &Default::default(),
-    )
-    .unwrap()
+    assert!(calls.lock().unwrap().is_empty());
 }

@@ -2037,6 +2037,60 @@ No new Miri run is claimed for this address-free metadata/source checkpoint.
 The previous token and projector checks cover unchanged lifetime/pointer kernels;
 full workspace, feature, backend and platform matrices remain pending CI.
 
+### HR02/RF05 checkpoint: SDK function and tooling consumers
+
+Six SDK fixture files now declare, bind and install application functions/types
+through ModuleBuilder and NativeModule. Offline function facades retain alias
+chains, exact common import/declaration identity, absent and incompatible provider
+rejection before callback entry, direct/KBC/interpreter/host-Cranelift traces and
+cold compilation without constructing a Runtime. The scalar constant case keeps
+compile-time native calls forbidden and proves compilation invokes no callback.
+The failing-shift case retains the GC-owned Vec, completed index/RHS effects and
+unchanged target after the trap. No value snapshot substitutes for live state.
+
+Canonical external artifact coverage now adopts A/B declarations in opposite
+identity allocation histories through the shared catalog. The final provider has
+one identical semantic declaration order in both histories; artifact bytes remain
+identical. Package input coverage compares complete native provider configurations,
+keeps already checked package identities and pinned old calls, and verifies that
+fresh sessions retain the configured NativeModule providers. Mutating an engine's
+legacy interface is no longer used by these consumers.
+
+Source-module trace fixtures bind their callback once before compilation. Missing
+providers fail loading the entire dependency closure even when the root function
+contains no native call, publish zero modules, and invoke no callback. The correctly
+configured Runtime loads at epoch one; unused callback bodies remain unexecuted.
+Execution reports preserve the ordered [4, 2, 1, 3] host results, deterministic
+inputs and identical source-free traces.
+
+Initial compile failures were missing an independently used DefinitionContext
+import, an incorrect FunctionDecl parameter spelling, and an incorrect scalar
+callback context/result spelling. These fixture-only errors were repaired. Native
+package members require explicit source imports; migrated source uses ordinary
+`use` declarations rather than the legacy interface's implicit global namespace.
+Two offline cases initially failed with unknown names and passed after that repair.
+No carried implementation failure and no unsafe/lifetime change.
+
+Focused local validation passed (eight existing affected contract cases):
+
+- `cargo test -p kagari --test offline_functions --no-fail-fast`: the facade/backend
+  trace case passed in the first run; the other two initially failed as above.
+  Subsequent filtered runs of `offline_declarations_compile_without_a_runtime_then_link_and_execute`
+  and `declared_host_calls_compile_but_cannot_run_in_scalar_constants` passed.
+- `cargo test -p kagari --test numeric_operations failed_shift_keeps_target_and_completed_rhs_effects`: passed.
+- `cargo test -p kagari --test source_snapshots host_artifacts_are_canonical_across_declaration_adoption_histories`: passed.
+- `cargo test -p kagari --test package_inputs captured_packages_share_the_sdk_pipeline_and_retain_generations`: passed (20.58 seconds).
+- Filtered `source_modules` runs of `execution::execution_report_records_code_inputs_and_ordered_host_results`
+  and `execution::dependency_bindings_are_checked_before_execution`: both passed.
+- `cargo clippy -p kagari --test offline_functions --test numeric_operations --test source_snapshots --test package_inputs --test source_modules -- -D warnings`: passed.
+  Structure checked 1248 Rust files with zero violations; formatting and diff checks passed.
+
+These are selected SDK consumer boundaries, not a workspace sweep. Unchanged
+pointer/token Miri evidence remains applicable; no new Miri run is claimed for
+fixture-only authoring migration. Standard log/print, remaining live-root/path
+consumers and HR03 producer/callable retirement remain required. Exhaustive
+workspace, feature, backend and platform validation remains CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
@@ -2053,6 +2107,7 @@ API/lifetime prototype and RI01-RI02 schema/conversion implemented, no carried p
 proof and focused results above establish the owned conversion, Opaque, scoped
 loan/projector and checked portable external-dependency slices. Whole-root common
 registration/installation and explicit native field/index/virtual paths execute;
-path-view argument capability integration, source trait references,
-legacy retirement and complete combined acceptance remain outstanding. Implementation checkpoints use Conventional Commits with the owning
+path-view argument capabilities and explicit source trait references are integrated.
+Remaining legacy consumers, producer/callable retirement and complete combined
+acceptance remain outstanding. Implementation checkpoints use Conventional Commits with the owning
 phase trailer, for example `Plan-Phase: RF04`.
