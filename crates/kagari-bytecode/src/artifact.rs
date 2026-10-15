@@ -1082,3 +1082,6 @@ pub type DependencyFingerprintBuffer = Vec<DependencyFingerprint>;
 mod canonical_tests;
 
 mod mapping;
+
+#[cfg(test)]
+mod identity_tests;

@@ -1,6 +1,6 @@
 //! Protocol recognition preserves canonical ownership across scoped snapshots.
+use crate::language::{Protocol, identity};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
-use kagari_types::language::{Protocol, identity};
 
 #[test]
 fn protocol_lookup_requires_exact_identity_in_the_retained_scope() {

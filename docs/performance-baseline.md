@@ -1,5 +1,10 @@
 # Performance Measurements
 
+Historical commands below describe the test layout at their recorded revisions.
+TP05-TP09 moved ordinary integration suites into source; use the qualified library
+filters in [the testing guide](testing.md) for current code. Old timing samples
+are not measurements of the consolidated harnesses.
+
 This page retains measurements needed for the open test-cost, interpreter
 performance and architecture follow-up work. Each result applies to its recorded revision and environment,
 not automatically to current HEAD. Superseded checkpoint reports live in Git
@@ -161,7 +166,7 @@ bytecode's 32 library tests 0.12 s. Test counts alone do not explain elapsed tim
    inputs across routes; do not propose removing that duplication as if it still
    existed. Review distinct route coverage, prepared declaration reuse and
    individually filterable cases while retaining fresh mutable runtime state.
-2. [Syntax examples](../crates/kagari/tests/syntax_examples.rs): 45 examples
+2. [Syntax examples](../crates/kagari/src/runtime/tests/language/syntax_examples.rs): 45 examples
    inside one test each create an engine and compile a program, then execute
    direct/serialized artifacts. Default test parallelism cannot parallelize this
    inner loop. Preserve example validity and artifact coverage while reviewing
@@ -173,12 +178,12 @@ bytecode's 32 library tests 0.12 s. Test counts alone do not explain elapsed tim
    invariant program once when fixing this path; independently preserve each
    metadata mutation/rejection assertion. No exact standalone case time was
    measured during this parallel run.
-4. [Provider cancellation](../crates/kagari/tests/native_provider_reset/main.rs):
+4. [Provider cancellation](../crates/kagari/src/runtime/tests/embedding/native_provider_reset/mod.rs):
    cancellation_boundaries_unwind_nested_provider_callbacks constructs an engine
    and runtime for each cancellation point, stopping after normal completion or
    the 200-point bound. The program is already prepared outside the loop. Audit
    engine/declaration reuse independently of necessary per-attempt runtime state.
-5. [Stdlib documentation](../crates/kagari-stdlib/tests/documentation.rs): one test
+5. [Stdlib documentation](../crates/kagari-stdlib/src/tests/documentation.rs): one test
    deduplicates documentation examples and analyzes them sequentially. Review
    reuse of checked provider inputs without dropping documentation coverage.
 
@@ -249,7 +254,7 @@ distributed; the method and measured results are recorded here.
 The largest measured case was
 `standalone_language_examples_execute_from_source_and_artifact` at 141.36 s,
 approximately 88% of its target's serial time. The
-[example loop](../crates/kagari/tests/syntax_examples.rs) runs 45 sources
+[example loop](../crates/kagari/src/runtime/tests/language/syntax_examples.rs) runs 45 sources
 inside one test, constructing a fresh engine for each and executing both direct
 and serialized artifacts. This inner loop stays serial even when libtest runs
 different tests concurrently. Other measured examples:
@@ -294,7 +299,7 @@ remove the remaining compilation/preparation cost.
 Source inspection explains repeated work, but does not yet attribute the time
 inside those stages. [Engine declaration preparation](../crates/kagari/src/engine/declarations.rs)
 renders/prepares/checks installed declarations; each fresh engine enters that
-path. [Collection interface tests](../crates/kagari/tests/collection_interfaces.rs)
+path. [Collection interface tests](../crates/kagari/src/runtime/tests/language/collection_interfaces.rs)
 exercise direct, serialized and JIT-enabled routes with GC threshold 1. Similar
 helpers exist in default_methods, type_inference and trait_inheritance; these
 other targets were not timed and are candidates, not measured hotspots.

@@ -55,7 +55,7 @@ or new Cargo validation were performed while preparing this plan.
 | [Execution calls](../crates/kagari-runtime/src/frame/calls.rs), [native host calls](../crates/kagari-runtime/src/frame/native.rs) | Prepared targets and rooted host arguments already exist, but several entrypoints are coupled to the executing bytecode instruction. Factor shared validated operations; do not have JIT helpers fake an interpreter PC to select authority. |
 | [GC roots](../crates/kagari-runtime/src/gc/roots.rs) | Runtime owns registered slots and leases. Reuse this ownership for native root frames; empty scalar stack maps do not prove heap-reference support. |
 | [SDK preparation](../crates/kagari/src/program/native.rs), [VM selection](../crates/kagari-vm/src/vm/native.rs) | Explicit preparation, per-program product caching and pre-entry fallback exist. Extend argument transport and function-boundary selection without runtime compilation. |
-| [Native tests](../crates/kagari/tests/cranelift_preparation.rs) | Assert real native execution, artifact correspondence, lifetime and reload. Extend existing semantic owners instead of creating a duplicate syntax smoke suite. |
+| [Native tests](../crates/kagari/src/program/tests/cranelift_preparation.rs) | Assert real native execution, artifact correspondence, lifetime and reload. Extend existing semantic owners instead of creating a duplicate syntax smoke suite. |
 
 The narrow backend is an intentional baseline, not a demonstrated miscompile.
 Missing capability is mainly native execution machinery. Shared runtime checks
@@ -355,8 +355,8 @@ Representative commands, to narrow according to the actual change:
 
 ```text
 cargo test -p kagari-codegen-cranelift --lib <affected_filter>
-cargo test -p kagari --test cranelift_preparation <affected_filter>
-cargo test -p kagari --test native_preparation <affected_filter>
+cargo test -p kagari --lib -- program::tests::cranelift_preparation::<affected_filter>
+cargo test -p kagari --lib -- program::tests::native_preparation::<affected_filter>
 cargo test -p kagari-runtime --lib <affected_filter>
 cargo check -p kagari --no-default-features --features native --lib
 uv run --locked scripts/check_structure.py

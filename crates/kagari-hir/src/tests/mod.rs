@@ -15,3 +15,5 @@ pub(crate) fn test_analysis() -> AnalysisDatabase {
     database.set_native_modules(catalog::shared().unwrap());
     database
 }
+
+mod language_contracts;

@@ -1,3 +1,10 @@
+use crate::{
+    bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
+    source::{
+        lower::{MirLoweringError, instances::MirLoweringOptions},
+        program::{SourceProgramError, lower_program_to_mir},
+    },
+};
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, KbcArtifact, encode_program_facts},
     program::{BytecodeProgram, identity, verify_program as verify_bytecode_program},
@@ -7,13 +14,6 @@ use kagari_common::{
     identity::{
         ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
         scoped::RemapDefinitions,
-    },
-};
-use kagari_compiler::{
-    bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
-    source::{
-        lower::{MirLoweringError, instances::MirLoweringOptions},
-        program::{SourceProgramError, lower_program_to_mir},
     },
 };
 use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem};
@@ -112,17 +112,17 @@ fn imported_generic_methods_have_distinct_program_instances_and_share_the_limit(
     insert(
         &mut db,
         "api",
-        include_str!("../../../examples/imported-traits/api.kgr"),
+        include_str!("../../../../examples/imported-traits/api.kgr"),
     );
     insert(
         &mut db,
         "model",
-        include_str!("../../../examples/imported-traits/generic-model.kgr"),
+        include_str!("../../../../examples/imported-traits/generic-model.kgr"),
     );
     let root = insert(
         &mut db,
         "root",
-        include_str!("../../../examples/imported-traits/generic-consumer.kgr"),
+        include_str!("../../../../examples/imported-traits/generic-consumer.kgr"),
     );
     let checked = checked(&db, root);
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();

@@ -1,14 +1,14 @@
 //! Portable defaults select actual native templates without source analysis.
+use crate::types::{
+    InterfaceTable, PublicItem,
+    proofs::{ProofCatalog, implementation::Implementation},
+    verify,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, table::DefinitionId,
     },
-};
-use kagari_contract::types::{
-    InterfaceTable, PublicItem,
-    proofs::{ProofCatalog, implementation::Implementation},
-    verify,
 };
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},

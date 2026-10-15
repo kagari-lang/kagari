@@ -1,6 +1,6 @@
 //! Diagnostic names belong to retained scopes; allocation order is not display order.
+use crate::types::{NominalType, TypeId};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
-use kagari_hir::types::{NominalType, TypeId};
 use kagari_types::scalar::BuiltinType;
 use std::panic::catch_unwind;
 

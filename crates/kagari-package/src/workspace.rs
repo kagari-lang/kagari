@@ -131,3 +131,6 @@ impl WorkspaceInputs {
             .collect()
     }
 }
+
+#[cfg(test)]
+mod tests;

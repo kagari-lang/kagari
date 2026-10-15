@@ -1,3 +1,4 @@
+use crate::ty::Ty;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -7,7 +8,6 @@ use kagari_common::{
         table::DefinitionTableError,
     },
 };
-use kagari_types::ty::Ty;
 
 fn path(name: &str) -> DefinitionPath {
     DefinitionPath {

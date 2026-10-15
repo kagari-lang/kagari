@@ -753,7 +753,7 @@ publication. State replacement remains outside AX scope.
 
 The [SDK async tests](../crates/kagari/tests/async_execution.rs) cover source,
 artifact and host-driven execution. [Session tests](../crates/kagari-vm/src/tests/sessions.rs)
-and [native boundaries](../crates/kagari-vm/tests/native_boundary.rs) own cleanup,
+and [native boundaries](../crates/kagari-vm/src/tests/native_boundary.rs) own cleanup,
 reentry and runtime safety. Use deterministic host completion/dispatch fixtures;
 preserve cold-effect timing, single Future drive, shared Task results, cancellation,
 GC, pinned reload and source-free rejection. CI owns the full feature/backend matrix.

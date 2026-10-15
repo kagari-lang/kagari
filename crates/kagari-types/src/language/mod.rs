@@ -195,3 +195,6 @@ pub fn is_language_module(module: &ModuleIdentity) -> bool {
         .into_iter()
         .any(|kind| identity(kind).module == *module)
 }
+
+#[cfg(test)]
+mod identity_tests;

@@ -1,6 +1,5 @@
 //! Scope, verification evidence and canonical file boundaries of executable metadata.
-use bincode::{DefaultOptions, Options};
-use kagari_bytecode::{
+use crate::{
     artifact::{
         ArtifactBuildOptions, ArtifactHeader, ArtifactValidationError, KBC_ARTIFACT_FORMAT_VERSION,
         KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_MODULES, encode_program_facts,
@@ -8,6 +7,7 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
+use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext},

@@ -13,3 +13,9 @@ mod passes;
 mod program_points;
 mod verify;
 mod visibility;
+
+mod language_foundation;
+
+mod package_exports;
+
+mod source_programs;

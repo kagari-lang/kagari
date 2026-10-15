@@ -1,12 +1,12 @@
-mod support;
+use crate::test_support as support;
 
-use kagari_common::cancellation::CancellationToken;
-use kagari_package::{
+use crate::{
     filesystem::FilesystemSources,
     manifest::DependencySource,
     modules::VirtualSources,
     workspace::{MemberSelection, WorkspaceInputs, WorkspaceLimits},
 };
+use kagari_common::cancellation::CancellationToken;
 use std::{fs, sync::Arc};
 use support::{link_directory, scratch};
 

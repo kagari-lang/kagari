@@ -201,3 +201,6 @@ pub(crate) fn validate_edges(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

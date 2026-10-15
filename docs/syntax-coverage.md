@@ -45,7 +45,8 @@ witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)
 is parser-only because it combines unrelated grammar forms. Inline modules and
 wildcard imports also have executable examples and artifact tests in
-`cargo test -p kagari --test syntax_examples` and `--test source_modules`.
+`cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::`
+and `cargo test -p kagari --lib -- engine::tests::source_modules::`.
 
 The tests also extract quoted source terminals from the EBNF and compare them
 with the lexer. The current unrecognized terminal baseline is empty.

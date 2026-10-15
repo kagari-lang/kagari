@@ -1,7 +1,7 @@
+use crate::types::InterfaceTable;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,
 };
-use kagari_contract::types::InterfaceTable;
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, Param},

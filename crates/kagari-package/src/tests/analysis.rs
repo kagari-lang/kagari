@@ -1,6 +1,4 @@
-use kagari_common::cancellation::CancellationToken;
-use kagari_hir::analysis::AnalysisDatabase;
-use kagari_package::{
+use crate::{
     graph::{GraphLimits, ResolvedGraph},
     host::HostPackage,
     identity::PackageFamily,
@@ -9,6 +7,8 @@ use kagari_package::{
     snapshot::ProgramInputs,
     workspace::{WorkspaceInputs, WorkspaceLimits},
 };
+use kagari_common::cancellation::CancellationToken;
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::SourceDatabase;
 use std::{collections::BTreeMap, sync::Arc};
 

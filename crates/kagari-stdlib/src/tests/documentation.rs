@@ -1,7 +1,7 @@
+use crate::modules;
 use kagari_common::identity::DefinitionKind;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
-use kagari_stdlib::modules;
 use kagari_types::declaration::module::ModuleDecl;
 use std::{collections::BTreeSet, sync::Arc};
 

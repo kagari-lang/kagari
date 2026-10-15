@@ -352,3 +352,6 @@ mod native_tests;
 
 #[cfg(test)]
 mod inheritance_tests;
+
+#[cfg(test)]
+mod tests;

@@ -1048,7 +1048,7 @@ rejected, including unused requirements. Comparison covers unused members,
 associated output contracts and default policies. A changed source default body
 with the same ABI follows normal generation-pinned script execution semantics.
 
-The [portable source-trait contract fixture](../../crates/kagari/tests/offline_nominal/traits.rs)
+The [portable source-trait contract fixture](../../crates/kagari/src/runtime/tests/embedding/offline_nominal/traits.rs)
 demonstrates explicit binding, an associated output, a script default and exact
 ABI rejection.
 

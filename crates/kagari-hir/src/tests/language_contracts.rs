@@ -1,15 +1,15 @@
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId},
-};
-use kagari_contract::types::{PublicItem, verify};
-use kagari_hir::{
+use crate::{
     aggregates::AggregateCatalog,
     analysis::AnalysisDatabase,
     language::semantics::{ProtocolSemantics, intrinsic_holds},
     native::render::declaration_source,
     types::TypeId,
 };
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId},
+};
+use kagari_contract::types::{PublicItem, verify};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{
     catalog as foundation_catalog, catalog as language, identity as library, namespaces,
@@ -151,7 +151,7 @@ fn explicitly_installed_language_records_are_available() {
     assert!(core.diagnostics().is_empty(), "{:?}", core.diagnostics());
     assert!(
         snapshot
-            .declaration(&kagari_hir::declarations::DeclarationId::Definition(
+            .declaration(&crate::declarations::DeclarationId::Definition(
                 Protocol::Iterable
                     .definition(core.declarations().definitions())
                     .unwrap()

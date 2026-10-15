@@ -292,3 +292,6 @@ impl<T: SourceInput> Loader<'_, T> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod input_tests;

@@ -1,4 +1,5 @@
 //! Public ABI codec ownership, canonical references and untrusted file limits.
+use crate::types::{InterfaceTable, PublicItem, inherent::InherentTable, wire::PublicItemRecord};
 use bincode::{DefaultOptions, Options};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -8,14 +9,12 @@ use kagari_common::{
         table::wire::PortableDefinitionTable,
     },
 };
-use kagari_contract::types::{
-    InterfaceTable, PublicItem, inherent::InherentTable, wire::PublicItemRecord,
-};
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication},
+    callable::{CallableImplementation, MethodPolicy, NativeDefaultApplication},
     declaration::{
         AssociatedConstDef, AssociatedTypeDef, AssociatedTypeFamily, ConstDef, FieldDef, FnDecl,
         Param, TraitDef, TypeDef, TypeDefKind, VariantDef, conversion::ConversionAdapter,
+        host::HostCallPolicy,
     },
     scalar::BuiltinType,
     surface::StandardTypeConstraint,
@@ -260,15 +259,18 @@ fn public_abi_records_roundtrip_independent_scopes_and_preserve_binding_pairs() 
 
 #[test]
 fn public_abi_reader_bounds_declarations_before_reading_elements() {
-    // Function tag, method policy, name, Required implementation, generic count.
-    let generics = codec()
-        .serialize(&(0u32, true, "read", 0u32, u64::MAX))
-        .unwrap();
+    // Function tag, absent host policy, full method policy, and name. Only the
+    // following vector count is malformed, so rejection must reach its reader.
+    let header = (
+        0u32,
+        None::<HostCallPolicy>,
+        MethodPolicy::default(),
+        "read",
+    );
+    let generics = codec().serialize(&(&header, 0u32, u64::MAX)).unwrap();
     // The same reader owns NativeDefault arguments: implementation tag 3,
     // file-local declaration reference, then the oversized argument count.
-    let default_arguments = codec()
-        .serialize(&(0u32, true, "read", 3u32, 0u32, 4097u64))
-        .unwrap();
+    let default_arguments = codec().serialize(&(&header, 3u32, 0u32, 4097u64)).unwrap();
     for bytes in [generics, default_arguments] {
         let error = match codec().deserialize::<PublicItemRecord>(&bytes) {
             Ok(_) => panic!("accepted an unbounded signature vector"),
@@ -277,7 +279,8 @@ fn public_abi_reader_bounds_declarations_before_reading_elements() {
         assert!(
             error
                 .to_string()
-                .contains("nested declaration count limit exceeded")
+                .contains("nested declaration count limit exceeded"),
+            "{error}"
         );
     }
 }

@@ -2,7 +2,7 @@
 
 [AGENTS.md](../AGENTS.md#verification-and-tooling) owns validation scope. Select
 affected contract tests locally; CI owns complete workspace/feature/backend runs.
-This page describes how to avoid repeating expensive setup inside those tests.
+This page defines source ownership, justified integration targets and reusable test setup.
 
 ## Match the test to its semantic owner
 
@@ -12,18 +12,63 @@ SDK conformance tests retain the full checked source/artifact/backend path when
 that path establishes the contract. Do not remove source-free, actual-native,
 GC, cancellation or pinned-reload coverage to reduce execution time.
 
+## Default placement and integration exceptions
+
+Put ordinary tests beside their semantic owner under `src/`, using `#[cfg(test)]`
+and ordinary modules. Split larger suites by contract; keep library roots for
+declarations. Several crates, filesystem access or a backend do not by themselves
+require a separate integration executable. Cargo schedules test executables
+sequentially; the harness schedules cases within one executable concurrently.
+Compilation parallelism (`-j`) does not remove those execution barriers.
+
+The workspace keeps five integration targets for concrete boundaries:
+
+| Package / target | Reason |
+| --- | --- |
+| `kagari` / `artifact_features` | Standalone consumer checks ordinary public visibility and source-free feature/dependency isolation. |
+| `kagari` / `async_execution` | Standalone native-wait/owned-execution consumer, including builds without source/native features. Source scenarios live in the runtime unit tree. |
+| `kagari-runtime` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
+| `kagari-vm` / `allocation_contracts` | A single custom global allocator with thread-local measurement windows for the existing native/interface allocation assertions. |
+| `kagari-vm` / `library_measurements` | Ignored manual timing workload with a separate allocator process; ordinary test success is not a performance result. |
+
+Lifetime/compile-fail doctests, standalone AOT deployment and executable examples
+retain their separate purposes. The feature script uses standalone manifests;
+library unit builds cannot replace proof of the production dependency graph.
+
+Tests that combine stdlib-created runtime objects live in
+`kagari-stdlib/src/tests/runtime_boundary`. A runtime unit harness and the ordinary
+runtime dependency used by stdlib have distinct Rust type identities. Keep these
+composition tests at the consuming layer instead of adding self aliases or
+changing production dependencies to force the types together.
+
+Shared fixtures serving actual external targets may use a narrow `#[path]`.
+Declare them once per harness and import that owner. Preserve feature/platform
+gates, ignored status, malformed-input checks, cleanup assertions and fixture
+paths when relocating cases. Review global state and temporary paths for newly
+concurrent execution. SDK standard preparation is shared, while runtimes, source
+sessions and captured mutable host state remain case-local.
+
+Select by package, library and qualified test filter, for example:
+
+```text
+cargo test -p kagari --lib -- runtime::tests::language::syntax_examples::array_operations
+cargo test -p kagari-vm --test allocation_contracts -- native_allocations::
+```
+
+Do not combine these examples into a routine workspace sweep.
+
 ## Package contract owners
 
 Select cases at the layer whose behavior changed; this table is not a local sweep.
 
 | Contract | Existing owner |
 | --- | --- |
-| Manifest inheritance, namespace/path policy, declared module trees and workspace selection | `kagari-package/tests/inputs.rs` and `workspace.rs` |
-| Shared locks, exact host integrity, cycles/diamonds, disjoint revisions and relocation | `kagari-package/tests/graph.rs` |
-| Importer aliases, empty roots, visibility, unused bodies, implementation-only dependencies and retained scopes | `kagari-package/tests/analysis.rs` and the HIR import/signature owners |
+| Manifest inheritance, namespace/path policy, declared module trees and workspace selection | `kagari-package/src/modules/input_tests.rs` and `src/workspace/tests.rs` |
+| Shared locks, exact host integrity, cycles/diamonds, disjoint revisions and relocation | `kagari-package/src/graph/tests.rs` |
+| Importer aliases, empty roots, visibility, unused bodies, implementation-only dependencies and retained scopes | `kagari-package/src/tests/analysis.rs` and the HIR import/signature owners |
 | Canonical native contracts and provider/query-setting identity | `kagari-types` native compiler-input unit case and `kagari-hir` environment-identity unit case |
-| Public export target/signature validation and malformed source-free artifacts | Compiler/bytecode export cases and runtime/VM `package_exports` targets |
-| Exact SDK capture, affected roots, dependency constants/generic bodies and pinned reload through decoded artifacts | `kagari/tests/package_inputs.rs` |
+| Public export target/signature validation and malformed source-free artifacts | Compiler/bytecode export cases and runtime/VM `package_exports` unit modules |
+| Exact SDK capture, affected roots, dependency constants/generic bodies and pinned reload through decoded artifacts | `kagari/src/engine/tests/package_inputs.rs` |
 | CLI discovery/selection, shared products, locked edits and standalone artifacts | `kagari-cli` project and artifact-pipeline cases |
 
 The [workspace/host example](../examples/package-workspace/README.md) is a runnable
@@ -34,7 +79,8 @@ integration suite. CI owns the exhaustive feature/backend/platform matrix;
 ## Host interop contract owners
 
 For host interop changes, select the affected owner: runtime `native_schema` for
-DTO/derive/Serde, `host_registration`/`installation_access` for exact contracts,
+DTO/derive/Serde, runtime `native::tests::host_registration` and stdlib
+`tests::runtime_boundary::installation_access` for exact contracts,
 VM `native_boundary` for Opaque take, scoped method/argument and portable reference
 semantics, and SDK `scoped_calls` for execution-context integration. Production
 scope and callback lifetime proofs live beside their API as rustdoc tests; the
@@ -60,8 +106,8 @@ and feature/backend acceptance remains CI-owned.
 ## Prepare once, execute with fresh state
 
 Ordinary SDK tests can use
-[`support/execution.rs`](../crates/kagari/tests/support/execution.rs).
-Its standard baseline initializes once per integration binary. A short mutex
+[`test_support/execution.rs`](../crates/kagari/src/test_support/execution.rs).
+Its standard baseline initializes once in the SDK library test harness. A short mutex
 protects copying the native-only analysis baseline; compilation and execution
 take place outside it in a fresh `KagariEngine::new_session`. This is not a pool
 of previously used engines. Registration, provider replacement, source-origin,
@@ -86,7 +132,7 @@ Rust state captured by a callback.
 
 Give independent scenarios stable `#[test]` names, or generate them with a small
 macro such as the one in
-[`syntax_examples.rs`](../crates/kagari/tests/syntax_examples.rs).
+[`syntax_examples.rs`](../crates/kagari/src/runtime/tests/language/syntax_examples.rs).
 Do not hide a growing independent case list inside one serial test. Related
 sequences such as trap-then-recovery or publish-then-call-old-generation remain
 one scenario. Run its routes sequentially; let Rust's test harness schedule
@@ -95,7 +141,7 @@ scenarios without a nested pool or a separate executable per scenario.
 The language-contract cases are grouped by types/dispatch and evaluation, with
 one shared runner. Ordinary scalar SDK routes in `default_methods`,
 `standard_traits`, `instantiation`, `associated_types`, `conversion_traits`,
-`collection_interfaces` and `collection_access` use the integration helper.
+`collection_interfaces` and `collection_access` use this one source-owned helper.
 `syntax_examples` selects the two interpreter routes. Keep each caller's runtime
 configuration, including collection thresholds; the helper does not choose policy
 for a semantic owner. Specialized host, mutation, trap and root-lifetime assertions
@@ -128,10 +174,16 @@ identity isolation boundary, preserving the validity of existing scoped IDs.
 Build selected tests first:
 
 ```text
-cargo test -p kagari --test syntax_examples --test default_methods --no-run
+cargo test -p kagari --lib --no-run
 ```
 
-Then run the selected binaries or corresponding Cargo test commands. Report
+Then select the intended cases, rather than running the whole library harness:
+
+```text
+cargo test -p kagari --lib -- runtime::tests::language::syntax_examples:: runtime::tests::language::default_methods::
+```
+
+These filters are a workload example, not a required local validation set. Report
 compilation separately from harness execution and
 process peak working set. Preserve the workspace profile, features, default
 parallelism and workload; record machine/toolchain and cache state. Compare current

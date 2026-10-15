@@ -440,7 +440,7 @@ scalar case does not need GC protection.
 
 Keep owned conversion, scoped borrowing and explicit raw/primitive implementations
 behind one validated binding entrypoint without forcing one data-movement path.
-The [VM allocation tests](../crates/kagari-vm/tests/native_allocations.rs) establish
+The [VM allocation tests](../crates/kagari-vm/tests/allocation_contracts/native_allocations.rs) establish
 warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
 general typed adapter is allocation-free. Preserve those existing contracts during
 registration migration.
@@ -505,7 +505,7 @@ Evidence owners:
 - R2: [SDK execution](../crates/kagari/src/runtime.rs),
   [context options](../crates/kagari/src/context.rs),
   [native dispatch](../crates/kagari-vm/src/vm/native.rs) and
-  [SDK native tests](../crates/kagari/tests/cranelift_preparation.rs).
+  [SDK native tests](../crates/kagari/src/program/tests/cranelift_preparation.rs).
 - R5: [trait searches](../crates/kagari-hir/src/aggregates/implementations.rs).
 - R7: [program lowering](../crates/kagari-compiler/src/source/program.rs).
 - R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),

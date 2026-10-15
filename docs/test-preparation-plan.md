@@ -75,7 +75,8 @@ related contracts (53), default methods (33), runtime registration (6), registra
 sources (6), selected provider rejection/cleanup (3), session isolation (2), and
 HIR fork/parser invalidation (1). Source-free SDK library checking, focused SDK
 Clippy, formatting, structure and diff checks passed. Full CI remains unverified.
-Relevant reproduction commands:
+Historical reproduction commands at the TP01-TP03 checkpoint (the current
+module filters are documented in [testing.md](testing.md)):
 
 ```text
 cargo test -p kagari --lib runtime::language_contract::
@@ -144,7 +145,7 @@ compiled, scoped SDK Clippy passed, and structure (1,036 files, no violations),
 formatting, documentation links and diff checks passed. No full workspace run or
 performance acceptance was attempted for TP04; CI remains unverified.
 
-Reproduce the SDK selections with `cargo test -p kagari --test <target> --
+At the TP04 revision, reproduce the SDK selections with `cargo test -p kagari --test <target> --
 <filters> --exact` using these space-separated filters:
 
 | Target | Filters |
@@ -159,7 +160,7 @@ Reproduce the SDK selections with `cargo test -p kagari --test <target> --
 | `syntax_examples` | `array_operations` |
 | `default_methods` | `generic_implementations_and_default_local_binders_are_specialized` |
 
-Other focused checks:
+Other historical TP04 checks:
 
 ```text
 cargo test -p kagari-compiler --lib tests::bytecode::artifacts::rejects_
@@ -167,10 +168,10 @@ cargo test -p kagari-stdlib --test documentation
 cargo clippy -p kagari --test standard_traits --test instantiation --test associated_types --test conversion_traits --test collection_interfaces --test collection_access --test native_provider_reset --test syntax_examples --test default_methods -- -D warnings
 ```
 
-## Proposed in-source test organization (TP05-TP09)
+## In-source test organization (TP05-TP09)
 
-Status: proposal requested on 2026-10-15, based on `e98064da`. Implementation is
-unstarted; the current change updates planning documents only.
+Status: authorized on 2026-10-15 after the proposal at `e98064da`. TP05-TP08
+implementation is complete; TP09 records focused acceptance and remaining limits.
 TP01-TP04 above are implemented; their outstanding measurement remains open.
 This section extends the same task rather than creating a parallel test-cost plan.
 
@@ -182,7 +183,7 @@ specific contract that an in-source test cannot establish equivalently.
 Moving a test does not change the behavior it covers: SDK source/artifact/native
 end-to-end cases remain SDK tests, even when they are now library unit tests.
 
-The current `cargo metadata --no-deps --format-version 1` inventory contains
+The pre-migration `cargo metadata --no-deps --format-version 1` inventory contained
 97 integration targets, excluding library/binary unit harnesses and doctests.
 The SDK owns 51 and runtime 22. The ordinary Cargo runner executes binaries
 sequentially and schedules tests within each binary concurrently
@@ -190,9 +191,8 @@ sequentially and schedules tests within each binary concurrently
 A binary with seven short cases and one long case cannot fill freed workers with
 cases from the next binary. More build jobs do not remove this execution barrier.
 
-Source inspection also identifies repeated process-local preparation:
-`crates/kagari/tests/support/execution.rs` owns a `OnceLock<Mutex<KagariEngine>>`.
-Compiling that helper separately into multiple targets creates independent
+Before TP05, the SDK integration execution helper owned a
+`OnceLock<Mutex<KagariEngine>>`. Compiling it separately into multiple targets created independent
 baselines. Its lock protects session creation, not source compilation/execution.
 A single source-owned helper can share preparation across the migrated SDK cases.
 Do not assume every current case uses that helper.
@@ -204,13 +204,13 @@ percentage nor full CPU utilization is an acceptance promise.
 
 ### Destination inventory
 
-The proposed end state has five integration targets: two external SDK consumers,
+The implemented layout has five integration targets: two external SDK consumers,
 one external runtime macro/Serde consumer, one VM allocation-contract target and
 one ignored VM measurement target. This is an outcome of the exception inventory,
 not a quota that permits deleting required coverage. TP05 must record any further
 concrete exception here before changing that estimate.
 
-| Crate | Current integration targets | Proposed remaining targets | In-source owner |
+| Crate | Before migration | Remaining targets | In-source owner |
 | --- | ---: | ---: | --- |
 | kagari | 51 | 2 | Engine, prepared-program and runtime contract test modules |
 | kagari-runtime | 22 | 1 | Native, host, module, frame, session, GC and resource owners |
@@ -224,12 +224,12 @@ concrete exception here before changing that estimate.
 | kagari-package | 4 | 0 | Input, graph, workspace and analysis contract tests |
 | **Total** | **97** | **5** | **92 fewer integration targets; cases retained** |
 
-SDK target destinations below cover all 49 targets proposed for migration. Keep
+SDK target destinations below cover all 49 migrated targets. Keep
 the old target basename as a leaf module and retain test function names, making
 the old-target/new-filter mapping explicit. These are source module owners, not
 four replacement integration binaries.
 
-| Proposed source module | Existing target names |
+| Source module | Existing target names |
 | --- | --- |
 | `engine::tests` | `engine_sessions`, `package_inputs`, `registration_sources`, `source_modules`, `source_snapshots`, `standard_declarations` |
 | `program::tests` | `cranelift_preparation`, `native_artifacts`, `native_preparation` |
@@ -282,7 +282,7 @@ an integration executable.
 | SDK `artifact_features` | `scripts/check_features.py` compiles this exact source in a standalone consumer outside workspace dev-feature unification. Keep its real imports, malformed-artifact/linking checks and source-free execution. Preserve the independent async artifact consumer and shared emitter providers. |
 | SDK `async_execution` | The same script compiles this source without source/native features. Retain the native-wait/owned-execution consumer; move its source-only child suites into the SDK runtime test tree. Shared fixture construction must still compile in the external consumer without private SDK access. |
 | Runtime `native_schema` | Preserve representative existing derive, `native_data!` and Serde cases compiled from another crate against ordinary runtime visibility. Move manual schema/conversion-only cases to their source owner when they do not establish that external boundary. Keep the existing Serde feature gate and lifetime/compile-fail doctests. |
-| VM `allocation_contracts` (proposed) | Combine existing `native_allocations` and `interface_allocations` as ordinary submodules of one integration target. Both use `native_allocations_counter` with a custom global allocator and thread-local measurement windows. Declare that allocator once; retain counter self-checks, warmup boundaries and exact assertions. Keep instrumentation outside the ordinary VM unit-test binary. |
+| VM `allocation_contracts` | Combine existing `native_allocations` and `interface_allocations` as ordinary submodules of one integration target. Both use `native_allocations_counter` with a custom global allocator and thread-local measurement windows. Declare that allocator once; retain counter self-checks, warmup boundaries and exact assertions. Keep instrumentation outside the ordinary VM unit-test binary. |
 | VM `library_measurements` | Keep the ignored manual timing workload and its custom allocator separate from ordinary correctness execution. Preserve its inputs, profile and explicit measurement invocation; do not count ignored timing cases as passed tests. |
 
 The three VM targets currently include the same allocator implementation; that
@@ -358,7 +358,7 @@ effective LOC and shared-fixture ownership. An existing large test file is not
 permission to create an oversized source module; split at scenario boundaries
 as required, keeping each scenario's assertions together.
 
-### Proposed checkpoints and validation
+### Checkpoints and validation
 
 - [x] **TP05: freeze inventory and pilot.** Confirm the 97-target mapping, external
   exceptions, feature gates and `cfg(test)` differences. Use SDK
@@ -377,7 +377,7 @@ as required, keeping each scenario's assertions together.
   schema cases, retaining external derive/Serde coverage. Migrate the four ordinary
   VM targets and combine the two allocation targets. Reconcile shared fixtures
   used by runtime unit cases, VM and retained consumers without widening APIs.
-- [ ] **TP08: smaller owners and references.** Migrate the remaining 17 targets,
+- [x] **TP08: smaller owners and references.** Migrate the remaining 17 targets,
   preserving existing unit-test ownership. Update affected CLI invocations in
   guides/scripts/CI and the testing guide's default placement rule. Do not silently
   activate unrelated queued plans or reclassify historical performance numbers.
@@ -432,7 +432,7 @@ noise or compilation/memory worsens materially, record uncertainty and investiga
 the relevant owner before claiming improvement. Local passing cases do not mark
 CI acceptance complete.
 
-### Proposal ledger
+### Original proposal ledger
 
 2026-10-15: inventoried 97 integration targets at `e98064da`; inspected SDK shared
 preparation, standalone feature/AOT consumers, runtime derive/Serde coverage,
@@ -517,3 +517,27 @@ inside its repetition, preserving the type bound and compile-fail contract.
 Structure (1243 files), formatting and diff checks pass. Shared native fixtures
 remain narrow cross-target consumers. SDK standalone source-free checks finished:
 forged native-import rejection and owned native wait both passed offline.
+
+TP08 checkpoint: migrated all remaining 17 targets (89 explicit cases) to
+bytecode/contract/types/stdlib/compiler/HIR/package source owners. Case names and
+ignore/panic attributes match the pre-migration inventory. Updated current guides,
+source links and queued-plan commands; historical timing commands remain labeled
+with their original layouts. No CI or feature-script test target was removed.
+Selected artifact decoding and scoped identity cases passed (2); compiler export
+rejection, HIR readonly rejection, filesystem alias rejection and stdlib installation
+passed (4). The ABI bound fixture failed both its original integration target and
+its new module: stale bytes omitted host policy and receiver-access fields, causing
+an invalid enum tag (1684104562) before the intended count reader. Updated only
+the valid header using typed HostCallPolicy/MethodPolicy values, retaining both
+oversized counts and the exact limit-error assertion. The repaired bound case and
+portable ABI roundtrip passed (2). The temporary original-target reproduction was
+removed. Scoped Clippy for the seven affected libraries/test harnesses passed.
+The native_data compile-pass and compile-fail doctests also passed after the TP07
+empty-field warning repair. All 13 production dependency graph guards and the
+ABI/contract build-graph guards passed; stdlib compiler use remains dev-only.
+Current Cargo metadata confirms exactly the five documented integration targets.
+
+TP08 lightweight checks: structure reports 1245 Rust files, zero violations and
+zero exceptions. Changed documentation has no broken relative links. Formatting
+and diff checks pass. All seven smaller owners compile in the selected scope;
+CI still owns exhaustive feature/platform cases and workspace execution.

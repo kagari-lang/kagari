@@ -16,3 +16,8 @@ pub mod path;
 pub mod project;
 pub mod snapshot;
 pub mod workspace;
+
+#[cfg(test)]
+mod test_support;
+#[cfg(test)]
+mod tests;

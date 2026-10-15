@@ -22,14 +22,6 @@ kagari-hir = { workspace = true, optional = true }
 kagari-syntax = { workspace = true, optional = true }
 bincode.workspace = true
 
-[[test]]
-name = "source_programs"
-required-features = ["source"]
-
-[[test]]
-name = "package_exports"
-required-features = ["source"]
-
 [[example]]
 name = "applied_traits"
 required-features = ["source"]

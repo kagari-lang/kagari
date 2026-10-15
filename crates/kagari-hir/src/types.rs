@@ -1154,3 +1154,6 @@ impl TypeId {
         }
     }
 }
+
+#[cfg(test)]
+mod identity_display;

@@ -1,4 +1,5 @@
 //! Scoped foundation declarations and storage admission require no source compiler.
+use crate::{catalog, declarations::StandardDeclarations};
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_runtime::{
     Runtime,
@@ -9,7 +10,6 @@ use kagari_runtime::{
     },
     value::Value,
 };
-use kagari_stdlib::{catalog, declarations::StandardDeclarations};
 
 #[derive(Debug)]
 struct EmptyPayload;
@@ -91,7 +91,7 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             right.native_declarations(&comparison.snapshot()).unwrap()
         );
     }
-    let modules = kagari_stdlib::modules().unwrap();
+    let modules = crate::modules().unwrap();
     let mut first = Runtime::default();
     let mut second = Runtime::default();
     NativeModule::install_all(&modules, &mut first).unwrap();

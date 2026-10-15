@@ -37,8 +37,8 @@ foundations. Rust interop's value conversion and Serde adapter do not by themsel
 serialize a script-owned player state or an entire VM. Those are separate contracts.
 Re-audit completed predecessor code before implementation; no build result is
 claimed by this source inventory. Existing
-[prepared reload tests](../crates/kagari/tests/native_artifacts.rs) and
-[candidate session tests](../crates/kagari-runtime/tests/execution_sessions.rs)
+[prepared reload tests](../crates/kagari/src/program/tests/native_artifacts.rs) and
+[candidate session tests](../crates/kagari-runtime/src/session/execution_sessions.rs)
 are regression foundations, not substitutes for the new acceptance cases below.
 
 ## The two update modes

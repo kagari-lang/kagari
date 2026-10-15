@@ -1,5 +1,6 @@
 //! Public-path evidence survives source-free MIR/KBC decoding and identity adoption.
 
+use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_bytecode::{
     artifact::KbcArtifact,
     program::{identity, verify_program as verify_bytecode},
@@ -9,7 +10,6 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId},
 };
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{exports::ExportNamespace, types::PublicItem};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_mir::{
