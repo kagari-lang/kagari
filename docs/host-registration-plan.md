@@ -2556,6 +2556,35 @@ The remaining SDK low-level path fixture, runtime/other compiler consumers and
 legacy producer/callable retirement still block HR02/HR03/RF05 final integration.
 The complete workspace, features/backends/platforms remain CI-owned and unrun locally.
 
+### HR02/RF05 checkpoint: SDK low-level path registration
+
+The embedding_api fixture now declares Player, its hp schema, player callback and
+read/write path adapters through one ModuleBuilder, installed before runtime root
+creation. No HostFunction, HostTypeRegistration, standalone HostInterface or late
+type/function registration remains in SDK tests/examples. The low-level hand-built
+bytecode boundary remains distinct from source compiler tests: it carries common
+native declarations, explicit provider dependencies, exact external schemas and
+semantic HostHandle register facts. Every PathRecord has a shared declaration and
+is fingerprint-checked before artifact construction. Runtime physical slots are no
+longer hand-registered primitive metadata.
+
+Before editing, the selected reload fixture failed with InvalidPathLayout during
+artifact construction: it had an unbacked PathRecord and fabricated a fingerprint
+by XOR, so it could never reach its reload assertion. The replacement installs
+both legitimate shared/read-write contracts for hp once. The unused-path candidate
+selects the other valid declared access contract, retaining unchanged public type
+ABI. Both artifacts verify; reload specifically reports
+KG_RELOAD_PATH_FINGERPRINT_MISMATCH, with unchanged module count and active epoch.
+No verifier or reload check is weakened. Read-only adapters have no write handler.
+
+Actual focused local validation: the two installed_host_path cases passed together
+(1.36 seconds), and the repaired reload contract case passed (1.18 seconds). Scoped
+embedding_api Clippy, structure (1252 files, zero findings), formatting and diff
+checks passed. Only fixture authoring changed; no unsafe kernel or new Miri scope.
+Remaining runtime/compiler consumers and HR03 legacy format/callable retirement
+still block combined completion; the full workspace/backend/feature/platform
+matrix stays CI-owned and unrun locally.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
