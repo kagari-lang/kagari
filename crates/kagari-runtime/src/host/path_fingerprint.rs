@@ -17,6 +17,7 @@ use kagari_types::{
         value_type::HostValueType,
     },
 };
+use std::collections::HashMap;
 
 impl HostRegistry {
     pub(crate) fn link_module(
@@ -31,7 +32,7 @@ impl HostRegistry {
             ));
         }
         let functions = self.link_interface(&module.host_interface, definitions)?;
-        let host_types = module
+        let mut host_types = module
             .host_interface
             .types
             .iter()
@@ -40,7 +41,22 @@ impl HostRegistry {
                     .map(|host| (required.id, host.type_id))
                     .ok_or_else(|| RuntimeError::module_validation("linked host type is absent"))
             })
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<HashMap<_, _>, _>>()?;
+        for required in &module.external_types {
+            let id = types
+                .external_type(required)
+                .filter(|id| self.matches_type(*id, &required.declaration))
+                .ok_or_else(|| {
+                    RuntimeError::module_validation(
+                        "external type lacks its exact installed metadata slot",
+                    )
+                })?;
+            if host_types.insert(required.declaration, id).is_some() {
+                return Err(RuntimeError::module_validation(
+                    "external type has duplicate metadata owners",
+                ));
+            }
+        }
         let paths = module
             .paths
             .iter()

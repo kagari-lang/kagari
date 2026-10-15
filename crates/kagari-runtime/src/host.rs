@@ -1,4 +1,5 @@
 mod borrows;
+mod installation;
 mod registry;
 pub mod scoped;
 use crate::{
@@ -23,7 +24,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::host::{HostPassingStyle, PathAccess},
+    declaration::host::{HostPassingStyle, HostTypePolicy, PathAccess},
     host_interface::{
         HostFunctionDeclaration,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
@@ -1298,10 +1299,19 @@ pub struct HostRegistry {
     types: HashMap<TypeId, HostTypeInfo>,
     type_names: HashMap<String, TypeId>,
     type_declarations: HashMap<DefinitionId, TypeId>,
+    registered_types: HashMap<TypeId, RegisteredHostType>,
     roots: HashMap<HostObjectId, HostRootHandle>,
     path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
     path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
     dirty_paths: RefCell<Vec<HostPathMutationRecord>>,
+}
+
+/// Runtime slots derived from checked declaration owners, without another schema
+/// or Rust object store. The legacy producer is retired with its HR03 consumers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RegisteredHostType {
+    policy: HostTypePolicy,
+    abi_fingerprint: AbiFingerprint,
 }
 
 #[derive(Debug)]

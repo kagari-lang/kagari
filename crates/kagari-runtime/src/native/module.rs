@@ -22,7 +22,7 @@ use kagari_common::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{TypeDefKind, module::ModuleDecl},
+    declaration::{TypeDefKind, host::PathAccess, module::ModuleDecl},
 };
 use std::{collections::BTreeMap, iter, slice, sync::Arc};
 
@@ -43,15 +43,18 @@ impl NativeModule {
         storage: BTreeMap<DefinitionId, NativeStorage>,
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
-        // Portable policy can be authored and checked independently. Until the
-        // external type installation is migrated, keep its execution admission closed.
-        if declaration
-            .types
-            .iter()
-            .any(|ty| matches!(ty.kind, TypeDefKind::Host(_)))
-        {
+        // Shared root identity/methods use installed metadata slots. Manual field
+        // path execution stays closed until its shared contract owner is installed.
+        if declaration.types.iter().any(|ty| {
+            matches!(ty.kind, TypeDefKind::Host(_))
+                && ty.fields.iter().any(|field| {
+                    field
+                        .host_policy
+                        .is_some_and(|policy| policy.path_access != PathAccess::None)
+                })
+        }) {
             return Err(RuntimeError::metadata_conflict(
-                "external-ID native adapter is not installed",
+                "external-ID native adapter is not installed for manual field paths",
             ));
         }
         let context = providers.types.context();
@@ -250,10 +253,12 @@ impl NativeModule {
         let mut staged = runtime.native_entries.clone();
         staged.metadata = runtime.types.snapshot();
         Self::install_batch(modules, &mut staged)?;
+        let host_types = runtime.host.prepare_native_types(&staged.metadata)?;
         // No callbacks run during preparation. Publishing these owned values
         // together cannot leave entries installed without their reflected schema.
         runtime.types = staged.metadata.runtime_registry();
         runtime.native_entries = staged;
+        host_types.publish(&mut runtime.host);
         Ok(())
     }
 

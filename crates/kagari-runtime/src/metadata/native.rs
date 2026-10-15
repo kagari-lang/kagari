@@ -19,7 +19,8 @@ use kagari_common::{
 use kagari_contract::host::external;
 use kagari_types::{
     declaration::{
-        TypeDeclaration, TypeDef, TypeDefKind, host::PathAccess,
+        TypeDeclaration, TypeDef, TypeDefKind,
+        host::{HostTypePolicy, PathAccess},
         wire::declarations::TypeDeclarationRecord,
     },
     scalar::BuiltinType,
@@ -45,6 +46,25 @@ pub(crate) struct MetadataSnapshot {
 }
 
 impl MetadataSnapshot {
+    pub(crate) fn external_bindings(
+        &self,
+    ) -> impl Iterator<Item = (DefinitionId, TypeId, HostTypePolicy, AbiFingerprint)> + '_ {
+        self.inner
+            .native_external
+            .iter()
+            .map(|(declaration, (definition, id))| {
+                let TypeDefKind::Host(policy) = definition.kind else {
+                    unreachable!("checked external metadata")
+                };
+                (
+                    *declaration,
+                    *id,
+                    policy,
+                    self.inner.by_id[id.index()].abi_fingerprint,
+                )
+            })
+    }
+
     pub(crate) fn runtime_registry(&self) -> TypeRegistry {
         TypeRegistry {
             inner: RefCell::new(self.inner.clone()),
@@ -118,6 +138,15 @@ impl MetadataSnapshot {
 }
 
 impl TypeRegistry {
+    pub(crate) fn external_type(&self, declaration: &TypeDeclaration) -> Option<TypeId> {
+        self.inner
+            .borrow()
+            .native_external
+            .get(&declaration.declaration)
+            .filter(|(definition, _)| *definition == declaration.definition)
+            .map(|(_, id)| *id)
+    }
+
     pub(crate) fn snapshot(&self) -> MetadataSnapshot {
         MetadataSnapshot {
             inner: self.inner.borrow().clone(),

@@ -1,18 +1,29 @@
 use super::source_free_vm;
+use crate::{compile_program, support::round_trip_program};
 use kagari_runtime::{
+    RuntimeConfig,
     error::RuntimeErrorKind,
-    host::{HostCallContext, HostError},
+    gc::GcHeapConfig,
+    host::{HostCallContext, HostError, HostObjectId, HostSchemaEpoch},
     native::{
-        builder::ModuleBuilder, context::CallContext, declarations::FunctionDecl, types::Type,
+        builder::ModuleBuilder,
+        context::CallContext,
+        declarations::{FunctionDecl, MethodDecl},
+        installation::NativeInstallation,
+        types::Type,
     },
     session::{DeterministicInputs, ExecutionPhase, TraceValue},
     value::Value,
 };
 use kagari_types::{
-    declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
+    declaration::host::{
+        HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
+        HostTypeOwnership, HostTypePolicy, PathAccess,
+    },
     scalar::BuiltinType,
 };
 use kagari_vm::error::VmError;
+use kagari_vm::vm::Vm;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -197,4 +208,149 @@ fn host_policy_uses_native_entry_with_rooted_inputs_and_execution_session() {
     assert!(!vm.runtime().is_quarantined());
     assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
     assert!(vm.execute(&owner, "run").is_ok());
+}
+
+#[test]
+fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free() {
+    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
+        .catalog()
+        .unwrap();
+    let mut builder = ModuleBuilder::new("example::roots", &catalog).unwrap();
+    let mut player = builder.define_type("Player").unwrap();
+    player
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Metadata,
+            path_access: PathAccess::ReadWrite,
+        })
+        .unwrap();
+    let player = player.finish().unwrap();
+    let mut interface = builder.define_trait("HasHp").unwrap();
+    interface
+        .define_method(MethodDecl::instance("hp").returns(Type::i32()))
+        .unwrap();
+    let interface = interface.finish().unwrap();
+    let state = Arc::new(AtomicUsize::new(10));
+    builder
+        .implement(player, |group| {
+            let edited = state.clone();
+            group.inherent_impl(|methods| {
+                let method = methods.define_method(
+                    MethodDecl::instance("heal")
+                        .parameter("amount", Type::i32())
+                        .returns(Type::i32())
+                        .host_policy(HostCallPolicy {
+                            passing: vec![HostPassingStyle::UniqueBorrow, HostPassingStyle::Owned],
+                            effects: HostFunctionEffects {
+                                may_mutate_host_state: true,
+                                ..Default::default()
+                            },
+                        }),
+                )?;
+                methods.bind(
+                    method,
+                    move |context: &HostCallContext<'_>, values: &[Value]| {
+                        context.runtime().collect_garbage().unwrap();
+                        let [Value::HostRoot(id), Value::I32(amount)] = values else {
+                            panic!("root and amount")
+                        };
+                        assert_eq!(
+                            context.runtime().gc().host_root(*id).unwrap().object_id(),
+                            HostObjectId(17)
+                        );
+                        Ok(Value::I32(
+                            (edited.fetch_add(*amount as usize, Ordering::SeqCst)
+                                + *amount as usize) as i32,
+                        ))
+                    },
+                )
+            })?;
+            let read = state.clone();
+            group.trait_impl(interface.apply([])?, |methods| {
+                methods.host_policy(
+                    "hp",
+                    HostCallPolicy {
+                        passing: vec![HostPassingStyle::SharedBorrow],
+                        effects: Default::default(),
+                    },
+                )?;
+                methods.bind(
+                    "hp",
+                    move |context: &HostCallContext<'_>, values: &[Value]| {
+                        context.runtime().collect_garbage().unwrap();
+                        let [Value::HostRoot(id)] = values else {
+                            panic!("root")
+                        };
+                        assert_eq!(
+                            context.runtime().gc().host_root(*id).unwrap().object_id(),
+                            HostObjectId(17)
+                        );
+                        Ok(Value::I32(read.load(Ordering::SeqCst) as i32))
+                    },
+                )
+            })
+        })
+        .unwrap();
+    let module = builder.finish().unwrap();
+    let source = r#"
+        use example::roots::{Player, HasHp};
+        fn hp<T: HasHp>(player: T) -> i32 { player.hp() }
+        pub fn main(player: Player) -> i32 { player.heal(5); hp(player) }
+    "#;
+    let program = round_trip_program(compile_program(source, Some(&module)));
+    let mut modules = kagari_stdlib::modules().unwrap();
+    modules.push(module.clone());
+    let installation = NativeInstallation::prepare(&modules).unwrap();
+    let mut runtime = installation.runtime(RuntimeConfig {
+        gc: GcHeapConfig {
+            collection_threshold: Some(1),
+        },
+        ..Default::default()
+    });
+    let type_id = runtime
+        .types()
+        .get_by_name("example::roots::Player")
+        .unwrap()
+        .id;
+    let root = runtime
+        .register_host_root(HostObjectId(17), type_id, HostSchemaEpoch::new(3))
+        .unwrap();
+    let value = runtime.gc().alloc_host_root(root).unwrap();
+    let value = runtime.gc().root_execution_values(vec![value]).unwrap();
+    let owner = runtime.load_program("shared-root", program).unwrap();
+    let mut vm = Vm::new(runtime);
+    let argument = value.get(vm.runtime().gc(), 0).unwrap();
+    vm.runtime_mut()
+        .with_host_scope(|scope| {
+            assert_eq!(
+                Vm::execute_scoped(scope, &owner, "main", &[argument], Default::default())?,
+                Value::I32(15)
+            );
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(state.load(Ordering::SeqCst), 15);
+    let scope = vm.runtime().host_scope(&[]).unwrap();
+    scope
+        .borrows()
+        .borrow_unique(HostObjectId(17), type_id)
+        .unwrap();
+    drop(scope);
+    let mut other = installation.runtime(Default::default());
+    let foreign = other
+        .register_host_root(HostObjectId(17), type_id, HostSchemaEpoch::new(3))
+        .unwrap();
+    let foreign = vm.runtime().gc().alloc_host_root(foreign).unwrap();
+    assert!(
+        vm.runtime_mut()
+            .with_host_scope(|scope| Vm::execute_scoped(
+                scope,
+                &owner,
+                "main",
+                &[foreign],
+                Default::default()
+            ))
+            .is_err()
+    );
+    assert_eq!(state.load(Ordering::SeqCst), 15);
 }

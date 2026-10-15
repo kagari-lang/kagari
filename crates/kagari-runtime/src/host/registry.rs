@@ -7,7 +7,7 @@ use crate::{
         HostFunctionId, HostObjectId, HostPathAdapter, HostPathContext, HostPathDescriptor,
         HostPathDescriptorId, HostPathDescriptorRegistration, HostPathMutationRecord,
         HostPathOperation, HostPathSegment, HostPathViewHandle, HostRegistry, HostRegistryId,
-        HostRootHandle, HostSchemaEpoch, HostTypeInfo, apply_path_modify,
+        HostRootHandle, HostSchemaEpoch, HostTypeInfo, RegisteredHostType, apply_path_modify,
         dynamic_args_for_descriptor, path_access_allows, path_scope_error,
         validate_dynamic_arguments, validate_path_access,
     },
@@ -24,7 +24,7 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::host::{HostTypeOwnership, PathAccess},
+    declaration::host::{HostTypeOwnership, HostTypePolicy, PathAccess},
     host_interface::{
         self, HostInterface,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
@@ -52,6 +52,7 @@ impl HostRegistry {
             types: Default::default(),
             type_names: Default::default(),
             type_declarations: Default::default(),
+            registered_types: Default::default(),
             roots: Default::default(),
             path_descriptors: Default::default(),
             path_adapters: Default::default(),
@@ -296,6 +297,17 @@ impl HostRegistry {
 
     pub(crate) fn install_types(&mut self, bindings: Vec<HostTypeInfo>) {
         for info in bindings {
+            self.registered_types.insert(
+                info.type_id,
+                RegisteredHostType {
+                    policy: HostTypePolicy {
+                        ownership: info.declaration.ownership,
+                        reflection: info.declaration.reflection,
+                        path_access: info.declaration.path_access,
+                    },
+                    abi_fingerprint: info.abi_fingerprint,
+                },
+            );
             self.type_names
                 .insert(info.declaration.symbol.clone(), info.type_id);
             self.type_declarations
@@ -343,17 +355,17 @@ impl HostRegistry {
                 object_id.0
             )));
         }
-        let Some(info) = self.types.get(&type_id) else {
+        let Some(info) = self.registered_types.get(&type_id) else {
             return Err(RuntimeError::typed_path_validation(
                 "host root type is not registered",
             ));
         };
-        if info.declaration.ownership != HostTypeOwnership::HostRoot {
+        if info.policy.ownership != HostTypeOwnership::HostRoot {
             return Err(RuntimeError::typed_path_validation(
                 "host root type must use HostRoot ownership",
             ));
         }
-        validate_path_access(info.declaration.path_access, "host root type")?;
+        validate_path_access(info.policy.path_access, "host root type")?;
         let root = HostRootHandle::new(
             self.owner,
             object_id,

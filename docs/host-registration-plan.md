@@ -1828,6 +1828,33 @@ finalization. Runtime root slot publication, common manual paths/source member
 access and source trait references remain the owning HR02/RF05 integration work;
 this checkpoint does not claim those APIs runnable or combined acceptance complete.
 
+### HR02 checkpoint: shared whole-root installation and execution
+
+Prepared external metadata now binds its original declaring identity to the
+existing host registry's physical TypeId slots. Runtime construction publishes
+that checked value-only mapping into an independent registry; local installation
+stages it alongside native entries and reflection before publishing any of them.
+Root registration keeps the existing object IDs, owner, schema epoch, ownership
+and access checks. No Rust object enters the heap and no legacy nominal schema is
+manufactured from a shared TypeDef. The temporary legacy slot producer belongs
+to the existing HR03 retirement scope.
+
+Source-free module linking requires the exact shared external schema and its
+installed slot. NativeModule now admits external types without manual field
+paths; the execution gate remains for declared field paths until their shared
+contract validation and execution are integrated. One common inherent method and
+one explicit Kagari trait method execute through the ordinary VM/native path.
+
+Selected validation passed: the new source-free root case exercises generic
+trait dispatch, inherent mutation, collection inside both callbacks, subsequent
+exclusive borrowing and foreign-runtime rejection before callback entry. The
+existing installation failure/isolation case passed. Structure checked 1240 Rust
+files with zero violations; fmt, diff and runtime library/test Clippy passed.
+No unsafe or lifetime changes;
+previous Miri evidence remains applicable. Exhaustive matrices remain CI-owned.
+Manual paths, source trait references and dependent legacy retirement remain
+HR02/RF05/HR03 work; the combined goal is not complete.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

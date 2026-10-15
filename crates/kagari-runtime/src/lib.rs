@@ -162,7 +162,10 @@ impl Runtime {
 
     fn with_native_registry(config: RuntimeConfig, native_entries: NativeRegistry) -> Self {
         let resources = ResourceState::new(config.limits);
-        let host = HostRegistry::new(native_entries.catalog.types.context().clone());
+        let mut host = HostRegistry::new(native_entries.catalog.types.context().clone());
+        host.prepare_native_types(&native_entries.metadata)
+            .expect("checked independent native metadata slots")
+            .publish(&mut host);
         let types = native_entries.metadata.runtime_registry();
         Self {
             tasks: RefCell::new(TaskStore::new(config.async_limits)),
