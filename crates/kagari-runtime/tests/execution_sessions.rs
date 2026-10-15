@@ -28,7 +28,7 @@ use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
 };
-use support::native::{free_function_program, invoke};
+use support::native::{invoke, program::free_function_program};
 
 fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
     let context = DefinitionContext::new().unwrap();

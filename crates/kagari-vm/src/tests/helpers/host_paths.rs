@@ -22,7 +22,7 @@ use kagari_runtime::{
         declarations::FunctionDecl, types::Type,
     },
 };
-use kagari_types::ty::Ty;
+use kagari_types::{declaration::path::HostIndexSegmentDeclaration, ty::Ty};
 use std::sync::{Arc, Mutex};
 
 #[test]
@@ -77,6 +77,9 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
+            logging_module(|_, _| Ok(Value::Unit))
+                .install(&mut runtime)
+                .unwrap();
             let write_hp = hp.clone();
             runtime
                 .register_host_path_adapter(
@@ -105,7 +108,6 @@ fn path_commit_faults_release_frames_and_prevent_further_interpreter_or_jit_exec
             let native = native_fixtures::install_i32::<42>(&runtime, &scalar, false);
             let scalar_entry = PreparedNativeEntry::Native(native.clone());
             let program = module_program(path_module(
-                &runtime,
                 "main",
                 vec![
                     BytecodeInstruction::Call {
@@ -306,7 +308,6 @@ fn executes_typed_path_read_set_modify_and_view_instructions() {
         .load_program(
             "paths.kbc",
             module_program(path_module(
-                &runtime,
                 "main",
                 vec![
                     BytecodeInstruction::Call {
@@ -377,7 +378,6 @@ fn typed_path_instruction_failures_are_runtime_typed_path_errors() {
         .load_program(
             "readonly_path.kbc",
             module_program(path_module(
-                &runtime,
                 "main",
                 vec![
                     BytecodeInstruction::Call {
@@ -413,7 +413,6 @@ fn installed_typed_path_helpers_need_no_permission_flags() {
         .load_program(
             "path_capability.kbc",
             module_program(path_module(
-                &runtime,
                 "main",
                 vec![
                     BytecodeInstruction::Call {
@@ -456,13 +455,10 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 .path_descriptor(HostPathDescriptorId::new(0))
                 .unwrap()
                 .clone();
-            let declaration = runtime
-                .host()
-                .host_type(original.root_type)
-                .unwrap()
-                .declaration
-                .fields[0]
-                .id;
+            let HostPathSegmentDeclaration::Field(declaration) = original.declaration.segments[0]
+            else {
+                panic!("fixture requires the hp field path");
+            };
             let registration = HostPathDescriptorRegistration {
                 definitions: runtime.host().definitions(),
                 root_type: original.root_type,
@@ -481,8 +477,7 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                     HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(73))),
                 )
                 .unwrap();
-            let (definitions, mut bytecode) = path_module(
-                &runtime,
+            let bytecode = path_module(
                 "main",
                 vec![
                     BytecodeInstruction::Call {
@@ -500,24 +495,32 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
                 ],
                 ValueType::I32,
                 vec![],
-            )
-            .into_parts();
-            bytecode.paths[0].contract_fingerprint = runtime
+            );
+            let required = runtime
                 .host()
                 .path_descriptor(target)
                 .unwrap()
-                .abi_fingerprint
-                .0;
-            bytecode.paths[0].read_only = true;
+                .declaration
+                .clone();
+            let required = DefinitionMetadata::checked(
+                runtime.host().definitions(),
+                required,
+                &Default::default(),
+            )
+            .unwrap();
+            let (definitions, mut bytecode) = with_path_contract(bytecode, required).into_parts();
             bytecode.paths[0].debug_name = "deliberately unrelated diagnostic label".into();
-            let program = module_program(
+            let bytecode =
                 DefinitionMetadata::checked(definitions.clone(), bytecode, &Default::default())
-                    .unwrap(),
-            );
-            let (definitions, mut missing) = program.clone().into_parts();
-            missing.modules[0].paths[0].contract_fingerprint ^= 1;
-            let missing =
-                DefinitionMetadata::checked(definitions, missing, &Default::default()).unwrap();
+                    .unwrap();
+            // A valid portable contract with an uninstalled epoch tests runtime linking.
+            let mut missing_path = bytecode.records().path_declarations[0].clone();
+            missing_path.schema_epoch += 1;
+            let missing_path =
+                DefinitionMetadata::checked(definitions, missing_path, &Default::default())
+                    .unwrap();
+            let missing = module_program(with_path_contract(bytecode.clone(), missing_path));
+            let program = module_program(bytecode);
             assert_eq!(
                 runtime.load_program("missing", missing).unwrap_err().kind(),
                 RuntimeErrorKind::TypedPathValidation
@@ -561,8 +564,6 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
 
 #[test]
 fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
-    use kagari_types::declaration::path::HostIndexSegmentDeclaration;
-    use kagari_types::host_interface::value_type::HostValueType;
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let field = runtime
         .host()
@@ -577,18 +578,9 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
             segments: vec![HostPathSegmentDeclaration::Index(
                 HostIndexSegmentDeclaration {
                     slot: 0,
-                    collection: Ty::from_host_type(
-                        &(HostValueType::Opaque(
-                            runtime
-                                .host()
-                                .host_type(field.root_type)
-                                .unwrap()
-                                .declaration
-                                .id,
-                        )),
-                    ),
-                    index: Ty::from_host_type(&(HostValueType::I32)),
-                    result: Ty::from_host_type(&(HostValueType::I32)),
+                    collection: Ty::Host(field.declaration.root),
+                    index: Ty::Builtin(BuiltinType::I32),
+                    result: Ty::Builtin(BuiltinType::I32),
                     access: PathAccess::ReadWrite,
                 },
             )],
@@ -596,12 +588,23 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
             schema_epoch: HostSchemaEpoch::new(0),
         })
         .unwrap();
-    let fingerprint = runtime
-        .host()
-        .path_descriptor(target)
-        .unwrap()
-        .abi_fingerprint
-        .0;
+    runtime
+        .register_host_path_adapter(
+            target,
+            HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(0))),
+        )
+        .unwrap();
+    let required = DefinitionMetadata::checked(
+        runtime.host().definitions(),
+        runtime
+            .host()
+            .path_descriptor(target)
+            .unwrap()
+            .declaration
+            .clone(),
+        &Default::default(),
+    )
+    .unwrap();
     for operation in 0..4 {
         for args in [
             vec![],
@@ -638,8 +641,7 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                     dynamic_args: args,
                 },
             };
-            let (definitions, mut module) = path_module(
-                &runtime,
+            let module = path_module(
                 "main",
                 vec![
                     BytecodeInstruction::Call {
@@ -656,17 +658,11 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
                 ],
                 ValueType::Unit,
                 vec![ConstantOperand::I32(3)],
-            )
-            .into_parts();
-            module.paths[0].contract_fingerprint = fingerprint;
-            let before = runtime.modules().loaded_count();
-            let result = runtime.load_program(
-                format!("operation{operation}"),
-                module_program(
-                    DefinitionMetadata::checked(definitions.clone(), module, &Default::default())
-                        .unwrap(),
-                ),
             );
+            let module = with_path_contract(module, required.clone());
+            let before = runtime.modules().loaded_count();
+            let result =
+                runtime.load_program(format!("operation{operation}"), module_program(module));
             if valid {
                 assert_eq!(result.unwrap().path_binding(PathId::new(0)), Some(target));
             } else {

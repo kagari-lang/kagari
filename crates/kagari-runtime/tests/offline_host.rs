@@ -7,7 +7,8 @@ use kagari_bytecode::{
     program::BytecodeProgram,
 };
 use kagari_common::identity::{
-    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+    metadata::DefinitionMetadata, scoped::DefinitionReferences, table::DefinitionTable,
 };
 use kagari_runtime::{
     Runtime,
@@ -38,7 +39,14 @@ use std::{
         atomic::{AtomicUsize, Ordering},
     },
 };
-use support::native::{free_function_program, invoke, scoped};
+use support::native::{invoke, program::free_function_program};
+
+pub fn scoped<T>(definitions: &DefinitionTable, records: T) -> DefinitionMetadata<T>
+where
+    T: DefinitionReferences,
+{
+    DefinitionMetadata::checked(definitions.clone(), records, &Default::default()).unwrap()
+}
 
 fn declaration(context: &DefinitionContext, package: &str) -> DefinitionMetadata<ModuleDecl> {
     let identity = ModuleIdentity {

@@ -3385,6 +3385,41 @@ roots or loan kernel changed, so no new Miri run is
 needed. Remaining path/composite legacy fixtures and the exhaustive CI matrix
 remain open at their existing owners.
 
+### HR02/RF05: migrate VM path fixtures to common declarations
+
+VM path fixtures now declare the external Player schema, field and native root
+function with ModuleBuilder, install that module and carry its ordinary cold
+NativeDeclarations/NativeImports. The shared runtime free-function program fixture
+has its own test module, reused through a justified cross-target `#[path]`; the
+execution-frame driver remains at its existing owner. All seven runtime consumers
+import the new actual owner directly, without a forwarding re-export.
+
+Portable path fixtures explicitly retain common HostPathDeclarations alongside
+their physical records, derive fingerprints from the shared resolver and adopt
+selected requirements into a checked scope. The missing-binding case uses a valid
+contract with an uninstalled schema epoch; it still requires TypedPathValidation
+and zero loaded modules. A mismatched arbitrary fingerprint would instead test
+portable validation. Readonly registration still rejects a requested writable
+contract. Linked slots, ambiguous contracts, diagnostic-label independence and
+all four operations' dynamic argument checks retain their assertions.
+
+Initial focused runs rejected missing portable requirements, the fault fixture's
+missing logging dependency and the dynamic-index fixture's unbound adapter. These
+were fixture omissions, repaired by explicit declarations/installation, without
+relaxing the verifier or linker. The read/set/modify/view case passed (0.55 seconds);
+readonly, installed access, pinned linking and callback reentry passed in the
+selected six-case run. Its two failures then passed together after the dependency
+repairs (16.61 seconds). Thus all seven selected path cases completed, including
+commit fault quarantine/cleanup and encoded/interpreter/prepared execution paths.
+Moving the cold factory exposed a now-private-use scoped helper; it moved to its
+sole offline_host consumer after focused Clippy reported dead code in the other
+six targets. The unchanged runtime cold-fixture boundary passed offline_roundtrip_and_binding_link_do_not_run_callbacks
+(one test, 0.01 seconds). VM lib/tests and the seven affected runtime integration
+targets' scoped Clippy passed. Structure checked 1251 Rust files with zero findings;
+formatting and diff checks passed. No unsafe, GC roots or loan kernel changed;
+existing Miri evidence remains applicable. Legacy composite fixtures and production
+registration/portable retirement remain open; exhaustive matrix acceptance is CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
