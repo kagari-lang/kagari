@@ -1,2 +1,2 @@
-#[cfg(all(feature = "source", feature = "native"))]
+mod embedding;
 mod language;

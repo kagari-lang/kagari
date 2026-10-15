@@ -124,3 +124,6 @@ impl Default for KagariEngine {
         Self::new(EngineConfig::default())
     }
 }
+
+#[cfg(test)]
+mod tests;

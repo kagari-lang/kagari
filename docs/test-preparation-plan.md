@@ -363,7 +363,7 @@ as required, keeping each scenario's assertions together.
   their owning batch; remove the pilot's obsolete roots immediately. Compare
   matched pilot execution, compile/link costs and memory before expanding to
   TP06; record uncertain measurements without claiming performance acceptance.
-- [ ] **TP06: finish SDK ownership.** Migrate the other 46 ordinary targets in
+- [x] **TP06: finish SDK ownership.** Migrate the other 46 ordinary targets in
   coherent engine/program/runtime batches. Move source-only async suites while
   retaining the external native-wait target. Resolve all emitter/consumer fixture
   paths in the same batch, with no forwarding integration entrypoints.
@@ -458,3 +458,25 @@ old 116.96 s / 820.22 CPU s / 961 MiB peak working set; new 84.23 s / 882.53 CPU
 this requires retained-memory follow-up rather than a whole-suite claim. Saved
 products continue the three-round comparison while TP06 proceeds; later build
 load is recorded as interference. No execution semantics or assertions changed.
+
+TP06 checkpoint: SDK integration targets reduced from 51 to 2. All 483 explicit
+SDK cases preserve names and ignore/should-panic attributes; the syntax-example
+macro and its invocation remain intact apart from relocated fixture paths. The
+default library harness discovers 662 total cases, including pre-existing unit
+contracts. Source-only library compilation also passes. Five selected session,
+forged-result, async lifecycle and pinned-reload contracts passed; three retained
+consumer cases passed in the workspace. SDK Clippy, structure (1234 files),
+formatting and diff checks pass. Shared cancellation/route helpers have one
+source owner; the temporary external execution helper is removed. Native enum,
+provider, residual and async fixture files remain shared with real consumers.
+The standalone source-free consumer is being checked separately; the initial
+network-index wait was stopped and restarted offline, with no source change.
+
+Three alternating TP05 runs all passed: old wall 116.96/127.32/124.23 s, new
+84.23/81.30/82.36 s; median CPU 820.22 vs 882.09 s, median peak working set
+956.7 vs 1425.6 MiB. Concurrent installation/build work makes these exploratory
+samples. The final 20 percent of each new run averages about 0.97 logical cores;
+the numeric-aggregation overflow case remains the last serial workload. More
+concurrent sessions are consistent with the higher peak, but retained identity
+growth and allocator retention are not isolated by these process-peak samples.
+No whole-suite performance or retained-memory acceptance is claimed.

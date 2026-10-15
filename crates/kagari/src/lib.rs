@@ -22,5 +22,5 @@ pub type ReloadResult<T> = Result<T, EmbeddingError>;
 use kagari_bytecode::artifact::KbcArtifact;
 pub type BytecodeArtifact = KbcArtifact;
 
-#[cfg(all(test, feature = "source", feature = "native"))]
+#[cfg(test)]
 mod test_support;

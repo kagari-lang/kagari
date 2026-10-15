@@ -133,3 +133,6 @@ impl PreparedProgram {
         self.state.mir.is_some()
     }
 }
+
+#[cfg(test)]
+mod tests;

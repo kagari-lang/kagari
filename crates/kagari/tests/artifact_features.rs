@@ -30,7 +30,7 @@ mod provider;
 #[path = "support/try_carrier.rs"]
 mod try_carrier;
 // A structurally consistent forgery must still fail installed-contract linking.
-#[path = "native_provider_reset/contracts.rs"]
+#[path = "support/provider_contracts.rs"]
 mod contracts;
 
 #[path = "artifact_features/async_tasks.rs"]
