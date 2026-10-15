@@ -1,6 +1,7 @@
 mod aot;
 mod args;
 mod checking;
+mod formatting;
 mod project;
 mod report;
 mod tool_config;
@@ -50,6 +51,7 @@ fn main() -> ExitCode {
 
 fn run_cli(cli: Cli) -> Result<(), CliError> {
     match cli.command {
+        Command::Format { source, options } => formatting::run(&source, &options),
         Command::BuildAot { source, output } => aot::build(&source, &output),
         Command::RunAot { bundle } => aot::run(&bundle),
         Command::Project { action, options } => project::run(action, options, cli.jit),

@@ -1,6 +1,6 @@
 # Formatter, checker and linter implementation plan
 
-Status: implementation authorized on 2026-10-15; TT01 complete, TT02 next.
+Status: implementation authorized on 2026-10-15; TT01–TT02 complete, TT03 next.
 This plan owns the first usable `kg fmt`, `kg check` and `kg lint` milestone.
 Command spellings and configuration examples below describe planned behavior,
 not commands already supported by the current binary.
@@ -422,6 +422,41 @@ of lexer kinds after whitespace removal does not prove equivalent syntax. Includ
 boundaries in reparse/CST-equivalence cases. Preserve literal text and compare
 non-whitespace tokens explicitly; do not drop comments using a generic trivia filter.
 
+### Fixed formatter grammar inventory (TT02 start)
+
+Inventory baseline is `SyntaxKind` and parser grammar at `fae9cacf`, checked
+against `docs/kagari.ebnf`, the syntax coverage inventories and `examples/syntax`.
+No parser/language extension is included. Every listed family must have explicit
+CST rules plus expected-output and preservation witnesses before TT03 closes.
+
+| Family | CST owners / witnesses | State |
+| --- | --- | --- |
+| Declarations | FnDef, MethodDef, StructDef/FieldList, EnumDef/VariantList, TraitDef, ImplBlock, ConstDef, AssociatedType; grammar-witnesses | Implemented; TT03 layout review pending |
+| Modules/imports | SourceFile, ModuleDef/ModuleBlock, UseDecl/UseTree/UseTreeList, Path; inline-modules/import examples | Implemented; TT03 layout review pending |
+| Attributes | Attribute, AttributeArgs/ArgList/Arg/Value; attributes | Implemented; TT03 layout review pending |
+| Type syntax | TypeRef, TupleType, ArrayType, FunctionType, QualifiedType, TypeList; grammar-witnesses/generic-associated-types | Implemented; TT03 layout review pending |
+| Generics | GenericParamList/Param, GenericArgList, AssociatedTypeBinding, TraitBoundList/TraitRef, WhereClause/Predicate | Implemented; TT03 layout review pending |
+| Statements | BindingStmt, AssignStmt, ReturnStmt, BreakStmt, ContinueStmt, ExprStmt, BlockExpr | Implemented; TT03 layout review pending |
+| Control flow | IfExpr, BindingCondition, WhileStmt, ForStmt, LoopStmt/LoopExpr, MatchExpr/ArmList/Arm | Implemented; TT03 layout review pending |
+| Expressions | PathExpr, Literal, ParenExpr, PrefixExpr, BinaryExpr, CastExpr, RangeExpr, PropagateExpr | Implemented; TT03 layout review pending |
+| Calls/collections | CallExpr, FieldExpr, IndexExpr, TupleExpr, ArrayExpr, StructExpr/FieldInitList/FieldInit | Implemented; TT03 layout review pending |
+| Patterns | Pattern, PatternField; matching/destructuring examples | Implemented; TT03 layout review pending |
+| Closures/async | ClosureExpr/ParamList/Param, async declarations, AwaitExpr; async | Implemented; TT03 layout review pending |
+| Interpolation | InterpolatedString/Interpolation plus Format tokens; string-interpolation | Implemented; TT03 layout review pending |
+| Comments/layout | Leading/trailing/dangling, nested block, line termination, blank lines, CRLF/Unicode, empty source | Implemented; TT03 layout review pending |
+| Adjacency | Shift tokens, nested generic closers, operator/prefix boundaries, interpolation holes | Implemented; TT03 layout review pending |
+
+Single-file formatting is TT02's first consumer of writeback. The core replacement
+helper therefore lands with that command; TT03 extends it to project discovery
+and completes the platform/link matrix. Policy fixed before implementation:
+read through approved links, but reject changed-file writeback through symbolic
+links, directory links/junctions or other reparse points; reject multiply linked
+or read-only files. Unchanged files and `--check` need no write permission and
+never create replacement files. Stage a sibling file, preserve permissions,
+recheck content and file identity/metadata, then replace the requested ordinary
+file. This relies on host-controlled filesystem mutation between the final check
+and replacement; it is not a filesystem compare-and-swap or project transaction.
+
 ## Checker acceptance
 
 Keep existing syntax, module/name/visibility, type, generic/trait, mutation,
@@ -603,7 +638,7 @@ side effects. None is silently added to this milestone.
   full-workspace tests and exhaustive feature/backend validation remain CI-only.
 - [x] TT01: resolve command/config/diagnostic decisions, acquisition and eligibility
   contracts; complete check tooling.
-- [ ] TT02: single-file formatter foundation and stdin integration.
+- [x] TT02: single-file formatter foundation and stdin integration.
 - [ ] TT03: complete syntax coverage and project formatting.
 - [ ] TT04: lint policy and six initial rules.
 - [ ] TT05: focused acceptance, documentation migration and CI integration.
@@ -642,3 +677,26 @@ relative path; corrected its expectation to the SDK's normalized absolute origin
 Workspace/all-targets Clippy, structure (1249 files, zero findings), rustfmt and
 diff checks passed. No known local implementation failures remain. CI-only tests
 remain unrun. TT02 follows; no formatter/linter scaffolds were introduced in TT01.
+
+### TT02 checkpoint
+
+Added the pure `kagari-format` library with separate comment attachment, CST rules
+and width-aware document printing, plus single-file/stdin CLI integration.
+Every successful result reparses and preserves both lexer tokens (comments
+included) and normalized CST structure. Interpolation uses flat expression layout
+except required line-comment termination. A nested-closure fixture caught adjacent
+pipes being merged; the corrected closure separator passes preservation.
+
+Five formatter tests pass (independent printer/comments, expected layout,
+adjacency/interpolation/boundaries and seven representative grammar fixtures).
+An initial baseline probe also covered all 44 existing syntax fixtures; the
+permanent complete fixture matrix is explicitly CI-only and ignored by default,
+with TT05 responsible for its CI command. The fixed inventory still needs TT03's
+layout review and project/platform boundaries. Two CLI formatter/writeback tests
+and updated argument contracts pass. Actual stdin success/malformed probes pass.
+Workspace/all-targets Clippy passed after two style repairs; structure (1256 files,
+zero findings), rustfmt and diff checks pass. No carried local failure remains.
+Windows replacement uses Rust's [documented rename operation](https://doc.rust-lang.org/std/fs/fn.rename.html)
+and the Win32 handle API for identity/link counts because the corresponding
+[standard metadata methods](https://doc.rust-lang.org/stable/std/os/windows/fs/trait.MetadataExt.html)
+remain experimental. Windows execution belongs to CI, not local acceptance.

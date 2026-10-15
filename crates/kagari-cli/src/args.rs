@@ -1,6 +1,7 @@
 //! Command selection and validation, independent of filesystem discovery.
 
 use crate::{CliError, report::MessageFormat};
+use kagari_format::Newline;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -11,6 +12,10 @@ pub(crate) struct Cli {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Command {
+    Format {
+        source: PathBuf,
+        options: FormatArgs,
+    },
     BuildAot {
         source: PathBuf,
         output: PathBuf,
@@ -60,6 +65,14 @@ pub(crate) struct ProjectArgs {
     pub output: Option<PathBuf>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct FormatArgs {
+    pub check: bool,
+    pub indent_width: Option<usize>,
+    pub max_width: Option<usize>,
+    pub newline: Option<Newline>,
+}
+
 #[derive(Default)]
 struct Arguments {
     positionals: Vec<String>,
@@ -67,6 +80,8 @@ struct Arguments {
     jit: bool,
     jit_option: bool,
     message_option: bool,
+    format: FormatArgs,
+    format_option: bool,
 }
 
 impl Arguments {
@@ -75,6 +90,42 @@ impl Arguments {
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--check" => {
+                    result.format.check = true;
+                    result.format_option = true;
+                }
+                "--indent-width" | "--max-width" => {
+                    result.format_option = true;
+                    let number = value(&mut args, &arg)?.parse::<usize>().map_err(|_| {
+                        CliError::message(2, "format width must be a positive integer")
+                    })?;
+                    if arg == "--indent-width" {
+                        if !(1..=16).contains(&number) {
+                            return Err(CliError::message(2, "indent width must be 1..=16"));
+                        }
+                        result.format.indent_width = Some(number);
+                    } else {
+                        if !(20..=1000).contains(&number) {
+                            return Err(CliError::message(2, "maximum width must be 20..=1000"));
+                        }
+                        result.format.max_width = Some(number);
+                    }
+                }
+                "--newline" => {
+                    result.format_option = true;
+                    result.format.newline = Some(match value(&mut args, &arg)?.as_str() {
+                        "preserve" => Newline::Preserve,
+                        "lf" => Newline::Lf,
+                        "crlf" => Newline::Crlf,
+                        _ => {
+                            return Err(CliError::message(
+                                2,
+                                "newline must be preserve, lf or crlf",
+                            ));
+                        }
+                    });
+                }
+                "-" => result.positionals.push(arg),
                 "--message-format" => {
                     result.message_option = true;
                     result.project.message_format = match value(&mut args, &arg)?.as_str() {
@@ -152,7 +203,15 @@ impl Cli {
         }
         let explicit = matches!(
             first.as_str(),
-            "parse" | "check" | "emit" | "build" | "run" | "run-artifact" | "build-aot" | "run-aot"
+            "fmt"
+                | "parse"
+                | "check"
+                | "emit"
+                | "build"
+                | "run"
+                | "run-artifact"
+                | "build-aot"
+                | "run-aot"
         );
         let rest = &parsed.positionals[usize::from(explicit)..];
         if rest.len() > 1 {
@@ -162,6 +221,9 @@ impl Cli {
             ));
         }
         let name = if explicit { first.as_str() } else { "implicit" };
+        if parsed.format_option && name != "fmt" {
+            return Err(CliError::message(2, "format options apply only to fmt"));
+        }
         if parsed.message_option && name != "check" {
             return Err(CliError::message(
                 2,
@@ -202,7 +264,17 @@ impl Cli {
             .first()
             .map(PathBuf::from)
             .ok_or_else(|| CliError::message(2, "missing source or artifact path"))?;
+        if source.as_os_str() == "-" && (name != "fmt" || parsed.format.check) {
+            return Err(CliError::message(
+                2,
+                "stdin is supported only by fmt without --check",
+            ));
+        }
         let command = match name {
+            "fmt" => Command::Format {
+                source,
+                options: parsed.format,
+            },
             "build-aot" => Command::BuildAot {
                 output: parsed
                     .project
@@ -245,6 +317,7 @@ fn value(args: &mut impl Iterator<Item = String>, option: &str) -> Result<String
 pub(crate) fn usage() -> String {
     [
         "usage:",
+        "  kg fmt <script.kgr|-> [--check] [--indent-width N] [--max-width N] [--newline preserve|lf|crlf]",
         "  kg parse <script.kgr>",
         "  kg build-aot <script.kgr> [-o bundle-dir] (feature aot; KAGARI_AOT_LINKER selects linker)",
         "  kg run-aot <trusted-bundle-dir> (feature aot; executes trusted native code)",
@@ -296,6 +369,10 @@ mod tests {
                 ..
             }
         ));
+        assert!(matches!(
+            parse(&["fmt", "-", "--max-width", "80"]).unwrap().command,
+            Command::Format { .. }
+        ));
         for args in [
             vec!["check", "main.kgr", "--locked"],
             vec!["check", "-o", "ignored.kbc"],
@@ -307,6 +384,11 @@ mod tests {
             vec!["check", "--message-format", "yaml"],
             vec!["build", "--message-format", "json"],
             vec!["check", "--fix"],
+            vec!["fmt", "-", "--check"],
+            vec!["fmt", "file.kgr", "--locked"],
+            vec!["fmt", "file.kgr", "--max-width", "0"],
+            vec!["check", "-"],
+            vec!["check", "--check"],
         ] {
             assert!(parse(&args).is_err(), "{args:?}");
         }

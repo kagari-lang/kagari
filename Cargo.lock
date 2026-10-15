@@ -469,6 +469,7 @@ dependencies = [
  "kagari-bytecode",
  "kagari-codegen-cranelift",
  "kagari-common",
+ "kagari-format",
  "kagari-package",
  "kagari-runtime",
  "kagari-source",
@@ -479,6 +480,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "toml",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -563,6 +565,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "kagari-format"
+version = "0.1.0"
+dependencies = [
+ "kagari-common",
+ "kagari-source",
+ "kagari-syntax",
+ "rowan",
 ]
 
 [[package]]
