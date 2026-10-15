@@ -33,6 +33,7 @@ use kagari_types::{
         },
         value_type::HostValueType,
     },
+    ty::Ty,
 };
 use std::sync::{
     Arc, Mutex,
@@ -117,9 +118,9 @@ fn assert_source_index_path(field_prefix: bool) {
     segments.push(HostPathSegmentDeclaration::Index(
         HostIndexSegmentDeclaration {
             slot: 0,
-            collection,
-            index: HostValueType::I32,
-            result: HostValueType::I32,
+            collection: Ty::from_host_type(&collection),
+            index: Ty::from_host_type(&HostValueType::I32),
+            result: Ty::from_host_type(&HostValueType::I32),
             access: PathAccess::ReadWrite,
         },
     ));

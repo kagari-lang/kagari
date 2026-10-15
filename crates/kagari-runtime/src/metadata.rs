@@ -225,18 +225,6 @@ impl TypeRegistry {
         self.inner.borrow().by_id.get(id.index()).cloned()
     }
 
-    pub(crate) fn host_value_type(&self, id: TypeId) -> Option<HostValueType> {
-        self.inner
-            .borrow()
-            .host_value_types
-            .iter()
-            .find_map(|(ty, registered)| (*registered == id).then(|| ty.clone()))
-    }
-
-    pub(crate) fn host_value_type_id(&self, ty: &HostValueType) -> Option<TypeId> {
-        self.inner.borrow().host_value_types.get(ty).copied()
-    }
-
     pub fn get_by_name(&self, name: &str) -> Option<TypeInfo> {
         let inner = self.inner.borrow();
         let id = inner.by_name.get(name)?;

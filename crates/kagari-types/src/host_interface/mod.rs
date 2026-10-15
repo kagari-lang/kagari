@@ -22,6 +22,7 @@ const MAX_BYTES: u64 = 4 * 1024 * 1024;
 pub mod constraints;
 mod decode_limits;
 pub mod path;
+mod paths;
 
 pub mod value_type;
 

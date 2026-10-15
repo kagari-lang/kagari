@@ -19,7 +19,7 @@ use crate::{
         table::{CallTarget, ResolvedHostPath, ResolvedHostPlacePath},
         ty::display_type_id,
     },
-    types::TypeId,
+    types::{TypeId, semantic::raise_type},
 };
 use kagari_common::cancellation::Cancelled;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
@@ -382,11 +382,11 @@ impl<'a> BodyChecker<'a> {
                     {
                         dynamic_arguments.push((index.slot, *argument));
                     }
-                    let ty = host::signature_type(&result.result);
+                    let ty = raise_type(&result.result);
                     self.type_table.insert_expr(step.id(), ty.clone());
                     env.exprs.insert(step.id(), ty);
                 }
-                let result = host::signature_type(&contract.result);
+                let result = raise_type(&contract.result);
                 self.type_table.insert_host_path(
                     expr_id,
                     ResolvedHostPath {
@@ -512,9 +512,9 @@ impl<'a> BodyChecker<'a> {
                         dynamic_arguments.push((index.slot, *argument));
                     }
                     self.type_table
-                        .insert_place(step.id(), host::signature_type(&result.result));
+                        .insert_place(step.id(), raise_type(&result.result));
                 }
-                let result = host::signature_type(&contract.result);
+                let result = raise_type(&contract.result);
                 if declaration.access != PathAccess::ReadWrite {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidHostPath {

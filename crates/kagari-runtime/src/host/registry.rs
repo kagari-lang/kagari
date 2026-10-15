@@ -18,6 +18,7 @@ use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
+        DefinitionKind,
         map::DefinitionContext,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
@@ -26,10 +27,10 @@ use kagari_common::{
 use kagari_types::{
     declaration::host::{HostTypeOwnership, HostTypePolicy, PathAccess},
     host_interface::{
-        self, HostInterface,
+        self, HostInterface, HostInterfaceError,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
-        value_type::HostValueType,
     },
+    ty::Ty,
     visibility::Visibility,
 };
 use std::iter;
@@ -210,9 +211,13 @@ impl HostRegistry {
         };
         let definitions = self.definitions();
         for required in &interface.paths {
-            let fingerprint = required
-                .contract(interface, &definitions)
-                .and_then(|contract| contract.fingerprint(&definitions))
+            let fingerprint = interface
+                .path_contract(required, &definitions)
+                .and_then(|contract| {
+                    contract
+                        .fingerprint(&definitions)
+                        .map_err(|_| HostInterfaceError::InvalidDeclaration)
+                })
                 .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
             if self
                 .path_descriptors()
@@ -387,12 +392,12 @@ impl HostRegistry {
 
     pub(super) fn portable_path_type(
         &self,
-        declaration: &HostValueType,
+        declaration: &Ty,
         types: &TypeRegistry,
     ) -> Result<TypeId, RuntimeError> {
         let resolved = match declaration {
-            HostValueType::Opaque(id) => self.host_type_by_declaration(id).map(|ty| ty.type_id),
-            ty => types.host_value_type_id(ty),
+            Ty::Host(id) => self.type_declarations.get(id).copied(),
+            ty => types.path_type(ty),
         };
         resolved.ok_or_else(|| {
             RuntimeError::typed_path_validation("path segment type has no registered declaration")
@@ -418,17 +423,17 @@ impl HostRegistry {
         };
         (registration.definitions, registration.segments) = adopted.into_parts();
         let definitions = self.definitions();
-        let Some(root_type) = self.types.get(&registration.root_type) else {
+        let Some(root_type) = self.registered_types.get(&registration.root_type) else {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor root type is not registered",
             ));
         };
-        if root_type.declaration.ownership != HostTypeOwnership::HostRoot {
+        if root_type.policy.ownership != HostTypeOwnership::HostRoot {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor root type must use HostRoot ownership",
             ));
         }
-        if !path_access_allows(root_type.declaration.path_access, registration.access) {
+        if !path_access_allows(root_type.policy.path_access, registration.access) {
             return Err(RuntimeError::typed_path_validation(
                 "path descriptor access exceeds root type policy",
             ));
@@ -439,27 +444,30 @@ impl HostRegistry {
         for segment in &registration.segments {
             let resolved = match segment {
                 HostPathSegmentDeclaration::Field(declaration) => {
-                    let owner = self.types.get(&current).ok_or_else(|| {
-                        RuntimeError::typed_path_validation(
-                            "field owner is not a declared host type",
-                        )
-                    })?;
-                    let slot = owner
-                        .declaration
-                        .fields
+                    let owner = self
+                        .type_declarations
                         .iter()
-                        .position(|field| &field.id == declaration)
+                        .find_map(|(declaration, id)| (*id == current).then_some(*declaration))
                         .ok_or_else(|| {
                             RuntimeError::typed_path_validation(
-                                "field declaration does not belong to path owner",
+                                "field owner is not a declared host type",
                             )
                         })?;
                     let metadata = types.get(current).ok_or_else(|| {
                         RuntimeError::typed_path_validation("missing host type metadata")
                     })?;
-                    let field = metadata.fields.get(slot).ok_or_else(|| {
-                        RuntimeError::typed_path_validation("missing host field metadata")
-                    })?;
+                    let field = metadata
+                        .fields
+                        .iter()
+                        .find(|field| {
+                            definitions.lookup_child(owner, DefinitionKind::Field, &field.name, 0)
+                                == Some(*declaration)
+                        })
+                        .ok_or_else(|| {
+                            RuntimeError::typed_path_validation(
+                                "field declaration does not belong to path owner",
+                            )
+                        })?;
                     if field.visibility != Visibility::Public {
                         return Err(RuntimeError::typed_path_validation(
                             "private host fields cannot be exposed as paths",
@@ -502,21 +510,20 @@ impl HostRegistry {
         }
         let id = HostPathDescriptorId::new(self.next_path_descriptor_id);
         let declaration = HostPathDeclaration {
-            root: root_type.declaration.id,
+            root: self
+                .type_declarations
+                .iter()
+                .find_map(|(declaration, id)| {
+                    (*id == registration.root_type).then_some(*declaration)
+                })
+                .ok_or_else(|| {
+                    RuntimeError::typed_path_validation("path root declaration is missing")
+                })?,
             segments: registration.segments.clone(),
             access: registration.access,
             schema_epoch: registration.schema_epoch.0,
         };
         let fingerprint = self.path_fingerprint(&registration, &segments, types)?;
-        let offline_fingerprint = declaration
-            .contract(self.interface().records(), &definitions)
-            .and_then(|contract| contract.fingerprint(&definitions))
-            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
-        if fingerprint.0 != offline_fingerprint {
-            return Err(RuntimeError::typed_path_validation(
-                "runtime path contract differs from its portable declaration",
-            ));
-        }
         let descriptor = HostPathDescriptor::from_registration(
             id,
             registration,
@@ -539,13 +546,14 @@ impl HostRegistry {
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
         let declaration = adopted.records();
         let definitions = self.definitions();
-        let contract = declaration
-            .contract(self.interface().records(), &definitions)
+        let contract = self
+            .path_contract(declaration, types)
             .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
         let root_type = self
-            .host_type_by_declaration(&declaration.root)
-            .ok_or_else(|| RuntimeError::typed_path_validation("missing host path root"))?
-            .type_id;
+            .type_declarations
+            .get(&declaration.root)
+            .copied()
+            .ok_or_else(|| RuntimeError::typed_path_validation("missing host path root"))?;
         let result_type = self.portable_path_type(&contract.result, types)?;
         self.register_path_descriptor(
             HostPathDescriptorRegistration {

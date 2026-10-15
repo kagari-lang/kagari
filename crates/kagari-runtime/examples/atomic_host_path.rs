@@ -1,5 +1,6 @@
 //! Prepare host updates and reject readonly writes before touching the field.
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_types::ty::Ty;
 use std::sync::{
     Arc,
     atomic::{AtomicI32, Ordering},
@@ -94,7 +95,7 @@ fn main() {
             segments: vec![HostPathSegmentDeclaration::Virtual(
                 HostVirtualSegmentDeclaration {
                     name: "hp_preview".into(),
-                    result: HostValueType::I32,
+                    result: Ty::from_host_type(&(HostValueType::I32)),
                     access: PathAccess::ReadOnly,
                 },
             )],

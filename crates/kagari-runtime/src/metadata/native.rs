@@ -8,30 +8,21 @@ use crate::{
     },
     native::catalog::DeclarationCatalog,
 };
-use kagari_bytecode::artifact::ArtifactFingerprint;
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        scoped::DefinitionReferences,
-        table::{DefinitionId, DefinitionTable},
-    },
-};
+use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::host::external;
 use kagari_types::{
     declaration::{
-        TypeDeclaration, TypeDef, TypeDefKind,
+        TypeDeclaration, TypeDef, TypeDefKind, fingerprint,
         host::{HostTypePolicy, PathAccess},
-        wire::declarations::TypeDeclarationRecord,
     },
     scalar::BuiltinType,
     ty::{
         NominalTy, Ty,
         substitution::{MAX_TYPE_DEPTH, TypeSubstitution},
-        wire::WireType,
     },
     visibility::Visibility,
 };
-use std::{cell::RefCell, collections::BTreeSet, fmt::Debug};
+use std::{cell::RefCell, fmt::Debug};
 
 #[cfg(test)]
 mod tests;
@@ -103,8 +94,14 @@ impl MetadataSnapshot {
             if staged.by_name.contains_key(&name) {
                 return Err(conflict("external metadata name is already registered"));
             }
-            let fingerprint =
-                type_fingerprint(record.declaration, &record.definition, &definitions)?;
+            let fingerprint = fingerprint::schema(
+                record.declaration,
+                &record.definition,
+                &definitions,
+                &Default::default(),
+            )
+            .map(AbiFingerprint)
+            .map_err(conflict)?;
             let id = reserve(
                 &mut staged,
                 Ty::Host(record.declaration),
@@ -138,6 +135,42 @@ impl MetadataSnapshot {
 }
 
 impl TypeRegistry {
+    pub(crate) fn external_declarations(&self) -> Vec<TypeDeclaration> {
+        self.inner
+            .borrow()
+            .native_external
+            .iter()
+            .map(|(declaration, (definition, _))| TypeDeclaration {
+                declaration: *declaration,
+                definition: definition.clone(),
+            })
+            .collect()
+    }
+
+    pub(crate) fn path_type(&self, ty: &Ty) -> Option<TypeId> {
+        let inner = self.inner.borrow();
+        inner.native_values.get(ty).copied().or_else(|| {
+            inner
+                .host_value_types
+                .iter()
+                .find_map(|(legacy, id)| (Ty::from_host_type(legacy) == *ty).then_some(*id))
+        })
+    }
+
+    pub(crate) fn path_value_type(&self, id: TypeId) -> Option<Ty> {
+        let inner = self.inner.borrow();
+        inner
+            .native_values
+            .iter()
+            .find_map(|(ty, actual)| (*actual == id).then(|| ty.clone()))
+            .or_else(|| {
+                inner
+                    .host_value_types
+                    .iter()
+                    .find_map(|(ty, actual)| (*actual == id).then(|| Ty::from_host_type(ty)))
+            })
+    }
+
     pub(crate) fn external_type(&self, declaration: &TypeDeclaration) -> Option<TypeId> {
         self.inner
             .borrow()
@@ -170,7 +203,9 @@ impl Builder<'_> {
         if let Some(id) = self.inner.native_values.get(ty) {
             return Ok(*id);
         }
-        let fingerprint = value_fingerprint(ty, &self.definitions)?;
+        let fingerprint = fingerprint::value(ty, &self.definitions, &Default::default())
+            .map(AbiFingerprint)
+            .map_err(conflict)?;
         match ty {
             Ty::Builtin(kind) => {
                 let name = scalar_name(*kind);
@@ -209,7 +244,13 @@ impl Builder<'_> {
                         writable: false,
                         visibility: Visibility::Public,
                         path_access: PathAccess::None,
-                        abi_fingerprint: value_fingerprint(element, &self.definitions)?,
+                        abi_fingerprint: fingerprint::value(
+                            element,
+                            &self.definitions,
+                            &Default::default(),
+                        )
+                        .map(AbiFingerprint)
+                        .map_err(conflict)?,
                     });
                 }
                 self.inner.by_id[id.index()].fields = fields;
@@ -348,7 +389,16 @@ impl Builder<'_> {
                 writable: field.mutable,
                 visibility: field.visibility,
                 path_access: policy.map_or(PathAccess::None, |policy| policy.path_access),
-                abi_fingerprint: field_fingerprint(owner, record, slot, &ty, &self.definitions)?,
+                abi_fingerprint: fingerprint::field(
+                    owner,
+                    record,
+                    slot,
+                    &ty,
+                    &self.definitions,
+                    &Default::default(),
+                )
+                .map(AbiFingerprint)
+                .map_err(conflict)?,
             });
         }
         Ok(fields)
@@ -377,68 +427,6 @@ fn reserve(
         abi_fingerprint: fingerprint,
     });
     id
-}
-
-fn type_fingerprint(
-    owner: DefinitionId,
-    record: &TypeDef,
-    definitions: &DefinitionTable,
-) -> Result<AbiFingerprint, RuntimeError> {
-    let record = TypeDeclaration {
-        declaration: owner,
-        definition: record.clone(),
-    };
-    let cancel = CancellationToken::default();
-    let mut references = BTreeSet::new();
-    record
-        .visit_definition_ids(
-            &mut |id| {
-                references.insert(*id);
-                Ok(())
-            },
-            &cancel,
-        )
-        .map_err(conflict)?;
-    let encoding = definitions.encode(references).map_err(conflict)?;
-    let record = TypeDeclarationRecord::encode(&record, &encoding, &cancel).map_err(conflict)?;
-    Ok(AbiFingerprint(
-        ArtifactFingerprint::of_serialized(&(record, encoding.table)).0,
-    ))
-}
-
-fn field_fingerprint(
-    owner: DefinitionId,
-    record: &TypeDef,
-    slot: usize,
-    ty: &Ty,
-    definitions: &DefinitionTable,
-) -> Result<AbiFingerprint, RuntimeError> {
-    let mut field_record = record.clone();
-    let mut field = record.fields[slot].clone();
-    field.ty = ty.clone();
-    field_record.fields = vec![field];
-    type_fingerprint(owner, &field_record, definitions)
-}
-
-fn value_fingerprint(
-    ty: &Ty,
-    definitions: &DefinitionTable,
-) -> Result<AbiFingerprint, RuntimeError> {
-    let cancel = CancellationToken::default();
-    let mut references = BTreeSet::new();
-    ty.visit_definition_ids(
-        &mut |id| {
-            references.insert(*id);
-            Ok(())
-        },
-        &cancel,
-    )
-    .map_err(conflict)?;
-    let encoding = definitions.encode(references).map_err(conflict)?;
-    let record = WireType::encode(ty, &encoding, &cancel).map_err(conflict)?;
-    Ok(AbiFingerprint(
-        ArtifactFingerprint::of_serialized(&(record, encoding.table)).0,
-    ))
 }
 
 fn conflict(error: impl Debug) -> RuntimeError {

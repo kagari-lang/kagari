@@ -17,6 +17,7 @@ use kagari_runtime::{
     jit_abi::jit_poll_execution,
     module::entry::ProgramEntry,
 };
+use kagari_types::ty::Ty;
 use kagari_types::{
     declaration::host::HostPassingStyle,
     host_interface::{HostParameter, value_type::HostValueType},
@@ -638,16 +639,18 @@ fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
             segments: vec![HostPathSegmentDeclaration::Index(
                 HostIndexSegmentDeclaration {
                     slot: 0,
-                    collection: HostValueType::Opaque(
-                        runtime
-                            .host()
-                            .host_type(field.root_type)
-                            .unwrap()
-                            .declaration
-                            .id,
+                    collection: Ty::from_host_type(
+                        &(HostValueType::Opaque(
+                            runtime
+                                .host()
+                                .host_type(field.root_type)
+                                .unwrap()
+                                .declaration
+                                .id,
+                        )),
                     ),
-                    index: HostValueType::I32,
-                    result: HostValueType::I32,
+                    index: Ty::from_host_type(&(HostValueType::I32)),
+                    result: Ty::from_host_type(&(HostValueType::I32)),
                     access: PathAccess::ReadWrite,
                 },
             )],

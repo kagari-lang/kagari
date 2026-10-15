@@ -1855,6 +1855,45 @@ previous Miri evidence remains applicable. Exhaustive matrices remain CI-owned.
 Manual paths, source trait references and dependent legacy retirement remain
 HR02/RF05/HR03 work; the combined goal is not complete.
 
+### HR02 checkpoint: one shared manual path contract owner
+
+Manual path records now consume Ty and resolve fields against common TypeDefs.
+The common schema/value/field fingerprint owner is `types/declaration/fingerprint`;
+runtime external reflection uses that same owner. The superseded HostInterface
+resolver has been replaced by a producer conversion into those common records,
+not a second path validator. Its temporary `host_interface/paths.rs` adapter,
+including the hidden `path_types` producer hook, must be removed in HR03 when the
+remaining legacy fixtures and producers migrate.
+
+Runtime path preparation binds those common declarations to the existing physical
+root/field slots. It verifies the declared root, result, every segment input and
+access, and retains descriptor/root owner, epoch, dynamic argument, borrow, commit
+and dirty-path checks. The old independently computed path fingerprint and the
+now-redundant second portable resolution are removed. Shared field fingerprints
+include their original schema/owner; legacy metadata remains only for its unmigrated
+producers. This changes disposable development path encodings/fingerprints without
+bumping publication identifiers; affected retained fixtures remain RF06-owned.
+
+Selected validation passed: the three existing portable path boundaries cover
+readonly index authority, mixed field/index/virtual wire roundtrip and nested field
+owners; physical fingerprint stability and unbound-type rejection passed in the
+runtime. The multi-index/virtual/trailing-field SDK source-free case passed; all
+three external metadata boundaries passed after moving their fingerprint owner.
+The atomic_host_path example ran and preserved readonly hp=20 before its writable
+update to hp=30. Types/runtime library/test Clippy, structure (1242 Rust files,
+zero violations), fmt and diff passed. Initial wire, bytecode, MIR, compiler and
+HIR consumer errors are repaired. The mixed path negative case exposed a missing
+external-schema closure check for index parameters; that check is restored and
+its original assertion passes. No carried build/test failure, unsafe or lifetime
+change; prior Miri remains applicable. Exhaustive matrices remain CI-owned.
+
+New NativeModule field-path execution remains gated. Its explicit portable path
+requirements must now be retained beside common module declarations, checked and
+installed transactionally, then consumed directly by source analysis and executable
+linking. Path views must use the same native entry with their declared capability
+and existing path borrow/epoch checks. Source trait references and dependent legacy
+retirement remain HR02/RF05/HR03 work; combined acceptance remains open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
@@ -1869,6 +1908,7 @@ RI progress remains in the interop plan. The combined order above is the sole
 cross-plan schedule; these lists are not duplicate RI checklists. Current state:
 API/lifetime prototype and RI01-RI02 schema/conversion implemented, no carried production build failure. The
 proof and focused results above establish the owned conversion, Opaque, scoped
-loan/projector and checked portable external-dependency slices. Live-root common
-registration/installation and complete combined acceptance remain outstanding. Implementation checkpoints use Conventional Commits with the owning
+loan/projector and checked portable external-dependency slices. Whole-root common
+registration/installation executes; native field paths, source trait references,
+legacy retirement and complete combined acceptance remain outstanding. Implementation checkpoints use Conventional Commits with the owning
 phase trailer, for example `Plan-Phase: RF04`.

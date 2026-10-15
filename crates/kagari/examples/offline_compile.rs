@@ -1,6 +1,7 @@
 //! Compile against declarations without registering callbacks or starting services.
 
 use kagari_bytecode::artifact::{ArtifactSectionId, KBC_ARTIFACT_FORMAT_VERSION};
+use kagari_types::ty::Ty;
 
 use kagari::{
     BytecodeArtifact,
@@ -68,9 +69,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         segments: vec![HostPathSegmentDeclaration::Index(
             HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Opaque(player.id),
-                index: HostValueType::I32,
-                result: HostValueType::I32,
+                collection: Ty::from_host_type(&(HostValueType::Opaque(player.id))),
+                index: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::from_host_type(&(HostValueType::I32)),
                 access: PathAccess::ReadOnly,
             },
         )],
@@ -83,9 +84,11 @@ fn main() -> Result<(), Box<dyn Error>> {
             HostPathSegmentDeclaration::Field(player.fields[1].id),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Array(Box::new(HostValueType::I32)),
-                index: HostValueType::I32,
-                result: HostValueType::I32,
+                collection: Ty::from_host_type(
+                    &(HostValueType::Array(Box::new(HostValueType::I32))),
+                ),
+                index: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::from_host_type(&(HostValueType::I32)),
                 access: PathAccess::ReadOnly,
             }),
         ],
@@ -97,21 +100,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         segments: vec![
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Opaque(player.id),
-                index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id),
+                collection: Ty::from_host_type(&(HostValueType::Opaque(player.id))),
+                index: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
                 access: PathAccess::ReadOnly,
             }),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 1,
-                collection: HostValueType::Opaque(child.id),
-                index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id),
+                collection: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
+                index: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
                 access: PathAccess::ReadOnly,
             }),
             HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
                 name: "selected".into(),
-                result: HostValueType::Opaque(child.id),
+                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
                 access: PathAccess::ReadOnly,
             }),
             HostPathSegmentDeclaration::Field(child_score.id),

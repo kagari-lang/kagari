@@ -1,6 +1,7 @@
 //! Portable semantic declarations and symbolic method defaults.
 pub mod applications;
 pub mod conversion;
+pub mod fingerprint;
 pub mod host;
 mod mapping;
 pub mod module;

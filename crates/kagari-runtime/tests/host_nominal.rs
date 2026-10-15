@@ -19,6 +19,7 @@ use kagari_runtime::{
     metadata::{TypeId, TypeKind, TypeRegistration},
     value::Value,
 };
+use kagari_types::ty::Ty;
 use kagari_types::{
     declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
     host_interface::{
@@ -404,8 +405,10 @@ fn foreign_path_views_cannot_be_chained_through_matching_local_slots() {
                 vec![HostPathSegmentDeclaration::Virtual(
                     HostVirtualSegmentDeclaration {
                         name: "self".into(),
-                        result: HostValueType::Opaque(
-                            context.intern(&host_type_identity("game.Player")).unwrap(),
+                        result: Ty::from_host_type(
+                            &(HostValueType::Opaque(
+                                context.intern(&host_type_identity("game.Player")).unwrap(),
+                            )),
                         ),
                         access: PathAccess::ReadOnly,
                     },
@@ -479,7 +482,10 @@ fn path_fields_are_derived_from_nominal_declarations() {
             .import_into(&context, &CancellationToken::default())
             .unwrap();
     let contract = offline.records().paths[0]
-        .contract(offline.records(), offline.definitions())
+        .contract(
+            &offline.records().path_types(offline.definitions()).unwrap(),
+            offline.definitions(),
+        )
         .unwrap();
     for (field, access) in [
         (&hidden.id, PathAccess::ReadOnly),
@@ -667,10 +673,12 @@ fn paths_reject_types_without_portable_contracts_before_publication() {
         vec![HostPathSegmentDeclaration::Virtual(
             HostVirtualSegmentDeclaration {
                 name: "value".into(),
-                result: HostValueType::Opaque(
-                    context
-                        .intern(&host_type_identity("game.Unregistered"))
-                        .unwrap(),
+                result: Ty::from_host_type(
+                    &(HostValueType::Opaque(
+                        context
+                            .intern(&host_type_identity("game.Unregistered"))
+                            .unwrap(),
+                    )),
                 ),
                 access: PathAccess::ReadOnly,
             },

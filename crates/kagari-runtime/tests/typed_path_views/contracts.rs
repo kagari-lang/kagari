@@ -1,4 +1,5 @@
 use super::*;
+use kagari_types::ty::Ty;
 
 #[test]
 fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
@@ -14,9 +15,9 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         segments: vec![HostPathSegmentDeclaration::Index(
             HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Opaque(player),
-                index: HostValueType::I32,
-                result: HostValueType::I32,
+                collection: Ty::from_host_type(&(HostValueType::Opaque(player))),
+                index: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::from_host_type(&(HostValueType::I32)),
                 access,
             },
         )],
@@ -54,7 +55,7 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         segments: vec![HostPathSegmentDeclaration::Virtual(
             HostVirtualSegmentDeclaration {
                 name: name.into(),
-                result: HostValueType::I32,
+                result: Ty::from_host_type(&(HostValueType::I32)),
                 access: PathAccess::ReadOnly,
             },
         )],
@@ -110,10 +111,13 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
             .unwrap();
         assert_eq!(
             bound.host().path_descriptor(id).unwrap().abi_fingerprint.0,
-            path.contract(offline.records(), offline.definitions())
-                .unwrap()
-                .fingerprint(offline.definitions())
-                .unwrap()
+            path.contract(
+                &offline.records().path_types(offline.definitions()).unwrap(),
+                offline.definitions()
+            )
+            .unwrap()
+            .fingerprint(offline.definitions())
+            .unwrap()
         );
     }
     bound
@@ -137,14 +141,14 @@ fn portable_path_segments_reject_unbound_types_before_publication() {
     for segment in [
         HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
             slot: 0,
-            collection: HostValueType::Opaque(player),
-            index: HostValueType::Opaque(missing),
-            result: HostValueType::I32,
+            collection: Ty::from_host_type(&(HostValueType::Opaque(player))),
+            index: Ty::from_host_type(&(HostValueType::Opaque(missing))),
+            result: Ty::from_host_type(&(HostValueType::I32)),
             access: PathAccess::ReadOnly,
         }),
         HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
             name: "missing".into(),
-            result: HostValueType::Opaque(missing),
+            result: Ty::from_host_type(&(HostValueType::Opaque(missing))),
             access: PathAccess::ReadOnly,
         }),
     ] {
@@ -307,13 +311,15 @@ fn rejects_disconnected_path_types_before_publishing_descriptors() {
     let index = |collection_type| {
         HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
             slot: 0,
-            collection: if collection_type == player {
-                HostValueType::Opaque(player_declaration)
-            } else {
-                HostValueType::I32
-            },
-            index: HostValueType::I32,
-            result: HostValueType::I32,
+            collection: Ty::from_host_type(
+                &(if collection_type == player {
+                    HostValueType::Opaque(player_declaration)
+                } else {
+                    HostValueType::I32
+                }),
+            ),
+            index: Ty::from_host_type(&(HostValueType::I32)),
+            result: Ty::from_host_type(&(HostValueType::I32)),
             access: PathAccess::ReadWrite,
         })
     };
@@ -425,12 +431,16 @@ fn validates_dynamic_index_argument_shape_for_path_views() {
             segments: vec![
                 HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                     slot: 0,
-                    collection: HostValueType::Opaque(
-                        runtime.host().host_type(player_id).unwrap().declaration.id,
+                    collection: Ty::from_host_type(
+                        &(HostValueType::Opaque(
+                            runtime.host().host_type(player_id).unwrap().declaration.id,
+                        )),
                     ),
-                    index: HostValueType::I32,
-                    result: HostValueType::Opaque(
-                        runtime.host().host_type(item_id).unwrap().declaration.id,
+                    index: Ty::from_host_type(&(HostValueType::I32)),
+                    result: Ty::from_host_type(
+                        &(HostValueType::Opaque(
+                            runtime.host().host_type(item_id).unwrap().declaration.id,
+                        )),
                     ),
                     access: PathAccess::ReadWrite,
                 }),
@@ -554,11 +564,13 @@ fn path_execution_validates_stale_roots_and_dynamic_indexes() {
             segments: vec![HostPathSegmentDeclaration::Index(
                 HostIndexSegmentDeclaration {
                     slot: 0,
-                    collection: HostValueType::Opaque(
-                        runtime.host().host_type(player_id).unwrap().declaration.id,
+                    collection: Ty::from_host_type(
+                        &(HostValueType::Opaque(
+                            runtime.host().host_type(player_id).unwrap().declaration.id,
+                        )),
                     ),
-                    index: HostValueType::I32,
-                    result: HostValueType::I32,
+                    index: Ty::from_host_type(&(HostValueType::I32)),
+                    result: Ty::from_host_type(&(HostValueType::I32)),
                     access: PathAccess::ReadOnly,
                 },
             )],

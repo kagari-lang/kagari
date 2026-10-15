@@ -13,7 +13,7 @@ use kagari_contract::{
     numeric::NumericSignature,
     operations,
     operations::range_operands_valid,
-    representation::{host_representation, semantic_representation},
+    representation::semantic_representation,
     types::{PublicItem, type_contract},
 };
 use kagari_types::{
@@ -40,15 +40,21 @@ pub(super) fn verify(
             types: module.host_types.clone(),
             ..Default::default()
         };
+        let mut schemas = module.external_types.clone();
+        schemas.extend(
+            catalog
+                .path_types(context.definitions)
+                .map_err(|_| context.error(Error::InvalidHostInterface))?,
+        );
         let resolved = declaration
-            .contract(&catalog, context.definitions)
+            .contract(&schemas, context.definitions)
             .map_err(|_| context.error(Error::InvalidHostInterface))?;
         if resolved
             .fingerprint(context.definitions)
             .map_err(|_| context.error(Error::InvalidHostInterface))?
             != path.contract_fingerprint
             || path.root_ty != ValueType::HostHandle
-            || path.result_ty != host_representation(&resolved.result)
+            || path.result_ty != semantic_representation(&resolved.result)
             || (!path.read_only && declaration.access != PathAccess::ReadWrite)
         {
             return Err(context.error(Error::InvalidHostInterface));

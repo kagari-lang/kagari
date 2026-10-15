@@ -16,6 +16,7 @@ use kagari_common::{
         metadata::DefinitionMetadata,
     },
 };
+use kagari_types::ty::Ty;
 use std::io::Cursor;
 
 fn codec() -> impl Options {
@@ -172,7 +173,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         segments: vec![HostPathSegmentDeclaration::Virtual(
             HostVirtualSegmentDeclaration {
                 name: "preview".into(),
-                result: HostValueType::I32,
+                result: Ty::from_host_type(&(HostValueType::I32)),
                 access: PathAccess::ReadOnly,
             },
         )],

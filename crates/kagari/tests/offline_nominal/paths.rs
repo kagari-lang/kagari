@@ -7,6 +7,7 @@ use kagari_types::host_interface::path::{
     HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
     HostVirtualSegmentDeclaration,
 };
+use kagari_types::ty::Ty;
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -202,21 +203,21 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         segments: vec![
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 1,
-                collection: HostValueType::Opaque(player.id),
-                index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id),
+                collection: Ty::from_host_type(&(HostValueType::Opaque(player.id))),
+                index: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
                 access: PathAccess::ReadWrite,
             }),
             HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
                 slot: 0,
-                collection: HostValueType::Opaque(child.id),
-                index: HostValueType::I32,
-                result: HostValueType::Opaque(child.id),
+                collection: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
+                index: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
                 access: PathAccess::ReadWrite,
             }),
             HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
                 name: "selected".into(),
-                result: HostValueType::Opaque(child.id),
+                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
                 access: PathAccess::ReadWrite,
             }),
             HostPathSegmentDeclaration::Field(score.id),

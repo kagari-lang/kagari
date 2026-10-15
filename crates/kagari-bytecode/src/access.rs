@@ -735,11 +735,11 @@ pub(super) fn verify(
                         .host_interface
                         .paths
                         .iter()
-                        .filter_map(|p| p.contract(&module.host_interface, definitions).ok())
+                        .filter_map(|p| module.host_interface.path_contract(p, definitions).ok())
                         .find(|p| {
                             p.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
                         })
-                        .map(|p| Ty::from_host_type(&p.result));
+                        .map(|p| p.result);
                     if let (Some(value), Some(expected)) = (get(*value), ty)
                         && !flows(&value, &expected)
                     {
@@ -752,11 +752,11 @@ pub(super) fn verify(
                         .host_interface
                         .paths
                         .iter()
-                        .filter_map(|p| p.contract(&module.host_interface, definitions).ok())
+                        .filter_map(|p| module.host_interface.path_contract(p, definitions).ok())
                         .find(|p| {
                             p.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
                         })
-                        .map(|p| Ty::from_host_type(&p.result));
+                        .map(|p| p.result);
                     produced = Some((*dst, ty.map(Fact::typed).unwrap_or_default()));
                 }
                 I::MakeCell { dst, value } => {

@@ -1,5 +1,5 @@
 //! Versioned fixed-width encoding of resolved path contracts, independent of slots.
-use kagari_contract::representation::host_representation;
+use kagari_contract::representation::semantic_representation;
 
 use crate::{
     error::RuntimeError,
@@ -12,10 +12,8 @@ use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
 use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     declaration::host::PathAccess,
-    host_interface::{
-        path::{HostPathContract, HostPathInput, HostPathSegmentContract},
-        value_type::HostValueType,
-    },
+    host_interface::path::{HostPathContract, HostPathDeclaration, HostPathInput},
+    ty::Ty,
 };
 use std::collections::HashMap;
 
@@ -74,13 +72,13 @@ impl HostRegistry {
                 }
                 let result = self
                     .host_type(actual.result_type)
-                    .map(|ty| HostValueType::Opaque(ty.declaration.id))
-                    .or_else(|| types.host_value_type(actual.result_type))
+                    .map(|ty| Ty::Host(ty.declaration.id))
+                    .or_else(|| types.path_value_type(actual.result_type))
                     .ok_or_else(|| {
                         RuntimeError::typed_path_validation("missing path result contract")
                     })?;
                 if required.root_ty != ValueType::HostHandle
-                    || required.result_ty != host_representation(&result)
+                    || required.result_ty != semantic_representation(&result)
                     || (!required.read_only && actual.access != PathAccess::ReadWrite)
                 {
                     return Err(RuntimeError::typed_path_validation(
@@ -121,13 +119,13 @@ impl HostRegistry {
                 for (argument, parameter) in args.iter().zip(&descriptor.dynamic_parameters) {
                     let expected = self
                         .host_type(parameter.ty)
-                        .map(|ty| HostValueType::Opaque(ty.declaration.id))
-                        .or_else(|| types.host_value_type(parameter.ty))
+                        .map(|ty| Ty::Host(ty.declaration.id))
+                        .or_else(|| types.path_value_type(parameter.ty))
                         .ok_or_else(|| {
                             RuntimeError::typed_path_validation("missing path parameter contract")
                         })?;
                     if function.metadata.registers.get(argument.index()).copied()
-                        != Some(host_representation(&expected))
+                        != Some(semantic_representation(&expected))
                     {
                         return Err(RuntimeError::typed_path_validation(
                             "path dynamic argument type differs from its binding",
@@ -144,62 +142,90 @@ impl HostRegistry {
         })
     }
 
+    pub(super) fn path_contract(
+        &self,
+        declaration: &HostPathDeclaration,
+        types: &TypeRegistry,
+    ) -> Result<HostPathContract, RuntimeError> {
+        let mut schemas = types.external_declarations();
+        schemas.extend(
+            self.interface()
+                .records()
+                .path_types(&self.definitions())
+                .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?,
+        );
+        declaration
+            .contract(&schemas, &self.definitions())
+            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))
+    }
+
     pub(super) fn path_fingerprint(
         &self,
         registration: &HostPathDescriptorRegistration,
         segments: &[HostPathSegment],
         types: &TypeRegistry,
     ) -> Result<AbiFingerprint, RuntimeError> {
+        let root = self
+            .type_declarations
+            .iter()
+            .find_map(|(declaration, id)| (*id == registration.root_type).then_some(*declaration))
+            .ok_or_else(|| RuntimeError::typed_path_validation("missing path root contract"))?;
+        let contract = self.path_contract(
+            &HostPathDeclaration {
+                root,
+                segments: registration.segments.clone(),
+                access: registration.access,
+                schema_epoch: registration.schema_epoch.0,
+            },
+            types,
+        )?;
         let portable_type = |id| {
-            self.host_type(id)
-                .map(|info| HostValueType::Opaque(info.declaration.id))
-                .or_else(|| types.host_value_type(id))
+            self.type_declarations
+                .iter()
+                .find_map(|(declaration, actual)| (*actual == id).then_some(Ty::Host(*declaration)))
+                .or_else(|| types.path_value_type(id))
                 .ok_or_else(|| {
-                    RuntimeError::typed_path_validation("path type has no portable host contract")
+                    RuntimeError::typed_path_validation("path type has no portable contract")
                 })
         };
-        let root = self
-            .host_type(registration.root_type)
-            .ok_or_else(|| RuntimeError::typed_path_validation("missing path root contract"))?;
-        let segments = segments
-            .iter()
-            .map(|segment| {
-                let input = match segment {
-                    HostPathSegment::Field { owner_type, .. } => HostPathInput::Field {
-                        owner: portable_type(*owner_type)?,
-                    },
-                    HostPathSegment::Index {
-                        slot,
-                        collection_type,
-                        index_type,
-                        ..
-                    } => HostPathInput::Index {
-                        slot: slot.index() as u64,
-                        collection: portable_type(*collection_type)?,
-                        index: portable_type(*index_type)?,
-                    },
-                    HostPathSegment::Virtual { name, .. } => {
-                        HostPathInput::Virtual { name: name.clone() }
-                    }
-                };
-                Ok(HostPathSegmentContract {
-                    input,
-                    result: portable_type(segment.result_type())?,
-                    access: segment.access(),
-                    member_fingerprint: segment.abi_fingerprint().0,
-                })
-            })
-            .collect::<Result<Vec<_>, RuntimeError>>()?;
-        HostPathContract {
-            root_fingerprint: root.abi_fingerprint.0,
-            result: portable_type(registration.result_type)?,
-            schema_epoch: registration.schema_epoch.0,
-            access: registration.access,
-
-            segments,
+        if portable_type(registration.result_type)? != contract.result
+            || segments.len() != contract.segments.len()
+        {
+            return Err(RuntimeError::typed_path_validation(
+                "path result or segment count differs from shared declaration",
+            ));
         }
-        .fingerprint(&self.definitions())
-        .map(AbiFingerprint)
-        .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))
+        for (physical, declared) in segments.iter().zip(&contract.segments) {
+            let input = match physical {
+                HostPathSegment::Field { owner_type, .. } => HostPathInput::Field {
+                    owner: portable_type(*owner_type)?,
+                },
+                HostPathSegment::Index {
+                    slot,
+                    collection_type,
+                    index_type,
+                    ..
+                } => HostPathInput::Index {
+                    slot: slot.index() as u64,
+                    collection: portable_type(*collection_type)?,
+                    index: portable_type(*index_type)?,
+                },
+                HostPathSegment::Virtual { name, .. } => {
+                    HostPathInput::Virtual { name: name.clone() }
+                }
+            };
+            if input != declared.input
+                || portable_type(physical.result_type())? != declared.result
+                || physical.access() != declared.access
+            {
+                return Err(RuntimeError::typed_path_validation(
+                    "physical path segment differs from shared declaration",
+                ));
+            }
+        }
+        contract
+            .fingerprint(&self.definitions())
+            .map(AbiFingerprint)
+            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))
     }
 }

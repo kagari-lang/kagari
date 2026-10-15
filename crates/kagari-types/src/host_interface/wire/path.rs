@@ -1,13 +1,13 @@
 //! Private serialized Host path declarations.
+use crate::ty::wire::WireType;
 use crate::{
     declaration::host::PathAccess,
     host_interface::{
-        HostInterfaceError, decode_limits,
+        HostInterfaceError, adoption_error, decode_limits,
         path::{
             HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
             HostVirtualSegmentDeclaration,
         },
-        value_type::codec::WireHostValueType,
         wire::{Encode, check_cancel, identity_error},
     },
 };
@@ -82,9 +82,9 @@ impl WireHostPathDeclaration {
 #[derive(Serialize, Deserialize)]
 pub(in crate::host_interface) struct WireHostIndexSegmentDeclaration {
     slot: u32,
-    collection: WireHostValueType,
-    index: WireHostValueType,
-    result: WireHostValueType,
+    collection: WireType,
+    index: WireType,
+    result: WireType,
     access: PathAccess,
 }
 
@@ -99,9 +99,12 @@ impl Encode for HostIndexSegmentDeclaration {
         check_cancel(cancel)?;
         Ok(WireHostIndexSegmentDeclaration {
             slot: self.slot,
-            collection: self.collection.encode(encoding, cancel)?,
-            index: self.index.encode(encoding, cancel)?,
-            result: self.result.encode(encoding, cancel)?,
+            collection: WireType::encode(&self.collection, encoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
+            index: WireType::encode(&self.index, encoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
+            result: WireType::encode(&self.result, encoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
             access: self.access,
         })
     }
@@ -116,9 +119,18 @@ impl WireHostIndexSegmentDeclaration {
         check_cancel(cancel)?;
         Ok(HostIndexSegmentDeclaration {
             slot: self.slot,
-            collection: self.collection.decode(decoding, cancel)?,
-            index: self.index.decode(decoding, cancel)?,
-            result: self.result.decode(decoding, cancel)?,
+            collection: self
+                .collection
+                .decode(decoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
+            index: self
+                .index
+                .decode(decoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
+            result: self
+                .result
+                .decode(decoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
             access: self.access,
         })
     }
@@ -127,7 +139,7 @@ impl WireHostIndexSegmentDeclaration {
 #[derive(Serialize, Deserialize)]
 pub(in crate::host_interface) struct WireHostVirtualSegmentDeclaration {
     name: String,
-    result: WireHostValueType,
+    result: WireType,
     access: PathAccess,
 }
 
@@ -142,7 +154,8 @@ impl Encode for HostVirtualSegmentDeclaration {
         check_cancel(cancel)?;
         Ok(WireHostVirtualSegmentDeclaration {
             name: self.name.clone(),
-            result: self.result.encode(encoding, cancel)?,
+            result: WireType::encode(&self.result, encoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
             access: self.access,
         })
     }
@@ -157,7 +170,10 @@ impl WireHostVirtualSegmentDeclaration {
         check_cancel(cancel)?;
         Ok(HostVirtualSegmentDeclaration {
             name: self.name,
-            result: self.result.decode(decoding, cancel)?,
+            result: self
+                .result
+                .decode(decoding, cancel)
+                .map_err(|error| adoption_error(error.into()))?,
             access: self.access,
         })
     }

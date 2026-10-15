@@ -54,16 +54,16 @@ pub(super) fn collect(
                     }
                     HostPathSegmentDeclaration::Index(index) => {
                         for ty in [&index.collection, &index.index, &index.result] {
-                            pending.extend(ty.nominal_references().into_iter().cloned());
+                            pending.extend(
+                                module_host::type_references([ty], cancel)
+                                    .map_err(|_| MirLoweringError::Cancelled)?,
+                            );
                         }
                     }
                     HostPathSegmentDeclaration::Virtual(virtual_step) => {
                         pending.extend(
-                            virtual_step
-                                .result
-                                .nominal_references()
-                                .into_iter()
-                                .cloned(),
+                            module_host::type_references([&virtual_step.result], cancel)
+                                .map_err(|_| MirLoweringError::Cancelled)?,
                         );
                     }
                 }

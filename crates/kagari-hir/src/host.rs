@@ -6,7 +6,7 @@ use crate::{
     host::origin::{HostDeclarationOrigin, HostInput},
     resolver::resolved::ResolvedName,
     typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
-    types::{NominalType, TypeId, TypeSubstitution},
+    types::{NominalType, TypeId, TypeSubstitution, semantic::raise_type},
 };
 
 use callable::{HostCallable, HostSignature};
@@ -760,7 +760,7 @@ impl HostDeclarations {
                         HostSourcePathStep::Member(name),
                     ) => virtual_step.name == *name,
                     (HostPathSegmentDeclaration::Index(index), HostSourcePathStep::Index(ty)) => {
-                        source_slots.insert(index.slot) && signature_type(&index.index) == *ty
+                        source_slots.insert(index.slot) && raise_type(&index.index) == *ty
                     }
                     _ => false,
                 })
@@ -769,8 +769,9 @@ impl HostDeclarations {
         if matches.next().is_some() {
             return Err("path has ambiguous host declarations");
         }
-        let contract = declaration
-            .contract(&self.interface, &self.definitions)
+        let contract = self
+            .interface
+            .path_contract(declaration, &self.definitions)
             .map_err(|_| "invalid declared host path")?;
         Ok((declaration.clone(), contract))
     }
