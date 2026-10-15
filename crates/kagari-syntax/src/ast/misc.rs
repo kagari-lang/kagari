@@ -163,13 +163,12 @@ ast_node!(
 );
 
 impl AssociatedTypeBinding {
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("Output")` for `Output = bool`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         support::child::<Name>(self.syntax()).and_then(|name| name.text())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `bool` in the generic argument binding `Output = bool`.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
@@ -439,8 +438,8 @@ ast_node!(
 );
 
 impl Name {
-    /// Copies the first direct identifier or `crate`/`self`/`super` token.
-    /// Returns `None` when a recovered name has no matching token.
+    /// Returns `Some("value")` for `value`, or `Some("self")` for a `self` path segment.
+    /// Accepts identifiers and `crate`/`self`/`super`; returns `None` if no matching token remains.
     pub fn text(&self) -> Option<String> {
         self.syntax()
             .children_with_tokens()
@@ -462,14 +461,13 @@ impl Name {
 }
 
 impl Path {
-    /// Iterates direct `Name` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `crate`, `math`, then `Value` in `crate::math::Value`, excluding separators and trivia.
     pub fn segments(&self) -> impl Iterator<Item = Name> {
         support::children(self.syntax())
     }
 
-    /// Joins readable direct name segments with `::`, discarding trivia.
-    /// Returns `None` if no readable segments remain; not an exact source slice.
+    /// Returns `Some("crate::math::Value")` for `crate :: math :: Value`.
+    /// Joins readable segments with `::`; returns `None` if none remain. Does not preserve trivia.
     pub fn text(&self) -> Option<String> {
         let segments = self
             .segments()
@@ -480,41 +478,38 @@ impl Path {
 }
 
 impl GenericParamList {
-    /// Iterates direct `GenericParam` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `T: Read` then `U` in `<T: Read, U>`, preserving source order.
     pub fn params(&self) -> impl Iterator<Item = GenericParam> {
         support::children(self.syntax())
     }
 }
 
 impl GenericParam {
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `T` in the generic parameter `T: Read`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("T")` for `T: Read`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the trait bounds: the first direct `TraitBoundList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `Read + Write` in `T: Read + Write`; returns `None` for unbounded `T`.
     pub fn bounds(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
 }
 
 impl GenericArgList {
-    /// Iterates direct `AssociatedTypeBinding` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `Output = bool` in `<i32, Output = bool>`.
+    /// Excludes the positional argument `i32`; `<i32>` yields no bindings.
     pub fn bindings(&self) -> impl Iterator<Item = AssociatedTypeBinding> {
         support::children(self.syntax())
     }
 
-    /// Whether a direct type argument follows an associated-type binding.
-    /// Reports source ordering without resolving either component.
+    /// Whether a positional type follows a binding: true for `<Output = bool, i32>`.
+    /// False for `<i32, Output = bool>`; reports written order without validating the arguments.
     pub fn positional_after_binding(&self) -> bool {
         let mut binding_seen = false;
         for child in self.syntax().children() {
@@ -527,138 +522,134 @@ impl GenericArgList {
         false
     }
 
-    /// Iterates direct `TypeRef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `i32` in `<i32, Output = bool>`, excluding the binding and its nested `bool`.
+    /// `<Output = bool>` yields no positional arguments.
     pub fn args(&self) -> impl Iterator<Item = TypeRef> {
         support::children(self.syntax())
     }
 }
 
 impl WhereClause {
-    /// Iterates direct `WherePredicate` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `T: Read` then `T::Item: Write` in `where T: Read, T::Item: Write`.
     pub fn predicates(&self) -> impl Iterator<Item = WherePredicate> {
         support::children(self.syntax())
     }
 }
 
 impl WherePredicate {
-    /// Returns the target type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `T::Item` in the predicate `T::Item: Read`.
     pub fn target_type(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the first path segment of the target type, not a direct child here.
-    /// Structural targets or missing path/name children yield `None`.
+    /// Returns the first target path segment `T` in `T::Item: Read`.
+    /// For a structural target such as `(T, U): Read`, returns `None`; does not descend into that type.
     pub fn name(&self) -> Option<Name> {
         self.target_type()
             .and_then(|ty| ty.path())
             .and_then(|path| path.segments().next())
     }
 
-    /// Returns the target type's normalized name spelling, when available.
+    /// Returns `Some("T::Item")` for `T::Item: Read`, unlike `name()` which selects only `T`.
+    /// Uses the target type spelling; structural targets such as `(T, U): Read` yield `None`.
     pub fn name_text(&self) -> Option<String> {
         self.target_type().and_then(|ty| ty.name_text())
     }
 
-    /// Returns the trait bounds: the first direct `TraitBoundList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `Read + Write` in the predicate `T::Item: Read + Write`.
     pub fn bounds(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
 }
 
 impl TraitBoundList {
-    /// Iterates direct `TraitRef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `Read` then `Write` in `T: Read + Write`, excluding the target `T`.
     pub fn bounds(&self) -> impl Iterator<Item = TraitRef> {
         support::children(self.syntax())
     }
 }
 
 impl TraitRef {
-    /// Returns the callable inputs: the first direct `TypeList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the input list `i32, bool` in `Fn(i32, bool) -> String`.
+    /// Returns `None` for generic spelling `Read<i32>`.
     pub fn callable_inputs(&self) -> Option<TypeList> {
         support::child(self.syntax())
     }
 
-    /// Returns the callable output type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `String` in `Fn(i32) -> String`.
+    /// Returns `None` when no output is written, or for generic spelling `Read<i32>`.
     pub fn callable_output(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the path: the first direct `Path` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Read` in `Read<i32>`, or `Fn` in `Fn(i32) -> bool`.
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }
 
-    /// Returns the normalized path spelling, or `None` if no readable path remains.
+    /// Returns `Some("io::Read")` for `io :: Read<i32>`, omitting type arguments and trivia.
+    /// Returns `None` if no readable path remains.
     pub fn path_text(&self) -> Option<String> {
         self.path().and_then(|path| path.text())
     }
 
-    /// Returns the generic arguments: the first direct `GenericArgList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<i32>` in `Read<i32>`; returns `None` in `Read` or `Fn(i32) -> bool`.
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
 }
 
 impl TypeList {
-    /// Iterates direct `TypeRef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `i32` then `bool` in the payload list of `Pair(i32, bool)`.
+    /// Delimiters belong to the parent; an empty list yields no types.
     pub fn types(&self) -> impl Iterator<Item = TypeRef> {
         support::children(self.syntax())
     }
 }
 
 impl ParamList {
-    /// Iterates direct `Param` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `x: i32` then `y: bool` in `fn check(x: i32, y: bool) {}`.
+    /// Includes a written `self` parameter in methods; an empty list yields no parameters.
     pub fn params(&self) -> impl Iterator<Item = Param> {
         support::children(self.syntax())
     }
 }
 
 impl Param {
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `x` in `x: i32`, or `self` for a method receiver.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("x")` for `x: i32`, or `Some("self")` for a receiver.
+    /// Returns `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `i32` in `x: i32`; returns `None` for a bare method receiver `self`.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }
 
 impl FieldList {
-    /// Iterates direct `Field` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `val x: i32` then `var y: i32` in `struct Point { val x: i32, var y: i32 }`.
     pub fn fields(&self) -> impl Iterator<Item = Field> {
         support::children(self.syntax())
     }
 }
 
 impl Field {
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub val x: i32`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Reads direct `val`/`var` tokens; returns `None` if neither is present.
+    /// Returns `Some(Writeability::Val)` for `val x: i32` and `Some(Writeability::Var)` for `var x: i32`.
+    /// Returns `None` if neither direct keyword is present.
     pub fn writeability(&self) -> Option<Writeability> {
         if support::token(self.syntax(), SyntaxKind::ValKw).is_some() {
             Some(Writeability::Val)
@@ -669,56 +660,52 @@ impl Field {
         }
     }
 
-    /// Whether the direct binding keyword is `val`.
+    /// Whether the field uses `val`: true for `val x: i32`, false for `var x: i32`.
     pub fn is_val(&self) -> bool {
         self.writeability() == Some(Writeability::Val)
     }
 
-    /// Whether the direct binding keyword is `var`.
+    /// Whether the field uses `var`: true for `var x: i32`, false for `val x: i32`.
     pub fn is_var(&self) -> bool {
         self.writeability() == Some(Writeability::Var)
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `x` in `pub var x: i32`, excluding visibility and writeability.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("x")` for `pub var x: i32`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `i32` in `pub var x: i32`.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }
 
 impl VariantList {
-    /// Iterates direct `Variant` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `Empty` then `Value(i32)` in `enum Slot { Empty, Value(i32) }`.
     pub fn variants(&self) -> impl Iterator<Item = Variant> {
         support::children(self.syntax())
     }
 }
 
 impl Variant {
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Value` in `Value(i32)`, or `Empty` in the unit variant `Empty`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("Value")` for `Value(i32)`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the variant payload types: the first direct `TypeList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the payload list `i32, bool` in `Value(i32, bool)`.
+    /// Returns `None` for the unit variant `Empty`.
     pub fn payload_types(&self) -> Option<TypeList> {
         support::child(self.syntax())
     }

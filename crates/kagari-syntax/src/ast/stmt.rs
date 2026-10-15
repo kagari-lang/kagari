@@ -239,23 +239,23 @@ ast_node!(
 /// A typed choice of statement views; see each variant for its tree shape.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
-    /// The [`BindingStmt`] view; see its node diagram.
+    /// A local binding, such as `val x = 1;` or `var count: i32 = 0;`.
     BindingStmt(BindingStmt),
-    /// The [`ReturnStmt`] view; see its node diagram.
+    /// A return with an optional value: `return value;` or `return;`.
     ReturnStmt(ReturnStmt),
-    /// The [`AssignStmt`] view; see its node diagram.
+    /// An assignment, such as `x = value;` or `values[i] += delta;`.
     AssignStmt(AssignStmt),
-    /// The [`WhileStmt`] view; see its node diagram.
+    /// A conditional loop, such as `while ready { tick(); }` or `while val Some(x) = next() {}`.
     WhileStmt(WhileStmt),
-    /// The [`LoopStmt`] view; see its node diagram.
+    /// A loop in statement position, such as `loop { tick(); }`.
     LoopStmt(LoopStmt),
-    /// The [`ForStmt`] view; see its node diagram.
+    /// Iteration with a pattern, such as `for (key, value) in entries { use_value(value); }`.
     ForStmt(ForStmt),
-    /// The [`BreakStmt`] view; see its node diagram.
+    /// A loop exit with an optional value: `break;` or `break 42;`.
     BreakStmt(BreakStmt),
-    /// The [`ContinueStmt`] view; see its node diagram.
+    /// A skip to the next loop iteration: `continue;`.
     ContinueStmt(ContinueStmt),
-    /// The [`ExprStmt`] view; see its node diagram.
+    /// An expression used as a statement, such as `work();`, rather than a block's tail value.
     ExprStmt(ExprStmt),
 }
 
@@ -306,7 +306,8 @@ impl AstNode for Stmt {
 }
 
 impl BindingStmt {
-    /// Reads direct `val`/`var` tokens; returns `None` if neither is present.
+    /// Returns `Some(Writeability::Val)` for `val x = 1;` and `Some(Writeability::Var)` for `var x = 1;`.
+    /// Returns `None` if neither direct keyword is present.
     pub fn writeability(&self) -> Option<Writeability> {
         if support::token(self.syntax(), SyntaxKind::ValKw).is_some() {
             Some(Writeability::Val)
@@ -317,51 +318,48 @@ impl BindingStmt {
         }
     }
 
-    /// Whether the direct binding keyword is `val`.
+    /// Whether this is a `val` binding: true for `val x = 1;`, false for `var x = 1;`.
     pub fn is_val(&self) -> bool {
         self.writeability() == Some(Writeability::Val)
     }
 
-    /// Whether the direct binding keyword is `var`.
+    /// Whether this is a `var` binding: true for `var x = 1;`, false for `val x = 1;`.
     pub fn is_var(&self) -> bool {
         self.writeability() == Some(Writeability::Var)
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `count` in `val count: i32 = 1;`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("count")` for `val count = 1;`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the annotation `i32` in `val count: i32 = 1;`.
+    /// Returns `None` for `val count = 1;`; this accessor does not infer a type.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the initializer: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `1 + 2` in `val count = 1 + 2;`.
     pub fn initializer(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 }
 
 impl ReturnStmt {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `value` in `return value;`; returns `None` for `return;`.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 }
 
 impl AssignStmt {
-    /// Returns the first recognized direct operator token's kind.
-    /// Returns `None` if no operator from this expression/statement family is present.
+    /// Returns `Some(SyntaxKind::Eq)` for `x = y;` and `Some(SyntaxKind::PlusEq)` for `x += y;`.
+    /// Returns `None` if no direct assignment operator remains.
     pub fn operator(&self) -> Option<SyntaxKind> {
         self.syntax()
             .children_with_tokens()
@@ -385,78 +383,72 @@ impl AssignStmt {
             })
     }
 
-    /// Returns the assignment target: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `values[i]` in `values[i] += delta;`.
+    /// Selects the first direct expression without descending into the target.
     pub fn target(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Returns the value expression: the second direct `Expr` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `delta` in `values[i] += delta;`.
+    /// Selects the second direct expression, or `None` if recovery leaves fewer than two.
     pub fn value(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).nth(1)
     }
 }
 
 impl WhileStmt {
-    /// Returns the binding condition: the first direct `BindingCondition` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `val Some(x) = next()` in `while val Some(x) = next() { use_value(x); }`.
+    /// Returns `None` for `while ready { work(); }`.
     pub fn binding_condition(&self) -> Option<BindingCondition> {
         support::child(self.syntax())
     }
 
-    /// Returns the first direct expression, which is the body for a binding condition.
-    /// Use `binding_condition()` to access a binding's nested initializer.
+    /// Returns `ready` in `while ready { work(); }`.
+    /// For `while val Some(x) = next() { use_value(x); }`, returns the body block instead.
+    /// Check `binding_condition()` first to access its nested initializer `next()`.
     pub fn condition(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Returns the body: the first direct `BlockExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `{ work(); }` in `while ready { work(); }`, including for binding conditions.
     pub fn body(&self) -> Option<BlockExpr> {
         self.syntax().children().filter_map(BlockExpr::cast).next()
     }
 }
 
 impl LoopStmt {
-    /// Returns the body: the first direct `BlockExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `{ tick(); }` in the statement `loop { tick(); }`.
     pub fn body(&self) -> Option<BlockExpr> {
         self.syntax().children().filter_map(BlockExpr::cast).next()
     }
 }
 
 impl BreakStmt {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `42` in `break 42;`; returns `None` for `break;`.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 }
 
 impl ForStmt {
-    /// Returns the pattern: the first direct `Pattern` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `(key, value)` in `for (key, value) in entries { use_value(value); }`.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(self.syntax())
     }
 
-    /// Returns the iterable: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `entries` in `for item in entries { use_value(item); }`.
     pub fn iterable(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 
-    /// Returns the body: the first direct `BlockExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `{ use_value(item); }` in `for item in entries { use_value(item); }`.
     pub fn body(&self) -> Option<BlockExpr> {
         support::child(self.syntax())
     }
 }
 
 impl ExprStmt {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `work()` in `work();`, without the terminating semicolon.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }

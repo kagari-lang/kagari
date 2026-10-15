@@ -601,43 +601,42 @@ ast_node!(
 );
 
 impl AssociatedType {
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub type Output;`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the generic parameters: the first direct `GenericParamList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<T>` in `type Output<T>;`; returns `None` in `type Output;`.
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
 
-    /// Returns the where clause: the first direct `WhereClause` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `where T: Read` in `type Output<T> where T: Read;`.
+    /// Returns `None` when no where clause is written.
     pub fn where_clause(&self) -> Option<WhereClause> {
         support::child(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Output` in `type Output<T> = Box<T>;`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("Output")` for `type Output = i32;`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the assigned `i32` in `type Output = i32;`.
+    /// Returns `None` for a declaration such as `type Output: Read;`.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the trait bounds: the first direct `TraitBoundList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `Read + Write` in `type Output: Read + Write;`.
+    /// Returns `None` for `type Output = i32;` when no bounds are written.
     pub fn bounds(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
@@ -671,23 +670,23 @@ pub(crate) fn visibility_of(syntax: &SyntaxNode) -> Visibility {
 /// A typed choice of declarations found directly in a file or module.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Item {
-    /// The [`AssociatedType`] view; see its node diagram.
+    /// A type declaration or definition, such as declaration-mode `type Handle;` or `type Output = i32;`.
     TypeDecl(AssociatedType),
-    /// The [`ModuleDef`] view; see its node diagram.
+    /// An inline module, such as `mod math { fn total() {} }`.
     ModuleDef(ModuleDef),
-    /// The [`UseDecl`] view; see its node diagram.
+    /// An import, such as `use math::{Point, sum as total};`.
     UseDecl(UseDecl),
-    /// The [`TraitDef`] view; see its node diagram.
+    /// A trait declaration, such as `trait Read { fn read(self) -> i32; }`.
     TraitDef(TraitDef),
-    /// The [`ImplBlock`] view; see its node diagram.
+    /// An inherent `impl Point {}` or trait implementation `impl Read for Point {}`.
     ImplBlock(ImplBlock),
-    /// The [`FnDef`] view; see its node diagram.
+    /// A function declaration, such as `fn next(x: i32) -> i32 { x + 1 }`.
     FnDef(FnDef),
-    /// The [`ConstDef`] view; see its node diagram.
+    /// A constant declaration, such as `const LIMIT: i32 = 10;`.
     ConstDef(ConstDef),
-    /// The [`StructDef`] view; see its node diagram.
+    /// A struct declaration, such as `struct Point { val x: i32, var y: i32 }`.
     StructDef(StructDef),
-    /// The [`EnumDef`] view; see its node diagram.
+    /// An enum declaration, such as `enum Slot<T> { Empty, Value(T) }`.
     EnumDef(EnumDef),
 }
 
@@ -738,41 +737,41 @@ impl AstNode for Item {
 }
 
 impl Item {
-    /// Iterates direct `Attribute` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `#[first]` then `#[second]` on `#[first] #[second] fn run() {}`.
+    /// Does not include attributes on nested declarations; an unannotated item yields none.
     pub fn attributes(&self) -> impl Iterator<Item = Attribute> {
         self.syntax().children().filter_map(Attribute::cast)
     }
 }
 
 impl Attribute {
-    /// Returns the path: the first direct `Path` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `tools::tag` in `#[tools::tag(value = 1)]`.
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("tools::tag")` for `#[tools::tag]`, omitting trivia.
+    /// Returns `None` if no readable path remains.
     pub fn name_text(&self) -> Option<String> {
         self.path().and_then(|path| path.text())
     }
 
-    /// Returns the arguments: the first direct `AttributeArgs` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `(key = 1)` in `#[tag(key = 1)]`.
+    /// Returns `None` for `#[tag]` or `#[tag = 1]`; the latter uses `value()`.
     pub fn args(&self) -> Option<AttributeArgs> {
         support::child(self.syntax())
     }
 
-    /// Returns the value expression: the first direct `AttributeValue` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `1` in `#[tag = 1]`.
+    /// Returns `None` for `#[tag(key = 1)]`; that value belongs to an argument under `args()`.
     pub fn value(&self) -> Option<AttributeValue> {
         support::child(self.syntax())
     }
 }
 
 impl AttributeArgs {
-    /// Iterates arguments through direct argument-list children in source order.
-    /// Empty `()` has no list and yields no arguments.
+    /// Iterates `1` then `key = 2` in `(1, key = 2)`; `()` yields no arguments.
+    /// Traverses one argument-list level, without flattening nested array values.
     pub fn arguments(&self) -> impl Iterator<Item = AttributeArg> {
         self.syntax()
             .children()
@@ -782,33 +781,31 @@ impl AttributeArgs {
 }
 
 impl AttributeArg {
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("key")` for `key = 1`; returns `None` for positional `1` or `source::value`.
     pub fn name_text(&self) -> Option<String> {
         support::child::<Name>(self.syntax()).and_then(|name| name.text())
     }
 
-    /// Returns the value expression: the first direct `AttributeValue` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `1` for both positional `1` and named `key = 1`.
+    /// For `key = [1, 2]`, returns the whole array value.
     pub fn value(&self) -> Option<AttributeValue> {
         support::child(self.syntax())
     }
 }
 
 impl AttributeValue {
-    /// Returns the literal: the first direct `Literal` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `1` for literal value `1`; returns `None` for path `source::value` or array `[1]`.
     pub fn literal(&self) -> Option<Literal> {
         support::child(self.syntax())
     }
 
-    /// Returns the path: the first direct `Path` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `source::value` for that path value; returns `None` for literal `1` or array `[1]`.
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }
 
-    /// Iterates array elements through direct argument-list children.
-    /// Scalar literal/path values yield an empty iterator.
+    /// Iterates `1` then `source::value` in `[1, source::value]` as attribute arguments.
+    /// Scalar values and `[]` yield no elements; nested arrays are not flattened.
     pub fn elements(&self) -> impl Iterator<Item = AttributeArg> {
         self.syntax()
             .children()
@@ -818,66 +815,67 @@ impl AttributeValue {
 }
 
 impl ModuleDef {
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub mod math {}`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `math` in `mod math { fn total() {} }`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("math")` for `mod math {}`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the inline module body: the first direct `ModuleBlock` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `{ fn total() {} }` in `mod math { fn total() {} }`.
+    /// Returns `None` when no inline module body is present.
     pub fn block(&self) -> Option<ModuleBlock> {
         support::child(self.syntax())
     }
 }
 
 impl ModuleBlock {
-    /// Iterates direct `Item` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `fn a() {}` then `const B: i32 = 1;` in `mod m { fn a() {} const B: i32 = 1; }`.
+    /// Does not flatten nested modules; an empty body yields no items.
     pub fn items(&self) -> impl Iterator<Item = Item> {
         support::children(self.syntax())
     }
 }
 
 impl UseDecl {
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub use math::Point;`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the use tree: the first direct `UseTree` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `math::{sum, Point}` in `use math::{sum, Point};`.
     pub fn tree(&self) -> Option<UseTree> {
         support::child(self.syntax())
     }
 }
 
 impl UseTree {
-    /// Whether this branch contains a direct `*`; does not inspect nested branches.
+    /// Whether this branch imports `*`: true for `math::*`, false for `math::Point`.
+    /// The outer `math::{*}` is also false; its nested `*` branch is true.
     pub fn is_glob(&self) -> bool {
         support::token(self.syntax(), SyntaxKind::Star).is_some()
     }
 
-    /// Returns the path: the first direct `Path` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `math` in `math::{Point, sum}` or `math::*`, and `math::Point` in `math::Point`.
+    /// A bare `*` branch has no path and returns `None`.
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }
 
-    /// Returns the first direct `Name` after an `as` token.
-    /// Unaliased paths and missing recovered alias names yield `None`.
+    /// Returns `P` in `math::Point as P`; returns `None` in `math::Point`.
+    /// Selects the first direct name after `as`; a missing recovered alias also yields `None`.
     pub fn alias(&self) -> Option<Name> {
         let mut after_as = false;
         self.syntax()
@@ -892,8 +890,8 @@ impl UseTree {
             })
     }
 
-    /// Iterates trees inside direct `UseTreeList` children in source order.
-    /// Flattens one list level only; leaf and glob branches yield no trees.
+    /// Iterates `Point` then `ops::{sum}` in `math::{Point, ops::{sum}}`.
+    /// Traverses one list level only; `sum` remains nested. Leaf and glob branches yield no trees.
     pub fn nested_trees(&self) -> impl Iterator<Item = UseTree> {
         self.syntax()
             .children()
@@ -903,164 +901,163 @@ impl UseTree {
 }
 
 impl UseTreeList {
-    /// Iterates direct `UseTree` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `Point` then `sum as total` in the list of `use math::{Point, sum as total};`.
     pub fn trees(&self) -> impl Iterator<Item = UseTree> {
         support::children(self.syntax())
     }
 }
 
 impl TraitDef {
-    /// Iterates direct `ConstDef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `const ZERO: i32;` in `trait Read { const ZERO: i32; fn read(self); }`.
+    /// Excludes methods and associated types; only direct constants are selected.
     pub fn associated_consts(&self) -> impl Iterator<Item = ConstDef> {
         support::children(self.syntax())
     }
 
-    /// Returns the supertrait bounds: the first direct `TraitBoundList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `Read + Write` in `trait Stream: Read + Write {}`.
+    /// Returns `None` for `trait Stream {}`.
     pub fn supertraits(&self) -> Option<TraitBoundList> {
         support::child(self.syntax())
     }
 
-    /// Iterates direct `AssociatedType` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `type Output;` in `trait Read { type Output; fn read(self); }`.
+    /// Excludes methods and constants.
     pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
         support::children(self.syntax())
     }
 
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub trait Read {}`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Read` in `trait Read<T> {}`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("Read")` for `trait Read<T> {}`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the generic parameters: the first direct `GenericParamList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<T>` in `trait Read<T> {}`; returns `None` in `trait Read {}`.
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
 
-    /// Iterates direct `MethodDef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `fn read(self);` in `trait Read { type Output; fn read(self); }`.
+    /// Excludes associated types and constants.
     pub fn methods(&self) -> impl Iterator<Item = MethodDef> {
         support::children(self.syntax())
     }
 }
 
 impl ImplBlock {
-    /// Iterates direct `ConstDef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `const ZERO: i32 = 0;` in `impl Read for Point { const ZERO: i32 = 0; }`.
+    /// Excludes methods and associated types.
     pub fn associated_consts(&self) -> impl Iterator<Item = ConstDef> {
         support::children(self.syntax())
     }
 
-    /// Iterates direct `AssociatedType` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `type Output = i32;` in `impl Read for Point { type Output = i32; }`.
+    /// Excludes methods and constants.
     pub fn associated_types(&self) -> impl Iterator<Item = AssociatedType> {
         support::children(self.syntax())
     }
 
-    /// Returns the generic parameters: the first direct `GenericParamList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<T>` in `impl<T> Read for Box<T> {}`; returns `None` in `impl Point {}`.
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
 
-    /// Returns the trait spelling: the first direct `TraitRef` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `Read<i32>` in `impl Read<i32> for Point {}`.
+    /// Returns `None` for an inherent implementation such as `impl Point {}`.
     pub fn trait_ref(&self) -> Option<TraitRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the target type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Box<T>` in `impl<T> Read<T> for Box<T> {}`, or `Point` in `impl Point {}`.
+    /// Selects the first direct type; trait arguments are nested under `trait_ref()`.
     pub fn target_type(&self) -> Option<TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast).next()
     }
 
-    /// Returns the where clause: the first direct `WhereClause` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `where T: Read` in `impl<T> Box<T> where T: Read {}`.
+    /// Returns `None` when no where clause is written.
     pub fn where_clause(&self) -> Option<WhereClause> {
         support::child(self.syntax())
     }
 
-    /// Iterates direct `MethodDef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `fn x(self) {}` then `fn y(self) {}` in `impl Point { fn x(self) {} fn y(self) {} }`.
+    /// Excludes associated types and constants.
     pub fn methods(&self) -> impl Iterator<Item = MethodDef> {
         support::children(self.syntax())
     }
 }
 
 impl MethodDef {
-    /// Whether this callable explicitly carries the `async` modifier.
+    /// Whether the declaration explicitly uses `async`: true for `async fn read() {}`, false for `fn read() {}`.
+    /// Does not inspect the body or infer whether the result is a Future.
     pub fn is_async(&self) -> bool {
         self.syntax()
             .children_with_tokens()
             .any(|child| child.kind() == SyntaxKind::AsyncKw)
     }
 
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub fn read(self);`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `read` in `fn read(self, n: i32) -> i32;`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("read")` for `fn read(self);`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the generic parameters: the first direct `GenericParamList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<T>` in `fn read<T>(self, value: T) {}`; returns `None` in `fn read(self) {}`.
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
 
-    /// Returns the parameter list: the first direct `ParamList` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the list `self, n: i32` in `fn read(self, n: i32);`, excluding parentheses.
+    /// An empty parameter list has no parameters; a missing recovered list yields `None`.
     pub fn param_list(&self) -> Option<ParamList> {
         support::child(self.syntax())
     }
 
-    /// Returns the declared return type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `i32` in `fn read(self) -> i32;`; returns `None` in `fn read(self);`.
+    /// Parameter types are nested and cannot be selected as the return type.
     pub fn return_type(&self) -> Option<TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast).next()
     }
 
-    /// Returns the where clause: the first direct `WhereClause` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `where T: Read` in `fn read<T>(self, value: T) where T: Read;`.
+    /// Returns `None` when no where clause is written.
     pub fn where_clause(&self) -> Option<WhereClause> {
         support::child(self.syntax())
     }
 
-    /// Returns the body: the first direct `BlockExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `{ self.x }` in `fn x(self) -> i32 { self.x }`.
+    /// Returns `None` for a bodyless declaration such as `fn x(self) -> i32;`.
     pub fn body(&self) -> Option<BlockExpr> {
         support::child(self.syntax())
     }
 }
 
 impl SourceFile {
-    /// Inner documentation belongs to the module's leading parsed trivia.
+    /// Returns `"Math helpers"` for leading `//! Math helpers` before `fn total() {}`.
+    /// Joins leading inner-doc lines with newlines; ordinary comments and outer `///` docs are excluded.
+    /// Stops at the first non-trivia token; returns an empty string when no inner docs are found.
     pub fn module_documentation(&self) -> String {
         self.syntax()
             .descendants_with_tokens()
@@ -1077,157 +1074,155 @@ impl SourceFile {
             .join("\n")
     }
 
-    /// Iterates direct `Item` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `fn a() {}` then `mod b {}` in `fn a() {} mod b {}`.
+    /// Selects direct declarations only; does not descend into module `b`.
     pub fn items(&self) -> impl Iterator<Item = Item> {
         support::children(self.syntax())
     }
 }
 
 impl FnDef {
-    /// Whether this callable explicitly carries the `async` modifier.
+    /// Whether the declaration explicitly uses `async`: true for `async fn read() {}`, false for `fn read() {}`.
+    /// Does not inspect the body or infer whether the result is a Future.
     pub fn is_async(&self) -> bool {
         self.syntax()
             .children_with_tokens()
             .any(|child| child.kind() == SyntaxKind::AsyncKw)
     }
 
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub fn read() {}`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `total` in `fn total<T>(x: T) -> T { x }`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("total")` for `fn total() {}`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the parameter list: the first direct `ParamList` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the list `x: i32, y: i32` in `fn add(x: i32, y: i32) {}`, excluding parentheses.
+    /// An empty parameter list has no parameters; a missing recovered list yields `None`.
     pub fn param_list(&self) -> Option<ParamList> {
         support::child(self.syntax())
     }
 
-    /// Returns the generic parameters: the first direct `GenericParamList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<T>` in `fn identity<T>(x: T) -> T { x }`.
+    /// Returns `None` in `fn identity(x: i32) -> i32 { x }`.
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
 
-    /// Returns the declared return type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `i32` in `fn total() -> i32 { 1 }`; returns `None` in `fn total() {}`.
+    /// Reports only the written return type, not an inferred or default type.
     pub fn return_type(&self) -> Option<TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast).next()
     }
 
-    /// Returns the body: the first direct `BlockExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `{ x + 1 }` in `fn next(x: i32) -> i32 { x + 1 }`.
+    /// Returns `None` for bodyless `fn next(x: i32) -> i32;` in declaration mode or missing recovered bodies.
     pub fn body(&self) -> Option<BlockExpr> {
         support::child(self.syntax())
     }
 
-    /// Returns the where clause: the first direct `WhereClause` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `where T: Read` in `fn read<T>(x: T) where T: Read {}`.
+    /// Returns `None` when no where clause is written.
     pub fn where_clause(&self) -> Option<WhereClause> {
         support::child(self.syntax())
     }
 }
 
 impl ConstDef {
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub const LIMIT: i32 = 10;`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `LIMIT` in `const LIMIT: i32 = 10;`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("LIMIT")` for `const LIMIT: i32 = 10;`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `i32` in `const LIMIT: i32 = 10;`.
     pub fn ty(&self) -> Option<TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast).next()
     }
 
-    /// Returns the initializer: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `10` in `const LIMIT: i32 = 10;`.
+    /// Returns `None` for an associated declaration such as `const LIMIT: i32;`.
     pub fn initializer(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 }
 
 impl StructDef {
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub struct Point {}`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Point` in `struct Point { val x: i32 }`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("Point")` for `struct Point {}`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the field list: the first direct `FieldList` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the field list `val x: i32` in `struct Point { val x: i32 }`.
+    /// Braces belong to the declaration; use the list's `fields()` to visit fields.
     pub fn field_list(&self) -> Option<FieldList> {
         support::child(self.syntax())
     }
 
-    /// Returns the generic parameters: the first direct `GenericParamList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<T>` in `struct Box<T> { val value: T }`; returns `None` in `struct Point {}`.
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }
 }
 
 impl EnumDef {
-    /// Reads direct visibility tokens; defaults to private when `pub` is absent.
-    /// Direct `super` or `crate` tokens with `pub` select the corresponding restricted scope.
+    /// Returns `Visibility::Public` for `pub enum Flag { On, Off }`, and `Private` without `pub`.
+    /// Prefixes `pub(super)` and `pub(crate)` select `PublicSuper` and `PublicCrate` respectively.
+    /// Reads direct tokens; does not check whether the visibility is legal in this context.
     pub fn visibility(&self) -> Visibility {
         visibility_of(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Slot` in `enum Slot<T> { Empty, Value(T) }`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("Slot")` for `enum Slot<T> { Empty, Value(T) }`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the variant list: the first direct `VariantList` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the variant list `Empty, Value(T)` in `enum Slot<T> { Empty, Value(T) }`.
+    /// Braces belong to the declaration; use the list's `variants()` to visit variants.
     pub fn variant_list(&self) -> Option<VariantList> {
         support::child(self.syntax())
     }
 
-    /// Returns the generic parameters: the first direct `GenericParamList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<T>` in `enum Slot<T> { Empty, Value(T) }`; returns `None` in `enum Flag { On, Off }`.
     pub fn generic_params(&self) -> Option<GenericParamList> {
         support::child(self.syntax())
     }

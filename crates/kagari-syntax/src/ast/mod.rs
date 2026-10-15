@@ -7,6 +7,20 @@
 //! Cloning a wrapper retains a handle to the same tree rather than deep-copying it.
 //! Handles retain the tree independently of the original source and parse wrapper.
 //!
+//! # Reading accessor examples
+//!
+//! Accessors describe the source fragment they select. For `add(a, b + 1)`,
+//! `CallExpr::callee()` selects `add`, while `args()` yields `a` then `b + 1`.
+//! Each result is a typed view of the existing node, not a copied source string or
+//! an evaluated value. Methods such as `name_text()` explicitly return strings.
+//!
+//! Examples use Kagari syntax and describe well-formed fragments unless marked
+//! otherwise. A child accessor returns `None` if its matching node is missing;
+//! a list accessor yields no entries if no matching children remain. An existing
+//! node can itself be incomplete, so `Some` does not establish valid syntax.
+//! Boolean predicates recognize the written shape, without resolving its meaning.
+//! See the recovery rules below and each node's diagram for positional details.
+//!
 //! # Reading the node diagrams
 //!
 //! Diagrams show direct child nesting in source order. A quoted spelling denotes

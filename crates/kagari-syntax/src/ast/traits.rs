@@ -8,12 +8,16 @@ use crate::{kind::SyntaxKind, syntax_node::SyntaxNode};
 /// [`crate`] for a complete parse/inspect example.
 pub trait AstNode: Sized {
     /// Whether this view accepts `kind`; sum types can accept several kinds.
+    /// `BinaryExpr` accepts `SyntaxKind::BinaryExpr`; `Expr` also accepts `Literal` and `CallExpr` kinds.
     fn can_cast(kind: SyntaxKind) -> bool;
 
     /// Wraps a matching node without rebuilding it; returns `None` for other kinds.
+    /// `BinaryExpr::cast` accepts the node for `a + b`, but not the node for `a`.
+    /// An incomplete binary node such as recovered `a +` can still be wrapped.
     fn cast(syntax: SyntaxNode) -> Option<Self>;
 
     /// Borrows the underlying node, including punctuation, trivia and error children.
+    /// For `a + b`, the node retains both operands, the `+` token and the intervening spaces.
     fn syntax(&self) -> &SyntaxNode;
 
     /// Consecutive outer line documentation preceding this declaration.

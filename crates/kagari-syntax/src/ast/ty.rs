@@ -192,46 +192,42 @@ ast_node!(
 );
 
 impl QualifiedType {
-    /// Returns the generic arguments: the first direct `GenericArgList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the member arguments `<i32>` in `<T as Read<bool>>::Output<i32>`.
+    /// The trait arguments `<bool>` belong to `trait_ref()`; no member arguments yields `None`.
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
 
-    /// Returns the receiver: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `T` in `<T as Read>::Output`.
     pub fn receiver(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the trait spelling: the first direct `TraitRef` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `Read<i32>` in `<T as Read<i32>>::Output`.
     pub fn trait_ref(&self) -> Option<TraitRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the member name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Output` in `<T as Read>::Output<i32>`, excluding its type arguments.
     pub fn member(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 }
 
 impl TypeRef {
-    /// Returns the qualified form: the first direct `QualifiedType` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the qualified form `<T as Read>::Output`; returns `None` for plain `T`.
     pub fn qualified_type(&self) -> Option<QualifiedType> {
         support::child(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns a direct name child if present.
+    /// For parsed `Box<i32>` or `T`, the name is nested in `path()`, so this returns `None`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Returns the normalized path spelling or `!`.
-    /// Structural/grouped/qualified forms without a direct path/name yield `None`.
+    /// Returns `Some("Box")` for `Box<i32>`, `Some("math::Value")` for `math :: Value`, and `Some("!")` for `!`.
+    /// Returns `None` for `(T)`, `[T]`, tuple, function and qualified forms; does not resolve types.
     pub fn name_text(&self) -> Option<String> {
         if support::token(self.syntax(), SyntaxKind::Bang).is_some() {
             return Some("!".into());
@@ -241,46 +237,44 @@ impl TypeRef {
             .or_else(|| self.name().and_then(|name| name.text()))
     }
 
-    /// Returns the path: the first direct `Path` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Box` in `Box<i32>`, or `math::Value` in `math::Value`.
+    /// Returns `None` for structural forms such as `[i32]` and `(i32, bool)`.
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }
 
-    /// Returns the generic arguments: the first direct `GenericArgList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<i32>` in `Box<i32>`; returns `None` in `Box`.
+    /// For `<T as Read>::Output<i32>`, call `generic_args()` on the node returned by `qualified_type()`.
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
 
-    /// Returns the tuple form: the first direct `TupleType` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the tuple form for `(i32, bool)`, `(i32,)`, or `()`.
+    /// Returns `None` for grouped `(i32)`; use `grouped_type()` for that form.
     pub fn tuple_type(&self) -> Option<TupleType> {
         support::child(self.syntax())
     }
 
-    /// Returns the grouped inner type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the inner `i32` in `(i32)`.
+    /// Returns `None` for `(i32,)` and `()`; those use `tuple_type()`.
     pub fn grouped_type(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
-    /// Returns the array form: the first direct `ArrayType` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the array form `[i32]`; returns `None` for nominal `Vec<i32>`.
     pub fn array_type(&self) -> Option<ArrayType> {
         support::child(self.syntax())
     }
 
-    /// Returns the function form: the first direct `FunctionType` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the function form `fn(i32) -> bool`; returns `None` for a plain type path.
     pub fn function_type(&self) -> Option<FunctionType> {
         support::child(self.syntax())
     }
 }
 
 impl FunctionType {
-    /// Iterates types inside direct `TypeList` nodes in source order.
-    /// Excludes the direct result-type child.
+    /// Iterates `i32` then `bool` in `fn(i32, bool) -> String`; `fn() -> String` yields no inputs.
+    /// Reads the nested type list, excluding the result `String`.
     pub fn params(&self) -> impl Iterator<Item = TypeRef> {
         self.syntax()
             .children()
@@ -292,24 +286,22 @@ impl FunctionType {
             })
     }
 
-    /// Returns the result: the last direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `String` in `fn(i32, bool) -> String`.
+    /// Selects the last direct type child; parameter types are nested in a separate list.
     pub fn result(&self) -> Option<TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast).last()
     }
 }
 
 impl TupleType {
-    /// Iterates direct `TypeRef` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `i32` then `bool` in `(i32, bool)`; `(i32,)` yields one type and `()` none.
     pub fn element_types(&self) -> impl Iterator<Item = TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast)
     }
 }
 
 impl ArrayType {
-    /// Returns the element type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `i32` in `[i32]`, or the whole `[i32]` type in `[[i32]]`.
     pub fn element_type(&self) -> Option<TypeRef> {
         self.syntax().children().filter_map(TypeRef::cast).next()
     }

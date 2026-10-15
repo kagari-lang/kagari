@@ -918,47 +918,47 @@ ast_node!(
 /// A typed choice of expression views; no additional CST node is allocated.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Expr {
-    /// The [`BlockExpr`] view; see its node diagram.
+    /// A block with statements and an optional tail, such as `{ val x = 1; x + 2 }`.
     BlockExpr(BlockExpr),
-    /// The [`PathExpr`] view; see its node diagram.
+    /// An unresolved name or path, such as `value`, `math::total`, or `Box<i32>::make`.
     PathExpr(PathExpr),
-    /// The [`Literal`] view; see its node diagram.
+    /// A literal spelling, such as `42`, `true`, or `"text"`.
     Literal(Literal),
-    /// The [`ParenExpr`] view; see its node diagram.
+    /// Explicit grouping, such as `(x + 1)`; `(x,)` is a tuple instead.
     ParenExpr(ParenExpr),
-    /// The [`PrefixExpr`] view; see its node diagram.
+    /// A unary operation, such as `-count` or `!ready`.
     PrefixExpr(PrefixExpr),
-    /// The [`CastExpr`] view; see its node diagram.
+    /// A cast with a written target type, such as `value as i64`.
     CastExpr(CastExpr),
-    /// The [`PropagateExpr`] view; see its node diagram.
+    /// Result/Option propagation, such as `parse(text)?`.
     PropagateExpr(PropagateExpr),
-    /// The [`AwaitExpr`] view; see its node shape.
+    /// An await operation, such as `fetch().await`.
     AwaitExpr(AwaitExpr),
-    /// The [`BinaryExpr`] view; see its node diagram.
+    /// A binary operation, such as `a + b`, `x == y`, or `ready && enabled`.
     BinaryExpr(BinaryExpr),
-    /// The [`RangeExpr`] view; see its node diagram.
+    /// A range, such as `1..3`, `1..=3`, `..end`, or `start..`.
     RangeExpr(RangeExpr),
-    /// The [`CallExpr`] view; see its node diagram.
+    /// A call, such as `add(a, b)`, `identity<i32>(x)`, or `obj.read()`.
     CallExpr(CallExpr),
-    /// The [`FieldExpr`] view; see its node diagram.
+    /// Member access, such as `player.hp` or the callee `obj.read` in `obj.read()`.
     FieldExpr(FieldExpr),
-    /// The [`IndexExpr`] view; see its node diagram.
+    /// Indexed access, such as `values[i + 1]`.
     IndexExpr(IndexExpr),
-    /// The [`IfExpr`] view; see its node diagram.
+    /// A conditional, such as `if ready { a } else { b }` or `if val Some(x) = value { x }`.
     IfExpr(IfExpr),
-    /// The [`StructExpr`] view; see its node diagram.
+    /// Struct construction, such as `Point { x: 1, y }`, including shorthand fields.
     StructExpr(StructExpr),
-    /// The [`MatchExpr`] view; see its node diagram.
+    /// Pattern selection, such as `match value { Some(x) => x, _ => 0 }`.
     MatchExpr(MatchExpr),
-    /// The [`LoopExpr`] view; see its node diagram.
+    /// A loop in expression position, such as the initializer in `val x = loop { break 1; };`.
     LoopExpr(LoopExpr),
-    /// The [`ClosureExpr`] view; see its node diagram.
+    /// An anonymous callable, such as `|x| x + 1`, `|| 1`, or `async || fetch().await`.
     ClosureExpr(ClosureExpr),
-    /// The [`TupleExpr`] view; see its node diagram.
+    /// A tuple, such as `(x, y)`, `(x,)`, or `()`; `(x)` is grouping instead.
     TupleExpr(TupleExpr),
-    /// The [`ArrayExpr`] view; see its node diagram.
+    /// An array list `[a, b]` or repeated array `[value; count]`.
     ArrayExpr(ArrayExpr),
-    /// The [`InterpolatedString`] view; see its node diagram.
+    /// A formatted string, such as `f"value={x}"` or `f"{x:?}"`.
     InterpolatedString(InterpolatedString),
 }
 
@@ -1047,41 +1047,42 @@ impl AstNode for Expr {
 }
 
 impl BlockExpr {
-    /// Iterates direct `Stmt` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `val x = 1;` then `log(x);` in `{ val x = 1; log(x); x }`.
+    /// The tail `x` is excluded; `{ x }` yields no statements.
     pub fn statements(&self) -> impl Iterator<Item = Stmt> {
         support::children(self.syntax())
     }
 
-    /// Returns the last direct expression, or `None` when no tail is present.
-    /// Statement wrappers and expressions nested inside them are excluded.
+    /// Returns `x + 2` in `{ val x = 1; x + 2 }`.
+    /// Returns `None` for `{ x + 2; }`: the semicolon makes it a statement.
+    /// Only the last direct expression is selected, never one nested in a statement.
     pub fn tail_expr(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).last()
     }
 }
 
 impl PathExpr {
-    /// Returns the qualified form: the first direct `TypeRef` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns the type wrapper for `<T as Read>::make`.
+    /// Returns `None` for ordinary paths such as `math::total`.
     pub fn qualified_type(&self) -> Option<TypeRef> {
         self.syntax().children().find_map(TypeRef::cast)
     }
 
-    /// Returns the generic arguments: the first direct `GenericArgList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<i32>` in `Box<i32>::make`.
+    /// Returns `None` for `math::total`; qualified forms use `qualified_type()`.
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the member `make` in `Box<i32>::make`.
+    /// For `math::total`, the names are inside `path()`, so this returns `None`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Returns a normalized spelling, omitting generic arguments.
-    /// For a qualified form, returns only its member name; returns `None` if the
-    /// required path/name components are missing. See the type diagrams.
+    /// Returns `math::total` for `math :: total`, omitting trivia.
+    /// `Box<i32>::make` yields `Box::make`; `<T as Read>::make` yields only `make`.
+    /// Returns `None` if the required path/name components are missing.
     pub fn name_text(&self) -> Option<String> {
         if let Some(ty) = self.qualified_type() {
             return ty.qualified_type()?.member()?.text();
@@ -1098,59 +1099,58 @@ impl PathExpr {
             .or_else(|| self.name().and_then(|name| name.text()))
     }
 
-    /// Returns the path: the first direct `Path` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `math::total` in `math::total`, or `Box` in `Box<i32>::make`.
+    /// Returns `None` for `<T as Read>::make`; use `qualified_type()` for that form.
     pub fn path(&self) -> Option<Path> {
         support::child(self.syntax())
     }
 }
 
 impl Literal {
-    /// Copies the first token's spelling, including quotes/escapes; `None` for an empty node.
+    /// Returns the source spelling: `42` stays `42`, and `"a\n"` keeps its quotes and escape.
+    /// Copies the first token without decoding it; an empty recovered literal yields `None`.
     pub fn text(&self) -> Option<String> {
         self.syntax()
             .first_token()
             .map(|token| token.text().to_string())
     }
 
-    /// Returns the first token's kind, or `None` for an empty recovered literal.
+    /// Returns `SyntaxKind::Number` for `42` and `SyntaxKind::TrueKw` for `true`.
+    /// Reads the first token; an empty recovered literal yields `None`.
     pub fn kind(&self) -> Option<SyntaxKind> {
         self.syntax().first_token().map(|token| token.kind())
     }
 }
 
 impl ParenExpr {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `x + 1` in `(x + 1)`, without the grouping parentheses.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 }
 
 impl AwaitExpr {
-    /// Returns the operand, or `None` during recovery.
+    /// Returns `fetch()` in `fetch().await`.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 }
 
 impl PropagateExpr {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `parse(text)` in `parse(text)?`, without the propagation operator.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 }
 
 impl PrefixExpr {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `count` in `-count`, or `ready` in `!ready`.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 
-    /// Returns the first recognized direct operator token's kind.
-    /// Returns `None` if no operator from this expression/statement family is present.
+    /// Returns `Some(SyntaxKind::Minus)` for `-count` and `Some(SyntaxKind::Bang)` for `!ready`.
+    /// Returns `None` if neither direct operator token is present.
     pub fn operator(&self) -> Option<SyntaxKind> {
         self.syntax()
             .children_with_tokens()
@@ -1166,20 +1166,20 @@ impl PrefixExpr {
 }
 
 impl BinaryExpr {
-    /// Returns the left operand: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `a` in `a + b * c`.
+    /// Selects the first direct expression; it does not descend into either operand.
     pub fn lhs(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Returns the right operand: the second direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the whole `b * c` expression in `a + b * c`.
+    /// Selects the second direct expression, or `None` if recovery leaves fewer than two.
     pub fn rhs(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).nth(1)
     }
 
-    /// Returns the first recognized direct operator token's kind.
-    /// Returns `None` if no operator from this expression/statement family is present.
+    /// Returns `Some(SyntaxKind::Plus)` for the outer expression in `a + b * c`.
+    /// Ignores nested operators such as `*`; returns `None` if no direct binary operator remains.
     pub fn operator(&self) -> Option<SyntaxKind> {
         self.syntax()
             .children_with_tokens()
@@ -1217,8 +1217,8 @@ impl BinaryExpr {
 }
 
 impl RangeExpr {
-    /// Returns the first direct expression before the range operator.
-    /// An omitted start, as in `..end`, yields `None`.
+    /// Returns `start` in `start..end` and `start..=end`.
+    /// Returns `None` for `..end` or `..`; selects only expressions before the range token.
     pub fn start(&self) -> Option<Expr> {
         self.syntax()
             .children_with_tokens()
@@ -1227,8 +1227,8 @@ impl RangeExpr {
             .next()
     }
 
-    /// Returns the first direct expression after the range operator.
-    /// An open exclusive end or a missing recovered end yields `None`.
+    /// Returns `end` in `start..end` and `..=end`.
+    /// Returns `None` for `start..`, `..`, or a missing recovered end.
     pub fn end(&self) -> Option<Expr> {
         self.syntax()
             .children_with_tokens()
@@ -1237,88 +1237,84 @@ impl RangeExpr {
             .next()
     }
 
-    /// Whether a direct `..=` token is present; false for `..`.
+    /// Whether the range includes its end: true for `1..=3`, false for `1..3`.
+    /// Checks the direct `..=` token without validating either endpoint.
     pub fn inclusive(&self) -> bool {
         support::token(self.syntax(), SyntaxKind::DotDotEq).is_some()
     }
 }
 
 impl CallExpr {
-    /// Returns the generic arguments: the first direct `GenericArgList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<i32>` in `identity<i32>(value)`; returns `None` in `identity(value)`.
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
 
-    /// Returns the callee: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `add` in `add(a, b)`, or `obj.read` in `obj.read()`.
+    /// Selects the first direct expression, excluding type arguments.
     pub fn callee(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Iterates direct expressions after the first (callee), using `skip(1)`.
-    /// Tokens and generic arguments are excluded before positions are counted.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `a` then `b + 1` in `add<i32>(a, b + 1)`; `add()` yields no arguments.
+    /// Skips the first direct expression (the callee); tokens and type arguments do not count.
     pub fn args(&self) -> impl Iterator<Item = Expr> {
         self.syntax().children().filter_map(Expr::cast).skip(1)
     }
 }
 
 impl FieldExpr {
-    /// Returns the receiver: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `player` in `player.hp`, or `players[i]` in `players[i].hp`.
     pub fn receiver(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the field name `hp` in `player.hp`.
     pub fn name(&self) -> Option<Name> {
         self.syntax().children().filter_map(Name::cast).next()
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("hp")` for `player.hp`, or `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 }
 
 impl IndexExpr {
-    /// Returns the receiver: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `values` in `values[i + 1]`, without inspecting the index.
     pub fn receiver(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Returns the index expression: the second direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `i + 1` in `values[i + 1]`.
+    /// Selects the second direct expression, or `None` if recovery leaves fewer than two.
     pub fn index(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).nth(1)
     }
 }
 
 impl IfExpr {
-    /// Returns the binding condition: the first direct `BindingCondition` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `val Some(x) = value` in `if val Some(x) = value { x }`.
+    /// Returns `None` for a Boolean condition such as `if ready { work(); }`.
     pub fn binding_condition(&self) -> Option<BindingCondition> {
         support::child(self.syntax())
     }
 
-    /// Returns the first direct expression (`next()` after filtering).
-    /// Check `binding_condition()` first: its initializer is nested, so this
-    /// accessor selects the then block for binding-condition syntax.
+    /// Returns `ready` in `if ready { work(); }`.
+    /// For `if val Some(x) = value { x }`, returns the then block `{ x }` instead:
+    /// the initializer is nested under `binding_condition()`. Check that accessor first.
     pub fn condition(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Returns the then block: the first direct `BlockExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `{ a }` in `if ready { a } else { b }`.
+    /// Selects the first direct block, including for an `if val` condition.
     pub fn then_branch(&self) -> Option<BlockExpr> {
         self.syntax().children().filter_map(BlockExpr::cast).next()
     }
 
-    /// Returns the first expression after the first direct block.
-    /// Valid syntax yields an else block or nested `if`; no such child yields `None`.
+    /// Returns `{ b }` in `if ready { a } else { b }`, or the nested `if` in `else if`.
+    /// Returns `None` when there is no expression after the first direct block.
     /// Recovery can change these positional roles; see the type diagrams.
     pub fn else_branch(&self) -> Option<Expr> {
         let mut blocks = self.syntax().children().filter_map(BlockExpr::cast);
@@ -1340,34 +1336,30 @@ impl IfExpr {
 }
 
 impl BindingCondition {
-    /// Returns the pattern: the first direct `Pattern` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Some(x)` in the condition `val Some(x) = value`.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(self.syntax())
     }
 
-    /// Returns the initializer: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `value` in the condition `val Some(x) = value`.
     pub fn initializer(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 }
 
 impl StructExpr {
-    /// Returns the generic arguments: the first direct `GenericArgList` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `<i32>` in `Box<i32> { value: 1 }`; returns `None` in `Point { x: 1 }`.
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
     }
 
-    /// Returns the path: the first direct `PathExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Point` in `Point { x: 1 }`, or `Box` in `Box<i32> { value: 1 }`.
     pub fn path(&self) -> Option<PathExpr> {
         self.syntax().children().filter_map(PathExpr::cast).next()
     }
 
-    /// Returns the field list: the first direct `FieldInitList` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the field list `x: 1, y` in `Point { x: 1, y }`, including shorthand fields.
+    /// The braces belong to the struct expression, not the list.
     pub fn field_list(&self) -> Option<FieldInitList> {
         self.syntax()
             .children()
@@ -1377,41 +1369,39 @@ impl StructExpr {
 }
 
 impl FieldInitList {
-    /// Iterates direct `FieldInit` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `x: 1` then shorthand `y` in `{ x: 1, y }`; `{}` yields no fields.
     pub fn fields(&self) -> impl Iterator<Item = FieldInit> {
         self.syntax().children().filter_map(FieldInit::cast)
     }
 }
 
 impl FieldInit {
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `x` in both `x: value` and shorthand `x`.
     pub fn name(&self) -> Option<Name> {
         self.syntax().children().filter_map(Name::cast).next()
     }
 
-    /// Copies the selected name's spelling, or `None` if the name/token is missing.
+    /// Returns `Some("x")` for both `x: value` and shorthand `x`.
+    /// Returns `None` if the name/token is missing.
     pub fn name_text(&self) -> Option<String> {
         self.name().and_then(|name| name.text())
     }
 
-    /// Returns the value expression: the first direct `Expr` child after filtering.
-    /// Returns `None` when this form/component is absent or lost during recovery.
+    /// Returns `value` in `x: value`; returns `None` for shorthand `x`.
+    /// The shorthand's implicit value is not an expression child.
     pub fn value(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 }
 
 impl MatchExpr {
-    /// Returns the match scrutinee: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `value` in `match value { Some(x) => x, _ => 0 }`.
     pub fn scrutinee(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }
 
-    /// Returns the arm list: the first direct `MatchArmList` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the arm list `Some(x) => x, _ => 0` in `match value { Some(x) => x, _ => 0 }`.
+    /// The braces belong to the match expression; use the list's `arms()` to visit each arm.
     pub fn arms(&self) -> Option<MatchArmList> {
         self.syntax()
             .children()
@@ -1421,23 +1411,22 @@ impl MatchExpr {
 }
 
 impl LoopExpr {
-    /// Returns the body: the first direct `BlockExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `{ break 42; }` in the expression `loop { break 42; }`.
     pub fn body(&self) -> Option<BlockExpr> {
         support::child(self.syntax())
     }
 }
 
 impl ClosureExpr {
-    /// Whether this callable explicitly carries the `async` modifier.
+    /// Whether the closure explicitly starts with `async`: true for `async || 1`, false for `|| 1`.
     pub fn is_async(&self) -> bool {
         self.syntax()
             .children_with_tokens()
             .any(|child| child.kind() == SyntaxKind::AsyncKw)
     }
 
-    /// Iterates parameters inside direct parameter-list nodes in source order.
-    /// The `||` form has no list and yields no parameters.
+    /// Iterates `x: i32` then `y` in `|x: i32, y| x + y`; `|| 1` yields no parameters.
+    /// Reads parameters inside direct parameter-list nodes, excluding the body.
     pub fn params(&self) -> impl Iterator<Item = ClosureParam> {
         self.syntax()
             .children()
@@ -1450,50 +1439,46 @@ impl ClosureExpr {
             })
     }
 
-    /// Returns the body: the last direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `x + 1` in `|x| x + 1`, or `{ x + 1 }` in `|x| { x + 1 }`.
+    /// Selects the last direct expression.
     pub fn body(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).last()
     }
 }
 
 impl ClosureParam {
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `x` in both `|x| x` and `|x: i32| x`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `i32` for `x` in `|x: i32| x`; returns `None` in `|x| x`.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 }
 
 impl MatchArmList {
-    /// Iterates direct `MatchArm` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `Some(x) => x` then `_ => 0` in `{ Some(x) => x, _ => 0 }`.
     pub fn arms(&self) -> impl Iterator<Item = MatchArm> {
         self.syntax().children().filter_map(MatchArm::cast)
     }
 }
 
 impl MatchArm {
-    /// Returns the pattern: the first direct `Pattern` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Some(x)` in `Some(x) if x > 0 => x`.
     pub fn pattern(&self) -> Option<Pattern> {
         self.syntax().children().filter_map(Pattern::cast).next()
     }
 
-    /// Returns the contained expression: the last direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the result `x` in `Some(x) if x > 0 => x`, excluding the guard `x > 0`.
+    /// Selects the last direct expression.
     pub fn expr(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).last()
     }
 
-    /// Returns the first direct expression only when an `if` token is present.
-    /// Without a guard marker, returns `None`; recovery can leave it sharing the result node.
+    /// Returns `x > 0` in `Some(x) if x > 0 => x`; returns `None` in `Some(x) => x`.
+    /// With an `if` token, selects the first direct expression; recovery can leave it sharing the result node.
     pub fn guard(&self) -> Option<Expr> {
         if support::token(self.syntax(), SyntaxKind::IfKw).is_some() {
             self.syntax().children().filter_map(Expr::cast).next()
@@ -1504,12 +1489,14 @@ impl MatchArm {
 }
 
 impl Pattern {
-    /// Whether a direct `|` token separates alternatives.
+    /// Whether the pattern has alternatives, such as `Some(_) | None`.
+    /// Checks a direct `|`; the outer `(Some(_) | None)` is grouped, so it returns false.
     pub fn is_or(&self) -> bool {
         support::token(self.syntax(), SyntaxKind::Pipe).is_some()
     }
 
-    /// Returns `Some(true)` for `..=`, `Some(false)` for `..`, or `None` for no range token.
+    /// Returns `Some(true)` for `1..=3`, `Some(false)` for `1..3`, and `None` for `1`.
+    /// Checks only the direct range token, not whether both bounds are valid.
     pub fn range_inclusive(&self) -> Option<bool> {
         if support::token(self.syntax(), SyntaxKind::DotDotEq).is_some() {
             Some(true)
@@ -1520,8 +1507,8 @@ impl Pattern {
         }
     }
 
-    /// Iterates direct literal/path children in source order.
-    /// Also yields those children for non-range patterns; check `range_inclusive()` first.
+    /// Iterates `1` then `MAX` in `1..=MAX`, as literal and path bounds respectively.
+    /// Also yields `1` for the non-range pattern `1`; check `range_inclusive()` first.
     pub fn range_bounds(&self) -> impl Iterator<Item = PatternBound> {
         self.syntax().children().filter_map(|child| {
             Literal::cast(child.clone())
@@ -1530,53 +1517,58 @@ impl Pattern {
         })
     }
 
-    /// Iterates direct `Pattern` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `x` then `y` in `(x, y)` or `Pair(x, y)`, and `A` then `B` in `A | B`.
+    /// `(x)` yields one nested pattern; a plain `x` yields none. Does not descend into fields.
     pub fn elements(&self) -> impl Iterator<Item = Pattern> {
         self.syntax().children().filter_map(Pattern::cast)
     }
 
-    /// Whether the first direct path spells `_`.
+    /// Whether the pattern's first direct path spells `_`.
+    /// True for `_`, false for `value` or the outer grouped pattern `(_)`.
     pub fn is_wildcard(&self) -> bool {
         self.path().and_then(|path| path.name_text()).as_deref() == Some("_")
     }
 
-    /// Returns the path: the first direct `PathExpr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `Some` in `Some(x)`, `Point` in `Point { x }`, or `x` in plain `x`.
+    /// Returns `None` for literal `1` and tuple `(x, y)` patterns.
     pub fn path(&self) -> Option<PathExpr> {
         self.syntax().children().filter_map(PathExpr::cast).next()
     }
 
-    /// Returns the literal: the first direct `Literal` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the literal in `42`, or the first literal `1` in `1..=3`.
+    /// Returns `None` for `name`; use `range_bounds()` to read both range endpoints.
     pub fn literal(&self) -> Option<Literal> {
         self.syntax().children().filter_map(Literal::cast).next()
     }
 
-    /// Whether a direct `{` token marks a struct-shaped pattern.
+    /// Whether this is a struct-shaped pattern, such as `Point { x, y }`.
+    /// Recognized by a direct `{` token.
     pub fn is_struct(&self) -> bool {
         support::token(self.syntax(), SyntaxKind::LBrace).is_some()
     }
 
-    /// Whether a direct path and `(` token are both present.
+    /// Whether this is a tuple-struct-shaped pattern, such as `Some(value)`.
+    /// Requires a direct path and `(` token; false for `(value,)`.
     pub fn is_tuple_struct(&self) -> bool {
         self.path().is_some() && support::token(self.syntax(), SyntaxKind::LParen).is_some()
     }
 
-    /// Whether `(` is present and no direct path is present; includes grouped patterns.
+    /// Whether this is a tuple or grouped pattern: `()`, `(x,)`, `(x, y)`, or `(x)`.
+    /// False for `Some(x)`; use `is_grouped()` to distinguish `(x)` from tuple patterns.
     pub fn is_tuple(&self) -> bool {
         self.path().is_none() && support::token(self.syntax(), SyntaxKind::LParen).is_some()
     }
 
-    /// Whether there is one nested pattern inside parentheses and no comma or path.
+    /// Whether parentheses group a single pattern, such as `(x)`.
+    /// False for tuple patterns `()`, `(x,)`, `(x, y)` and constructor patterns `Some(x)`.
     pub fn is_grouped(&self) -> bool {
         self.is_tuple()
             && support::token(self.syntax(), SyntaxKind::Comma).is_none()
             && self.elements().count() == 1
     }
 
-    /// Iterates direct `PatternField` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates shorthand `x` then `y: value` in `Point { x, y: value }`.
+    /// Tuple patterns such as `(x, y)` yield no fields; use `elements()` for them.
     pub fn fields(&self) -> impl Iterator<Item = PatternField> {
         self.syntax().children().filter_map(PatternField::cast)
     }
@@ -1584,57 +1576,57 @@ impl Pattern {
 
 /// A literal or path selected as a possible pattern range endpoint.
 pub enum PatternBound {
-    /// The [`Literal`] view; see its node diagram.
+    /// A literal endpoint, such as `1` in `1..=MAX`.
     Literal(Literal),
-    /// The [`PathExpr`] view; see its node diagram.
+    /// A named endpoint, such as `MAX` in `1..=MAX`; constant resolution happens later.
     Path(PathExpr),
 }
 
 impl PatternField {
-    /// Returns the name: the first direct `Name` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the field name `x` in both `Point { x }` and `Point { x: value }`.
     pub fn name(&self) -> Option<Name> {
         support::child(self.syntax())
     }
 
-    /// Returns the pattern: the first direct `Pattern` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `value` for `x: value` in `Point { x: value }`.
+    /// Returns `None` for shorthand `Point { x }`; no implicit nested pattern is created.
     pub fn pattern(&self) -> Option<Pattern> {
         support::child(self.syntax())
     }
 }
 
 impl TupleExpr {
-    /// Iterates direct `Expr` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `x` then `y + 1` in `(x, y + 1)`; `(x,)` yields one element and `()` none.
     pub fn elements(&self) -> impl Iterator<Item = Expr> {
         self.syntax().children().filter_map(Expr::cast)
     }
 }
 
 impl ArrayExpr {
-    /// Whether a direct `;` token marks `[value; count]`.
+    /// Whether this is a repeated array: true for `[0; 3]`, false for `[0, 0, 0]`.
+    /// Checks the direct `;` token without evaluating the count.
     pub fn is_repeat(&self) -> bool {
         self.syntax()
             .children_with_tokens()
             .any(|part| part.kind() == SyntaxKind::Semi)
     }
 
-    /// Iterates direct `Expr` children in source order, skipping other kinds.
-    /// Returns an empty iterator when no matching children remain.
+    /// Iterates `a` then `b` in `[a, b]`; `[]` yields no elements.
+    /// For `[value; count]`, yields `value` then `count`, not expanded copies of `value`.
+    /// Check `is_repeat()` before interpreting the children.
     pub fn elements(&self) -> impl Iterator<Item = Expr> {
         self.syntax().children().filter_map(Expr::cast)
     }
 }
 
 impl Interpolation {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `value` in both `f"{value}"` and `f"{value:?}"`.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 
-    /// Whether a direct `:` marker is present; does not revalidate the full `:?` suffix.
+    /// Whether interpolation requests debug formatting: true in `f"{value:?}"`, false in `f"{value}"`.
+    /// Checks only the direct `:` marker; does not revalidate a recovered `:?` suffix.
     pub fn debug(&self) -> bool {
         self.syntax()
             .children_with_tokens()
@@ -1643,14 +1635,12 @@ impl Interpolation {
 }
 
 impl CastExpr {
-    /// Returns the contained expression: the first direct `Expr` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns `value` in `value as i64`.
     pub fn expr(&self) -> Option<Expr> {
         support::child(self.syntax())
     }
 
-    /// Returns the type annotation or assigned type: the first direct `TypeRef` child after filtering.
-    /// Returns `None` if no matching child exists; see [`Self`] for its tree and recovery notes.
+    /// Returns the target type `i64` in `value as i64`.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
