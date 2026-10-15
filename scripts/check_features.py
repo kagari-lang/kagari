@@ -33,9 +33,13 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
         "codegen": source | execution | {"kagari-compiler", "kagari-codegen-cranelift"},
         "codegen-cranelift": source | execution | {"kagari-compiler"},
     }
+    tools = {"kagari-format", "kagari-lint"}
     for forbidden in constraints.values():
-        forbidden.add("kagari-stdlib")
+        forbidden.update(tools | {"kagari-stdlib"})
     constraints["stdlib"] = source | compiling | {"kagari-vm", "kagari"}
+    constraints["stdlib"].update(tools)
+    constraints["format"] = (source - {"kagari-source", "kagari-syntax"}) | compiling | execution | {"kagari-lint", "kagari-stdlib"}
+    constraints["lint"] = compiling | execution | {"kagari-format", "kagari-stdlib"}
     for crate, forbidden in constraints.items():
         graph = subprocess.check_output([
             "cargo", "tree", "--locked", "--offline", "-p", f"kagari-{crate}",
@@ -114,7 +118,7 @@ def run(async_only: bool = False) -> None:
         assert actual <= external, (label, actual - external)
         (output / f"{label}-graph.log").write_text(graph)
         packages = {line.split()[0] for line in graph.splitlines() if line}
-        forbidden = set()
+        forbidden = {"kagari-format", "kagari-lint"}
         if "source" not in features:
             forbidden |= {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"}
         if not features:

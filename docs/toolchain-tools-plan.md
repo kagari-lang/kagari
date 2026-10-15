@@ -1,6 +1,6 @@
 # Formatter, checker and linter implementation plan
 
-Status: implementation authorized on 2026-10-15; TT01–TT04 complete, TT05 next.
+Status: implementation authorized on 2026-10-15; TT01–TT04 complete; TT05 acceptance passed, documentation retirement next.
 This plan owns the first usable `kg fmt`, `kg check` and `kg lint` milestone.
 Command spellings and configuration examples below describe planned behavior,
 not commands already supported by the current binary.
@@ -771,3 +771,36 @@ name conversion. Structural check reports 1267 files, zero violations/exceptions
 A last manifest-fixture line needed rustfmt and was corrected before commit.
 Focused CLI independent-root regression, final fmt/diff/structure checks are recorded
 in the checkpoint commit; exhaustive feature/backend/platform tests remain CI-only.
+
+### TT05 acceptance (2026-10-16)
+
+The actual CLI workspace test covers fmt/check/lint on declared modules and an
+independent erroneous root. It verifies --check makes no source writes, project
+formatting creates no lock, two-pass idempotence, interpolation/comment preservation,
+and identical SDK execution (43) before/after formatting with two ordered closure
+mutations. CLI root success/error codes agree with direct SDK compilation, and lint
+retains a healthy-body warning alongside the required error. No executable products
+are emitted by the tool commands. Initial test compilation found a JSON/runtime
+Value import collision and a rooted-value extraction mismatch; focused fixes and
+the same acceptance test pass. The added CLI integration target is justified by
+actual process stdout/stderr/exit behavior; semantic rule tests remain at their owner.
+
+Presentation ordering was finalized as normalized path, byte offset, severity, code,
+root context, message (rather than TT01's context-first proposal). This preserves
+separate root-dependent diagnostics and is documented with the JSON contract.
+
+CI now explicitly runs the fixed 44-fixture formatter grammar matrix and Windows
+writeback/toolchain tests, including required symbolic-link capability. Existing
+feature/AOT guards reject source-tool dependencies in source-free consumers; new
+formatter/linter production graph constraints forbid semantic/runtime or executable
+lowering dependencies respectively. Local graph-only validation passes 15 crate
+boundaries plus ABI/contract build graphs; no CI feature tests were run locally.
+
+Final local implementation acceptance: the representative workspace integration
+passes; workspace Clippy, structure (1267 files, no violations/exceptions), fmt and
+diff checks pass. TT01–TT04 focused evidence remains applicable; no unchanged test
+suites were rerun for a fresh transcript. There are no known local failures.
+Pending CI: full-workspace tests, full grammar inventory, feature/backend/platform
+matrix, and Windows replacement/junction behavior. Lasting contracts are being
+migrated to source-tool specifications and architecture owners; deferred work moves
+to the roadmap and this plan is retired by the final documentation checkpoint.

@@ -42,7 +42,7 @@ def main() -> None:
     args = ["--manifest-path", str(output / "Cargo.toml")]
     graph = run("cargo", "tree", "--offline", *args, "--edges", "normal,build", "--prefix", "none", capture_output=True).stdout
     names = {line.split()[0] for line in graph.splitlines() if line}
-    forbidden = {"kagari-source", "kagari-syntax", "kagari-hir", "kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
+    forbidden = {"kagari-format", "kagari-lint", "kagari-source", "kagari-syntax", "kagari-hir", "kagari-mir", "kagari-compiler", "kagari-codegen", "kagari-codegen-cranelift"}
     assert not names & forbidden, names & forbidden
     assert not any(name.startswith("cranelift-") for name in names), names
     external = lambda path: {(p["name"], p["version"]) for p in tomllib.loads(path.read_text())["package"] if "source" in p}
