@@ -920,9 +920,10 @@ impl HostRegistry {
                 let view = gc.host_path(*id).ok_or_else(|| {
                     RuntimeError::typed_path_validation("invalid host path descriptor")
                 })?;
-                if !self.matches_root(view.root) {
+                self.validate_view(gc, &view)?;
+                if operation.writes() && view.access != PathAccess::ReadWrite {
                     return Err(RuntimeError::typed_path_validation(
-                        "host path view belongs to another registry or has an unregistered root",
+                        "host path view is not writable",
                     ));
                 }
                 if descriptor.root_type != view.result_type {

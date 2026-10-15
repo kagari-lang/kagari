@@ -2,6 +2,7 @@ mod borrows;
 mod installation;
 mod registry;
 pub mod scoped;
+mod views;
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -356,12 +357,16 @@ impl HostPathViewHandle {
         descriptor: &HostPathDescriptor,
         dynamic_args: DynamicPathArguments,
     ) -> Self {
+        let access = match base.as_ref().map(|view| view.access()) {
+            Some(PathAccess::ReadOnly) => PathAccess::ReadOnly,
+            _ => descriptor.access,
+        };
         Self {
             root,
             base,
             descriptor_id: descriptor.id,
             result_type: descriptor.result_type,
-            access: descriptor.access,
+            access,
             schema_epoch: descriptor.schema_epoch,
             dynamic_args,
         }
@@ -682,46 +687,6 @@ pub struct FrameHostBorrowToken {
     borrow_kind: HostBorrowKind,
     type_id: TypeId,
     epoch: BorrowEpoch,
-}
-
-impl FrameHostBorrowToken {
-    fn new(
-        owner: HostBorrowOwner,
-        frame_id: HostFrameId,
-        object_id: HostObjectId,
-        borrow_kind: HostBorrowKind,
-        type_id: TypeId,
-        epoch: BorrowEpoch,
-    ) -> Self {
-        Self {
-            owner,
-            frame_id,
-            object_id,
-            borrow_kind,
-            type_id,
-            epoch,
-        }
-    }
-
-    pub fn frame_id(self) -> HostFrameId {
-        self.frame_id
-    }
-
-    pub fn object_id(self) -> HostObjectId {
-        self.object_id
-    }
-
-    pub fn borrow_kind(self) -> HostBorrowKind {
-        self.borrow_kind
-    }
-
-    pub fn type_id(self) -> TypeId {
-        self.type_id
-    }
-
-    pub fn epoch(self) -> BorrowEpoch {
-        self.epoch
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -428,10 +428,11 @@ impl Runtime {
                         .is_some_and(|view| self.matches_type_view(value, view))
                 });
         }
-        if let (Value::HostRoot(root), Ty::Host(id)) = (value, view.ty) {
-            return self.gc.host_root(*root).is_some_and(|root| {
-                self.host.matches_root(root) && view.owner.host_type(*id) == Some(root.type_id())
-            });
+        if let Ty::Host(id) = view.ty {
+            return view
+                .owner
+                .host_type(*id)
+                .is_some_and(|expected| self.matches_host_identity(value, expected));
         }
         value_check::matches_view(&self.gc, value, view)
     }

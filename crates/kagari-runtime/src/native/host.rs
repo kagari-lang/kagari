@@ -12,12 +12,9 @@ use crate::{
     session::store::SessionId,
     value::{EphemeralValue, Value},
 };
-use kagari_types::{
-    declaration::{
-        FnDecl,
-        host::{HostCallPolicy, HostPassingStyle},
-    },
-    ty::Ty,
+use kagari_types::declaration::{
+    FnDecl,
+    host::{HostCallPolicy, HostPassingStyle, PathAccess},
 };
 use std::fmt::Write;
 
@@ -155,12 +152,6 @@ fn matches_external_value(cx: &CallContext<'_>, expected: &TypeArgument, value: 
     if !cx.heap().validate_value(value) {
         return false;
     }
-    let view = expected.view(cx.owner);
-    if let (Value::Ephemeral(id), Ty::Host(declaration)) = (value, view.ty) {
-        return matches!(cx.heap().ephemeral(*id),
-            Some(EphemeralValue::HostRef(token) | EphemeralValue::HostMut(token))
-            if view.owner.host_type(*declaration) == Some(token.type_id()));
-    }
     expected.matches(cx.runtime, value, cx.owner)
 }
 
@@ -209,6 +200,32 @@ fn acquire_arguments(
                     }
                 };
                 runtime.validate_host_borrow(token, access)?;
+            }
+            (Value::HostPathView(id), passing) => {
+                let view = runtime
+                    .gc()
+                    .host_path(*id)
+                    .ok_or_else(|| RuntimeError::host_call_failure("host borrow path view"))?;
+                runtime.host().validate_view(runtime.gc(), &view)?;
+                let root = view.root();
+                match passing {
+                    HostPassingStyle::SharedBorrow => {
+                        context
+                            .borrows()
+                            .borrow_shared(root.object_id(), root.type_id())?;
+                    }
+                    HostPassingStyle::UniqueBorrow => {
+                        if view.access() != PathAccess::ReadWrite {
+                            return Err(RuntimeError::host_call_failure(
+                                "host path view is readonly",
+                            ));
+                        }
+                        context
+                            .borrows()
+                            .borrow_unique(root.object_id(), root.type_id())?;
+                    }
+                    HostPassingStyle::Owned => {}
+                }
             }
             _ => {}
         }

@@ -99,11 +99,7 @@ impl<'a> HostResourceScope<'a> {
                 }
                 Value::HostPathView(id) => {
                     let view = heap.host_path(id).ok_or_else(invalid)?;
-                    if !self.runtime.host().matches_root(view.root()) {
-                        return Err(RuntimeError::host_call_failure(
-                            "host path view belongs to another registry or has an unregistered root",
-                        ));
-                    }
+                    self.runtime.host().validate_view(heap, &view)?;
                 }
                 Value::Ephemeral(id) => match heap.ephemeral(id).ok_or_else(invalid)? {
                     EphemeralValue::HostRef(token) => self

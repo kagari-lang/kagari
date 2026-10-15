@@ -3,7 +3,8 @@ use crate::{
     gc::GcHeap,
     host::{
         ActiveBorrowFrame, BorrowEpoch, FrameBorrowRecord, FrameHostBorrowToken, HostBorrowKind,
-        HostBorrowTable, HostCallGuard, HostFrameId, HostObjectId, PathBorrowState,
+        HostBorrowOwner, HostBorrowTable, HostCallGuard, HostFrameId, HostObjectId,
+        PathBorrowState,
     },
     metadata::TypeId,
     resource::ResourceState,
@@ -18,6 +19,53 @@ pub(super) enum BorrowObjectKey {
     External(HostObjectId),
 }
 
+impl FrameHostBorrowToken {
+    pub(super) fn shared(self) -> Self {
+        Self {
+            borrow_kind: HostBorrowKind::Shared,
+            ..self
+        }
+    }
+
+    fn new(
+        owner: HostBorrowOwner,
+        frame_id: HostFrameId,
+        object_id: HostObjectId,
+        borrow_kind: HostBorrowKind,
+        type_id: TypeId,
+        epoch: BorrowEpoch,
+    ) -> Self {
+        Self {
+            owner,
+            frame_id,
+            object_id,
+            borrow_kind,
+            type_id,
+            epoch,
+        }
+    }
+
+    pub fn frame_id(self) -> HostFrameId {
+        self.frame_id
+    }
+
+    pub fn object_id(self) -> HostObjectId {
+        self.object_id
+    }
+
+    pub fn borrow_kind(self) -> HostBorrowKind {
+        self.borrow_kind
+    }
+
+    pub fn type_id(self) -> TypeId {
+        self.type_id
+    }
+
+    pub fn epoch(self) -> BorrowEpoch {
+        self.epoch
+    }
+}
+
 impl FrameBorrowRecord {
     fn object_key(&self) -> BorrowObjectKey {
         if self.type_id.is_some() {
@@ -29,7 +77,7 @@ impl FrameBorrowRecord {
 
     fn matches(&self, token: FrameHostBorrowToken) -> bool {
         self.object_id == token.object_id
-            && self.borrow_kind == token.borrow_kind
+            && self.borrow_kind.satisfies(token.borrow_kind)
             && self.type_id == Some(token.type_id)
             && self.path.is_empty()
     }

@@ -1950,6 +1950,37 @@ their formal shared/unique capability checks, explicit source trait references,
 legacy producer/callable retirement and final RF06/RI05 integration remain required.
 HR02/RF05/HR03 and the combined goal are still open.
 
+### HR02/RF05 checkpoint: manual views at the ordinary native boundary
+
+Runtime type matching now validates manual roots, complete path-view chains and
+live external-ID tokens through one checked host identity helper. A view must
+match its installed result slot, registry/root identity, descriptor continuity,
+schema epoch, retained dynamic arguments and inherited capability. Native host
+adaptation and temporary resource scopes consume that helper; the old boundary's
+token-type-only special case is removed.
+
+Formal shared host arguments publish rooted readonly view/token aliases before
+callback getters run, preserving the caller's writable capability. Token weakening
+retains the same owner/frame/epoch and validates against the original unique loan;
+it cannot satisfy unique access or outlive the original frame. Chained views cap
+access at their parent's capability, and writes check the supplied view as well
+as the target descriptor. Manual method adaptation takes the actual whole-root
+lease, preserving existing path-service reentry conflicts without manufacturing
+Rust pointers or implicit DTO conversions. Token methods move beside the loan
+table to keep the host facade below its effective-LOC limit.
+
+Selected validation:
+
+- `cargo test -p kagari-vm --test native_boundary shared_root_registration_runs_native_methods_and_explicit_traits_source_free`: passed the extended existing contract. The same inherent method and explicit trait callback execute for roots and writable path views, readonly views invoke shared methods and reject mutable methods before mutation, readonly aliases cannot create writable children or write through an otherwise writable descriptor, original views retain writable access, GC runs inside callbacks, whole-root unique reentry conflicts and foreign-root rejection remain checked.
+- `cargo test -p kagari-runtime --lib shared_external_alias_preserves_owner_epoch_and_original_unique_token`: passed the token owner/epoch/weakening/cleanup boundary. The initial test compile used a nonexistent RootSet append method; a preallocated root slot replaces it. Moving token methods exposed one missing explicit owner import, repaired directly before rerunning affected integration.
+- `cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib shared_external_alias_preserves_owner_epoch_and_original_unique_token -- --nocapture`: passed one case in 4.76 seconds, aarch64-apple-darwin, workspace test profile/default parallelism/default Miri target, MIRIFLAGS unset. This tests the actual token/GC boundary; prior projector Miri evidence remains applicable to unchanged pointer kernels.
+- Runtime library/test compilation and VM library/selected native_boundary target Clippy passed. Structure checked 1247 Rust files with zero violations after the responsibility split; formatting and diff checks passed.
+
+No unsafe implementation or Rust lifetime relaxation is introduced. Explicit
+source-trait references, legacy producer/callable retirement and RF06/RI05 final
+integration remain required. Exhaustive workspace/features/backends/platforms are
+pending CI; HR02/RF05/HR03 and the combined goal remain open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

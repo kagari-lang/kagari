@@ -4,13 +4,22 @@ use crate::{
     native::{binding::NativeResult, context::CallContext},
     value::Value,
 };
-use kagari_types::{reference::ReferenceAccess, ty::Ty};
+use kagari_types::{declaration::host::HostPassingStyle, reference::ReferenceAccess, ty::Ty};
 
 impl CallContext<'_> {
     pub(crate) fn narrow_arguments(&self) -> NativeResult<Self> {
         let mut arguments = self.arguments.clone();
         let signature = self.function.type_signature()?;
         for (index, parameter) in signature.params.iter().enumerate() {
+            let external_shared =
+                self.function
+                    .binding
+                    .host_policy
+                    .as_ref()
+                    .is_some_and(|policy| {
+                        policy.passing.get(index) == Some(&HostPassingStyle::SharedBorrow)
+                            && matches!(parameter.ty(), Ty::Host(_))
+                    });
             let shared = matches!(
                 parameter.ty(),
                 Ty::Reference {
@@ -18,12 +27,13 @@ impl CallContext<'_> {
                     ..
                 }
             ) || (index == 0
-                && self.function.binding.receiver_access == Some(ReferenceAccess::Shared));
+                && self.function.binding.receiver_access == Some(ReferenceAccess::Shared))
+                || external_shared;
             if !shared {
                 continue;
             }
             let original = self.argument(index)?;
-            if !matches!(original, Value::Ephemeral(_)) {
+            if !matches!(original, Value::Ephemeral(_) | Value::HostPathView(_)) {
                 continue;
             }
             if !parameter.matches(self.runtime, &original, self.owner)
@@ -37,10 +47,13 @@ impl CallContext<'_> {
             {
                 return Err(invalid());
             }
-            if let Some(narrowed) = self
-                .runtime
-                .narrow_scoped(&original, ReferenceAccess::Shared)?
-            {
+            let narrowed = if external_shared {
+                self.runtime.narrow_host_argument(&original)?
+            } else {
+                self.runtime
+                    .narrow_scoped(&original, ReferenceAccess::Shared)?
+            };
+            if let Some(narrowed) = narrowed {
                 if arguments.narrowed.is_none() {
                     let values = (0..arguments.len())
                         .map(|slot| arguments.get(slot).ok_or_else(invalid))

@@ -90,6 +90,12 @@ shows the complete declaration, binding, installation and checked access sequenc
 Root handles are created only by `register_host_root` and carry registry ownership,
 schema epoch and ABI identity. Calls, temporary scopes and path-view chaining reject
 foreign or expired roots even when object IDs, type slots and schemas coincide.
+Native arguments match the installed result type of a path view and validate every
+parent descriptor, dynamic argument and access capability against that root.
+A shared parameter receives a rooted readonly alias of a writable path view;
+readonly parents cannot create writable children or satisfy a unique parameter.
+The caller's original view retains its capability. Manual path callbacks borrow
+the actual whole root while running, preserving their existing reentry conflicts.
 Metadata does not authorize unrestricted Rust references or turn a DTO into a
 borrowed host object. The remaining legacy host producer and its consumers are
 being retired under the [combined implementation plan](../host-registration-plan.md);
@@ -186,6 +192,10 @@ live and satisfy the required mode; they cannot satisfy Owned passing. Conflicti
 arguments reject before invoking the callback, releasing leases already prepared
 for earlier arguments. Borrow tokens carry a table owner in addition to frame and
 epoch, so coincident frame numbers in other runtimes confer no authority.
+Formal shared arguments also weaken unique tokens before callback argument getters
+can observe them. The alias retains its checked owner/frame/epoch and expires with
+the original frame; it cannot validate unique access. The original token remains
+valid with its original capability until that frame ends.
 
 Runtime::host_scope creates explicit temporary scopes and validate_host_borrow
 checks tokens; the old enter_host_call and mutable borrow-table access are removed.
