@@ -170,14 +170,18 @@ not establish whole-suite speedup or retained-memory reduction.
 is historical evidence at 35de1818; this task measures a fresh focused baseline.
 Preserve fresh mutable state, source-free/backend/GC boundaries and assertions.
 
-The [TP05-TP09 source-ownership proposal](test-preparation-plan.md#in-source-test-organization-tp05-tp09)
-was authorized on 2026-10-15 and is in progress. It inventories 97 integration
-targets and proposes moving ordinary contracts into source-owned test modules,
-leaving five justified external-consumer or instrumented-process targets. A
-three-suite SDK pilot checks scheduling, shared preparation and memory/compile
-costs before the remaining owner batches. The target reduction is a structural
-proposal, not measured performance acceptance; complete feature/platform testing
-remains CI-owned.
+[TP05-TP09 source ownership](test-preparation-plan.md#in-source-test-organization-tp05-tp09)
+is implemented: integration targets fell from 97 to five, with ordinary cases
+under source owners and six stdlib/runtime composition suites under stdlib to
+preserve Rust crate identity. Focused local checks and external consumers pass;
+the complete workspace/feature/platform matrix remains CI-owned.
+The [matched pilot and lifetime control](performance-baseline.md#source-owned-test-pilot-2026-10-15)
+observed a 124.23 s to 82.36 s median for 43 cases, with process peak rising from
+956.7 to 1425.6 MiB under imperfectly isolated load. Repeated same-name sessions
+stabilize the shared identity table; distinct names remain retained. Controlled
+compile/link costs, broader retained-memory behavior and the earlier preparation
+comparison remain in the existing plan. No whole-suite performance acceptance
+is claimed.
 
 ## Interpreter performance follow-up
 

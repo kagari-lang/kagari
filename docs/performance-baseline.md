@@ -695,3 +695,82 @@ The original review ran 515 focused tests and dependency/structure checks, not
 full workspace tests/Clippy or the complete feature matrix. Successful checks
 are not a soundness proof. New implementation acceptance belongs to the roadmap;
 these retained measurements introduce no additional active phase sequence.
+
+## Source-owned test pilot (2026-10-15)
+
+TP05-TP09 consolidated 97 integration targets into five justified external or
+instrumented targets. [Testing ownership](testing.md#default-placement-and-integration-exceptions)
+describes the resulting layout. This section records focused observations, not
+whole-workspace speed or memory acceptance.
+
+The matched execution workload contains the same 43 `associated_types`,
+`collection_interfaces` and `conversion_traits` cases, with unchanged source,
+artifact/JIT routes and assertions. Baseline products were built before TP05
+(19d74c5b layout); the candidate has the ea58ebc3 pilot layout. Both products were
+saved before later edits, then executed in alternating order three times without
+compilation inside the timed process. Baseline wall/CPU times sum its three
+sequential executables; candidate filters select only those cases in the library.
+
+Environment: Windows x86_64-pc-windows-msvc, Intel i9-12900K, 24 logical CPUs,
+rustc 1.99.0 (b940084d7, LLVM 23.1.1), workspace test profile (opt-level 1), SDK
+default source/native features, default Cargo and harness parallelism, warm
+filesystem/build caches and fresh test processes. Installation and later focused
+builds overlapped some samples; these are not idle-machine acceptance runs.
+Process CPU and peak working set use Windows process counters; sampling interval
+was approximately 50 ms. The wrapper's polling adds up to one interval per exit.
+
+| Workload | Three wall samples (s) | Median wall (s) | Median CPU (s) | Median process peak (MiB) |
+| --- | --- | ---: | ---: | ---: |
+| Three original executables | 116.96 / 127.32 / 124.23 | 124.23 | 820.22 | 956.7 |
+| One filtered library harness | 84.23 / 81.30 / 82.36 | 82.36 | 882.09 | 1425.6 |
+
+All six runs passed. More available cases reduced the observed wall time while
+CPU time and process peak increased. More simultaneous source contexts are a
+plausible contributor to peak memory, not an isolated causal measurement. The
+final 20% of each candidate run averaged about 0.97 logical cores; the numeric
+aggregation overflow scenario remained last. Consolidation does not parallelize
+the steps inside that scenario. CPU deltas describe utilization, not a direct
+count of active test workers.
+
+Build observations were 24.76 s before and 6.50 s after the pilot, with different
+dependency rebuild sets. The larger SDK checkpoint built in 37.03 s. These do
+not establish matched compile/link costs or build-memory improvement; a controlled
+comparison remains open. No full-workspace build or execution was used locally.
+
+### Shared-baseline lifetime control
+
+A temporary SDK engine unit probe used the existing shared execution helper and
+128 fresh sessions: first 64 distinct filenames/types, then the same 64 again.
+Each session compiled an artifact and released both artifact and engine. Inputs
+were `retention-{key}.kgr` with this generated source (`key` is 0 through 63):
+
+```text
+struct Value{key} { val value: i32 }
+fn main() -> i32 { Value{key} { value: 42 }.value }
+```
+
+At each checkpoint a new empty session inspected its analysis snapshot's retained
+definition and symbol counts, then released the snapshot/session. Windows
+GetProcessMemoryInfo sampled working set and private bytes during a 150 ms pause
+after release. No other build or test ran concurrently with this probe; the
+single selected test used the same profile/features and default harness settings.
+The source probe was removed after its executable was built; it is not a new
+permanent test or public inspection API.
+
+| Released sessions | Definitions | Symbols | Working set (MiB) | Private bytes (MiB) |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 1825 | 335 | 82.7 | 75.5 |
+| 16 | 1949 | 353 | 121.7 | 109.4 |
+| 32 | 2013 | 369 | 93.7 | 81.2 |
+| 64 | 2141 | 401 | 105.6 | 100.4 |
+| 96 | 2141 | 401 | 125.7 | 113.1 |
+| 128 | 2141 | 401 | 124.8 | 112.2 |
+
+Distinct source identities remain in the shared baseline after session teardown;
+replaying the same names did not further grow the table in this workload. Working
+set/private bytes include allocator and other preparation state, so their deltas
+are not the byte cost of the identity table. This controls same-name reuse over
+a longer session sequence; it does not prove whole-harness memory bounds, compare
+fresh-baseline lifetimes, or replace the earlier deferred preparation acceptance.
+Keep the baseline bounded to the test process. The existing plan retains the
+controlled compile/link and original preparation timing/memory follow-ups.

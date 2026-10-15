@@ -4,7 +4,7 @@ This finite task improves test preparation boundaries and selected contract owne
 The initial three SDK pilots and TP04's six additional SDK runners are complete.
 TP04 also removes invariant preparation from compiler ABI, provider cancellation
 and standard documentation loops. The user authorized TP05-TP09 on 2026-10-15;
-source-owned test organization is now in progress. Native collection migration and compiler pipeline
+source-owned test organization and focused local acceptance are complete. Native collection migration and compiler pipeline
 redesign remain outside scope.
 
 ## Contract
@@ -381,7 +381,7 @@ as required, keeping each scenario's assertions together.
   preserving existing unit-test ownership. Update affected CLI invocations in
   guides/scripts/CI and the testing guide's default placement rule. Do not silently
   activate unrelated queued plans or reclassify historical performance numbers.
-- [ ] **TP09: focused acceptance and handoff.** Verify mapping/discovery, selected
+- [x] **TP09: focused acceptance and handoff.** Verify mapping/discovery, selected
   correctness and representative external consumers. Record matched pilot timing,
   compile/link effects and memory limits together with the earlier TP measurement
   debt. CI performs the complete workspace/feature/platform matrix. Transfer lasting
@@ -541,3 +541,30 @@ TP08 lightweight checks: structure reports 1245 Rust files, zero violations and
 zero exceptions. Changed documentation has no broken relative links. Formatting
 and diff checks pass. All seven smaller owners compile in the selected scope;
 CI still owns exhaustive feature/platform cases and workspace execution.
+
+TP09 local acceptance: Cargo metadata contains the five documented targets;
+92 integration executables were removed/consolidated. The preserved source
+inventory contains 964 explicit cases (including platform/feature-gated and
+ignored cases), plus 45 syntax macro cases whose names, logical filenames and
+resolved fixture paths match. Syntax-aware comparison of 931 relocated test
+bodies is identical after reviewed own-crate/path rewriting and rustfmt. The
+manual schema/async split bodies also match; the only intentional test-body
+repair is the independently reproduced stale ABI header described under TP08.
+Case preservation is not a claim that every case was locally executed.
+
+Focused local correctness, scoped Clippy, source-only SDK compilation, standalone
+source-free consumers, selected Serde/derive and allocation boundaries, macro
+compile-pass/compile-fail doctests and dependency graph guards passed as recorded
+above. No build failure remains. Final lightweight checks cover structure,
+formatting, relative documentation links, CRLF and diff hygiene. CI still owns the
+full workspace, complete features/backends/platforms and remaining doctests.
+
+The [pilot and lifetime report](performance-baseline.md#source-owned-test-pilot-2026-10-15)
+records all three alternating runs and the completed 128-session lifetime control.
+Same-name replay stabilizes retained IDs; it does not eliminate distinct-name
+retention or establish whole-suite memory acceptance. Exploratory wall-time gains
+come with a higher process peak. Controlled compile/link comparison and the older
+TP01-TP04 matched preparation/retained-memory acceptance remain open; the plan is
+retained for those explicitly deferred measurements, not for unfinished layout
+implementation. Durable placement/exception rules are in testing.md. Temporary
+probes and the original-target failure reproduction have been removed.
