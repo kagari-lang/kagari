@@ -3355,6 +3355,36 @@ completed RHS side effects across traps. HIR/compiler lib/tests scoped Clippy
 passed; structure checked 1250 Rust files with zero findings; formatting and diff
 checks passed. No required selected check remains pending at this checkpoint.
 
+### HR02/RF05: migrate VM scalar registration and repair reference test discovery
+
+The two VM scalar registration cases now define and bind common FunctionDecls,
+install their NativeModule and execute source compiled against its cold declaration.
+The existing test compiler accepts explicit NativeModule declarations through the
+same analysis/lowering loop, without reading runtime registration state. The old
+with_host_imports helper and its HostFunctionDeclaration-to-NativeImport translator
+are removed. The installed-operation test retains its reflection and debugger
+checks; the scalar helper still returns 42 through the ordinary VM entry path.
+
+Initial runs found a fixture provider collision with the explicit host::log
+contract, then missing installation of that required logging dependency. The
+providers now use fixtures::scalar and explicitly bind/install the existing test
+logging declaration. The common compiler and loader continue rejecting duplicate
+providers and missing installed contracts; no dependency or validation is skipped.
+Both affected unit cases passed after these repairs (5.33 seconds).
+
+VM lib/tests scoped Clippy also exposed native_boundary_references.rs as an
+unintended independently discovered Cargo integration target. It requires the
+native_boundary harness's compile_program and support module. Moving it to
+native_boundary_references/mod.rs matches the existing helper-module layout and
+preserves the declared module and every assertion. Its actual native_boundary
+case passed (10.93 seconds), including source-free target/access/storage and
+suspension forgeries. No fixture was disabled, allowlisted or made self-validating.
+VM lib/tests scoped Clippy passed after the repairs. Structure checked 1250 Rust
+files with zero findings; formatting and diff checks passed. No runtime unsafe,
+roots or loan kernel changed, so no new Miri run is
+needed. Remaining path/composite legacy fixtures and the exhaustive CI matrix
+remain open at their existing owners.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

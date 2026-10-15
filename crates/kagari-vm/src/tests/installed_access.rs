@@ -1,84 +1,60 @@
 use crate::{
     debug::{DebugSession, SourceBreakpoint},
-    tests::common::{module_program, standard_runtime, test_function_module, with_host_imports},
+    tests::common::{
+        compile_native_test_bytecode, logging_module, module_program, standard_runtime,
+        test_function_module,
+    },
     vm::Vm,
     vm::fixtures::FixtureExecution,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, NativeImportId, Register,
-    RuntimeHelper, StructId,
+    BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, Register, RuntimeHelper, StructId,
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    RuntimeConfig, host::HostFunction, value::Value, value_semantics::script_equal,
+    RuntimeConfig,
+    module::entry::ProgramEntry,
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        declarations::FunctionDecl, types::Type,
+    },
+    value::Value,
+    value_semantics::script_equal,
 };
-use kagari_types::host_interface::{HostFunctionDeclaration, value_type::HostValueType};
 
 #[test]
 fn installed_host_reflection_and_debugger_operations_are_available() {
     let mut host_runtime = standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     });
-    host_runtime
-        .register_host_function(HostFunction::new(
-            {
-                let context = DefinitionContext::new().unwrap();
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "host.hidden",
-                    vec![],
-                    HostValueType::I32,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            |_, _| Ok(Value::I32(42)),
-        ))
+    logging_module(|_, _| Ok(Value::Unit))
+        .install(&mut host_runtime)
         .unwrap();
+    let mut builder = ModuleBuilder::new("fixtures::scalar", &Default::default()).unwrap();
+    let hidden = builder
+        .define_function(FunctionDecl::new("hidden").returns(Type::i32()))
+        .unwrap();
+    builder
+        .bind(hidden, |_: &mut CallContext<'_>| -> NativeResult<i32> {
+            Ok(42)
+        })
+        .unwrap();
+    let provider = builder.finish().unwrap();
+    provider.install(&mut host_runtime).unwrap();
     let host_module = host_runtime
         .load_program(
-            "security_host_denied.kbc",
-            module_program(with_host_imports(
-                test_function_module(
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::Native(NativeImportId::new(0)),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32],
-                    vec![],
-                ),
-                vec![{
-                    let context = DefinitionContext::new().unwrap();
-                    let declaration = HostFunctionDeclaration::new(
-                        &context,
-                        "host.hidden",
-                        vec![],
-                        HostValueType::I32,
-                    )
-                    .unwrap();
-                    DefinitionMetadata::checked(
-                        context.snapshot(),
-                        declaration,
-                        &Default::default(),
-                    )
-                    .unwrap()
-                }],
-            )),
+            "installed-host.kbc",
+            compile_native_test_bytecode(
+                "use fixtures::scalar::hidden; fn main() -> i32 { hidden() }",
+                &[&provider],
+            ),
         )
         .expect("module should load");
     let host_vm = Vm::new(host_runtime);
     assert_eq!(
         host_vm
-            .execute_fixture(&host_module, FunctionRef::new(0))
+            .execute(&host_module, ProgramEntry::Main)
             .unwrap()
             .return_value
             .value(host_vm.runtime().gc())

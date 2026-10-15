@@ -7,7 +7,7 @@ use kagari_bytecode::{
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
+use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
@@ -18,10 +18,7 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
-use kagari_types::{
-    declaration::logging,
-    host_interface::{HostFunctionDeclaration, HostInterface},
-};
+use kagari_types::declaration::logging;
 use std::{iter, sync::Arc};
 
 pub fn load_bytecode_module(
@@ -125,6 +122,14 @@ pub fn logging_module(
 }
 
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
+    compile_native_test_bytecode(source_text, &[])
+}
+
+/// Compile common native declarations without reading runtime registration state.
+pub fn compile_native_test_bytecode(
+    source_text: &str,
+    modules: &[&NativeModule],
+) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kgr", source_text.into(), SourceLayer::Base)
@@ -136,6 +141,11 @@ pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodePr
         .map(|module| Arc::new(module.to_declaration()))
         .collect::<Vec<_>>();
     declarations.push(Arc::new(logging::declaration().unwrap()));
+    declarations.extend(
+        modules
+            .iter()
+            .map(|module| Arc::new(module.to_declaration())),
+    );
     analysis.set_native_modules(declarations);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
@@ -194,34 +204,6 @@ pub fn test_function_module(
         &Default::default(),
     )
     .unwrap()
-}
-
-/// Adopt each independently authored Host signature before constructing executable imports.
-pub fn with_host_imports(
-    module: DefinitionMetadata<BytecodeModule>,
-    functions: Vec<DefinitionMetadata<HostFunctionDeclaration>>,
-) -> DefinitionMetadata<BytecodeModule> {
-    let context = DefinitionContext::new().unwrap();
-    let mut module = module
-        .import_into(&context, &Default::default())
-        .unwrap()
-        .into_records();
-    let functions = functions
-        .iter()
-        .map(|function| {
-            function
-                .import_into(&context, &Default::default())
-                .unwrap()
-                .into_records()
-        })
-        .collect::<Vec<_>>();
-    module.native_imports = functions.iter().map(NativeImport::from_host).collect();
-    module.host_interface = HostInterface {
-        paths: vec![],
-        types: vec![],
-        functions,
-    };
-    DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
 }
 
 pub fn unique_types(types: impl IntoIterator<Item = ValueType>) -> Vec<ValueType> {

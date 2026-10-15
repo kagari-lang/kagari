@@ -4,7 +4,7 @@ use crate::{
     error::VmError,
     reentry::reenter,
     tests::{
-        common::{module_program, round_trip_bytecode, with_host_imports},
+        common::{compile_native_test_bytecode, module_program, round_trip_bytecode},
         native_fixtures,
     },
     vm::{fixtures::FixtureExecution, native::PreparedNativeEntry},
@@ -17,109 +17,50 @@ use kagari_runtime::{
     host::{HostCallContext, HostPathDescriptorId},
     jit_abi::jit_poll_execution,
     module::entry::ProgramEntry,
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        declarations::FunctionDecl, types::Type,
+    },
 };
 use kagari_types::ty::Ty;
-use kagari_types::{
-    declaration::host::HostPassingStyle,
-    host_interface::{HostParameter, value_type::HostValueType},
-};
 use std::sync::{Arc, Mutex};
 
 #[test]
 fn executes_runtime_host_helper_call() {
     let mut runtime = host_runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let context = DefinitionContext::new().unwrap();
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "host.add_i32",
-                    vec![
-                        HostParameter {
-                            name: "lhs".into(),
-                            ty: HostValueType::I32,
-                            passing: HostPassingStyle::Owned,
-                        },
-                        HostParameter {
-                            name: "rhs".into(),
-                            ty: HostValueType::I32,
-                            passing: HostPassingStyle::Owned,
-                        },
-                    ],
-                    HostValueType::I32,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            |_, args| match args {
-                [Value::I32(lhs), Value::I32(rhs)] => Ok(Value::I32(lhs + rhs)),
-                _ => Err(HostError::new("host.add_i32 expects two i32 arguments")),
-            },
-        ))
-        .expect("host function should register");
-
+    logging_module(|_, _| Ok(Value::Unit))
+        .install(&mut runtime)
+        .unwrap();
+    let mut builder = ModuleBuilder::new("fixtures::scalar", &Default::default()).unwrap();
+    let add = builder
+        .define_function(
+            FunctionDecl::new("add_i32")
+                .parameter("lhs", Type::i32())
+                .parameter("rhs", Type::i32())
+                .returns(Type::i32()),
+        )
+        .unwrap();
+    builder
+        .bind(
+            add,
+            |_: &mut CallContext<'_>, lhs: i32, rhs: i32| -> NativeResult<i32> { Ok(lhs + rhs) },
+        )
+        .unwrap();
+    let provider = builder.finish().unwrap();
+    provider.install(&mut runtime).unwrap();
     let loaded = runtime
         .load_program(
             "helper.kbc",
-            module_program(with_host_imports(
-                test_function_module(
-                    "main",
-                    vec![
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(0),
-                            constant: ConstantId::new(0),
-                        },
-                        BytecodeInstruction::LoadConst {
-                            dst: Register::new(1),
-                            constant: ConstantId::new(1),
-                        },
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(2)),
-                            callee: CallTarget::Native(NativeImportId::new(0)),
-                            args: vec![Register::new(0), Register::new(1)],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(2))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32, ValueType::I32, ValueType::I32],
-                    vec![ConstantOperand::I32(40), ConstantOperand::I32(2)],
-                ),
-                vec![{
-                    let context = DefinitionContext::new().unwrap();
-                    let declaration = HostFunctionDeclaration::new(
-                        &context,
-                        "host.add_i32",
-                        vec![
-                            HostParameter {
-                                name: "lhs".into(),
-                                ty: HostValueType::I32,
-                                passing: HostPassingStyle::Owned,
-                            },
-                            HostParameter {
-                                name: "rhs".into(),
-                                ty: HostValueType::I32,
-                                passing: HostPassingStyle::Owned,
-                            },
-                        ],
-                        HostValueType::I32,
-                    )
-                    .unwrap();
-                    DefinitionMetadata::checked(
-                        context.snapshot(),
-                        declaration,
-                        &Default::default(),
-                    )
-                    .unwrap()
-                }],
-            )),
+            compile_native_test_bytecode(
+                "use fixtures::scalar::add_i32; fn main() -> i32 { add_i32(40, 2) }",
+                &[&provider],
+            ),
         )
         .expect("helper module should load");
 
     let vm = Vm::new(runtime);
     let report = vm
-        .execute_fixture(&loaded, FunctionRef::new(0))
+        .execute(&loaded, ProgramEntry::Main)
         .expect("vm should execute");
 
     assert_eq!(
