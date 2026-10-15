@@ -838,3 +838,6 @@ impl Runtime {
         frame.set_native_instruction(self, offset)
     }
 }
+
+#[cfg(test)]
+mod execution_frames;

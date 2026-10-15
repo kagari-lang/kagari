@@ -10,3 +10,6 @@ use kagari_runtime::native::{binding::NativeResult, module::NativeModule};
 pub fn modules() -> NativeResult<Vec<NativeModule>> {
     bindings::modules()
 }
+
+#[cfg(test)]
+mod tests;

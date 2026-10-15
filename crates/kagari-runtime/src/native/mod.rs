@@ -45,3 +45,6 @@ pub mod typed;
 pub mod types;
 pub mod value_handle;
 pub mod views;
+
+#[cfg(test)]
+mod tests;

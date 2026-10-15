@@ -325,3 +325,6 @@ impl TypeRegistration<'_> {
 fn conflict(error: impl ToString) -> RuntimeError {
     RuntimeError::metadata_conflict(error.to_string())
 }
+
+#[cfg(test)]
+mod registration_tests;

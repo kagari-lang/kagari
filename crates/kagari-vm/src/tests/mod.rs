@@ -15,3 +15,11 @@ mod source_programs;
 
 mod native_fixtures;
 mod native_wait;
+
+mod library_collections;
+mod native_boundary;
+mod package_exports;
+mod prepared_execution;
+
+#[path = "../../../kagari-runtime/tests/support/native/program.rs"]
+mod native_program;

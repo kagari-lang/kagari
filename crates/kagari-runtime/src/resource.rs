@@ -298,3 +298,6 @@ mod tests {
         assert_eq!(resources.counters().current_call_depth, 1);
     }
 }
+
+#[cfg(test)]
+mod mutation_resources;

@@ -46,8 +46,7 @@ use kagari_types::{
 use std::sync::{Arc, Mutex};
 
 // Share the cold declaration-to-program fixture with runtime boundary tests.
-#[path = "../../../kagari-runtime/tests/support/native/program.rs"]
-mod native_program;
+use crate::tests::native_program;
 
 fn host_runtime() -> Runtime {
     standard_runtime(RuntimeConfig {

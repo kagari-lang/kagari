@@ -200,8 +200,8 @@ mod tests {
     use super::*;
     use crate::{
         host::{HostBorrowTable, HostObjectId, HostRootHandle, HostSchemaEpoch},
-        layout_fixtures::path_view_value,
         metadata::{AbiFingerprint, TypeId},
+        test_support::layouts::path_view_value,
     };
 
     fn host_root_value(gc: &GcHeap, object_id: u64) -> Value {
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn reports_production_value_category_names() {
         let mut runtime = crate::Runtime::default();
-        let interface = crate::layout_fixtures::interface_value(&mut runtime);
+        let interface = crate::test_support::layouts::interface_value(&mut runtime);
         let gc = runtime.gc();
         for (value, expected) in [
             (interface, "interface"),

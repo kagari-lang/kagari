@@ -386,9 +386,9 @@ mod tests {
     #[test]
     fn enum_members_preserve_nan_and_reject_implicit_object_comparison() {
         let mut runtime = crate::Runtime::default();
-        let interface = crate::layout_fixtures::interface_value(&mut runtime);
-        let owner = crate::layout_fixtures::allocation_owner(&mut runtime);
-        let enums = crate::layout_fixtures::enum_owner(
+        let interface = crate::test_support::layouts::interface_value(&mut runtime);
+        let owner = crate::test_support::layouts::allocation_owner(&mut runtime);
+        let enums = crate::test_support::layouts::enum_owner(
             &mut runtime,
             vec![
                 Ty::Builtin(BuiltinType::I32),

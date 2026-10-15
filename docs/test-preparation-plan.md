@@ -255,6 +255,12 @@ Runtime placement is similarly responsibility-based:
 | GC/resource owners | `gc_ownership`, `mutation_resources` |
 | Existing cross-subsystem runtime tests | `runtime_substrate` |
 
+Six standard-provider composition suites from this table are owned by
+`kagari-stdlib/src/tests/runtime_boundary`: `host_objects`, `host_nominal`,
+`installation_access`, `native_builder`, `native_conversion`, `offline_types`.
+They must use the same ordinary runtime crate instance as stdlib. The TP07
+execution ledger records the type-identity failure that motivated this correction.
+
 Move ordinary VM `library_collections`, `native_boundary`, `package_exports`
 and `prepared_execution` into the existing `src/tests/` tree. Keep the native
 boundary's current submodules rather than flattening its cases into one file.
@@ -367,7 +373,7 @@ as required, keeping each scenario's assertions together.
   coherent engine/program/runtime batches. Move source-only async suites while
   retaining the external native-wait target. Resolve all emitter/consumer fixture
   paths in the same batch, with no forwarding integration entrypoints.
-- [ ] **TP07: runtime and VM.** Migrate the 21 ordinary runtime targets and manual
+- [x] **TP07: runtime and VM.** Migrate the 21 ordinary runtime targets and manual
   schema cases, retaining external derive/Serde coverage. Migrate the four ordinary
   VM targets and combine the two allocation targets. Reconcile shared fixtures
   used by runtime unit cases, VM and retained consumers without widening APIs.
@@ -480,3 +486,34 @@ the numeric-aggregation overflow case remains the last serial workload. More
 concurrent sessions are consistent with the higher peak, but retained identity
 growth and allocator retention are not isolated by these process-peak samples.
 No whole-suite performance or retained-memory acceptance is claimed.
+
+TP07 ownership correction (2026-10-15): the first runtime library build exposed
+E0308/E0271: `kagari-stdlib` returns ordinary-dependency runtime types, which differ
+from the runtime unit harness's own types. The six affected suites (`host_objects`,
+`host_nominal`, `installation_access`, `native_builder`, `native_conversion`,
+`offline_types`) therefore belong under `kagari-stdlib/src/tests/runtime_boundary`.
+Their standard-provider/runtime composition remains unchanged and the other 15
+ordinary runtime targets keep their runtime source owners. Add only the compiler
+source dev dependency needed by these existing cases to stdlib. No production
+dependency, self alias, type conversion, assertion or integration target is added.
+This replaces the original six destination entries; the five-target acceptance
+inventory is unchanged. The same build also exposed missed grouped imports of
+the relocated layout fixture; repair those at the actual source owner before the
+TP07 checkpoint. HIR's test-only solver limit defaults to None, matching its
+ordinary build; runtime lifetime probes add observation, not validation bypasses.
+
+TP07 checkpoint: all 184 explicit runtime and 208 explicit VM cases preserve
+names and ignore/panic attributes. Runtime now retains only native_schema; VM
+retains allocation_contracts and library_measurements. Two manual registration
+rollback cases moved beside schema.rs; external derive/Serde cases remain.
+Selected runtime rollback/GC cases (3), stdlib composition cases (2), empty-data
+scope plus external derive/Serde (3), VM callback/generation cases (2) and all
+five allocation assertions passed. The ignored measurement workload was compiled,
+not executed. Scoped Clippy found a duplicate program fixture in the larger VM
+harness; one declaration at tests::native_program resolves it, and VM Clippy
+now passes. Runtime/stdlib Clippy had no findings. The empty native_data marker
+also exposed an unused generic check for zero fields; emit each field check
+inside its repetition, preserving the type bound and compile-fail contract.
+Structure (1243 files), formatting and diff checks pass. Shared native fixtures
+remain narrow cross-target consumers. SDK standalone source-free checks finished:
+forged native-import rejection and owned native wait both passed offline.

@@ -955,3 +955,6 @@ fn path_scope_error(error: RuntimeError) -> RuntimeError {
         error
     }
 }
+
+#[cfg(test)]
+mod tests;

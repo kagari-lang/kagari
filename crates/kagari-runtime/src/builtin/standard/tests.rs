@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     Runtime,
     gc::{GcHeap, GcHeapConfig},
-    layout_fixtures::allocation_owner,
+    test_support::layouts::allocation_owner,
 };
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 

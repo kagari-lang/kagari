@@ -38,7 +38,7 @@ fn corrupted_collection_root_quarantines_the_runtime() {
         )
         .unwrap();
     let mut foreign_runtime = Runtime::default();
-    let owner = crate::layout_fixtures::allocation_owner(&mut foreign_runtime);
+    let owner = crate::test_support::layouts::allocation_owner(&mut foreign_runtime);
     let foreign = foreign_runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), Vec::new())
         .unwrap();
@@ -839,7 +839,7 @@ fn failed_reload_does_not_invalidate_interpreter_caches() {
 #[test]
 fn heap_mutations_update_runtime_resource_counters() {
     let mut runtime = Runtime::default();
-    let owner = crate::layout_fixtures::sequence_owner(&mut runtime);
+    let owner = crate::test_support::layouts::sequence_owner(&mut runtime);
     let root = crate::native::conversion::context::ConversionContext::new(&runtime, &owner)
         .unwrap()
         .encode(vec![1i32])
@@ -873,3 +873,5 @@ fn exposes_runtime_type_registry() {
 
     assert_eq!(runtime.types().id_by_name("Player"), Some(type_id));
 }
+
+mod runtime_substrate;

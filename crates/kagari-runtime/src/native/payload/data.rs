@@ -101,8 +101,10 @@ macro_rules! native_data {
         }
         const _: () = {
             fn check_fields() {
-                fn check<T: $crate::native::payload::data::NativeData>() {}
-                $(check::<$ty>();)*
+                $({
+                    fn check<T: $crate::native::payload::data::NativeData>() {}
+                    check::<$ty>();
+                })*
             }
             // Reference the function without executing it; its body checks every
             // field even when the struct or a field is conditionally unused.

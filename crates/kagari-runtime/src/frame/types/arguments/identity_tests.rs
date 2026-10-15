@@ -1,9 +1,9 @@
 use super::*;
 use crate::{
     frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
-    layout_fixtures,
     module::{EnumVariantRef, StructLayoutRef},
     native::{callable::StoredCallable, storage_type::StorageType},
+    test_support::layouts as layout_fixtures,
 };
 use kagari_common::identity::{
     DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,

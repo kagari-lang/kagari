@@ -56,9 +56,6 @@ pub mod gc;
 pub mod host;
 pub mod host_scope;
 pub mod jit_abi;
-#[cfg(test)]
-#[path = "../tests/support/layouts.rs"]
-mod layout_fixtures;
 pub mod metadata;
 pub mod module;
 pub mod native;
@@ -67,6 +64,8 @@ pub mod range;
 pub mod reflection;
 pub mod reload;
 pub mod resource;
+#[cfg(test)]
+mod test_support;
 mod value_check;
 
 pub mod session;

@@ -132,7 +132,7 @@ fn rooted_callback_retains_captures_but_not_storage_after_runtime_teardown() {
 #[test]
 fn scoped_closure_views_reject_mutation_without_panicking_or_partial_writes() {
     let (mut runtime, loaded, prepared) = fixture();
-    let owner = crate::layout_fixtures::sequence_owner(&mut runtime);
+    let owner = crate::test_support::layouts::sequence_owner(&mut runtime);
     let root = ConversionContext::new(&runtime, &owner)
         .unwrap()
         .encode(vec![1i32])

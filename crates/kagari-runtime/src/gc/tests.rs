@@ -3,8 +3,8 @@ use crate::{
     Runtime,
     closure::ClosureTarget,
     host::{HostBorrowTable, HostObjectId, HostRootHandle, HostSchemaEpoch},
-    layout_fixtures::{allocation_owner, path_view_value},
     metadata::{AbiFingerprint, TypeId},
+    test_support::layouts::{allocation_owner, path_view_value},
 };
 use kagari_contract::ids::FunctionRef;
 
@@ -53,7 +53,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     let array = runtime
         .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
         .unwrap();
-    let interface = crate::layout_fixtures::interface_value_with(
+    let interface = crate::test_support::layouts::interface_value_with(
         &mut runtime,
         Ty::Array(Box::new(Ty::Builtin(
             kagari_types::scalar::BuiltinType::I32,
@@ -80,7 +80,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
     assert!(runtime.gc().interface_snapshot(id).is_some());
     assert!(!crate::Runtime::default().gc().validate_value(&interface));
 
-    let _new = crate::layout_fixtures::interface_value(&mut runtime);
+    let _new = crate::test_support::layouts::interface_value(&mut runtime);
     assert_ne!(
         runtime.modules().latest("interface-fixture").unwrap().key(),
         old
@@ -108,7 +108,7 @@ fn interface_roots_trace_data_and_retain_old_dependency_versions() {
 }
 
 fn layout(name: &str, field: &str, ty: Ty) -> crate::module::StructLayoutRef {
-    crate::layout_fixtures::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
+    crate::test_support::layouts::layout(&mut crate::Runtime::default(), name, &[(field, ty, true)])
 }
 
 fn host_root_value(heap: &GcHeap, object_id: u64) -> Value {
@@ -379,3 +379,5 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
         RuntimeErrorKind::EngineFault
     );
 }
+
+mod gc_ownership;

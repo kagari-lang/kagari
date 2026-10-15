@@ -544,3 +544,6 @@ mod tests {
         assert_eq!(trace.dropped_host_calls, 1);
     }
 }
+
+#[cfg(test)]
+mod execution_sessions;

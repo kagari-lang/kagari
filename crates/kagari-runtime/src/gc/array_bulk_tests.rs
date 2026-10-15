@@ -1,5 +1,5 @@
 use super::*;
-use crate::{Runtime, layout_fixtures::allocation_owner};
+use crate::{Runtime, test_support::layouts::allocation_owner};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 #[test]

@@ -3,15 +3,12 @@ mod native_schema_derive;
 #[cfg(feature = "serde")]
 mod native_schema_serde;
 use kagari_bytecode::{artifact::KbcArtifact, program::BytecodeProgram};
-use kagari_common::identity::{
-    DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
-};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_derive::KagariValue;
 use kagari_hir::{analysis::AnalysisDatabase, native::render::declaration_source};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    error::RuntimeError,
     frame::types::arguments::TypeArgument,
     gc::{GcHeapConfig, HeapObjectId},
     native::{
@@ -29,18 +26,17 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_types::ty::{NominalTy, Ty};
+use kagari_types::ty::Ty;
+#[path = "support/schema_leaf.rs"]
+mod leaf;
+use leaf::Leaf;
+
 use std::{
     cell::Cell,
     collections::BTreeMap,
     panic::{AssertUnwindSafe, catch_unwind},
     sync::Arc,
 };
-
-#[derive(Debug, Clone, PartialEq)]
-struct Leaf {
-    value: i32,
-}
 
 #[derive(Debug, Clone, PartialEq, KagariValue)]
 struct Tree {
@@ -52,16 +48,6 @@ struct Tree {
 enum Choice {
     Empty,
     Leaf(Leaf),
-}
-
-impl KagariType for Leaf {
-    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        catalog.rust_type::<Self>()
-    }
-
-    fn register_type(cx: &mut TypeRegistration<'_>) -> NativeResult<Type> {
-        cx.structure::<Self>("Leaf", |_| Ok(vec![ValueField::new("value", Type::i32())]))
-    }
 }
 
 fn module(name: &str) -> NativeModule {
@@ -89,44 +75,6 @@ fn offline_schemas_reserve_recursive_headers_and_render_ordinary_writable_fields
     let catalog = module.catalog();
     assert!(Tree::kagari_type(&catalog).is_ok());
     assert!(Leaf::kagari_type(&catalog).is_ok());
-}
-
-struct Missing;
-
-impl KagariType for Missing {
-    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        catalog.rust_type::<Self>()
-    }
-
-    fn register_type(cx: &mut TypeRegistration<'_>) -> NativeResult<Type> {
-        let definitions = DefinitionContext::new().unwrap();
-        let root = definitions
-            .intern_root(&ModuleIdentity::single_file("absent"))
-            .unwrap();
-        let id = definitions
-            .intern_child(root, DefinitionKind::Struct, "Unknown", 0)
-            .unwrap();
-        let ty = Type::from_semantic(
-            Ty::Struct(NominalTy {
-                declaration: id,
-                arguments: vec![],
-                associated_types: Default::default(),
-            }),
-            &definitions.snapshot(),
-        )?;
-        cx.structure::<Self>("Missing", |_| Ok(vec![ValueField::new("bad", ty)]))
-    }
-}
-
-#[test]
-fn missing_schema_dependency_rejects_without_publishing_headers_or_mappings() {
-    let mut builder = ModuleBuilder::new("game::atomic", &DeclarationCatalog::default()).unwrap();
-    assert!(builder.register_type::<Missing>().is_err());
-    assert!(builder.declarations().rust_type::<Missing>().is_err());
-    builder.register_type::<Leaf>().unwrap();
-    let module = builder.finish().unwrap();
-    assert_eq!(module.declaration().types.len(), 1);
-    assert_eq!(module.declaration().types[0].name, "Leaf");
 }
 
 #[test]
@@ -240,52 +188,6 @@ fn source_free_loading_checks_registered_schema_without_native_calls() {
         failure.message().contains("registered value schema"),
         "{failure}"
     );
-}
-
-struct FailedChild;
-
-impl KagariType for FailedChild {
-    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        catalog.rust_type::<Self>()
-    }
-
-    fn register_type(cx: &mut TypeRegistration<'_>) -> NativeResult<Type> {
-        cx.structure::<Self>("FailedChild", |cx| {
-            cx.dependency::<Missing>()?;
-            Err(RuntimeError::metadata_conflict("field schema failed"))
-        })
-    }
-}
-
-struct CatchesChild;
-
-impl KagariType for CatchesChild {
-    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
-        catalog.rust_type::<Self>()
-    }
-
-    fn register_type(cx: &mut TypeRegistration<'_>) -> NativeResult<Type> {
-        cx.structure::<Self>("CatchesChild", |cx| {
-            let _ = cx.dependency::<FailedChild>();
-            Ok(vec![])
-        })
-    }
-}
-
-#[test]
-fn caught_child_schema_failure_cannot_publish_an_incomplete_dependency() {
-    let mut builder = ModuleBuilder::new("game::caught", &DeclarationCatalog::default()).unwrap();
-    assert!(
-        builder
-            .register_type::<CatchesChild>()
-            .unwrap_err()
-            .message()
-            .contains("incomplete schema")
-    );
-    assert!(builder.declarations().rust_type::<CatchesChild>().is_err());
-    assert!(builder.declarations().rust_type::<FailedChild>().is_err());
-    builder.register_type::<Leaf>().unwrap();
-    builder.finish().unwrap();
 }
 
 impl IntoKagari for Leaf {

@@ -649,6 +649,7 @@ version = "0.1.0"
 dependencies = [
  "kagari-bytecode",
  "kagari-common",
+ "kagari-compiler",
  "kagari-contract",
  "kagari-hir",
  "kagari-runtime",

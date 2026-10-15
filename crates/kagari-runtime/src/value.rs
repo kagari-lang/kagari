@@ -395,8 +395,8 @@ mod tests {
     use super::*;
     use crate::{
         host::{HostBorrowTable, HostObjectId, HostRootHandle, HostSchemaEpoch},
-        layout_fixtures::path_view_value,
         metadata::{AbiFingerprint, TypeId},
+        test_support::layouts::path_view_value,
     };
 
     fn host_root(object_id: u64) -> HostRootHandle {
@@ -465,7 +465,7 @@ mod tests {
     #[test]
     fn keeps_host_handles_out_of_default_heap_payloads() {
         let mut runtime = crate::Runtime::default();
-        let interface = crate::layout_fixtures::interface_value(&mut runtime);
+        let interface = crate::test_support::layouts::interface_value(&mut runtime);
         let heap = runtime.gc();
         assert!(
             heap.alloc_tuple(vec![Value::Unit])

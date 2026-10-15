@@ -119,7 +119,9 @@ fn invalid() -> RuntimeError {
 #[cfg(test)]
 mod tests {
     use crate::native::conversion::context::ConversionContext;
-    use crate::{Runtime, error::RuntimeError, layout_fixtures::sequence_owner, value::Value};
+    use crate::{
+        Runtime, error::RuntimeError, test_support::layouts::sequence_owner, value::Value,
+    };
     use std::panic::{AssertUnwindSafe, catch_unwind};
 
     #[test]

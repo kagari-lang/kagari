@@ -535,3 +535,9 @@ fn keeps_latest_and_retained_old_epochs_reachable() {
     assert!(store.loaded(first.key()).is_none());
     assert!(store.loaded(second.key()).is_some());
 }
+
+mod enum_declarations;
+
+mod package_exports;
+
+mod struct_layouts;
