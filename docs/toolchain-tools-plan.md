@@ -67,6 +67,83 @@ diagnostic data must remain usable without the SDK/runtime. Adapt existing SDK
 diagnostics coherently; avoid parallel diagnostic implementations or speculative
 text-edit frameworks before this milestone has a consumer.
 
+## Architecture contracts
+
+The reference designs inform these boundaries, not a requirement to reproduce
+their crate graphs or infrastructure:
+
+| Reference | Adopt for Kagari | Adaptation boundary |
+| --- | --- | --- |
+| [Clippy lint passes](https://doc.rust-lang.org/nightly/clippy/development/lint_passes.html) | Syntax rules and semantic rules have different required inputs | Reuse Kagari's own HIR facts and shared-object/capture semantics |
+| [rust-analyzer architecture](https://rust-analyzer.github.io/book/contributing/architecture.html) | IO-free analysis queries, retained snapshots and presentation-oriented output | Use existing Kagari snapshots; no second semantic engine, incremental database or IDE facade |
+| [Prettier printer](https://prettier.io/docs/technical-details) | Syntax rules construct a layout document; a printer measures it and chooses breaks | Preserve Kagari CST tokens/comments and interpolation semantics |
+| [Biome linter](https://biomejs.dev/linter/) | Formatting policy belongs to the formatter | Lint rules must not duplicate whitespace, indentation or line-width checks |
+
+The intended data flow is:
+
+```text
+CLI input/configuration -> captured sources -> lossless CST -> formatter -> text
+                                              |
+                                              +-> HIR analysis snapshot
+CST + analysis snapshot -> lint findings -> level/suppression policy -> diagnostics
+analysis snapshot -> required language diagnostics
+analysis snapshot -> check_program -> CheckedProgram -> existing compilation
+diagnostics + retained source revisions -> terminal/JSON renderers
+```
+
+### Recoverable analysis and strict compilation
+
+Lint consumes `AnalysisSnapshot` and the relevant file/body facts, not only a
+successfully constructed `CheckedProgram`. The former can retain diagnostics and
+partial facts; the latter remains evidence of an error-free dependency closure.
+Do not weaken `check_program` or manufacture checked evidence for erroneous input.
+
+```text
+fn broken() -> i32 { true }
+
+fn healthy() -> i32 {
+    val unused = 10;
+    42
+}
+```
+
+Check reports the return-type error. Lint also reports the unused binding in
+`healthy` when its required facts are valid. Build cannot obtain a `CheckedProgram`.
+HIR owns the validity of recovered facts; a missing binding/type is unknown, not
+proof of absence. Establish the affected file/body boundary before running a rule;
+an error that invalidates shared signatures may affect more than one body.
+
+### Diagnostic and policy ownership
+
+Language checking keeps its typed language-error kinds; lint owns its `LintId` and
+rule findings. Do not add every optional rule to the language `DiagnosticKind` enum.
+Both adapt to one source-owned presentation record containing code, final severity,
+revision-bound ranges, labels and notes. Terminal/JSON rendering consumes that
+record and retained source text, without querying HIR or keeping HIR objects in
+the output model. Never render a revision-A span against revision-B source text.
+
+Rule evaluation does not read configuration or print messages. The lint policy
+layer applies levels and declaration suppression to optional findings; mandatory
+language diagnostics bypass optional-rule policy. Keep native declaration setup
+at its existing owner. Shared diagnostic/policy integration must not introduce
+a production dependency from HIR to the linter or from source-free runtime to HIR.
+
+### Reuse and scheduling
+
+Use one coherent analysis handoff within a lint invocation. Query existing facts
+and share a body usage walk where several rules need the same read/write/capture
+classification. Do not analyze the project separately for each rule. Changing
+external lint severity on unchanged inputs must not invalidate name/type facts;
+source edits, provider changes and package-environment changes still obey existing
+invalidation rules. This does not promise reuse between separate CLI processes.
+
+Start with static rule registration and ordinary modules. Current SDK analysis
+state uses `RefCell`; immutability of a retained result alone is not proof that the
+whole engine or snapshot is safe to share across threads. Do not add per-rule
+threads, a daemon, a second query database or persistent caches. If measured costs
+later justify concurrency, first establish the ownership/Send/Sync and cancellation
+contracts for independent files, bodies or source sessions.
+
 ## Common command and input contract
 
 First-release invocations:
@@ -148,6 +225,14 @@ Use CST-aware formatting rules that produce a small layout representation
 Width decisions belong to the printer; comment attachment belongs to the formatter.
 Do not build another parser or print by concatenating AST accessor results.
 
+Keep syntax rules, comment attachment and layout printing in separate ordinary
+modules within `kagari-format`. Syntax rules emit layout elements, comment handling
+assigns leading/trailing/dangling comments, and the printer measures groups and
+chooses breaks. A call rule must not reimplement the printer's line-width algorithm.
+Test comment attachment independently of line width, and test the printer with
+small layout documents independently of Kagari parsing. The library returns text
+or diagnostics; CLI owns writeback and concurrent-edit checks.
+
 First-release coverage includes all currently supported ordinary source forms:
 
 - Functions, structs, enums, traits, impls, constants, type forms, modules, use trees
@@ -215,6 +300,20 @@ parse/type-check the same input again. Source-invalid regions may still support
 syntax rules, but missing/recovered semantic facts never count as proof of a lint.
 Skip affected semantic rules and retain the actual language diagnostics.
 
+Use a static registry with rule ID, default level, documentation and required
+stage. The dispatcher supplies one of two input contexts:
+
+| Stage | Inputs | Initial consumers |
+| --- | --- | --- |
+| Syntax | CST, declaration shape and source locations | Naming checks that require no resolved contract |
+| Semantic | Matching analysis snapshot, resolved bindings, references, places, captures and types as needed | Unused bindings/parameters, unnecessary `var`, and naming checks requiring trait-implementation context |
+
+Select the stage for the complete rule, including exemptions: a method-naming
+check that respects an implemented trait cannot infer that relationship from text.
+Syntax-stage eligibility does not exempt the lint command from required language
+checking. Facts and queries remain at HIR; rule selection and judgments remain
+at the linter. No extensible pass framework or dynamic rule loader is required.
+
 | Rule ID | Scope and safeguards |
 | --- | --- |
 | `unused_binding` | Unused local/pattern bindings by resolved identity; handle shadowing and closure uses; distinguish reads/writes and exempt intentional underscore names |
@@ -257,10 +356,10 @@ continue by weakening checks, stubbing production behavior or hiding test failur
 
 | Phase | Deliverable | Focused acceptance |
 | --- | --- | --- |
-| TT01 | Resolve the decision table; common diagnostic model/renderers, strict config and command contracts; complete check reporting | Existing CLI check/project cases, type-error source spans, Unicode/CRLF JSON, root continuation and lock behavior |
-| TT02 | `kagari-format` layout engine and single-file/stdin commands, initial core syntax | Small grammar representatives, comments/interpolation, idempotence, malformed-file preservation and no HIR dependency |
+| TT01 | Resolve the decision table; source-owned presentation records and common renderers, strict config and command contracts; complete check reporting | Existing CLI check/project cases, type-error source spans, revision-correct Unicode/CRLF JSON, HIR-independent rendering, root continuation and lock behavior |
+| TT02 | `kagari-format` syntax/comment/layout modules and single-file/stdin commands, initial core syntax | Independent comment/printer tests, small grammar representatives, interpolation, idempotence, malformed-file preservation and no HIR dependency |
 | TT03 | Remaining ordinary grammar forms, project fmt discovery/writeback and `--check` | Grammar coverage inventory, selected members, unresolved dependency independence, alias/concurrent-edit/write failure checks |
-| TT04 | `kagari-lint`, policy/suppression, six rules and shared analysis integration | Rule positive/negative cases, closure/shadowing/write semantics, selected-source scope, level precedence and required-error retention |
+| TT04 | `kagari-lint`, static syntax/semantic registry, policy/suppression, six rules and recoverable-snapshot integration | Rule positive/negative cases, closure/shadowing/write semantics, selected-source scope, mixed valid/invalid bodies, analysis reuse, level precedence and required-error retention |
 | TT05 | Focused cross-tool acceptance, user docs/examples and CI wiring | fmt/check/lint on one representative workspace, direct SDK/check agreement, JSON/exit contracts and production dependency guards |
 
 TT01 owns specification decisions, not speculative lint or formatter scaffolding.
@@ -275,6 +374,21 @@ Place unit/contract tests beside their source owners; retain CLI tests for actua
 arguments, output and filesystem behavior. Do not add one integration executable
 per rule or grammar form. Reuse existing fixtures and contract tests before adding
 distinct boundary cases.
+
+Three architectural acceptance checks are mandatory in the relevant phases:
+
+1. TT04: the mixed valid/invalid function example retains its language error and
+   reliable lint, while the same input still fails strict program checking.
+2. TT04: within one session, applying different lint levels to unchanged source and
+   provider inputs reuses semantic facts. Verify the shared check/lint handoff does
+   not repeat parsing/type checking, using existing query-reuse evidence or a focused
+   test probe; do not introduce a production telemetry framework for this test.
+3. TT01/TT02: render diagnostics from presentation records and retained text without
+   HIR objects; test comment attachment and layout printing at their separate owners.
+
+These checks validate ownership and behavior, not internal struct layouts or a
+performance claim. Source revision mismatch must not silently produce a misleading
+excerpt; unrelated valid-body facts must not be inferred from recovery placeholders.
 
 At each phase select only affected package/target/test filters and a small directly
 related regression set. Record the selection rationale and failures here. Examples
@@ -321,6 +435,8 @@ side effects. None is silently added to this milestone.
 ## Progress ledger
 
 - [x] Record first-release scope, ownership, phase order and validation policy.
+- [x] Incorporate reference-informed architecture: recoverable snapshots, staged
+  lint rules, diagnostic/policy ownership, formatter modules and focused acceptance.
 - [ ] TT01: resolve command/config/diagnostic decisions and complete check tooling.
 - [ ] TT02: single-file formatter foundation and stdin integration.
 - [ ] TT03: complete syntax coverage and project formatting.
