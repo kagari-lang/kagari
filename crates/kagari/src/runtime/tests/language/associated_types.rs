@@ -1,9 +1,6 @@
-// Share route preparation while retaining a fresh runtime per execution.
-#[path = "support/execution.rs"]
-mod execution;
-use execution::Route;
+use crate::test_support::execution::{self, Route};
 
-use kagari::{BytecodeArtifact, engine::KagariEngine};
+use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_bytecode::program::{identity, verify_program};
 use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,

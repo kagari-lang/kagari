@@ -1,10 +1,7 @@
-// Share route preparation while retaining a fresh runtime per execution.
-#[path = "support/execution.rs"]
-mod execution;
-use execution::Route;
+use crate::test_support::execution::{self, Route};
 use kagari_runtime::module::entry::ProgramEntry;
 
-use kagari::{
+use crate::{
     BytecodeArtifact,
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},

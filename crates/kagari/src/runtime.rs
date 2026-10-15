@@ -150,3 +150,6 @@ pub struct ReloadOptions {
 
 #[cfg(all(test, feature = "source", feature = "native"))]
 mod language_contract;
+
+#[cfg(test)]
+mod tests;

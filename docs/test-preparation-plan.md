@@ -3,9 +3,8 @@
 This finite task improves test preparation boundaries and selected contract owners.
 The initial three SDK pilots and TP04's six additional SDK runners are complete.
 TP04 also removes invariant preparation from compiler ABI, provider cancellation
-and standard documentation loops. TP05-TP09 below propose source-owned test
-organization after the user's 2026-10-15 review request; implementation of that
-extension is not yet activated. Native collection migration and compiler pipeline
+and standard documentation loops. The user authorized TP05-TP09 on 2026-10-15;
+source-owned test organization is now in progress. Native collection migration and compiler pipeline
 redesign remain outside scope.
 
 ## Contract
@@ -355,7 +354,7 @@ as required, keeping each scenario's assertions together.
 
 ### Proposed checkpoints and validation
 
-- [ ] **TP05: freeze inventory and pilot.** Confirm the 97-target mapping, external
+- [x] **TP05: freeze inventory and pilot.** Confirm the 97-target mapping, external
   exceptions, feature gates and `cfg(test)` differences. Use SDK
   `associated_types`, `collection_interfaces` and `conversion_traits` as the
   first migration batch: all already use the standard preparation helper.
@@ -434,3 +433,28 @@ preparation, standalone feature/AOT consumers, runtime derive/Serde coverage,
 VM allocator instrumentation, existing source test modules and CI commands.
 Proposed 92 target removals/consolidations with five justified remaining targets.
 No Rust implementation changes, migrations or performance runs have been made.
+
+### Execution ledger
+
+2026-10-15, TP05 started: preserved target metadata, source inventory and the
+three old pilot executables under ignored `target/`. The pilot moves 43 cases
+into source. The old external execution helper remains temporarily for pending
+TP06 consumers; TP06 removes it after their imports move to the single source
+helper. This bounded bridge preserves runnable intermediate checkpoints.
+Baseline selected build: 24.76 s, warm dependencies with some source rebuilds;
+this is not a clean compile/link comparison. Machine: i9-12900K, 24 logical CPUs,
+rustc 1.99.0 (b940084d7), x86_64-pc-windows-msvc, default source/native features,
+workspace test profile (opt-level 1), default Cargo/harness parallelism.
+Concurrent cargo install-update work prevents treating samples as idle-machine
+performance acceptance.
+
+TP05 checkpoint: all 43 original case names map exactly to the three new leaf
+modules; old and new selected runs passed. Structure (1231 files), SDK Clippy
+including test targets, formatting and diff checks passed. Candidate warm build
+was 6.50 s versus baseline 24.76 s with different rebuilt dependencies, so these
+are build observations, not a compile/link speedup. First alternating sample:
+old 116.96 s / 820.22 CPU s / 961 MiB peak working set; new 84.23 s / 882.53 CPU s /
+1419 MiB. Increased simultaneous source sessions explain a higher process peak;
+this requires retained-memory follow-up rather than a whole-suite claim. Saved
+products continue the three-round comparison while TP06 proceeds; later build
+load is recorded as interference. No execution semantics or assertions changed.

@@ -171,7 +171,7 @@ is historical evidence at 35de1818; this task measures a fresh focused baseline.
 Preserve fresh mutable state, source-free/backend/GC boundaries and assertions.
 
 The [TP05-TP09 source-ownership proposal](test-preparation-plan.md#proposed-in-source-test-organization-tp05-tp09)
-is ready for review, with implementation unstarted. It inventories 97 integration
+was authorized on 2026-10-15 and is in progress. It inventories 97 integration
 targets and proposes moving ordinary contracts into source-owned test modules,
 leaving five justified external-consumer or instrumented-process targets. A
 three-suite SDK pilot checks scheduling, shared preparation and memory/compile
