@@ -3,13 +3,14 @@ use crate::{
     host::HostDeclarations,
     imports::{
         BindingCandidate, BindingOrigin, DirectiveId, NamespaceId, ResolvedTarget, SourceDeclRef,
-        SourceUnit, bindings::LookupOutcome, cache::same_name_tables, solver::Observation,
+        SourceItem, SourceUnit, bindings::LookupOutcome, cache::same_name_tables,
+        solver::Observation,
     },
     resolver::{resolved::ResolvedName, table::NameTable},
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{ModuleIdentity, PackageId},
+    identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId},
 };
 use kagari_source::package::PackageEnvironment;
 use kagari_types::declaration::names::NameNamespace;
@@ -56,6 +57,9 @@ pub struct NamespaceCatalog {
     /// Canonical dependency modules retained by checked native declarations.
     /// These resolve only for that native importer, never as global source aliases.
     pub(crate) native_dependencies: BTreeMap<ModuleIdentity, BTreeSet<ModuleIdentity>>,
+    /// Trusted declaration references admit only their canonical trait target.
+    /// Ordinary source importers receive no additional visibility.
+    pub(crate) native_trait_references: BTreeMap<ModuleIdentity, BTreeSet<DefinitionPath>>,
     pub(crate) packages: PackageEnvironment,
 }
 
@@ -254,7 +258,10 @@ impl NamespaceCatalog {
         }
         let admitted = candidates
             .iter()
-            .filter(|c| c.visibility.allows(&c.owner, ctx.importer))
+            .filter(|c| {
+                c.visibility.allows(&c.owner, ctx.importer)
+                    || self.referenced_trait(ctx, ns, name, c)
+            })
             .cloned()
             .collect::<Vec<_>>();
         if admitted.is_empty() {
@@ -797,11 +804,44 @@ impl NamespaceCatalog {
         }
         Ok(self.installed_aliases == other.installed_aliases
             && self.native_dependencies == other.native_dependencies
+            && self.native_trait_references == other.native_trait_references
             && self.packages == other.packages)
     }
 }
 
 impl NamespaceCatalog {
+    fn referenced_trait(
+        &self,
+        ctx: &LookupContext<'_>,
+        namespace: &NamespaceId,
+        name: &str,
+        candidate: &BindingCandidate,
+    ) -> bool {
+        let (NamespaceId::Module(unit), BindingOrigin::Declaration(source)) =
+            (namespace, &candidate.origin)
+        else {
+            return false;
+        };
+        let LookupOutcome::Resolved(ResolvedTarget::Source(target)) = &candidate.resolution else {
+            return false;
+        };
+        if source.unit != *unit || !matches!(source.item, SourceItem::Trait(_)) || target != source
+        {
+            return false;
+        }
+        self.native_trait_references
+            .get(ctx.importer)
+            .is_some_and(|references| {
+                references.iter().any(|reference| {
+                    reference.module == unit.module
+                        && reference.path.len() == 1
+                        && reference.path[0].kind == DefinitionKind::Trait
+                        && reference.path[0].occurrence == 0
+                        && reference.path[0].name == name
+                })
+            })
+    }
+
     fn package_path(
         &self,
         importer: &ModuleIdentity,

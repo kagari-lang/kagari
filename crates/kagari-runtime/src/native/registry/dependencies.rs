@@ -2,7 +2,7 @@
 use crate::{error::RuntimeError, module::VerifiedProgram, native::catalog::DeclarationCatalog};
 use kagari_bytecode::module::BytecodeModule;
 use kagari_common::identity::{DefinitionKind, table::DefinitionId};
-use kagari_contract::types::{InterfaceTable, PublicItem, inherent::InherentTable};
+use kagari_contract::types::{InterfaceTable, PublicItem, inherent::InherentTable, trait_contract};
 use kagari_types::{
     declaration::{TypeDefKind, module::ImplDecl},
     language,
@@ -146,10 +146,13 @@ pub(super) fn validate(
             .map_err(|cause| RuntimeError::module_validation(cause.to_string()))?;
         if !program.modules().iter().any(|module| {
             &module.identity == owner.module()
-                && module
-                    .public_items
-                    .iter()
-                    .any(|item| matches!(item, PublicItem::Trait(contract) if contract == expected))
+                && trait_contract(
+                    &module.identity,
+                    &module.public_items,
+                    &module.trait_contracts,
+                    &id,
+                    program.definitions(),
+                ) == Some(expected)
         }) {
             return Err(RuntimeError::module_validation(format!(
                 "native dependency {} differs from its registered trait contract",

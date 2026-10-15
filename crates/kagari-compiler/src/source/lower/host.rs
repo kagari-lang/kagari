@@ -24,6 +24,7 @@ pub(super) struct Dependencies {
 
 pub(super) fn collect(
     module: &AnalyzedModule,
+    modules: &[AnalyzedModule],
     roots: BTreeSet<DefinitionId>,
     functions: &[MirFunction],
     cancel: &CancellationToken,
@@ -93,7 +94,19 @@ pub(super) fn collect(
         if declarations.contains_key(&id) || shared.contains_key(&id) {
             continue;
         }
-        if let Some(definition) = module.declarations.external_type(id) {
+        let owner = definitions
+            .resolve(id)
+            .map_err(|error| MirLoweringError::Identity(error.into()))?
+            .module();
+        let definition = module.declarations.external_type(id).or_else(|| {
+            // Concrete generic bodies may mention a host type absent from this
+            // module's source imports. Its checked defining module owns the schema.
+            modules
+                .iter()
+                .find(|provider| provider.lowered.source.module_identity() == owner)
+                .and_then(|provider| provider.declarations.external_type(id))
+        });
+        if let Some(definition) = definition {
             // Common schemas remain the semantic owner, including recursive members.
             // Only external identities enter this closure, not ordinary DTO nominals.
             for field in &definition.fields {
@@ -115,9 +128,12 @@ pub(super) fn collect(
         let ty = hosts
             .nominal_type(&id)
             .and_then(|id| hosts.type_declaration(id))
-            .ok_or(MirLoweringError::MissingBinding(
-                "nominal host type declaration",
-            ))?;
+            .ok_or_else(|| {
+                definitions
+                    .resolve(id)
+                    .map(|view| MirLoweringError::MissingHostDeclaration(view.to_path()))
+                    .unwrap_or_else(|error| MirLoweringError::Identity(error.into()))
+            })?;
         for member in ty.value_types() {
             pending.extend(member.nominal_references().into_iter().cloned());
         }

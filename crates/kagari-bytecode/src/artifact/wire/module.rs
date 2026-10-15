@@ -116,6 +116,8 @@ pub(in crate::artifact) struct BytecodeModuleRecord {
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     public_items: Vec<PublicItemRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+    trait_references: Vec<TraitContractRecord>,
+    #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
     trait_contracts: Vec<TraitContractRecord>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::functions")]
     functions: Vec<BytecodeFunctionRecord>,
@@ -183,6 +185,11 @@ impl BytecodeModuleRecord {
                 .public_items
                 .iter()
                 .map(|value| PublicItemRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            trait_references: value
+                .trait_references
+                .iter()
+                .map(|value| TraitContractRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             trait_contracts: value
                 .trait_contracts
@@ -256,6 +263,11 @@ impl BytecodeModuleRecord {
                 .collect::<Result<_, _>>()?,
             public_items: self
                 .public_items
+                .into_iter()
+                .map(|value| value.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
+            trait_references: self
+                .trait_references
                 .into_iter()
                 .map(|value| value.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,

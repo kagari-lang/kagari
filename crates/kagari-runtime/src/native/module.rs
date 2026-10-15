@@ -353,6 +353,25 @@ impl NativeModule {
         for (id, contract) in &referenced.records().trait_references {
             registry.catalog.insert(*id, contract.clone())?;
         }
+        let definitions = referenced
+            .records()
+            .collect_definitions(registry.catalog.types.context())
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let owner = definitions
+            .lookup_root(&referenced.records().identity)
+            .expect("collected native module root");
+        if let Some(installed) = registry.trait_references.get_id(owner) {
+            if installed != &referenced.records().trait_references {
+                return Err(RuntimeError::metadata_conflict(
+                    "conflicting source trait reference owner",
+                ));
+            }
+        } else {
+            registry
+                .trait_references
+                .insert_id(owner, referenced.records().trait_references.clone())
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        }
         let path_ids = registry
             .path_bindings
             .context()

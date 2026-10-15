@@ -30,6 +30,9 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
         *total = total.saturating_add(length);
         length <= MAX_ARTIFACT_NESTED_RECORDS && *total <= MAX_ARTIFACT_TABLE_RECORDS
     };
+    if !add(module.trait_references.len()) {
+        return false;
+    }
     for import in &module.native_imports {
         if !add(import.instance.arguments.len())
             || !add(import.signature.params.len())
@@ -279,9 +282,18 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             return false;
         }
     }
-    for contract in &module.trait_contracts {
+    for contract in module
+        .trait_contracts
+        .iter()
+        .chain(&module.trait_references)
+    {
         let item = &contract.abi;
         if !add(item.associated_consts.len())
+            || !add(item.supertraits.len())
+            || !item
+                .supertraits
+                .iter()
+                .all(|parent| add(parent.arguments.len()))
             || !add(item.generic_params.len())
             || !add(item.bounds.len())
             || !add_abi_bounds(&item.bounds, &mut add)
@@ -440,15 +452,29 @@ pub(super) fn module_abi_type_limit(
                     .iter()
                     .all(|variant| variant.payload.iter().all(&valid))
         })
-        && module.trait_contracts.iter().all(|contract| {
-            bounds_type_limit(&contract.abi.bounds)
-                && associated_type_limit(&contract.abi.associated_types)
-                && contract.abi.methods.iter().all(|method| {
-                    function_abi_type_limit(method)
-                        && method.params.iter().all(|param| valid(&param.ty))
-                        && valid(&method.return_type)
-                })
-        })
+        && module
+            .trait_contracts
+            .iter()
+            .chain(&module.trait_references)
+            .all(|contract| {
+                bounds_type_limit(&contract.abi.bounds)
+                    && contract
+                        .abi
+                        .associated_consts
+                        .iter()
+                        .all(|member| valid(&member.ty))
+                    && contract
+                        .abi
+                        .supertraits
+                        .iter()
+                        .all(|parent| parent.arguments.iter().all(&valid))
+                    && associated_type_limit(&contract.abi.associated_types)
+                    && contract.abi.methods.iter().all(|method| {
+                        function_abi_type_limit(method)
+                            && method.params.iter().all(|param| valid(&param.ty))
+                            && valid(&method.return_type)
+                    })
+            })
         && module.public_items.iter().all(|item| match item {
             PublicItem::Function(item) => {
                 function_abi_type_limit(item)
@@ -545,6 +571,7 @@ pub(super) fn program_count_limit(
                 module.function_table.len(),
                 module.public_items.len(),
                 module.trait_contracts.len(),
+                module.trait_references.len(),
             ]
             .into_iter()
             .fold(0usize, usize::saturating_add),

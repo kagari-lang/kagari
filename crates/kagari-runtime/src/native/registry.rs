@@ -22,7 +22,10 @@ use kagari_bytecode::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, map::DefinitionMap, metadata::DefinitionMetadata, table::DefinitionTable,
+        DefinitionKind,
+        map::DefinitionMap,
+        metadata::DefinitionMetadata,
+        table::{DefinitionId, DefinitionTable},
     },
 };
 use kagari_contract::{
@@ -35,11 +38,15 @@ use kagari_contract::{
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::{NativeDeclaration, verify::validate_native_declarations},
+    declaration::{NativeDeclaration, TraitDef, verify::validate_native_declarations},
     language::Protocol,
     ty::Ty,
 };
-use std::{collections::HashSet, slice, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashSet},
+    slice,
+    sync::Arc,
+};
 
 #[derive(Debug, Clone)]
 pub(crate) struct BindingRegistration {
@@ -102,6 +109,7 @@ pub(crate) struct NativeRegistry {
     pub(crate) storage: DefinitionMap<NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
     pub(crate) path_bindings: DefinitionMap<Vec<HostPathAdapter>>,
+    pub(crate) trait_references: DefinitionMap<BTreeMap<DefinitionId, TraitDef>>,
 }
 
 impl Default for NativeRegistry {
@@ -112,6 +120,7 @@ impl Default for NativeRegistry {
             metadata: MetadataSnapshot::default(),
             entries: DefinitionMap::new(context.clone()),
             storage: DefinitionMap::new(context.clone()),
+            trait_references: DefinitionMap::new(context.clone()),
             path_bindings: DefinitionMap::new(context),
             catalog,
         }
@@ -121,6 +130,20 @@ impl Default for NativeRegistry {
 impl NativeRegistry {
     /// Validate carried declarations before publication, including unused entries.
     pub(crate) fn validate_installed_contracts(&self, module: &BytecodeModule) -> NativeResult<()> {
+        let definitions = self.catalog.definitions();
+        let expected = definitions
+            .lookup_root(&module.identity)
+            .and_then(|root| self.trait_references.get_id(root));
+        if expected.map_or(0, BTreeMap::len) != module.trait_references.len()
+            || module.trait_references.iter().any(|reference| {
+                expected.and_then(|expected| expected.get(&reference.declaration))
+                    != Some(&reference.abi)
+            })
+        {
+            return Err(RuntimeError::module_validation(
+                "source trait references differ from their installed module contracts",
+            ));
+        }
         dependencies::validate_installed_traits(&self.catalog, module)?;
         dependencies::validate_installed_values(&self.catalog, module)?;
         for declaration in &module.native_declarations {

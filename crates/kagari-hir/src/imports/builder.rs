@@ -68,6 +68,25 @@ impl ModuleGraph {
                     module.source.module_identity().clone(),
                     module.native_dependencies.iter().cloned().collect(),
                 );
+                base.native_trait_references.insert(
+                    module.source.module_identity().clone(),
+                    module
+                        .native_trait_references
+                        .keys()
+                        .map(|id| {
+                            module
+                                .native_definitions
+                                .as_ref()
+                                .and_then(|definitions| definitions.resolve(*id).ok())
+                                .map(|view| view.to_path())
+                                .ok_or_else(|| {
+                                    ImportSolveError::Packages(
+                                        "invalid checked source trait reference".into(),
+                                    )
+                                })
+                        })
+                        .collect::<Result<_, _>>()?,
+                );
                 for alias in module
                     .native_package_alias
                     .iter()

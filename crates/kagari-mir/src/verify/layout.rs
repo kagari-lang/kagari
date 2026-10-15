@@ -143,6 +143,18 @@ pub(super) fn verify(module: &MirModule, context: Context<'_>) -> Result<(), Mir
     ) {
         return Err(context.error(Error::InvalidPublicAbi));
     }
+    abi_verify::validate_trait_references(
+        &module.abi.trait_references,
+        &module.identity,
+        context.cancel,
+        context.definitions,
+    )
+    .map_err(|error| {
+        context.error(match error {
+            LayoutValidationError::Cancelled => Error::Cancelled,
+            _ => Error::InvalidPublicAbi,
+        })
+    })?;
     abi_verify::validate_trait_contracts(
         &module.abi.trait_contracts,
         &module.abi.public_items,

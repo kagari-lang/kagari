@@ -272,6 +272,13 @@ pub(super) fn verify_module_with_program(
     ) {
         return Err(BytecodeVerificationError::InvalidPublicAbi);
     }
+    verify::validate_trait_references(
+        &module.trait_references,
+        &module.identity,
+        &Default::default(),
+        definitions,
+    )
+    .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     verify::validate_trait_contracts(
         &module.trait_contracts,
         &module.public_items,

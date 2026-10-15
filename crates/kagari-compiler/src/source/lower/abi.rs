@@ -599,7 +599,24 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
             })
         })
         .collect();
+    let mut trait_references = module
+        .lowered
+        .registered_source_trait_references()
+        .iter()
+        .map(|(declaration, abi)| TraitContract {
+            declaration: *declaration,
+            abi: abi.clone(),
+        })
+        .collect::<Vec<_>>();
+    trait_references.sort_by(|left, right| {
+        module
+            .declarations
+            .definitions()
+            .compare(left.declaration, right.declaration)
+            .expect("checked source trait identities")
+    });
     ModuleContract {
+        trait_references,
         native_declarations,
         public_items,
         trait_contracts,

@@ -35,6 +35,8 @@ pub mod wire;
 pub struct ModuleContract {
     pub native_declarations: Vec<NativeDeclaration>,
     pub public_items: Vec<PublicItem>,
+    /// Exact foreign source requirements; these do not define or export a trait.
+    pub trait_references: Vec<TraitContract>,
     pub trait_contracts: Vec<TraitContract>,
 }
 
@@ -277,7 +279,8 @@ pub fn interface_method_semantics(
     Some((signature.params, signature.result))
 }
 
-/// Executable contract for a private trait absent from the public ABI.
+/// Scoped common trait facts. The containing definition/reference list determines
+/// ownership; a reference never supplies the defining trait or script defaults.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TraitContract {
     pub declaration: DefinitionId,

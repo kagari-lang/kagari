@@ -17,7 +17,11 @@ impl DefinitionReferences for LoweredModule {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for (id, value) in &self.registered_traits {
+        for (id, value) in self
+            .registered_traits
+            .iter()
+            .chain(&self.native_trait_references)
+        {
             check_cancel(cancel)?;
             visit(id)?;
             value.visit_definition_ids(visit, cancel)?;

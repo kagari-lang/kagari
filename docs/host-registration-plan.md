@@ -24,8 +24,8 @@ with distinct gates from HR01-HR03 and RI03. The initial API/lifetime proof is r
 | Mode | Ordinary struct representation and behavior | Status |
 | --- | --- | --- |
 | By value | Convert Rust data to an ordinary Kagari object; conversion back produces an independent Rust value. | Current API design focus; reuse existing owned conversion foundations. |
-| By ref | `Ref<T>` is a scoped path handle; a native invocation temporarily receives `&T`. | RF01-RF06; unstarted. |
-| By ref mut | `RefMut<T>` is a scoped writable path handle; a native invocation temporarily receives `&mut T`. | RF01-RF06, including simultaneous disjoint field access; unstarted. |
+| By ref | `Ref<T>` is a scoped path handle; a native invocation temporarily receives `&T`. | RF01-RF04 implemented; RF05 integration and RF06 acceptance remain. |
+| By ref mut | `RefMut<T>` is a scoped writable path handle; a native invocation temporarily receives `&mut T`. | RF01-RF04 implemented, including disjoint field loans; RF05/RF06 remain. |
 
 For an ordinary by-value struct, the boundary performs schema-directed conversion.
 It can allocate the Kagari object directly; no byte serialization or JSON round
@@ -2126,6 +2126,65 @@ Focused local validation passed:
 
 Remaining legacy producers/consumers, HR03 removal and RF06/RI05 acceptance remain
 required. Complete workspace/features/backends/platforms are still pending CI.
+
+### HR02/RF05 checkpoint: private generic source-trait integration
+
+The existing host trait-bound execution fixture now declares Counter and explicitly
+references the private source-owned Readable<T>, binding its i32 and bool impls
+once through ModuleBuilder. The source trait remains private. Direct, KBC,
+interpreter and host-Cranelift execution preserve result 42 and the trace
+`make, flag, make, number`. Missing impl bounds and overlapping source impls remain
+rejected. Ordinary scripts cannot import that private trait: only the exact
+registered native importer receives access to its canonical checked reference.
+No source package alias or ordinary source visibility is widened.
+
+Migration exposed real ownership gaps. Concrete generic bodies can mention a host
+type absent from their source imports; lowering now obtains its schema from its
+exact checked defining module. Private foreign traits previously failed the
+executable verifier's public-only lookup. MIR and bytecode now carry common
+TraitContract references separately from definitions; both validate reference
+shape and exact reachable defining ABI. The native installation retains requirements
+per module owner, and loading compares the entire carried list with those installed
+requirements, including unused entries. References cannot define a trait, supply
+script defaults, introduce native adapter authority, or omit their requirements
+from source-free products. The existing public source-trait case verifies omitted
+requirements and changed source ABI rejection against the old installation.
+
+Wire mapping and bounded decoding include the same scoped records. Memory/wire
+resource checks count reference tables, nested contracts, associated constants and
+parent arguments before fingerprinting. Unpublished identifiers are unchanged;
+affected disposable artifacts require the already planned RF06 coherent fixture
+checkpoint. Root-module external type names now consistently produce
+`demo::Counter`, without the previous doubled separator.
+
+Initial failures were resolved: generated private trait visibility, missing generic
+host schema, public-only interface verification and installed public-only dependency
+lookup. The public ABI-negative fixture now distinguishes rejection during emission
+from rejection of a coherently rebuilt provider at old-runtime load. A resource
+fixture initially used a nonexistent DefinitionKind and an obsolete host-path
+decoder diagnostic; both were corrected while retaining pre-verification rejection.
+The selected installation regression exposed an overly strict duplicate-owner
+check; adding members in the same module remains allowed when its reference
+requirements are identical, while conflicting requirements reject transactionally.
+
+Actual focused local validation:
+
+- `cargo test -p kagari --test offline_nominal source_trait_reference_uses_explicit_binding_and_portable_abi`: passed (25.03 seconds), including omitted requirements and changed installed ABI.
+- `cargo test -p kagari --test offline_nominal host_trait_bound_calls_use_bound_methods_across_execution_routes`: passed (17.32 seconds), including private import visibility and all three existing execution routes.
+- `cargo test -p kagari-bytecode --lib nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes`: passed after the documented fixture repairs (0.01 seconds), including nested members and the top-level reference table.
+- `cargo test -p kagari-hir --lib body_edits_rebase_impl_trait_references_in_signature_cache`: passed (1.61 seconds).
+- `cargo test -p kagari-runtime --lib shared_registrations_keep_installation_and_failure_state_runtime_local`: initially failed; passed after allowing identical requirements during module growth (0.01 seconds).
+- `cargo clippy -p kagari-bytecode -p kagari-contract -p kagari-hir -p kagari-mir -p kagari-compiler -p kagari-runtime --lib -- -D warnings`: passed.
+- `cargo clippy -p kagari --test offline_nominal -- -D warnings`: passed.
+- Structure checked 1248 Rust files with zero violations; formatting and diff checks passed.
+
+The selection covers changed portable contract/resource boundaries, trait cache
+rebasing, runtime installation and the migrated SDK semantic owner. It is not a
+workspace sweep. No unsafe pointer, Rust loan or root lifetime implementation
+changed; prior kernel Miri evidence remains applicable and no new Miri run is
+claimed. Standard print/log, remaining old consumers, HR03 retirement and RF06/RI05
+integration remain required. Complete feature/backend/platform validation stays
+CI-owned and unrun locally.
 
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.

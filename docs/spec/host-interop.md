@@ -983,18 +983,23 @@ Registering a DTO schema supplies neither those members nor Rust reference acces
 expected `TraitDef` for a source-defined trait. It records the expectation in
 `ModuleDecl::trait_references` and returns the ordinary `TraitRef` used by
 `trait_impl`; it defines and exports no second trait. The contract may come from
-the source module's checked public ABI. Required members still need explicit
+the source module's checked public or private ABI. Required members still need explicit
 bindings. Associated outputs use `MethodsBuilder::associated_type`, and omitted
 source defaults retain their script bodies. Native adapters, reserved protocols
 and duplicate/conflicting references cannot be introduced through this API.
 
 The declaring script module must supply the actual trait. Checked native
-declaration dependencies resolve only in that native importer's scope and retain
-ordinary visibility checks; they create no global source package aliases. Engine
+declaration dependencies resolve only in that native importer's scope. An exact
+registered trait reference admits its canonical private trait in that scope;
+ordinary script imports retain their visibility checks. References create no
+global source package aliases. Engine
 construction validates the closed source-independent native set immediately.
 Source-dependent generated signatures/bodies are checked with the user snapshot;
-a missing source provider cannot compile. Source-free loading compares the actual
-public trait ABI with the installed exact expectation, including unused members,
+a missing source provider cannot compile. MIR and bytecode carry the reference
+requirements separately from trait definitions and compare them with the actual
+reachable defining module's ABI. Source-free loading also requires that each
+native module carries exactly its installed references: omission or forgery is
+rejected, including unused requirements. Comparison covers unused members,
 associated output contracts and default policies. A changed source default body
 with the same ABI follows normal generation-pinned script execution semantics.
 

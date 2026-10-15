@@ -236,6 +236,25 @@ pub(crate) fn verify_graph(
                 "external type dependency disagrees with its defining module".into(),
             ));
         }
+        if !verify::trait_references_match(
+            &module.trait_references,
+            |id| {
+                closure.iter().find_map(|owner| {
+                    abi::trait_contract(
+                        &owner.identity,
+                        &owner.public_items,
+                        &owner.trait_contracts,
+                        &id,
+                        definitions,
+                    )
+                })
+            },
+            &Default::default(),
+        )
+        .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?
+        {
+            return Err(BytecodeVerificationError::InvalidInterfaceTable);
+        }
         let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
             module.public_items.iter().filter_map(|item| {
                 if let PublicItem::Type(ty) = item {
@@ -297,9 +316,27 @@ pub(crate) fn verify_graph(
             let Some(trait_name) = trait_id.last().map(|part| part.name) else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            let Some(PublicItem::Trait(interface)) = owner.public_items.iter().find(
-                |item| matches!(item, PublicItem::Trait(interface) if interface.name == trait_name),
-            ) else {
+            let interface = owner
+                .public_items
+                .iter()
+                .find_map(|item| match item {
+                    PublicItem::Trait(interface) if interface.name == trait_name => Some(interface),
+                    _ => None,
+                })
+                .or_else(|| {
+                    module
+                        .trait_references
+                        .iter()
+                        .find(|reference| reference.declaration == instance.declaration)
+                        .and_then(|reference| {
+                            owner.trait_contracts.iter().find(|actual| {
+                                actual.declaration == reference.declaration
+                                    && actual.abi == reference.abi
+                            })
+                        })
+                        .map(|actual| &actual.abi)
+                });
+            let Some(interface) = interface else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
             if !verify::interface_contract_matches(

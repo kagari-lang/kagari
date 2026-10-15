@@ -91,7 +91,12 @@ impl MetadataSnapshot {
                 continue;
             }
             let view = definitions.resolve(record.declaration).map_err(conflict)?;
-            let name = format!("{}::{}", view.module(), record.definition.name);
+            let owner = view.module();
+            let name = if owner.path.is_empty() {
+                format!("{}::{}", owner.package.0, record.definition.name)
+            } else {
+                format!("{owner}::{}", record.definition.name)
+            };
             if staged.by_name.contains_key(&name) {
                 return Err(conflict("external metadata name is already registered"));
             }

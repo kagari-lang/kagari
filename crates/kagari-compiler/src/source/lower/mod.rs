@@ -3,7 +3,8 @@ use instances::InstancePlanner;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        map::DefinitionContext, mapping::DefinitionMappingError, metadata::DefinitionMetadata,
+        DefinitionPath, map::DefinitionContext, mapping::DefinitionMappingError,
+        metadata::DefinitionMetadata,
     },
 };
 use kagari_contract::{
@@ -56,6 +57,7 @@ pub enum MirLoweringError {
     UnresolvedExpr(ExprId),
     UnresolvedPlace(PlaceId),
     MissingBinding(&'static str),
+    MissingHostDeclaration(DefinitionPath),
     UnsupportedExpr(&'static str),
     UnsupportedStatement(&'static str),
     InvalidLoopControl,
@@ -294,6 +296,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         shared: external_types,
     } = host::collect(
         module,
+        modules,
         planner.host_types,
         &functions,
         &options.cancel,

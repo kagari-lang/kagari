@@ -10,13 +10,13 @@ use kagari_common::identity::{
 };
 use kagari_contract::{
     layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
-    types::PublicItem,
+    types::{PublicItem, TraitContract},
 };
 
 use kagari_types::{
     collection::CollectionAccess,
     declaration::{
-        ConstDef, FieldDef, TypeDef, TypeDefKind,
+        AssociatedConstDef, ConstDef, FieldDef, TraitDef, TypeDef, TypeDefKind,
         host::PathAccess,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
@@ -487,6 +487,36 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
         }));
     cases.push(public_abi);
 
+    let mut source_reference = valid.clone();
+    source_reference.modules[0]
+        .trait_references
+        .push(TraitContract {
+            declaration: id(DefinitionKind::Trait),
+            abi: TraitDef {
+                name: "item".into(),
+                associated_consts: vec![
+                    AssociatedConstDef {
+                        declaration: id(DefinitionKind::Const),
+                        ty: Ty::Builtin(BuiltinType::I32),
+                        default_value: None,
+                    };
+                    MAX_ARTIFACT_NESTED_RECORDS + 1
+                ],
+                supertraits: Vec::new(),
+                generic_params: Vec::new(),
+                bounds: Vec::new(),
+                methods: Vec::new(),
+                associated_types: Vec::new(),
+                conversion_adapter: None,
+            },
+        });
+    let mut reference_table = source_reference.clone();
+    let mut reference = reference_table.modules[0].trait_references.remove(0);
+    reference.abi.associated_consts.clear();
+    reference_table.modules[0].trait_references = vec![reference; MAX_ARTIFACT_NESTED_RECORDS + 1];
+    cases.push(source_reference);
+    cases.push(reference_table);
+
     for (index, program) in cases.into_iter().enumerate() {
         assert!(matches!(
             KbcArtifact::from_program(program.clone(), Default::default(), &context),
@@ -511,12 +541,12 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
             )
             .unwrap();
         let error = KbcArtifact::from_bytes(&crafted).unwrap_err();
-        let expected = if index == 2 {
-            "host member count limit exceeded"
-        } else {
-            "nested declaration count limit exceeded"
-        };
-        assert!(error.message().contains(expected), "{index}: {error}");
+        assert!(
+            error
+                .message()
+                .contains("nested declaration count limit exceeded"),
+            "{index}: {error}"
+        );
     }
 }
 

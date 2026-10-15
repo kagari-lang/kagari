@@ -46,6 +46,8 @@ pub struct BytecodeModule {
     pub paths: PathTable,
     pub function_table: FunctionTable,
     pub public_items: PublicItemTable,
+    /// Exact foreign source requirements; these do not define or export a trait.
+    pub trait_references: Vec<TraitContract>,
     pub trait_contracts: Vec<TraitContract>,
     pub functions: BytecodeFunctionBuffer,
 }

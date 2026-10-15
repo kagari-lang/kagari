@@ -5,15 +5,19 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, ModuleIdentity, table::DefinitionTable},
+    identity::{
+        DefinitionKind, ModuleIdentity,
+        table::{DefinitionId, DefinitionTable},
+    },
 };
 use kagari_types::declaration::verify::{
     Parameters, aggregate_shape_valid, bounds_valid, function_valid, parameters,
-    scalar_const_valid, trait_valid, type_valid,
+    scalar_const_valid, trait_reference_valid, trait_valid, type_valid,
 };
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, TraitDef, ownership::ReceiverOwners},
+    decode_limits,
     ty::{
         Constraint, GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
@@ -218,6 +222,53 @@ pub fn validate(
         }
     }
     Ok(())
+}
+
+/// Validate exact foreign source requirements without granting native trait authority.
+pub fn validate_trait_references(
+    references: &[TraitContract],
+    module: &ModuleIdentity,
+    cancel: &CancellationToken,
+    definitions: &DefinitionTable,
+) -> Result<(), LayoutValidationError> {
+    if references.len() > decode_limits::MAX_NESTED_RECORDS {
+        return Err(LayoutValidationError::Invalid);
+    }
+    let mut identities = HashSet::new();
+    for reference in references {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        if !identities.insert(reference.declaration)
+            || !trait_reference_valid(
+                &reference.abi,
+                reference.declaration,
+                module,
+                cancel,
+                definitions,
+            )
+        {
+            return Err(LayoutValidationError::Invalid);
+        }
+    }
+    Ok(())
+}
+
+/// Compare requirements with actual reachable defining modules, including private traits.
+pub fn trait_references_match<'a>(
+    references: &[TraitContract],
+    lookup: impl Fn(DefinitionId) -> Option<&'a TraitDef>,
+    cancel: &CancellationToken,
+) -> Result<bool, LayoutValidationError> {
+    for reference in references {
+        cancel
+            .check()
+            .map_err(|_| LayoutValidationError::Cancelled)?;
+        if lookup(reference.declaration) != Some(&reference.abi) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 pub fn validate_trait_contracts(

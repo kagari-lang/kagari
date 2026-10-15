@@ -68,6 +68,8 @@ mod ty;
 pub struct LoweredModule {
     /// Installed declaration dependencies added to source import reachability.
     pub(crate) native_dependencies: Vec<ModuleIdentity>,
+    /// Exact source traits referenced by checked native implementation metadata.
+    pub(crate) native_trait_references: BTreeMap<DefinitionId, TraitDef>,
     /// Category of each authored native alias leaf, validated against its generated view.
     pub(crate) native_import_namespaces: BTreeMap<usize, NameNamespace>,
     /// Registered enum failure variants identified by lowering-local variant handles.
@@ -124,6 +126,12 @@ impl LoweredModule {
     /// Returns installed declarations in [`Self::registered_native_definitions`]'s scope.
     pub fn registered_native_declarations(&self) -> &[NativeDeclaration] {
         &self.registered_declarations
+    }
+
+    /// Borrow exact foreign source requirements in the retained registration scope.
+    /// These facts define no source trait and grant no callable installation evidence.
+    pub fn registered_source_trait_references(&self) -> &BTreeMap<DefinitionId, TraitDef> {
+        &self.native_trait_references
     }
 
     /// Borrow the retained registration prefix; ordinary source has no attached Native scope.
@@ -269,6 +277,7 @@ pub(crate) fn lower_module_controlled(
         native_package_alias: None,
         native_prelude: false,
         native_dependencies: Vec::new(),
+        native_trait_references: BTreeMap::new(),
         registered_traits: BTreeMap::new(),
         registered_declarations: vec![],
         native_readonly_types: HashSet::new(),

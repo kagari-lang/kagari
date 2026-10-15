@@ -30,7 +30,7 @@ use kagari_contract::{
     layout::LayoutValidationError,
     representation::semantic_representation,
     types as abi,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{ConcreteFunctionIdentity, PublicItem, verify::trait_references_match},
 };
 use kagari_types::{
     declaration::TypeDefKind,
@@ -290,6 +290,32 @@ pub fn verify_program(
                 (owner == index || dependencies.contains(&owner)).then_some(module)
             })
             .collect();
+        if !trait_references_match(
+            &module.abi.trait_references,
+            |id| {
+                closure.iter().find_map(|owner| {
+                    abi::trait_contract(
+                        &owner.identity,
+                        &owner.abi.public_items,
+                        &owner.abi.trait_contracts,
+                        &id,
+                        &definitions,
+                    )
+                })
+            },
+            cancel,
+        )
+        .map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    LayoutValidationError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })? {
+            return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
+        }
         if !external_bindings_match(
             &module.external_types,
             |id| {
