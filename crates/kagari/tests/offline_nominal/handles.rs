@@ -39,41 +39,50 @@ use std::sync::{
 #[test]
 fn offline_host_type_navigation_is_available_from_signature_query() {
     let engine = NominalSchema::new().engine();
-    let text = "// 中文 😀\r\nuse left::Item; fn accept(value: Item) -> Item { value }";
-    let file = engine
-        .set_source("mem://host-signature", text.into(), SourceLayer::Base)
-        .unwrap();
-    let signatures = engine
-        .signatures(engine.source_snapshot(), &Default::default())
-        .unwrap();
-    let signature = signatures.file(file).unwrap();
-    let annotation = text.find("value: Item").unwrap() + "value: ".len();
-    let declaration = signature.definition_at(annotation).unwrap();
-    assert_eq!(declaration.name, "Item");
-    let DeclarationId::Definition(id) = declaration.id else {
-        panic!("common external declaration")
-    };
-    let schema = signature.declarations().external_type(id).unwrap();
-    assert_eq!(schema.name, "Item");
-    assert_eq!(
-        signature
-            .declarations()
-            .definitions()
-            .resolve(id)
-            .unwrap()
-            .module()
-            .package,
-        PackageId("left".into())
-    );
-    assert!(signature.definition_at(annotation - 1).is_none());
-    assert!(signature.diagnostics().is_empty());
-    let full = engine
-        .analyze(engine.source_snapshot(), &Default::default())
-        .unwrap();
-    assert_eq!(
-        full.file(file).unwrap().definition_at(annotation),
-        Some(declaration)
-    );
+    for (import, ty) in [
+        ("use left::Item;", "Item"),
+        ("use left as api;", "api::Item"),
+    ] {
+        let text = format!("// 中文 😀\r\n{import} fn accept(value: {ty}) -> {ty} {{ value }}");
+        let type_start = text.find("value: ").unwrap() + "value: ".len();
+        let annotation = type_start + ty.len() - "Item".len();
+        let file = engine
+            .set_source("mem://host-signature", text, SourceLayer::Base)
+            .unwrap();
+        let signatures = engine
+            .signatures(engine.source_snapshot(), &Default::default())
+            .unwrap();
+        let signature = signatures.file(file).unwrap();
+        let declaration = signature.definition_at(annotation).unwrap();
+        assert_eq!(declaration.name, "Item");
+        let DeclarationId::Definition(id) = declaration.id else {
+            panic!("common external declaration")
+        };
+        let schema = signature.declarations().external_type(id).unwrap();
+        assert_eq!(schema.name, "Item");
+        assert_eq!(
+            signature
+                .declarations()
+                .definitions()
+                .resolve(id)
+                .unwrap()
+                .module()
+                .package,
+            PackageId("left".into())
+        );
+        assert!(signature.definition_at(annotation - 1).is_none());
+        if type_start != annotation {
+            assert!(signature.definition_at(type_start).is_none());
+        }
+        assert!(signature.diagnostics().is_empty());
+        let full = engine
+            .analyze(engine.source_snapshot(), &Default::default())
+            .unwrap();
+        assert_eq!(
+            full.file(file).unwrap().definition_at(annotation),
+            Some(declaration)
+        );
+    }
 }
 
 #[test]

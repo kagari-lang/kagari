@@ -2506,6 +2506,56 @@ consumers, dependent legacy producer/callable retirement and HR03/RF06/RI05 fina
 integration remain open. Complete workspace/feature/backend/platform acceptance is
 CI-owned and not claimed from these focused results.
 
+### HR02/RF05 checkpoint: cold shared declarations and field tooling
+
+The offline_compile example now authors ordinary ModuleDecl schemas, declarations
+and manual path requirements, with no HostInterface producer/bytes, HostFunction,
+NativeModule, runtime or callback. AnalysisDatabase consumes these cold records
+beside the standard declaration catalog. The existing facade, array echo, field
+read/write/index/virtual paths and receiver method scenarios retain their source
+coverage. The emitted KBC includes portable MIR, full function-section counts,
+exact header/root identity, two external schemas and four used path requirements;
+bounded decoding and loader validation run without installed Rust implementations.
+All native imports use common declarations. Used path requirements belong to the
+calling source module, not the provider; the initial provider-count assertion
+failed and now checks their actual executable owner.
+
+Qualified shared external type references initially selected their qualifier and
+separator as well as their terminal name. The existing signature/full query
+position selector now recognizes checked external TypeId::Host facts, preserving
+canonical identity and alias semantics. The SDK signature navigation case now
+covers both unqualified and aliased qualified names with CRLF and multibyte text.
+Its first compile failed after moving the generated String before computing test
+positions; computing offsets before transfer resolved the error.
+
+External fields have canonical checked identities and schemas but need not have
+source declaration locations. The example's initial definition_at field query
+therefore returned None. FileAnalysis::field_at now exposes the existing checked
+read/place field identity using the same captured terminal spans, without creating
+synthetic source fields or resolving types again. The legacy typed host_field_at
+query delegates position selection to it and remains on HR03's explicit retirement
+list. The example resolves field IDs in its retained table and navigates methods
+through their genuine generated declaration origins. Initial missing/wrong-module
+DefinitionId imports were corrected to the actual table owner before checks passed.
+
+Actual focused local validation:
+
+- cargo run -p kagari --example offline_compile passed, reporting fingerprint
+  8da78a0db89642a1, 196 common native applications, nine executable function records
+  and a 1,084,351-byte artifact. It checks cold navigation plus codec/loader contracts.
+- SDK offline_nominal selected signature-navigation case passed (2.09 seconds).
+- HIR library field_ filter passed all 15 selected source/external field cases
+  (3.82 seconds), including rejected writes, body reuse, mixed chains and remapping.
+- HIR library and SDK example/offline_nominal Clippy passed after removing a
+  redundant String conversion. Structure passed for 1252 Rust files with zero
+  violations after importing the standard catalog from its module owner. Formatting
+  and diff checks passed.
+
+No unsafe, root or loan kernel changed, so this checkpoint needs no new Miri run.
+The remaining SDK low-level path fixture, runtime/other compiler consumers and
+legacy producer/callable retirement still block HR02/HR03/RF05 final integration.
+The complete workspace, features/backends/platforms remain CI-owned and unrun locally.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

@@ -70,7 +70,10 @@ signature facts and signature diagnostics. Neither entry resolves body names,
 collects local bindings, checks bodies or evaluates constants. These queries are
 body-independent tools; their results cannot be passed to code generation.
 `FileSignatures::definition_at(byte_offset)` follows declaration sites and
-checked signature type names, including imported source types. It does not
+checked signature type names, including imported source and shared external types.
+External type references select only the terminal name, including through aliases;
+qualifiers and separators have no type target. The declaration's scoped identity
+resolves its schema through `Declarations::external_type`. It does not
 offer body-reference navigation before that body has been analyzed.
 `FileSignatures::host_type_at(byte_offset)` returns the checked offline host
 declaration for the terminal name of a signature type; module qualifiers and
@@ -197,10 +200,12 @@ contracts and installed schemas before script execution. See
 [the shared registration contract](host-interop.md#type-registration) and the
 [private source-trait example](../../crates/kagari/examples/host_interfaces.rs).
 
-`FileAnalysis::host_field_at(offset)` returns the checked host field declaration
-only when the byte offset lies on the field name. Offsets on the receiver or `.`
-return no host field, including for a rejected write path. The query uses offline
-interface declarations and does not invoke a host callback.
+`FileAnalysis::field_at(offset)` returns the checked field identity for source and
+shared external fields in reads and assignment paths. Only the field name selects
+that identity; the receiver and `.` return `None`, including for a rejected write
+path. Resolve the identity through the snapshot's retained definition table and
+the owning schema. An external field need not have a source declaration location.
+This query reads checked offline facts and does not invoke a callback.
 
 `FileAnalysis::definition_at(offset)` applies the same name-only rule to checked
 source field reads, writes and method calls. A receiver position resolves its own

@@ -35,7 +35,7 @@ use kagari_common::{
         map::{DefinitionContext, DefinitionMap},
         mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
-        table::DefinitionTable,
+        table::{DefinitionId, DefinitionTable},
     },
     span::Span,
 };
@@ -108,8 +108,13 @@ pub struct BindingInfo {
 }
 
 impl FileAnalysis {
-    /// Returns the registered host field selected at an expression or assignment member name.
-    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
+    /// Return the checked field identity selected at a member name.
+    ///
+    /// Covers source and external fields in reads and assignment paths. Receiver
+    /// and punctuation positions have no field target. An external schema can
+    /// retain an identity without a source declaration location; resolve it through
+    /// this snapshot's definition table and the owning shared type schema.
+    pub fn field_at(&self, offset: usize) -> Option<DefinitionId> {
         let facts = self.result.records().facts();
         let expressions = facts
             .lowered
@@ -122,9 +127,7 @@ impl FileAnalysis {
                 };
                 let field = facts.typed.type_table.expr_field(id)?;
                 let span = facts.lowered.source_map.expr_reference_span(id)?;
-                (span.start <= offset && offset < span.end)
-                    .then(|| facts.names.hosts.field(field))
-                    .flatten()
+                (span.start <= offset && offset < span.end).then_some(*field)
             });
         let places = facts
             .lowered
@@ -137,11 +140,15 @@ impl FileAnalysis {
                 };
                 let field = facts.typed.type_table.place_field(id)?;
                 let span = facts.lowered.source_map.place_member_span(id)?;
-                (span.start <= offset && offset < span.end)
-                    .then(|| facts.names.hosts.field(field))
-                    .flatten()
+                (span.start <= offset && offset < span.end).then_some(*field)
             });
         expressions.chain(places).next()
+    }
+
+    /// Returns legacy host declaration metadata for a selected field name.
+    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
+        let field = self.field_at(offset)?;
+        self.result.records().facts().names.hosts.field(&field)
     }
 
     /// Whether this result's signature query reused earlier checked facts.
@@ -651,7 +658,8 @@ fn type_reference_target_at(
     let name_span = if matches!(
         resolved.target,
         Some(TypeTarget::AssociatedType(_) | TypeTarget::Host(_))
-    ) {
+    ) || matches!(resolved.ty, TypeId::Host(_))
+    {
         lowered.source_map.type_terminal_span(type_id)
     } else {
         lowered.source_map.type_name_span(type_id)

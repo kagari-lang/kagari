@@ -351,8 +351,11 @@ to import `call` or `service` from the facade, or call `facade::call(...)` and
 `facade::service::echo(...)` through a source module alias. These calls retain
 ordinary lexical shadowing and require the original host symbol's identity and
 matching runtime binding; re-exporting grants no additional authority.
-Run cargo run -p kagari --example offline_compile to compile an imported
-host call without any runtime or callback registration.
+The [offline compilation example](../../crates/kagari/examples/offline_compile.rs)
+authors ordinary shared `ModuleDecl` records, queries imported type/field/method
+identities, then compiles and decodes a KBC with exact shared schema and path
+requirements. It creates no runtime, binding or callback. Run it with
+`cargo run -p kagari --example offline_compile`.
 
 Required bytecode declarations now link mandatorily before module
 publication, including artifact reloads. Compiled host calls use registry-owned
