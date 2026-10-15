@@ -3,7 +3,7 @@ use std::ops::Range;
 use thiserror::Error;
 
 /// A failed package input operation, with its manifest or source origin retained.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum PackageError {
     #[error("{origin}: {message}")]
     Input {

@@ -3,7 +3,7 @@ use crate::{
     graph::{PackageSource, ResolvedGraph},
     host::hash_field,
     identity::{PackageSelection, SourceRevision},
-    modules::{ModuleLimits, ModuleTree, SourceInput},
+    modules::{ModuleDiscovery, ModuleLimits, ModuleTree, SourceInput},
     path,
 };
 use blake3::Hasher;
@@ -29,6 +29,30 @@ pub struct ProgramInputs {
     packages: BTreeMap<PackageSelection, CapturedPackage>,
     /// Includes exact selections, aliases, module locations and source bytes.
     fingerprint: String,
+}
+
+/// Root-local recovery report. Only `program` authorizes complete source handoff.
+#[derive(Debug, Clone)]
+pub struct ProgramCapture {
+    pub program: Option<ProgramInputs>,
+    pub discoveries: BTreeMap<PackageSelection, ModuleDiscovery>,
+    pub errors: Vec<PackageError>,
+}
+
+impl ProgramCapture {
+    /// Requires complete capture, preserving the strict compilation boundary.
+    pub fn into_complete(self) -> Result<ProgramInputs, PackageError> {
+        if let Some(program) = self.program {
+            return Ok(program);
+        }
+        if let Some(error) = self.errors.into_iter().next() {
+            return Err(error);
+        }
+        for discovery in self.discoveries.into_values() {
+            discovery.into_complete()?;
+        }
+        Err(PackageError::input("program", "incomplete source capture"))
+    }
 }
 
 impl CapturedPackage {
@@ -127,6 +151,21 @@ impl ResolvedGraph {
         limits: ModuleLimits,
         cancel: &CancellationToken,
     ) -> Result<ProgramInputs, PackageError> {
+        self.capture_recovering(input, root, limits, cancel)?
+            .into_complete()
+    }
+
+    /// Retains failed package discovery and continues independent closure inputs.
+    /// No incomplete closure can yield `ProgramInputs`; cancellation stops capture.
+    pub fn capture_recovering(
+        &self,
+        input: &impl SourceInput,
+        root: &PackageSelection,
+        limits: ModuleLimits,
+        cancel: &CancellationToken,
+    ) -> Result<ProgramCapture, PackageError> {
+        let mut discoveries = BTreeMap::new();
+        let mut errors = Vec::new();
         let closure = self.closure(root, cancel)?;
         let mut packages = BTreeMap::new();
         let mut hash = Hasher::new_derive_key("kagari program source input v1");
@@ -136,30 +175,44 @@ impl ResolvedGraph {
         for selection in closure {
             cancel.check()?;
             let package = &self.packages[&selection];
-            let (tree, directory, local) = match &package.source {
+            let (discovery, directory, local) = match &package.source {
                 PackageSource::Local { directory } => (
-                    ModuleTree::load(input, &package.manifest.root, remaining, cancel)?,
+                    ModuleDiscovery::load(input, &package.manifest.root, remaining, cancel)?,
                     directory.as_str(),
                     true,
                 ),
                 PackageSource::Host(host) => (
-                    ModuleTree::load(&host.sources, &package.manifest.root, remaining, cancel)?,
+                    ModuleDiscovery::load(
+                        &host.sources,
+                        &package.manifest.root,
+                        remaining,
+                        cancel,
+                    )?,
                     "",
                     false,
                 ),
             };
-            remaining.max_modules -= tree.modules.len();
-            remaining.max_total_bytes -= tree
-                .files
-                .values()
-                .map(|source| source.text.len())
-                .sum::<usize>();
+            remaining.max_modules = remaining
+                .max_modules
+                .saturating_sub(discovery.modules().len());
+            remaining.max_total_bytes = remaining.max_total_bytes.saturating_sub(
+                discovery
+                    .files()
+                    .values()
+                    .map(|source| source.text.len())
+                    .sum::<usize>(),
+            );
+            let tree = discovery.clone().into_complete();
+            discoveries.insert(selection.clone(), discovery);
+            let Ok(tree) = tree else {
+                continue;
+            };
             if local {
                 for source in tree.files.values() {
                     if let Some(previous) =
                         physical.insert(source.key.clone(), selection.family.name().to_owned())
                     {
-                        return Err(PackageError::input(
+                        errors.push(PackageError::input(
                             &source.origin,
                             format!(
                                 "physical source shared by packages {previous} and {}",
@@ -201,10 +254,15 @@ impl ResolvedGraph {
             );
         }
         cancel.check()?;
-        Ok(ProgramInputs {
-            root: root.clone(),
-            packages,
-            fingerprint: hash.finalize().to_hex().to_string(),
+        let complete = errors.is_empty() && discoveries.values().all(ModuleDiscovery::is_complete);
+        Ok(ProgramCapture {
+            program: complete.then(|| ProgramInputs {
+                root: root.clone(),
+                packages,
+                fingerprint: hash.finalize().to_hex().to_string(),
+            }),
+            discoveries,
+            errors,
         })
     }
 }

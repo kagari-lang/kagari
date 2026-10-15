@@ -9,56 +9,13 @@ use kagari_runtime::{
     task::TaskFailureOrigin,
 };
 #[cfg(feature = "source")]
-use kagari_source::{
-    diagnostic::{Diagnostic, Severity},
-    identity::FileSpan,
-    source::SourceFile,
-};
+use kagari_source::{diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile};
 use kagari_vm::error::VmError;
 #[cfg(feature = "source")]
 use smallvec::SmallVec;
 use std::sync::Arc;
 #[cfg(feature = "source")]
 use std::{io, path::PathBuf};
-
-#[cfg(feature = "source")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EmbeddingDiagnostic {
-    pub severity: Severity,
-    pub code: String,
-    pub span: Option<FileSpan>,
-    pub message: String,
-    pub notes: Vec<String>,
-    pub labels: Vec<DiagnosticLabel>,
-}
-
-#[cfg(feature = "source")]
-impl EmbeddingDiagnostic {
-    pub(crate) fn from_diagnostic(diagnostic: Diagnostic, source: &SourceFile) -> Self {
-        let span = diagnostic.span.and_then(|span| source.span(span));
-        Self {
-            severity: diagnostic.severity,
-            code: diagnostic.kind.code().to_owned(),
-            span,
-            message: diagnostic.kind.to_string(),
-            notes: Vec::new(),
-            labels: span
-                .into_iter()
-                .map(|span| DiagnosticLabel {
-                    span,
-                    message: "primary".to_owned(),
-                })
-                .collect(),
-        }
-    }
-}
-
-#[cfg(feature = "source")]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiagnosticLabel {
-    pub span: FileSpan,
-    pub message: String,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompilationPhase {
@@ -130,7 +87,7 @@ pub enum EmbeddingError {
     Cancelled,
     #[cfg(feature = "source")]
     Diagnostics {
-        diagnostics: Vec<EmbeddingDiagnostic>,
+        diagnostics: Vec<DiagnosticRecord>,
     },
     Compilation {
         phase: CompilationPhase,
@@ -200,7 +157,7 @@ impl EmbeddingError {
             diagnostics: diagnostics
                 .into_vec()
                 .into_iter()
-                .map(|diagnostic| EmbeddingDiagnostic::from_diagnostic(diagnostic, source))
+                .map(|diagnostic| DiagnosticRecord::from_diagnostic(diagnostic, source))
                 .collect(),
         }
     }

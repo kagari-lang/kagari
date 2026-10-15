@@ -221,3 +221,41 @@ fn project_discovery_bounds_and_locked_failures_precede_compilation() {
     );
     assert!(!directory.join("Kagari.lock").exists());
 }
+
+#[test]
+fn check_reports_independent_roots_and_preserves_lock_on_partial_acquisition() {
+    use crate::checking::project_report;
+
+    let directory = fixture();
+    let all = ProjectArgs {
+        workspace: true,
+        ..Default::default()
+    };
+    fs::write(directory.join("app/src/lib.kgr"), "mod hidden; fn broken(").unwrap();
+    let report = project_report(&all, &directory);
+    assert_eq!(report.summary.incomplete, 1);
+    assert_eq!(
+        report.summary.failed, 1,
+        "tool's type error is still checked"
+    );
+    assert_eq!(
+        report.summary.succeeded, 1,
+        "independent rules root is checked"
+    );
+    assert!(!directory.join("Kagari.lock").exists());
+    fs::write(
+        directory.join("app/src/lib.kgr"),
+        "pub fn answer() -> i32 { rules::value() }",
+    )
+    .unwrap();
+    let report = project_report(&all, &directory);
+    assert_eq!(report.summary.incomplete, 0);
+    assert_eq!(report.summary.failed, 1);
+    let lock = fs::read(directory.join("Kagari.lock")).unwrap();
+    fs::remove_file(directory.join("app/src/lib.kgr")).unwrap();
+    let report = project_report(&all, &directory);
+    assert_eq!(report.summary.incomplete, 1);
+    assert_eq!(report.summary.failed, 1);
+    assert_eq!(report.summary.succeeded, 1);
+    assert_eq!(fs::read(directory.join("Kagari.lock")).unwrap(), lock);
+}

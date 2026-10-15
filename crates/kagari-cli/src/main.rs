@@ -1,13 +1,16 @@
 mod aot;
 mod args;
+mod checking;
 mod project;
+mod report;
+mod tool_config;
 
 use crate::args::{Cli, Command, usage};
 use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
     engine::{KagariEngine, builder::KagariEngineBuilder, source::ArtifactOptions},
-    error::{EmbeddingDiagnostic, EmbeddingError},
+    error::EmbeddingError,
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions},
 };
@@ -22,7 +25,10 @@ use kagari_runtime::{
     native::builder::ModuleBuilder,
     value::Value,
 };
-use kagari_source::{diagnostic::Diagnostic, source::SourceFile, source_database::SourceSnapshot};
+use kagari_source::{
+    diagnostic::Diagnostic, presentation::DiagnosticRecord, source::SourceFile,
+    source_database::SourceSnapshot,
+};
 use kagari_syntax::parser::parse_module;
 use kagari_types::declaration::logging;
 use kagari_vm::vm::ExecutionReport;
@@ -48,7 +54,7 @@ fn run_cli(cli: Cli) -> Result<(), CliError> {
         Command::RunAot { bundle } => aot::run(&bundle),
         Command::Project { action, options } => project::run(action, options, cli.jit),
         Command::Parse { source } => parse_source(&source),
-        Command::Check { source } => check_source(&source),
+        Command::Check { source, format } => checking::source(&source, format),
         Command::Emit { source, output } => emit_artifact(&source, &output),
         Command::RunSource { source } => run_source(&source, cli.jit),
         Command::RunArtifact { artifact } => run_artifact(&artifact, cli.jit),
@@ -73,18 +79,6 @@ fn source_engine(declaration_cache: impl Into<PathBuf>) -> Result<KagariEngine, 
     let mut builder = engine_builder()?;
     builder.declaration_cache(declaration_cache);
     builder.build().map_err(print_embedding_error)
-}
-
-fn check_source(path: &Path) -> Result<(), CliError> {
-    let source = read_source(path)?;
-    let engine = source_engine("target/kagari-declarations")?;
-    match engine.compile_source(source) {
-        Ok(_) => {
-            println!("checked {}", path.display());
-            Ok(())
-        }
-        Err(error) => Err(print_source_error(&engine, error)),
-    }
 }
 
 fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
@@ -275,10 +269,7 @@ fn print_common_diagnostics(diagnostics: &[Diagnostic]) {
     }
 }
 
-fn print_embedding_diagnostics(
-    diagnostics: &[EmbeddingDiagnostic],
-    sources: Option<&SourceSnapshot>,
-) {
+fn print_embedding_diagnostics(diagnostics: &[DiagnosticRecord], sources: Option<&SourceSnapshot>) {
     for diagnostic in diagnostics {
         let origin = diagnostic
             .span
@@ -415,6 +406,7 @@ mod tests {
         assert_eq!(
             parse(&["check", "main.kgr"]).command,
             Command::Check {
+                format: Default::default(),
                 source: PathBuf::from("main.kgr"),
             }
         );
@@ -489,6 +481,7 @@ mod tests {
         .expect("parse command should succeed");
         run_cli(Cli {
             command: Command::Check {
+                format: Default::default(),
                 source: source.clone(),
             },
 

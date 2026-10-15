@@ -1,6 +1,6 @@
 # Formatter, checker and linter implementation plan
 
-Status: planning authorized on 2026-10-15; implementation has not started.
+Status: implementation authorized on 2026-10-15; TT01 complete, TT02 next.
 This plan owns the first usable `kg fmt`, `kg check` and `kg lint` milestone.
 Command spellings and configuration examples below describe planned behavior,
 not commands already supported by the current binary.
@@ -263,6 +263,83 @@ additional commands requires an explicit tool-layer integration, not HIR importi
 the rule registry. No command may accidentally reject valid tooling metadata as a
 language error or silently treat an invalid policy as an applied suppression.
 
+## TT01 resolved decisions (2026-10-15)
+
+- Configuration: `Kagari.tools.toml` at the owning workspace root (package root
+  outside a workspace), with strict `[format]` and `[lint]` tables. Standalone
+  files use defaults and explicit flags, with no ancestor/config discovery. Stdin
+  uses the same boundary. Unknown fields, rule IDs and levels are configuration
+  errors (exit 2). Style configuration never enters executable fingerprints.
+- Formatting: indent width 4, width 100, newline `preserve`; preserve CRLF only
+  when every existing newline is CRLF, otherwise normalize to LF. Empty/stdin
+  input defaults to LF. Explicit options override the project values.
+- Policy: defaults < project configuration < outer-to-inner declaration attributes
+  < explicit CLI rule levels; `-D warnings` promotes remaining warnings after that
+  cascade. All six initial rules default to warn. Allowed findings stay allowed.
+- Suppression: outer `#[tool::allow("rule")]`, `tool::warn` and `tool::deny`
+  accept one or more string rule IDs on existing supported declaration targets.
+  No new attribute syntax or statement targets. Modules pass policy to inline and
+  external descendants via HIR module identity; nested declarations override it.
+  Lint owns argument/name/target validation and reports invalid policy as errors.
+  Ordinary CLI check/build and direct SDK checking retain opaque `tool::` metadata
+  without validating lint policy or applying it to language diagnostics. This
+  intentionally keeps the rule registry out of HIR and the SDK dependency graph.
+- Acquisition: recoverable module discovery retains captured files and all syntax
+  diagnostics; a syntax-invalid file stops child discovery for that file, with
+  explicit incomplete status. Independent sibling modules/roots continue. Missing,
+  ambiguous, aliased or unreadable modules never produce complete `ProgramInputs`.
+  Cancellation aborts further acquisition. Manifest/resolution failures remain
+  request-wide. Publish the lock only if every selected root captured completely,
+  before semantic checks, preserving the existing timing on successful acquisition.
+  On partial acquisition failure, analyze complete roots without publishing a lock.
+- JSON: newline-delimited records, `type: "diagnostic"` or `"summary"`. Diagnostic
+  fields: context (selected root), code, severity, message, location (nullable),
+  labels, notes. A location contains normalized display path, revision, byte range
+  and start/end positions (zero-based line and UTF-8 byte column, end-exclusive).
+  Process-local file IDs are never serialized. Revision mismatch emits an explicit
+  unavailable location and note, never an excerpt from different text. Human
+  positions are one-based; excerpt tabs expand to four-column stops, Unicode text
+  is preserved. Summary contains command, succeeded, failed, incomplete and exit_code;
+  these count selected roots (files for fmt), not dependency files. Spanless IO and
+  cancellation errors use the same diagnostic envelope. Sort by context, normalized
+  path, offset, code and message; retain separate root-dependent diagnostics.
+- Eligibility feasibility: `analyze_parsed` truncates only after
+  `analyze_prepared`; body checking has an explicit per-function loop and separate
+  shared signature/constant preparation. TT04 will retain successful body IDs at
+  that producer boundary, before truncation, with shared-environment validity and
+  parser validity checked by HIR. Reused facts must carry the same evidence; no
+  per-function second analysis pass. Syntax-invalid files and invalid shared
+  signatures conservatively exclude semantic rules; a local body error excludes
+  only that body's facts. The linter queries this HIR-owned evidence rather than
+  interpreting diagnostic spans. This is a bounded addition to existing snapshots. Selected API:
+  `FileAnalysis::body_eligibility(FunctionId) -> BodyEligibility`, with unavailable,
+  complete-binding and complete-type evidence, queried only against the owning
+  file result. A snapshot-level shared-environment gate includes cross-file
+  signature/declaration errors. Existing `BodyReuse` rejects spanless truncation
+  diagnostics, and must also consult retained eligibility when restoring bodies.
+  `analysis/generic_type_tests/recovery.rs` already demonstrates recoverable facts
+  with strict-program rejection; TT04 extends that contract to positive eligibility,
+  mixed bodies and truncation rather than duplicating semantic checking.
+- Naming: use Unicode character case predicates without normalizing identifiers;
+  current parser accepts ASCII identifiers only, so this adds no grammar feature.
+  Leading underscores express intent. UpperCamelCase permits acronyms (`HTTPServer`);
+  snake_case rejects uppercase letters; globals reject lowercase letters. Digits
+  are neutral. No naming rule changes resolution or suggests an ASCII conversion.
+
+Concrete JSON success (one standalone file):
+
+```json
+{"type":"summary","command":"check","succeeded":1,"failed":0,"incomplete":0,"exit_code":0}
+```
+
+Concrete unavailable-input failure (no source location can be bound):
+
+```json
+{"type":"diagnostic","context":"app","code":"KG_INPUT","severity":"error","message":"src/lib.kgr: missing root module","location":null,"labels":[],"notes":[]}
+{"type":"diagnostic","context":"app","code":"KG_INPUT_INCOMPLETE","severity":"error","message":"module discovery is incomplete; this root was not checked","location":null,"labels":[],"notes":[]}
+{"type":"summary","command":"check","succeeded":0,"failed":0,"incomplete":1,"exit_code":1}
+```
+
 ## Formatter acceptance
 
 Use CST-aware formatting rules that produce a small layout representation
@@ -524,13 +601,44 @@ side effects. None is silently added to this milestone.
   suppression ownership/inheritance, link writeback, token adjacency and grammar scope.
 - [x] Apply the user's validation correction: full-workspace Clippy runs locally;
   full-workspace tests and exhaustive feature/backend validation remain CI-only.
-- [ ] TT01: resolve command/config/diagnostic decisions, acquisition and eligibility
+- [x] TT01: resolve command/config/diagnostic decisions, acquisition and eligibility
   contracts; complete check tooling.
 - [ ] TT02: single-file formatter foundation and stdin integration.
 - [ ] TT03: complete syntax coverage and project formatting.
 - [ ] TT04: lint policy and six initial rules.
 - [ ] TT05: focused acceptance, documentation migration and CI integration.
 
-Planning checkpoint: implementation unstarted; no carried implementation failures.
+Initial implementation inspection: clean worktree at `82bbf09f`; current package
+loaders fail fast, SDK check already uses strict HIR without lowering, and semantic
+diagnostic truncation happens after body analysis. TT01 implementation in progress;
+no validation results claimed yet.
 Documentation validation covers relative links, content consistency, line endings
 and diff hygiene. No Cargo builds/tests are needed for this documentation-only change.
+
+### TT01 working ledger
+
+Recoverable discovery and strict conversion now share one module loader. Check
+continues complete roots after source failures and publishes the lock only after
+all selected captures succeed. SDK presentation records moved to `kagari-source`
+without a compatibility alias; CLI renderers retain no HIR objects. Strict
+`Kagari.tools.toml` parsing and check JSON reporting are implemented.
+
+Validation in progress: scoped package build passed. Initial CLI build found one
+`String`/`&str` adapter mismatch, repaired before tests. Registry refresh retried
+partial transfers; dependency resolution succeeded using cached metadata with
+`--offline`. Initial structural scan found three qualified import paths, repaired.
+Selected checks: CLI command/project/report/config tests and package module-input
+contracts (recovery, alias/limits/cancellation); existing CLI artifact execution
+provides the small downstream regression set. Full workspace tests and exhaustive
+backend/platform validation remain CI-only. No checkpoint acceptance claimed yet.
+
+TT01 checkpoint acceptance: 11 selected CLI tests and 8 module-input tests passed.
+The initial CLI run had 10 passes and one failure because the report adapter hid
+an operational error's original text; repaired and reran that case successfully.
+Updated argument-validation test passed separately. Actual `kg check` JSON probes
+passed for success and return-type error; missing-file output also emitted a
+structured diagnostic and incomplete summary. The probe initially expected a
+relative path; corrected its expectation to the SDK's normalized absolute origin.
+Workspace/all-targets Clippy, structure (1249 files, zero findings), rustfmt and
+diff checks passed. No known local implementation failures remain. CI-only tests
+remain unrun. TT02 follows; no formatter/linter scaffolds were introduced in TT01.

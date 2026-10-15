@@ -2,9 +2,12 @@
 
 use crate::{error::PackageError, path};
 use kagari_common::{cancellation::CancellationToken, identity::MAX_IDENTITY_PATH_SEGMENTS};
-use kagari_source::source::SourceFile;
+use kagari_source::{diagnostic::Diagnostic, source::SourceFile};
 use kagari_syntax::{
-    ast::{item::Item, traits::AstNode},
+    ast::{
+        item::{Item, ModuleDef},
+        traits::AstNode,
+    },
     parser::parse_with_cancellation,
 };
 use std::{collections::BTreeMap, ops::Range, sync::Arc};
@@ -121,11 +124,58 @@ pub struct ModuleTree {
     pub files: BTreeMap<String, SourceText>,
 }
 
-impl ModuleTree {
-    /// Discovers declarations, rejecting ambiguity, duplicates, syntax errors and limits.
-    ///
-    /// Only declared modules are read; unrelated source files are ignored. Errors
-    /// and cancellation discard the entire candidate tree.
+/// Recoverable source discovery; incomplete trees cannot become compilation inputs.
+#[derive(Debug, Clone)]
+pub struct ModuleDiscovery {
+    tree: ModuleTree,
+    /// Syntax diagnostics paired with the exact captured source that owns their ranges.
+    diagnostics: Vec<(SourceFile, Vec<Diagnostic>)>,
+    /// Unavailable, ambiguous or otherwise invalid module inputs.
+    errors: Vec<PackageError>,
+}
+
+impl ModuleDiscovery {
+    /// Captured files, including syntax-invalid text. No completeness is implied.
+    pub fn files(&self) -> &BTreeMap<String, SourceText> {
+        &self.tree.files
+    }
+
+    /// Discovered module locations; missing children may remain undiscovered.
+    pub fn modules(&self) -> &BTreeMap<Vec<String>, ModuleSource> {
+        &self.tree.modules
+    }
+
+    pub fn diagnostics(&self) -> &[(SourceFile, Vec<Diagnostic>)] {
+        &self.diagnostics
+    }
+
+    pub fn errors(&self) -> &[PackageError] {
+        &self.errors
+    }
+
+    pub fn is_complete(&self) -> bool {
+        self.errors.is_empty() && self.diagnostics.is_empty()
+    }
+
+    /// Converts only complete, syntax-valid discovery to a compilation tree.
+    pub fn into_complete(self) -> Result<ModuleTree, PackageError> {
+        if let Some(error) = self.errors.into_iter().next() {
+            return Err(error);
+        }
+        if let Some((source, diagnostics)) = self.diagnostics.first() {
+            let diagnostic = &diagnostics[0];
+            return Err(PackageError::Input {
+                origin: source.name().into(),
+                range: diagnostic.span.map(|span| span.start..span.end),
+                message: diagnostic.to_string(),
+            });
+        }
+        Ok(self.tree)
+    }
+
+    /// Reads declared modules while retaining independent siblings after local failures.
+    /// Syntax-invalid files retain their text but do not authorize child discovery.
+    /// Cancellation is returned immediately; no partial result is published for it.
     pub fn load(
         input: &impl SourceInput,
         root: &str,
@@ -138,19 +188,36 @@ impl ModuleTree {
             input,
             limits,
             cancel,
-            tree: Self {
-                modules: BTreeMap::new(),
-                files: BTreeMap::new(),
+            discovery: Self {
+                tree: ModuleTree {
+                    modules: BTreeMap::new(),
+                    files: BTreeMap::new(),
+                },
+                diagnostics: Vec::new(),
+                errors: Vec::new(),
             },
             physical: BTreeMap::new(),
             total_bytes: 0,
         };
-        let source = loader
-            .read(&root)?
-            .ok_or_else(|| PackageError::input(&root, "missing root module"))?;
-        loader.file(Vec::new(), &root, path::parent(&root), source)?;
+        let result = loader.read(&root).and_then(|source| {
+            let source = source.ok_or_else(|| PackageError::input(&root, "missing root module"))?;
+            loader.file(Vec::new(), &root, path::parent(&root), source)
+        });
+        loader.retain(result)?;
         cancel.check()?;
-        Ok(loader.tree)
+        Ok(loader.discovery)
+    }
+}
+
+impl ModuleTree {
+    /// Loads a complete tree, rejecting every discovery failure before compilation.
+    pub fn load(
+        input: &impl SourceInput,
+        root: &str,
+        limits: ModuleLimits,
+        cancel: &CancellationToken,
+    ) -> Result<Self, PackageError> {
+        ModuleDiscovery::load(input, root, limits, cancel)?.into_complete()
     }
 }
 
@@ -158,7 +225,7 @@ struct Loader<'a, T> {
     input: &'a T,
     limits: ModuleLimits,
     cancel: &'a CancellationToken,
-    tree: ModuleTree,
+    discovery: ModuleDiscovery,
     physical: BTreeMap<String, String>,
     total_bytes: usize,
 }
@@ -178,20 +245,20 @@ impl<T: SourceInput> Loader<'_, T> {
     fn register(&mut self, module: Vec<String>, source: ModuleSource) -> Result<(), PackageError> {
         self.cancel.check()?;
         if module.len() > MAX_IDENTITY_PATH_SEGMENTS
-            || self.tree.modules.len() >= self.limits.max_modules
+            || self.discovery.tree.modules.len() >= self.limits.max_modules
         {
             return Err(PackageError::input(
                 &source.file,
                 "module tree exceeds limit",
             ));
         }
-        if self.tree.modules.contains_key(&module) {
+        if self.discovery.tree.modules.contains_key(&module) {
             return Err(PackageError::input(
                 &source.file,
                 format!("duplicate module {}", module.join("::")),
             ));
         }
-        self.tree.modules.insert(module, source);
+        self.discovery.tree.modules.insert(module, source);
         Ok(())
     }
 
@@ -225,18 +292,15 @@ impl<T: SourceInput> Loader<'_, T> {
             ));
         }
         self.total_bytes += source.text.len();
-        let parsed = parse_with_cancellation(
-            &SourceFile::new(&source.origin, source.text.as_ref()),
-            self.cancel,
-        )?;
-        if let Some(diagnostic) = parsed.diagnostics().first() {
-            return Err(PackageError::Input {
-                origin: source.origin,
-                range: diagnostic.span.map(|span| span.start..span.end),
-                message: diagnostic.to_string(),
-            });
+        let captured = SourceFile::new(&source.origin, source.text.as_ref());
+        self.discovery.tree.files.insert(file.into(), source);
+        let parsed = parse_with_cancellation(&captured, self.cancel)?;
+        if !parsed.diagnostics().is_empty() {
+            self.discovery
+                .diagnostics
+                .push((captured, parsed.diagnostics().to_vec()));
+            return Ok(());
         }
-        self.tree.files.insert(file.into(), source);
         self.items(parsed.syntax().items(), &module, file, directory)
     }
 
@@ -252,40 +316,63 @@ impl<T: SourceInput> Loader<'_, T> {
             let Item::ModuleDef(declaration) = item else {
                 continue;
             };
-            let name = declaration
-                .name_text()
-                .ok_or_else(|| PackageError::input(file, "module name missing"))?;
-            let mut module = parent.to_vec();
-            module.push(name.clone());
-            let child_directory = path::join(directory, &name, file)?;
-            if let Some(block) = declaration.block() {
-                let range = declaration.syntax().text_range();
-                self.register(
-                    module.clone(),
-                    ModuleSource {
-                        file: file.into(),
-                        inline_range: Some(usize::from(range.start())..usize::from(range.end())),
-                    },
-                )?;
-                self.items(block.items(), &module, file, &child_directory)?;
-            } else {
-                let flat = format!("{child_directory}.kgr");
-                let nested = format!("{child_directory}/mod.kgr");
-                match (self.read(&flat)?, self.read(&nested)?) {
-                    (Some(source), None) => self.file(module, &flat, &child_directory, source)?,
-                    (None, Some(source)) => self.file(module, &nested, &child_directory, source)?,
-                    (Some(_), Some(_)) => {
-                        return Err(PackageError::input(
-                            file,
-                            format!("ambiguous module {name}: both {flat} and {nested} exist"),
-                        ));
-                    }
-                    (None, None) => {
-                        return Err(PackageError::input(
-                            file,
-                            format!("missing module {name}: expected {flat} or {nested}"),
-                        ));
-                    }
+            let result = self.module(declaration, parent, file, directory);
+            self.retain(result)?;
+        }
+        Ok(())
+    }
+
+    fn retain(&mut self, result: Result<(), PackageError>) -> Result<(), PackageError> {
+        match result {
+            Err(PackageError::Cancelled) => Err(PackageError::Cancelled),
+            Err(error) => {
+                self.discovery.errors.push(error);
+                Ok(())
+            }
+            Ok(()) => Ok(()),
+        }
+    }
+
+    fn module(
+        &mut self,
+        declaration: ModuleDef,
+        parent: &[String],
+        file: &str,
+        directory: &str,
+    ) -> Result<(), PackageError> {
+        let name = declaration
+            .name_text()
+            .ok_or_else(|| PackageError::input(file, "module name missing"))?;
+        let mut module = parent.to_vec();
+        module.push(name.clone());
+        let child_directory = path::join(directory, &name, file)?;
+        if let Some(block) = declaration.block() {
+            let range = declaration.syntax().text_range();
+            self.register(
+                module.clone(),
+                ModuleSource {
+                    file: file.into(),
+                    inline_range: Some(usize::from(range.start())..usize::from(range.end())),
+                },
+            )?;
+            self.items(block.items(), &module, file, &child_directory)?;
+        } else {
+            let flat = format!("{child_directory}.kgr");
+            let nested = format!("{child_directory}/mod.kgr");
+            match (self.read(&flat)?, self.read(&nested)?) {
+                (Some(source), None) => self.file(module, &flat, &child_directory, source)?,
+                (None, Some(source)) => self.file(module, &nested, &child_directory, source)?,
+                (Some(_), Some(_)) => {
+                    return Err(PackageError::input(
+                        file,
+                        format!("ambiguous module {name}: both {flat} and {nested} exist"),
+                    ));
+                }
+                (None, None) => {
+                    return Err(PackageError::input(
+                        file,
+                        format!("missing module {name}: expected {flat} or {nested}"),
+                    ));
                 }
             }
         }

@@ -383,3 +383,38 @@ fn filesystem_rejects_escaped_links_and_duplicate_physical_module_sources() {
         "{error}"
     );
 }
+
+#[test]
+fn recovery_retains_invalid_text_and_independent_siblings_without_complete_evidence() {
+    use crate::modules::ModuleDiscovery;
+
+    let input = sources(&[
+        ("lib.kgr", "mod broken; mod absent; mod healthy;"),
+        ("broken.kgr", "mod hidden; fn broken("),
+        ("broken/hidden.kgr", "fn hidden() {}"),
+        ("healthy.kgr", "mod leaf;"),
+        ("healthy/leaf.kgr", "fn leaf() {}"),
+    ]);
+    let discovery = ModuleDiscovery::load(
+        &input,
+        "lib.kgr",
+        ModuleLimits::default(),
+        &CancellationToken::default(),
+    )
+    .unwrap();
+    assert!(!discovery.is_complete());
+    assert_eq!(
+        discovery.files()["broken.kgr"].text.as_ref(),
+        "mod hidden; fn broken("
+    );
+    assert!(discovery.files().contains_key("healthy/leaf.kgr"));
+    assert!(!discovery.files().contains_key("broken/hidden.kgr"));
+    assert!(!discovery.diagnostics()[0].1.is_empty());
+    assert!(
+        discovery
+            .errors()
+            .iter()
+            .any(|error| error.to_string().contains("missing module absent"))
+    );
+    assert!(discovery.into_complete().is_err());
+}

@@ -2,7 +2,7 @@
 use crate::{
     BytecodeArtifact, CompileResult,
     engine::{KagariEngine, packages::PackageBuildInput},
-    error::{CompilationPhase, EmbeddingDiagnostic, EmbeddingError},
+    error::{CompilationPhase, EmbeddingError},
 };
 
 use blake3::Hasher;
@@ -41,6 +41,7 @@ use kagari_mir::{
 use kagari_package::{error::PackageError, snapshot::ProgramInputs};
 use kagari_source::{
     identity::FileId,
+    presentation::DiagnosticRecord,
     source::SourceFile,
     source_database::{SourceLayer, SourceSnapshot},
 };
@@ -328,7 +329,7 @@ impl KagariEngine {
                     diagnostics: records
                         .into_iter()
                         .map(|record| {
-                            EmbeddingDiagnostic::from_diagnostic(
+                            DiagnosticRecord::from_diagnostic(
                                 record.diagnostic,
                                 snapshot.file(record.file).expect("checked source").source(),
                             )
@@ -354,7 +355,7 @@ impl KagariEngine {
                         let file = snapshot.file(node.file).expect("graph source");
                         diagnostics.extend(node.imports.diagnostics.iter().cloned().map(
                             |diagnostic| {
-                                EmbeddingDiagnostic::from_diagnostic(diagnostic, file.source())
+                                DiagnosticRecord::from_diagnostic(diagnostic, file.source())
                             },
                         ));
                     }

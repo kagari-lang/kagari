@@ -8,7 +8,7 @@ use crate::{
     lock::{Lockfile, ResolutionOptions},
     modules::ModuleLimits,
     path,
-    snapshot::ProgramInputs,
+    snapshot::{ProgramCapture, ProgramInputs},
     workspace::{MemberSelection, WorkspaceInputs},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -41,18 +41,23 @@ pub struct ProjectInputs {
     programs: BTreeMap<String, ProgramInputs>,
 }
 
-impl ProjectInputs {
-    /// Resolves a project and captures each selected root without writing files.
-    ///
-    /// `directory` names the invoking manifest directory relative to the approved
-    /// input root. Discovery/inheritance, selection and locking use their existing
-    /// owners. Filesystem and virtual inputs therefore follow exactly the same
-    /// policy. The existing lock is read from the discovered workspace root.
-    /// Publish `lockfile()` separately through `Lockfile::publish` when desired.
-    ///
-    /// Returns manifest/selection/lock/capture errors or cancellation. No partial
-    /// project is returned. Mutable filesystem providers retain their documented
-    /// host-controlled mutation assumption; this is not an OS snapshot operation.
+/// Resolved project with independent root capture outcomes and an unpublished lock.
+#[derive(Debug, Clone)]
+pub struct ProjectDiscovery {
+    pub workspace: WorkspaceInputs,
+    pub graph: ResolvedGraph,
+    pub lock: Lockfile,
+    pub roots: BTreeMap<String, ProgramCapture>,
+}
+
+impl ProjectDiscovery {
+    pub fn is_complete(&self) -> bool {
+        self.roots.values().all(|root| root.program.is_some())
+    }
+
+    /// Resolves once, retaining each selected root's independent capture result.
+    /// Request-wide manifest/resolution errors and cancellation remain fatal.
+    /// Callers must not publish the lock when any root is incomplete.
     pub fn load(
         input: &impl InputTree,
         directory: &str,
@@ -77,13 +82,13 @@ impl ProjectInputs {
             options.graph_limits,
             cancel,
         )?;
-        let mut programs = BTreeMap::new();
+        let mut roots = BTreeMap::new();
         for (directory, _) in selected {
             let member = path::relative(&workspace.directory, directory);
             let root = &graph.members()[&member];
-            programs.insert(
+            roots.insert(
                 member,
-                graph.capture(input, root, options.module_limits, cancel)?,
+                graph.capture_recovering(input, root, options.module_limits, cancel)?,
             );
         }
         cancel.check()?;
@@ -91,6 +96,39 @@ impl ProjectInputs {
             lock: Lockfile::from_graph(&graph),
             workspace,
             graph,
+            roots,
+        })
+    }
+}
+
+impl ProjectInputs {
+    /// Resolves a project and captures each selected root without writing files.
+    ///
+    /// `directory` names the invoking manifest directory relative to the approved
+    /// input root. Discovery/inheritance, selection and locking use their existing
+    /// owners. Filesystem and virtual inputs therefore follow exactly the same
+    /// policy. The existing lock is read from the discovered workspace root.
+    /// Publish `lockfile()` separately through `Lockfile::publish` when desired.
+    ///
+    /// Returns manifest/selection/lock/capture errors or cancellation. No partial
+    /// project is returned. Mutable filesystem providers retain their documented
+    /// host-controlled mutation assumption; this is not an OS snapshot operation.
+    pub fn load(
+        input: &impl InputTree,
+        directory: &str,
+        options: &ProjectOptions,
+        cancel: &CancellationToken,
+    ) -> Result<Self, PackageError> {
+        let discovery = ProjectDiscovery::load(input, directory, options, cancel)?;
+        let programs = discovery
+            .roots
+            .into_iter()
+            .map(|(member, capture)| capture.into_complete().map(|program| (member, program)))
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            workspace: discovery.workspace,
+            graph: discovery.graph,
+            lock: discovery.lock,
             programs,
         })
     }

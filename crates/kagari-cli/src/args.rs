@@ -1,6 +1,6 @@
 //! Command selection and validation, independent of filesystem discovery.
 
-use crate::CliError;
+use crate::{CliError, report::MessageFormat};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,6 +23,7 @@ pub(crate) enum Command {
     },
     Check {
         source: PathBuf,
+        format: MessageFormat,
     },
     Emit {
         source: PathBuf,
@@ -49,6 +50,7 @@ pub(crate) enum ProjectAction {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct ProjectArgs {
+    pub message_format: MessageFormat,
     pub manifest: Option<PathBuf>,
     pub input_root: Option<PathBuf>,
     pub packages: Vec<String>,
@@ -64,6 +66,7 @@ struct Arguments {
     project: ProjectArgs,
     jit: bool,
     jit_option: bool,
+    message_option: bool,
 }
 
 impl Arguments {
@@ -72,6 +75,19 @@ impl Arguments {
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--message-format" => {
+                    result.message_option = true;
+                    result.project.message_format = match value(&mut args, &arg)?.as_str() {
+                        "human" => MessageFormat::Human,
+                        "json" => MessageFormat::Json,
+                        _ => {
+                            return Err(CliError::message(
+                                2,
+                                "--message-format expects human or json",
+                            ));
+                        }
+                    };
+                }
                 "--" => {
                     result.positionals.extend(args);
                     break;
@@ -146,6 +162,12 @@ impl Cli {
             ));
         }
         let name = if explicit { first.as_str() } else { "implicit" };
+        if parsed.message_option && name != "check" {
+            return Err(CliError::message(
+                2,
+                "--message-format applies only to check",
+            ));
+        }
         if parsed.jit_option && !matches!(name, "run" | "run-artifact" | "implicit") {
             return Err(CliError::message(2, "JIT options apply only to execution"));
         }
@@ -190,7 +212,10 @@ impl Cli {
             },
             "run-aot" => Command::RunAot { bundle: source },
             "parse" => Command::Parse { source },
-            "check" => Command::Check { source },
+            "check" => Command::Check {
+                source,
+                format: parsed.project.message_format,
+            },
             "emit" => Command::Emit {
                 output: parsed
                     .project
@@ -223,7 +248,7 @@ pub(crate) fn usage() -> String {
         "  kg parse <script.kgr>",
         "  kg build-aot <script.kgr> [-o bundle-dir] (feature aot; KAGARI_AOT_LINKER selects linker)",
         "  kg run-aot <trusted-bundle-dir> (feature aot; executes trusted native code)",
-        "  kg check [script.kgr] [project options]",
+        "  kg check [script.kgr] [project options] [--message-format human|json]",
         "  kg build [-o artifact.kbc] [project options]",
         "  kg emit [-o artifact.kbc] <script.kgr>",
         "  kg run [--jit] [script.kgr] [project options]",
@@ -237,6 +262,7 @@ pub(crate) fn usage() -> String {
 #[cfg(test)]
 mod tests {
     use super::{Cli, Command, ProjectAction};
+    use crate::report::MessageFormat;
 
     #[test]
     fn project_options_are_order_independent_and_command_scoped() {
@@ -261,6 +287,15 @@ mod tests {
             Some("project/Kagari.toml")
         );
         assert!(parse(&["run", "main.kgr", "--jit"]).unwrap().jit);
+        assert!(matches!(
+            parse(&["check", "main.kgr", "--message-format", "json"])
+                .unwrap()
+                .command,
+            Command::Check {
+                format: MessageFormat::Json,
+                ..
+            }
+        ));
         for args in [
             vec!["check", "main.kgr", "--locked"],
             vec!["check", "-o", "ignored.kbc"],
@@ -269,6 +304,9 @@ mod tests {
             vec!["build", "main.kgr"],
             vec!["parse", "--unknown"],
             vec!["check", "--jit"],
+            vec!["check", "--message-format", "yaml"],
+            vec!["build", "--message-format", "json"],
+            vec!["check", "--fix"],
         ] {
             assert!(parse(&args).is_err(), "{args:?}");
         }

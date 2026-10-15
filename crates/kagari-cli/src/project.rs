@@ -7,7 +7,7 @@ mod tests;
 use crate::{
     CliError,
     args::{ProjectAction, ProjectArgs},
-    print_source_error, run_loaded_artifact, source_engine,
+    checking, print_source_error, run_loaded_artifact, source_engine,
 };
 use kagari::{engine::source::ArtifactOptions, runtime::LoadOptions};
 use kagari_common::cancellation::CancellationToken;
@@ -36,6 +36,9 @@ fn run_from(
     jit: bool,
     cwd: &Path,
 ) -> Result<(), CliError> {
+    if action == ProjectAction::Check {
+        return checking::project(&args, cwd);
+    }
     let cancel = CancellationToken::default();
     let (source, directory) = locate(&args, cwd)?;
     let options = ProjectOptions {
@@ -121,7 +124,10 @@ fn run_from(
 /// The CLI admits explicitly declared local inputs on the invoking filesystem
 /// volume. --input-root narrows this policy; embedding hosts always supply their
 /// own provider root. Workspace ownership and path normalization stay in package.
-fn locate(args: &ProjectArgs, cwd: &Path) -> Result<(FilesystemSources, String), CliError> {
+pub(crate) fn locate(
+    args: &ProjectArgs,
+    cwd: &Path,
+) -> Result<(FilesystemSources, String), CliError> {
     let boundary = args
         .input_root
         .as_ref()
