@@ -568,3 +568,11 @@ TP01-TP04 matched preparation/retained-memory acceptance remain open; the plan i
 retained for those explicitly deferred measurements, not for unfinished layout
 implementation. Durable placement/exception rules are in testing.md. Temporary
 probes and the original-target failure reproduction have been removed.
+
+CLI follow-up: reproduced the project artifact test failing at runtime loading
+with `native declaration differs from its installed contract`. CLI builds install
+the host logging contract, but the test loaded their artifacts with the default SDK
+engine. The test now uses the CLI runtime engine, preserving all artifact, export,
+lock and edited-dependency assertions. Both `project::tests::` cases pass;
+CLI binary/test Clippy, structure, formatting and diff checks pass. This focused
+fixture repair does not change production behavior or the pending CI scope.

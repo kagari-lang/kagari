@@ -1,8 +1,9 @@
 use crate::{
     args::{ProjectAction, ProjectArgs},
     project::{locate, run_from},
+    runtime_engine,
 };
-use kagari::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use kagari::{BytecodeArtifact, program::PreparedProgram};
 use std::{
     collections::BTreeSet,
     fs,
@@ -97,7 +98,8 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
         3,
         "each selected root has a separate Program"
     );
-    let engine = KagariEngine::default();
+    // CLI artifacts carry host::log even when the package does not call it.
+    let engine = runtime_engine().unwrap();
     let mut roots = BTreeSet::new();
     for path in &previous {
         let artifact = BytecodeArtifact::from_bytes(&fs::read(path).unwrap()).unwrap();
