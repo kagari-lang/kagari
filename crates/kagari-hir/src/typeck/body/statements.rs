@@ -73,14 +73,10 @@ impl<'a> BodyChecker<'a> {
                             .with_span(self.lowered.source_map.type_span(ty)),
                         );
                     }
-                    check::validate_standard_type_constraints(
-                        self.declarations.definitions(),
+                    check::validate_reference_position(
                         &resolved,
-                        &env.generic_bounds,
                         self.lowered.source_map.type_span(ty),
                         self.diagnostics,
-                        self.cancel,
-                        Some(self.aggregates),
                     );
                     resolved
                 });

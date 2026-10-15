@@ -4,7 +4,7 @@ use super::{Case, Expected, Value, run_routes};
 fn generic_aggregate_layout_instances() {
     let generic_aggregates = Case::new(
         "generic-aggregate-layout-instances",
-        "pub struct Cell<T> { var value: T } pub enum Packet<T> { Data(T) } pub enum Unused<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool, bool) { val a = Cell { value: 7 }; val b = Cell { value: true }; a.value = 8; (get(a), get(b), Packet::Data(7) == Packet::Data(7)) }",
+        "pub struct Cell<T> { var value: T } pub enum Packet<T> { Data(T) } impl<T: PartialEq> PartialEq for Packet<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Packet::Data(a), Packet::Data(b)) => a == b } } } pub enum Unused<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool, bool) { val a = Cell { value: 7 }; val b = Cell { value: true }; a.value = 8; (get(a), get(b), Packet::Data(7) == Packet::Data(7)) }",
         Expected::Value(|heap| {
             heap.alloc_tuple(vec![Value::I32(8), Value::Bool(true), Value::Bool(true)])
                 .unwrap()
@@ -160,7 +160,7 @@ fn enum_unit_call_rejected() {
 fn enum_value_members() {
     run_routes(&Case::new(
         "enum-value-members",
-        "enum Event { Empty, Data(i32, String) } fn main() -> bool { Event::Empty == Event::Empty && Event::Data(7, \"x\") == Event::Data(7, \"x\") && Event::Data(7, \"x\") != Event::Data(8, \"x\") }",
+        "enum Event { Empty, Data(i32, String) } impl PartialEq for Event { fn eq(self, other: Self) -> bool { match (self, other) { (Event::Empty, Event::Empty) => true, (Event::Data(a, b), Event::Data(c, d)) => a == c && b == d, _ => false } } } fn main() -> bool { Event::Empty == Event::Empty && Event::Data(7, \"x\") == Event::Data(7, \"x\") && Event::Data(7, \"x\") != Event::Data(8, \"x\") }",
         Expected::Value(|_| Value::Bool(true)),
     ));
 }
@@ -169,14 +169,14 @@ fn enum_value_members() {
 fn enum_alias_members() {
     run_routes(&Case::new(
         "enum-alias-members",
-        "enum Event { Data([i32]) } fn main() -> bool { val a = [1]; val x = Event::Data(a); a[0] = 2; x == Event::Data(a) && x != Event::Data([2]) }",
+        "enum Event { Data([i32]) } impl PartialEq for Event { fn eq(self, other: Self) -> bool { match (self, other) { (Event::Data(a), Event::Data(b)) => a === b } } } fn main() -> bool { val a = [1]; val x = Event::Data(a); a[0] = 2; x == Event::Data(a) && x != Event::Data([2]) }",
         Expected::Value(|_| Value::Bool(true)),
     ));
 }
 
 #[test]
 fn enum_evaluation_order() {
-    run_routes(&Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(|_| Value::Bool(true))).effects(&["first", "second"], &["first", "second"]));
+    run_routes(&Case::new("enum-evaluation-order", "enum Event { Data(i32, i32) } impl PartialEq for Event { fn eq(self, other: Self) -> bool { match (self, other) { (Event::Data(a, b), Event::Data(c, d)) => a == c && b == d } } } fn first() -> i32 { print(\"first\"); 1 } fn second() -> i32 { print(\"second\"); 2 } fn main() -> bool { Event::Data(first(), second()) == Event::Data(1, 2) }", Expected::Value(|_| Value::Bool(true))).effects(&["first", "second"], &["first", "second"]));
 }
 
 #[test]
@@ -678,7 +678,7 @@ fn enum_different_members() {
 fn enum_object_identity() {
     run_routes(&Case::new(
         "enum_object_identity",
-        "fn main() -> bool { val a = Vec::from([[1]]); val b = Vec::from([[1]]); a.pop() != b.pop() }",
+        "fn main() -> bool { val a = Vec::from([[1]]); val b = Vec::from([[1]]); match (a.pop(), b.pop()) { (Some(left), Some(right)) => left !== right, _ => false } }",
         Expected::Value(|_| Value::Bool(true)),
     ));
 }
@@ -687,7 +687,7 @@ fn enum_object_identity() {
 fn enum_tuple_members_keep_map_identity() {
     run_routes(&Case::new(
         "enum_tuple_members_keep_map_identity",
-        "use std::collections::{HashMap};\nenum Packet { Data((HashMap<String, i32>, i32)) } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b: HashMap<String, i32> = HashMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }",
+        "use std::collections::{HashMap};\nenum Packet { Data((HashMap<String, i32>, i32)) } impl PartialEq for Packet { fn eq(self, other: Self) -> bool { match (self, other) { (Packet::Data(a), Packet::Data(b)) => a[0] === b[0] && a[1] == b[1] } } } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b: HashMap<String, i32> = HashMap::new(); val x = Packet::Data((a, 7)); val y = x; a.insert(\"key\", 42); b.insert(\"key\", 42); x == y && x == Packet::Data((a, 7)) && x != Packet::Data((b, 7)) }",
         Expected::Value(|_| Value::Bool(true)),
     ));
 }

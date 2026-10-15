@@ -700,7 +700,7 @@ fn alias() {
 fn object_identity() {
     run_routes(&Case::new(
         "object_identity",
-        "struct P { var n: i32 } fn main() -> bool { val a = P { n: 1 }; val b = P { n: 1 }; a == b }",
+        "struct P { var n: i32 } fn main() -> bool { val a = P { n: 1 }; val b = P { n: 1 }; a === b }",
         Expected::Value(|_| Value::Bool(false)),
     ));
 }
@@ -762,7 +762,7 @@ fn missing_name() {
 fn map_alias_through_call() {
     run_routes(&Case::new(
         "map_alias_through_call",
-        "use std::collections::{HashMap};\nfn change(value: HashMap<String, i32>) -> HashMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b = change(a); val fresh: HashMap<String, i32> = HashMap::new(); fresh.insert(\"key\", 42); a == b && a != fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }",
+        "use std::collections::{HashMap};\nfn change(value: HashMap<String, i32>) -> HashMap<String, i32> { value.insert(\"key\", 42); value } fn main() -> bool { val a: HashMap<String, i32> = HashMap::new(); val b = change(a); val fresh: HashMap<String, i32> = HashMap::new(); fresh.insert(\"key\", 42); a === b && a !== fresh && a.get(\"key\") == b.get(\"key\") && a.len() == [0].len() }",
         Expected::Value(|_| Value::Bool(true)),
     ));
 }
@@ -771,7 +771,7 @@ fn map_alias_through_call() {
 fn set_alias_through_call() {
     run_routes(&Case::new(
         "set_alias_through_call",
-        "use std::collections::{HashSet};\nfn change(value: HashSet<String>) -> HashSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: HashSet<String> = HashSet::new(); val b = change(a); val fresh: HashSet<String> = HashSet::new(); fresh.insert(\"key\"); a == b && a != fresh && a.contains(\"key\") }",
+        "use std::collections::{HashSet};\nfn change(value: HashSet<String>) -> HashSet<String> { value.insert(\"key\"); value } fn main() -> bool { val a: HashSet<String> = HashSet::new(); val b = change(a); val fresh: HashSet<String> = HashSet::new(); fresh.insert(\"key\"); a === b && a !== fresh && a.contains(\"key\") }",
         Expected::Value(|_| Value::Bool(true)),
     ));
 }

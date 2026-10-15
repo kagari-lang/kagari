@@ -37,7 +37,7 @@ fn generic_trait_method_bounds_reject_invalid_arguments() {
 #[test]
 fn explicit_enum_arguments_execute_with_distinct_concrete_layouts() {
     execute_contextual_source(
-        "enum Token<T> { Empty, Data(T) } fn empty<T>() -> Token<T> { Token<T>::Empty } fn main() -> i32 { val a = Token<i32>::Data(7); val b = Token<bool>::Data(true); val e: Token<i32> = empty(); if a == Token<i32>::Data(7) && b == Token<bool>::Data(true) && e == Token<i32>::Empty { 42 } else { 0 } }",
+        "enum Token<T> { Empty, Data(T) } impl<T: PartialEq> PartialEq for Token<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Token::Empty, Token::Empty) => true, (Token::Data(a), Token::Data(b)) => a == b, _ => false } } } fn empty<T>() -> Token<T> { Token<T>::Empty } fn main() -> i32 { val a = Token<i32>::Data(7); val b = Token<bool>::Data(true); val e: Token<i32> = empty(); if a == Token<i32>::Data(7) && b == Token<bool>::Data(true) && e == Token<i32>::Empty { 42 } else { 0 } }",
         42,
     );
 }
@@ -85,7 +85,7 @@ fn explicit_returns_execute_without_a_synthetic_unit_result() {
 #[test]
 fn contextual_phantom_layouts_execute_from_source_and_encoded_artifacts() {
     execute_contextual_source(
-        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty; val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",
+        "struct Marker<T> { val value: i32 } struct Outer<T> { val marker: Marker<T> } enum Tag<T> { Empty, Data(Marker<T>) } impl<T> PartialEq for Tag<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Tag::Empty, Tag::Empty) => true, (Tag::Data(a), Tag::Data(b)) => a.value == b.value, _ => false } } } fn tag() -> Tag<i32> { Tag::Empty } fn build() -> (Outer<i32>, [Outer<bool>]) { (if true { Outer { marker: Marker { value: 20 } } } else { Outer { marker: Marker { value: 0 } } }, [match 1 { 1 => Outer { marker: Marker { value: 22 } }, _ => Outer { marker: Marker { value: 0 } } }]) } fn main() -> i32 { val a: Outer<i32> = Outer { marker: Marker { value: 20 } }; val b: Outer<bool> = Outer { marker: Marker { value: 22 } }; val result = build(); val empty: Tag<i32> = Tag::Empty; val payload: Tag<bool> = Tag::Data(Marker { value: 5 }); if empty == tag() { result[0].marker.value + result[1][0].marker.value + a.marker.value + b.marker.value } else { 0 } }",
         84,
     );
 }
@@ -113,7 +113,7 @@ fn generic_calls_propagate_result_and_preceding_argument_context() {
     execute_contextual_source(
         r#"
         struct Marker<T> { val value: i32 }
-        enum Token<T> { Empty }
+        enum Token<T> { Empty } impl<T> PartialEq for Token<T> { fn eq(self, other: Self) -> bool { true } }
         fn identity<T>(value: T) -> T { value }
         fn empty<T>() -> Token<T> { Token::Empty }
         fn consume<T>(seed: T, marker: Marker<T>) -> i32 { marker.value }
@@ -205,7 +205,7 @@ fn constructor_members_propagate_context_in_source_order() {
         fn main() -> i32 {
             val bundle = Bundle { seed: 20, marker: Marker { value: 22 } };
             val packet = Packet::Data(true, Marker { value: 7 });
-            if packet == packet { bundle.seed + bundle.marker.value } else { 0 }
+            if (match packet { Packet::Data(seed, marker) => seed && marker.value == 7 }) { bundle.seed + bundle.marker.value } else { 0 }
         }
     "#,
         42,
@@ -325,7 +325,7 @@ fn partially_inferred_parameters_preserve_independent_constructor_context() {
 #[test]
 fn partial_constructor_member_context_executes_for_structs_and_enums() {
     execute_contextual_source(
-        "enum Token<T> { Empty } struct Pair<T> { val pair: (Token<i32>, T) } enum Payload<T> { Pair((Token<i32>, T)) } fn main() -> i32 { val item = Pair { pair: (Token::Empty, 20) }; val payload = Payload::Pair((Token::Empty, 22)); if payload == Payload<i32>::Pair((Token<i32>::Empty, 22)) { item.pair[1] + 22 } else { 0 } }",
+        "enum Token<T> { Empty } impl<T> PartialEq for Token<T> { fn eq(self, other: Self) -> bool { true } } struct Pair<T> { val pair: (Token<i32>, T) } enum Payload<T> { Pair((Token<i32>, T)) } impl<T: PartialEq> PartialEq for Payload<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Payload::Pair(a), Payload::Pair(b)) => a == b } } } fn main() -> i32 { val item = Pair { pair: (Token::Empty, 20) }; val payload = Payload::Pair((Token::Empty, 22)); if payload == Payload<i32>::Pair((Token<i32>::Empty, 22)) { item.pair[1] + 22 } else { 0 } }",
         42,
     );
 }
@@ -357,7 +357,7 @@ fn generic_negation_executes_using_checked_signed_number_bounds() {
 #[test]
 fn binary_context_preserves_constructor_inference_and_left_to_right_evaluation() {
     execute_contextual_source(
-        "enum Token<T> { Empty } struct Count { var value: i32 } fn left(count: Count) -> Token<i32> { count.value = count.value * 10 + 1; Token::Empty } fn right<T>(count: Count) -> Token<T> { count.value = count.value * 10 + 2; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; if left(count) == right(count) && Token<i32>::Empty == Token::Empty { count.value + 30 } else { 0 } }",
+        "enum Token<T> { Empty } impl<T> PartialEq for Token<T> { fn eq(self, other: Self) -> bool { true } } struct Count { var value: i32 } fn left(count: Count) -> Token<i32> { count.value = count.value * 10 + 1; Token::Empty } fn right<T>(count: Count) -> Token<T> { count.value = count.value * 10 + 2; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; if left(count) == right(count) && Token<i32>::Empty == Token::Empty { count.value + 30 } else { 0 } }",
         42,
     );
 }
@@ -365,7 +365,7 @@ fn binary_context_preserves_constructor_inference_and_left_to_right_evaluation()
 #[test]
 fn array_and_branch_context_execute_with_selected_branch_side_effects() {
     execute_contextual_source(
-        "enum Token<T> { Empty } struct Count { var value: i32 } fn tick<T>(count: Count) -> Token<T> { count.value += 1; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; val values = [Token<i32>::Empty, tick(count)]; val a = if false { Token<i32>::Empty } else { tick(count) }; val b = match false { true => Token<i32>::Empty, false => tick(count) }; if values[1] == a && a == b { count.value + 39 } else { 0 } }",
+        "enum Token<T> { Empty } impl<T> PartialEq for Token<T> { fn eq(self, other: Self) -> bool { true } } struct Count { var value: i32 } fn tick<T>(count: Count) -> Token<T> { count.value += 1; Token::Empty } fn main() -> i32 { val count = Count { value: 0 }; val values = [Token<i32>::Empty, tick(count)]; val a = if false { Token<i32>::Empty } else { tick(count) }; val b = match false { true => Token<i32>::Empty, false => tick(count) }; if values[1] == a && a == b { count.value + 39 } else { 0 } }",
         42,
     );
 }

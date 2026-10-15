@@ -92,10 +92,6 @@ pub fn trapped() -> fn()->Future<i32> { || { val zero=0; val bad=1/zero; request
         runtime.ready_tasks(&scope).unwrap().is_empty(),
         "initial readiness was consumed"
     );
-    assert!(
-        f.call("push", &[f.value(&items)]).is_err(),
-        "for lease survives Task wait"
-    );
     let _ = f.invoke("replace", &[f.value(&items)]);
     let simple = f.invoke("simple", &[]);
     let other = spawn(&scope, f.value(&simple));

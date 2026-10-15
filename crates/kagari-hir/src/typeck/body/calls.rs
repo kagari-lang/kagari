@@ -621,7 +621,7 @@ impl<'a> BodyChecker<'a> {
                 &env.generic_bounds,
                 self.lowered.source_map.expr_span(span_expr),
                 self.diagnostics,
-                Some(self.aggregates),
+                self.aggregates,
             );
         }
     }

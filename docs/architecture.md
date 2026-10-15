@@ -1683,6 +1683,18 @@ application validation distinguishes static trait references from interface valu
 types in declarations, layouts and body slots, even when no construction or call
 uses them. MIR and bytecode share that value-type validation.
 
+HIR validates collection key constraints once through the complete applied catalog,
+including partially resolved annotations and constants. Signature preparation still
+checks scoped-reference placement, but does not duplicate collection eligibility
+before implementation facts are available.
+
+Interface call slot validation checks the applied input/output types separately
+from bound proofs. For `R: FromResidual<A::Residual>`, substitution can leave a
+concrete associated projection in the bound even when all executable slots are
+resolved. The linked contract checker normalizes that projection, validates the
+resulting bound scope, and proves the constraint and its operation witnesses.
+Declaration-level interface admission continues to check method binder scopes.
+
 Compiler-generated interface bridges retain either installed host mappings or
 existing intrinsic protocol evidence. Intrinsic bridges call the ordinary checked
 protocol adapters; MIR and bytecode verify their forwarding targets. Bridge tables

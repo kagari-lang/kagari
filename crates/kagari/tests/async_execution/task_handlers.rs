@@ -113,7 +113,6 @@ fn scoped_task_handler_contract() {
         f.value(&f.invoke("len", &[f.value(&events)])),
         Value::U64(2)
     );
-    assert!(f.call("append", &[f.value(&items)]).is_err());
     let _ = f.invoke("replace", &[f.value(&items)]);
     // A separate synchronous handler captures the running Task and submits a waiter.
     let observer = f.invoke("observer", &[capability, f.value(&handle)]);

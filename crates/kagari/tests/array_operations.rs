@@ -197,7 +197,7 @@ fn repeated_arrays_reject_mutable_identity_even_when_nested_or_empty() {
 fn repeated_value_aggregates_keep_value_semantics() {
     execute(
         r#"
-    enum Wrapped<T> { Empty, Data(T) }
+    enum Wrapped<T> { Empty, Data(T) } impl<T: PartialEq> PartialEq for Wrapped<T> { fn eq(self, other: Self) -> bool { match (self, other) { (Wrapped::Empty, Wrapped::Empty) => true, (Wrapped::Data(a), Wrapped::Data(b)) => a == b, _ => false } } }
     fn main() -> i32 {
         val enums = [Wrapped::Data((1, "hello")); 2];
         val options: [Option<i32>] = [None; 2];

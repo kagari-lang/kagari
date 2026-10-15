@@ -16,13 +16,16 @@ impl<T> Producer for Holder<T> {
     type Items = Vec<T>;
     fn items(self) -> Vec<T> { Vec::from([self.item]) }
 }
+trait Accept<T> {}
+impl<T> Accept<Vec<T>> for Holder<T> {}
 trait Relay {
-    fn relay<P: Producer>(self, source: P) -> P::Items { source.items() }
+    fn relay<P: Producer, R: Accept<P::Items>>(self, source: P, marker: R) -> P::Items { source.items() }
 }
 impl Relay for i32 {}
 pub fn main() -> i32 {
     val relay: Relay = 0;
-    relay.relay(Holder { item: Item { value: 42 } })[0].value
+    val holder = Holder { item: Item { value: 42 } };
+    relay.relay(holder, holder)[0].value
 }
 "#;
 
@@ -76,7 +79,7 @@ fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
 fn interface_signature_normalizations_are_evidence_not_trusted_type_overrides() {
     let context = DefinitionContext::new().unwrap();
     let program = common::adopt_bytecode(&context, common::bytecode_ok(SOURCE));
-    for mutation in 0..5 {
+    for mutation in 0..6 {
         let mut forged = program.clone();
         let call = forged
             .modules
@@ -104,6 +107,14 @@ fn interface_signature_normalizations_are_evidence_not_trusted_type_overrides() 
                 nominal.arguments[0] = Ty::Builtin(BuiltinType::Bool);
             }
             4 => call.normalizations[0].result = call.normalizations[0].source.clone(),
+            5 => {
+                // Item has the same heap representation as Holder<Item>, but
+                // cannot prove Accept<Vec<Item>> after P::Items normalization.
+                let Ty::Struct(holder) = &call.arguments[1] else {
+                    panic!("Holder argument")
+                };
+                call.arguments[1] = holder.arguments[0].clone();
+            }
             _ => unreachable!(),
         }
         assert!(

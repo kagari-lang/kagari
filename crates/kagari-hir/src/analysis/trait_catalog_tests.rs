@@ -444,6 +444,15 @@ fn imported_methods_keep_checked_parameters_self_types_and_source_targets() {
         "unused",
         "pub trait Hidden { fn read(self); }",
     );
+    sources
+        .bind_module(
+            "unused",
+            ModuleIdentity {
+                package: PackageId("independent".into()),
+                path: vec!["unused".into()],
+            },
+        )
+        .unwrap();
     insert(&mut sources, "facade", "pub use pkg::left::View;");
     let text = "use pkg::facade::View as L; use pkg::right::View as R; fn left(x: L) -> i32 { x.read(7) } fn right(x: R) -> String { x.read(\"ok\") } fn copy(x: L) -> L { x.copy() } fn bad(x: L) -> i32 { x.read(true) }";
     let root = insert(&mut sources, "root", text);

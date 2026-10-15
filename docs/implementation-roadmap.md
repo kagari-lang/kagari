@@ -37,26 +37,13 @@ coverage and the exhaustive feature matrix remain CI responsibilities. Source-fr
 production dependency guards live in `scripts/check_features.py`. These are CI
 acceptance items, not authorization to run a local full-workspace sweep.
 
-The active CI repair checkpoint covers the six runs from 38568738772 through
-[38697567439](https://github.com/kagari-lang/kagari/actions/runs/38697567439):
-
-- [x] C1: repair the remaining `ProofCatalog` test-call migration and the Windows
-  standalone AOT consumer failure. The older VM test-module discovery failure is
-  already corrected by the current directory layout; verify its owning target.
-- [ ] C2: recheck and repair the 44 repeated failures from run 38593914777,
-  grouped by equality/alias behavior, async cursor mutation, source imports and
-  queries, generic diagnostics, and artifact/interface validation.
-- [ ] C3: finish focused checks and record remaining CI acceptance.
-
-C1 local validation passes: all 13 `native_defaults` cases, the existing VM
-source-free reference-boundary case, and the independent AOT producer/consumer
-proof. Scoped Clippy, structure, formatting and diff checks pass. C2 still owns
-the historical test failures and their applied-contract validation repairs.
-
-Local validation selects the failed test names/targets, their directly affected
-contract regressions, and the standalone AOT producer/consumer proof. It does not
-repeat the workspace suite or complete feature matrix. Historical logs identify
-failures but do not establish whether they persist at the current revision.
+GitHub CI acceptance remains pending for the Native/AOT setup and historical
+contract-test repairs identified in runs 38568738772 through
+[38697567439](https://github.com/kagari-lang/kagari/actions/runs/38697567439).
+The current [applied-contract validation boundary](architecture.md#library-identities-and-representation-boundaries)
+and [standalone AOT host contract](spec/aot.md) own the lasting behavior. Recheck
+the complete CI matrix after publication of the repair commits; focused local
+validation does not establish that matrix passed.
 
 Remote registry/Git acquisition and publication, simultaneous revisions of one
 family within a Program, and explicit dependency-update CLI spelling remain queued.

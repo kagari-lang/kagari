@@ -372,8 +372,18 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
         );
     }
     second.dependencies.push(good.root);
+    let good_root = good.root;
     let mut program = good;
     program.root = ModuleRef::new(program.modules.len());
+    let previous = program.modules[good_root.index()].identity.clone();
+    let namespace = program.exports.namespaces.remove(&previous).unwrap();
+    program
+        .exports
+        .namespaces
+        .insert(second.identity.clone(), namespace);
+    common::edit_definition(&context, program.exports.entry.as_mut().unwrap(), |path| {
+        path.module = second.identity.clone();
+    });
     program.modules.push(second);
     verify_program(&program, &context.snapshot()).unwrap();
     program.modules[program.root.index()].enumerations[enumeration].variants[0]

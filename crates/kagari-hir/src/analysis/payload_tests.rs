@@ -2,7 +2,6 @@ use super::*;
 use crate::{
     declarations::DeclarationId,
     hir::ids::HirOwner,
-    native::{adoption, api},
     tests::{common::import_facts, test_analysis},
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
@@ -106,40 +105,60 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
     let authoring_new_facts = new_file.to_unverified(&Default::default()).unwrap();
     let new_facts = authoring_new_facts.records().facts();
     assert!(new_facts.typed.type_table.type_ref(old_ty).is_none());
-    // Rebuild installed facts in the independent context. Retain the identical
-    // immutable source/syntax inputs, including their arena, so source-local
-    // parameter identities and declaration locations still compare exactly.
+    // Recheck in an independent definition context with the same syntax arenas.
+    // Import every attached registration record together with its retained scope.
     let mut fresh_db = test_analysis();
-    let cancel = Default::default();
-    let providers =
-        adoption::adopt(&fresh_db.native_modules, &fresh_db.definitions, &cancel).unwrap();
     let native_files = db
         .native_files
         .get()
         .unwrap()
         .iter()
-        .map(|(_, previous)| {
-            let provider = providers
+        .map(|(parsed, previous)| {
+            let mut lowered = previous.as_ref().clone();
+            let definitions = previous.native_definitions.as_ref().unwrap();
+            lowered.registered_traits = previous
+                .registered_traits
                 .iter()
-                .find(|provider| &provider.records().identity == previous.source.module_identity())
-                .unwrap();
-            let (parsed, mut lowered) =
-                api::import(provider, &providers, fresh_db.parse_limits, &cancel).unwrap();
-            assert_eq!(lowered.source.name(), previous.source.name());
-            assert_eq!(lowered.source.text(), previous.source.text());
-            assert_eq!(lowered.source.revision(), previous.source.revision());
-            let rebuilt = Arc::make_mut(&mut lowered);
-            // Failure markers use syntax-member IDs, independently of the
-            // freshly adopted DefinitionIds in Native registration records.
-            rebuilt.registered_enum_failures = rebuilt
-                .registered_enum_failures
-                .iter()
-                .map(|id| previous.module.enums[id.owner().index()].variants[id.slot()].id)
+                .map(|(id, value)| {
+                    (
+                        fresh_db
+                            .definitions
+                            .intern(&definitions.resolve(*id).unwrap().to_path())
+                            .unwrap(),
+                        import_facts(value, definitions, &fresh_db.definitions).into_records(),
+                    )
+                })
                 .collect();
-            rebuilt.source = previous.source.clone();
-            rebuilt.module = previous.module.clone();
-            rebuilt.source_map = previous.source_map.clone();
-            (parsed, lowered)
+            lowered.native_trait_references = previous
+                .native_trait_references
+                .iter()
+                .map(|(id, value)| {
+                    (
+                        fresh_db
+                            .definitions
+                            .intern(&definitions.resolve(*id).unwrap().to_path())
+                            .unwrap(),
+                        import_facts(value, definitions, &fresh_db.definitions).into_records(),
+                    )
+                })
+                .collect();
+            lowered.registered_declarations = import_facts(
+                &previous.registered_declarations,
+                definitions,
+                &fresh_db.definitions,
+            )
+            .into_records();
+            for value in lowered.native_types.values_mut() {
+                *value = import_facts(value, definitions, &fresh_db.definitions).into_records();
+            }
+            for value in lowered.native_functions.values_mut() {
+                *value = import_facts(value, definitions, &fresh_db.definitions).into_records();
+            }
+            for value in lowered.native_trait_adapters.values_mut() {
+                *value = import_facts(value, definitions, &fresh_db.definitions).into_records();
+            }
+            lowered.native_definitions = Some(fresh_db.definitions.snapshot());
+            (parsed.clone(), Arc::new(lowered))
         })
         .collect();
     fresh_db.native_files.set(native_files).unwrap();
@@ -195,6 +214,15 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         "use pkg::left; use pkg::right; enum Both { Left(left::Event), Right(right::Event) } fn keep() -> i32 { 7 }",
     );
     let unrelated = insert("unrelated", "pub enum Hidden { A }");
+    sources
+        .bind_module(
+            "mem://unrelated",
+            ModuleIdentity {
+                package: PackageId("independent".into()),
+                path: vec!["unrelated".into()],
+            },
+        )
+        .unwrap();
     let mut db = test_analysis();
     let old = analyze(&mut db, &sources);
     let old_root = old.file(root).unwrap();
@@ -284,7 +312,7 @@ fn imported_payload_changes_invalidate_consumers_and_keep_nominal_owners() {
         .find(|item| {
             *old.definitions().resolve(item.id).unwrap().module()
                 == ModuleIdentity {
-                    package: PackageId("pkg".into()),
+                    package: PackageId("independent".into()),
                     path: vec!["unrelated".into()],
                 }
         })

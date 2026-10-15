@@ -20,7 +20,7 @@ use crate::{
     typeck::{
         BodyInputs, BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex,
         TypeIndexes, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
-        TypedParameterBuffer, associated, associated_consts, asynchronous,
+        TypedParameterBuffer, applications, associated, associated_consts, asynchronous,
         body::BodyChecker,
         check::{
             constants::{ConstValidationInputs, validate_const_initializers},
@@ -51,9 +51,6 @@ use std::collections::{HashMap, HashSet};
 mod constants;
 mod native_defaults;
 mod trait_surface;
-
-#[cfg(test)]
-use kagari_types::collection::CollectionAccess;
 
 /// Resolves declaration types, generic bounds and associated members into reusable signature facts.
 pub(crate) fn check_signatures(
@@ -164,21 +161,11 @@ pub(crate) fn check_signatures(
                     .with_span(lowered.source_map.type_span(field.ty)),
                 );
             }
-            {
-                let ty = &ty;
-                let id = declarations
-                    .definition(ResolvedName::Struct(structure.id))
-                    .expect("struct declaration");
-                validate_standard_type_constraints(
-                    declarations.definitions(),
-                    ty,
-                    &type_bounds[id],
-                    lowered.source_map.type_span(field.ty),
-                    &mut diagnostics,
-                    cancel,
-                    None,
-                );
-            }
+            validate_reference_position(
+                &ty,
+                lowered.source_map.type_span(field.ty),
+                &mut diagnostics,
+            );
             if ty.contains_stored_reference() {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidReference {
@@ -218,29 +205,17 @@ pub(crate) fn check_signatures(
                                 .with_span(lowered.source_map.type_span(*payload)),
                             );
                         }
-                        validate_standard_type_constraints(
-                            declarations.definitions(),
+                        validate_reference_position(
                             &ty,
-                            &type_bounds[declarations
-                                .definition(ResolvedName::Enum(enumeration.id))
-                                .expect("enum declaration")],
                             lowered.source_map.type_span(*payload),
                             &mut diagnostics,
-                            cancel,
-                            None,
                         );
                     }
                     ty => {
-                        validate_standard_type_constraints(
-                            declarations.definitions(),
+                        validate_reference_position(
                             &ty,
-                            &type_bounds[declarations
-                                .definition(ResolvedName::Enum(enumeration.id))
-                                .expect("enum declaration")],
                             lowered.source_map.type_span(*payload),
                             &mut diagnostics,
-                            cancel,
-                            None,
                         );
                         diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
@@ -319,14 +294,10 @@ pub(crate) fn check_signatures(
             } else {
                 resolve_type_in(&lowered.module, param.ty, context, &mut type_table, cancel)
             };
-            validate_standard_type_constraints(
-                declarations.definitions(),
+            validate_reference_position(
                 &param_type,
-                &bounds,
                 lowered.source_map.type_span(param.ty),
                 &mut diagnostics,
-                cancel,
-                None,
             );
             if param_type.is_unresolved() {
                 diagnostics.push(
@@ -366,14 +337,10 @@ pub(crate) fn check_signatures(
                         .with_span(lowered.source_map.type_span(*ty_ref)),
                     );
                 }
-                validate_standard_type_constraints(
-                    declarations.definitions(),
+                validate_reference_position(
                     &ty,
-                    &bounds,
                     lowered.source_map.type_span(*ty_ref),
                     &mut diagnostics,
-                    cancel,
-                    None,
                 );
                 if ty.is_unresolved() {
                     diagnostics.push(
@@ -510,26 +477,18 @@ pub(crate) fn check_bodies_controlled(
                 cancel,
             ) {
                 ty if !ty.is_unresolved() => {
-                    validate_standard_type_constraints(
-                        declarations.definitions(),
+                    validate_reference_position(
                         &ty,
-                        &HashMap::new(),
                         lowered.source_map.type_span(ty_ref),
                         &mut diagnostics,
-                        cancel,
-                        None,
                     );
                     ty
                 }
                 ty => {
-                    validate_standard_type_constraints(
-                        declarations.definitions(),
+                    validate_reference_position(
                         &ty,
-                        &HashMap::new(),
                         lowered.source_map.type_span(ty_ref),
                         &mut diagnostics,
-                        cancel,
-                        None,
                     );
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnknownConstType {
@@ -541,6 +500,18 @@ pub(crate) fn check_bodies_controlled(
                     ty
                 }
             };
+            applications::validate(
+                applications::ApplicationContext {
+                    definitions: declarations.definitions(),
+                    catalog: aggregates,
+                    receiver: None,
+                },
+                &ty,
+                &HashMap::new(),
+                lowered.source_map.type_span(ty_ref),
+                &mut diagnostics,
+                cancel,
+            );
             top_level_index.consts.insert(const_item.id, ty);
         }
         for const_item in &lowered.module.consts {
@@ -851,14 +822,10 @@ pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool 
     }
 }
 
-pub(super) fn validate_standard_type_constraints(
-    definitions: &DefinitionTable,
+pub(super) fn validate_reference_position(
     ty: &TypeId,
-    generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-    cancel: &CancellationToken,
-    catalog: Option<&AggregateCatalog>,
 ) {
     if !ty.reference_position_valid() {
         diagnostics.push(
@@ -867,61 +834,6 @@ pub(super) fn validate_standard_type_constraints(
             })
             .with_span(span),
         );
-    }
-    let mut pending = vec![ty];
-    while let Some(ty) = pending.pop() {
-        if cancel.check().is_err() {
-            return;
-        }
-        match ty {
-            TypeId::Reference { target, .. } => pending.push(target),
-            TypeId::Map { key, value, .. } => {
-                validate_standard_constraint_type(
-                    definitions,
-                    key,
-                    StandardTypeConstraint::HashKey,
-                    generic_bounds,
-                    span,
-                    diagnostics,
-                    catalog,
-                );
-                pending.push(value);
-                pending.push(key);
-            }
-            TypeId::Set(element, _) => {
-                validate_standard_constraint_type(
-                    definitions,
-                    element,
-                    StandardTypeConstraint::HashKey,
-                    generic_bounds,
-                    span,
-                    diagnostics,
-                    catalog,
-                );
-                pending.push(element);
-            }
-            TypeId::Tuple(elements) => pending.extend(elements.iter().rev()),
-            TypeId::Function { params, result } => {
-                pending.push(result);
-                pending.extend(params.iter().rev());
-            }
-            TypeId::Array(element) | TypeId::Iter(element) | TypeId::Range(element, _) => {
-                pending.push(element)
-            }
-            TypeId::NativeObject(NominalType {
-                arguments: args, ..
-            })
-            | TypeId::Struct(NominalType {
-                arguments: args, ..
-            })
-            | TypeId::Enum(NominalType {
-                arguments: args, ..
-            })
-            | TypeId::Trait(NominalType {
-                arguments: args, ..
-            }) => pending.extend(args.iter().rev()),
-            _ => {}
-        }
     }
 }
 
@@ -932,7 +844,7 @@ pub(super) fn validate_standard_constraint_type(
     generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-    catalog: Option<&AggregateCatalog>,
+    catalog: &AggregateCatalog,
 ) {
     if matches!(ty, TypeId::Unknown | TypeId::Error) {
         return;
@@ -940,23 +852,12 @@ pub(super) fn validate_standard_constraint_type(
     if constraint == StandardTypeConstraint::Comparable && ty.is_unresolved() {
         return;
     }
-    // Header checking has not assembled explicit implementation facts yet.
-    // Complete non-scalar equality constraints with the aggregate catalog.
-    if catalog.is_none()
-        && matches!(
-            constraint,
-            StandardTypeConstraint::HashKey | StandardTypeConstraint::Comparable
-        )
-        && !matches!(ty, TypeId::Builtin(_))
-    {
-        return;
-    }
     if constraints::type_satisfies_standard_constraint(
         definitions,
         ty,
         constraint,
         generic_bounds,
-        catalog,
+        Some(catalog),
     ) {
         return;
     }
@@ -1196,56 +1097,5 @@ pub(super) fn compare_method_contract(
             display_type_id(comparison.definitions, &expected_return),
             display_type_id(comparison.definitions, &actual.return_type)
         )));
-    }
-}
-
-#[cfg(test)]
-mod constraint_traversal_tests {
-    use super::*;
-    use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
-
-    #[test]
-    fn deep_container_validation_uses_explicit_stack_and_honors_cancellation() {
-        let definitions = DefinitionContext::new().unwrap().snapshot();
-        let mut ty = TypeId::Map {
-            key: Box::new(TypeId::Builtin(BuiltinType::F32)),
-            value: Box::new(TypeId::Error),
-            access: CollectionAccess::Mutable,
-        };
-        for _ in 0..10_000 {
-            ty = TypeId::Array(Box::new(ty));
-        }
-        let mut diagnostics = SmallVec::new();
-        let cancelled = CancellationToken::default();
-        cancelled.cancel();
-        validate_standard_type_constraints(
-            &definitions,
-            &ty,
-            &HashMap::new(),
-            Default::default(),
-            &mut diagnostics,
-            &cancelled,
-            None,
-        );
-        let cancelled_count = diagnostics.len();
-        validate_standard_type_constraints(
-            &definitions,
-            &ty,
-            &HashMap::new(),
-            Default::default(),
-            &mut diagnostics,
-            &Default::default(),
-            None,
-        );
-        // Drop the synthetic deep input iteratively as well: this test exercises
-        // validation, not the recursive representation's destructor.
-        while let TypeId::Array(inner) = ty {
-            ty = *inner;
-        }
-        assert_eq!(cancelled_count, 0);
-        assert_eq!(diagnostics.len(), 1);
-        assert!(matches!(&diagnostics[0].kind,
-            DiagnosticKind::StandardConstraintNotSatisfied { type_name, .. } if type_name == "f32"
-        ));
     }
 }

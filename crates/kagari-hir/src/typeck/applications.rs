@@ -74,22 +74,15 @@ pub(super) fn validate(
             TypeId::Set(key, _) => Some(key.as_ref()),
             _ => None,
         };
-        if let Some(key) = key
-            && !type_satisfies_standard_constraint(
+        if let Some(key) = key {
+            check::validate_standard_constraint_type(
                 definitions,
                 key,
                 StandardTypeConstraint::HashKey,
                 bounds,
-                Some(catalog),
-            )
-        {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                    type_name: key.display_name(definitions),
-                    constraint: "Eq + Hash".into(),
-                    reason: "every key component must support stable equality and hashing".into(),
-                })
-                .with_span(span),
+                span,
+                diagnostics,
+                catalog,
             );
         }
         match ty {
@@ -251,7 +244,7 @@ pub(super) fn validate(
                                         bounds,
                                         span,
                                         diagnostics,
-                                        Some(catalog),
+                                        catalog,
                                     )
                                 }
                                 ConstraintTarget::Trait(id) => {
@@ -598,5 +591,64 @@ pub(crate) fn validate_signatures(
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
+    use kagari_types::{collection::CollectionAccess, scalar::BuiltinType};
+
+    #[test]
+    fn deep_container_validation_uses_explicit_stack_and_honors_cancellation() {
+        let definitions = DefinitionContext::new().unwrap().snapshot();
+        let mut ty = TypeId::Map {
+            key: Box::new(TypeId::Builtin(BuiltinType::F32)),
+            value: Box::new(TypeId::Error),
+            access: CollectionAccess::Mutable,
+        };
+        for _ in 0..10_000 {
+            ty = TypeId::Array(Box::new(ty));
+        }
+        let mut diagnostics = DiagnosticBuffer::new();
+        let catalog = AggregateCatalog::default();
+        let cancelled = CancellationToken::default();
+        cancelled.cancel();
+        validate(
+            ApplicationContext {
+                definitions: &definitions,
+                catalog: &catalog,
+                receiver: None,
+            },
+            &ty,
+            &GenericBounds::new(),
+            Default::default(),
+            &mut diagnostics,
+            &cancelled,
+        );
+        let cancelled_count = diagnostics.len();
+        validate(
+            ApplicationContext {
+                definitions: &definitions,
+                catalog: &catalog,
+                receiver: None,
+            },
+            &ty,
+            &GenericBounds::new(),
+            Default::default(),
+            &mut diagnostics,
+            &Default::default(),
+        );
+        // Drop the synthetic deep input iteratively as well: this test exercises
+        // validation, not the recursive representation's destructor.
+        while let TypeId::Array(inner) = ty {
+            ty = *inner;
+        }
+        assert_eq!(cancelled_count, 0);
+        assert_eq!(diagnostics.len(), 1);
+        assert!(matches!(&diagnostics[0].kind,
+            DiagnosticKind::StandardConstraintNotSatisfied { type_name, .. } if type_name == "f32"
+        ));
     }
 }

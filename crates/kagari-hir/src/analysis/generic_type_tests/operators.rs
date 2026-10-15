@@ -295,7 +295,9 @@ fn binary_rhs_uses_left_type_without_overriding_explicit_constructor_arguments()
     ] {
         let source = SourceFile::new(
             "binary-context.kgr",
-            format!("enum Token<T> {{ Empty }} fn main() -> bool {{ {body} }}"),
+            format!(
+                "enum Token<T> {{ Empty }} impl<T> PartialEq for Token<T> {{ fn eq(self, other: Self) -> bool {{ true }} }} fn main() -> bool {{ {body} }}"
+            ),
         );
         let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())
             .expect("installed declaration analysis");

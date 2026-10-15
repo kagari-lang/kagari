@@ -164,6 +164,15 @@ fn imported_generic_traits_require_arguments_and_keep_their_navigation_target() 
         let text = format!(
             "use {path} as Protocol; fn bad<T: Protocol>(value: T) {{}} fn good<T: Protocol<i32>>(value: T) {{}}"
         );
+        sources
+            .bind_module(
+                "root",
+                ModuleIdentity {
+                    package: PackageId("pkg".into()),
+                    path: vec!["root".into()],
+                },
+            )
+            .unwrap();
         let file = sources
             .set("root", text.clone(), SourceLayer::Base)
             .unwrap();

@@ -166,6 +166,15 @@ fn declaration_cache_tracks_dependencies_and_keeps_unrelated_files_shared() {
     let dependency = insert("dep", "pub struct Data { val value: i32 }");
     let root = insert("root", "use pkg::dep::Data; fn pass(x: Data) -> Data { x }");
     let unrelated = insert("other", "fn other() -> i32 { 42 }");
+    sources
+        .bind_module(
+            "mem://other",
+            ModuleIdentity {
+                package: PackageId("independent".into()),
+                path: vec!["other".into()],
+            },
+        )
+        .unwrap();
     let mut db = test_analysis();
     let first = query(&mut db, &sources);
     assert!(first.file(root).unwrap().diagnostics().is_empty());

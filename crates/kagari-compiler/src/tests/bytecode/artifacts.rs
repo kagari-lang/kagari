@@ -69,6 +69,15 @@ fn main() -> i32 { add(1, 2) }
         package: PackageId("pkg".into()),
         path: vec!["main".into()],
     };
+    let previous = module.modules[module.root.index()].identity.clone();
+    let namespace = module.exports.namespaces.remove(&previous).unwrap();
+    module
+        .exports
+        .namespaces
+        .insert(identity.clone(), namespace);
+    common::edit_definition(&context, module.exports.entry.as_mut().unwrap(), |path| {
+        path.module = identity.clone();
+    });
     module.modules[module.root.index()].identity = identity.clone();
     for function in &mut module.modules[module.root.index()].functions {
         common::edit_definition(

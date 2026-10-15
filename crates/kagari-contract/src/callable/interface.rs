@@ -21,6 +21,7 @@ use kagari_types::{
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
     },
 };
+use std::slice;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceCallContract {
@@ -50,7 +51,9 @@ pub struct InterfaceMethodSignature {
 }
 
 impl InterfaceMethodSignature {
-    pub fn types_valid(
+    /// Validate executable input/output slots. Applied bounds can still contain
+    /// concrete projections and are normalized and proven by `InterfaceCallContract::check`.
+    pub fn value_types_valid(
         &self,
         parameters: &[GenericParam],
         cancel: &CancellationToken,
@@ -61,7 +64,7 @@ impl InterfaceMethodSignature {
             parameters,
             cancel,
             definitions,
-        ) && bounds_in_scope(&self.bounds, parameters, cancel, definitions)
+        )
     }
 
     pub fn physical_types(
@@ -70,12 +73,13 @@ impl InterfaceMethodSignature {
         cancel: &CancellationToken,
         definitions: &DefinitionTable,
     ) -> Option<(Vec<ValueType>, ValueType)> {
-        self.types_valid(parameters, cancel, definitions).then(|| {
-            (
-                self.params.iter().map(semantic_representation).collect(),
-                semantic_representation(&self.result),
-            )
-        })
+        self.value_types_valid(parameters, cancel, definitions)
+            .then(|| {
+                (
+                    self.params.iter().map(semantic_representation).collect(),
+                    semantic_representation(&self.result),
+                )
+            })
     }
 }
 
@@ -304,7 +308,9 @@ impl InterfaceCallContract {
                     *interface = resolved;
                 }
             }
-            if !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
+            if !bounds_in_scope(slice::from_ref(bound), parameters, cancel, definitions)
+                || !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)?
+            {
                 return Ok(false);
             }
         }
@@ -461,7 +467,9 @@ pub fn dynamic_interface_valid<'a>(
                 .chain(&method.generic_params)
                 .cloned()
                 .collect::<Vec<_>>();
-            if !signature.types_valid(&scope, cancel, definitions) {
+            if !signature.value_types_valid(&scope, cancel, definitions)
+                || !bounds_in_scope(&signature.bounds, &scope, cancel, definitions)
+            {
                 return Ok(false);
             }
         }

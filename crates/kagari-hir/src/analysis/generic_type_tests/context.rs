@@ -169,7 +169,8 @@ fn nominal_and_call_constraints_share_recursive_comparable_binders() {
 #[test]
 fn partial_nominal_arguments_check_known_outer_standard_constraints() {
     for (bound, argument, expected_constraints) in [
-        ("Eq + Hash", "[Missing]", 0),
+        ("Eq + Hash", "[Missing]", 2),
+        ("Eq + Hash", "Vec<Missing>", 0),
         ("Eq + Hash", "Missing", 0),
         ("OrderedNumber", "[Missing]", 1),
         ("SignedNumber", "HashMap<i32, Missing>", 1),
@@ -208,20 +209,24 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
 
 #[test]
 fn partial_annotations_preserve_independent_container_constraint_errors() {
+    // A diverging initializer isolates annotation diagnostics from constructor
+    // applications, which independently validate their inferred key arguments.
     for template in [
         "struct Item { val field: TYPE }",
         "enum Item { Data(TYPE) }",
         "fn take(value: TYPE) {}",
-        "fn make() -> TYPE { HashMap::new() }",
+        "fn make() -> TYPE { loop {} }",
         "const value: TYPE = 0;",
-        "fn main() { val value: TYPE = HashMap::new(); }",
+        "fn main() { val value: TYPE = loop {}; }",
         "struct Marker<T> { val value: i32 } fn main() { Marker<TYPE> { value: 7 }; }",
     ] {
         for (annotation, expected_constraints) in [
             ("HashMap<f32, Missing>", 1),
             ("HashMap<Missing, i32>", 0),
             ("HashMap<i32, (Missing, HashSet<f32>)>", 1),
-            ("HashMap<HashMap<f32, Missing>, i32>", 1),
+            // Maps have no Eq/Hash implementation; both the outer key and the
+            // inner f32 key independently violate their collection contracts.
+            ("HashMap<HashMap<f32, Missing>, i32>", 2),
         ] {
             let text = format!(
                 "use std::collections::{{HashMap, HashSet}}; {}",

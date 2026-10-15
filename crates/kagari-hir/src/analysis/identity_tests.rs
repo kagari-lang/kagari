@@ -1,7 +1,7 @@
 use super::*;
 use crate::{declarations::DeclarationId, tests::test_analysis};
 use kagari_common::{
-    identity::{DefinitionKind, ModuleIdentity, PackageId},
+    identity::{DefinitionKind, MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity, PackageId},
     span::Span,
 };
 use kagari_source::{
@@ -20,7 +20,7 @@ fn snapshot(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> AnalysisSnap
 fn oversized_source_module_identities_are_rejected_without_panicking() {
     let text = "fn run(value: i32) -> i32 { val saved = value; saved }";
     let mut source = SourceFile::new("deep.kgr", text);
-    for _ in 1..64 {
+    for _ in 0..MAX_IDENTITY_PATH_SEGMENTS {
         source = SourceFile::inline_module(
             &source,
             "nested",

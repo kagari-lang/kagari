@@ -15,6 +15,15 @@ use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
 
 fn compile(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeArtifact> {
+    engine
+        .bind_module(
+            "memory://events.kgr",
+            ModuleIdentity {
+                package: PackageId("pkg".into()),
+                path: vec!["events".into()],
+            },
+        )
+        .unwrap();
     let checked = engine
         .compile_source(SourceFile::new("memory://events.kgr", source))
         .unwrap();

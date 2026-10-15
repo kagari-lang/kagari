@@ -11,7 +11,7 @@ use crate::{
     imports::SourceItem,
     resolver::resolved::ResolvedName,
     typeck::{
-        BodyTypeEnv,
+        BodyTypeEnv, applications,
         body::BodyChecker,
         check, completion, inference,
         table::{ResolvedEnumConstructor, ResolvedStructInit},
@@ -73,6 +73,20 @@ impl<'a> BodyChecker<'a> {
             self.cancel,
         );
         if resolved.is_unresolved() {
+            // Recovery may discard the constructor's result type. Check known
+            // parts of its explicit application before those facts are lost.
+            applications::validate(
+                applications::ApplicationContext {
+                    definitions: self.declarations.definitions(),
+                    catalog: self.aggregates,
+                    receiver: None,
+                },
+                &resolved,
+                &env.generic_bounds,
+                self.lowered.source_map.type_span(ty),
+                self.diagnostics,
+                self.cancel,
+            );
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
                     type_name: display_type(&self.lowered.module, ty),
@@ -80,14 +94,10 @@ impl<'a> BodyChecker<'a> {
                 .with_span(self.lowered.source_map.type_span(ty)),
             );
         }
-        check::validate_standard_type_constraints(
-            self.declarations.definitions(),
+        check::validate_reference_position(
             &resolved,
-            &env.generic_bounds,
             self.lowered.source_map.type_span(ty),
             self.diagnostics,
-            self.cancel,
-            Some(self.aggregates),
         );
         resolved
     }

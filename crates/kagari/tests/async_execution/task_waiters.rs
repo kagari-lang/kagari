@@ -116,10 +116,8 @@ fn scoped_task_shared_wait_contract() {
     let (right, _) = tasks.spawn("looping", &[f.value(&collection)]);
     assert_eq!(tasks.drive(left), TaskDriveResult::Waiting);
     assert_eq!(tasks.drive(right), TaskDriveResult::Waiting);
-    assert!(
-        f.call("add", &[f.value(&collection), f.value(&handle)])
-            .is_err()
-    );
+    // Writes commit while the waiter is suspended; its next cursor read traps.
+    drop(f.invoke("add", &[f.value(&collection), f.value(&handle)]));
     let (excess, _) = tasks.spawn("observe", &[f.value(&handle), Value::I32(2)]);
     assert_eq!(tasks.drive(excess), TaskDriveResult::Complete);
     assert_eq!(
@@ -161,15 +159,21 @@ fn scoped_task_shared_wait_contract() {
     );
     assert_eq!(tasks.drive(right), TaskDriveResult::Complete);
     assert_eq!(
-        f.value(&tasks.report(right).outcome.unwrap()),
-        Value::I32(14)
+        tasks.report(right).outcome.unwrap_err().error.kind(),
+        RuntimeErrorKind::ScriptTrap
     );
     assert_eq!(tasks.drive(replacement), TaskDriveResult::Complete);
     assert_eq!(
         f.value(&tasks.report(replacement).outcome.unwrap()),
         Value::I32(9)
     );
-    let _ = f.invoke("add", &[f.value(&collection), f.value(&handle)]);
+    // A fresh cursor sees all three committed entries and reuses the cached output.
+    let (fresh, _) = tasks.spawn("looping", &[f.value(&collection)]);
+    assert_eq!(tasks.drive(fresh), TaskDriveResult::Complete);
+    assert_eq!(
+        f.value(&tasks.report(fresh).outcome.unwrap()),
+        Value::I32(21)
+    );
     let ordinary = f.invoke("direct", &[f.value(&handle)]);
     assert_eq!(
         f.value(&f.complete(&f.start_future(&ordinary))),

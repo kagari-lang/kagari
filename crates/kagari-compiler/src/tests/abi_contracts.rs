@@ -246,7 +246,11 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
             }
         }
         let error = verify_program(&module, &context.snapshot()).unwrap_err();
-        if corruption == 3 {
+        if corruption == 5 {
+            // A generic declaration cannot back the retained concrete export.
+            // The package export contract rejects this before public ABI checks.
+            assert_eq!(error, BytecodeVerificationError::InvalidProgramExports);
+        } else if corruption == 3 {
             assert!(
                 matches!(
                     error,

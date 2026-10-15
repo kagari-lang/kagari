@@ -301,6 +301,7 @@ pub async fn custom(calls:Calls) -> i32 {
 }
 pub fn items() -> Vec<i32> { Vec::from([10,20,30]) }
 pub fn replace(items:Vec<i32>) { items[1]=99; }
+pub fn size(items:Vec<i32>) -> usize { items.len() }
 pub fn append(items:Vec<i32>) { items.push(40); }
 fn view(items:Vec<i32>) -> Iterator<Item=i32> { items.map(|item| item) }
 pub async fn nested(items:Vec<i32>) -> i32 {
@@ -354,11 +355,6 @@ pub async fn trapping(items:Vec<i32>) -> i32 {
             DriveResult::Waiting
         ));
         assert_eq!(*f.inputs.lock().unwrap().last().unwrap(), input);
-        let error = f.call("append", &[f.value(&items)]).unwrap_err();
-        assert!(
-            matches!(error, EmbeddingError::Runtime { ref message, .. } if message.contains("iteration")),
-            "{error:?}"
-        );
         if index == 0 {
             drop(f.invoke("replace", &[f.value(&items)]));
         }
@@ -370,6 +366,45 @@ pub async fn trapping(items:Vec<i32>) -> i32 {
     }
     assert_eq!(f.value(&f.complete(&owner)), Value::I32(42));
     drop(f.invoke("append", &[f.value(&items)]));
+
+    // Both nested cursors survive suspension, so a committed structural write
+    // invalidates the next read without starting another native request.
+    let invalidated_items = f.invoke("items", &[]);
+    let future = f.invoke("nested", &[f.value(&invalidated_items)]);
+    let invalidated = f.start_future(&future);
+    assert!(matches!(
+        f.runtime.drive(&invalidated, slice()).unwrap(),
+        DriveResult::Waiting
+    ));
+    let starts = f.starts.load(Ordering::SeqCst);
+    drop(f.invoke("append", &[f.value(&invalidated_items)]));
+    assert_eq!(
+        f.value(&f.invoke("size", &[f.value(&invalidated_items)])),
+        Value::U64(4)
+    );
+    f.runtime.runtime().collect_garbage().unwrap();
+    assert_eq!(
+        f.sent.lock().unwrap().pop().unwrap().complete(Ok(42)),
+        CompletionStatus::Accepted
+    );
+    let DriveResult::Complete(Err(error)) = f.runtime.drive(&invalidated, slice()).unwrap() else {
+        panic!("invalidated cursor must trap on resume");
+    };
+    assert!(
+        matches!(
+            error,
+            EmbeddingError::Runtime {
+                kind: RuntimeFailureKind::ScriptTrap,
+                ..
+            }
+        ),
+        "{error:?}"
+    );
+    assert_eq!(f.starts.load(Ordering::SeqCst), starts);
+    assert_eq!(
+        f.value(&f.invoke("size", &[f.value(&invalidated_items)])),
+        Value::U64(4)
+    );
 
     let future = f.invoke("trapping", &[f.value(&items)]);
     let owner = f.start_future(&future);
@@ -476,11 +511,6 @@ pub async fn early() -> Result<i32, i32> {
     ));
     assert_eq!(*f.inputs.lock().unwrap(), [10]);
     drop(f.invoke("replace", &[f.value(&items)]));
-    let error = f.call("append", &[f.value(&items)]).unwrap_err();
-    assert!(
-        matches!(error, EmbeddingError::Runtime { ref message, .. } if message.contains("iteration")),
-        "structural mutation while the loop waits: {error:?}"
-    );
     for (reply, expected) in [(5, vec![10, 99]), (6, vec![10, 99, 30])] {
         assert_eq!(
             f.sent.lock().unwrap().pop().unwrap().complete(Ok(reply)),
@@ -565,7 +595,7 @@ pub async fn early() -> Result<i32, i32> {
         [Value::I32(42)]
     );
 
-    // Both terminal paths must release the cursor lease and retire pending IO.
+    // Both terminal paths must retire the saved cursor and pending IO.
     for abandon in [false, true] {
         let items = f.invoke("items", &[]);
         let future = f.invoke("total", &[f.value(&items)]);

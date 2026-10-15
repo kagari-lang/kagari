@@ -991,7 +991,7 @@ pub(super) fn verify_call(
                     function: function.id,
                     reason: "invalid linked interface method",
                 })?;
-            if !signature.types_valid(
+            if !signature.value_types_valid(
                 function
                     .metadata
                     .semantic
