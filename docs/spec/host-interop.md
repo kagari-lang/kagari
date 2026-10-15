@@ -314,9 +314,10 @@ Opaque host types resolve in source annotations and call signatures by declarati
 identity. Direct imports, module aliases and source facade re-exports share the
 same semantic targets. Host types are distinct from script structs, even when
 their names coincide; they do not support script construction or generic equality.
-`host_type_at` exposes the offline declaration and documentation without inventing
-a source location. Erroneous applications retain the base target, and immutable
-snapshots retain their original host catalog after interface input changes.
+Ordinary definition queries expose the checked type identity and its owning
+schema; declaration views supply their actual generated source locations.
+Erroneous applications retain the base target, and immutable snapshots retain
+their original native declaration facts after provider inputs change.
 Nominal host references survive public ABI encoding and generic function
 instantiation. Lowering collects required type declarations and their transitive
 member references in identity order, including dependencies used only in source
@@ -327,28 +328,26 @@ satisfy an opaque host parameter's representation. Runtime nominal identity,
 ownership, borrow and escape checks still apply. This does not authorize host
 handles or borrows as default script heap payloads. The checked durable-root
 exception for interface payloads is defined under [Interaction with Traits](#interaction-with-traits).
-An offline host trait table maps each script trait method identity to a host
-method identity. When the script trait's defining module is analyzed, its
-concrete applied signature must have an exact method roster and matching receiver,
-parameter and return types after associated-output substitution. Mismatches are source diagnostics before code
-generation. Host passing styles and effects remain part of the host ABI.
-Host methods are callable through their receiver: `player.read_score()`.
-`HostTypeDeclaration::method_contract` derives the executable contract from the
-member identity, signature, receiver passing style, effects.
-The first argument is an explicit `self` of the declaring nominal host type;
-member parameters cannot also use that reserved name. There is no second editable
-method signature. `HostFunction::method` binds a callback to that definition.
-Registration requires its declaring host type to be installed and checks the
-derived contract before publishing the callback slot. Required method imports
-must match their type's member declaration; a missing method callback rejects
-loading even if the type metadata is registered.
-Analysis catalogs derive method call targets without starting a runtime. HIR owns
-the receiver expression and member call identity, including when arguments have
-errors; `host_function_at` returns the generated contract and original member docs.
-Lowering evaluates the receiver first and each explicit argument once, then emits
-the existing linked host call operand. Methods cannot be imported as free functions
-through the type's label. Calls use the generated `type-symbol.method-name` label
-for installed interface contracts and preserve declared effects and borrow checks.
+Explicit Kagari trait implementations use the ordinary ImplDecl, InterfaceTable
+and NativeDeclaration contracts. Their concrete applied signatures require an exact
+method roster and matching receiver, parameter and return types after associated-output
+substitution. Source checking and portable verification retain these checks; Rust
+trait implementations alone supply no Kagari witness. Passing styles, receiver
+capabilities and effects remain checked native binding facts.
+
+Host methods are callable through their receiver: `player.read_score()`. The common
+function declaration owns the explicit self parameter and member signature once;
+ModuleBuilder binds the callback to that declared method. Installation checks the
+complete declaration/binding closure, and loading rejects missing or mismatched
+native imports even if the external type schema is installed.
+
+Analysis resolves method targets without starting a runtime. HIR retains the receiver
+expression and member identity even when arguments have errors. source_function_at
+returns the checked callable target; ordinary declaration/documentation queries use
+its owning view. Lowering evaluates the receiver first and each explicit argument
+once, then emits an ordinary native import. Methods are not free-function exports
+through a type namespace. Canonical declaration identities select calls and retain
+declared effects and borrow checks.
 Receiver borrow leases use the ordinary host call scope, including cleanup after
 failure and rejection of conflicting synchronous reentry. Method source calls,
 artifacts and existing JIT fallback share this execution path. Opaque receivers

@@ -75,10 +75,6 @@ External type references select only the terminal name, including through aliase
 qualifiers and separators have no type target. The declaration's scoped identity
 resolves its schema through `Declarations::external_type`. It does not
 offer body-reference navigation before that body has been analyzed.
-`FileSignatures::host_type_at(byte_offset)` returns the checked offline host
-declaration for the terminal name of a signature type; module qualifiers and
-separators do not select the Host type. Host declarations have no synthetic
-source location; this query reads the interface catalog without registration.
 Full `analyze` and compilation enforce the same language semantics.
 
 Signature queries build the shared aggregate catalog after declaration signatures
@@ -211,7 +207,7 @@ This query reads checked offline facts and does not invoke a callback.
 source field reads, writes and method calls. A receiver position resolves its own
 binding; the `.` has no declaration target.
 
-`host_function_at` and `source_function_at` likewise limit a dotted callee to
+`source_function_at` likewise limits a dotted callee to
 its function name. A nested receiver call keeps its own declaration target.
 Qualified path expressions also navigate only on their final name: in
 `api::run()`, `run` can resolve to the imported function, while `api` and `::`

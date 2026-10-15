@@ -7,7 +7,7 @@ use crate::{
         AnalysisDatabase,
         declaration_queries::{DeclarationSnapshot, FileDeclarations},
         error::AnalysisError,
-        ownership, type_at_in, type_reference_at, type_reference_target_at,
+        ownership, type_at_in, type_reference_at,
     },
     declarations::{Declaration, Declarations},
     imports::{
@@ -15,7 +15,7 @@ use crate::{
         functions::{FunctionCatalog, ImportedFunctions},
         types::TypeCatalog,
     },
-    typeck::{ModuleSignatures, table::TypeTarget},
+    typeck::ModuleSignatures,
     types::TypeId,
 };
 
@@ -33,7 +33,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::SourceSnapshot,
 };
-use kagari_types::host_interface::type_declaration::HostTypeDeclaration;
 use std::{
     collections::{BTreeMap, HashMap},
     sync::Arc,
@@ -64,18 +63,6 @@ impl FileSignatures {
             )
             .flatten()
         })
-    }
-
-    /// Read an offline host type declaration from a checked signature name.
-    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
-        match type_reference_target_at(
-            &self.prepared.lowered,
-            self.prepared.signatures.facts().type_table(),
-            offset,
-        )? {
-            Some(TypeTarget::Host(id)) => self.prepared.declarations.hosts.type_declaration(id),
-            _ => None,
-        }
     }
 
     /// Type annotations checked by this signature query; body annotations have
@@ -163,11 +150,6 @@ impl SignatureSnapshot {
     /// Returns the declaration input snapshot revision.
     pub fn revision(&self) -> Revision {
         self.declarations.revision()
-    }
-
-    /// Returns the host registry revision inherited from declaration analysis.
-    pub fn host_revision(&self) -> u64 {
-        self.declarations.host_revision()
     }
 
     /// Finds checked signatures for an exact file ID, or `None` if absent.

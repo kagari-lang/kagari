@@ -86,8 +86,6 @@ impl FileDeclarations {
 pub struct DeclarationSnapshot {
     /// Returns the input source snapshot revision.
     revision: Revision,
-    /// Returns the host registry revision used for declaration resolution.
-    host_revision: u64,
     pub(super) graph: Arc<ModuleGraph>,
     pub(super) files: Arc<BTreeMap<FileId, Arc<FileDeclarations>>>,
 }
@@ -96,11 +94,6 @@ impl DeclarationSnapshot {
     /// Returns the input source snapshot revision.
     pub fn revision(&self) -> Revision {
         self.revision
-    }
-
-    /// Returns the host registry revision used for declaration resolution.
-    pub fn host_revision(&self) -> u64 {
-        self.host_revision
     }
 
     /// Finds declarations for an exact physical or synthetic file ID.
@@ -334,7 +327,6 @@ impl AnalysisDatabase {
         cancel.check()?;
         Ok(DeclarationSnapshot {
             revision: source.revision(),
-            host_revision: hosts.revision(),
             graph,
             files: Arc::new(files),
         })

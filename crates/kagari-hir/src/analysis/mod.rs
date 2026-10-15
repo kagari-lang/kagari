@@ -48,13 +48,7 @@ use kagari_syntax::{
     ast::item::SourceFile as AstSourceFile,
     parser::{Parse, ParseLimits},
 };
-use kagari_types::{
-    declaration::module::{DeclarationError, ModuleDecl},
-    host_interface::{
-        HostFunctionDeclaration,
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-    },
-};
+use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
 use std::{
     cell::{OnceCell, RefCell},
     collections::{BTreeMap, HashMap},
@@ -145,12 +139,6 @@ impl FileAnalysis {
         expressions.chain(places).next()
     }
 
-    /// Returns legacy host declaration metadata for a selected field name.
-    pub fn host_field_at(&self, offset: usize) -> Option<&HostFieldDeclaration> {
-        let field = self.field_at(offset)?;
-        self.result.records().facts().names.hosts.field(&field)
-    }
-
     /// Whether this result's signature query reused earlier checked facts.
     /// An unchanged file shares its existing result and this original statistic.
     pub fn signatures_reused(&self) -> bool {
@@ -223,117 +211,6 @@ impl FileAnalysis {
                         })
                         .flatten()
                 })
-            })
-    }
-
-    /// Finds the registered host function referenced at this byte offset.
-    pub fn host_function_at(&self, offset: usize) -> Option<&HostFunctionDeclaration> {
-        let facts = self.result.records().facts();
-        facts
-            .lowered
-            .module
-            .body
-            .expressions()
-            .filter_map(|(id, expr)| {
-                if let ExprKind::Call { callee, .. } = expr.kind
-                    && let Some(call) = facts.typed.type_table.call_resolution(id)
-                    && let CallTarget::HostFunction(host) = call.target
-                {
-                    let span = facts.lowered.source_map.expr_span(callee);
-                    let span = match &facts.lowered.module.expr(callee).kind {
-                        ExprKind::Field { .. } | ExprKind::Name { .. } => {
-                            facts.lowered.source_map.expr_reference_span(callee)?
-                        }
-                        _ => span,
-                    };
-                    return (span.start <= offset && offset < span.end)
-                        .then_some((span.end - span.start, host));
-                }
-                let span = facts.lowered.source_map.expr_span(id);
-                let span = match &expr.kind {
-                    ExprKind::Field { .. } | ExprKind::Name { .. } => {
-                        facts.lowered.source_map.expr_reference_span(id)?
-                    }
-                    _ => span,
-                };
-                if !(span.start <= offset && offset < span.end) {
-                    return None;
-                }
-                let ResolvedName::HostFunction(host) = facts.names.expr_resolution(id)? else {
-                    return None;
-                };
-                Some((span.end - span.start, host))
-            })
-            .min_by_key(|(len, _)| *len)
-            .and_then(|(_, host)| facts.names.hosts.function(host))
-            .or_else(|| {
-                facts.names.imports.directives.iter().find_map(|import| {
-                    if !(import.span.range.start <= offset && offset < import.span.range.end) {
-                        return None;
-                    }
-                    let ResolvedName::HostFunction(host) = import
-                        .resolution
-                        .target()?
-                        .resolved(facts.names.items.unit.as_ref())
-                    else {
-                        return None;
-                    };
-                    facts.names.hosts.function(host)
-                })
-            })
-    }
-
-    /// Portable host documentation has no synthetic source-file location.
-    pub fn host_type_at(&self, offset: usize) -> Option<&HostTypeDeclaration> {
-        let facts = self.result.records().facts();
-        if let Some((index, _)) = facts
-            .lowered
-            .source_map
-            .type_spans()
-            .iter()
-            .enumerate()
-            .filter(|(_, span)| span.start <= offset && offset < span.end)
-            .min_by_key(|(_, span)| span.end - span.start)
-        {
-            let id = facts.lowered.source_map.type_id(index);
-            let span = facts.lowered.source_map.type_terminal_span(id)?;
-            if !(span.start <= offset && offset < span.end) {
-                return None;
-            }
-            return match &facts.typed.type_table.type_ref(id)?.target {
-                Some(TypeTarget::Host(id)) => facts.names.hosts.type_declaration(*id),
-                _ => None,
-            };
-        }
-        if let Some(TypeId::Host(id)) = self.type_at(offset) {
-            return facts
-                .names
-                .hosts
-                .nominal_type(&id)
-                .and_then(|id| facts.names.hosts.type_declaration(id));
-        }
-        facts
-            .names
-            .imports
-            .directives
-            .iter()
-            .enumerate()
-            .find_map(|(_index, import)| {
-                if !(import.span.range.start <= offset && offset < import.span.range.end) {
-                    return None;
-                }
-                let ResolvedName::HostType(id) = facts
-                    .names
-                    .imports
-                    .directives
-                    .get(_index)?
-                    .resolution
-                    .target()?
-                    .resolved(facts.names.items.unit.as_ref())
-                else {
-                    return None;
-                };
-                facts.names.hosts.type_declaration(id)
             })
     }
 
@@ -1022,7 +899,6 @@ impl AnalysisDatabase {
             definitions: self.definitions.snapshot(),
             signatures: signature_snapshot,
             revision: source.revision(),
-            host_revision: self.hosts.revision(),
             graph,
             files: Arc::new(files),
         })
@@ -1051,8 +927,6 @@ pub struct AnalysisSnapshot {
     signatures: SignatureSnapshot,
     /// Returns the revision of the input source snapshot.
     revision: Revision,
-    /// Returns the host registry revision used by this analysis.
-    host_revision: u64,
     graph: Arc<ModuleGraph>,
     files: Arc<HashMap<FileId, Arc<FileAnalysis>>>,
 }
@@ -1126,11 +1000,6 @@ impl AnalysisSnapshot {
     /// Borrows the import graph built for this source snapshot.
     pub fn module_graph(&self) -> &ModuleGraph {
         &self.graph
-    }
-
-    /// Returns the host registry revision used by this analysis.
-    pub fn host_revision(&self) -> u64 {
-        self.host_revision
     }
 
     /// Returns the revision of the input source snapshot.

@@ -3203,6 +3203,32 @@ runtime lib/tests scoped Clippy passed; structure checked 1254 Rust files with z
 findings; formatting and diff checks passed. No new Miri run is needed;
 exhaustive workspace/feature/backend/platform acceptance remains CI-owned.
 
+### HR03: retire standalone host tooling queries and revision surface
+
+No repository caller remains for FileAnalysis::host_function_at/host_type_at/
+host_field_at, FileSignatures::host_type_at or host_revision on declaration,
+signature and full analysis snapshots. Those legacy catalog projections and the
+duplicate retained revision fields are removed, without aliases. Callers already
+use ordinary source_function_at, definition_at, field_at, call_signature_at and
+snapshot documentation queries against common declaration identities and schemas.
+The old HostTypeDeclaration/HostFunctionDeclaration imports leave the analysis
+facade. This does not remove internal cache/namespace dependencies on the temporary
+empty HostDeclarations owner; its resolver/callable retirement remains open.
+
+The embedding and host interop specifications now describe the actual common
+ModuleDecl/ImplDecl/InterfaceTable/NativeDeclaration owners and ordinary native
+imports. Obsolete HostTypeDeclaration::method_contract/HostFunction::method and
+type-symbol method label instructions are removed. Receiver evaluation order,
+exact trait method/substitution checks, required bindings, capabilities/effects,
+snapshot ownership and cleanup/reentry guarantees remain unchanged. These query
+removals do not alter runtime GC or Rust loan mechanisms.
+
+Focused validation passed the existing checked receiver/member query, external
+type/facade revision query and native view location/snapshot query (three tests,
+2.66 seconds). HIR lib/tests scoped Clippy passed; structure checked 1254 Rust files
+with zero findings; formatting and diff checks passed. Full workspace,
+feature/backend/platform coverage remains CI-owned; no new Miri run is needed.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
