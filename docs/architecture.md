@@ -22,6 +22,36 @@ For source-level data structures and ID lookup, start with the
 - Installed interfaces determine available APIs. Cancellation and call-depth
   protection remain; there is no generic permission matrix or execution charging.
 
+## Source tools
+
+The [formatter/checker/linter contract](spec/toolchain-tools.md) defines command,
+configuration and output behavior. Ownership follows the existing source pipeline:
+
+| Owner | Responsibility |
+| --- | --- |
+| `kagari-package` | Workspace selection, recoverable module discovery and complete closure capture |
+| `kagari-source` | Retained text/revisions and presentation-only diagnostic records |
+| `kagari-syntax` / `kagari-format` | Lossless grammar; syntax-to-layout rules, comment attachment and width printing |
+| `kagari-hir` | Shared semantic analysis, positive eligibility and identity-based usage facts |
+| `kagari-lint` | Six static rules, documented exemptions, levels and suppression validation |
+| SDK source API | `SourceAnalysis` handoff under sealed native declarations; strict checked-program gate |
+| `kagari-cli` | Arguments/config, input/output, terminal/JSON rendering and guarded file replacement |
+
+`analyze_source` and `analyze_package` return a retained `SourceAnalysis`. Its
+`check` method requires an error-free closure, while optional lint consumes the
+same snapshot, including eligible facts from a partially erroneous program. Neither
+step reparses or type-checks a second time. Changing lint levels does not change
+analysis inputs. Compilation still requires `CheckedModule`/`CheckedProgram`.
+The SDK, HIR and runtime have no production dependency on the lint/format crates.
+
+`ModuleDiscovery` and `ProjectDiscovery` retain acquisition diagnostics and
+independent root outcomes. Their strict conversions refuse incomplete inputs;
+recovery never constructs a partial `ProgramInputs` for compilation. Formatting
+uses the declared-member policy of the existing workspace loader without resolving
+dependencies. Check/lint use ordinary closure capture and keep lock publication
+separate. See [HIR optional facts](architecture/hir.md#optional-source-tool-facts)
+and [formatter architecture](architecture/syntax.md#formatting).
+
 ## Source package inputs
 
 [Packages and workspaces](spec/packages.md) defines the manifest, identity, lock,

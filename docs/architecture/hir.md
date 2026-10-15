@@ -391,3 +391,27 @@ installed MutableList setter contract; lowering consumes that checked selection
 without rediscovering members or storage capabilities. Builtin Array element context
 and mutation stay independent. Registered readonly Map/Set occurrences describe
 host/storage types only; trait signatures carry no collection-access field.
+
+## Optional source-tool facts
+
+`FileAnalysis::body_eligibility` returns positive evidence owned by the body checker,
+not a judgment based on whether a retained diagnostic happens to overlap a function.
+The checker records completed function IDs before diagnostic truncation. Restored
+body facts must carry that evidence and satisfy the existing environment/arena
+mapping contracts. Parser, declaration/import and shared-signature validity is
+computed before bodies and travels with each retained file analysis. An invalid
+shared snapshot disables semantic optional queries conservatively; a local body
+error does not invalidate another successfully checked body. This evidence never
+authorizes compilation: `AnalysisSnapshot::check_program` retains the strict gate.
+
+`FileAnalysis::binding_usage` walks eligible resolved bindings, expressions, places
+and closure captures once. Shadowed bindings keep distinct declaration identities;
+member/index writes read the receiver without rebinding its slot, while direct and
+compound assignments count slot writes. Rule consumers decide whether those facts
+warrant a diagnostic. HIR does not own rule names, severity or suppressions.
+
+`FileAnalysis::scoped_attributes` exposes uninterpreted declaration spans and logical
+child-module identities. An attribute on `mod child;` therefore identifies the same
+module as an external `child.kgr`, rather than relying on physical range containment.
+Inline child contents belong to their own analysis. The linter owns supported policy
+targets and argument/ID validation; ordinary language checking preserves tool metadata.

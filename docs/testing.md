@@ -23,10 +23,11 @@ require a separate integration executable. Cargo schedules test executables
 sequentially; the harness schedules cases within one executable concurrently.
 Compilation parallelism (`-j`) does not remove those execution barriers.
 
-The workspace keeps five integration targets for concrete boundaries:
+The workspace keeps six integration targets for concrete boundaries:
 
 | Package / target | Reason |
 | --- | --- |
+| `kagari-cli` / `toolchain` | Executes the actual `kg` binary to verify stdout/stderr, JSON, exit status, project side effects and direct SDK agreement. |
 | `kagari` / `artifact_features` | Standalone consumer checks ordinary public visibility and source-free feature/dependency isolation. |
 | `kagari` / `async_execution` | Standalone native-wait/owned-execution consumer, including builds without source/native features. Source scenarios live in the runtime unit tree. |
 | `kagari-runtime` / `native_schema` | External derive, `native_data!` and Serde expansion against ordinary runtime visibility. Manual rollback cases live beside schema registration. |
@@ -198,3 +199,20 @@ If preparation still dominates, measure native installation, source checking,
 artifact preparation, loading and execution separately before adding another
 cache. Reuse requires an explicit owner, input identity, invalidation rule and
 bounded lifetime. Do not trade validation or state isolation for a timing result.
+
+## Source-tool acceptance
+
+Formatter syntax, comment attachment and layout tests live in `kagari-format`;
+rule/level/partial-fact cases live in `kagari-lint`. HIR owns eligibility/reuse
+contracts, package tests own recovery/completeness, and CLI tests own argument,
+reporting and writeback behavior. Select affected filters locally. The
+`toolchain` executable includes one representative workspace that proves formatter
+idempotence, side-effect/order preservation through SDK execution, CLI/SDK checking
+agreement and optional findings alongside required errors.
+
+CI explicitly runs the formatter's ignored `complete_grammar_fixture_inventory`
+matrix. Windows CI enables symbolic links and runs formatter replacement, hard-link,
+read-only, symlink/junction and toolchain command tests. Production dependency guards
+in `scripts/check_features.py` and `scripts/check_aot.py` prohibit source tools from
+leaking into source-free deployment; the formatter graph excludes semantic/runtime
+crates and the linter graph excludes executable lowering/runtime crates.

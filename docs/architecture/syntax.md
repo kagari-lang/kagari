@@ -317,3 +317,28 @@ also require the [coverage workflow](../syntax-coverage.md), including updates
 to the specification and affected inventories. Changes to syntax contracts used
 by HIR or installed package preparation require the corresponding consumer checks.
 Documentation-only updates require link, content and diff checks.
+
+## Formatting
+
+[`kagari-format`](../../crates/kagari-format/src/lib.rs) consumes the lossless CST
+without HIR, dependency resolution, runtime or filesystem access. The
+[tool contract](../spec/toolchain-tools.md#formatting-guarantees-and-writeback)
+owns observable style/writeback behavior.
+
+- `comments.rs` classifies leading, trailing and dangling attachments from original
+  neighboring tokens, independently of width decisions.
+- `syntax.rs` turns nodes/tokens into layout documents with grammar-sensitive
+  separators, indentation, groups and interpolation boundaries.
+- `layout.rs` is the sole printer/width owner. Its independent tests need no parser.
+
+The library rejects parse diagnostics before printing. It then reparses the output,
+compares every non-whitespace token (including comments) and compares normalized CST
+enter/leave structure. For `a >> b` and `Outer<Inner<T>>`, token equality alone is
+insufficient: adjacent angle tokens participate in grammar-sensitive interpretation.
+Interpolation expressions flatten discretionary layout while line comments retain
+required termination. Literals and comment contents remain exact.
+
+Expected-output tests establish actual layout; idempotence and token/CST equivalence
+establish preservation. The bounded grammar inventory lives in the formatter's
+`complete_grammar_fixture_inventory` test, using the existing syntax examples. CI
+runs this ignored matrix explicitly; local iteration uses representative cases.

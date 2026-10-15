@@ -168,6 +168,21 @@ and selected Program captures. `Lockfile::publish` explicitly publishes the cand
 atomically under the requested policy; cancellation/errors do not publish partial
 files. CLI project commands perform that publication. Runtime APIs never do so.
 
+`ModuleDiscovery` retains successfully captured files, all parse diagnostics and
+acquisition errors. `ProjectDiscovery` resolves once and records each selected
+root's capture outcome. Only a complete discovery/capture converts to `ModuleTree`
+or `ProgramInputs`; `ProjectInputs::load` retains its strict all-selected-roots
+behavior. Missing/ambiguous modules and physical aliases never become valid inputs.
+Check/lint may report incomplete roots and continue independent complete roots,
+without publishing a lock for a partially acquired request. Manifest/resolution
+failure is still request-wide.
+
+The workspace loader's `MemberDiscovery::Declared` policy selects explicit workspace
+members/default-members and the root package without importing implicit local path
+dependencies. Formatting uses this policy; ordinary resolution uses
+`WithLocalDependencies`. This is one manifest/member loader with an explicit policy,
+not a separate interpretation of package syntax. See [source-tool selection](toolchain-tools.md#commands-and-selection).
+
 ## Checking and host entries
 
 The selected closure includes every declared dependency and every module reached

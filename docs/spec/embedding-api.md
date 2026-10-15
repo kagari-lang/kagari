@@ -77,6 +77,22 @@ resolves its schema through `Declarations::external_type`. It does not
 offer body-reference navigation before that body has been analyzed.
 Full `analyze` and compilation enforce the same language semantics.
 
+`analyze_source(source, cancel)` and `analyze_package(inputs, cancel)` retain a
+`SourceAnalysis` under the engine's installed declarations. Its `snapshot()` and
+`root()` are the optional-tool handoff; `check(cancel)` requires the existing
+strict checked-program gate and returns `CheckedModule` without repeating semantic
+processing. `compile_source`, `compile_package` and `compile_snapshot` use that
+same gate. Package analysis still requires complete `ProgramInputs`; acquisition
+recovery cannot introduce partial executable inputs. Retained handles keep their
+old facts across later edits. Lint policy is supplied to the separate linter,
+never to the SDK analysis environment.
+
+Semantic optional consumers use [HIR-owned eligibility and usage facts](../architecture/hir.md#optional-source-tool-facts).
+The linter can report an unused binding in a healthy function alongside a required
+error in another function; neither partial facts nor diagnostic truncation can
+make the whole program check successfully. Source diagnostics use
+`kagari_source::presentation::DiagnosticRecord`, independent of SDK/runtime types.
+
 Signature queries build the shared aggregate catalog after declaration signatures
 are available, then validate applied struct/enum bounds in parameters, returns,
 fields and payloads. Imported templates and facades use the same contracts as body

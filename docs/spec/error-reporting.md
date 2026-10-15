@@ -122,3 +122,18 @@ and 4096-byte label limits remain independent. Snapshots contain no script value
 roots or version leases and remain readable after report slots and handles retire.
 Successful reports carry admission provenance without becoming errors. Business
 Err remains an ordinary value and follows the Result propagation rules above.
+
+## Source-tool diagnostics
+
+`kagari-source::presentation::DiagnosticRecord` owns detached source diagnostics:
+severity, stable code, message, optional revision-qualified `FileSpan`, secondary
+labels and notes. HIR and the SDK convert their errors at this boundary. The CLI
+renderer only needs these records and retained source text, never an analysis
+object or runtime. It validates file identity, revision, bounds and UTF-8 positions
+before rendering an excerpt; unavailable locations remain explicit.
+
+The [source-tool output contract](toolchain-tools.md#output-contracts) defines human
+and JSON positions, ordering, envelopes and summaries. Source-tool JSON uses
+zero-based UTF-8 byte columns; runtime trace presentation above remains one-based.
+Lint severity/suppression applies only to optional findings. Required language and
+input diagnostics never enter that policy.

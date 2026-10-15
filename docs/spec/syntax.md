@@ -261,6 +261,9 @@ Notes:
 - an intended future use is `#[reflect]`
 - `#[meta(...)]` and names under `#[tool::...]` are preserved as structured,
   source-positioned analysis metadata. They do not change runtime behavior.
+  The [linter](toolchain-tools.md#configuration-and-precedence) interprets
+  `tool::allow`, `tool::warn` and `tool::deny`; ordinary checking preserves these
+  opaquely. Invalid lint policy never suppresses required language diagnostics.
   `#[reflect]` is reserved and diagnosed until its behavior is implemented.
   Legacy `#[requires]` and `#[profile]` remain rejected; they do not establish
   runtime permissions. Other unqualified names are diagnosed as unknown.

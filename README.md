@@ -101,11 +101,18 @@ The `kg` CLI uses the same embedding pipeline as hosts. Build it with
 
 ```sh
 cargo run -p kagari-cli -- parse path/to/main.kgr
+cargo run -p kagari-cli -- fmt path/to/main.kgr --check
 cargo run -p kagari-cli -- check path/to/main.kgr
+cargo run -p kagari-cli -- lint path/to/main.kgr -D warnings
 cargo run -p kagari-cli -- emit -o path/to/main.kbc path/to/main.kgr
 cargo run -p kagari-cli -- run path/to/main.kgr
 cargo run -p kagari-cli -- run-artifact path/to/main.kbc
 ```
+
+Omit the file to select project members; `--workspace` selects the workspace.
+`fmt` changes layout, `check` enforces language rules, and `lint` adds six optional
+rules. See [source tools](docs/spec/toolchain-tools.md) for configuration, JSON,
+suppressions, source acquisition and writeback guarantees.
 
 An implicit path selects `run-artifact` for `.kbc` files and `run` for other paths.
 Installed interfaces determine available APIs; execution supports cancellation and a runtime call-depth limit.

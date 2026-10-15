@@ -14,7 +14,7 @@ behavior; queued designs do not imply implemented APIs.
 | Host integration | [Embedding and Rust DTO/Serde conversion](spec/embedding-api.md), [unified registration, Opaque and scoped Ref/RefMut](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
 | Modules and reload | [Packages/workspaces](spec/packages.md), [Modules](spec/modules.md), [loading](spec/module-loading.md), [activation](spec/module-activation.md) |
 | Executable products | [Bytecode](spec/bytecode.md), [artifacts](spec/artifacts.md), [backend contract](spec/codegen-backend.md), [JIT](spec/jit.md), [AOT deployment](spec/aot.md) |
-| Tooling | [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
+| Tooling | [Formatter, checker and linter](spec/toolchain-tools.md), [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
 
 ## Implementation references
 
@@ -42,9 +42,6 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Host API unification](host-api-refactor.md).
-- [Formatter, checker and linter](toolchain-tools-plan.md): TT01-TT05 cover
-  diagnostic/check tooling, lossless formatting and six initial lint rules;
-  planning is authorized and implementation has not started.
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI distribution and the separate REPL proposal; source packages are
   specified above.

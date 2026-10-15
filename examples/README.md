@@ -10,6 +10,19 @@ through source and encoded-artifact loading:
 cargo test -p kagari --test syntax_examples
 ```
 
+Source tools can inspect an example without executing it:
+
+```sh
+cargo run -p kagari-cli -- fmt examples/syntax/string-interpolation.kgr --check
+cargo run -p kagari-cli -- check examples/syntax/string-interpolation.kgr
+cargo run -p kagari-cli -- lint examples/syntax/string-interpolation.kgr
+```
+
+Formatting check may report layout differences; lint warnings are optional and do
+not mean a language error. See [tool configuration and rules](../docs/spec/toolchain-tools.md).
+The formatter's full grammar matrix consumes the syntax fixtures without rewriting
+them and runs in CI.
+
 The [error-stack example](error-stack.kgr) intentionally returns Err: running
 `cargo run -p kagari-cli -- run examples/error-stack.kgr` prints the original
 `read_settings` stack and exits with status 1. See [the reporting contract](../docs/spec/error-reporting.md).

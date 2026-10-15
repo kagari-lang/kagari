@@ -120,14 +120,18 @@ closure; omit unrelated implementation tools. Release automation, version policy
 and functional publication require their own activation. No package publication
 is authorized by the completed source-package implementation.
 
-The [formatter, checker and linter plan](toolchain-tools-plan.md) owns TT01-TT05:
-common diagnostics and check reporting, lossless formatting, project writeback,
-six initial lint rules and focused acceptance. Planning is authorized;
-implementation has not started. `kg check` already performs language checking;
-`kg fmt` and `kg lint` remain unimplemented. CLI owns arguments and IO; formatting
-needs no semantic resolution/downloads, and semantic linting shares HIR checking
-inputs. Required language errors cannot be disabled as optional lint rules.
-The plan owns first-release command/configuration decisions and validation scope.
+The first-release [formatter, checker and six-rule linter](spec/toolchain-tools.md)
+are implemented. CLI owns arguments and IO; formatting uses lossless syntax without
+dependency resolution, and check/lint share HIR analysis and strict language checks.
+Required diagnostics cannot be disabled through optional-rule policy.
+
+Deferred source-tool work: range/on-type formatting, comment reflow, import sorting,
+skip regions, check/lint stdin overlays, watch/daemon/LSP, per-path configuration,
+custom rules, autofix and persistent caches. Further lint candidates include unused
+imports, dead declarations, ignored Results, unreachable code, dead stores,
+expression simplification and measured performance advice. Each requires its own
+semantic justification for exports, trait lookup, traps and side effects; none is
+part of the six-rule release.
 
 `kg repl` remains a separate unimplemented mode. Explicit public-function selection
 and argument forwarding, standalone dependency/host declaration policy and
