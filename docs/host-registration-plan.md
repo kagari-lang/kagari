@@ -1,6 +1,6 @@
 # Unified NativeModule registration and value/reference API proposal
 
-Status: active combined execution plan; HR01-HR03 and RF01-RF05 implemented. RF06/RI05 final integration and durable documentation remain. The user
+Status: HR01-HR03 and RF01-RF06 implemented with focused local acceptance. Final documentation retirement follows; exhaustive CI is pending. The user
 included Ref/RefMut in the same delivery as registration and Opaque. The
 [roadmap](implementation-roadmap.md#host-registration-and-interop-delivery) owns
 placement; [SA21](review.md#sa21-unify-rust-registration-through-nativemodule-with-scoped-host-access)
@@ -3501,6 +3501,62 @@ RF06/RI05 still own production lifetime-proof consolidation, final runnable
 examples, durable contracts and plan retirement; combined delivery is not yet
 complete.
 
+### RF06/RI05 checkpoint: production lifetime and combined ownership acceptance
+
+Removed the standalone registration/scope prototype, its rustc driver and seven
+fixtures. Production rustdoc now owns all lifetime rejection contracts: scope
+escape, root reaccess/movement after view consumption, runtime/thread transfer,
+callback result/retention, shared upgrade and borrowed edit result. Added only the
+two missing distinct root-movement/shared-upgrade cases; existing production
+examples and contract tests already prove passing adapters. No duplicate adapter
+or compile harness remains.
+
+The runnable scoped_host SDK example registers heal/inspect once, uses them with
+Opaque and both external view constructors, then demonstrates checked read/edit/
+take and unavailable old aliases. Existing DTO/Opaque, optional Serde and cold
+source-free examples remain runnable. Specifications now own the passing matrix,
+GC/runtime versus host storage ownership and reload liveness contract.
+
+Focused final checks passed:
+
+- `cargo test -p kagari-runtime --doc -- host_scope::scoped native::typed::loans`:
+  ten compile-fail cases passed, including both new diagnostic-checked cases.
+- `cargo test -p kagari-vm --test native_boundary --
+  taken_opaque_aliases_reject_edits_and_pinned_method_calls_after_reinsertion
+  external_scopes_use_registered_payload_methods_and_revoke_old_views
+  take_moves_nonclone_payload_and_invalidates_host_and_script_aliases_across_slot_reuse`:
+  three cases passed (14.77 seconds), retaining error/unwind/cancellation/depth,
+  alias/slot reuse, pinned method and stale scope assertions.
+- `cargo test -p kagari --test scoped_calls --
+  scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter`:
+  one SDK execution-context/field-pack case passed (7.44 seconds).
+- `cargo +nightly-2026-07-27 miri test -p kagari-runtime --lib
+  executable_inline_field_codecs -- --nocapture`: actual generated field-codec
+  kernel passed (one case, 56.65 seconds). Host aarch64-apple-darwin; MIRIFLAGS
+  unset, workspace test profile/default parallelism and default Miri target.
+  Covers raw nested access/replacement, disjoint loans and retained GC results.
+  Earlier whole-root, zero-sized root, atomic path-pack and shared-alias Miri
+  evidence above remains applicable; no unsafe kernel changed in this checkpoint.
+- `cargo run -p kagari --example scoped_host`: hp=70 for owned/borrowed,
+  take returns hp=71 and the old opaque alias rejects access.
+- `cargo run -p kagari --example value_interop`: Applied(Response { amount: 40 }).
+- `cargo run -p kagari --example serde_interop --no-default-features --features
+  source,serde`: Applied(7, 20).
+- `cargo run -p kagari-runtime --example offline_host`: common encoded contract
+  loads and returns 42 without source analysis during execution.
+- Selected scoped_host example Clippy, structure (1227 Rust files, zero findings),
+  formatting and diff checks passed.
+
+No selected local integration or safety failure remains. The selection adds final
+production lifetime, owned/external cleanup and executable guide evidence to the
+already passing changed-owner checks; it is not a workspace sweep. Exhaustive
+workspace/feature/backend/platform CI and broader Miri remain unrun locally.
+No native reference backend, borrowed returns, general view trait forwarding or
+call-cost optimization is claimed. RF06 and RI05 implementation/contract gates
+are complete. The final documentation checkpoint moves excluded cost work to the
+existing roadmap/review, updates incoming links and removes both completed plans;
+Git history retains these phase ledgers.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [x] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [x] HR03: dependent legacy retirement complete after RF05.
@@ -3509,15 +3565,9 @@ complete.
 - [x] RF03: safe external scopes and whole-object loans implemented.
 - [x] RF04: generated inline projections and atomic path loans implemented.
 - [x] RF05: common bind, SDK and source-free reference paths integrated.
-- [ ] RF06: focused safety/integration complete; CI/Miri status recorded separately.
+- [x] RF06: focused safety/integration complete; CI/Miri status recorded separately.
 
-RI progress remains in the interop plan. The combined order above is the sole
-cross-plan schedule; these lists are not duplicate RI checklists. Current state:
-API/lifetime prototype and RI01-RI02 schema/conversion implemented, no carried production build failure. The
-proof and focused results above establish the owned conversion, Opaque, scoped
-loan/projector and checked portable external-dependency slices. Whole-root common
-registration/installation and explicit native field/index/virtual paths execute;
-path-view argument capabilities and explicit source trait references are integrated.
-Remaining legacy consumers, producer/callable retirement and complete combined
-acceptance remain outstanding. Implementation checkpoints use Conventional Commits with the owning
-phase trailer, for example `Plan-Phase: RF04`.
+RI progress remains in the interop plan. All selected HR/RF/RI implementation and
+focused local integration gates are complete. Plan retirement and incoming link
+maintenance form the final documentation checkpoint; exhaustive CI is separately
+pending and no full-workspace acceptance is claimed.

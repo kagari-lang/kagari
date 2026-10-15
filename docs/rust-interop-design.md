@@ -1,6 +1,6 @@
 # Rust Value and Opaque Interoperability Plan
 
-Status: active combined host/interop delivery; RI01-RI02 and HR02 owned registration implemented; RI03/RF02 proceed with reference-dependent HR02 migration still open.
+Status: RI00-RI05 implementation and focused combined integration complete. Final documentation retirement follows; exhaustive CI remains pending.
 This plan defines typed Rust value conversion and runtime-owned opaque objects. The user selected
 runtime ownership with checked host read/edit and explicit take; Rust and Kagari
 traits remain independent and require explicit script registration. Examples are
@@ -684,7 +684,7 @@ behavior and reports no test or performance result.
   embedding consumer proving that new structs and opaque types need no core edits.
   Coordinate finite inline field descriptors with RF04, which owns generated
   projector safety and execution; no second schema or handwritten projection API.
-- [ ] RI05: Update SDK examples and interop/type/memory/reload specifications,
+- [x] RI05: Update SDK examples and interop/type/memory/reload specifications,
   remove superseded binding models within scope, and close integration with HR03
   and RF06. Record local and CI/Miri acceptance separately; do not retire this plan
   with required Opaque/reference integration outstanding.
@@ -1352,3 +1352,15 @@ claiming zero allocations or zero-cost property access. Record toolchain, machin
 profile, features, default Cargo parallelism, cache state and workload; separate
 compilation from execution. Store temporary output under ignored `target/` and keep
 durable conclusions here. No benchmark result is claimed by this proposal.
+
+### RI05 final integration and contract handoff
+
+RF06's final checkpoint in host-registration-plan.md records the actual production
+lifetime, Opaque/external cleanup, SDK, runnable DTO/Opaque/Serde/offline examples
+and fresh generated-field Miri results. All selected local checks passed; no
+required implementation or integration failure remains. Durable contracts are in
+spec/embedding-api.md, spec/host-interop.md, spec/runtime.md,
+spec/module-activation.md and spec/traits.md. The final documentation checkpoint
+updates incoming references and removes both completed plans. The roadmap keeps
+exhaustive workspace/feature/backend/platform CI pending and excluded future scope
+separate; focused local checks are not complete CI acceptance.

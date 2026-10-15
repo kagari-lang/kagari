@@ -339,6 +339,22 @@ threads outside synchronous execution/borrow scopes, or keep it in a Send future
 across message-receive awaits. RefCell/Cell storage remains exclusively owned;
 this does not enable concurrent access or asynchronous script execution.
 
+`Opaque<T>` retains a checked root into runtime-owned native storage; cloning the
+handle preserves identity without cloning T. Read/edit acquire short checked
+loans. Explicit take validates extraction capability and active operations before
+atomically removing the payload and invalidating every old alias. Failed take
+leaves storage unchanged. Old roots can retain an inert invalidation identity,
+but cannot access the payload or revive it after reinsertion. Payload destruction
+belongs to the runtime until successful take, then to the receiving Rust owner.
+See [opaque access](embedding-api.md#retained-objects-and-prepared-calls).
+
+External `Ref<T>`/`RefMut<T>` instead reserve host-owned storage under an invariant
+scope brand. GC retains only checked view identities; addresses remain in the
+host borrow owner. Scope exit revokes every root/child view before the Rust loan
+ends, including errors and supported unwind. Holding a copied script Value cannot
+extend that lifetime. These views cannot cross suspension or runtime transfer.
+See [scoped borrowing](host-interop.md#borrowed-host-values).
+
 Shared native/host registrations and storage factories require Send + Sync and
 use Arc. Runtime-owned native payloads and observers require only Send. Their
 storage and destruction move with the runtime. Host-owned mutable services captured

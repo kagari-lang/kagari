@@ -407,6 +407,23 @@ Examples:
 
 Owned passing is simpler but may be too expensive for large host-owned structures.
 
+The registered representation determines conversion and borrowing:
+
+| Script input | Owned Rust `T` | Rust `&T` | Rust `&mut T` |
+| --- | --- | --- | --- |
+| Ordinary GC DTO | Independent schema-directed conversion | Rejected | Rejected |
+| Runtime-owned opaque target | Explicit host `Opaque::take` only | Checked payload loan | Checked payload loan with installed editing capability |
+| `Ref<T>` | No implicit snapshot | Checked scoped loan | Rejected |
+| `RefMut<T>` | No implicit snapshot | Checked scoped loan | Checked scoped loan |
+
+DTO schema registration exposes data fields only. Rust methods and Rust trait
+implementations supply no script members or Kagari trait evidence. Declare each
+host member once and bind its callback explicitly; supported opaque and external
+receivers use that same member according to its declared access. A separate DTO
+snapshot and opaque representation use distinct explicit binding types. The
+[value conversion guide](embedding-api.md#typed-native-registration) describes
+the finite derive/Serde subset and directional converters.
+
 ## Registered payload loans
 
 An instance `MethodDecl` may explicitly set `receiver_access` to
@@ -430,7 +447,7 @@ allocation and on errors/unwind; completed writes remain visible. Mutable access
 requires the installed fixed-data proof, not merely the callback's `&mut T` type.
 Traced, managed and take-only registrations do not gain arbitrary editing.
 External scope and path adapters consume the same declaration and binding facts
-in the subsequent reference integration gates.
+through the common invocation boundary described below.
 
 ## Borrowed Host Values
 

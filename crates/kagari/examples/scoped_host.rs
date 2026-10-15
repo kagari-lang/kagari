@@ -85,7 +85,7 @@ fn main() {
         )
         .unwrap();
     let owned_hp: i32 = runtime
-        .execute_typed(&loaded, "owned", (owned,), &context)
+        .execute_typed(&loaded, "owned", (owned.clone(),), &context)
         .unwrap();
     let mut external = Player { hp: 60 };
     let borrowed_hp = runtime
@@ -117,5 +117,34 @@ fn main() {
     assert_eq!(owned_hp, 70);
     assert_eq!(borrowed_hp, 70);
     assert_eq!(external.hp, 70);
+    runtime
+        .with_host_scope(|scope| {
+            let view = scope.borrow(descriptor.rust_type(), &external)?;
+            assert_eq!(
+                KagariRuntime::execute_scoped(
+                    scope,
+                    &loaded,
+                    "inspect",
+                    &[view.value()],
+                    &context
+                )?,
+                Value::I32(70)
+            );
+            Ok(())
+        })
+        .unwrap();
+    let cx = NativeContext::new(runtime.runtime(), &loaded).unwrap();
+    assert_eq!(owned.read(&cx, |player| Ok(player.hp)).unwrap(), 70);
+    owned
+        .edit(&cx, |player| {
+            player.hp += 1;
+            Ok(())
+        })
+        .unwrap();
+    let alias = owned.clone();
+    let recovered = owned.take(&cx).unwrap();
+    assert_eq!(recovered.hp, 71);
+    assert!(alias.read(&cx, |_| Ok(())).is_err());
     println!("owned hp={owned_hp}, borrowed hp={borrowed_hp}");
+    println!("taken hp={}, old opaque alias unavailable", recovered.hp);
 }

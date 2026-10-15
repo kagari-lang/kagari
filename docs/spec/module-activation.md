@@ -10,6 +10,14 @@ An embedding host may explicitly call functions during a restricted candidate se
 
 The root call pins a dependency program. Nested calls and synchronous host reentry use that same version set and cancellation state. A later publication does not redirect existing calls. Old versions remain usable while reachable and are reclaimed after their remaining references and calls end.
 
+Native declarations, explicit impls, external schemas and local projector/storage
+capabilities remain part of that checked dependency contract. Reload does not
+redirect an existing method or field descriptor to a different Rust layout.
+Pinned code still validates receiver liveness: an opaque receiver taken out of
+runtime storage remains unavailable to old methods, and a revoked external view
+remains invalid after publication. A retained generation never extends a host
+scope or resurrects removed payload storage.
+
 ## Async activation
 
 The implemented [async executable contracts](../async-execution-design.md#executable-contracts)

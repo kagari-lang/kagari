@@ -64,6 +64,17 @@ impl Runtime {
     ///     runtime.with_host_scope(|_| { drop(runtime); Ok(()) }).unwrap();
     /// }
     /// ```
+    /// A lent root cannot be moved, even after consuming its view:
+    /// ```compile_fail,E0505
+    /// use kagari_runtime::{Runtime, native::rust_type::RustType};
+    /// fn move_root(runtime: &mut Runtime, ty: &RustType<String>, value: String) {
+    ///     runtime.with_host_scope(|scope| {
+    ///         drop(scope.borrow(ty, &value)?);
+    ///         drop(value);
+    ///         Ok(())
+    ///     }).unwrap();
+    /// }
+    /// ```
     /// A scope cannot be sent to another thread:
     /// ```compile_fail
     /// use kagari_runtime::Runtime;
@@ -206,7 +217,14 @@ impl<'scope, T: Send + 'static> Ref<'scope, T> {
     }
 
     /// Lend a checked shared reference for this closure. Compatible shared loans
-    /// may nest; an active exclusive loan rejects this operation.
+    /// may nest; an active exclusive loan rejects this operation. A shared view
+    /// cannot acquire mutable access:
+    /// ```compile_fail,E0599
+    /// use kagari_runtime::host_scope::scoped::{HostScope, Ref};
+    /// fn upgrade<'scope>(scope: &HostScope<'scope, '_>, view: &Ref<'scope, i32>) {
+    ///     view.edit(scope, |value| { *value = 0; Ok(()) }).unwrap();
+    /// }
+    /// ```
     pub fn read<R>(
         &self,
         scope: &HostScope<'scope, '_>,
