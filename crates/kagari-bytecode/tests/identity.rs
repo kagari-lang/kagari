@@ -330,16 +330,14 @@ fn artifact_preserves_portable_virtual_path_declarations() {
 #[test]
 fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
     use kagari_types::host_interface::{
-        HostFunctionDeclaration, HostInterface, standard_log,
+        HostFunctionDeclaration, HostInterface,
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     };
     let context = DefinitionContext::new().unwrap();
     let cancel = CancellationToken::default();
-    let log = standard_log()
-        .unwrap()
-        .import_into(&context, &cancel)
-        .unwrap();
+    let output =
+        HostFunctionDeclaration::new(&context, "host.output", vec![], HostValueType::I32).unwrap();
     let root = context
         .intern_root(&ModuleIdentity {
             package: PackageId("host".into()),
@@ -363,7 +361,7 @@ fn required_host_fingerprint_is_derived_and_independent_of_docs_and_order() {
     let interface = HostInterface {
         paths: vec![],
         types: vec![object],
-        functions: vec![log.into_records(), other],
+        functions: vec![output, other],
     };
     let definitions = context.snapshot();
     let fingerprint = ArtifactFingerprint::of_host_interface(&interface, &definitions).unwrap();

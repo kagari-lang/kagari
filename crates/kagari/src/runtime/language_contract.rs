@@ -20,9 +20,11 @@ use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     gc::GcHeap,
-    host::{HostError, HostFunction},
+    host::{HostCallContext, HostError, HostFunction},
     module::{LoadedModule, entry::ProgramEntry},
-    native::conversion::context::ConversionContext,
+    native::{
+        builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
+    },
     reload::ReloadValidationError,
     resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
@@ -31,8 +33,9 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::namespaces;
+use kagari_types::declaration::logging;
 use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, standard_log, value_type::HostValueType,
+    HostFunctionDeclaration, HostInterface, value_type::HostValueType,
 };
 use kagari_vm::{
     error::VmError,
@@ -178,6 +181,25 @@ impl<'a> Case<'a> {
         self.reflection = true;
         self
     }
+}
+
+fn logging_module(
+    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    + Send
+    + Sync
+    + 'static,
+) -> NativeModule {
+    let mut builder = ModuleBuilder::from_declaration(
+        logging::declaration().unwrap(),
+        &kagari_stdlib::declarations::StandardDeclarations::default()
+            .catalog()
+            .unwrap(),
+        Default::default(),
+    )
+    .unwrap();
+    let log = builder.declared_function("log").unwrap();
+    builder.bind(log, entry).unwrap();
+    builder.finish().unwrap()
 }
 
 fn observe_vector() -> DefinitionMetadata<HostFunctionDeclaration> {
@@ -426,36 +448,33 @@ fn run(
     let cancel_call = case.cancel_call;
     let cancellation = CancellationToken::default();
     let cancel = cancellation.clone();
-    runtime
-        .register_host_function(HostFunction::new(
-            standard_log().unwrap(),
-            move |cx, args| {
-                let [Value::Str(id)] = args else {
-                    return Err(HostError::new("log requires one string"));
-                };
-                let message = cx.runtime().gc().string(*id).unwrap().to_owned();
-                let mut state = capture.lock().unwrap();
-                state.calls.push(HostCall {
-                    symbol: "host.log",
-                    args: vec![message.clone()],
-                });
-                if reject_call == Some(state.calls.len()) {
-                    return Err(HostError::new("test host rejected append"));
-                }
-                let previous_len = state.log.len();
-                state.log.push(message.clone());
-                state.mutations.push(Mutation {
-                    target: "host.log",
-                    previous_len,
-                    appended: message.clone(),
-                });
-                if cancel_call == Some(state.calls.len()) {
-                    cancel.cancel();
-                }
-                Ok(Value::Unit)
-            },
-        ))
-        .unwrap();
+    logging_module(move |cx, args| {
+        let [Value::Str(id)] = args else {
+            return Err(HostError::new("log requires one string"));
+        };
+        let message = cx.runtime().gc().string(*id).unwrap().to_owned();
+        let mut state = capture.lock().unwrap();
+        state.calls.push(HostCall {
+            symbol: "host.log",
+            args: vec![message.clone()],
+        });
+        if reject_call == Some(state.calls.len()) {
+            return Err(HostError::new("test host rejected append"));
+        }
+        let previous_len = state.log.len();
+        state.log.push(message.clone());
+        state.mutations.push(Mutation {
+            target: "host.log",
+            previous_len,
+            appended: message.clone(),
+        });
+        if cancel_call == Some(state.calls.len()) {
+            cancel.cancel();
+        }
+        Ok(Value::Unit)
+    })
+    .install(&mut runtime)
+    .unwrap();
     let observed_vector = Arc::new(Mutex::new(None));
     if case.vector.is_some() {
         let capture_vector = observed_vector.clone();

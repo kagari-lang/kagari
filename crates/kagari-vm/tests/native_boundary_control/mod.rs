@@ -6,12 +6,12 @@ use kagari_bytecode::{
 };
 use kagari_common::{cancellation::CancellationToken, identity::metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
+use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     gc::GcHeapConfig,
-    host::HostFunction,
+    host::{HostCallContext, HostError},
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult, builder::ModuleBuilder, callable::CallableHandle,
@@ -22,7 +22,7 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{catalog as foundation_catalog, declarations::StandardDeclarations};
-use kagari_types::host_interface::{HostInterface, standard_log};
+use kagari_types::declaration::logging;
 use kagari_vm::{
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
     error::VmError,
@@ -34,6 +34,23 @@ use std::sync::{
     Mutex,
     atomic::{AtomicUsize, Ordering},
 };
+
+fn logging_module(
+    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    + Send
+    + Sync
+    + 'static,
+) -> NativeModule {
+    let mut builder = ModuleBuilder::from_declaration(
+        logging::declaration().unwrap(),
+        &StandardDeclarations::default().catalog().unwrap(),
+        Default::default(),
+    )
+    .unwrap();
+    let log = builder.declared_function("log").unwrap();
+    builder.bind(log, entry).unwrap();
+    builder.finish().unwrap()
+}
 
 fn module() -> NativeModule {
     let mut module = ModuleBuilder::new(
@@ -69,7 +86,7 @@ fn compile_test_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let file = sources
         .set(
             "test.kgr",
-            format!("{text}\nuse test::boundary;"),
+            format!("{text}\nuse test::boundary; use host;"),
             SourceLayer::Base,
         )
         .unwrap();
@@ -78,21 +95,12 @@ fn compile_test_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
         foundation_catalog::shared()
             .unwrap()
             .into_iter()
-            .chain([Arc::new(native.to_declaration())])
+            .chain([
+                Arc::new(native.to_declaration()),
+                Arc::new(logging::declaration().unwrap()),
+            ])
             .collect(),
     );
-    let (definitions, log) = standard_log().unwrap().into_parts();
-    let interface = DefinitionMetadata::checked(
-        definitions,
-        HostInterface {
-            paths: vec![],
-            types: vec![],
-            functions: vec![log],
-        },
-        &Default::default(),
-    )
-    .unwrap();
-    analysis.set_host_declarations(HostDeclarations::new(interface).unwrap());
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -148,12 +156,12 @@ fn callback_depth_failure_precedes_effects_and_cleans_native_roots() {
             });
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
-            runtime
-                .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
-                    *sink.lock().unwrap() += 1;
-                    Ok(Value::Unit)
-                }))
-                .unwrap();
+            logging_module(move |_, _| {
+                *sink.lock().unwrap() += 1;
+                Ok(Value::Unit)
+            })
+            .install(&mut runtime)
+            .unwrap();
             let loaded = runtime
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();
@@ -190,13 +198,13 @@ fn cancellation_in_callback_keeps_the_effect_and_is_sticky_only_in_its_session()
         let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
-        runtime
-            .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
-                *sink.lock().unwrap() += 1;
-                cancel.cancel();
-                Ok(Value::Unit)
-            }))
-            .unwrap();
+        logging_module(move |_, _| {
+            *sink.lock().unwrap() += 1;
+            cancel.cancel();
+            Ok(Value::Unit)
+        })
+        .install(&mut runtime)
+        .unwrap();
         let loaded = runtime
             .load_program("native-control", route(&program, encoded))
             .unwrap();
@@ -252,12 +260,12 @@ fn callback_trap_preserves_the_public_caller_origin_and_debug_frames() {
         let mut runtime = runtime(Default::default());
         let effects = Arc::new(Mutex::new(0));
         let sink = effects.clone();
-        runtime
-            .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
-                *sink.lock().unwrap() += 1;
-                Ok(Value::Unit)
-            }))
-            .unwrap();
+        logging_module(move |_, _| {
+            *sink.lock().unwrap() += 1;
+            Ok(Value::Unit)
+        })
+        .install(&mut runtime)
+        .unwrap();
         let loaded = runtime
             .load_program("native-control", route(&program, encoded))
             .unwrap();
@@ -338,40 +346,37 @@ fn fail() -> i32 { boundary::choose(true, || { val n = 2147483647; n + 1 }) }
         let effects = Arc::new(Mutex::new(Vec::new()));
         let sink = effects.clone();
         let mut runtime = runtime(Default::default());
-        runtime
-            .register_host_function(HostFunction::new(
-                standard_log().unwrap(),
-                move |context, args| {
-                    let [Value::Str(id)] = args else {
-                        panic!("log string")
-                    };
-                    let text = context.runtime().gc().string(*id).unwrap().to_owned();
-                    sink.lock().unwrap().push(text.clone());
-                    let root = context.runtime().execution_root().unwrap();
-                    if text == "outer" {
-                        assert_eq!(
-                            reenter(context, &root, inner, &[])
-                                .unwrap()
-                                .value(context.runtime().gc())
-                                .unwrap(),
-                            Value::I32(7)
-                        );
-                        assert!(reenter(context, &root, fail, &[]).is_err());
-                        assert_eq!(
-                            context.runtime().resources().counters().current_call_depth,
-                            2
-                        );
-                    } else {
-                        assert_eq!(
-                            context.runtime().resources().counters().current_call_depth,
-                            4
-                        );
-                    }
-                    context.runtime().collect_garbage().unwrap();
-                    Ok(Value::Unit)
-                },
-            ))
-            .unwrap();
+        logging_module(move |context, args| {
+            let [Value::Str(id)] = args else {
+                panic!("log string")
+            };
+            let text = context.runtime().gc().string(*id).unwrap().to_owned();
+            sink.lock().unwrap().push(text.clone());
+            let root = context.runtime().execution_root().unwrap();
+            if text == "outer" {
+                assert_eq!(
+                    reenter(context, &root, inner, &[])
+                        .unwrap()
+                        .value(context.runtime().gc())
+                        .unwrap(),
+                    Value::I32(7)
+                );
+                assert!(reenter(context, &root, fail, &[]).is_err());
+                assert_eq!(
+                    context.runtime().resources().counters().current_call_depth,
+                    2
+                );
+            } else {
+                assert_eq!(
+                    context.runtime().resources().counters().current_call_depth,
+                    4
+                );
+            }
+            context.runtime().collect_garbage().unwrap();
+            Ok(Value::Unit)
+        })
+        .install(&mut runtime)
+        .unwrap();
         let loaded = runtime
             .load_program("native-control", route(&program, encoded))
             .unwrap();
@@ -414,21 +419,18 @@ fn main() -> i32 {{ host::log("invoke"); 0 }}
         let observed = Arc::new(Mutex::new(Vec::new()));
         let sink = observed.clone();
         let mut runtime = runtime(Default::default());
-        runtime
-            .register_host_function(HostFunction::new(
-                standard_log().unwrap(),
-                move |context, _| {
-                    let value = *callback.lock().unwrap().as_ref().unwrap();
-                    let root = context.runtime().execution_root().unwrap();
-                    let result = reenter(context, &root, consume, &[value]).unwrap();
-                    sink.lock()
-                        .unwrap()
-                        .push(result.value(context.runtime().gc()).unwrap());
-                    context.runtime().collect_garbage().unwrap();
-                    Ok(Value::Unit)
-                },
-            ))
-            .unwrap();
+        logging_module(move |context, _| {
+            let value = *callback.lock().unwrap().as_ref().unwrap();
+            let root = context.runtime().execution_root().unwrap();
+            let result = reenter(context, &root, consume, &[value]).unwrap();
+            sink.lock()
+                .unwrap()
+                .push(result.value(context.runtime().gc()).unwrap());
+            context.runtime().collect_garbage().unwrap();
+            Ok(Value::Unit)
+        })
+        .install(&mut runtime)
+        .unwrap();
         let old = runtime
             .load_program("native-control", route(&old_program, encoded))
             .unwrap();
@@ -485,12 +487,12 @@ fn cancellation_at_observed_boundaries_cleans_callback_scopes() {
             let mut runtime = runtime(Default::default());
             let effects = Arc::new(Mutex::new(0));
             let sink = effects.clone();
-            runtime
-                .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
-                    *sink.lock().unwrap() += 1;
-                    Ok(Value::Unit)
-                }))
-                .unwrap();
+            logging_module(move |_, _| {
+                *sink.lock().unwrap() += 1;
+                Ok(Value::Unit)
+            })
+            .install(&mut runtime)
+            .unwrap();
             let loaded = runtime
                 .load_program("native-control", route(&program, encoded))
                 .unwrap();

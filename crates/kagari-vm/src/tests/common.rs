@@ -8,11 +8,20 @@ use kagari_bytecode::{
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::{ids::FunctionRef, native_import::NativeImport};
-use kagari_hir::{analysis::AnalysisDatabase, host::HostDeclarations};
-use kagari_runtime::{Runtime, RuntimeConfig, module::LoadedModule, native::module::NativeModule};
+use kagari_hir::analysis::AnalysisDatabase;
+use kagari_runtime::{
+    Runtime, RuntimeConfig,
+    host::{HostCallContext, HostError},
+    module::LoadedModule,
+    native::{builder::ModuleBuilder, module::NativeModule},
+    value::Value,
+};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib as foundation;
-use kagari_types::host_interface::{HostFunctionDeclaration, HostInterface, standard_log};
+use kagari_types::{
+    declaration::logging,
+    host_interface::{HostFunctionDeclaration, HostInterface},
+};
 use std::{iter, sync::Arc};
 
 pub fn load_bytecode_module(
@@ -95,31 +104,39 @@ pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
     load_bytecode_program("test.kgr", compile_test_bytecode(source_text))
 }
 
+/// Bind the fixed print service through ordinary common native registration.
+pub fn logging_module(
+    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    + Send
+    + Sync
+    + 'static,
+) -> NativeModule {
+    let mut builder = ModuleBuilder::from_declaration(
+        logging::declaration().unwrap(),
+        &foundation::declarations::StandardDeclarations::default()
+            .catalog()
+            .unwrap(),
+        Default::default(),
+    )
+    .unwrap();
+    let log = builder.declared_function("log").unwrap();
+    builder.bind(log, entry).unwrap();
+    builder.finish().unwrap()
+}
+
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kgr", source_text.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(
-        foundation::modules()
-            .unwrap()
-            .iter()
-            .map(|module| Arc::new(module.to_declaration()))
-            .collect(),
-    );
-    let (definitions, log) = standard_log().unwrap().into_parts();
-    let interface = DefinitionMetadata::checked(
-        definitions,
-        HostInterface {
-            paths: vec![],
-            types: vec![],
-            functions: vec![log],
-        },
-        &Default::default(),
-    )
-    .unwrap();
-    analysis.set_host_declarations(HostDeclarations::new(interface).unwrap());
+    let mut declarations = foundation::modules()
+        .unwrap()
+        .iter()
+        .map(|module| Arc::new(module.to_declaration()))
+        .collect::<Vec<_>>();
+    declarations.push(Arc::new(logging::declaration().unwrap()));
+    analysis.set_native_modules(declarations);
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .expect("analysis snapshot should succeed");

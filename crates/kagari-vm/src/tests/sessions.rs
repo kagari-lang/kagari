@@ -1,3 +1,4 @@
+use crate::tests::common::logging_module;
 use crate::{
     error::VmError,
     reentry::reenter,
@@ -13,12 +14,12 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     backend::{BackendInvocationError, native::NativeInvocationFailure},
     error::RuntimeErrorKind,
-    host::{HostBorrowKind, HostFunction},
+    host::HostBorrowKind,
     module::{LoadedModule, entry::ProgramEntry},
     resource::RuntimeLimits,
     value::Value,
 };
-use kagari_types::{host_interface::standard_log, language::binding, scalar::BuiltinType, ty::Ty};
+use kagari_types::{language::binding, scalar::BuiltinType, ty::Ty};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicUsize, Ordering},
@@ -60,8 +61,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
             let retained = Arc::new(Mutex::new(None));
             let result = retained.clone();
             let mut runtime = runtime();
-            runtime
-                .register_host_function(HostFunction::new(standard_log().unwrap(), move |context, args| {
+            logging_module(move |context, args| {
                     let runtime = context.runtime();
                     if matches!(args, [Value::Str(id)] if &*runtime.gc().string(*id).unwrap() == "outer") {
                         let token = context
@@ -110,7 +110,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
                         runtime.collect_garbage().unwrap();
                     }
                     Ok(Value::Unit)
-                }))
+                }).install(&mut runtime)
                 .unwrap();
             let loaded = runtime
                 .load_program("reentry.kgr", route(module, encoded))
@@ -186,7 +186,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     },
                     ..Default::default()
                 });
-                runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, args| {
+                logging_module(move |context, args| {
                     context.borrows().borrow_shared(HostObjectId(2), TypeId::new(0)).unwrap();
                     let temporary = Value::Array(context.runtime().alloc_array(&context.runtime().execution_root().unwrap(), Ty::Builtin(BuiltinType::I32), vec![Value::I32(11)]).unwrap());
                     context.retain_temporaries(std::slice::from_ref(&temporary)).unwrap();
@@ -200,7 +200,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
                     }
                     // Even a host deliberately swallowing a nested terminal error cannot resume.
                     Ok(Value::Unit)
-                })).unwrap();
+                }).install(&mut runtime).unwrap();
                 let loaded = runtime
                     .load_program("termination.kgr", route(module, encoded))
                     .unwrap();
@@ -284,7 +284,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
     assert!(foreign.gc().validate_value(&foreign_value));
     let retained_foreign_value = foreign_value;
     let mut runtime = runtime();
-    runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, _| {
+    logging_module(move |context, _| {
         called.fetch_add(1, Ordering::SeqCst);
         let runtime = context.runtime();
         assert!(matches!(reenter(context, &foreign_module, main, &[]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
@@ -295,7 +295,7 @@ fn reentry_rejects_foreign_and_stale_inputs() {
                 assert!(matches!(reenter(context, &root, echo, &[stale]), Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ModuleValidation));
         }
         Ok(Value::Unit)
-    })).unwrap();
+    }).install(&mut runtime).unwrap();
     // A direct host call supplies a context, but cannot create a script root implicitly.
     runtime
         .invoke_host(
@@ -342,7 +342,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
         let targets = versions.clone();
         let values = observed.clone();
         let mut runtime = runtime();
-        runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, _| {
+        logging_module(move |context, _| {
             let root = context.runtime().execution_root().unwrap();
             let versions = targets.lock().unwrap().clone();
             for version in &versions {
@@ -354,7 +354,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
                 }
             }
             Ok(Value::Unit)
-        })).unwrap();
+        }).install(&mut runtime).unwrap();
         let old = runtime.load_program("versions.kgr", first).unwrap();
         let vm = Vm::new(runtime);
         let scope = vm
@@ -382,7 +382,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         .unwrap()
         .id;
     let mut runtime = runtime();
-    runtime.register_host_function(HostFunction::new(standard_log().unwrap(), move |context, args| {
+    logging_module(move |context, args| {
         let root = context.runtime().execution_root().unwrap();
         let error = reenter(context, &root, fail, &[Value::I32(i32::MAX)]).unwrap_err();
         assert!(matches!(error, VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ScriptTrap));
@@ -392,7 +392,7 @@ fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
         let [Value::Str(text)] = args else { panic!("outer argument") };
         assert_eq!(&*context.runtime().gc().string(*text).unwrap(), "enter");
         Ok(Value::Unit)
-    })).unwrap();
+    }).install(&mut runtime).unwrap();
     let loaded = runtime.load_program("trap.kgr", module).unwrap();
     let vm = Vm::new(runtime);
     assert_eq!(
@@ -449,13 +449,13 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             let cancel = token.clone();
             let calls = Arc::new(AtomicUsize::new(0));
             let recorded = calls.clone();
-            runtime
-                .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
-                    recorded.fetch_add(1, Ordering::SeqCst);
-                    cancel.cancel();
-                    Ok(Value::Unit)
-                }))
-                .unwrap();
+            logging_module(move |_, _| {
+                recorded.fetch_add(1, Ordering::SeqCst);
+                cancel.cancel();
+                Ok(Value::Unit)
+            })
+            .install(&mut runtime)
+            .unwrap();
             let module = compile_test_bytecode(
                 "fn main() -> i32 { val kept = [1]; print(\"cancel\"); 42 } pub fn ready() -> i32 { 7 }",
             );
@@ -522,12 +522,12 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = calls.clone();
         let mut runtime = runtime();
-        runtime
-            .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
-                observed.fetch_add(1, Ordering::SeqCst);
-                Ok(Value::Unit)
-            }))
-            .unwrap();
+        logging_module(move |_, _| {
+            observed.fetch_add(1, Ordering::SeqCst);
+            Ok(Value::Unit)
+        })
+        .install(&mut runtime)
+        .unwrap();
         let old = runtime.load_program("staged.kgr", program()).unwrap();
         let candidate = runtime
             .stage_reload_program(&old, "staged.kgr", program())
@@ -580,45 +580,41 @@ fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
         let captured = Arc::new(Mutex::new(None));
         let saved = captured.clone();
         let mut runtime = runtime();
-        runtime
-            .register_host_function(HostFunction::new(
-                standard_log().unwrap(),
-                move |context, _| {
-                    let owner = context.runtime().execution_root().unwrap();
-                    let ty = binding::result(
-                        &context.runtime().host().definitions(),
-                        Ty::Builtin(BuiltinType::I32),
-                        Ty::Builtin(BuiltinType::String),
-                    )
-                    .unwrap();
-                    let applied = context
-                        .runtime()
-                        .resolve_type_arguments(&owner, &[ty])
-                        .unwrap()
-                        .remove(0);
-                    let value = context
-                        .runtime()
-                        .make_enum_member(
-                            &owner,
-                            &applied,
-                            "Err",
-                            vec![
-                                context
-                                    .runtime()
-                                    .gc()
-                                    .alloc_string("host failure".into())
-                                    .unwrap(),
-                            ],
-                        )
-                        .unwrap();
-                    *saved.lock().unwrap() = context.runtime().result_failure(&value);
-                    let root = context.runtime().execution_root().unwrap();
-                    let error = reenter(context, &root, fail, &[]).unwrap_err();
-                    Err(HostError::new("nested call failed")
-                        .with_trace(error.trace().unwrap().clone()))
-                },
-            ))
+        logging_module(move |context, _| {
+            let owner = context.runtime().execution_root().unwrap();
+            let ty = binding::result(
+                &context.runtime().host().definitions(),
+                Ty::Builtin(BuiltinType::I32),
+                Ty::Builtin(BuiltinType::String),
+            )
             .unwrap();
+            let applied = context
+                .runtime()
+                .resolve_type_arguments(&owner, &[ty])
+                .unwrap()
+                .remove(0);
+            let value = context
+                .runtime()
+                .make_enum_member(
+                    &owner,
+                    &applied,
+                    "Err",
+                    vec![
+                        context
+                            .runtime()
+                            .gc()
+                            .alloc_string("host failure".into())
+                            .unwrap(),
+                    ],
+                )
+                .unwrap();
+            *saved.lock().unwrap() = context.runtime().result_failure(&value);
+            let root = context.runtime().execution_root().unwrap();
+            let error = reenter(context, &root, fail, &[]).unwrap_err();
+            Err(HostError::new("nested call failed").with_trace(error.trace().unwrap().clone()))
+        })
+        .install(&mut runtime)
+        .unwrap();
         let loaded = runtime
             .load_program("host-origin.kgr", route(module, encoded))
             .unwrap();

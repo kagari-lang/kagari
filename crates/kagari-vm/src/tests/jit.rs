@@ -10,19 +10,19 @@ use kagari_bytecode::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
     },
 };
-use kagari_common::{
-    identity::{map::DefinitionContext, metadata::DefinitionMetadata},
-    span::Span,
-};
+use kagari_common::{identity::metadata::DefinitionMetadata, span::Span};
 use kagari_contract::ids::{DebugPointId, FunctionRef};
 use kagari_runtime::{
-    Runtime, RuntimeConfig, host::HostFunction, module::entry::ProgramEntry, value::Value,
+    Runtime, RuntimeConfig,
+    module::entry::ProgramEntry,
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        declarations::FunctionDecl,
+    },
+    value::Value,
     value_semantics::script_equal,
 };
 
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, standard_log, value_type::HostValueType,
-};
 use std::sync::{Arc, Mutex};
 
 #[test]
@@ -38,47 +38,38 @@ fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
             let mut runtime = standard_runtime(RuntimeConfig {
                 ..Default::default()
             });
-            runtime
-                .register_host_function(HostFunction::new(
-                    {
-                        let context = DefinitionContext::new().unwrap();
-                        let declaration = HostFunctionDeclaration::new(
-                            &context,
-                            "host.unrelated",
-                            vec![],
-                            HostValueType::Unit,
-                        )
-                        .unwrap();
-                        DefinitionMetadata::checked(
-                            context.snapshot(),
-                            declaration,
-                            &Default::default(),
-                        )
-                        .unwrap()
-                    },
-                    |_, _| panic!("import 0 must not invoke registry slot 0"),
-                ))
+            let mut unrelated = ModuleBuilder::new(
+                "fixture",
+                &kagari_stdlib::declarations::StandardDeclarations::default()
+                    .catalog()
+                    .unwrap(),
+            )
+            .unwrap();
+            let entry = unrelated
+                .define_function(FunctionDecl::new("unrelated"))
                 .unwrap();
+            unrelated
+                .bind(entry, |_: &mut CallContext<'_>| -> NativeResult<()> {
+                    panic!("a log import must not invoke an unrelated native entry")
+                })
+                .unwrap();
+            unrelated.finish().unwrap().install(&mut runtime).unwrap();
             let calls = Arc::new(Mutex::new(Vec::new()));
             let called = calls.clone();
-            let binding = runtime
-                .register_host_function(HostFunction::new(
-                    standard_log().unwrap(),
-                    move |cx, args| {
-                        let [Value::Str(id)] = args else {
-                            panic!("log string")
-                        };
-                        called
-                            .lock()
-                            .unwrap()
-                            .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-                        Ok(Value::Unit)
-                    },
-                ))
-                .unwrap();
+            common::logging_module(move |cx, args| {
+                let [Value::Str(id)] = args else {
+                    panic!("log string")
+                };
+                called
+                    .lock()
+                    .unwrap()
+                    .push(cx.runtime().gc().string(*id).unwrap().to_owned());
+                Ok(Value::Unit)
+            })
+            .install(&mut runtime)
+            .unwrap();
             let loaded = runtime.load_program("linked", module).unwrap();
             assert_eq!(loaded.bytecode.native_imports.len(), 1);
-            assert_eq!(binding.index(), 1);
             let vm = Vm::new(runtime);
             let report = if jit {
                 vm.execute_prepared(&loaded, ProgramEntry::Main, &native_fixtures::unsupported())

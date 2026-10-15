@@ -10,13 +10,14 @@ use kagari_common::{
     },
 };
 use kagari_types::{
-    declaration::host::HostPassingStyle,
+    declaration::{host::HostPassingStyle, logging},
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError, host_type_identity,
-        standard_log,
         type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
+    scalar::BuiltinType,
+    ty::Ty,
 };
 
 #[test]
@@ -96,57 +97,85 @@ fn host_construction_owns_members_and_preserves_publication_validation() {
 }
 
 #[test]
-fn standard_log_retains_scoped_contract_and_canonical_binding_after_adoption() {
-    let log = standard_log().unwrap();
-    let repeated = standard_log().unwrap();
-    assert_eq!(log.records(), repeated.records());
+fn log_declaration_retains_scoped_contract_and_canonical_binding_after_adoption() {
+    let log = logging::declaration().unwrap();
+    let repeated = logging::declaration().unwrap();
+    assert_eq!(log.records().functions, repeated.records().functions);
+    assert_eq!(log.records().identity, repeated.records().identity);
     assert_eq!(log.definitions().id(), repeated.definitions().id());
-    let contract = log.records();
-    contract.validate(log.definitions()).unwrap();
-    assert_eq!(contract.symbol, "host.log");
-    assert_eq!(contract.params.len(), 1);
-    assert_eq!(contract.params[0].name, "message");
-    assert_eq!(contract.params[0].ty, HostValueType::String);
-    assert_eq!(contract.params[0].passing, HostPassingStyle::SharedBorrow);
-    assert_eq!(contract.return_type, HostValueType::Unit);
-    assert!(contract.effects.may_trap);
-    assert!(contract.effects.may_call_host_services);
-    assert!(contract.effects.may_mutate_host_state);
-    assert_eq!(
-        log.definitions().resolve(contract.id).unwrap().to_path(),
-        DefinitionPath {
-            module: ModuleIdentity {
-                package: PackageId("host".into()),
-                path: vec!["host".into()]
-            },
-            path: vec![DefinitionPathSegment {
-                kind: DefinitionKind::Function,
-                name: "log".into(),
-                occurrence: 0
-            }],
+    log.records()
+        .validate(&|_| None, log.definitions())
+        .unwrap();
+    let contract = log
+        .records()
+        .native_declarations(log.definitions())
+        .unwrap()
+        .remove(0);
+    let function = &contract.function;
+    let policy = function.host_policy.as_ref().unwrap();
+    assert_eq!(function.name, "log");
+    assert_eq!(function.params.len(), 1);
+    assert_eq!(function.params[0].name, "message");
+    assert_eq!(function.params[0].ty, Ty::Builtin(BuiltinType::String));
+    assert_eq!(policy.passing, [HostPassingStyle::SharedBorrow]);
+    assert_eq!(function.return_type, Ty::Builtin(BuiltinType::Unit));
+    assert!(policy.effects.may_trap);
+    assert!(policy.effects.may_call_host_services);
+    assert!(policy.effects.may_mutate_host_state);
+    let expected = DefinitionPath {
+        module: ModuleIdentity {
+            package: PackageId("host".into()),
+            path: vec![],
         },
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Function,
+            name: "log".into(),
+            occurrence: 0,
+        }],
+    };
+    assert_eq!(
+        log.definitions()
+            .resolve(contract.declaration)
+            .unwrap()
+            .to_path(),
+        expected
     );
     let target = DefinitionContext::new().unwrap();
     target.intern(&path("unrelated")).unwrap();
     let retained = target.snapshot();
     let imported = log.import_into(&target, &Default::default()).unwrap();
-    assert_ne!(contract.id, imported.records().id);
-    assert!(retained.resolve(imported.records().id).is_err());
-    imported.records().validate(imported.definitions()).unwrap();
+    let adopted = imported
+        .records()
+        .native_declarations(imported.definitions())
+        .unwrap()
+        .remove(0);
+    assert_ne!(contract.declaration, adopted.declaration);
+    assert!(retained.resolve(adopted.declaration).is_err());
+    imported
+        .records()
+        .validate(&|_| None, imported.definitions())
+        .unwrap();
     assert_eq!(
-        contract.fingerprint(log.definitions()).unwrap(),
-        imported
-            .records()
-            .fingerprint(imported.definitions())
-            .unwrap(),
-    );
-    assert_eq!(
-        log.definitions().resolve(contract.id).unwrap().to_path(),
         imported
             .definitions()
-            .resolve(imported.records().id)
+            .resolve(adopted.declaration)
             .unwrap()
             .to_path(),
+        expected
+    );
+    let comparison = DefinitionContext::new().unwrap();
+    assert_eq!(
+        log.import_into(&comparison, &Default::default())
+            .unwrap()
+            .records()
+            .native_declarations(&comparison.snapshot())
+            .unwrap(),
+        imported
+            .import_into(&comparison, &Default::default())
+            .unwrap()
+            .records()
+            .native_declarations(&comparison.snapshot())
+            .unwrap(),
     );
 }
 

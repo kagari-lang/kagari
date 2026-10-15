@@ -1,3 +1,4 @@
+use crate::source::logging;
 use crate::source::lower::{
     MirLoweringError, expr::native_contracts::NativeApplication, state::FunctionLowerer,
 };
@@ -20,7 +21,7 @@ use kagari_hir::{
 use kagari_mir::instruction::{
     CallTarget, Instruction, MirValue, RuntimeHelper, SourceFunctionContract, ValueBuffer,
 };
-use kagari_types::{callable::Signature, host_interface, language::Protocol};
+use kagari_types::{callable::Signature, language::Protocol};
 use smallvec::SmallVec;
 use std::{ops::ControlFlow, slice};
 
@@ -797,11 +798,10 @@ impl FunctionLowerer<'_, '_> {
                 smallvec::smallvec![*base, *index, *value],
             ),
             (BuiltinFunction::Print, [message]) => (
-                CallTarget::Native(Box::new(NativeImport::from_host(
-                    host_interface::standard_log()?
-                        .import_into(self.planner.context, &self.planner.options.cancel)?
-                        .records(),
-                ))),
+                CallTarget::Native(Box::new(logging::import(
+                    self.planner.context,
+                    &self.planner.options.cancel,
+                )?)),
                 smallvec::smallvec![*message],
             ),
             _ => {

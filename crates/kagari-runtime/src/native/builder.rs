@@ -167,6 +167,25 @@ impl ModuleBuilder {
         Ok(self)
     }
 
+    /// Find an already declared local function for binding in this builder's scope.
+    /// Returns an error if the declaration contains no function with this name.
+    pub fn declared_function(&self, name: &str) -> NativeResult<FunctionRef> {
+        if !self
+            .declaration
+            .functions
+            .iter()
+            .any(|function| function.name == name)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "unknown function declaration",
+            ));
+        }
+        Ok(FunctionRef {
+            id: self.definition(DefinitionKind::Function, name)?,
+            definitions: self.providers.definitions(),
+        })
+    }
+
     pub fn define_function(&mut self, mut declaration: FunctionDecl) -> NativeResult<FunctionRef> {
         if self
             .declaration

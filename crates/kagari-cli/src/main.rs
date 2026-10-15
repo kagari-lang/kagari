@@ -6,7 +6,7 @@ use crate::args::{Cli, Command, usage};
 use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
-    engine::{KagariEngine, source::ArtifactOptions},
+    engine::{KagariEngine, builder::KagariEngineBuilder, source::ArtifactOptions},
     error::{EmbeddingDiagnostic, EmbeddingError},
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions},
@@ -17,13 +17,14 @@ use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     error::RuntimeError,
-    host::{HostError, HostFunction},
+    host::{HostCallContext, HostError},
     module::{LoadedModule, entry::ProgramEntry},
+    native::builder::ModuleBuilder,
     value::Value,
 };
 use kagari_source::{diagnostic::Diagnostic, source::SourceFile, source_database::SourceSnapshot};
 use kagari_syntax::parser::parse_module;
-use kagari_types::host_interface;
+use kagari_types::declaration::logging;
 use kagari_vm::vm::ExecutionReport;
 use std::{
     env, fs,
@@ -69,8 +70,7 @@ fn parse_source(path: &Path) -> Result<(), CliError> {
 }
 
 fn source_engine(declaration_cache: impl Into<PathBuf>) -> Result<KagariEngine, CliError> {
-    let mut builder =
-        KagariEngine::builder().map_err(|error| CliError::message(1, error.to_string()))?;
+    let mut builder = engine_builder()?;
     builder.declaration_cache(declaration_cache);
     builder.build().map_err(print_embedding_error)
 }
@@ -132,12 +132,7 @@ fn run_artifact(path: &Path, jit: bool) -> Result<(), CliError> {
     })?;
     let artifact = BytecodeArtifact::from_bytes(&bytes)
         .map_err(|error| CliError::message(1, error.to_string()))?;
-    run_loaded_artifact(
-        &KagariEngine::default(),
-        artifact,
-        LoadOptions::default(),
-        jit,
-    )
+    run_loaded_artifact(&runtime_engine()?, artifact, LoadOptions::default(), jit)
 }
 
 fn run_loaded_artifact(
@@ -162,8 +157,6 @@ fn run_loaded_artifact(
     )
     .map_err(print_program_error)?;
     let mut runtime = engine.runtime(context.clone());
-    register_default_host_functions(&mut runtime)
-        .map_err(|error| CliError::message(1, error.to_string()))?;
     let loaded = runtime
         .load_program(&program, load_options)
         .map_err(print_embedding_error)?;
@@ -233,12 +226,19 @@ fn read_source(path: &Path) -> Result<SourceFile, CliError> {
     Ok(SourceFile::new(path.display().to_string(), text))
 }
 
-fn register_default_host_functions(runtime: &mut KagariRuntime) -> Result<(), RuntimeError> {
-    runtime.register_host_function(HostFunction::new(
-        host_interface::standard_log()
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?,
-        |cx, args| {
-            let Some(Value::Str(message)) = args.first() else {
+fn engine_builder() -> Result<KagariEngineBuilder, CliError> {
+    let registration = |error: RuntimeError| CliError::message(1, error.to_string());
+    let mut engine = KagariEngine::builder().map_err(registration)?;
+    let mut module = ModuleBuilder::from_declaration(
+        logging::declaration().map_err(|error| CliError::message(1, error.to_string()))?,
+        engine.declarations(),
+        Default::default(),
+    )
+    .map_err(registration)?;
+    let log = module.declared_function("log").map_err(registration)?;
+    module
+        .bind(log, |cx: &HostCallContext<'_>, args: &[Value]| {
+            let [Value::Str(message)] = args else {
                 return Err(HostError::new("host.log expects one string argument"));
             };
             let message = cx
@@ -248,9 +248,16 @@ fn register_default_host_functions(runtime: &mut KagariRuntime) -> Result<(), Ru
                 .ok_or_else(|| HostError::new("invalid host.log string"))?;
             println!("{}", &*message);
             Ok(Value::Unit)
-        },
-    ))?;
-    Ok(())
+        })
+        .map_err(registration)?;
+    engine
+        .install(module.finish().map_err(registration)?)
+        .map_err(registration)?;
+    Ok(engine)
+}
+
+fn runtime_engine() -> Result<KagariEngine, CliError> {
+    engine_builder()?.build().map_err(print_embedding_error)
 }
 
 fn print_common_diagnostics(diagnostics: &[Diagnostic]) {

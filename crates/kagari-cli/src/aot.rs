@@ -1,12 +1,13 @@
 //! Explicit trusted native bundle commands; linking stays at the IO boundary.
 use crate::CliError;
 #[cfg(feature = "aot")]
-use crate::{print_embedding_error, print_source_error, read_source, source_engine};
+use crate::{
+    print_embedding_error, print_source_error, read_source, runtime_engine, source_engine,
+};
 #[cfg(feature = "aot")]
 use kagari::{
     aot::{AotBundle, AotError},
     context::ExecutionContext,
-    engine::KagariEngine,
     program::aot::AotBuild,
 };
 #[cfg(feature = "aot")]
@@ -81,7 +82,7 @@ pub(super) fn run(directory: &Path) -> Result<(), CliError> {
         )
     }
     .map_err(|e| CliError::message(1, e.to_string()))?;
-    let mut runtime = KagariEngine::default().runtime(context.clone());
+    let mut runtime = runtime_engine()?.runtime(context.clone());
     let loaded = runtime
         .load_program(bundle.program(), Default::default())
         .map_err(print_embedding_error)?;

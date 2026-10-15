@@ -1,3 +1,4 @@
+use crate::tests::common::logging_module;
 use crate::tests::common::round_trip_bytecode;
 use crate::{
     error::VmError,
@@ -8,10 +9,9 @@ use crate::{
 
 use kagari_common::cancellation::CancellationToken;
 use kagari_runtime::{
-    RuntimeConfig, error::RuntimeErrorKind, host::HostFunction, module::entry::ProgramEntry,
-    resource::RuntimeLimits, session::ExecutionOptions, value::Value,
+    RuntimeConfig, error::RuntimeErrorKind, module::entry::ProgramEntry, resource::RuntimeLimits,
+    session::ExecutionOptions, value::Value,
 };
-use kagari_types::host_interface::standard_log;
 use std::{
     num::NonZeroUsize,
     sync::{
@@ -61,24 +61,21 @@ fn async_owned_drive_contract() {
         },
         ..Default::default()
     });
-    runtime
-        .register_host_function(HostFunction::new(
-            standard_log().unwrap(),
-            move |context, args| {
-                let root = context.runtime().execution_root().unwrap();
-                assert!(
-                    context
-                        .runtime()
-                        .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
-                        .is_err()
-                );
-                let nested = reenter(context, &root, ping, &[]).unwrap();
-                assert_eq!(nested.value(context.runtime().gc()), Some(Value::I32(7)));
-                received.lock().unwrap().extend_from_slice(args);
-                Ok(Value::Unit)
-            },
-        ))
-        .unwrap();
+    logging_module(move |context, args| {
+        let root = context.runtime().execution_root().unwrap();
+        assert!(
+            context
+                .runtime()
+                .start_owned_execution(&root, ping, &[], ExecutionOptions::default())
+                .is_err()
+        );
+        let nested = reenter(context, &root, ping, &[]).unwrap();
+        assert_eq!(nested.value(context.runtime().gc()), Some(Value::I32(7)));
+        received.lock().unwrap().extend_from_slice(args);
+        Ok(Value::Unit)
+    })
+    .install(&mut runtime)
+    .unwrap();
     let loaded = runtime.load_program("owned", program).unwrap();
     let vm = Vm::new(runtime);
     let synchronous = vm.execute(&loaded, ProgramEntry::Main).unwrap();
@@ -266,12 +263,12 @@ fn async_owned_drive_contract_iterator_invalidation() {
     let seen = Arc::new(Mutex::new(0));
     let observed = seen.clone();
     let mut runtime = standard_runtime(Default::default());
-    runtime
-        .register_host_function(HostFunction::new(standard_log().unwrap(), move |_, _| {
-            *observed.lock().unwrap() += 1;
-            Ok(Value::Unit)
-        }))
-        .unwrap();
+    logging_module(move |_, _| {
+        *observed.lock().unwrap() += 1;
+        Ok(Value::Unit)
+    })
+    .install(&mut runtime)
+    .unwrap();
     let loaded = runtime.load_program("owned-iteration", artifact).unwrap();
     let vm = Vm::new(runtime);
     let slice = NonZeroUsize::new(1).unwrap();

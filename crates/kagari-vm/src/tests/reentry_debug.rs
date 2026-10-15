@@ -1,3 +1,4 @@
+use crate::tests::common::logging_module;
 use crate::tests::common::round_trip_bytecode;
 use crate::{
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
@@ -10,8 +11,8 @@ use crate::{
 };
 use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::{RuntimeConfig, host::HostFunction, value::Value};
-use kagari_types::host_interface::standard_log;
+use kagari_runtime::{RuntimeConfig, value::Value};
+use kagari_types::declaration::logging;
 
 #[test]
 fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
@@ -38,7 +39,9 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
                         BytecodeInstruction::Call {
                             callee: CallTarget::Native(id),
                             ..
-                        } if module.records().modules[module.records().root.index()].native_imports[id.index()].host.is_some()
+                        } if module.definitions().resolve(
+                            module.records().modules[module.records().root.index()].native_imports[id.index()].binding
+                        ).unwrap().module() == &logging::declaration().unwrap().records().identity
                     )
                 })
                 .unwrap();
@@ -49,17 +52,14 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
             let mut runtime = standard_runtime(RuntimeConfig {
                 ..Default::default()
             });
-            runtime
-                .register_host_function(HostFunction::new(
-                    standard_log().unwrap(),
-                    move |context, _| {
-                        let root = context.runtime().execution_root().unwrap();
-                        assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
-                        context.runtime().collect_garbage().unwrap();
-                        Ok(Value::Unit)
-                    },
-                ))
-                .unwrap();
+            logging_module(move |context, _| {
+                let root = context.runtime().execution_root().unwrap();
+                assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
+                context.runtime().collect_garbage().unwrap();
+                Ok(Value::Unit)
+            })
+            .install(&mut runtime)
+            .unwrap();
             let loaded = runtime.load_program("debug-reentry.kgr", program).unwrap();
             let mut debug = DebugSession::new(&runtime).unwrap();
             let breakpoint = debug

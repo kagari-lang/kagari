@@ -245,9 +245,20 @@ containers and opaque handles are rejected, including nested occurrences. The ho
 must supply an immutable snapshot, not live mutable service state. Declaring this
 bit does not override any other forbidden effect.
 
-The source `print` entry and CLI log binding use the same `standard_log`
-declaration. Run `cargo run -p kagari-runtime --example offline_host` for an
-offline export/decode/bind/check example.
+The source `print` entry and explicit CLI log binding use the common cold
+`kagari_types::declaration::logging::declaration()` ModuleDecl. Adopt it with
+`ModuleBuilder::from_declaration`, obtain `declared_function("log")`, bind a
+HostCallContext callback and install the resulting NativeModule. The declaration
+owns its String parameter, shared passing capability and service/trap/mutation
+effects. No callback runs during authoring or compilation.
+
+Print can compile without an installed logger: its checked declaration-only
+provider enters the ordinary MIR/bytecode native module graph. Native imports,
+link proofs and exact installed contract checks apply normally. This requirement
+does not export a source namespace or supply a default callback; missing binding
+rejects at load. An explicitly installed log module permits ordinary source
+imports of `host::log`. Its canonical owner is the root `host` module, as for any
+other common registration. The old `standard_log` factory is removed.
 
 The compiler consumes an immutable HostDeclarations input. KagariEngine's
 set_host_interface accepts decoded declarations and performs no runtime

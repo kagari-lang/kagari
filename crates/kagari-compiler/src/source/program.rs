@@ -1,5 +1,5 @@
 use crate::source::{
-    lower,
+    logging, lower,
     lower::{MirLoweringError, instances::MirLoweringOptions},
 };
 mod exports;
@@ -140,6 +140,12 @@ pub fn lower_program_to_mir(
                 .sum::<usize>();
             modules.push(lowered.into_unverified().into_records());
         }
+        logging::attach(&mut modules, &context, &options.cancel).map_err(|error| {
+            SourceProgramError::Lowering {
+                module: Box::new(root.clone()),
+                error,
+            }
+        })?;
         let definitions = context.snapshot();
         let owner_of = |id| {
             definitions

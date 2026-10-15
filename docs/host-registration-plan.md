@@ -2127,6 +2127,72 @@ Focused local validation passed:
 Remaining legacy producers/consumers, HR03 removal and RF06/RI05 acceptance remain
 required. Complete workspace/features/backends/platforms are still pending CI.
 
+### HR02/RF05 checkpoint: print and the common log declaration
+
+Print's fixed service contract moves to a cold ordinary ModuleDecl/FnDecl in
+`kagari-types::declaration::logging`; application callbacks bind/install it through
+the same ModuleBuilder/NativeModule owner as every other native function. The
+builder can look up an already declared local function for binding, which makes
+preauthored declaration consumption concrete without re-declaring signatures.
+
+Compilation must still work without a runtime or logger callback. A print demand
+will therefore carry its checked declaration-only native provider through the
+ordinary MIR/bytecode module graph, with normal native targets, dependency closure,
+link proofs and exact installed entry validation. This projection does not export
+a script namespace or provide a callback. Missing installation must continue to
+reject at load; no default logger, alternate call service or relaxed signature
+validation is introduced. The former `standard_log` factory and its temporary
+projection have now been removed after migrating every callback consumer. The
+common module owns the canonical root host/log identity; unpublished old log
+artifacts are disposable and join the RF06 fixture checkpoint. Other old host
+registration producers and callable records still require HR03 retirement.
+All logger consumers now bind this declaration through the ordinary native entry.
+The CLI installs it before building its engine for source, KBC and AOT loading.
+VM callbacks retain synchronous reentry, root termination, debug caller frames,
+GC and exception cleanup. Source compilation without a callback still succeeds;
+the existing Never fixture checks that unconfigured runtime loading rejects before
+side effects. Declaration adoption preserves canonical IDs and the complete common
+native contract. Compiler fixtures reject omitted, duplicate, mismatched or
+conflicting provider requirements through the existing executable verifier.
+
+Initial integration errors were repaired: an existing builder method required the
+lookup name `declared_function`; direct log sources now explicitly import their
+native module; debug fixtures identify the common native owner rather than the
+retired host-import flag. A misplaced test import interrupted formatting until its
+inner module docs were restored. The adoption fixture compares full adopted native
+contracts instead of requiring an unrelated ModuleDecl equality implementation.
+No lifetime, root, borrow or pointer validation was weakened.
+
+Actual focused local validation:
+
+- `cargo test -p kagari-types --test host_identity log_declaration_retains_scoped_contract_and_canonical_binding_after_adoption`: passed.
+- `cargo test -p kagari-bytecode --test identity required_host_fingerprint_is_derived_and_independent_of_docs_and_order`: passed. This remaining legacy fingerprint fixture uses an unrelated output declaration, not a second log factory.
+- `cargo test -p kagari --test never never_preserves_effects_and_releases_resources_on_traps_and_cancellation`: passed (9.68 seconds).
+- `cargo test -p kagari --lib completed_effect_survives_trap`: passed (9.34 seconds).
+- `cargo test -p kagari --test embedding_api installed_host_and_reflection_helpers_are_available`: passed (12.90 seconds).
+- Selected VM unit cases `executes_source_lowered_declared_host_log`,
+  `host_reentry_cannot_swallow_root_termination_and_releases_borrows`,
+  `source_artifact_and_jit_fallback_resolve_imports_to_registered_slots` and
+  `nested_breakpoints_and_traps_include_the_suspended_host_caller`: passed.
+- `cargo test -p kagari-vm --test native_boundary native_boundary_control::host_reentry_returns_to_the_synchronous_native_caller`: passed (7.81 seconds).
+- Selected compiler unit cases `host_imports_are_interned_and_checked_before_execution`
+  and `conflicting_native_contracts_cannot_be_hidden_by_import_interning`: passed.
+- `cargo test -p kagari-hir --lib checks_print_builtin_signature`: passed.
+- `cargo run -p kagari-cli -- run --no-jit target/interop-tools/print-common.kgr`:
+  passed, printing `common log`. `target/debug/kg emit -o target/interop-tools/print-common.kbc target/interop-tools/print-common.kgr`
+  and `target/debug/kg run-artifact --no-jit target/interop-tools/print-common.kbc`
+  also passed with the same output. Reproduce with `fn main() { print("common log"); }`;
+  the ignored probe is not required to retain this evidence.
+- Scoped Clippy passed for changed types/HIR/compiler/runtime libraries, VM library
+  and `native_boundary`, SDK library/`never`/`embedding_api`, and CLI `kg`.
+  Formatting, diff and structure checks passed (1250 Rust files, zero violations).
+
+The selection covers the changed declaration, executable contract, shared entry,
+reentry/cleanup and CLI source-free boundary. Pointer/token kernels are unchanged;
+prior Miri evidence applies and no new Miri result is claimed. Complete workspace,
+feature/backend/platform checks, including the AOT feature, remain CI-owned and
+unrun locally. Remaining legacy consumers and HR03/RF06/RI05 integration are open.
+
 ### HR02/RF05 checkpoint: common trait declaration validation consumer
 
 The remaining offline nominal trait schema fixture now authors the same private

@@ -24,60 +24,51 @@ fn host_imports_are_interned_and_checked_before_execution() {
         &context,
         common::bytecode_ok(r#"fn main() { print("one"); print("two"); }"#),
     );
-    assert_eq!(
-        module.modules[module.root.index()].host_interface.functions,
-        vec![common::adopt(
-            &context,
-            kagari_types::host_interface::standard_log().unwrap()
-        )]
+    let declaration = common::adopt(
+        &context,
+        kagari_types::declaration::logging::declaration().unwrap(),
     );
-    let mut absent = module.clone();
-    absent.modules[absent.root.index()]
-        .host_interface
-        .functions
-        .clear();
-    assert!(matches!(
-        verify_program(&absent, &context.snapshot()),
-        Err(BytecodeVerificationError::InvalidHostInterface(_))
-    ));
-    let mut wrong_parameter = module.clone();
-    wrong_parameter.modules[wrong_parameter.root.index()]
-        .host_interface
-        .functions[0]
-        .params[0]
-        .ty = HostValueType::Bool;
-    wrong_parameter.modules[wrong_parameter.root.index()]
-        .host_interface
-        .functions[0]
-        .params[0]
-        .passing = kagari_types::declaration::host::HostPassingStyle::Owned;
-    assert!(matches!(
-        verify_program(&wrong_parameter, &context.snapshot()),
-        Err(BytecodeVerificationError::InvalidHostInterface(_))
-    ));
-    let mut wrong_arity = module.clone();
-    wrong_arity.modules[wrong_arity.root.index()]
-        .host_interface
-        .functions[0]
-        .params
-        .clear();
-    assert!(matches!(
-        verify_program(&wrong_arity, &context.snapshot()),
-        Err(BytecodeVerificationError::InvalidHostInterface(_))
-    ));
-    let mut duplicate = module;
-    let duplicated = duplicate.modules[duplicate.root.index()]
-        .host_interface
-        .functions[0]
-        .clone();
-    duplicate.modules[duplicate.root.index()]
-        .host_interface
-        .functions
-        .push(duplicated);
-    assert!(matches!(
-        verify_program(&duplicate, &context.snapshot()),
-        Err(BytecodeVerificationError::InvalidHostInterface(_))
-    ));
+    let provider = module
+        .modules
+        .iter()
+        .position(|module| module.identity == declaration.identity)
+        .unwrap();
+    assert_eq!(module.modules[module.root.index()].native_imports.len(), 1);
+    assert_eq!(
+        module.modules[provider].native_declarations,
+        declaration
+            .native_declarations(&context.snapshot())
+            .unwrap()
+    );
+    verify_program(&module, &context.snapshot()).unwrap();
+    for mode in 0..4 {
+        let mut invalid = module.clone();
+        let declarations = &mut invalid.modules[provider].native_declarations;
+        match mode {
+            0 => declarations.clear(),
+            1 => {
+                let function = &mut declarations[0].function;
+                function.params[0].ty = Ty::Builtin(BuiltinType::Bool);
+                function.host_policy.as_mut().unwrap().passing[0] =
+                    kagari_types::declaration::host::HostPassingStyle::Owned;
+            }
+            2 => {
+                declarations[0].function.params.clear();
+                declarations[0]
+                    .function
+                    .host_policy
+                    .as_mut()
+                    .unwrap()
+                    .passing
+                    .clear();
+            }
+            _ => declarations.push(declarations[0].clone()),
+        }
+        assert!(
+            verify_program(&invalid, &context.snapshot()).is_err(),
+            "mode {mode}"
+        );
+    }
 }
 
 #[test]

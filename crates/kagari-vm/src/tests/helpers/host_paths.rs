@@ -1,4 +1,5 @@
 use super::*;
+use crate::tests::common::logging_module;
 use crate::{
     error::VmError,
     reentry::reenter,
@@ -297,22 +298,19 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
                         }),
                 )
                 .unwrap();
-            runtime
-                .register_host_function(HostFunction::new(
-                    kagari_types::host_interface::standard_log().unwrap(),
-                    move |call, _| {
-                        call.runtime()
-                            .set_host_path(
-                                &call.runtime().gc().alloc_host_root(root).unwrap(),
-                                descriptor,
-                                vec![],
-                                Value::I32(20),
-                            )
-                            .unwrap();
-                        Ok(Value::Unit)
-                    },
-                ))
-                .unwrap();
+            logging_module(move |call, _| {
+                call.runtime()
+                    .set_host_path(
+                        &call.runtime().gc().alloc_host_root(root).unwrap(),
+                        descriptor,
+                        vec![],
+                        Value::I32(20),
+                    )
+                    .unwrap();
+                Ok(Value::Unit)
+            })
+            .install(&mut runtime)
+            .unwrap();
             let mut program = bytecode;
             if encoded {
                 program = round_trip_bytecode(program);

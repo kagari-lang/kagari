@@ -29,7 +29,8 @@ use kagari_mir::{
 use kagari_types::{
     declaration::{FieldDef, TypeDefKind, VariantDef},
     scalar::BuiltinType,
-    ty::{NominalTy, Ty, identity::PortableTypes},
+    surface::StandardTypeConstraint,
+    ty::{Constraint, GenericBound, NominalTy, Ty, identity::PortableTypes},
     visibility::Visibility,
 };
 use std::slice;
@@ -385,31 +386,38 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
 }
 
 #[test]
-fn conflicting_host_contracts_cannot_be_hidden_by_import_interning() {
+fn conflicting_native_contracts_cannot_be_hidden_by_import_interning() {
     let context = DefinitionContext::new().unwrap();
-    let mut module = raw(&context, r#"fn main() { print("one"); print("two"); }"#);
-    let mut calls = module
+    let checked = common::mir_ok(r#"fn main() { print("one"); print("two"); }"#);
+    let mut program = checked
+        .into_unverified()
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    let root = program
+        .modules
+        .iter_mut()
+        .find(|module| module.identity == program.root)
+        .unwrap();
+    let mut calls = root
         .functions
         .iter_mut()
         .flat_map(|f| &mut f.blocks)
         .flat_map(|b| &mut b.instructions)
-        .filter_map(|i| {
-            if let Instruction::Call {
+        .filter_map(|instruction| match instruction {
+            Instruction::Call {
                 callee: CallTarget::Native(import),
                 ..
-            } = i
-            {
-                import.host.as_mut()
-            } else {
-                None
-            }
+            } => Some(import),
+            _ => None,
         });
     calls.next().unwrap();
-    calls.next().unwrap().effects.may_mutate_host_state = false;
-    assert!(matches!(
-        reject(&context, module),
-        Error::InvalidHostInterface
-    ));
+    // The per-call application cannot replace its defining provider's signature.
+    calls.next().unwrap().requirements.push(GenericBound {
+        ty: Ty::Builtin(BuiltinType::I32),
+        constraints: vec![Constraint::Standard(StandardTypeConstraint::SignedNumber)],
+    });
+    assert!(kagari_mir::program::verify_program(program, &context, &Default::default()).is_err());
 }
 
 fn reject(context: &DefinitionContext, module: MirModule) -> Error {

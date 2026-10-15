@@ -26,9 +26,8 @@ use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::declaration::path::HostPathSegmentDeclaration;
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::host::PathAccess,
-    host_interface,
-    host_interface::{HostFunctionDeclaration, type_declaration::HostFieldDeclaration},
+    declaration::{FnDecl, host::PathAccess, logging},
+    host_interface::type_declaration::HostFieldDeclaration,
     scalar::BuiltinType,
 };
 
@@ -79,7 +78,7 @@ impl<'a> BodyChecker<'a> {
 
     pub(super) fn infer_log_signature(
         &mut self,
-        declaration: &HostFunctionDeclaration,
+        declaration: &FnDecl,
         name: &str,
         callee: ExprId,
         args: &[ExprId],
@@ -90,7 +89,7 @@ impl<'a> BodyChecker<'a> {
             declaration
                 .params
                 .iter()
-                .map(|parameter| host::signature_type(&parameter.ty)),
+                .map(|parameter| raise_type(&parameter.ty)),
             env,
         );
         if args.len() != declaration.params.len() {
@@ -103,12 +102,12 @@ impl<'a> BodyChecker<'a> {
             self.check_arg_type(
                 name,
                 &parameter.name,
-                host::signature_type(&parameter.ty),
+                raise_type(&parameter.ty),
                 index,
                 &args,
             );
         }
-        host::signature_type(&declaration.return_type)
+        raise_type(&declaration.return_type)
     }
 
     pub(super) fn infer_runtime_helper_call_type(
@@ -125,9 +124,10 @@ impl<'a> BodyChecker<'a> {
             .insert_call(call_expr, CallTarget::RuntimeHelper(builtin), None);
         let arity = match builtin {
             BuiltinFunction::TypeOf => 1,
-            BuiltinFunction::Print => host_interface::standard_log()
+            BuiltinFunction::Print => logging::declaration()
                 .expect("log contract initialized during declaration collection")
                 .records()
+                .functions[0]
                 .params
                 .len(),
             BuiltinFunction::GetField => 2,
@@ -209,9 +209,10 @@ impl<'a> BodyChecker<'a> {
             }
             BuiltinFunction::Print => Some(
                 self.infer_log_signature(
-                    host_interface::standard_log()
+                    &logging::declaration()
                         .expect("log contract initialized during declaration collection")
-                        .records(),
+                        .records()
+                        .functions[0],
                     "print",
                     callee,
                     args,

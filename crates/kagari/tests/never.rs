@@ -6,9 +6,9 @@ use kagari::{
     program::PreparedProgram,
 };
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::{host::HostFunction, value::Value};
+use kagari_runtime::{host::HostCallContext, native::builder::ModuleBuilder, value::Value};
 use kagari_source::source::SourceFile;
-use kagari_types::host_interface::standard_log;
+use kagari_types::declaration::logging;
 use std::sync::{Arc, Mutex};
 
 fn execute(source: &str, entry: ProgramEntry<'_>, expected: i32) {
@@ -314,6 +314,32 @@ pub fn healthy() -> i32 { 42 }
             Default::default(),
         )
         .unwrap();
+    let effects = Arc::new(Mutex::new(Vec::new()));
+    let captured = effects.clone();
+    let mut builder = ModuleBuilder::from_declaration(
+        logging::declaration().unwrap(),
+        &kagari_stdlib::declarations::StandardDeclarations::default()
+            .catalog()
+            .unwrap(),
+        Default::default(),
+    )
+    .unwrap();
+    let log = builder.declared_function("log").unwrap();
+    builder
+        .bind(log, move |cx: &HostCallContext<'_>, args: &[Value]| {
+            let [Value::Str(id)] = args else {
+                panic!("log string")
+            };
+            captured
+                .lock()
+                .unwrap()
+                .push(cx.runtime().gc().string(*id).unwrap().to_owned());
+            Ok(Value::Unit)
+        })
+        .unwrap();
+    let installed =
+        KagariEngine::with_native_modules(Default::default(), vec![builder.finish().unwrap()])
+            .unwrap();
     for encoded in [false, true] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(
@@ -329,24 +355,9 @@ pub fn healthy() -> i32 { 42 }
         let prepared =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
-        let effects = Arc::new(Mutex::new(Vec::new()));
-        let captured = effects.clone();
-        runtime
-            .runtime_mut()
-            .register_host_function(HostFunction::new(
-                standard_log().unwrap(),
-                move |cx, args| {
-                    let [Value::Str(id)] = args else {
-                        panic!("log string")
-                    };
-                    captured
-                        .lock()
-                        .unwrap()
-                        .push(cx.runtime().gc().string(*id).unwrap().to_owned());
-                    Ok(Value::Unit)
-                },
-            ))
-            .unwrap();
+        assert!(runtime.load_program(&prepared, Default::default()).is_err());
+        effects.lock().unwrap().clear();
+        let mut runtime = installed.runtime(context.clone());
         let loaded = runtime.load_program(&prepared, Default::default()).unwrap();
         let error = runtime
             .execute(&loaded, ProgramEntry::Main, &[], &context)

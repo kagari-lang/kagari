@@ -29,15 +29,17 @@ use kagari_contract::{
 use kagari_runtime::value_semantics::script_equal;
 use kagari_runtime::{
     host::{
-        HostError, HostFunction, HostObjectId, HostPathAdapter, HostPathDescriptor,
-        HostPathDescriptorId, HostPathDescriptorRegistration, HostSchemaEpoch,
+        HostCallContext, HostError, HostFunction, HostObjectId, HostPathAdapter,
+        HostPathDescriptor, HostPathDescriptorId, HostPathDescriptorRegistration, HostSchemaEpoch,
         HostTypeRegistration, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeKind, TypeRegistration},
     module::entry::ProgramEntry,
+    native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_types::declaration::logging;
 
 use kagari_types::{
     declaration::{
@@ -45,7 +47,7 @@ use kagari_types::{
         path::HostPathSegmentDeclaration,
     },
     host_interface::{
-        HostFunctionDeclaration, HostInterface, standard_log,
+        HostFunctionDeclaration, HostInterface,
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
@@ -275,6 +277,25 @@ fn host_path_artifact(
     )
     .unwrap();
     DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap()
+}
+
+fn logging_module(
+    entry: impl for<'call> Fn(&HostCallContext<'call>, &[Value]) -> Result<Value, HostError>
+    + Send
+    + Sync
+    + 'static,
+) -> NativeModule {
+    let mut builder = ModuleBuilder::from_declaration(
+        logging::declaration().unwrap(),
+        &kagari_stdlib::declarations::StandardDeclarations::default()
+            .catalog()
+            .unwrap(),
+        Default::default(),
+    )
+    .unwrap();
+    let log = builder.declared_function("log").unwrap();
+    builder.bind(log, entry).unwrap();
+    builder.finish().unwrap()
 }
 
 #[test]
@@ -702,10 +723,8 @@ fn installed_host_and_reflection_helpers_are_available() {
         )
         .expect("reflection source should compile with reflection profile");
     let mut runtime = engine.runtime(ExecutionContext::default());
-    runtime
-        .register_host_function(HostFunction::new(standard_log().unwrap(), |_, _| {
-            Ok(Value::Unit)
-        }))
+    logging_module(|_, _| Ok(Value::Unit))
+        .install(runtime.runtime_mut())
         .unwrap();
     let print_module = runtime
         .load_program(

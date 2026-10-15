@@ -3,6 +3,7 @@ pub mod applications;
 pub mod conversion;
 pub mod fingerprint;
 pub mod host;
+pub mod logging;
 mod mapping;
 pub mod module;
 pub mod names;
