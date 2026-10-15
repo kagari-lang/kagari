@@ -2312,6 +2312,41 @@ No unsafe pointer, loan or root kernel changed, and no new Miri run is claimed.
 The remaining nominal path consumers and other legacy producer/callable retirement
 remain required. Complete workspace/features/backends/platforms stay pending CI.
 
+### HR02/RF05 checkpoint: ordinary collection host consumers
+
+The observable language-contract fixture now carries observe::vector as a cold
+common ModuleDecl with the exact stdlib Vec<i32> identity. Analysis imports that
+declaration; runtime binding adopts the same records and returns the explicitly
+rooted existing vector. It neither snapshots the vector nor changes mutation,
+trap, cancellation or root cleanup expectations. The fixture no longer owns any
+HostInterface or HostFunction registration.
+
+The collection access fixture also uses ordinary common function declarations and
+one preinstalled callback per member. Its source-free result-family negative loads
+an old Array-returning artifact against a separately installed Vec-returning
+contract, retaining rejection before execution. Map/Set read-only result views
+continue to share storage, preserve content/Eq/Hash protocols and observe mutation
+through the original alias. Sources explicitly import demo, so ordinary namespace
+resolution cannot turn the access-negative cases into unrelated missing-name errors.
+No collection library representation or implementation was migrated.
+
+Focused local validation passed:
+
+- `cargo test -p kagari --lib heap_compound_reads_rhs_write`: passed (9.73 seconds).
+- `cargo test -p kagari --lib heap_cancellation_preserves_earlier_write`: passed (9.75 seconds).
+- `cargo test -p kagari --test collection_access host_`: both changed cases passed
+  (11.25 seconds), with existing source-free result-family and read-only protocol
+  assertions. An obsolete metadata import warning was removed afterward.
+- `cargo clippy -p kagari --lib --test collection_access -- -D warnings`: passed.
+  Formatting and diff checks passed; structure checked 1251 Rust files with zero
+  violations.
+
+These selected consumers establish the changed common registration, shared object
+and cleanup boundaries; the full language-contract suite and complete workspace,
+feature/backend/platform matrix remain CI-owned. No unsafe/kernel lifetime code
+changed and no new Miri run is claimed. Other legacy consumers and HR03 retirement
+remain required; combined acceptance remains open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

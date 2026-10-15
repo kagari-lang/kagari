@@ -11,19 +11,18 @@ use kagari::{
     program::PreparedProgram,
 };
 use kagari_bytecode::program::{identity, verify_program};
-use kagari_common::identity::{
-    map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
-};
+use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_contract::types::PublicItem;
-use kagari_runtime::{host::HostFunction, native::types::Type, value::Value};
+use kagari_runtime::{
+    host::HostCallContext,
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
+    value::Value,
+};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::host::HostPassingStyle,
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType,
-    },
+    declaration::host::{HostCallPolicy, HostFunctionEffects, HostPassingStyle},
     scalar::BuiltinType,
     ty::Ty,
 };
@@ -271,56 +270,22 @@ fn main() -> i32 { 42 }
 
 #[test]
 fn host_results_preserve_collection_families_through_artifacts_and_binding_checks() {
-    let definitions = DefinitionContext::new().unwrap();
-    let declaration = HostFunctionDeclaration::new(
-        &definitions,
-        "demo.values",
-        vec![],
-        HostValueType::Array(Box::new(HostValueType::I32)),
-    )
-    .unwrap();
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(
-            DefinitionMetadata::checked(
-                definitions.snapshot(),
-                HostInterface {
-                    functions: vec![declaration.clone()],
-                    types: vec![],
-                    paths: vec![],
+    let declarations = StandardDeclarations::default();
+    let module = |result: Type| {
+        let mut builder = ModuleBuilder::new("demo", &declarations.catalog().unwrap()).unwrap();
+        let values = builder
+            .define_function(FunctionDecl::new("values").returns(result).host_policy(
+                HostCallPolicy {
+                    passing: vec![],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        ..Default::default()
+                    },
                 },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-
-    assert!(
-        engine
-            .compile_to_artifact(
-                SourceFile::new("host-negative.kgr", "fn main() { demo::values().push(1); }"),
-                Default::default()
-            )
-            .is_err()
-    );
-    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "fn main() -> i32 { val source = demo::values(); val copy = Vec::from([source[0], 2]); copy[0] + copy[1] }"),  Default::default()).unwrap();
-    let artifact =
-        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            ))
             .unwrap();
-    let context = ExecutionContext {
-        ..Default::default()
-    };
-
-    let mut runtime = engine.runtime(context.clone());
-    runtime
-        .register_host_function(HostFunction::new(
-            DefinitionMetadata::checked(
-                definitions.snapshot(),
-                declaration.clone(),
-                &Default::default(),
-            )
-            .unwrap(),
-            |context, _| {
+        builder
+            .bind(values, |context: &HostCallContext<'_>, _: &[Value]| {
                 Ok(Value::Array(
                     context
                         .runtime()
@@ -331,9 +296,38 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
                         )
                         .unwrap(),
                 ))
-            },
-        ))
-        .unwrap();
+            })
+            .unwrap();
+        builder.finish().unwrap()
+    };
+    let array = Type::from_semantic(
+        Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
+        &DefinitionContext::new().unwrap().snapshot(),
+    )
+    .unwrap();
+    let engine =
+        KagariEngine::with_native_modules(Default::default(), vec![module(array)]).unwrap();
+
+    assert!(
+        engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "host-negative.kgr",
+                    "use demo; fn main() { demo::values().push(1); }"
+                ),
+                Default::default()
+            )
+            .is_err()
+    );
+    let artifact = engine.compile_to_artifact(SourceFile::new("host-readonly.kgr", "use demo; fn main() -> i32 { val source = demo::values(); val copy = Vec::from([source[0], 2]); copy[0] + copy[1] }"),  Default::default()).unwrap();
+    let artifact =
+        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
+    let context = ExecutionContext {
+        ..Default::default()
+    };
+
+    let mut runtime = engine.runtime(context.clone());
     let loaded_program =
         PreparedProgram::from_artifact(artifact.clone(), &Default::default(), &Default::default())
             .unwrap();
@@ -349,36 +343,9 @@ fn host_results_preserve_collection_families_through_artifacts_and_binding_check
             .expect("retained execution result"),
         Value::I32(42)
     );
-    let mut changed = declaration;
-    let vector_type = StandardDeclarations::default().vec(Type::i32()).unwrap();
-    let Ty::NativeObject(mut vector) = vector_type.abi().clone() else {
-        panic!("nominal Vec");
-    };
-    vector.declaration = definitions
-        .import(vector_type.definitions().unwrap(), [vector.declaration])
-        .unwrap()
-        .map(vector.declaration)
-        .unwrap();
-    changed.return_type = HostValueType::Vec(vector.declaration, Box::new(HostValueType::I32));
-    let mut mismatched = engine.runtime(context);
-    mismatched
-        .register_host_function(HostFunction::new(
-            DefinitionMetadata::checked(definitions.snapshot(), changed, &Default::default())
-                .unwrap(),
-            |context, _| {
-                Ok(Value::Array(
-                    context
-                        .runtime()
-                        .alloc_array(
-                            &context.runtime().execution_root().unwrap(),
-                            Ty::Builtin(BuiltinType::I32),
-                            vec![],
-                        )
-                        .unwrap(),
-                ))
-            },
-        ))
-        .unwrap();
+    let changed = module(declarations.vec(Type::i32()).unwrap());
+    let changed = KagariEngine::with_native_modules(Default::default(), vec![changed]).unwrap();
+    let mut mismatched = changed.runtime(context);
     assert!(
         mismatched
             .load_program(
@@ -401,57 +368,43 @@ fn mutable_list(definitions: &DefinitionContext, id: DefinitionId) -> Definition
 
 #[test]
 fn readonly_host_hash_storage_has_exact_read_and_content_protocols() {
-    let definitions = DefinitionContext::new().unwrap();
-    let map = |access| HostValueType::Map {
-        key: Box::new(HostValueType::I32),
-        value: Box::new(HostValueType::I32),
-        access,
-    };
-    let set = |access| HostValueType::Set(Box::new(HostValueType::I32), access);
-    let declarations = [
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut builder = ModuleBuilder::new("demo", &catalog).unwrap();
+    let map = |access| Type::map(Type::i32(), Type::i32(), access).unwrap();
+    let set = |access| Type::set(Type::i32(), access).unwrap();
+    for (name, input, output) in [
         (
-            "demo.read_map",
+            "read_map",
             map(CollectionAccess::Mutable),
             map(CollectionAccess::ReadOnly),
         ),
         (
-            "demo.read_set",
+            "read_set",
             set(CollectionAccess::Mutable),
             set(CollectionAccess::ReadOnly),
         ),
-    ]
-    .into_iter()
-    .map(|(name, input, output)| {
-        HostFunctionDeclaration::new(
-            &definitions,
-            name,
-            vec![HostParameter {
-                name: "value".into(),
-                ty: input,
-                passing: HostPassingStyle::Owned,
-            }],
-            output,
-        )
-        .unwrap()
-    })
-    .collect::<Vec<_>>();
+    ] {
+        let function = builder
+            .define_function(
+                FunctionDecl::new(name)
+                    .parameter("value", input)
+                    .returns(output)
+                    .host_policy(HostCallPolicy {
+                        passing: vec![HostPassingStyle::Owned],
+                        effects: Default::default(),
+                    }),
+            )
+            .unwrap();
+        builder
+            .bind(function, |_: &HostCallContext<'_>, args: &[Value]| {
+                Ok(args[0])
+            })
+            .unwrap();
+    }
     let mut config = EngineConfig::default();
     config.default_runtime.gc.collection_threshold = Some(1);
-    let engine = KagariEngine::new(config);
-    engine
-        .set_host_interface(
-            DefinitionMetadata::checked(
-                definitions.snapshot(),
-                HostInterface {
-                    functions: declarations.clone(),
-                    types: vec![],
-                    paths: vec![],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
+    let engine =
+        KagariEngine::with_native_modules(config, vec![builder.finish().unwrap()]).unwrap();
     for expression in [
         "val raw: HashMap<i32, i32> = HashMap::new(); val ro = demo::read_map(raw); ro.insert(1, 2);",
         "val ro = demo::read_set(HashSet::from([1])); ro.insert(2);",
@@ -459,7 +412,7 @@ fn readonly_host_hash_storage_has_exact_read_and_content_protocols() {
         "val ro = demo::read_set(HashSet::from([1])); val writable: MutableSet<i32> = ro;",
     ] {
         let source = format!(
-            "use std::collections::{{HashMap, HashSet, MutableMap, MutableSet}}; fn main() {{ {expression} }}"
+            "use demo; use std::collections::{{HashMap, HashSet, MutableMap, MutableSet}}; fn main() {{ {expression} }}"
         );
         assert!(
             engine
@@ -471,6 +424,7 @@ fn readonly_host_hash_storage_has_exact_read_and_content_protocols() {
         );
     }
     let source = r#"
+use demo;
 use std::collections::{HashMap, HashSet, Map, Set, map_content_equal, set_content_equal};
 use std::hash::Hash;
 fn equal<T: Eq>(a: T, b: T) -> bool { a == b }
@@ -504,19 +458,6 @@ fn main() -> i32 {
         PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    for declaration in declarations {
-        runtime
-            .register_host_function(HostFunction::new(
-                DefinitionMetadata::checked(
-                    definitions.snapshot(),
-                    declaration,
-                    &Default::default(),
-                )
-                .unwrap(),
-                |_, arguments| Ok(arguments[0]),
-            ))
-            .unwrap();
-    }
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let result = runtime
         .execute(&loaded, ProgramEntry::Main, &[], &context)

@@ -14,16 +14,17 @@ use kagari_common::{
     },
 };
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::{host::HostDeclarations, program::ProgramCheckError};
+use kagari_hir::program::ProgramCheckError;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionFrame,
     gc::GcHeap,
-    host::{HostCallContext, HostError, HostFunction},
+    host::{HostCallContext, HostError},
     module::{LoadedModule, entry::ProgramEntry},
     native::{
         builder::ModuleBuilder, conversion::context::ConversionContext, module::NativeModule,
+        types::Type,
     },
     reload::ReloadValidationError,
     resource::RuntimeLimits,
@@ -32,10 +33,10 @@ use kagari_runtime::{
     value_semantics::script_equal,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
-use kagari_stdlib::namespaces;
-use kagari_types::declaration::logging;
-use kagari_types::host_interface::{
-    HostFunctionDeclaration, HostInterface, value_type::HostValueType,
+use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{FnDecl, host::HostCallPolicy, logging, module::ModuleDecl},
 };
 use kagari_vm::{
     error::VmError,
@@ -202,20 +203,42 @@ fn logging_module(
     builder.finish().unwrap()
 }
 
-fn observe_vector() -> DefinitionMetadata<HostFunctionDeclaration> {
+fn observe_vector() -> DefinitionMetadata<ModuleDecl> {
     let context = DefinitionContext::new().unwrap();
-    let root = context.intern_root(&namespaces::type_owner("Vec")).unwrap();
-    let vector = context
-        .intern_child(root, DefinitionKind::AssociatedType, "Vec", 0)
-        .unwrap();
-    let observe = HostFunctionDeclaration::new(
-        &context,
-        "observe.vector",
-        vec![],
-        HostValueType::Vec(vector, Box::new(HostValueType::I32)),
+    let vector = StandardDeclarations::default().vec(Type::i32()).unwrap();
+    let vector = DefinitionMetadata::checked(
+        vector.definitions().unwrap().clone(),
+        vector.abi().clone(),
+        &Default::default(),
     )
-    .unwrap();
-    DefinitionMetadata::checked(context.snapshot(), observe, &Default::default()).unwrap()
+    .unwrap()
+    .import_into(&context, &Default::default())
+    .unwrap()
+    .into_records();
+    let identity = ModuleIdentity {
+        package: PackageId("observe".into()),
+        path: vec![],
+    };
+    let root = context.intern_root(&identity).unwrap();
+    let binding = context
+        .intern_child(root, DefinitionKind::Function, "vector", 0)
+        .unwrap();
+    let mut declaration = ModuleDecl::new(identity);
+    declaration.functions.push(FnDecl {
+        name: "vector".into(),
+        host_policy: Some(HostCallPolicy {
+            passing: vec![],
+            effects: Default::default(),
+        }),
+        method_policy: Default::default(),
+        implementation: CallableImplementation::Native(binding),
+        generic_params: vec![],
+        bounds: vec![],
+        params: vec![],
+        return_type: vector,
+    });
+    let definitions = declaration.collect_definitions(&context).unwrap();
+    DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap()
 }
 
 fn compile(case: &Case<'_>) -> Option<DefinitionMetadata<KbcArtifact>> {
@@ -242,21 +265,13 @@ fn compile(case: &Case<'_>) -> Option<DefinitionMetadata<KbcArtifact>> {
     }
     let mut analysis = preparation::analysis();
     if case.vector.is_some() {
-        analysis.set_host_declarations(
-            HostDeclarations::new(
-                DefinitionMetadata::checked(
-                    observe.definitions().clone(),
-                    HostInterface {
-                        paths: vec![],
-                        types: vec![],
-                        functions: vec![observe.records().clone()],
-                    },
-                    &Default::default(),
-                )
-                .unwrap(),
-            )
-            .unwrap(),
-        );
+        let mut providers = kagari_stdlib::modules()
+            .unwrap()
+            .iter()
+            .map(|module| Arc::new(module.to_declaration()))
+            .collect::<Vec<_>>();
+        providers.push(Arc::new(observe));
+        analysis.set_native_modules(providers);
     }
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
@@ -479,16 +494,24 @@ fn run(
     if case.vector.is_some() {
         let capture_vector = observed_vector.clone();
         let capture_host = host.clone();
-        runtime
-            .register_host_function(HostFunction::new(observe, move |_, _| {
+        let mut builder = ModuleBuilder::from_declaration(
+            observe,
+            &StandardDeclarations::default().catalog().unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+        let vector = builder.declared_function("vector").unwrap();
+        builder
+            .bind(vector, move |_: &HostCallContext<'_>, _: &[Value]| {
                 capture_host.lock().unwrap().calls.push(HostCall {
                     symbol: "observe.vector",
                     args: vec![],
                 });
                 (*capture_vector.lock().unwrap())
                     .ok_or_else(|| HostError::new("Vec fixture is not initialized"))
-            }))
+            })
             .unwrap();
+        builder.finish().unwrap().install(&mut runtime).unwrap();
     }
     let loaded = runtime
         .load_verified_program(case.name, module.bytecode().clone())
