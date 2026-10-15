@@ -225,9 +225,14 @@ soundness. Run the checker's `--self-test` suite when changing it.
 - Full-workspace tests and complete feature/backend validation belong to CI. Do not
   run them locally, including at the end of a large task or as many package commands
   that collectively reproduce a full sweep. Final acceptance is not an exception.
+  This restriction does not apply to Clippy: run
+  `cargo clippy --workspace --all-targets -- -D warnings` locally for implementation
+  checkpoint/final acceptance. Scoped Clippy is optional during iteration, not a
+  replacement for the workspace check. Documentation-only edits do not require it
+  unless requested; previously passing checks retain their normal evidentiary value.
 - Local validation selects tests for the changed behavior plus a small regression
   set for directly affected contracts/dependents. Use package, target and test-name
-  filters; scope Clippy/builds similarly. For cross-cutting changes, select
+  filters; scope standalone builds similarly. For cross-cutting changes, select
   representative boundary coverage and leave the exhaustive matrix to CI. Record
   the selection rationale and uncovered CI scope in the active plan.
 - After failures, batch related repairs and rerun failing/affected cases only.
@@ -248,17 +253,18 @@ soundness. Run the checker's `--self-test` suite when changing it.
   cache state and workload; separate compilation/execution and make only measured
   speed claims.
 
-The following complete validation sequence belongs to CI, not local final
-acceptance. Structure, formatting and diff checks remain lightweight local checks
-where required above; local Cargo checks use only the selected affected scope.
+The following lightweight checks and workspace Clippy are local implementation
+acceptance checks and also run in CI. Select affected local tests separately.
 
 ```text
 uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace --no-fail-fast
 git diff --check
 ```
+
+Full-workspace tests (`cargo test --workspace --no-fail-fast`) and the complete
+feature/backend/platform test matrix remain CI-only.
 
 Run `git diff --check` at every checkpoint; preserve repository line endings.
 

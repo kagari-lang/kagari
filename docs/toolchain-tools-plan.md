@@ -471,27 +471,29 @@ These checks validate ownership and behavior, not internal struct layouts or a
 performance claim. Source revision mismatch must not silently produce a misleading
 excerpt; unrelated valid-body facts must not be inferred from recovery placeholders.
 
-At each phase select only affected package/target/test filters and a small directly
-related regression set. Record the selection rationale and failures here. Examples
+At each phase select affected package/target/test filters and a small directly
+related regression set, and run full-workspace Clippy locally. Record the test
+selection rationale and failures here. Examples
 of command shapes once their corresponding crates/modules exist:
 
 ```text
 cargo test -p kagari-cli --bin kg -- project::tests::
 cargo test -p kagari-format --lib -- <affected-module-filter>
 cargo test -p kagari-lint --lib -- <affected-rule-filter>
-cargo clippy -p <affected-package> --lib --tests -- -D warnings
+cargo clippy --workspace --all-targets -- -D warnings
 uv run --locked scripts/check_structure.py
 cargo fmt --all -- --check
 git diff --check
 ```
 
-Choose the CLI binary target instead of `--lib` for CLI Clippy. Do not combine
-package runs into a disguised full-workspace sweep. Review new imports, visibility,
+Scoped Clippy is optional during iteration; checkpoint/final acceptance uses the
+workspace command above. Do not combine package tests into a disguised
+full-workspace test sweep. Review new imports, visibility,
 re-exports and dependency direction; update existing feature graph guards where
 new dependencies need enforcement. Production runtime/source-free consumers must
 not acquire formatter/linter/HIR dependencies through this work.
 
-CI owns complete workspace tests/Clippy, grammar coverage matrices, full
+CI owns complete workspace tests, grammar coverage matrices, full
 feature/backend/platform validation and platform-specific file replacement cases.
 Focused local evidence and pending CI must be reported separately. Performance
 checks, if a concrete issue requires them, separate parsing, analysis, rule/layout
@@ -520,6 +522,8 @@ side effects. None is silently added to this milestone.
   lint rules, diagnostic/policy ownership, formatter modules and focused acceptance.
 - [x] Incorporate execution review: acquisition recovery, fact eligibility,
   suppression ownership/inheritance, link writeback, token adjacency and grammar scope.
+- [x] Apply the user's validation correction: full-workspace Clippy runs locally;
+  full-workspace tests and exhaustive feature/backend validation remain CI-only.
 - [ ] TT01: resolve command/config/diagnostic decisions, acquisition and eligibility
   contracts; complete check tooling.
 - [ ] TT02: single-file formatter foundation and stdin integration.

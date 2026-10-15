@@ -1,7 +1,9 @@
 # Test preparation and execution
 
 [AGENTS.md](../AGENTS.md#verification-and-tooling) owns validation scope. Select
-affected contract tests locally; CI owns complete workspace/feature/backend runs.
+affected contract tests locally; CI owns complete workspace tests and exhaustive
+feature/backend validation. Full-workspace Clippy runs locally for implementation
+acceptance: `cargo clippy --workspace --all-targets -- -D warnings`.
 This page defines source ownership, justified integration targets and reusable test setup.
 
 ## Match the test to its semantic owner

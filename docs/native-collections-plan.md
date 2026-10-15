@@ -350,12 +350,15 @@ justified generic buffer/Array helpers rather than relabeling special cases.
 During implementation run affected focused tests, formatting, structural review,
 `uv run --locked scripts/check_structure.py` and `git diff --check`. Review imports,
 re-exports, visibility, effective LOC and responsibilities. NC06 also uses targeted
-tests and scoped Clippy plus a small regression set for directly affected contracts;
+tests plus a small regression set for directly affected contracts, and full-workspace
+Clippy locally (`cargo clippy --workspace --all-targets -- -D warnings`);
 record the selection rationale and results. Batch repairs and rerun failed/affected
 cases only, completing skipped coverage within that scope. Do not run workspace
 suites locally or reconstruct them through package commands.
 
-The following full validation belongs to CI, not local NC06 acceptance:
+The following full sequence belongs to CI; structure, formatting, workspace Clippy
+and diff checks also run locally. Workspace tests and exhaustive feature/backend
+validation remain CI-only:
 
 ```text
 uv run --locked scripts/check_structure.py

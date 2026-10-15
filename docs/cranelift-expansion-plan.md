@@ -367,10 +367,12 @@ git diff --check
 Use --no-fail-fast when running multiple selected targets. At each implementation
 checkpoint manually review imports/reexports, semantic ownership, unsafe blocks,
 root/borrow lifetimes, cancellation, LOC and migration removals. Use normal Cargo
-profiles, target directory and default parallelism. Run scoped Clippy when relevant.
+profiles, target directory and default parallelism. Run
+`cargo clippy --workspace --all-targets -- -D warnings` locally for implementation
+acceptance; scoped Clippy remains optional during iteration.
 Documentation-only checkpoints need link/content/diff checks, not Cargo builds.
 
-CI owns full workspace tests/Clippy, the complete source/native/source-free feature
+CI owns full workspace tests, the complete source/native/source-free feature
 matrix and optional CLI JIT tests. Existing CI currently uses Ubuntu; J06 must
 explicitly establish native coverage on Windows x86_64 and Linux x86_64, and record
 other target support as unverified unless exercised. Do not claim host ISA discovery

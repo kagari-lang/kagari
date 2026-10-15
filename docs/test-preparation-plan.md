@@ -57,7 +57,8 @@ Baseline and final measurements use the same focused `syntax_examples` and
 Separate compilation from execution; record machine/toolchain/cache state and
 process peak memory. Stage probes distinguish engine, compilation, preparation,
 runtime construction and execution. Temporary data belongs under ignored `target/`.
-No whole-workspace test or Clippy run is required locally. Run affected SDK suites,
+Full-workspace tests remain CI-only. Run workspace Clippy locally for implementation
+acceptance (`cargo clippy --workspace --all-targets -- -D warnings`), affected SDK suites,
 language contracts, provider reset/registration and session-isolation checks;
 source-free compilation plus structure, formatting and diff checks. CI owns the
 complete backend/feature matrix.
@@ -406,8 +407,9 @@ For later batches select moved behavior plus a small adjacent regression set:
 registration/install rejection and GC cleanup for runtime; native callbacks and
 pinned reload for VM; identity/codec rejection for the small contract owners;
 filesystem alias rejection for package tests. Check each selected scope finishes;
-a successful build or name listing is not a passed test. Use scoped Clippy when
-imports/modules change, structure, formatting and `git diff --check`.
+a successful build or name listing is not a passed test. Run workspace Clippy for
+implementation acceptance, structure, formatting and `git diff --check`;
+scoped Clippy remains optional during iteration.
 
 The external checks retain their own selection: SDK artifact/native-wait consumers
 through the standalone manifest, runtime external derives with the relevant
