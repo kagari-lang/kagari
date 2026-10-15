@@ -378,6 +378,9 @@ locations and docs come from the same records used by compilation. Standard
 registrations own all trait and module documentation. Core and application views
 use the uniform renderer and optional materialized declaration cache; navigation
 resolves their parsed owning ranges in the exact generated snapshot.
+Changing a view's URI changes its presentation location, while its registered
+module and callable identities remain unchanged. Native registration does not infer
+a Rust implementation source location or use a URI to grant native authority.
 Other generated views include library-owned types,
 inherent methods and trait impl methods, including MapIterator.next.
 

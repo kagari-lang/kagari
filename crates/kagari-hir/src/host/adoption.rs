@@ -18,7 +18,7 @@ impl HostDeclarations {
         &self.definitions
     }
 
-    /// Imports the complete interface once, then remaps its indexes and origin keys.
+    /// Imports the complete interface once, then remaps its indexes.
     /// Host revision/slot identities remain tied to the original immutable input.
     pub(crate) fn adopt(
         &self,
@@ -37,11 +37,6 @@ impl HostDeclarations {
         let mut map = |id: &_| remap.map(*id).map_err(Into::into);
         let mut mapper = DefinitionMapper::new(&mut map, cancel);
         let interface = self.interface.remap_definitions(&mut mapper)?;
-        let origins = self
-            .origins
-            .iter()
-            .map(|(id, origin)| Ok((mapper.reference(id)?, origin.clone())))
-            .collect::<Result<_, DefinitionMappingError>>()?;
         let methods = self
             .methods
             .iter()
@@ -60,7 +55,6 @@ impl HostDeclarations {
             signatures: interface.functions.iter().map(HostSignature::new).collect(),
             interface,
             definitions: context.snapshot(),
-            origins,
             methods,
             type_identities,
             paths: self.paths.clone(),
@@ -84,9 +78,8 @@ impl DefinitionReferences for HostDeclarations {
             signature.visit_definition_ids(visit, cancel)?;
         }
         for id in self
-            .origins
+            .type_identities
             .keys()
-            .chain(self.type_identities.keys())
             .chain(self.methods.keys().map(|(id, _)| id))
         {
             cancel

@@ -2,7 +2,7 @@
 
 use crate::{
     callable::CallableSignature,
-    host::{HostFunctionId, origin::HostDeclarationOrigin, signature_type},
+    host::{HostFunctionId, signature_type},
     native::NativeBinding,
     typeck::FunctionImplementation,
     types::TypeId,
@@ -45,18 +45,12 @@ pub struct HostCallable<'a> {
     pub(super) id: HostFunctionId,
     pub(super) declaration: &'a HostFunctionDeclaration,
     pub(super) signature: &'a HostSignature,
-    pub(super) origin: Option<&'a HostDeclarationOrigin>,
 }
 
 impl HostCallable<'_> {
     /// Borrows the original installed parameter/result/effect contract.
     pub fn contract(&self) -> &HostFunctionDeclaration {
         self.declaration
-    }
-
-    /// Borrows optional declaration/implementation navigation metadata.
-    pub fn origin(&self) -> Option<&HostDeclarationOrigin> {
-        self.origin
     }
 }
 

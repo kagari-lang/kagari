@@ -3,11 +3,10 @@
 use crate::analysis::ownership;
 use crate::{
     analysis::{
-        AnalysisSnapshot, FileAnalysis,
+        AnalysisSnapshot,
         declaration_queries::{DeclarationSnapshot, FileDeclarations},
     },
     declarations::{Declaration, DeclarationId},
-    host::origin::HostDeclarationOrigin,
     imports::{NamespaceId, ResolvedTarget},
 };
 use kagari_syntax::ast::{
@@ -32,22 +31,6 @@ pub struct DeclarationDocumentation {
     pub documentation: String,
     /// Signature spelling recovered from source, separate from checked semantic types.
     pub written_signature: String,
-}
-
-impl FileAnalysis {
-    /// Supplied host navigation metadata, resolved by the checked declaration
-    /// identity. Missing metadata never creates a synthetic source declaration.
-    pub fn host_origin_at(&self, offset: usize) -> Option<&HostDeclarationOrigin> {
-        let id = self
-            .host_function_at(offset)
-            .map(|declaration| &declaration.id)
-            .or_else(|| {
-                self.host_field_at(offset)
-                    .map(|declaration| &declaration.id)
-            })
-            .or_else(|| self.host_type_at(offset).map(|declaration| &declaration.id))?;
-        self.result.records().facts().names.hosts.origin(id)
-    }
 }
 
 /// Module Markdown and its location in this immutable analysis snapshot.

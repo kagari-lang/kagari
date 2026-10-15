@@ -3100,9 +3100,48 @@ offline_declarations_compile_without_a_runtime_then_link_and_execute passed
 source-free loading, no callback during compilation/loading and execution results.
 SDK lib/offline_functions scoped Clippy passed; structure checked 1256 Rust files
 with zero findings; formatting and diff checks passed. The reference audit leaves
-only the historical retirement map naming the removed SDK entrypoint.
+no executable caller of the removed SDK entrypoint.
 No unsafe/lifetime behavior changed; prior compile proofs and Miri evidence remain
 applicable. Full workspace/feature/backend/platform acceptance remains CI-owned.
+
+### HR03: retire standalone host origin metadata
+
+Native navigation is owned by the common rendered DeclarationSource and ordinary
+snapshot declaration/documentation queries. The independent HostInput,
+HostDeclarationOrigin and HostSourceLocation model, its callable/catalog origin
+accessors, FileAnalysis::host_origin_at and the separate origin key adoption are
+removed. The remaining temporary HostDeclarations constructor accepts its scoped
+interface directly; it has no origin wrapper or compatibility alias. Its obsolete
+catalog/callable model remains separately owned by HR03 retirement.
+
+This is a deliberate replacement of the old optional declaration/Rust-location
+fallback with the actual checked Kagari declaration view. Registration does not
+infer Rust implementation source links, and this delivery does not add a new Rust
+navigation metadata framework. That is a tooling limitation, not a reason to retain
+a second host declaration system. The standard declaration specification records
+that a presentation URI never grants native authority.
+
+The old origin tests' Host-only wrapper/preference/key-map assertions retire with
+their owner. Snapshot retention and presentation/authority separation now run at
+the existing documentation query owner: the new native-view case changes a common
+provider's location from a nonexistent file URI to a standard-looking virtual URI,
+checks its real native Entry and canonical demo owner in both snapshots, then drops
+the database and rechecks both retained locations/docs. It opens neither external
+document. Existing generated-declaration inventory coverage owns exact name ranges,
+identity scoping and docs; signature reuse coverage owns rejection of transferring
+native authority to a source declaration.
+
+The initial focused test build found a remaining origin reference in the old
+catalog's DefinitionReferences implementation; removing that reference and unused
+imports resolved it. The next test run found its fixture expected a raw file URI
+although SourceDatabase normalizes it to a local path; using the existing
+normalize_source_name contract passed the native-view case (1.20 seconds). All three
+remaining legacy catalog regressions and the native signature-authority reuse case
+passed together (four tests, 0.35 seconds). HIR lib/tests scoped Clippy passed;
+structure checked 1254 Rust files with zero findings; formatting and diff checks
+passed. No unsafe,
+root, loan, cancellation or execution path changed; no new Miri run is claimed.
+Full workspace/feature/backend/platform acceptance remains CI-owned.
 
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.

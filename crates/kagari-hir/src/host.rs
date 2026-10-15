@@ -3,7 +3,6 @@
 use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
-    host::origin::{HostDeclarationOrigin, HostInput},
     resolver::resolved::ResolvedName,
     typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
     types::{NominalType, TypeId, TypeSubstitution},
@@ -41,7 +40,6 @@ use kagari_types::{
 };
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-    iter,
     sync::{
         Arc, OnceLock,
         atomic::{AtomicU64, Ordering},
@@ -50,7 +48,6 @@ use std::{
 
 mod adoption;
 pub mod callable;
-pub mod origin;
 pub(crate) mod paths;
 
 #[cfg(test)]
@@ -85,12 +82,12 @@ pub(crate) enum HostSourcePathStep {
 
 /// Immutable offline host declarations, signature projections and lookup indexes.
 ///
-/// [`Self::new`] validates the supplied interface/origins, allocates a revision and
+/// [`Self::new`] validates the supplied interface, allocates a revision and
 /// builds qualified path/member indexes. IDs contain that revision plus a slot;
 /// function/type access returns `None` for a foreign revision or invalid slot.
 ///
 /// ```text
-/// HostInput { interface, optional origins } -> HostDeclarations::new
+/// DefinitionMetadata<HostInterface> -> HostDeclarations::new
 /// +-- paths / methods -> HostFunctionId { revision, index }
 /// |   `-- function(id) -> interface.functions[index]
 /// +-- type_paths / type_identities -> HostTypeId -> interface.types[index]
@@ -107,7 +104,6 @@ pub struct HostDeclarations {
     interface: HostInterface,
     definitions: DefinitionTable,
     signatures: Vec<HostSignature>,
-    origins: HashMap<DefinitionId, HostDeclarationOrigin>,
     paths: HashMap<String, HostFunctionId>,
     methods: HashMap<(DefinitionId, String), HostFunctionId>,
     type_paths: HashMap<String, HostTypeId>,
@@ -473,10 +469,11 @@ impl HostDeclarations {
     ///
     /// # Errors
     ///
-    /// Rejects invalid interfaces/origins, conflicting declarations and namespace
-    /// collisions. Installation does not open origin URIs or execute host code.
-    pub fn new(input: impl Into<HostInput>) -> Result<Arc<Self>, HostInterfaceError> {
-        let HostInput { interface, origins } = input.into();
+    /// Rejects invalid interfaces, conflicting declarations and namespace
+    /// collisions. Construction does not execute host code.
+    pub fn new(
+        interface: DefinitionMetadata<HostInterface>,
+    ) -> Result<Arc<Self>, HostInterfaceError> {
         let (definitions, mut interface) = interface.into_parts();
         interface.validate(&definitions)?;
         let mut present = interface
@@ -494,21 +491,6 @@ impl HostDeclarations {
             }
         }
         interface.validate(&definitions)?;
-        let declarations: HashSet<_> =
-            interface
-                .functions
-                .iter()
-                .map(|function| &function.id)
-                .chain(interface.types.iter().flat_map(|ty| {
-                    iter::once(&ty.id).chain(ty.fields.iter().map(|field| &field.id))
-                }))
-                .collect();
-        if origins
-            .iter()
-            .any(|(id, origin)| !declarations.contains(id) || origin.preferred().is_none())
-        {
-            return Err(HostInterfaceError::InvalidDeclaration);
-        }
         if interface
             .functions
             .iter()
@@ -597,7 +579,6 @@ impl HostDeclarations {
         Ok(Arc::new(Self {
             revision,
             signatures: interface.functions.iter().map(HostSignature::new).collect(),
-            origins,
             interface,
             definitions,
             paths,
@@ -692,13 +673,7 @@ impl HostDeclarations {
             id,
             declaration,
             signature: self.signatures.get(id.index)?,
-            origin: self.origin(&declaration.id),
         })
-    }
-
-    /// Borrows optional navigation metadata for a canonical host declaration.
-    pub fn origin(&self, id: &DefinitionId) -> Option<&HostDeclarationOrigin> {
-        self.origins.get(id)
     }
 
     pub(crate) fn resolve_name_in(

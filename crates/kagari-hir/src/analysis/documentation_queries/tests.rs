@@ -1,9 +1,13 @@
 use crate::{
-    declarations::DeclarationId, native::render::declaration_source, tests::test_analysis,
+    declarations::DeclarationId,
+    native::{NativeBinding, render::declaration_source},
+    tests::{native::function_module, test_analysis},
+    typeck::FunctionImplementation,
 };
-use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};
 use kagari_stdlib::{catalog as foundation_catalog, catalog};
-use kagari_types::{language as standard_traits, language::Protocol};
+use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
 use std::collections::HashSet;
 
 #[test]
@@ -304,4 +308,85 @@ fn installed_native_docs_are_owned_by_the_snapshot() {
             .documentation,
         "User Option."
     );
+}
+
+#[test]
+fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity() {
+    let identity = ModuleIdentity {
+        package: PackageId("demo".into()),
+        path: vec![],
+    };
+    let module = function_module(
+        identity.clone(),
+        "echo",
+        vec![("value", Ty::Builtin(BuiltinType::I32))],
+        Ty::Builtin(BuiltinType::I32),
+    );
+    let mut providers = catalog::shared().unwrap();
+    providers.push(module);
+    let original = providers
+        .iter()
+        .map(|module| declaration_source(module, &providers).unwrap())
+        .collect::<Vec<_>>();
+    let mut sources = SourceDatabase::default();
+    let text = "use demo::echo; fn main() -> i32 { echo(1) }";
+    let root = sources
+        .set("native-location.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let offset = text.rfind("echo(1)").unwrap();
+    let mut database = test_analysis();
+    let uris = [
+        "file:///not-installed/provider.kgr",
+        "kagari://std/math.kgr",
+    ];
+    let mut retained = Vec::new();
+    for uri in uris {
+        let mut views = original.clone();
+        views.last_mut().unwrap().uri = uri.into();
+        database
+            .set_native_sources(providers.clone(), views)
+            .unwrap();
+        let snapshot = database
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let file = snapshot.file(root).unwrap();
+        assert!(
+            file.result().diagnostics().is_empty(),
+            "{:?}",
+            file.result().diagnostics()
+        );
+        snapshot.check_program(root, &Default::default()).unwrap();
+        let target = file.source_function_at(offset).unwrap();
+        let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
+            target.signature.implementation
+        else {
+            panic!("registered native entry")
+        };
+        assert_eq!(binding, target.declaration);
+        assert_eq!(
+            file.definitions().resolve(binding).unwrap().module(),
+            &identity
+        );
+        let docs = snapshot.documentation_at(root, offset).unwrap();
+        assert_eq!(
+            snapshot
+                .source(docs.declaration.location.file)
+                .unwrap()
+                .name(),
+            normalize_source_name(uri).unwrap()
+        );
+        assert!(docs.written_signature.contains("echo"));
+        retained.push((snapshot, docs));
+    }
+    drop(database);
+    for ((snapshot, docs), uri) in retained.iter().zip(uris) {
+        assert_eq!(
+            snapshot
+                .source(docs.declaration.location.file)
+                .unwrap()
+                .name(),
+            normalize_source_name(uri).unwrap()
+        );
+        assert_eq!(snapshot.documentation_at(root, offset), Some(docs.clone()));
+    }
 }
