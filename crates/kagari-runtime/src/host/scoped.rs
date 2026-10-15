@@ -225,8 +225,8 @@ impl HostBorrowTable {
                     place.target.validate(runtime)?;
                     Ok(place
                         .target
-                        .identity(&root.owner)
-                        .is_some_and(|actual| Some(actual) == expected.identity(owner)))
+                        .view(&root.owner)
+                        .compatible(expected.view(owner)))
                 })
                 .unwrap_or(false)
     }

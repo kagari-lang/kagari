@@ -197,6 +197,19 @@ host aggregate/format and parallel registration/invocation APIs are removed.
 The HR01-HR03, RI00-RI05 and RF01-RF06 plans are retired; Git history retains their
 phase decisions and validation ledgers.
 
+The activated interop review fixes have three bounded checkpoints:
+
+- [x] R1: reuse complete layout compatibility for native scoped calls across reload.
+  The SDK regression reproduced the rejected old descriptor before the fix;
+  SDK `scoped_calls` (2 tests) and runtime `host_scopes` (11 tests) pass, covering
+  shared arguments, mutable receivers, pinned code and loan cleanup/ownership.
+- [ ] R2: reject field reflection on scoped views during source checking.
+- [ ] R3: validate reference positions in applied callable signatures.
+
+Local validation selects SDK `scoped_calls`, runtime `host_scopes` and HIR
+reference/reflection contracts. These exercise the affected entry, lifetime and
+source-checking boundaries; exhaustive backend/feature coverage remains CI-owned.
+
 Current contracts live in [host interop](spec/host-interop.md),
 [the embedding guide](spec/embedding-api.md#typed-native-registration),
 [runtime ownership](spec/runtime.md), [traits](spec/traits.md),

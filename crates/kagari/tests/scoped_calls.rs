@@ -11,12 +11,16 @@ use kagari_runtime::{
     error::RuntimeError,
     frame::ExecutionFrame,
     native::{
-        builder::ModuleBuilder, declarations::FunctionDecl, typed::loans::LoanContext, types::Type,
+        builder::ModuleBuilder,
+        declarations::{FunctionDecl, MethodDecl},
+        typed::loans::LoanContext,
+        types::Type,
     },
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
 use kagari_source::source::SourceFile;
+use kagari_types::reference::ReferenceAccess;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -36,6 +40,114 @@ struct Inventory {
 struct Player {
     stats: Stats,
     inventory: Inventory,
+}
+
+#[test]
+fn scoped_native_calls_accept_compatible_reloaded_descriptors() {
+    let mut engine = KagariEngine::builder().unwrap();
+    let mut module = ModuleBuilder::new("game::reload", engine.declarations()).unwrap();
+    module.register_type::<Stats>().unwrap();
+    let stats = module.declarations().rust_type::<Stats>().unwrap();
+    let read = module
+        .define_function(
+            FunctionDecl::new("read")
+                .parameter("stats", Type::ref_(stats.clone()))
+                .returns(Type::i32()),
+        )
+        .unwrap();
+    module
+        .bind(read, |_: &mut LoanContext<'_>, (stats,): (&Stats,)| {
+            Ok(stats.hp)
+        })
+        .unwrap();
+    module
+        .implement(stats, |implementation| {
+            implementation.inherent_impl(|methods| {
+                let heal = methods.define_method(
+                    MethodDecl::instance("heal")
+                        .receiver_access(ReferenceAccess::Mutable)
+                        .returns(Type::i32()),
+                )?;
+                methods.bind(heal, |_: &mut LoanContext<'_>, (stats,): (&mut Stats,)| {
+                    stats.hp += 1;
+                    Ok(stats.hp)
+                })
+            })
+        })
+        .unwrap();
+    engine.install(module.finish().unwrap()).unwrap();
+    let engine = engine.build().unwrap();
+    let prepare = |offset| {
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "scoped-reload.kgr",
+                    format!(
+                        r#"
+            use game::reload::{{Stats, read}};
+            pub fn direct(stats: Ref<Stats>) -> i32 {{ stats.hp }}
+            pub fn native(stats: Ref<Stats>) -> i32 {{ read(stats) + {offset} }}
+            pub fn heal(stats: RefMut<Stats>) -> i32 {{ stats.heal() }}
+        "#
+                    ),
+                ),
+                Default::default(),
+            )
+            .unwrap();
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+    };
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let old = runtime
+        .load_program(&prepare(0), Default::default())
+        .unwrap();
+    let descriptor = runtime.runtime().bind_rust_type::<Stats>(&old).unwrap();
+    let current = runtime
+        .reload_program(&old, &prepare(100), Default::default())
+        .unwrap();
+    let mut stats = Stats { hp: 40 };
+    runtime
+        .with_host_scope(|scope| {
+            let view = scope.borrow_mut(&descriptor, &mut stats)?;
+            for (loaded, hp, offset) in [(&old, 40, 0), (&current, 41, 100), (&old, 42, 0)] {
+                for (entry, expected) in [("direct", hp), ("native", hp + offset), ("heal", hp + 1)]
+                {
+                    assert_eq!(
+                        KagariRuntime::execute_scoped(
+                            scope,
+                            loaded,
+                            entry,
+                            &[view.value()],
+                            &context
+                        )?,
+                        Value::I32(expected)
+                    );
+                }
+            }
+            Ok(())
+        })
+        .unwrap();
+    assert_eq!(stats.hp, 43);
+    runtime
+        .with_host_scope(|scope| {
+            let view = scope.borrow(&descriptor, &stats)?;
+            assert_eq!(
+                KagariRuntime::execute_scoped(
+                    scope,
+                    &current,
+                    "native",
+                    &[view.value()],
+                    &context
+                )?,
+                Value::I32(143)
+            );
+            assert!(
+                KagariRuntime::execute_scoped(scope, &current, "heal", &[view.value()], &context)
+                    .is_err()
+            );
+            Ok(())
+        })
+        .unwrap();
 }
 
 #[derive(Debug)]
