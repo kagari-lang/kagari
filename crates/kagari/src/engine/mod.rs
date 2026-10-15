@@ -93,7 +93,7 @@ impl KagariEngine {
     /// Start an independent source session with the same sealed native providers.
     ///
     /// Reuses only the native-only baseline checked at engine construction. User
-    /// sources, host declarations and query-setting changes are not inherited.
+    /// sources and query-setting changes are not inherited.
     /// Native callbacks retain their original captures; create a new builder when
     /// those captures or provider declarations must differ.
     pub fn new_session(&self, config: EngineConfig) -> Self {

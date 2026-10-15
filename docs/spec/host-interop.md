@@ -274,22 +274,25 @@ rejects at load. An explicitly installed log module permits ordinary source
 imports of `host::log`. Its canonical owner is the root `host` module, as for any
 other common registration. The old `standard_log` factory is removed.
 
-The compiler consumes an immutable HostDeclarations input. KagariEngine's
-set_host_interface accepts decoded declarations and performs no runtime
-registration. Source may call demo::echo directly, import demo::echo with an
-optional alias, use a nested import group, or import demo as a module alias.
-Function declarations use dotted export labels; source paths use double colons.
-Labels select the exposed source path; DefinitionPath remains the exact binding identity.
+The compiler consumes immutable common ModuleDecl metadata. Standalone compiler
+users supply cold declarations through AnalysisDatabase::set_native_modules.
+SDK users bind and install NativeModule values through KagariEngineBuilder::install
+or install_all, then build an engine with a sealed declaration and binding closure.
+That engine can compile before creating a runtime; authoring and compilation do not
+execute callbacks. The former KagariEngine::set_host_interface entrypoint is removed.
+Source may call demo::echo directly, import demo::echo with an optional alias, use
+a nested import group, or import demo as a module alias. Source paths use double
+colons; the module identity and its actual declaration IDs select the binding.
 The std namespace is reserved. Ambiguous function/module paths and unspellable
 declaration paths are rejected. Unknown imports and duplicate import aliases
 produce source diagnostics instead of disappearing during lowering.
 
-Host declaration revisions participate in analysis caching and body reuse.
-Snapshots retain their declaration catalog, signatures, documentation and scoped
-host IDs; a host ID from another catalog cannot resolve by coincident index.
-AnalysisSnapshot exposes both source revision and host revision. FileAnalysis's
-host_function_at query returns the declaration at a callee or function import
-without executing code, including through source facades.
+Native declaration inputs participate in analysis caching and body reuse.
+Snapshots retain their checked declarations, signatures, documentation and scoped
+definition IDs; a definition from another context cannot resolve by coincident index.
+FileAnalysis's source_function_at query returns the ordinary callable target at a
+free-function callee or import without executing code, including through source
+facades. Definition and member queries use the same checked declaration identities.
 Changing the catalog invalidates semantic reuse while unchanged source can reuse
 its parsed CST. Correct neighboring functions remain queryable after import or
 call errors. Host calls require installed bindings and are excluded

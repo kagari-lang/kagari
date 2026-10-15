@@ -29,7 +29,6 @@ use kagari_hir::{
         AnalysisSnapshot, body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
         error::AnalysisError, signature_queries::SignatureSnapshot,
     },
-    host::{HostDeclarations, origin::HostInput},
     imports::ModuleOrderError,
     program::{CheckedProgram, ProgramCheckError},
     typeck::const_budget::ConstLimits,
@@ -46,7 +45,6 @@ use kagari_source::{
     source_database::{SourceLayer, SourceSnapshot},
 };
 use kagari_syntax::parser::ParseLimits;
-use kagari_types::host_interface::HostInterfaceError;
 use std::sync::Arc;
 
 fn analysis_error(error: AnalysisError) -> EmbeddingError {
@@ -173,19 +171,6 @@ impl KagariEngine {
             .set_max_semantic_diagnostics(limit);
     }
 
-    /// Install a scoped offline contract, optionally with declaration/Rust origins
-    /// for tooling. Interface metadata alone carries no source locations.
-    pub fn set_host_interface(
-        &self,
-        input: impl Into<HostInput>,
-    ) -> Result<(), HostInterfaceError> {
-        let declarations = HostDeclarations::new(input)?;
-        self.analysis
-            .borrow_mut()
-            .set_host_declarations(declarations);
-        Ok(())
-    }
-
     pub fn compile_source(&self, source: SourceFile) -> CompileResult<CheckedModule> {
         let id = self.set_source(source.name(), source.text().to_owned(), SourceLayer::Base)?;
         self.compile_snapshot(self.source_snapshot(), id, &CancellationToken::default())
@@ -197,7 +182,7 @@ impl KagariEngine {
     /// publication belong to `kagari-package`; this method reads no filesystem and
     /// performs no execution. It replaces this session's sources atomically, reusing
     /// unchanged file identities. Earlier checked results and source snapshots keep
-    /// their original inputs. Installed native and offline host declarations remain
+    /// their original inputs. The engine's sealed native declarations remain
     /// inputs of this engine. Use separate sessions for independently edited roots.
     ///
     /// Returns cancellation, invalid captured-source input or ordinary source

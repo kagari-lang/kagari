@@ -3081,6 +3081,29 @@ failure remains. No unsafe/loan code changed
 and no new Miri run is claimed. Remaining portable/runtime legacy producers and
 HR03 retirement still block combined completion; exhaustive acceptance remains CI-owned.
 
+### HR03: retire the unused SDK host-interface setter
+
+All SDK source/tests/examples now author common native declarations. The repository
+reference audit found no remaining caller of KagariEngine::set_host_interface, so
+the setter and its HostInput/HostDeclarations/HostInterfaceError imports are removed
+directly. No forwarding entrypoint or alias replaces it. SDK engines seal the common
+declaration/binding closure through KagariEngineBuilder::install/install_all; cold
+compiler users supply ModuleDecl metadata through AnalysisDatabase::set_native_modules.
+Engine session/package API docs and the host interop specification now describe
+those owners and ordinary source_function_at/definition queries. This does not remove
+the HIR legacy catalog or runtime access kernels; their remaining consumers still
+own the rest of HR03 retirement.
+
+Focused validation: SDK offline_functions
+offline_declarations_compile_without_a_runtime_then_link_and_execute passed
+(9.92 seconds), including compile-before-runtime, rejection of missing bindings,
+source-free loading, no callback during compilation/loading and execution results.
+SDK lib/offline_functions scoped Clippy passed; structure checked 1256 Rust files
+with zero findings; formatting and diff checks passed. The reference audit leaves
+only the historical retirement map naming the removed SDK entrypoint.
+No unsafe/lifetime behavior changed; prior compile proofs and Miri evidence remain
+applicable. Full workspace/feature/backend/platform acceptance remains CI-owned.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
