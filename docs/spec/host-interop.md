@@ -210,6 +210,14 @@ ends. Root and lease cleanup is unconditional after traps, cancellation, call-de
 and quarantine. Direct host operations outside script execution use the same scope
 implementation with runtime defaults and do not implicitly create a script root.
 
+Common native callbacks use their canonical qualified declaration name in host
+call traces, such as `demo::limit` or `demo::api::limit`. The
+[runtime offline example](../../crates/kagari-runtime/examples/offline_host.rs)
+encodes shared declarations in KBC before installing an implementation, calls the
+linked entry through ordinary rooted native frames, and retains trace inputs,
+immutable configuration access and candidate initialization across reload.
+Run `cargo run -p kagari-runtime --example offline_host`.
+
 One declaration can be cloned into a `HostInterface` for offline tooling and into
 the runtime binding. `HostRegistry::link_interface` checks required declarations
 against installed bindings without calling them. It rejects missing bindings,

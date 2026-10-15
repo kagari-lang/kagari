@@ -2585,6 +2585,61 @@ Remaining runtime/compiler consumers and HR03 legacy format/callable retirement
 still block combined completion; the full workspace/backend/feature/platform
 matrix stays CI-owned and unrun locally.
 
+### HR02/RF05 checkpoint: runtime sessions and common offline execution
+
+installation_access and execution_sessions now have no legacy registration or
+HostInterface producer. Their affected callbacks declare and bind through ordinary
+ModuleBuilder before loading. A narrow integration fixture builds source-free
+free-function contracts from shared declarations and invokes the existing native
+frame driver, retaining roots, session ownership and cleanup. It has no resolver,
+conversion, borrow semantics or callback implementation of its own. It deliberately
+rejects layouts, generic proofs, path and trait-impl inputs outside this fixture's
+finite scope. Ordinary modules share it through tests/support, without handwritten
+include or cross-target production exports.
+
+The candidate result test previously registered callbacks after loading its empty
+baseline. It now installs them first, loads their exact declarations, then populates
+a retained rooted old array. Fresh allocations use the active frame's pinned
+execution root. Calls enter the actual candidate member; nested old arrays still
+fail before publication and fresh nested arrays survive collection. The candidate
+effect test retains pure/configuration acceptance, service/mutation/suspension
+rejection before callbacks, path-effect precedence, exact callback counts and
+resource cleanup. Installed-call rejection before installation and sticky callback
+cancellation are tested through the same linked native frames.
+
+The runtime offline_host example now authors cold ModuleDecl and KBC contracts
+without a callback/runtime, then adopts that declaration into ModuleBuilder and
+binds once. It decodes/validates the KBC, invokes rooted native frames, checks trace
+inputs/outcome, stages a reload, initializes its candidate and publishes. Its first
+compile exposed incorrect assumptions about load_artifact and CandidateSession
+accessors; it now uses existing artifact loader validation/load_program and the
+actual staged candidate module. No new public execution entrypoint was introduced.
+The run also found a genuine native host-trace defect: root ModuleIdentity display
+already ended in ::, causing demo::::limit. begin_trace now formats package and
+module path segments directly before the member identity. Nested module components
+and occurrence suffixes retain their canonical spellings. No identity check changed.
+
+Actual focused local validation:
+
+- Selected installation_access installed-call and sticky-cancellation cases passed
+  separately (both under 0.01 seconds after compilation). The first compile used a
+  nonexistent HostCallPolicy::default; explicit policy fields fixed it before tests.
+- Selected execution_sessions candidate effects and nested old/fresh results passed
+  separately (both under 0.01 seconds); unchanged session cases were not rerun.
+- cargo run -p kagari-runtime --example offline_host passed after the trace fix,
+  reporting a 1,255-byte common contract and immutable configuration result 42.
+  It also asserts zero retained roots after candidate publication.
+- Runtime library, this example and both affected integration targets passed scoped
+  Clippy. Structure passed for 1254 files with zero violations; formatting and diff
+  checks passed. The initial target waited on an unrelated build-directory lock;
+  no other process or profile/build settings were changed.
+
+No unsafe or pointer/loan kernel changed, so no new Miri run is required here.
+Runtime offline_host/host_registration/host_nominal and remaining source/tooling
+legacy consumers, the trait-table example and HR03 retirement remain outstanding.
+Complete workspace, backend/feature/platform and exhaustive safety acceptance remain
+CI-owned and are not claimed from these focused checks.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

@@ -100,7 +100,11 @@ fn begin_trace(cx: &CallContext<'_>, values: &[Value]) -> NativeResult<Option<(S
         .definitions()
         .resolve(cx.function.declaration)
         .map_err(|_| RuntimeError::module_validation("host trace declaration identity"))?;
-    let mut symbol = definition.module().to_string();
+    let module = definition.module();
+    let mut symbol = module.package.0.clone();
+    for part in &module.path {
+        write!(symbol, "::{part}").expect("String formatting is infallible");
+    }
     for segment in definition.segments() {
         symbol.push_str("::");
         symbol.push_str(segment.name);

@@ -1,3 +1,5 @@
+mod support;
+
 use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
@@ -12,7 +14,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
-    host::HostFunction,
+    host::HostCallContext,
     module::VerifiedProgram,
     native::{
         binding::NativeResult,
@@ -27,82 +29,71 @@ use kagari_runtime::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::{declarations::StandardDeclarations, namespaces};
-use kagari_types::{
-    declaration::{NativeDeclaration, TraitDef},
-    host_interface::{HostFunctionDeclaration, value_type::HostValueType},
-};
+use kagari_types::declaration::{NativeDeclaration, TraitDef, host::HostCallPolicy};
 use std::collections::BTreeSet;
+use support::native::{free_function_program, invoke};
 
 #[test]
 fn installed_function_needs_no_execution_permissions() {
-    let context = DefinitionContext::new().unwrap();
-    let mut runtime = Runtime::default();
-    assert!(runtime.invoke_host("host.answer", &[]).is_err());
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "host.answer",
-                    vec![],
-                    HostValueType::I32,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            |_, _| Ok(Value::I32(42)),
-        ))
+    let mut builder = ModuleBuilder::new("host", &Default::default()).unwrap();
+    let function = builder
+        .define_function(
+            FunctionDecl::new("answer")
+                .returns(Type::i32())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                }),
+        )
         .unwrap();
-    assert_eq!(
-        runtime.invoke_host("host.answer", &[]).unwrap(),
-        Value::I32(42)
+    builder
+        .bind(function, |_: &HostCallContext<'_>, _: &[Value]| {
+            Ok(Value::I32(42))
+        })
+        .unwrap();
+    let module = builder.finish().unwrap();
+    let program = free_function_program(&module.to_declaration());
+    let mut runtime = Runtime::default();
+    assert!(
+        runtime
+            .load_program("uninstalled", program.clone())
+            .is_err()
     );
+    assert_eq!(runtime.modules().loaded_count(), 0);
+    module.install(&mut runtime).unwrap();
+    let loaded = runtime.load_program("installed", program).unwrap();
+    assert_eq!(invoke(&runtime, &loaded, 0, &[]).unwrap(), Value::I32(42));
 }
 
 #[test]
 fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
-    let context = DefinitionContext::new().unwrap();
-    let mut runtime = Runtime::default();
     let cancel = CancellationToken::default();
     let callback_cancel = cancel.clone();
-    runtime
-        .register_host_function(HostFunction::new(
-            {
-                let declaration = HostFunctionDeclaration::new(
-                    &context,
-                    "host.cancel",
-                    vec![],
-                    HostValueType::I32,
-                )
-                .unwrap();
-                DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
-                    .unwrap()
-            },
-            move |_, _| {
-                callback_cancel.cancel();
-                Ok(Value::I32(42))
-            },
-        ))
-        .unwrap();
-    let module = runtime
-        .load_program(
-            "cancel",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
+    let mut builder = ModuleBuilder::new("host", &Default::default()).unwrap();
+    let function = builder
+        .define_function(
+            FunctionDecl::new("cancel")
+                .returns(Type::i32())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                }),
         )
         .unwrap();
+    builder
+        .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
+            callback_cancel.cancel();
+            Ok(Value::I32(42))
+        })
+        .unwrap();
+    let module = builder.finish().unwrap();
+    let program = free_function_program(&module.to_declaration());
+    let mut runtime = Runtime::default();
+    module.install(&mut runtime).unwrap();
+    let loaded = runtime.load_program("cancel", program).unwrap();
     let session = runtime
         .begin_execution(
-            &module,
+            &loaded,
             ExecutionOptions {
                 cancellation: cancel,
                 ..Default::default()
@@ -110,16 +101,17 @@ fn host_cancellation_is_sticky_even_when_the_handler_returns_success() {
         )
         .unwrap();
     assert_eq!(
-        runtime.invoke_host("host.cancel", &[]).unwrap_err().kind(),
+        invoke(&runtime, &loaded, 0, &[]).unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
     assert_eq!(
         runtime.resources().poll_execution().unwrap_err().kind(),
         RuntimeErrorKind::Cancelled
     );
+    assert_eq!(runtime.gc().active_roots(), 0);
     drop(session);
     let _next = runtime
-        .begin_execution(&module, ExecutionOptions::default())
+        .begin_execution(&loaded, ExecutionOptions::default())
         .unwrap();
     runtime.resources().poll_execution().unwrap();
 }
