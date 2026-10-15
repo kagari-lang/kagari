@@ -3,33 +3,37 @@ use kagari_bytecode::{
     module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_common::identity::{
+    DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
+    metadata::DefinitionMetadata, table::DefinitionId,
+};
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::RuntimeErrorKind,
     host::{
         DynamicPathArgument, DynamicPathArguments, HostBorrowTable, HostError, HostObjectId,
         HostPathAdapter, HostPathDescriptorId, HostPathDescriptorRegistration, HostPathOperation,
-        HostSchemaEpoch, HostTypeRegistration, PreparedHostPathWrite,
+        HostSchemaEpoch, PreparedHostPathWrite,
     },
     metadata::{AbiFingerprint, TypeId, TypeKind, TypeRegistration},
     module::LoadedModule,
+    native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
 
 use kagari_types::{
     declaration::{
-        host::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+        FieldDef,
+        host::{
+            HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
         path::{
             HostIndexSegmentDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
         },
     },
-    host_interface::{
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    },
     scalar::BuiltinType,
     ty::Ty,
+    visibility::Visibility,
 };
 use std::sync::{Arc, Mutex};
 
@@ -72,27 +76,94 @@ fn register_i32(runtime: &Runtime) -> TypeId {
         .unwrap()
 }
 
-fn register_host_root_type(runtime: &mut Runtime, name: &str, access: PathAccess) -> TypeId {
-    let context = DefinitionContext::new().unwrap();
-    let mut declaration = HostTypeDeclaration::new(&context, name).unwrap();
-    declaration.ownership = HostTypeOwnership::HostRoot;
-    declaration.path_access = access;
-    for name in ["hp", "secure_hp", "count"] {
-        let mut field =
-            HostFieldDeclaration::new(&context, declaration.id, name, HostValueType::I32).unwrap();
-        field.writable = access == PathAccess::ReadWrite;
-        field.path_access = access;
-        declaration.fields.push(field);
-    }
-
-    declaration.reflection = HostReflectionPolicy::Metadata;
-
-    runtime
-        .register_host_type(HostTypeRegistration::new(
-            DefinitionMetadata::checked(context.snapshot(), declaration, &Default::default())
+fn root_module(name: &str, access: PathAccess, fields: Vec<(&str, Ty)>) -> NativeModule {
+    let (package, name) = name.split_once("::").unwrap();
+    let mut module = ModuleBuilder::new(package, &Default::default()).unwrap();
+    let mut owner = module.define_type(name).unwrap();
+    owner
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Metadata,
+            path_access: access,
+        })
+        .unwrap();
+    for (name, ty) in fields {
+        owner
+            .field(
+                DefinitionMetadata::checked(
+                    DefinitionContext::new().unwrap().snapshot(),
+                    FieldDef {
+                        name: name.into(),
+                        ty,
+                        visibility: Visibility::Public,
+                        mutable: access == PathAccess::ReadWrite,
+                        host_policy: Some(HostFieldPolicy {
+                            readable: true,
+                            path_access: access,
+                        }),
+                    },
+                    &Default::default(),
+                )
                 .unwrap(),
+            )
+            .unwrap();
+    }
+    owner.finish().unwrap();
+    module.finish().unwrap()
+}
+
+fn register_host_root_type(runtime: &mut Runtime, name: &str, access: PathAccess) -> TypeId {
+    root_module(
+        name,
+        access,
+        ["hp", "secure_hp", "count"]
+            .into_iter()
+            .map(|name| (name, Ty::Builtin(BuiltinType::I32)))
+            .collect(),
+    )
+    .install(runtime)
+    .unwrap();
+    runtime.types().get_by_name(name).unwrap().id
+}
+
+fn nominal(context: &DefinitionContext, name: &str) -> DefinitionId {
+    let (package, name) = name.split_once("::").unwrap();
+    let root = context
+        .intern_root(&ModuleIdentity {
+            package: PackageId(package.into()),
+            path: vec![],
+        })
+        .unwrap();
+    context
+        .intern_child(root, DefinitionKind::Struct, name, 0)
+        .unwrap()
+}
+
+fn host_declaration(runtime: &Runtime, ty: TypeId) -> DefinitionId {
+    let name = runtime.types().get(ty).unwrap().name;
+    let (package, name) = name.split_once("::").unwrap();
+    let definitions = runtime.host().definitions();
+    let root = definitions
+        .lookup_root(&ModuleIdentity {
+            package: PackageId(package.into()),
+            path: vec![],
+        })
+        .unwrap();
+    definitions
+        .lookup_child(root, DefinitionKind::Struct, name, 0)
+        .unwrap()
+}
+
+fn host_field(runtime: &Runtime, ty: TypeId, name: &str) -> DefinitionId {
+    runtime
+        .host()
+        .definitions()
+        .lookup_child(
+            host_declaration(runtime, ty),
+            DefinitionKind::Field,
             name,
-        ))
+            0,
+        )
         .unwrap()
 }
 
@@ -107,18 +178,9 @@ fn register_hp_descriptor(
             definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentDeclaration::Field(
-                runtime
-                    .host()
-                    .host_type(player_id)
-                    .unwrap()
-                    .declaration
-                    .fields
-                    .iter()
-                    .find(|field| field.name == "hp")
-                    .unwrap()
-                    .id,
-            )],
+            segments: vec![HostPathSegmentDeclaration::Field(host_field(
+                runtime, player_id, "hp",
+            ))],
             access,
             schema_epoch: HostSchemaEpoch::new(0),
         })

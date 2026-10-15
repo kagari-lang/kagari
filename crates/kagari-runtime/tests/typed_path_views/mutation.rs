@@ -9,7 +9,7 @@ use std::sync::{
 fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
-    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
         .unwrap();
@@ -87,7 +87,7 @@ fn host_borrows_and_path_operations_share_conflicts_and_release_before_retry() {
 fn path_callback_borrows_cannot_escape_in_read_results() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
-    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
         .unwrap();
@@ -132,7 +132,7 @@ fn read_validation_and_preparation_failures_leave_the_target_and_ledger_unchange
     for stage in ["read", "validation", "preparation"] {
         let mut runtime = path_mutation_runtime();
         let scalar = register_i32(&runtime);
-        let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+        let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
         let root = runtime
             .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
             .unwrap();
@@ -237,7 +237,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
         )
         .unwrap();
     let scalar = register_i32(&runtime);
-    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
         .unwrap();
@@ -302,7 +302,7 @@ fn cancellation_during_a_prepared_commit_is_observed_after_the_atomic_update() {
 fn nonstorable_previous_value_cannot_escape_through_the_dirty_ledger() {
     let mut runtime = path_mutation_runtime();
     let scalar = register_i32(&runtime);
-    let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
         .unwrap();
@@ -340,7 +340,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
     for fault in ["panic", "execute", "allocate", "mutate", "collect", "root"] {
         let mut runtime = path_mutation_runtime();
         let scalar = register_i32(&runtime);
-        let owner = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+        let owner = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
         let root = runtime
             .register_host_root(HostObjectId(1), owner, HostSchemaEpoch::new(0))
             .unwrap();
@@ -446,7 +446,7 @@ fn commit_panics_and_execution_attempts_quarantine_only_the_affected_runtime() {
 fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
-    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let player_id = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
         .unwrap();
@@ -539,7 +539,7 @@ fn executes_path_read_prepare_commit_and_dirty_records_in_order() {
 fn path_execution_classifies_validation_failures() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
-    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let player_id = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
         .unwrap();
@@ -579,7 +579,8 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
     ] {
         let mut runtime = path_mutation_runtime();
         let i32_id = register_i32(&runtime);
-        let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+        let player_id =
+            register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
         let root = runtime
             .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
             .unwrap();
@@ -629,7 +630,7 @@ fn arithmetic_path_failure_never_calls_write_or_records_dirty() {
 fn path_execution_uses_installed_descriptor() {
     let mut runtime = path_mutation_runtime();
     let i32_id = register_i32(&runtime);
-    let player_id = register_host_root_type(&mut runtime, "game.Player", PathAccess::ReadWrite);
+    let player_id = register_host_root_type(&mut runtime, "game::Player", PathAccess::ReadWrite);
     let root = runtime
         .register_host_root(HostObjectId(1), player_id, HostSchemaEpoch::new(0))
         .unwrap();
@@ -638,18 +639,11 @@ fn path_execution_uses_installed_descriptor() {
             definitions: runtime.host().definitions(),
             root_type: player_id,
             result_type: i32_id,
-            segments: vec![HostPathSegmentDeclaration::Field(
-                runtime
-                    .host()
-                    .host_type(player_id)
-                    .unwrap()
-                    .declaration
-                    .fields
-                    .iter()
-                    .find(|field| field.name == "secure_hp")
-                    .unwrap()
-                    .id,
-            )],
+            segments: vec![HostPathSegmentDeclaration::Field(host_field(
+                &runtime,
+                player_id,
+                "secure_hp",
+            ))],
             access: PathAccess::ReadOnly,
             schema_epoch: HostSchemaEpoch::new(0),
         })

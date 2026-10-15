@@ -2864,6 +2864,40 @@ changed and no new Miri run is needed. Remaining runtime legacy consumer is
 typed_path_views; compiler/tooling producers and HR03 retirement still block combined
 completion. Full workspace/backend/feature/platform acceptance stays CI-owned.
 
+### HR02/RF05 checkpoint: typed-path execution consumers
+
+The final runtime integration fixture, `typed_path_views`, now installs external
+schemas through ModuleBuilder, FieldDef and the common host policies. Shared
+DefinitionIds replace legacy type/field queries; canonical module-owned names
+replace independent display labels. No HostInterface, HostTypeDeclaration or
+HostValueType authoring remains in runtime integration tests/examples. Primitive
+physical-slot setup and negative descriptor registrations remain at the existing
+checked execution-service boundary; they do not author another callable system.
+The positive installed-path case declares, binds, installs and resolves its path
+through the common module owner before reading it.
+
+The index/virtual fingerprint case now builds four common path declarations,
+retains their original external schema in a KBC artifact, encodes/decodes and
+validates it, binds the same contracts, compares all four installed fingerprints
+with their execution-service counterparts, and loads the source-free program.
+This replaces the obsolete standalone HostInterface codec assertion without
+removing cold-path coverage. Duplicate descriptor contracts, physical-slot shifts,
+access differences and distinct virtual names retain their assertions. Existing
+mutation/GC/cancellation/reentry/panic cleanup checks are unchanged apart from
+schema ownership and canonical names.
+
+Actual local validation: the first compile found an incorrect fixture import of
+PublicItem; importing its contract owner fixed it. All 20 typed_path_views cases
+then passed (0.01 seconds). After migrating the positive installed-path case to
+bind_path, that case passed separately (0.01 seconds); unaffected passing evidence
+was retained. The full target is a focused host-path subsystem selection because
+its shared schema helper affects every case; this is not a workspace sweep.
+Scoped typed_path_views Clippy passed. Structure checked 1254 files with zero
+findings; formatting and diff checks passed. No unsafe, pointer or loan kernel
+changed, so no new Miri run was needed. HIR/compiler/portable legacy records and
+runtime legacy execution retirement remain HR02/HR03 work; full feature/backend/
+platform acceptance remains pending CI.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
