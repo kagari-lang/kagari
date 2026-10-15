@@ -415,8 +415,6 @@ impl<'a> BodyChecker<'a> {
                                     self.declarations.definitions(),
                                     &trait_type,
                                     actual,
-                                ) + usize::from(
-                                    self.declarations.hosts.implements(&trait_type, actual),
                                 ) == 1
                             }
                         };

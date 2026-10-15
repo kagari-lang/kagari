@@ -53,7 +53,6 @@ impl<'a> BodyChecker<'a> {
                             applications::ApplicationContext {
                                 definitions: self.declarations.definitions(),
                                 catalog: self.aggregates,
-                                hosts: &self.names.hosts,
                                 receiver: None,
                             },
                             &resolved,
@@ -100,7 +99,6 @@ impl<'a> BodyChecker<'a> {
                     applications::ApplicationContext {
                         definitions: self.declarations.definitions(),
                         catalog: self.aggregates,
-                        hosts: &self.declarations.hosts,
                         receiver: None,
                     },
                     &local_ty,

@@ -339,17 +339,6 @@ impl FunctionLowerer<'_, '_> {
                         },
                     ))),
                 )
-            } else if let Some(host_method) = self
-                .analyzed
-                .names
-                .hosts
-                .trait_method_binding(&method, &interface, &ty)
-            {
-                (
-                    TypeckCallTarget::HostFunction(host_method),
-                    Vec::new(),
-                    None,
-                )
             } else if let Some((implementation, impl_arguments)) = self
                 .analyzed
                 .typed

@@ -285,12 +285,12 @@ parent implementations, concrete parent dispatch tables and upcast ancestry
 before execution. Parent tables are compiled ahead of time and retain the same
 execution family as the original interface.
 
-Version 45 and runtime ABI v45 added explicitly marked concrete host bridge tables
-and KHI v10 associated-output declarations. Output identities, bounds, signatures
-and the exact forwarding host call are verified before execution. Host bridge
-tables do not introduce additional language implementations. Host declarations
-include associated output types in their fingerprint and required type closure.
-Standalone KHI versions before 11 are rejected without migration.
+Explicitly registered native trait implementations use ordinary interface tables
+and native imports. Loading verifies output identities, bounds, signatures and
+the exact native method bindings through their shared declarations. There is no
+separate host bridge table or implementation-proof catalog. The remaining bridge
+marker retains intrinsic protocol evidence and must forward to its exact checked
+protocol adapter. Standalone KHI versions before 11 are rejected without migration.
 
 Version 44 added ordered concrete impl arguments to linked interface table
 records. Generic tables are deduplicated by declaration and arguments; each

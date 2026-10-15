@@ -649,22 +649,6 @@ fn bridge_method_matches(
         return false;
     };
     let target_matches = match (table.bridge, callee) {
-        (Some(InterfaceBridge::Host), CallTarget::Native(import)) => {
-            host::host_bridge_implementation(table, &module.host_interface)
-                .and_then(|(_, implementation)| {
-                    implementation
-                        .methods
-                        .iter()
-                        .find(|mapping| mapping.trait_method == slot.method)
-                })
-                .is_some_and(|mapping| {
-                    module
-                        .native_imports
-                        .get(import.index())
-                        .and_then(|import| import.host.as_ref())
-                        .is_some_and(|contract| contract.id == mapping.host_method)
-                })
-        }
         (Some(InterfaceBridge::Intrinsic), CallTarget::Function(target)) => module
             .functions
             .get(target.index())

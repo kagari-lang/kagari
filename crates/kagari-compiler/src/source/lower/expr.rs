@@ -7,7 +7,7 @@ use crate::source::lower::{
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
     numeric::NumericConversion, operations::UnaryOp, representation::semantic_representation,
-    standard::RuntimePrimitive, types::InterfaceBridge,
+    standard::RuntimePrimitive,
 };
 use kagari_hir::{
     aggregates::implementations::ImplementationSearchLimits,
@@ -213,14 +213,7 @@ impl FunctionLowerer<'_, '_> {
                 )?;
                 let (implementation, arguments, constructed) = match coercion.implementation {
                     ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
-                    ResolvedInterfaceImplementation::Host
-                    | ResolvedInterfaceImplementation::Intrinsic => {
-                        let kind =
-                            if coercion.implementation == ResolvedInterfaceImplementation::Host {
-                                InterfaceBridge::Host
-                            } else {
-                                InterfaceBridge::Intrinsic
-                            };
+                    ResolvedInterfaceImplementation::Intrinsic => {
                         let mut types = self
                             .planner
                             .arguments(
@@ -235,16 +228,18 @@ impl FunctionLowerer<'_, '_> {
                         let receiver = types.next().expect("receiver argument");
                         let applied = types.next().expect("interface argument");
                         let TypeId::Trait(interface) = applied else {
-                            return Err(MirLoweringError::MissingBinding("host interface type"));
+                            return Err(MirLoweringError::MissingBinding(
+                                "intrinsic interface type",
+                            ));
                         };
                         (
                             self.planner
-                                .interface_bridge(&receiver, &interface, span, kind)?,
+                                .intrinsic_interface_bridge(&receiver, &interface, span)?,
                             Vec::new(),
                             interface,
                         )
                     }
-                    ResolvedInterfaceImplementation::Script {
+                    ResolvedInterfaceImplementation::Declared {
                         declaration,
                         arguments,
                     } => {

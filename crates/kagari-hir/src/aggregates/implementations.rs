@@ -467,7 +467,7 @@ impl AggregateCatalog {
                     .get(member)
                     .cloned();
             }
-            let script = self.implementations.values().filter_map(|implementation| {
+            let mut matches = self.implementations.values().filter_map(|implementation| {
                 let substitution = match_implementation(
                     &implementation.trait_type,
                     interface,
@@ -489,15 +489,6 @@ impl AggregateCatalog {
                         .instantiate(&substitution),
                 )
             });
-            let host = self
-                .host_implementations
-                .iter()
-                .filter_map(|(applied, ty)| {
-                    (ty == receiver && applied.satisfies(interface))
-                        .then(|| applied.associated_types.get(member).cloned())
-                        .flatten()
-                });
-            let mut matches = script.chain(host);
             let result = matches.next()?;
             matches.next().is_none().then_some(result)
         })

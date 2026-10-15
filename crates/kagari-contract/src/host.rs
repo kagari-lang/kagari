@@ -3,7 +3,7 @@
 use crate::{
     layout::{EnumLayout, LayoutValidationError, StructLayout},
     types as abi,
-    types::{InterfaceBridge, InterfaceTable, PublicItem, TraitContract},
+    types::{PublicItem, TraitContract},
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
@@ -376,12 +376,6 @@ pub fn validate(
     interface
         .validate(definitions)
         .map_err(|_| LayoutValidationError::Invalid)?;
-    if items.iter().any(|item| {
-        matches!(item, PublicItem::InterfaceTable(table)
-            if table.bridge == Some(InterfaceBridge::Host) && host_bridge_implementation(table, interface).is_none())
-    }) {
-        return Err(LayoutValidationError::Invalid);
-    }
     let mut ids: BTreeSet<_> = interface.types.iter().map(|ty| ty.id).collect();
     external::validate(external_types, cancel, definitions)?;
     if external_types.iter().any(|ty| !ids.insert(ty.declaration)) {
@@ -422,37 +416,4 @@ pub fn references_present<'ty>(
     Ok(type_references(types, cancel)?
         .iter()
         .all(|id| ids.contains(id)))
-}
-
-pub fn host_bridge_implementation<'a>(
-    table: &InterfaceTable,
-    interface: &'a HostInterface,
-) -> Option<(
-    &'a HostTypeDeclaration,
-    &'a HostTraitImplementationDeclaration,
-)> {
-    let Ty::Host(id) = &table.for_type else {
-        return None;
-    };
-    let Ty::Trait(applied) = &table.trait_type else {
-        return None;
-    };
-    let host = interface.types.iter().find(|host| &host.id == id)?;
-    let implementation = host.trait_implementations.iter().find(|implementation| {
-        implementation.trait_id == applied.declaration
-            && implementation.trait_arguments.len() == applied.arguments.len()
-            && implementation
-                .trait_arguments
-                .iter()
-                .zip(&applied.arguments)
-                .all(|(expected, actual)| Ty::from_host_type(expected) == *actual)
-            && implementation.associated_types.len() == applied.associated_types.len()
-            && implementation.associated_types.iter().all(|output| {
-                applied
-                    .associated_types
-                    .get(&output.declaration)
-                    .is_some_and(|actual| Ty::from_host_type(&output.ty) == *actual)
-            })
-    })?;
-    Some((host, implementation))
 }

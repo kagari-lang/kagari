@@ -93,19 +93,6 @@ impl<'a> BodyChecker<'a> {
             );
             return target.clone();
         }
-        if matches!(&source, TypeId::Host(_))
-            && self.declarations.hosts.implements(interface, &source)
-        {
-            self.type_table.insert_interface_coercion(
-                expr_id,
-                ResolvedInterfaceCoercion {
-                    implementation: ResolvedInterfaceImplementation::Host,
-                    concrete_type: source,
-                    interface_type: interface.clone(),
-                },
-            );
-            return target.clone();
-        }
         match self.aggregates.concrete_interface_implementation(
             self.declarations.definitions(),
             interface,
@@ -121,7 +108,7 @@ impl<'a> BodyChecker<'a> {
                 self.type_table.insert_interface_coercion(
                     expr_id,
                     ResolvedInterfaceCoercion {
-                        implementation: ResolvedInterfaceImplementation::Script {
+                        implementation: ResolvedInterfaceImplementation::Declared {
                             declaration: implementation,
                             arguments,
                         },

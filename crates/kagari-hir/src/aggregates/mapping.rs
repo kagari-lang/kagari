@@ -299,12 +299,6 @@ impl RemapDefinitions for AggregateCatalog {
                     ))
                 }),
             )?,
-            host_implementations: map_sequence(&self.host_implementations, |value| {
-                Ok((
-                    (value).0.remap_definitions(mapper)?,
-                    (value).1.remap_definitions(mapper)?,
-                ))
-            })?,
             traits: map_entries(
                 self.traits.len(),
                 self.traits.iter().map(|(key, value)| {
@@ -410,10 +404,6 @@ impl DefinitionReferences for AggregateCatalog {
         for id in self.language_items.values() {
             check_cancel(cancel)?;
             visit(id)?;
-        }
-        for value0 in &self.host_implementations {
-            (value0).0.visit_definition_ids(visit, cancel)?;
-            (value0).1.visit_definition_ids(visit, cancel)?;
         }
         for (key0, value0) in &self.traits {
             check_cancel(cancel)?;

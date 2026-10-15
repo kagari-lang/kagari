@@ -5,7 +5,6 @@ use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     declarations::Declarations,
     hir::item::{Module, behavior::TraitDef},
-    host::HostDeclarations,
     lower::LoweredModule,
     typeck::{
         applications,
@@ -16,7 +15,7 @@ use crate::{
 };
 
 use {
-    kagari_common::{cancellation::CancellationToken, span::Span},
+    kagari_common::cancellation::CancellationToken,
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
@@ -104,7 +103,6 @@ pub(crate) fn validate(
                     applications::ApplicationContext {
                         definitions: declarations.definitions(),
                         catalog,
-                        hosts: &declarations.hosts,
                         receiver: None,
                     },
                     &TypeId::Trait(parent.clone()),
@@ -182,23 +180,20 @@ pub(crate) fn validate(
                 &parent,
                 &implementation.for_type,
                 &bounds,
-            ) || declarations
-                .hosts
-                .implements(&parent, &implementation.for_type)
-                || matches!(
-                    catalog.concrete_interface_implementation(
-                        declarations.definitions(),
-                        &parent,
-                        &implementation.for_type,
-                        &bounds,
-                        ImplementationSearchLimits {
-                            max_checks: 100_000,
-                            max_depth: 64
-                        },
-                        cancel
-                    ),
-                    Ok(Some(_))
-                );
+            ) || matches!(
+                catalog.concrete_interface_implementation(
+                    declarations.definitions(),
+                    &parent,
+                    &implementation.for_type,
+                    &bounds,
+                    ImplementationSearchLimits {
+                        max_checks: 100_000,
+                        max_depth: 64
+                    },
+                    cancel
+                ),
+                Ok(Some(_))
+            );
             if !available {
                 diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
@@ -230,43 +225,6 @@ pub(crate) fn validate(
                             .unwrap_or_default(),
                     ),
                 );
-            }
-        }
-    }
-    for host in declarations.hosts.type_declarations() {
-        for implementation in &host.trait_implementations {
-            if declarations
-                .definitions()
-                .resolve(implementation.trait_id)
-                .expect("adopted host trait")
-                .module()
-                != identity
-            {
-                continue;
-            }
-            let applied = HostDeclarations::trait_type(implementation);
-            let receiver = TypeId::Host(host.id);
-            let Ok(parents) = catalog.trait_closure(&applied, &receiver, cancel) else {
-                continue;
-            };
-            for parent in parents.into_iter().skip(1) {
-                if !declarations.hosts.implements(&parent, &receiver)
-                    && catalog.implementation_count(declarations.definitions(), &parent, &receiver)
-                        != 1
-                {
-                    diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                            trait_name: TypeId::Trait(applied.clone())
-                                .display_name(declarations.definitions()),
-                            type_name: host.symbol.clone(),
-                            reason: format!(
-                                "missing host supertrait `{}`",
-                                TypeId::Trait(parent).display_name(declarations.definitions())
-                            ),
-                        })
-                        .with_span(Span::default()),
-                    );
-                }
             }
         }
     }

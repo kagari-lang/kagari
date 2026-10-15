@@ -103,7 +103,6 @@ pub(super) fn validate(
                 applications::ApplicationContext {
                     definitions: declarations.definitions(),
                     catalog,
-                    hosts: &declarations.hosts,
                     receiver: None,
                 },
                 &family.value,

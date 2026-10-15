@@ -1,22 +1,19 @@
-//! Compile checked host mappings and intrinsic protocol evidence into ordinary verified interface call bridges.
+//! Compile intrinsic protocol evidence into ordinary verified interface call bridges.
 
 use crate::source::lower::{
     MirLoweringError,
     debug::capture_origin,
     instances::{InstancePlanner, InterfaceBridgeRequest},
 };
-use kagari_common::identity::{
-    DefinitionKind, mapping::DefinitionMappingError, table::DefinitionId,
-};
+use kagari_common::identity::{DefinitionKind, mapping::DefinitionMappingError};
 use kagari_contract::{
-    native_import::NativeImport,
     representation::semantic_representation,
     slots::SemanticSlots,
     types::{
         ConcreteFunctionIdentity, InterfaceBridge, InterfaceTable, ModuleContract, PublicItem,
     },
 };
-use kagari_hir::{AnalyzedModule, types::TypeId};
+use kagari_hir::AnalyzedModule;
 use kagari_mir::{
     debug::{MirFunctionDebugMetadata, MirLexicalScope, MirLocalDebugInfo},
     function::{BasicBlock, MirFunction, MirLocal, MirParameter, MirTemp},
@@ -43,7 +40,6 @@ pub(super) fn collect(
             ref receiver,
             ref interface,
             span,
-            kind,
         } = request;
         let contract = module
             .aggregates
@@ -52,8 +48,7 @@ pub(super) fn collect(
         let mut methods = Vec::new();
         for method in &contract.methods {
             planner.check()?;
-            let (params, result_type, callee) =
-                resolve_target(planner, module, functions, &request, method.id)?;
+            let (params, result_type, callee) = resolve_target(planner, functions, &request)?;
             methods.push(FnDecl {
                 host_policy: None,
                 method_policy: Default::default(),
@@ -127,13 +122,13 @@ pub(super) fn collect(
                     arguments: Vec::new(),
                 },
                 name: format!(
-                    "$host-interface#{}::{}",
+                    "$intrinsic-interface#{}::{}",
                     planner
                         .definitions()
                         .resolve(declaration)
-                        .expect("host bridge identity")
+                        .expect("intrinsic bridge identity")
                         .last()
-                        .expect("host bridge member")
+                        .expect("intrinsic bridge member")
                         .occurrence,
                     method.name
                 ),
@@ -198,7 +193,7 @@ pub(super) fn collect(
             .push(PublicItem::InterfaceTable(Box::new(InterfaceTable {
                 associated_type_families: Vec::new(),
                 associated_consts: Vec::new(),
-                bridge: Some(kind),
+                bridge: Some(InterfaceBridge::Intrinsic),
                 declaration,
                 name: format!(
                     "{} as {}",
@@ -217,98 +212,44 @@ pub(super) fn collect(
 
 fn resolve_target(
     planner: &mut InstancePlanner<'_>,
-    module: &AnalyzedModule,
     functions: &[MirFunction],
     request: &InterfaceBridgeRequest,
-    method: DefinitionId,
 ) -> Result<(Vec<Param>, Ty, CallTarget), MirLoweringError> {
     let receiver = &request.receiver;
     let interface = &request.interface;
-    match request.kind {
-        InterfaceBridge::Host => {
-            let TypeId::Host(host_id) = &receiver else {
-                return Err(MirLoweringError::MissingBinding("host interface receiver"));
-            };
-            let host = module
-                .names
-                .hosts
-                .nominal_type(host_id)
-                .and_then(|id| module.names.hosts.type_declaration(id))
-                .ok_or(MirLoweringError::MissingBinding(
-                    "host interface declaration",
-                ))?;
-            let implementation = module
-                .names
-                .hosts
-                .interface_implementation(interface, receiver)
-                .ok_or(MirLoweringError::MissingBinding(
-                    "checked host interface mapping",
-                ))?;
-            let binding = implementation
-                .methods
-                .iter()
-                .find(|binding| binding.trait_method == method)
-                .ok_or(MirLoweringError::MissingBinding("host interface method"))?;
-            let call = host
-                .method_contract(&binding.host_method, &planner.definitions())
-                .map_err(|_| MirLoweringError::MissingBinding("host method contract"))?;
-            let params = call
-                .params
-                .iter()
-                .map(|param| Param {
-                    name: param.name.clone(),
-                    mutable: false,
-                    ty: Ty::from_host_type(&param.ty),
-                })
-                .collect::<Vec<_>>();
-            Ok((
-                params,
-                Ty::from_host_type(&call.return_type),
-                CallTarget::Native(Box::new(NativeImport::from_host(&call))),
-            ))
-        }
-        InterfaceBridge::Intrinsic => {
-            let protocol =
-                Protocol::from_definition(&interface.declaration, &planner.definitions()).ok_or(
-                    MirLoweringError::MissingBinding("intrinsic interface protocol"),
-                )?;
-            let target = planner.enqueue_selected_protocol(
-                protocol,
-                receiver,
-                interface,
-                request.span,
-                false,
-            )?;
-            let function =
-                functions
-                    .get(target.index())
-                    .ok_or(MirLoweringError::MissingBinding(
-                        "prepared intrinsic interface method",
-                    ))?;
-            let params = function
-                .semantic
-                .params
-                .values()
-                .enumerate()
-                .map(|(index, ty)| Param {
-                    name: if index == 0 {
-                        "self".into()
-                    } else {
-                        format!("arg_{index}")
-                    },
-                    mutable: false,
-                    ty: ty.clone(),
-                })
-                .collect();
-            Ok((
-                params,
-                function
-                    .semantic
-                    .result
-                    .clone()
-                    .ok_or(MirLoweringError::MissingBinding("intrinsic result"))?,
-                CallTarget::Function(target),
-            ))
-        }
-    }
+    let protocol = Protocol::from_definition(&interface.declaration, &planner.definitions())
+        .ok_or(MirLoweringError::MissingBinding(
+            "intrinsic interface protocol",
+        ))?;
+    let target =
+        planner.enqueue_selected_protocol(protocol, receiver, interface, request.span, false)?;
+    let function = functions
+        .get(target.index())
+        .ok_or(MirLoweringError::MissingBinding(
+            "prepared intrinsic interface method",
+        ))?;
+    let params = function
+        .semantic
+        .params
+        .values()
+        .enumerate()
+        .map(|(index, ty)| Param {
+            name: if index == 0 {
+                "self".into()
+            } else {
+                format!("arg_{index}")
+            },
+            mutable: false,
+            ty: ty.clone(),
+        })
+        .collect();
+    Ok((
+        params,
+        function
+            .semantic
+            .result
+            .clone()
+            .ok_or(MirLoweringError::MissingBinding("intrinsic result"))?,
+        CallTarget::Function(target),
+    ))
 }

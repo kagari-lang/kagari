@@ -851,7 +851,6 @@ impl<'a> BodyChecker<'a> {
             applications::ApplicationContext {
                 definitions: self.declarations.definitions(),
                 catalog: self.aggregates,
-                hosts: &self.declarations.hosts,
                 receiver: None,
             },
             &ty,

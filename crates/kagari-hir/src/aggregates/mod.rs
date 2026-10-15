@@ -12,7 +12,6 @@ use crate::{
     aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
     declarations::{Declaration, DeclarationId, Declarations},
     hir::writeability::Writeability,
-    host::HostDeclarations,
     imports::{ModuleGraph, SourceDeclRef, SourceItem, SourceUnit},
     language::semantics as builtin_traits,
     lower::LoweredModule,
@@ -162,7 +161,6 @@ pub struct EnumSignature {
 pub struct AggregateCatalog {
     language_items: BTreeMap<LangRole, DefinitionId>,
     implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
-    host_implementations: Vec<(NominalType, TypeId)>,
     traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
     implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
     methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
@@ -370,23 +368,6 @@ impl AggregateCatalog {
                 .collect();
             self.implementation_constants.insert(*owner, constants);
         }
-        for host in declarations.hosts.type_declarations() {
-            for implementation in &host.trait_implementations {
-                cancel.check()?;
-                if declarations
-                    .definitions()
-                    .resolve(implementation.trait_id)
-                    .expect("adopted host trait identity")
-                    .module()
-                    == lowered.source.module_identity()
-                {
-                    self.host_implementations.push((
-                        HostDeclarations::trait_type(implementation),
-                        TypeId::Host(host.id),
-                    ));
-                }
-            }
-        }
         for implementation in &lowered.module.impls {
             cancel.check()?;
             if implementation.trait_ref.is_some() {
@@ -542,19 +523,12 @@ impl AggregateCatalog {
             }
             result.enumerations.insert(*id, enumeration.clone());
         }
-        result.host_implementations = self
-            .host_implementations
-            .iter()
-            .filter(|(interface, _)| result.traits.contains_key(&interface.declaration))
-            .cloned()
-            .collect();
         Ok(result)
     }
 
     pub(crate) fn same_contracts(&self, other: &Self) -> bool {
         self.same_trait_contracts(other)
             && self.implementation_constants == other.implementation_constants
-            && self.host_implementations == other.host_implementations
             && self.implementations == other.implementations
             && self.inherent_methods == other.inherent_methods
             && self.enumerations.len() == other.enumerations.len()

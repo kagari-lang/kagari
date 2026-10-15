@@ -4,7 +4,6 @@ use crate::{
     DiagnosticBuffer,
     aggregates::AggregateCatalog,
     declarations::Declarations,
-    host::HostDeclarations,
     lower::LoweredModule,
     native::NativeTypeKind,
     typeck::{
@@ -30,7 +29,6 @@ use kagari_types::{
 pub(super) struct ApplicationContext<'a> {
     pub definitions: &'a DefinitionTable,
     pub catalog: &'a AggregateCatalog,
-    pub hosts: &'a HostDeclarations,
     /// Concrete receiver of the root impl application; nested trait values keep their own Self.
     pub receiver: Option<&'a TypeId>,
 }
@@ -46,7 +44,6 @@ pub(super) fn validate(
     let ApplicationContext {
         definitions,
         catalog,
-        hosts,
         receiver,
     } = context;
     let expanded = catalog
@@ -171,7 +168,7 @@ pub(super) fn validate(
                                 ConstraintTarget::Trait(required) => {
                                     let required = required.instantiate(&substitution);
                                     bounds.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&required))))
-                                        || catalog.intrinsic_implementation(definitions, &required, &actual, bounds) || catalog.implementation_count(definitions, &required, &actual) + usize::from(hosts.implements(&required, &actual)) == 1
+                                        || catalog.intrinsic_implementation(definitions, &required, &actual, bounds) || catalog.implementation_count(definitions, &required, &actual) == 1
                                 }
                             };
                             if !satisfied && !actual.is_unresolved() {
@@ -181,9 +178,7 @@ pub(super) fn validate(
                     }
                 }
                 if receiver.is_concrete()
-                    && catalog.implementation_count(definitions, interface, receiver)
-                        + usize::from(hosts.implements(interface, receiver))
-                        != 1
+                    && catalog.implementation_count(definitions, interface, receiver) != 1
                 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
@@ -269,8 +264,7 @@ pub(super) fn validate(
                                                     applied.clone(),
                                                 ))
                                             }),
-                                        _ => catalog.implementation_count(definitions, &applied, actual)
-                                            + usize::from(hosts.implements(&applied, actual)) == 1,
+                                        _ => catalog.implementation_count(definitions, &applied, actual) == 1,
                                     };
                                     if !satisfied {
                                         diagnostics.push(
@@ -333,7 +327,6 @@ pub(super) fn validate(
                                     };
                                     bounds.get(actual).is_some_and(|constraints| constraints.iter().any(|constraint| matches!(constraint, ConstraintTarget::Trait(available) if available.satisfies(&required))))
                                         || catalog.intrinsic_implementation(definitions, &required, actual, bounds) || catalog.implementation_count(definitions, &required, actual) == 1
-                                        || hosts.implements(&required, actual)
                                 }
                             };
                             if !satisfied && !actual.is_unresolved() {
@@ -404,7 +397,6 @@ pub(crate) fn validate_signatures(
                 ApplicationContext {
                     definitions,
                     catalog,
-                    hosts: &declarations.hosts,
                     receiver: None,
                 },
                 &parameter.ty,
@@ -426,7 +418,6 @@ pub(crate) fn validate_signatures(
             ApplicationContext {
                 definitions,
                 catalog,
-                hosts: &declarations.hosts,
                 receiver: None,
             },
             &function.return_type,
@@ -464,7 +455,6 @@ pub(crate) fn validate_signatures(
             ApplicationContext {
                 definitions,
                 catalog,
-                hosts: &declarations.hosts,
                 receiver: Some(receiver),
             },
             &TypeId::Trait(instance.clone()),
@@ -567,7 +557,6 @@ pub(crate) fn validate_signatures(
                 ApplicationContext {
                     definitions,
                     catalog,
-                    hosts: &declarations.hosts,
                     receiver: None,
                 },
                 &field.ty,
@@ -599,7 +588,6 @@ pub(crate) fn validate_signatures(
                     ApplicationContext {
                         definitions,
                         catalog,
-                        hosts: &declarations.hosts,
                         receiver: None,
                     },
                     payload,

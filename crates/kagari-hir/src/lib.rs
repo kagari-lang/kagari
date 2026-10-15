@@ -291,39 +291,6 @@ impl PreparedAnalysis {
             &mut diagnostics,
             cancel,
         );
-        diagnostics.extend(self.declarations.hosts.validate_trait_implementations(
-            aggregates,
-            definitions,
-            self.lowered.source.module_identity(),
-            cancel,
-        )?);
-        for implementation in aggregates.implementations() {
-            cancel.check()?;
-            if definitions
-                .resolve(implementation.id)
-                .expect("checked implementation identity")
-                .module()
-                == self.lowered.source.module_identity()
-                && self
-                    .declarations
-                    .hosts
-                    .implements(&implementation.trait_type, &implementation.for_type)
-            {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                        trait_name: definitions
-                            .resolve(implementation.trait_type.declaration)
-                            .expect("checked trait identity")
-                            .last()
-                            .map(|segment| segment.name.to_owned())
-                            .unwrap_or_default(),
-                        type_name: implementation.for_type.display_name(definitions),
-                        reason: "host and script implementations overlap".into(),
-                    })
-                    .with_span(Span::default()),
-                );
-            }
-        }
         for (first, second) in aggregates.overlapping_implementations(definitions) {
             cancel.check()?;
             diagnostics.push(

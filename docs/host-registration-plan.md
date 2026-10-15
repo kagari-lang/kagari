@@ -3257,6 +3257,49 @@ checks passed. No runtime unsafe, GC, loan or
 execution mechanism changed; no new Miri run is needed. The exhaustive matrix
 remains CI-owned.
 
+### HR03: remove the parallel HIR trait proof and host bridge model
+
+Explicit native impls already enter the ordinary AggregateCatalog through common
+ImplDecl/InterfaceTable facts. Their associated projections, bounds, concrete
+method selection, interface construction and parent interfaces use that same
+catalog as script impls. The legacy HIR HostDeclarations producer no longer has
+an analysis input entrypoint; its independent host_implementations list, trait
+validation, overlap check, method mapping and host coercion branch are removed.
+Application validation, generic calls and supertrait checks retain their ordinary
+unique-implementation, intrinsic and declared-bound rules. Ordinary overlap
+validation continues to cover native and script declarations together. There is
+no replacement proof cache or inferred Rust trait exposure.
+
+The corresponding compiler host forwarding bridge is removed with its serialized
+InterfaceBridge::Host marker and verifier-only legacy mapping helper. Explicit
+native interface tables invoke their checked native slots directly. HIR's selected
+implementation variant is named Declared, because it represents both script and
+explicitly registered native impls. Intrinsic protocol bridges remain; their
+planner now accepts only intrinsic requests and retains exact adapter verification.
+The existing forged-native-table test now attempts the surviving Intrinsic marker,
+which must still reject an ordinary native impl. Unpublished ABI/format identifiers
+remain unchanged under repository policy. Specifications describe the common
+implementation owner and distinguish its native slots from intrinsic evidence.
+
+Selected compiler host_contracts validation passed all nine cases (19.91 seconds),
+including source-private/public ownership, native/script bounds and decoded
+forgeries. Three existing SDK host_interfaces cases passed (26.82 seconds): direct
+native interface dispatch, source-free encoded execution, parent upcasts and
+forged associated schema/dispatch/bridge rejection. Three HIR cases passed (0.84
+seconds), covering native defaults/override policy, imported native supertrait
+associated members and invalid imported bounds. The first compile identified
+imports still needed by the remaining portable legacy validator and signature
+projection, plus four ApplicationContext construction sites; all were corrected
+before the selected tests ran. No assertions or runtime validation were weakened.
+No unsafe, loan, roots, GC, cancellation or reentry kernel changed; no new Miri
+run is needed. The remaining legacy namespace/callable catalog and portable/runtime
+registration retirement are still HR03 work, and the exhaustive matrix is CI-owned.
+
+After narrowing the compiler planner to intrinsic requests, the existing SDK
+intrinsic_interface_bridges_retain_checked_protocol_targets case passed (5.51
+seconds). HIR/compiler/contract/bytecode lib/tests scoped Clippy passed. Structure
+checked 1254 Rust files with zero findings; formatting and diff checks passed.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.

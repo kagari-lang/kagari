@@ -759,14 +759,13 @@ impl RemapDefinitions for ResolvedInterfaceImplementation {
         mapper.check()?;
         Ok(match self {
             Self::Upcast => ResolvedInterfaceImplementation::Upcast,
-            Self::Script {
+            Self::Declared {
                 declaration,
                 arguments,
-            } => ResolvedInterfaceImplementation::Script {
+            } => ResolvedInterfaceImplementation::Declared {
                 declaration: mapper.reference(declaration)?,
                 arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
             },
-            Self::Host => ResolvedInterfaceImplementation::Host,
             Self::Intrinsic => ResolvedInterfaceImplementation::Intrinsic,
         })
     }
@@ -781,7 +780,7 @@ impl DefinitionReferences for ResolvedInterfaceImplementation {
         check_cancel(cancel)?;
         match self {
             Self::Upcast => {}
-            Self::Script {
+            Self::Declared {
                 declaration,
                 arguments,
             } => {
@@ -791,7 +790,7 @@ impl DefinitionReferences for ResolvedInterfaceImplementation {
                     (value0).visit_definition_ids(visit, cancel)?;
                 }
             }
-            Self::Host | Self::Intrinsic => {}
+            Self::Intrinsic => {}
         }
         Ok(())
     }

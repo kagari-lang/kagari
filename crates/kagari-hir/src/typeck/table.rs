@@ -256,15 +256,13 @@ pub struct ResolvedInterfaceCoercion {
 pub enum ResolvedInterfaceImplementation {
     /// An interface-to-parent-interface conversion.
     Upcast,
-    /// A selected script implementation and its applied arguments.
-    Script {
+    /// A selected declared implementation and its applied arguments.
+    Declared {
         /// Canonical implementation identity.
         declaration: DefinitionId,
         /// Implementation arguments in binder order.
         arguments: Vec<TypeId>,
     },
-    /// An installed host implementation path.
-    Host,
     /// Existing intrinsic protocol evidence materialized as a dispatch table.
     Intrinsic,
 }

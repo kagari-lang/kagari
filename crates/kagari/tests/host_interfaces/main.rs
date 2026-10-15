@@ -211,7 +211,7 @@ fn invalid_host_associated_schemas_and_dispatch_targets_are_rejected() {
                 *applied.associated_types.values_mut().next().unwrap() =
                     Ty::Builtin(BuiltinType::I64)
             }
-            3 => interface.bridge = Some(InterfaceBridge::Host),
+            3 => interface.bridge = Some(InterfaceBridge::Intrinsic),
             4 => module.interface_tables[0].methods.clear(),
             5 => {
                 let target = NativeImportId::new(module.native_imports.len());

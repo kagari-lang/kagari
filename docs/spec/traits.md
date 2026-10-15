@@ -815,8 +815,10 @@ method bindings follow trait declaration order regardless of implementation
 source order, and ordinal lookup checks the exact applied interface identity.
 Source calls on interface values use a verified trait method slot and enter the
 receiver's pinned implementation version through the explicit frame stack.
-The construction entry accepts verified concrete script table instances,
-including instances of generic impls and checked host bridge tables.
+The construction entry accepts verified concrete implementation tables,
+including generic impl instances and explicitly registered native impls. Native
+impls use the same declaration and method-slot validation as script impls;
+they do not introduce a second implementation-proof catalog or host bridge.
 
 Verified bytecode can now allocate the same interface object with
 `MakeInterface`, using an implementation table slot resolved from the typed IR
@@ -952,7 +954,7 @@ binding an inherited output directly on a child type is not yet supported.
 An expected parent type converts a child interface to a parent view. Calls to
 inherited parent methods use that same view. Both views retain the same concrete
 payload and original execution family. Parent method tables, including generic
-instances and host bridges, are compiled and verified before execution. There
+instances and explicitly registered native impls, are compiled and verified before execution. There
 is no runtime generic specialization. GC, rooted host retention, declared host access
 and old-version calls use the existing interface ownership contracts.
 

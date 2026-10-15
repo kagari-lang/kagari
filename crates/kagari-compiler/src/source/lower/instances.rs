@@ -11,9 +11,8 @@ use kagari_common::{
     span::Span,
 };
 use kagari_contract::{
-    native_import::NativeImport,
-    representation::semantic_representation,
-    types::{ConcreteFunctionIdentity, InterfaceBridge},
+    native_import::NativeImport, representation::semantic_representation,
+    types::ConcreteFunctionIdentity,
 };
 use kagari_hir::{
     AnalyzedModule,
@@ -154,7 +153,6 @@ pub(super) struct InterfaceBridgeRequest {
     pub receiver: TypeId,
     pub interface: NominalType,
     pub span: Span,
-    pub kind: InterfaceBridge,
 }
 
 pub(super) struct InstancePlanner<'a> {
@@ -604,12 +602,11 @@ impl<'a> InstancePlanner<'a> {
         Ok(())
     }
 
-    pub fn interface_bridge(
+    pub fn intrinsic_interface_bridge(
         &mut self,
         receiver: &TypeId,
         interface: &NominalType,
         span: Span,
-        kind: InterfaceBridge,
     ) -> Result<DefinitionId, MirLoweringError> {
         self.check()?;
         if let Some(request) = self
@@ -636,19 +633,16 @@ impl<'a> InstancePlanner<'a> {
             receiver: receiver.clone(),
             interface: interface.clone(),
             span,
-            kind,
         });
         self.interface_instances.push(ConcreteFunctionIdentity {
             declaration: id,
             arguments: vec![],
         });
-        if kind == InterfaceBridge::Intrinsic {
-            let protocol = Protocol::from_definition(&interface.declaration, &self.definitions())
-                .ok_or(MirLoweringError::MissingBinding(
+        let protocol = Protocol::from_definition(&interface.declaration, &self.definitions())
+            .ok_or(MirLoweringError::MissingBinding(
                 "intrinsic interface protocol",
             ))?;
-            self.enqueue_selected_protocol(protocol, receiver, interface, span, false)?;
-        }
+        self.enqueue_selected_protocol(protocol, receiver, interface, span, false)?;
         Ok(id)
     }
 
@@ -766,16 +760,6 @@ impl<'a> InstancePlanner<'a> {
             .trait_closure(interface, receiver, &self.options.cancel)
             .map_err(|_| MirLoweringError::MissingBinding("checked inheritance closure"))?;
         for parent in parents.into_iter().skip(1) {
-            if self
-                .module
-                .names
-                .hosts
-                .interface_implementation(&parent, receiver)
-                .is_some()
-            {
-                self.interface_bridge(receiver, &parent, span, InterfaceBridge::Host)?;
-                continue;
-            }
             let selected = self
                 .catalog
                 .concrete_interface_implementation(
@@ -811,7 +795,7 @@ impl<'a> InstancePlanner<'a> {
                         })?
                         .is_none()
                     {
-                        self.interface_bridge(receiver, &parent, span, InterfaceBridge::Intrinsic)?;
+                        self.intrinsic_interface_bridge(receiver, &parent, span)?;
                     }
                     continue;
                 }

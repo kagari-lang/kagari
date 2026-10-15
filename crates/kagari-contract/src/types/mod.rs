@@ -105,7 +105,6 @@ impl PublicItem {
 /// A dispatch bridge retains existing evidence rather than declaring a new impl.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InterfaceBridge {
-    Host,
     Intrinsic,
 }
 
