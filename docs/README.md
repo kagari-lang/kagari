@@ -42,8 +42,12 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Host API unification](host-api-refactor.md).
+- [Formatter, checker and linter](toolchain-tools-plan.md): TT01-TT05 cover
+  diagnostic/check tooling, lossless formatting and six initial lint rules;
+  planning is authorized and implementation has not started.
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
-  SDK/CLI naming, formatting, linting and REPL; source packages are specified above.
+  SDK/CLI distribution and the separate REPL proposal; source packages are
+  specified above.
 - [Compatible reload and state replacement](update-model-design.md).
 - [Interactive debugger](debugger-design.md): synchronous waiting on the executing
   host thread, followed by SDK control and IDE/DAP integration; not implemented.

@@ -120,12 +120,18 @@ closure; omit unrelated implementation tools. Release automation, version policy
 and functional publication require their own activation. No package publication
 is authorized by the completed source-package implementation.
 
-The target CLI extends current check/build/run/file/artifact workflows with `kg fmt`,
-`kg lint` and `kg repl`. These modes remain unimplemented. CLI owns arguments and IO;
-formatting uses lossless syntax and needs no semantic resolution/downloads; semantic
-linting shares HIR checking inputs. Required language errors cannot be disabled as
-optional lint rules. Explicit public-function selection and argument forwarding,
-standalone dependency/host declaration policy and file-versus-project discovery
+The [formatter, checker and linter plan](toolchain-tools-plan.md) owns TT01-TT05:
+common diagnostics and check reporting, lossless formatting, project writeback,
+six initial lint rules and focused acceptance. Planning is authorized;
+implementation has not started. `kg check` already performs language checking;
+`kg fmt` and `kg lint` remain unimplemented. CLI owns arguments and IO; formatting
+needs no semantic resolution/downloads, and semantic linting shares HIR checking
+inputs. Required language errors cannot be disabled as optional lint rules.
+The plan owns first-release command/configuration decisions and validation scope.
+
+`kg repl` remains a separate unimplemented mode. Explicit public-function selection
+and argument forwarding, standalone dependency/host declaration policy and
+file-versus-project discovery for the remaining execution modes
 need concrete mode contracts before implementation. Current private `main` handling
 remains the separate verified entry capability.
 
