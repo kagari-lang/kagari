@@ -8,6 +8,7 @@ use crate::{
             declarations::{TraitDefRecord, TypeDefRecord},
             leaf::NominalTyRecord,
             native::NativeCallableRequirementRecord,
+            path::PathDeclarationRecord,
             signature::{FnDeclRecord, GenericBoundRecord, GenericParamRecord},
         },
     },
@@ -36,6 +37,7 @@ struct ModuleInput<'a> {
     package_alias: &'a Option<String>,
     dependencies: &'a BTreeSet<ModuleIdentity>,
     types: Vec<TypeDefRecord>,
+    paths: Vec<PathDeclarationRecord>,
     variant_exports: &'a BTreeSet<String>,
     exports: BTreeMap<(u8, &'a str), PortableDefinitionRef>,
     traits: Vec<TraitDefRecord>,
@@ -106,6 +108,7 @@ impl<'a> ModuleInput<'a> {
             package_alias,
             dependencies,
             types,
+            paths,
             variant_exports,
             exports,
             traits,
@@ -126,6 +129,10 @@ impl<'a> ModuleInput<'a> {
             types: types
                 .iter()
                 .map(|value| TypeDefRecord::encode(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
+            paths: paths
+                .iter()
+                .map(|path| PathDeclarationRecord::encode(path, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             variant_exports,
             exports: exports

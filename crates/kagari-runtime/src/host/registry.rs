@@ -24,12 +24,13 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
+
 use kagari_types::{
-    declaration::host::{HostTypeOwnership, HostTypePolicy, PathAccess},
-    host_interface::{
-        self, HostInterface, HostInterfaceError,
+    declaration::{
+        host::{HostTypeOwnership, HostTypePolicy, PathAccess},
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
+    host_interface::{self, HostInterface, HostInterfaceError},
     ty::Ty,
     visibility::Visibility,
 };
@@ -566,6 +567,28 @@ impl HostRegistry {
             },
             types,
         )
+    }
+
+    pub(crate) fn resolve_path(
+        &self,
+        declaration: &DefinitionMetadata<HostPathDeclaration>,
+    ) -> Result<HostPathDescriptorId, RuntimeError> {
+        let declaration = declaration
+            .import_into(&self.definitions, &CancellationToken::default())
+            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+        let mut matches = self.path_descriptors.values().filter(|descriptor| {
+            descriptor.declaration == *declaration.records()
+                && self.path_adapters.contains_key(&descriptor.id)
+        });
+        let descriptor = matches
+            .next()
+            .ok_or_else(|| RuntimeError::typed_path_validation("manual path is not installed"))?;
+        if matches.next().is_some() {
+            return Err(RuntimeError::typed_path_validation(
+                "manual path has ambiguous bindings",
+            ));
+        }
+        Ok(descriptor.id)
     }
 
     pub fn register_path_adapter(

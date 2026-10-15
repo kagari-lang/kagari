@@ -13,8 +13,8 @@ action. The [failure contract](failure-semantics.md#modification-guarantees)
 defines preparation, reservation cleanup, ledger publication and fault isolation.
 Hosts inspect `Runtime::host_dirty_paths` after execution and clear consumed
 records explicitly. There is no synchronous dirty callback. A runnable example is
-`cargo run -p kagari-runtime --example atomic_host_path`; it demonstrates a full
-ledger rejecting the next update while preserving the preceding field change.
+`cargo run -p kagari-runtime --example atomic_host_path`; it declares and binds writable and readonly paths once, then checks atomic
+commit and dirty records without changing the readonly target.
 Backend abstraction is defined in [codegen-backend.md](codegen-backend.md).
 Typed path mutation is defined in [typed-path-mutation.md](typed-path-mutation.md).
 
@@ -51,55 +51,49 @@ Borrow-boundary management decides how Rust-owned data may be accessed safely du
 
 ## Type Registration
 
-Rust types are registered from a portable `HostTypeDeclaration`. It owns nominal
-type/member identities, export labels, structural signatures, read/write and path
-declared access, receiver/parameter passing styles, effects and docs.
-Its default constructor derives an identity in the application host namespace;
-providers can supply their own package/module identity. The runtime binding adds
-only a Rust type name; callers no longer supply member slots or ABI fingerprints.
+Portable type, function, method and impl facts belong to `ModuleDecl` and the
+shared declaration types. `ModuleBuilder` authors these facts explicitly, `bind`
+checks callbacks against the declared signature and access policy, and
+`NativeModule` installs the checked records transactionally. A reusable
+`NativeInstallation` produces independent runtimes with their own heap, roots,
+borrow tables and physical metadata slots. Rust callbacks may share captured state
+only when the application chooses to capture shared state.
 
-```rust
-let mut declaration = HostTypeDeclaration::new("game.Player");
-declaration.id = host_type_identity("game.PlayerState");
-declaration.fields.push(HostFieldDeclaration::new(
-    &declaration.id, "score", HostValueType::I32,
-));
-let type_id = runtime.register_host_type(
-    HostTypeRegistration::new(declaration, "Player"),
-)?;
-```
+`TypeBuilder::external` declares an external object identity and `field` adds common
+`FieldDef` records with `HostFieldPolicy`. This descriptor contains no Rust pointer
+or object storage. External root metadata, inherent methods and explicitly declared
+Kagari trait impls use the same native module and callable installation as ordinary
+registered APIs. A Rust struct's methods or trait impls are never inferred from a
+data schema. Runtime-owned `Opaque<T>` and branded `Ref<T>`/`RefMut<T>` have their
+own checked storage/lending adapters under this same callable contract.
 
-Registration attaches at least:
+`ModuleDecl::paths` carries explicit manual paths owned by a root in that declaring
+module. `ModuleBuilder::define_path` adopts a scoped declaration;
+`bind_path` checks its read/prepared-write operations against declared access.
+Finishing a module rejects missing, duplicate or foreign path bindings. Installation
+prepares metadata, path descriptors and adapters before publication. Failure leaves
+installed callables, physical slots and path descriptors unchanged. General method
+callbacks still use `bind`; path read/write hooks implement storage operations,
+including preparation, commit and dirty reporting.
 
-- script-visible type name
-- runtime `TypeId`
-- reflection metadata if enabled
-- checked field and method metadata
-- host access policy
+`HostPathDeclaration` and its bounded wire representation belong to
+`kagari_types::declaration::path` and `declaration::wire::path`. They use common `Ty`
+and `TypeDeclaration` schemas without a second host type DSL. Source syntax selects
+these exact declarations; MIR carries their checked facts and bytecode records
+them in `BytecodeModule::path_declarations`. Source-free loading requires exact
+installed schemas and path bindings, including unused path declarations.
+`Runtime::resolve_host_path` looks up an installed scoped declaration without
+registering another descriptor. The runnable
+[atomic path example](../../crates/kagari-runtime/examples/atomic_host_path.rs)
+shows the complete declaration, binding, installation and checked access sequence.
 
-Registration rejects duplicate declaration identities even under different export
-labels. Identity validation runs before publishing general type metadata, so
-rejected registrations do not leave a partially registered type. Link validation
-requires every opaque signature type, including nested references, to have a
-binding. A HostInterface includes the complete closure of referenced type
-declarations. Linking compares the complete required member contract against the
-registered declaration; documentation changes do not alter this contract.
-Calls check that root/borrow runtime slots correspond to the required
-declaration; matching display names or value categories are insufficient.
-
-Root handles are created only by `register_host_root` and carry registry ownership.
-Host calls, temporary scopes and path-view chaining reject foreign roots even when
-object IDs, type slots, schemas and fingerprints coincide.
-
-`register_host_types` accepts a batch, including mutually referencing types. It
-validates identities and members, resolves structural/nominal types and generates
-reflection slots in a temporary metadata table. Only a complete successful batch
-is published. Single-type registration uses the same path. Offline declarations
-can be serialized and queried without a runtime or service initialization; HIR
-catalog type IDs belong to one declaration revision and reject stale queries.
-Source-level host type resolution, method execution and trait implementation
-binding retain separate R06/R07 acceptance; member metadata is not an executable
-method callback.
+Root handles are created only by `register_host_root` and carry registry ownership,
+schema epoch and ABI identity. Calls, temporary scopes and path-view chaining reject
+foreign or expired roots even when object IDs, type slots and schemas coincide.
+Metadata does not authorize unrestricted Rust references or turn a DTO into a
+borrowed host object. The remaining legacy host producer and its consumers are
+being retired under the [combined implementation plan](../host-registration-plan.md);
+they do not supply a separate shared-schema or path semantic implementation.
 
 ## Function Registration
 
@@ -763,7 +757,7 @@ Rules:
 - host-backed field and index chains lower to typed path operations where appropriate
 - frame-scoped host borrow handles are not the script-visible model for nested field access
 
-Runtime path registration accepts `HostPathSegmentRegistration`. Its `Field`
+`HostPathDeclaration` accepts `HostPathSegmentDeclaration`. Its `Field`
 variant contains only a field declaration identity. Registration resolves that
 identity against the current path owner's declared fields and generates the
 field slot, name, result type, path permission and member fingerprint from the
@@ -778,7 +772,7 @@ publishes a descriptor nor consumes its slot. `HostPathSegment` is the resolved
 output exposed to adapters.
 
 `HostIndexSegmentDeclaration` and `HostVirtualSegmentDeclaration` now carry
-portable result and input types (`HostValueType`) rather than runtime `TypeId`
+portable result and input types (`Ty`) rather than runtime `TypeId`
 slots. Registration resolves these against the current runtime after validating
 the declaration, rejects missing nominal dependencies before publishing a
 descriptor, and derives the same path fingerprint even when unrelated runtime
@@ -793,7 +787,7 @@ produce identical path fingerprints; changes to those inputs change the path
 fingerprint. These segments can be included in an offline `HostPathDeclaration`.
 
 The common declaration layer owns `HostPathContract` and the whole-path ABI encoder;
-runtime registration cannot supply its own fingerprint. `HostInterface::path_contract`
+runtime registration cannot supply its own fingerprint. `HostPathDeclaration::contract`
 resolves a path by declaration identity and portable segment contracts, validates root ownership, visibility
 and path access, and returns its result type and portable contract without callbacks
 or runtime registration. Runtime registration uses the same encoder. The
@@ -807,14 +801,12 @@ or display strings. Types without such contracts reject registration. Field
 declaration fingerprints and the root contract exclude documentation. Reordering
 unrelated runtime type registrations therefore does not change a path fingerprint.
 
-KHI v8 stores `HostInterface.paths` as portable `HostPathDeclaration` records:
-nominal root, ordered field/index/virtual segments, access, schema epoch and
-declared access. Encoding sorts these records independently of registration
-order; duplicate records, invalid chains, noncontiguous dynamic argument slots
-and paths longer than 256 segments are rejected. `Runtime::register_host_path` consumes the same declaration after its
-types are registered and derives the runtime descriptor. Every registered runtime
-path is exported in its interface; the offline and runtime fingerprints must agree
-before publication. Linking checks required contracts even if a module has no path
+Common module declarations and KBC executable requirements retain portable
+`HostPathDeclaration` records: root identity, ordered field/index/virtual segments,
+access and schema epoch. Duplicate records, invalid chains, noncontiguous dynamic
+argument slots and paths longer than 256 segments are rejected. Installation
+derives physical descriptors from the same schemas and fingerprints before any
+callback runs. Linking checks required contracts even if a module has no path
 instruction; missing or ambiguous bindings reject publication. Source field and
 index syntax selects one declared ordered path by field or virtual name and the
 exact type of each index expression. The suffix can mix fields, multiple indexes

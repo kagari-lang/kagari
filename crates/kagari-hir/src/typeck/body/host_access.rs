@@ -23,14 +23,12 @@ use crate::{
 };
 use kagari_common::cancellation::Cancelled;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::declaration::path::HostPathSegmentDeclaration;
 use kagari_types::{
     collection::CollectionAccess,
     declaration::host::PathAccess,
     host_interface,
-    host_interface::{
-        HostFunctionDeclaration, path::HostPathSegmentDeclaration,
-        type_declaration::HostFieldDeclaration,
-    },
+    host_interface::{HostFunctionDeclaration, type_declaration::HostFieldDeclaration},
     scalar::BuiltinType,
 };
 
@@ -360,7 +358,7 @@ impl<'a> BodyChecker<'a> {
                 }
             })
             .collect::<Vec<_>>();
-        match self.names.hosts.source_path(&owner, &source) {
+        match self.declarations.source_host_path(owner, &source) {
             Ok((declaration, contract)) => {
                 let mut dynamic_arguments = Vec::new();
                 for ((step, declared), result) in steps
@@ -489,7 +487,7 @@ impl<'a> BodyChecker<'a> {
                 }
             })
             .collect::<Vec<_>>();
-        match self.names.hosts.source_path(&owner, &source) {
+        match self.declarations.source_host_path(owner, &source) {
             Ok((declaration, contract)) => {
                 let mut dynamic_arguments = Vec::new();
                 for ((step, declared), result) in steps

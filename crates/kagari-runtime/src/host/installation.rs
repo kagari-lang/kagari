@@ -1,32 +1,60 @@
 //! Bind prepared semantic owners to physical slots in the existing root service.
 use crate::{
     error::RuntimeError,
-    host::{HostRegistry, RegisteredHostType},
-    metadata::{TypeId, native::MetadataSnapshot},
+    host::{
+        HostPathAdapter, HostPathDescriptor, HostPathDescriptorId, HostRegistry, RegisteredHostType,
+    },
+    metadata::TypeId,
+    native::registry::NativeRegistry,
 };
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{metadata::DefinitionMetadata, table::DefinitionId},
+};
+use kagari_types::declaration::host::PathAccess;
 use std::collections::HashMap;
 
 pub(crate) struct PreparedHostTypes {
     types: HashMap<TypeId, RegisteredHostType>,
     declarations: HashMap<DefinitionId, TypeId>,
+    next_path_descriptor_id: usize,
+    path_descriptors: HashMap<HostPathDescriptorId, HostPathDescriptor>,
+    path_adapters: HashMap<HostPathDescriptorId, HostPathAdapter>,
+}
+
+impl HostPathAdapter {
+    pub(crate) fn check_access(&self, access: PathAccess) -> Result<(), RuntimeError> {
+        if access == PathAccess::None
+            || self.read.is_none()
+            || (access == PathAccess::ReadWrite && self.prepare_write.is_none())
+            || (access == PathAccess::ReadOnly && self.prepare_write.is_some())
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "manual path binding differs from declared read/write access",
+            ));
+        }
+        Ok(())
+    }
 }
 
 impl PreparedHostTypes {
     pub(crate) fn publish(self, host: &mut HostRegistry) {
         host.registered_types = self.types;
         host.type_declarations = self.declarations;
+        host.next_path_descriptor_id = self.next_path_descriptor_id;
+        host.path_descriptors = self.path_descriptors;
+        host.path_adapters = self.path_adapters;
     }
 }
 
 impl HostRegistry {
-    pub(crate) fn prepare_native_types(
+    pub(crate) fn prepare_native_registration(
         &self,
-        metadata: &MetadataSnapshot,
+        registry: &NativeRegistry,
     ) -> Result<PreparedHostTypes, RuntimeError> {
         let mut types = self.registered_types.clone();
         let mut declarations = self.type_declarations.clone();
-        for (declaration, id, policy, abi_fingerprint) in metadata.external_bindings() {
+        for (declaration, id, policy, abi_fingerprint) in registry.metadata.external_bindings() {
             let record = RegisteredHostType {
                 policy,
                 abi_fingerprint,
@@ -43,9 +71,51 @@ impl HostRegistry {
                 ));
             }
         }
+        let mut staged = Self::new(self.definitions.clone());
+        staged.registered_types = types;
+        staged.type_declarations = declarations;
+        // Retain legacy producer schemas only while its callers migrate. Roots,
+        // loans and dirty records remain solely in the live registry.
+        staged.types = self.types.clone();
+        staged.path_descriptors = self.path_descriptors.clone();
+        staged.path_adapters = self.path_adapters.clone();
+        staged.next_path_descriptor_id = self.next_path_descriptor_id;
+        let metadata = registry.metadata.runtime_registry();
+        let definitions = registry.catalog.definitions();
+        for (root, paths) in registry.catalog.paths.entries() {
+            let adapters = registry.path_bindings.get_id(root).ok_or_else(|| {
+                RuntimeError::metadata_conflict("manual path owner has no installed bindings")
+            })?;
+            if paths.len() != adapters.len() {
+                return Err(RuntimeError::metadata_conflict(
+                    "manual path binding count differs",
+                ));
+            }
+            for (path, adapter) in paths.iter().zip(adapters) {
+                adapter.check_access(path.access)?;
+                if staged
+                    .path_descriptors
+                    .values()
+                    .any(|descriptor| descriptor.declaration == *path)
+                {
+                    continue;
+                }
+                let declaration = DefinitionMetadata::checked(
+                    definitions.clone(),
+                    path.clone(),
+                    &CancellationToken::default(),
+                )
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+                let id = staged.register_path(&declaration, &metadata)?;
+                staged.register_path_adapter(id, adapter.clone())?;
+            }
+        }
         Ok(PreparedHostTypes {
-            types,
-            declarations,
+            types: staged.registered_types,
+            declarations: staged.type_declarations,
+            next_path_descriptor_id: staged.next_path_descriptor_id,
+            path_descriptors: staged.path_descriptors,
+            path_adapters: staged.path_adapters,
         })
     }
 }

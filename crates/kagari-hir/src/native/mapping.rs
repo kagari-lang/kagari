@@ -57,9 +57,13 @@ impl RemapDefinitions for NativeTypeKind {
             Self::Host {
                 declaration,
                 definition,
+                paths,
+                schemas,
             } => NativeTypeKind::Host {
                 declaration: mapper.reference(declaration)?,
                 definition: Arc::new(definition.remap_definitions(mapper)?),
+                paths: paths.to_vec().remap_definitions(mapper)?.into(),
+                schemas: schemas.to_vec().remap_definitions(mapper)?.into(),
             },
             Self::Storage {
                 declaration,
@@ -91,9 +95,17 @@ impl DefinitionReferences for NativeTypeKind {
             Self::Host {
                 declaration,
                 definition,
+                paths,
+                schemas,
             } => {
                 visit(declaration)?;
                 definition.visit_definition_ids(visit, cancel)?;
+                for path in paths.iter() {
+                    path.visit_definition_ids(visit, cancel)?;
+                }
+                for schema in schemas.iter() {
+                    schema.visit_definition_ids(visit, cancel)?;
+                }
             }
             Self::Storage {
                 declaration,

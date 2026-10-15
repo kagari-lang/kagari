@@ -4,6 +4,7 @@ mod tests;
 use crate::{
     Runtime,
     error::RuntimeError,
+    host::HostPathAdapter,
     native::{
         binding::{NativeBinding, NativeResult},
         catalog::{DeclarationCatalog, import::CatalogImports},
@@ -22,7 +23,8 @@ use kagari_common::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{TypeDefKind, host::PathAccess, module::ModuleDecl},
+    declaration::path::HostPathDeclaration,
+    declaration::{TypeDefKind, module::ModuleDecl},
 };
 use std::{collections::BTreeMap, iter, slice, sync::Arc};
 
@@ -34,6 +36,7 @@ pub struct NativeModule {
     catalog: DeclarationCatalog,
     required: DeclarationCatalog,
     storage: Arc<DefinitionMap<NativeStorage>>,
+    path_bindings: Arc<DefinitionMap<Vec<HostPathAdapter>>>,
 }
 
 impl NativeModule {
@@ -41,22 +44,9 @@ impl NativeModule {
         declaration: ModuleDecl,
         bindings: Vec<(DefinitionId, NativeBinding)>,
         storage: BTreeMap<DefinitionId, NativeStorage>,
+        path_bindings: Vec<(HostPathDeclaration, HostPathAdapter)>,
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
-        // Shared root identity/methods use installed metadata slots. Manual field
-        // path execution stays closed until its shared contract owner is installed.
-        if declaration.types.iter().any(|ty| {
-            matches!(ty.kind, TypeDefKind::Host(_))
-                && ty.fields.iter().any(|field| {
-                    field
-                        .host_policy
-                        .is_some_and(|policy| policy.path_access != PathAccess::None)
-                })
-        }) {
-            return Err(RuntimeError::metadata_conflict(
-                "external-ID native adapter is not installed for manual field paths",
-            ));
-        }
         let context = providers.types.context();
         let definitions = declaration
             .collect_definitions(context)
@@ -69,6 +59,29 @@ impl NativeModule {
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
         let mut owned = DeclarationCatalog::declared([&declaration], context)?;
+        let mut path_bindings = path_bindings;
+        let mut indexed_paths = DefinitionMap::new(context.clone());
+        for (root, paths) in owned.paths.entries() {
+            let mut adapters = Vec::with_capacity(paths.len());
+            for path in paths {
+                let Some(index) = path_bindings.iter().position(|(bound, _)| bound == path) else {
+                    return Err(RuntimeError::metadata_conflict(
+                        "missing manual path binding",
+                    ));
+                };
+                let (_, adapter) = path_bindings.remove(index);
+                adapter.check_access(path.access)?;
+                adapters.push(adapter);
+            }
+            indexed_paths
+                .insert_id(root, adapters)
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        }
+        if !path_bindings.is_empty() {
+            return Err(RuntimeError::metadata_conflict(
+                "unknown or duplicate manual path binding",
+            ));
+        }
         owned.copy_rust_types(providers)?;
         let mut entries = BTreeMap::new();
         for declaration in owned.declarations.values() {
@@ -101,6 +114,7 @@ impl NativeModule {
         }
         let mut available = owned.clone();
         available.merge(providers)?;
+        available.validate_paths()?;
         let definitions = available.definitions();
         for target in declaration.exports.values() {
             let owner = export_owner(*target, &definitions)?;
@@ -223,6 +237,7 @@ impl NativeModule {
             catalog: checked,
             required,
             storage: Arc::new(indexed_storage),
+            path_bindings: Arc::new(indexed_paths),
         })
     }
 
@@ -253,7 +268,7 @@ impl NativeModule {
         let mut staged = runtime.native_entries.clone();
         staged.metadata = runtime.types.snapshot();
         Self::install_batch(modules, &mut staged)?;
-        let host_types = runtime.host.prepare_native_types(&staged.metadata)?;
+        let host_types = runtime.host.prepare_native_registration(&staged)?;
         // No callbacks run during preparation. Publishing these owned values
         // together cannot leave entries installed without their reflected schema.
         runtime.types = staged.metadata.runtime_registry();
@@ -275,6 +290,7 @@ impl NativeModule {
             module.publish_bindings(&mut staged, &mut imports)?;
         }
         staged.catalog.validate_callable_contracts()?;
+        staged.catalog.validate_paths()?;
         staged.metadata = staged.metadata.prepare(&staged.catalog)?;
         *registry = staged;
         Ok(())
@@ -323,6 +339,31 @@ impl NativeModule {
             }
         }
         registry.catalog.merge(&owned)?;
+        let path_ids = registry
+            .path_bindings
+            .context()
+            .import(
+                &self.path_bindings.context().snapshot(),
+                self.path_bindings.ids(),
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        for (root, adapters) in self.path_bindings.entries() {
+            if registry
+                .path_bindings
+                .insert_id(
+                    path_ids
+                        .map(root)
+                        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?,
+                    adapters.clone(),
+                )
+                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
+                .is_some()
+            {
+                return Err(RuntimeError::metadata_conflict(
+                    "duplicate manual path owner",
+                ));
+            }
+        }
         Ok(())
     }
 

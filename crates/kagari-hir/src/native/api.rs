@@ -36,7 +36,7 @@ use kagari_syntax::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        FnDecl, TypeDefKind,
+        FnDecl, TypeDeclaration, TypeDefKind,
         module::{DeclarationError, ModuleDecl},
         native::NativeTypeConstructor,
         ownership::ReceiverOwners,
@@ -121,7 +121,7 @@ pub(crate) fn import_source(
         })
         .collect::<Result<_, DeclarationError>>()?;
     lowered.registered_declarations = definition.native_declarations(definitions)?;
-    attach_types(definition, definitions, &mut lowered)?;
+    attach_types(definition, definitions, providers, &mut lowered)?;
     attach_functions(definition, &mut lowered)?;
     access::attach(definition, definitions, &mut lowered)?;
     attach_dependencies(metadata, providers, &mut lowered, cancel)?;
@@ -170,8 +170,30 @@ fn validate_view(
 fn attach_types(
     definition: &ModuleDecl,
     definitions: &DefinitionTable,
+    providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     lowered: &mut LoweredModule,
 ) -> Result<(), DeclarationError> {
+    let schemas = providers
+        .iter()
+        .flat_map(|provider| {
+            provider
+                .records()
+                .types
+                .iter()
+                .filter(|ty| matches!(ty.kind, TypeDefKind::Host(_)))
+                .map(|ty| {
+                    Ok(TypeDeclaration {
+                        declaration: provider.records().definition(
+                            DefinitionKind::Struct,
+                            &ty.name,
+                            definitions,
+                        )?,
+                        definition: ty.clone(),
+                    })
+                })
+        })
+        .collect::<Result<Vec<_>, DeclarationError>>()?;
+    let schemas: Arc<[TypeDeclaration]> = schemas.into();
     for ty in &definition.types {
         if ty.kind == TypeDefKind::Struct {
             if !lowered
@@ -217,6 +239,20 @@ fn attach_types(
                     &ty.name,
                     definitions,
                 )?,
+                paths: definition
+                    .paths
+                    .iter()
+                    .filter(|path| {
+                        definitions
+                            .resolve(path.root)
+                            .ok()
+                            .and_then(|view| view.last())
+                            .is_some_and(|leaf| leaf.name == ty.name)
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .into(),
+                schemas: schemas.clone(),
             },
             TypeDefKind::NativeStorage(layout) => NativeTypeKind::Storage {
                 declaration: definition.definition(

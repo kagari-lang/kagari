@@ -57,6 +57,7 @@ impl DeclarationCatalog {
         }
         catalog.check_implementations(&modules)?;
         catalog.validate_callable_contracts()?;
+        catalog.validate_paths()?;
         Ok(catalog)
     }
 
@@ -174,6 +175,18 @@ impl DeclarationCatalog {
                     .map_err(conflict)?;
                 result.insert_implementation(id, implementation)?;
             }
+            let mut paths = BTreeMap::<_, Vec<_>>::new();
+            for path in &module.paths {
+                paths.entry(path.root).or_default().push(path.clone());
+            }
+            for (root, paths) in paths {
+                insert_contract(
+                    &mut result.paths,
+                    root,
+                    paths,
+                    "conflicting native root path contracts",
+                )?;
+            }
         }
         result.collect_implicit_definitions()?;
         Ok(result)
@@ -271,6 +284,11 @@ impl DeclarationCatalog {
             &other.implementations,
             "conflicting native implementation contracts",
         )?;
+        merge_records(
+            &mut self.paths,
+            &other.paths,
+            "conflicting native root path contracts",
+        )?;
         let documentation = self.import_documentation(other)?;
         Arc::make_mut(&mut self.documentation)
             .extend(documentation.iter().map(|(id, text)| (*id, text.clone())));
@@ -332,7 +350,8 @@ impl DeclarationCatalog {
         Ok(subset(&self.types, &installed.types)?
             && subset(&self.traits, &installed.traits)?
             && subset(&self.declarations, &installed.declarations)?
-            && subset(&self.implementations, &installed.implementations)?)
+            && subset(&self.implementations, &installed.implementations)?
+            && subset(&self.paths, &installed.paths)?)
     }
 
     pub(crate) fn check_implementations<'a>(

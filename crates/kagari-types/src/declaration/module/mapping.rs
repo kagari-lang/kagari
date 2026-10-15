@@ -70,6 +70,7 @@ impl RemapDefinitions for ModuleDecl {
             package_alias: self.package_alias.clone(),
             dependencies: self.dependencies.clone(),
             types: map_sequence(&self.types, |value| (value).remap_definitions(mapper))?,
+            paths: map_sequence(&self.paths, |value| value.remap_definitions(mapper))?,
             variant_exports: self.variant_exports.clone(),
             exports: map_entries(
                 self.exports.len(),
@@ -123,6 +124,9 @@ impl DefinitionReferences for ModuleDecl {
         check_cancel(cancel)?;
         for value0 in &self.types {
             (value0).visit_definition_ids(visit, cancel)?;
+        }
+        for path in &self.paths {
+            path.visit_definition_ids(visit, cancel)?;
         }
         for id in self.exports.values() {
             visit(id)?;

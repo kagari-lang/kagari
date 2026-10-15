@@ -2,10 +2,10 @@
 use crate::host_interface::{
     HostInterface, HostInterfaceError, MAGIC, MAX_BYTES, VERSION, adoption_error, codec,
     decode_limits, hash,
-    wire::{
-        declarations::{WireHostFunctionDeclaration, WireHostTypeDeclaration},
-        path::WireHostPathDeclaration,
-    },
+    wire::declarations::{WireHostFunctionDeclaration, WireHostTypeDeclaration},
+};
+use crate::{
+    declaration::path::HostPathDeclaration, declaration::wire::path::PathDeclarationRecord,
 };
 use bincode::Options;
 use kagari_common::{
@@ -23,7 +23,6 @@ use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, collections::HashSet};
 
 pub mod declarations;
-pub mod path;
 
 /// This trait only selects an owner's private serialized record; it cannot rebind
 /// semantic records to arbitrary identity representations.
@@ -166,11 +165,23 @@ pub(super) fn decode(
 #[derive(Serialize, Deserialize)]
 pub struct HostInterfaceRecord {
     #[serde(deserialize_with = "decode_limits::declarations")]
-    paths: Vec<WireHostPathDeclaration>,
+    paths: Vec<PathDeclarationRecord>,
     #[serde(deserialize_with = "decode_limits::declarations")]
     types: Vec<WireHostTypeDeclaration>,
     #[serde(deserialize_with = "decode_limits::declarations")]
     functions: Vec<WireHostFunctionDeclaration>,
+}
+
+impl Encode for HostPathDeclaration {
+    type Wire = PathDeclarationRecord;
+
+    fn encode(
+        &self,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self::Wire, HostInterfaceError> {
+        PathDeclarationRecord::encode(self, encoding, cancel).map_err(adoption_error)
+    }
 }
 
 impl Encode for HostInterface {
@@ -241,7 +252,7 @@ impl HostInterfaceRecord {
             paths: self
                 .paths
                 .into_iter()
-                .map(|value| value.decode(decoding, cancel))
+                .map(|value| value.decode(decoding, cancel).map_err(adoption_error))
                 .collect::<Result<_, _>>()?,
             types: self
                 .types

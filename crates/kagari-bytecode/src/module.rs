@@ -19,6 +19,7 @@ use kagari_contract::{
     types::{ConcreteFunctionIdentity, PublicItem, TraitContract},
 };
 use kagari_types::{
+    declaration::path::HostPathDeclaration,
     declaration::{NativeDeclaration, TypeDeclaration},
     host_interface::HostInterface,
     ty::{NominalTy, Ty},
@@ -29,6 +30,8 @@ use serde::{Deserialize, Serialize};
 pub struct BytecodeModule {
     pub dependencies: Vec<ModuleRef>,
     pub external_types: Vec<TypeDeclaration>,
+    /// Explicit portable path requirements over the shared external schemas.
+    pub path_declarations: Vec<HostPathDeclaration>,
     pub host_interface: HostInterface,
     pub native_imports: Vec<NativeImport>,
     pub native_declarations: Vec<NativeDeclaration>,
@@ -291,3 +294,4 @@ pub type LocalLiveRangeBuffer = Vec<LocalLiveRange>;
 pub type CapturedBindingDebugBuffer = Vec<CapturedBindingDebugInfo>;
 
 mod mapping;
+mod paths;

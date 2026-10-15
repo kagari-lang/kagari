@@ -22,11 +22,14 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+
 use kagari_types::{
-    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+    declaration::{
+        host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
+    },
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter,
-        path::{HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::{
             HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
             HostTraitMethodBinding, HostTypeDeclaration,

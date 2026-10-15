@@ -41,6 +41,7 @@ use kagari_mir::{
 };
 use kagari_types::{
     callable::CallableImplementation,
+    declaration::path::HostPathDeclaration,
     host_interface::HostInterface,
     ty::{NominalTy, Ty},
 };
@@ -149,6 +150,7 @@ fn lower_linked_module(
     let mut module = BytecodeModule {
         dependencies,
         external_types: ir.external_types.clone(),
+        path_declarations: context.path_declarations,
         host_interface: context.host_interface,
         native_imports: context.native_imports,
         native_declarations: ir.abi.native_declarations.clone(),
@@ -189,6 +191,7 @@ struct BytecodeLoweringContext<'a> {
     ir: Option<&'a VerifiedMirModule>,
     interface_tables: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>>,
     host_interface: HostInterface,
+    path_declarations: Vec<HostPathDeclaration>,
     native_imports: Vec<NativeImport>,
     paths: Vec<PathRecord>,
     constants: Vec<ConstantOperand>,
@@ -304,9 +307,9 @@ impl BytecodeLoweringContext<'_> {
 
     fn path_id(&mut self, path: &PathRef) -> PathId {
         if let Some(declaration) = &path.declaration
-            && !self.host_interface.paths.contains(declaration)
+            && !self.path_declarations.contains(declaration)
         {
-            self.host_interface.paths.push(declaration.clone());
+            self.path_declarations.push(declaration.clone());
         }
         if let Some(record) = self.paths.iter().find(|record| {
             record.contract_fingerprint == path.contract_fingerprint

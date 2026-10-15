@@ -23,6 +23,7 @@ impl RemapDefinitions for BytecodeModule {
             external_types: map_sequence(&self.external_types, |value| {
                 value.remap_definitions(mapper)
             })?,
+            path_declarations: self.path_declarations.remap_definitions(mapper)?,
             host_interface: self.host_interface.remap_definitions(mapper)?,
             native_imports: map_sequence(&self.native_imports, |value| {
                 (value).remap_definitions(mapper)
@@ -68,6 +69,7 @@ impl DefinitionReferences for BytecodeModule {
             value.visit_definition_ids(visit, cancel)?;
         }
         self.host_interface.visit_definition_ids(visit, cancel)?;
+        self.path_declarations.visit_definition_ids(visit, cancel)?;
         for value0 in &self.native_imports {
             (value0).visit_definition_ids(visit, cancel)?;
         }

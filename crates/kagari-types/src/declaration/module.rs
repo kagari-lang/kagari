@@ -1,6 +1,7 @@
 //! Authoritative native API declarations shared by compilation, installation and tooling.
 use crate::{
     callable::CallableImplementation,
+    declaration::path::HostPathDeclaration,
     declaration::{
         FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
         names::{ExportName, NameNamespace},
@@ -65,6 +66,9 @@ pub struct ModuleDecl {
     /// derives these edges from actual traits, templates and implementation facts.
     pub dependencies: BTreeSet<ModuleIdentity>,
     pub types: Vec<TypeDef>,
+    /// Explicit address-free manual path requirements over shared type schemas.
+    /// Callback installation binds these contracts; declarations own no Rust data.
+    pub paths: Vec<HostPathDeclaration>,
     /// Enum owners whose variants are also explicitly exported at module scope.
     pub variant_exports: BTreeSet<String>,
     /// Public type/trait/variant aliases retain the identity of their owner.
@@ -91,6 +95,7 @@ impl ModuleDecl {
             identity,
             dependencies: BTreeSet::new(),
             types: vec![],
+            paths: vec![],
             variant_exports: BTreeSet::new(),
             exports: BTreeMap::new(),
             traits: vec![],
@@ -110,6 +115,7 @@ impl ModuleDecl {
             .saturating_add(self.traits.len())
             .saturating_add(self.functions.len())
             .saturating_add(self.implementations.len())
+            .saturating_add(self.paths.len())
             <= 4096
     }
 
@@ -198,6 +204,25 @@ impl ModuleDecl {
         let cancel = CancellationToken::default();
         self.visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
             .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
+        let mut paths = HashSet::new();
+        for path in &self.paths {
+            if !paths.insert(path)
+                || !definitions
+                    .resolve(path.root)
+                    .is_ok_and(|view| view.module() == &self.identity)
+                || !self.types.iter().any(|ty| {
+                    matches!(ty.kind, TypeDefKind::Host(_))
+                        && self
+                            .definition(DefinitionKind::Struct, &ty.name, definitions)
+                            .ok()
+                            == Some(path.root)
+                })
+            {
+                return Err(DeclarationError(
+                    "manual paths must belong to an owned external root".into(),
+                ));
+            }
+        }
         for ty in &self.types {
             for payload in ty
                 .fields

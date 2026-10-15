@@ -2,6 +2,7 @@
 mod dependencies;
 pub(crate) mod import;
 mod ownership;
+mod paths;
 mod proofs;
 mod rust_types;
 use crate::{error::RuntimeError, native::catalog::rust_types::RustTypes};
@@ -9,6 +10,7 @@ use kagari_common::identity::{
     map::{DefinitionContext, DefinitionMap},
     table::{DefinitionId, DefinitionTableError},
 };
+use kagari_types::declaration::path::HostPathDeclaration;
 use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ImplDecl};
 use std::{collections::BTreeMap, sync::Arc};
 
@@ -22,6 +24,8 @@ pub struct DeclarationCatalog {
     pub(crate) traits: Arc<DefinitionMap<TraitDef>>,
     pub(crate) declarations: Arc<DefinitionMap<NativeDeclaration>>,
     pub(crate) implementations: Arc<DefinitionMap<ImplDecl>>,
+    /// Path contracts belong to their external root's declaring module.
+    pub(crate) paths: Arc<DefinitionMap<Vec<HostPathDeclaration>>>,
 }
 
 impl Default for DeclarationCatalog {
@@ -38,7 +42,8 @@ impl DeclarationCatalog {
             types: Arc::new(DefinitionMap::new(context.clone())),
             traits: Arc::new(DefinitionMap::new(context.clone())),
             declarations: Arc::new(DefinitionMap::new(context.clone())),
-            implementations: Arc::new(DefinitionMap::new(context)),
+            implementations: Arc::new(DefinitionMap::new(context.clone())),
+            paths: Arc::new(DefinitionMap::new(context)),
         }
     }
 }
@@ -50,6 +55,7 @@ impl DeclarationCatalog {
             Arc::make_mut(&mut self.traits).remove_keys(&owned.traits)?;
             Arc::make_mut(&mut self.declarations).remove_keys(&owned.declarations)?;
             Arc::make_mut(&mut self.implementations).remove_keys(&owned.implementations)?;
+            Arc::make_mut(&mut self.paths).remove_keys(&owned.paths)?;
             Ok(())
         };
         let mut remove = remove;

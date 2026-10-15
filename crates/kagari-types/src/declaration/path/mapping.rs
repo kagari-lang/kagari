@@ -1,5 +1,5 @@
 //! Contextual identity traversal of the owning metadata records.
-use crate::host_interface::path::{
+use crate::declaration::path::{
     HostIndexSegmentDeclaration, HostPathContract, HostPathDeclaration, HostPathInput,
     HostPathSegmentContract, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
 };

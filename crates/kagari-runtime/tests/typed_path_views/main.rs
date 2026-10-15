@@ -16,12 +16,15 @@ use kagari_runtime::{
     module::LoadedModule,
     value::Value,
 };
+
 use kagari_types::{
-    declaration::host::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
-    host_interface::{
+    declaration::{
+        host::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
         path::{
             HostIndexSegmentDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
         },
+    },
+    host_interface::{
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },

@@ -28,11 +28,14 @@ use kagari_runtime::{
     module::LoadedModule,
     value::Value,
 };
+
 use kagari_types::{
-    declaration::host::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+    declaration::{
+        host::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
+        path::HostPathSegmentDeclaration,
+    },
     host_interface::{
         HostFunctionDeclaration, HostInterface,
-        path::HostPathSegmentDeclaration,
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },

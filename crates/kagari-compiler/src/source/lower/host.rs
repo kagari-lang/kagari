@@ -10,9 +10,8 @@ use kagari_mir::{
     instruction::{CallTarget, Instruction},
 };
 use kagari_types::declaration::TypeDeclaration;
-use kagari_types::host_interface::{
-    path::HostPathSegmentDeclaration, type_declaration::HostTypeDeclaration,
-};
+use kagari_types::declaration::path::HostPathSegmentDeclaration;
+use kagari_types::host_interface::type_declaration::HostTypeDeclaration;
 use std::{
     collections::{BTreeMap, BTreeSet},
     iter,

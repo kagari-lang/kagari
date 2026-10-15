@@ -1,6 +1,9 @@
 use crate::{
     Runtime,
-    host::{HostCallContext, HostError},
+    host::{
+        HostCallContext, HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch,
+        PreparedHostPathWrite,
+    },
     metadata::{TypeKind, TypeRegistration},
     native::{
         binding::{Codec, NativeBinding},
@@ -18,6 +21,7 @@ use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_stdlib::{catalog as standard_catalog, namespaces};
 use kagari_types::{
     callable::CallableImplementation,
+    declaration::path::{HostPathDeclaration, HostPathSegmentDeclaration},
     declaration::{
         FieldDef, TypeDefKind,
         host::{
@@ -53,6 +57,7 @@ fn assert_catalog_eq(left: &DeclarationCatalog, right: &DeclarationCatalog) {
     assert_eq!(left.traits, right.traits);
     assert_eq!(left.declarations, right.declarations);
     assert_eq!(left.implementations, right.implementations);
+    assert_eq!(left.paths, right.paths);
 }
 
 #[test]
@@ -111,6 +116,7 @@ fn reused_closures_preserve_exact_foundation_binding_requirements() {
                 declaration,
                 bindings.into_iter().collect(),
                 storage,
+                vec![],
                 &providers,
             )
             .unwrap()
@@ -383,18 +389,27 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
     wrong_category
         .exports
         .insert(ExportName::new(NameNamespace::Type, "Variant"), some);
-    assert!(NativeModule::checked(wrong_category, vec![], BTreeMap::new(), &providers).is_err());
+    assert!(
+        NativeModule::checked(wrong_category, vec![], BTreeMap::new(), vec![], &providers).is_err()
+    );
     assert!(
         NativeModule::checked(
             declaration.clone(),
             vec![],
             BTreeMap::new(),
+            vec![],
             &Default::default()
         )
         .is_err()
     );
-    let module =
-        NativeModule::checked(declaration.clone(), vec![], BTreeMap::new(), &providers).unwrap();
+    let module = NativeModule::checked(
+        declaration.clone(),
+        vec![],
+        BTreeMap::new(),
+        vec![],
+        &providers,
+    )
+    .unwrap();
     assert_eq!(
         module.to_declaration().records().exports,
         declaration.exports
@@ -423,7 +438,7 @@ fn installed_reexports_require_declared_and_installed_canonical_targets() {
         path.path.last_mut().unwrap().name = "Missing".into();
         *target = context.intern(&path).unwrap();
         assert!(
-            NativeModule::checked(forged, vec![], BTreeMap::new(), &providers).is_err(),
+            NativeModule::checked(forged, vec![], BTreeMap::new(), vec![], &providers).is_err(),
             "{name}"
         );
     }
@@ -472,6 +487,7 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
     player.field(field).unwrap();
     let player = player.finish().unwrap();
     let receiver = player.apply([]).unwrap();
+    let definition = player.id();
     assert!(matches!(receiver.abi(), Ty::Host(_)));
     let mut interface = module.define_trait("HasHp").unwrap();
     interface
@@ -530,11 +546,72 @@ fn external_authoring_uses_common_type_and_member_binding_policies() {
         assert_eq!(declaration.function.params[0].ty, *receiver.abi());
         assert!(declaration.function.host_policy.is_some());
     }
-    // Authoring does not bypass the pending runtime root/path installation gate.
-    let error = module.finish().unwrap_err();
+    let field = definitions
+        .lookup_child(definition, DefinitionKind::Field, "hp", 0)
+        .unwrap();
+    let path = module
+        .define_path(
+            DefinitionMetadata::checked(
+                definitions,
+                HostPathDeclaration {
+                    root: definition,
+                    segments: vec![HostPathSegmentDeclaration::Field(field)],
+                    access: PathAccess::ReadWrite,
+                    schema_epoch: 2,
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
     assert!(
-        error
-            .message()
-            .contains("external-ID native adapter is not installed")
+        module
+            .bind_path(
+                &path,
+                HostPathAdapter::new().with_read(|_, _| Ok(Value::I32(0)))
+            )
+            .is_err()
+    );
+    module
+        .bind_path(
+            &path,
+            HostPathAdapter::new()
+                .with_read(|_, _| Ok(Value::I32(0)))
+                .with_prepare_write(|_, _, _| Ok(PreparedHostPathWrite::new(|| {}))),
+        )
+        .unwrap();
+    let module = module.finish().unwrap();
+    let installation = NativeInstallation::prepare(slice::from_ref(&module)).unwrap();
+    let mut first = installation.runtime(Default::default());
+    let second = installation.runtime(Default::default());
+    let ty = first
+        .types()
+        .get_by_name("example::roots::Player")
+        .unwrap()
+        .id;
+    let root = first
+        .register_host_root(HostObjectId(9), ty, HostSchemaEpoch::new(2))
+        .unwrap();
+    assert!(second.host().root(HostObjectId(9)).is_none());
+    assert_eq!(first.host().path_descriptors().count(), 1);
+    assert_eq!(second.host().path_descriptors().count(), 1);
+    assert!(!second.host().matches_root(root));
+    let mut conflicting = Runtime::default();
+    conflicting
+        .types
+        .register(TypeRegistration::new(
+            "example::roots::Player",
+            TypeKind::Primitive,
+        ))
+        .unwrap();
+    let before = conflicting.native_entries.catalog.clone();
+    assert!(module.install(&mut conflicting).is_err());
+    assert_catalog_eq(&conflicting.native_entries.catalog, &before);
+    assert_eq!(conflicting.host().path_descriptors().count(), 0);
+    assert!(
+        conflicting
+            .types
+            .get_by_name("example::roots::HasHp")
+            .is_none()
     );
 }

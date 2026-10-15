@@ -25,7 +25,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_types::{
-    host_interface::path::{HostPathContract, HostPathDeclaration},
+    declaration::path::{HostPathContract, HostPathDeclaration},
     language::Protocol,
     surface::StandardTypeConstraint,
 };

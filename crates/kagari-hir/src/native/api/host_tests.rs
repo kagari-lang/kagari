@@ -7,12 +7,11 @@ use kagari_types::{
     callable::CallableImplementation,
     declaration::{
         FnDecl, Param, TypeDef, TypeDefKind,
-        host::{HostCallPolicy, HostTypePolicy},
+        host::{
+            HostCallPolicy, HostFunctionEffects, HostPassingStyle, HostReflectionPolicy,
+            HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
         module::ModuleDecl,
-    },
-    host_interface::{
-        HostFunctionEffects, HostPassingStyle,
-        type_declaration::{HostReflectionPolicy, HostTypeOwnership, PathAccess},
     },
     scalar::BuiltinType,
     ty::Ty,

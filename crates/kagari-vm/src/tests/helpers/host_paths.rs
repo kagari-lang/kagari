@@ -622,9 +622,8 @@ fn path_calls_use_linked_slots_and_reject_missing_or_ambiguous_contracts() {
 
 #[test]
 fn path_linking_checks_dynamic_arguments_for_every_path_operation() {
-    use kagari_types::host_interface::{
-        path::HostIndexSegmentDeclaration, value_type::HostValueType,
-    };
+    use kagari_types::declaration::path::HostIndexSegmentDeclaration;
+    use kagari_types::host_interface::value_type::HostValueType;
     let (mut runtime, _) = register_vm_host_path_runtime(PathAccess::ReadWrite);
     let field = runtime
         .host()

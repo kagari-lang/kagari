@@ -9,14 +9,17 @@ use kagari::{
 };
 use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_source::source_database::SourceLayer;
+
 use kagari_types::{
-    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
-    host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter,
+    declaration::{
+        host::{HostPassingStyle, HostTypeOwnership, PathAccess},
         path::{
             HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
             HostVirtualSegmentDeclaration,
         },
+    },
+    host_interface::{
+        HostFunctionDeclaration, HostInterface, HostParameter,
         type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },

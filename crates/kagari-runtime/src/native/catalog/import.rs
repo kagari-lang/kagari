@@ -7,6 +7,7 @@ use kagari_common::{
         scoped::RemapDefinitions,
     },
 };
+use kagari_types::declaration::path::HostPathDeclaration;
 use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ImplDecl};
 use std::{collections::HashMap, sync::Arc};
 
@@ -18,6 +19,7 @@ pub(crate) struct CatalogImports {
     traits: SharedImports<TraitDef>,
     declarations: SharedImports<NativeDeclaration>,
     implementations: SharedImports<ImplDecl>,
+    paths: SharedImports<Vec<HostPathDeclaration>>,
 }
 
 impl CatalogImports {
@@ -28,6 +30,7 @@ impl CatalogImports {
             traits: HashMap::new(),
             declarations: HashMap::new(),
             implementations: HashMap::new(),
+            paths: HashMap::new(),
         }
     }
 
@@ -46,6 +49,7 @@ impl CatalogImports {
                 &self.context,
                 &mut self.implementations,
             )?,
+            paths: imported(&catalog.paths, &self.context, &mut self.paths)?,
         };
         imported.rust_types = imported.import_rust_types(catalog)?;
         imported.documentation = imported.import_documentation(catalog)?;

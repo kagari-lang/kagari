@@ -8,6 +8,7 @@ pub mod module;
 pub mod names;
 pub mod native;
 pub mod ownership;
+pub mod path;
 pub mod requirement;
 pub mod verify;
 

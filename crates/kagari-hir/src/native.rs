@@ -7,7 +7,8 @@ use kagari_common::identity::table::DefinitionId;
 use kagari_types::{
     callable::NativeDefaultApplication,
     collection::CollectionAccess,
-    declaration::{TypeDef, native::NativeStorageLayout},
+    declaration::path::HostPathDeclaration,
+    declaration::{TypeDeclaration, TypeDef, native::NativeStorageLayout},
     range::RangeKind,
     reference::ReferenceAccess,
     scalar::BuiltinType,
@@ -42,6 +43,11 @@ pub enum NativeTypeKind {
         declaration: DefinitionId,
         /// Checked shared schema, retained for field policy and source-free ABI lowering.
         definition: Arc<TypeDef>,
+        /// Explicit paths owned by this root's declaring module.
+        paths: Arc<[HostPathDeclaration]>,
+        /// Checked external schema inputs needed by paths, including unnamed
+        /// field and virtual/index targets. This does not import source names.
+        schemas: Arc<[TypeDeclaration]>,
     },
     /// A scope-bound host location with a checked target and access capability.
     Reference(ReferenceAccess),

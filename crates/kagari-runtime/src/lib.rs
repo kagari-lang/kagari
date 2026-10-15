@@ -39,7 +39,7 @@ use crate::{
 use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
-use kagari_types::host_interface::path::HostPathDeclaration;
+use kagari_types::declaration::path::HostPathDeclaration;
 use std::{cell::RefCell, sync::OnceLock};
 
 pub mod error_trace;
@@ -163,7 +163,7 @@ impl Runtime {
     fn with_native_registry(config: RuntimeConfig, native_entries: NativeRegistry) -> Self {
         let resources = ResourceState::new(config.limits);
         let mut host = HostRegistry::new(native_entries.catalog.types.context().clone());
-        host.prepare_native_types(&native_entries.metadata)
+        host.prepare_native_registration(&native_entries)
             .expect("checked independent native metadata slots")
             .publish(&mut host);
         let types = native_entries.metadata.runtime_registry();
@@ -465,6 +465,15 @@ impl Runtime {
         adapter: host::HostPathAdapter,
     ) -> Result<(), RuntimeError> {
         self.host.register_path_adapter(descriptor_id, adapter)
+    }
+
+    /// Resolve an explicitly installed manual path in this runtime's identity scope.
+    /// Reject unknown or ambiguous contracts without creating a descriptor or binding.
+    pub fn resolve_host_path(
+        &self,
+        declaration: &DefinitionMetadata<HostPathDeclaration>,
+    ) -> Result<host::HostPathDescriptorId, RuntimeError> {
+        self.host.resolve_path(declaration)
     }
 
     pub fn make_host_path_view(

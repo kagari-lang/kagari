@@ -1,13 +1,14 @@
 //! Transitional legacy producer adaptation; shared paths own all validation.
 //! Remove this adapter with the remaining HostInterface producers in HR03.
+
 use crate::{
     declaration::{
         FieldDef, TypeDeclaration, TypeDef, TypeDefKind,
         host::{HostFieldPolicy, HostTypePolicy},
+        path::{HostPathContract, HostPathDeclaration},
     },
     host_interface::{
         HostInterface, HostInterfaceError, adoption_error,
-        path::{HostPathContract, HostPathDeclaration},
         type_declaration::Visibility as LegacyVisibility,
     },
     ty::Ty,
@@ -92,16 +93,17 @@ impl HostInterface {
 
 #[cfg(test)]
 mod tests {
+
     use crate::host_interface::test_support::decode_fixture;
     use crate::{
-        declaration::host::{HostTypeOwnership, PathAccess},
-        host_interface::{
+        declaration::{
+            host::{HostTypeOwnership, PathAccess},
             path::{
                 HostIndexSegmentDeclaration, HostPathSegmentDeclaration,
                 HostVirtualSegmentDeclaration,
             },
-            value_type::HostValueType,
         },
+        host_interface::value_type::HostValueType,
     };
 
     use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};

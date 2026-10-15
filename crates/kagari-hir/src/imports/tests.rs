@@ -17,10 +17,9 @@ use kagari_source::{
 };
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{
-    declaration::names::NameNamespace,
+    declaration::{host::HostPassingStyle, names::NameNamespace},
     host_interface::{
-        HostFunctionDeclaration, HostInterface, HostParameter, HostPassingStyle,
-        value_type::HostValueType,
+        HostFunctionDeclaration, HostInterface, HostParameter, value_type::HostValueType,
     },
 };
 

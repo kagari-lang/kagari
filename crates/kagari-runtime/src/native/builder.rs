@@ -2,10 +2,12 @@
 pub mod enum_builder;
 pub mod implementation;
 pub mod inherent;
+mod paths;
 pub mod trait_builder;
 pub mod type_builder;
 use crate::{
     error::RuntimeError,
+    host::HostPathAdapter,
     native::{
         adapter::NativeAdapter,
         binding::{NativeBinding, NativeResult},
@@ -34,6 +36,7 @@ use kagari_common::{
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::module::ModuleDecl,
+    declaration::path::HostPathDeclaration,
 };
 use std::collections::{BTreeMap, HashSet};
 
@@ -43,6 +46,7 @@ pub struct ModuleBuilder {
     pub(crate) providers: DeclarationCatalog,
     pub(crate) bindings: BTreeMap<DefinitionId, NativeBinding>,
     pub(crate) storage: BTreeMap<DefinitionId, NativeStorage>,
+    pub(crate) path_bindings: Vec<(HostPathDeclaration, HostPathAdapter)>,
     function_parameters: BTreeMap<DefinitionId, Vec<String>>,
 }
 
@@ -87,6 +91,7 @@ impl ModuleBuilder {
             providers,
             bindings,
             storage: BTreeMap::new(),
+            path_bindings: Vec::new(),
             function_parameters: BTreeMap::new(),
         })
     }
@@ -107,6 +112,7 @@ impl ModuleBuilder {
             providers,
             bindings: BTreeMap::new(),
             storage: BTreeMap::new(),
+            path_bindings: Vec::new(),
             function_parameters: BTreeMap::new(),
         })
     }
@@ -262,6 +268,7 @@ impl ModuleBuilder {
             self.declaration,
             self.bindings.into_iter().collect(),
             self.storage,
+            self.path_bindings,
             &self.providers,
         )
     }

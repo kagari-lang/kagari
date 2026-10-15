@@ -1894,6 +1894,62 @@ linking. Path views must use the same native entry with their declared capabilit
 and existing path borrow/epoch checks. Source trait references and dependent legacy
 retirement remain HR02/RF05/HR03 work; combined acceptance remains open.
 
+### HR02/RF05 checkpoint: explicit module paths through source-free execution
+
+`ModuleDecl::paths` now owns explicit manual contracts at the root type's declaring
+module. Catalog adoption, canonical compiler input and dependency closure retain
+their identities and index/virtual result requirements. The actual path model and
+mapping move directly to `types/declaration/path`; its bounded file codec belongs
+to `declaration/wire/path`. All callers import those owners. There is no forwarding
+module or compatibility alias at the retired `host_interface::path` location.
+
+`ModuleBuilder::define_path` and `bind_path` retain declaration-first authoring and
+check duplicate/missing bindings plus declared read/prepared-write capability.
+The existing HostPathAdapter remains a storage-operation hook, not a method-call
+route. NativeModule and NativeInstallation prepare physical field/index/virtual
+types, descriptors and adapters before publication through the original root/path
+service. Runtime-local installation preserves roots, loans and dirty records;
+reusable installations create independent runtime registries. A metadata conflict
+publishes neither new callables nor path descriptors. `resolve_host_path` looks up
+an installed scoped declaration without registering another path.
+
+HIR retains shared external schemas and explicit paths on installed native types,
+including unnamed path targets without importing additional source names. One
+source selector serves remaining legacy producers and new module declarations;
+the common path contract resolver still owns semantics. MIR retains those facts;
+bytecode now emits `path_declarations` outside HostInterface. Verification resolves
+all path requirements, checks physical records and result/write contracts, and
+source-free linking requires exact installed schemas and bound adapters, including
+unused declarations. The legacy type-to-schema producer conversion and envelope
+decode hook remain temporary HR03 removal work; they implement no second resolver.
+
+The existing SDK multi-index/virtual/trailing-field case migrates to common native
+declarations and bindings. Its trace remains `make, first, second, rhs, read,
+prepare, commit, read`, result 13 and dirty record 10→13. The atomic_host_path
+example also migrates and demonstrates readonly rejection plus prepared commits.
+Current contracts are updated in the host interop specification.
+
+Focused local validation (full workspace/features/backends/platforms remain CI):
+
+- `cargo test -p kagari --test offline_nominal source_multi_index_virtual_and_trailing_field_use_one_host_path`: passed one contract, exercising direct interpreter, KBC-roundtripped source-free interpreter and current-platform Cranelift execution.
+- `cargo test -p kagari --test offline_nominal source_field_chains_use_offline_contracts_and_evaluate_the_root_once`: passed one regression; once-only root evaluation and missing path admission remain checked across that same selected execution set.
+- `cargo test -p kagari-runtime --lib external_authoring_uses_common_type_and_member_binding_policies`: passed one authoring/installation contract, now covering capability mismatch, independent runtime roots and transactional metadata-conflict rollback.
+- `cargo run -p kagari-runtime --example atomic_host_path`: passed; output `readonly view preserved hp=20; writable path updated hp=30`.
+- `cargo test -p kagari-bytecode --test identity artifact_preserves_portable_virtual_path_declarations`: passed after migrating its fixture to shared schema/path records and preserving the corrupt-ID assertion. The initial run parsed an obsolete wire prefix; the first migrated fixture also lacked its defining public schema and correctly failed provider validation. The repaired fixture retains that exact provider, identity adoption, cancellation, canonical bytes and invalid-ID rejection coverage.
+- `cargo clippy -p kagari-runtime -p kagari-compiler -p kagari-hir -p kagari-bytecode --lib --tests -- -D warnings`: passed the affected default library/test compilation scope. Structure checked 1246 Rust files with zero violations; formatting and diff checks passed.
+
+Initial compilation exposed redundant old error wrappers at the moved wire owner,
+four test import scopes still naming policies under retired owners, and an example
+using a private catalog query. These are repaired directly; the example uses public
+scoped metadata rather than widening catalog visibility. No unsafe/lifetime change
+is introduced, so previous scoped Miri/compile-fail evidence remains applicable;
+this metadata/path checkpoint does not claim a new Miri run or full acceptance.
+
+The native field-path installation gate is open. Manual path-view arguments and
+their formal shared/unique capability checks, explicit source trait references,
+legacy producer/callable retirement and final RF06/RI05 integration remain required.
+HR02/RF05/HR03 and the combined goal are still open.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
@@ -1909,6 +1965,7 @@ cross-plan schedule; these lists are not duplicate RI checklists. Current state:
 API/lifetime prototype and RI01-RI02 schema/conversion implemented, no carried production build failure. The
 proof and focused results above establish the owned conversion, Opaque, scoped
 loan/projector and checked portable external-dependency slices. Whole-root common
-registration/installation executes; native field paths, source trait references,
+registration/installation and explicit native field/index/virtual paths execute;
+path-view argument capability integration, source trait references,
 legacy retirement and complete combined acceptance remain outstanding. Implementation checkpoints use Conventional Commits with the owning
 phase trailer, for example `Plan-Phase: RF04`.

@@ -26,11 +26,14 @@ mod tests {
     use crate::host_interface::test_support::{decode_fixture, encode_unchecked_fixture};
 
     use super::*;
+
     use crate::{
-        declaration::host::PathAccess,
+        declaration::{
+            host::PathAccess,
+            path::{HostPathDeclaration, HostPathSegmentDeclaration},
+        },
         host_interface::{
             HostFunctionDeclaration, HostInterface, HostInterfaceError,
-            path::{HostPathDeclaration, HostPathSegmentDeclaration},
             type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
             value_type::HostValueType,
         },

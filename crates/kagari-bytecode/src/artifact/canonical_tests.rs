@@ -12,15 +12,15 @@ use kagari_contract::{
     layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
     types::PublicItem,
 };
+
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::{ConstDef, FieldDef, TypeDef, TypeDefKind},
-    host_interface::{
-        HostFunctionDeclaration, host_type_identity,
+    declaration::{
+        ConstDef, FieldDef, TypeDef, TypeDefKind,
+        host::PathAccess,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::PathAccess,
-        value_type::HostValueType,
     },
+    host_interface::{HostFunctionDeclaration, host_type_identity, value_type::HostValueType},
     scalar::BuiltinType,
     ty::Ty,
     visibility::Visibility,

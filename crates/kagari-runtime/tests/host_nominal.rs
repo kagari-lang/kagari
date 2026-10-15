@@ -19,12 +19,15 @@ use kagari_runtime::{
     metadata::{TypeId, TypeKind, TypeRegistration},
     value::Value,
 };
+
 use kagari_types::ty::Ty;
 use kagari_types::{
-    declaration::host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+    declaration::{
+        host::{HostPassingStyle, HostTypeOwnership, PathAccess},
+        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
+    },
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter, host_type_identity,
-        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration, Visibility},
         value_type::HostValueType,
     },

@@ -658,7 +658,11 @@ impl Declarations {
             NativeTypeKind::Host {
                 declaration,
                 definition,
+                ..
             } if *declaration == id => Some(definition.as_ref()),
+            NativeTypeKind::Host { schemas, .. } => schemas
+                .iter()
+                .find_map(|schema| (schema.declaration == id).then_some(&schema.definition)),
             _ => None,
         })
     }

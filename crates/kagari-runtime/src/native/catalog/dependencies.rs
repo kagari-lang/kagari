@@ -9,6 +9,7 @@ use kagari_common::{
 };
 use kagari_types::{
     callable::CallableImplementation,
+    declaration::path::HostPathSegmentDeclaration,
     declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
     ty::{
         Constraint, GenericBound, NominalTy, Ty,
@@ -209,6 +210,12 @@ impl DeclarationCatalog {
             references.declaration(declaration)?;
         }
         for module in modules {
+            references.pending.extend(
+                module
+                    .paths
+                    .iter()
+                    .map(|path| Reference::External(path.root)),
+            );
             for ty in &module.types {
                 references.type_definition(ty)?;
             }
@@ -268,6 +275,29 @@ impl DeclarationCatalog {
                         ));
                     }
                     references.pending.push(Reference::Type(id));
+                    if let Some(paths) = self.paths.get_id(id) {
+                        insert_contract(
+                            &mut closure.catalog.paths,
+                            id,
+                            paths.clone(),
+                            "conflicting external path requirements",
+                        )?;
+                        for path in paths {
+                            for segment in &path.segments {
+                                match segment {
+                                    HostPathSegmentDeclaration::Field(_) => {}
+                                    HostPathSegmentDeclaration::Index(index) => {
+                                        for ty in [&index.collection, &index.index, &index.result] {
+                                            references.ty(ty)?;
+                                        }
+                                    }
+                                    HostPathSegmentDeclaration::Virtual(step) => {
+                                        references.ty(&step.result)?
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 Reference::Enum(applied) => {
                     let declaration = self.types.get_id(applied.declaration).ok_or_else(|| {

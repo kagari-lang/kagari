@@ -1,6 +1,7 @@
 //! Reusable registration preparation, independent of any script runtime.
 use crate::{
     Runtime, RuntimeConfig,
+    host::HostRegistry,
     native::{binding::NativeResult, module::NativeModule, registry::NativeRegistry},
 };
 use std::sync::Arc;
@@ -21,6 +22,8 @@ impl NativeInstallation {
     pub fn prepare(modules: &[NativeModule]) -> NativeResult<Self> {
         let mut registry = NativeRegistry::default();
         NativeModule::install_batch(modules, &mut registry)?;
+        HostRegistry::new(registry.catalog.types.context().clone())
+            .prepare_native_registration(&registry)?;
         Ok(Self {
             registry: Arc::new(registry),
         })

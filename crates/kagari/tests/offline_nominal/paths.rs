@@ -1,13 +1,28 @@
 use super::*;
 use kagari::{context::JitPolicy, program::PreparedProgram};
 use kagari_bytecode::artifact::KbcArtifact;
-use kagari_runtime::host::{HostError, HostPathAdapter, PreparedHostPathWrite};
 use kagari_runtime::module::entry::ProgramEntry;
-use kagari_types::host_interface::path::{
-    HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
-    HostVirtualSegmentDeclaration,
+use kagari_runtime::{
+    host::{HostCallContext, HostError, HostPathAdapter, PreparedHostPathWrite},
+    native::{builder::ModuleBuilder, declarations::FunctionDecl, types::Type},
 };
+
 use kagari_types::ty::Ty;
+use kagari_types::{
+    declaration::{
+        FieldDef,
+        host::{
+            HostCallPolicy, HostFieldPolicy, HostFunctionEffects, HostReflectionPolicy,
+            HostTypePolicy,
+        },
+        path::{
+            HostIndexSegmentDeclaration, HostPathDeclaration, HostPathSegmentDeclaration,
+            HostVirtualSegmentDeclaration,
+        },
+    },
+    scalar::BuiltinType,
+    visibility::Visibility,
+};
 use std::sync::{
     Arc, Mutex,
     atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
@@ -52,10 +67,9 @@ fn source_field_chains_use_offline_contracts_and_evaluate_the_root_once() {
         )
         .unwrap();
     let artifact = adopt_artifact(&definitions, artifact);
-    let required =
-        &artifact.records().program.modules[artifact.records().program.root.index()].host_interface;
-    assert_eq!(required.paths, vec![path.clone()]);
-    assert_eq!(required.types.len(), 2);
+    let required = &artifact.records().program.modules[artifact.records().program.root.index()];
+    assert_eq!(required.path_declarations, vec![path.clone()]);
+    assert_eq!(required.host_interface.types.len(), 2);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         let artifact = if encoded {
             KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
@@ -173,81 +187,168 @@ fn source_host_field_index_paths_skip_intermediate_reads() {
 
 #[test]
 fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
-    let definitions = DefinitionContext::new().unwrap();
-    let mut player = HostTypeDeclaration::new(&definitions, "game.Player").unwrap();
-    player.ownership = HostTypeOwnership::HostRoot;
-    player.path_access = PathAccess::ReadWrite;
-    let mut child = HostTypeDeclaration::new(&definitions, "game.Child").unwrap();
-    let mut score =
-        HostFieldDeclaration::new(&definitions, child.id, "score", HostValueType::I32).unwrap();
-    score.path_access = PathAccess::ReadWrite;
-    score.writable = true;
-    child.fields.push(score.clone());
-    let make = HostFunctionDeclaration::new(
-        &definitions,
-        "game.make",
-        vec![],
-        HostValueType::Opaque(player.id),
-    )
-    .unwrap();
-    let first =
-        HostFunctionDeclaration::new(&definitions, "game.first", vec![], HostValueType::I32)
-            .unwrap();
-    let second =
-        HostFunctionDeclaration::new(&definitions, "game.second", vec![], HostValueType::I32)
-            .unwrap();
-    let rhs =
-        HostFunctionDeclaration::new(&definitions, "game.rhs", vec![], HostValueType::I32).unwrap();
-    let path = HostPathDeclaration {
-        root: player.id,
-        segments: vec![
-            HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
-                slot: 1,
-                collection: Ty::from_host_type(&(HostValueType::Opaque(player.id))),
-                index: Ty::from_host_type(&(HostValueType::I32)),
-                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
-                access: PathAccess::ReadWrite,
-            }),
-            HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
-                slot: 0,
-                collection: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
-                index: Ty::from_host_type(&(HostValueType::I32)),
-                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
-                access: PathAccess::ReadWrite,
-            }),
-            HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
-                name: "selected".into(),
-                result: Ty::from_host_type(&(HostValueType::Opaque(child.id))),
-                access: PathAccess::ReadWrite,
-            }),
-            HostPathSegmentDeclaration::Field(score.id),
-        ],
-        access: PathAccess::ReadWrite,
-        schema_epoch: 0,
-    };
-    let engine = KagariEngine::default();
-    engine
-        .set_host_interface(scoped(
-            &definitions,
-            HostInterface {
-                paths: vec![path.clone()],
-                types: vec![player.clone(), child.clone()],
-                functions: vec![make.clone(), first.clone(), second.clone(), rhs.clone()],
-            },
-        ))
+    let catalog = kagari_stdlib::declarations::StandardDeclarations::default()
+        .catalog()
         .unwrap();
-
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "multi-index.kgr",
-                "use game as api; fn main() -> i32 { var player = api::make(); player[api::first()][api::second()].selected.score += api::rhs(); player[1][2].selected.score }",
-            ),
-
-            Default::default(),
+    let mut builder = ModuleBuilder::new("game::objects", &catalog).unwrap();
+    let policy = HostTypePolicy {
+        ownership: HostTypeOwnership::HostRoot,
+        reflection: HostReflectionPolicy::Metadata,
+        path_access: PathAccess::ReadWrite,
+    };
+    let mut player = builder.define_type("Player").unwrap();
+    player.external(policy).unwrap();
+    let player = player.finish().unwrap();
+    let mut child = builder.define_type("Child").unwrap();
+    child.external(policy).unwrap();
+    child
+        .field(
+            DefinitionMetadata::checked(
+                player.definitions().clone(),
+                FieldDef {
+                    name: "score".into(),
+                    ty: Ty::Builtin(BuiltinType::I32),
+                    visibility: Visibility::Public,
+                    mutable: true,
+                    host_policy: Some(HostFieldPolicy {
+                        readable: true,
+                        path_access: PathAccess::ReadWrite,
+                    }),
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
+    let child = child.finish().unwrap();
+    let definitions = child.definitions().clone();
+    let score = definitions
+        .lookup_child(child.id(), DefinitionKind::Field, "score", 0)
+        .unwrap();
+    let path = builder
+        .define_path(
+            DefinitionMetadata::checked(
+                definitions,
+                HostPathDeclaration {
+                    root: player.id(),
+                    segments: vec![
+                        HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+                            slot: 1,
+                            collection: Ty::Host(player.id()),
+                            index: Ty::Builtin(BuiltinType::I32),
+                            result: Ty::Host(child.id()),
+                            access: PathAccess::ReadWrite,
+                        }),
+                        HostPathSegmentDeclaration::Index(HostIndexSegmentDeclaration {
+                            slot: 0,
+                            collection: Ty::Host(child.id()),
+                            index: Ty::Builtin(BuiltinType::I32),
+                            result: Ty::Host(child.id()),
+                            access: PathAccess::ReadWrite,
+                        }),
+                        HostPathSegmentDeclaration::Virtual(HostVirtualSegmentDeclaration {
+                            name: "selected".into(),
+                            result: Ty::Host(child.id()),
+                            access: PathAccess::ReadWrite,
+                        }),
+                        HostPathSegmentDeclaration::Field(score),
+                    ],
+                    access: PathAccess::ReadWrite,
+                    schema_epoch: 0,
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let trace = Arc::new(Mutex::new(Vec::new()));
+    let state = Arc::new(AtomicI32::new(10));
+    let make = builder
+        .define_function(
+            FunctionDecl::new("make")
+                .returns(player.apply([]).unwrap())
+                .host_policy(HostCallPolicy {
+                    passing: vec![],
+                    effects: HostFunctionEffects {
+                        may_allocate: true,
+                        ..Default::default()
+                    },
+                }),
+        )
+        .unwrap();
+    let calls = trace.clone();
+    builder
+        .bind(make, move |cx: &HostCallContext<'_>, _: &[Value]| {
+            calls.lock().unwrap().push("make");
+            let root = cx.runtime().host().root(HostObjectId(1)).unwrap();
+            cx.runtime()
+                .gc()
+                .alloc_host_root(root)
+                .map_err(|error| HostError::new(error.to_string()))
+        })
+        .unwrap();
+    for (name, result) in [("first", 1), ("second", 2), ("rhs", 3)] {
+        let function = builder
+            .define_function(FunctionDecl::new(name).returns(Type::i32()).host_policy(
+                HostCallPolicy {
+                    passing: vec![],
+                    effects: Default::default(),
+                },
+            ))
+            .unwrap();
+        let calls = trace.clone();
+        builder
+            .bind(function, move |_: &HostCallContext<'_>, _: &[Value]| {
+                calls.lock().unwrap().push(name);
+                Ok(Value::I32(result))
+            })
+            .unwrap();
+    }
+    let (reads, value) = (trace.clone(), state.clone());
+    let (writes, target) = (trace.clone(), state.clone());
+    builder
+        .bind_path(
+            &path,
+            HostPathAdapter::new()
+                .with_read(move |cx, path| {
+                    cx.runtime().collect_garbage().unwrap();
+                    let values = path
+                        .dynamic_args
+                        .as_slice()
+                        .iter()
+                        .map(|arg| arg.value)
+                        .collect::<Vec<_>>();
+                    if values != [Value::I32(2), Value::I32(1)] {
+                        return Err(HostError::new("unexpected indexes"));
+                    }
+                    reads.lock().unwrap().push("read");
+                    Ok(Value::I32(value.load(Ordering::SeqCst)))
+                })
+                .with_prepare_write(move |cx, _, record| {
+                    cx.runtime().collect_garbage().unwrap();
+                    writes.lock().unwrap().push("prepare");
+                    let Value::I32(next) = record.new_value else {
+                        return Err(HostError::new("expected i32"));
+                    };
+                    let (writes, target) = (writes.clone(), target.clone());
+                    Ok(PreparedHostPathWrite::new(move || {
+                        writes.lock().unwrap().push("commit");
+                        target.store(next, Ordering::SeqCst);
+                    }))
+                }),
+        )
+        .unwrap();
+    let module = builder.finish().unwrap();
+    let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("multi-index.kgr",
+        "use game::objects as api; fn main() -> i32 { var player = api::make(); player[api::first()][api::second()].selected.score += api::rhs(); player[1][2].selected.score }"), Default::default()).unwrap();
+    let root_module = &artifact.records().program.modules[artifact.records().program.root.index()];
+    assert_eq!(root_module.path_declarations.len(), 1);
+    assert!(root_module.host_interface.paths.is_empty());
+    assert_eq!(root_module.external_types.len(), 2);
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
+        state.store(10, Ordering::SeqCst);
+        trace.lock().unwrap().clear();
         let artifact = if encoded {
             KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
                 .unwrap()
@@ -263,81 +364,17 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
             ..Default::default()
         };
         let mut runtime = engine.runtime(context.clone());
-        let ids = runtime
-            .register_host_types(vec![
-                HostTypeRegistration::new(scoped(&definitions, player.clone()), "Player"),
-                HostTypeRegistration::new(scoped(&definitions, child.clone()), "Child"),
-            ])
-            .unwrap();
-        let root = runtime
-            .runtime_mut()
-            .register_host_root(HostObjectId(1), ids[0], HostSchemaEpoch::new(0))
-            .unwrap();
-        let trace = Arc::new(Mutex::new(Vec::new()));
-        let state = Arc::new(AtomicI32::new(10));
-        let calls = trace.clone();
-        runtime
-            .register_host_function(HostFunction::new(
-                scoped(&definitions, make.clone()),
-                move |cx, _| {
-                    calls.lock().unwrap().push("make");
-                    Ok(cx.runtime().gc().alloc_host_root(root).unwrap())
-                },
-            ))
-            .unwrap();
-        for (declaration, label, result) in [
-            (first.clone(), "first", 1),
-            (second.clone(), "second", 2),
-            (rhs.clone(), "rhs", 3),
-        ] {
-            let calls = trace.clone();
-            runtime
-                .register_host_function(HostFunction::new(
-                    scoped(&definitions, declaration),
-                    move |_, _| {
-                        calls.lock().unwrap().push(label);
-                        Ok(Value::I32(result))
-                    },
-                ))
-                .unwrap();
-        }
-        let descriptor = runtime
-            .runtime_mut()
-            .register_host_path(&scoped(&definitions, path.clone()))
-            .unwrap();
-        let (reads, value) = (trace.clone(), state.clone());
-        let (writes, target) = (trace.clone(), state.clone());
+        let player = runtime
+            .runtime()
+            .types()
+            .get_by_name("game::objects::Player")
+            .unwrap()
+            .id;
         runtime
             .runtime_mut()
-            .register_host_path_adapter(
-                descriptor,
-                HostPathAdapter::new()
-                    .with_read(move |_, path| {
-                        let values = path
-                            .dynamic_args
-                            .as_slice()
-                            .iter()
-                            .map(|arg| arg.value)
-                            .collect::<Vec<_>>();
-                        if values != [Value::I32(2), Value::I32(1)] {
-                            return Err(HostError::new("unexpected indexes"));
-                        }
-                        reads.lock().unwrap().push("read");
-                        Ok(Value::I32(value.load(Ordering::SeqCst)))
-                    })
-                    .with_prepare_write(move |_, _, record| {
-                        writes.lock().unwrap().push("prepare");
-                        let Value::I32(next) = record.new_value else {
-                            return Err(HostError::new("expected i32"));
-                        };
-                        let (writes, target) = (writes.clone(), target.clone());
-                        Ok(PreparedHostPathWrite::new(move || {
-                            writes.lock().unwrap().push("commit");
-                            target.store(next, Ordering::SeqCst);
-                        }))
-                    }),
-            )
+            .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
             .unwrap();
+        assert_eq!(runtime.runtime().host().path_descriptors().count(), 1);
         let loaded_program =
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
                 .unwrap();
@@ -361,10 +398,7 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
         }
         .unwrap();
         assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
+            report.return_value.value(runtime.runtime().gc()).unwrap(),
             Value::I32(13)
         );
         assert_eq!(state.load(Ordering::SeqCst), 13);
@@ -374,6 +408,10 @@ fn source_multi_index_virtual_and_trailing_field_use_one_host_path() {
                 "make", "first", "second", "rhs", "read", "prepare", "commit", "read"
             ]
         );
+        let dirty = runtime.runtime().host_dirty_paths();
+        assert_eq!(dirty.len(), 1);
+        assert_eq!(dirty[0].old_value, Some(Value::I32(10)));
+        assert_eq!(dirty[0].new_value, Value::I32(13));
     }
 }
 

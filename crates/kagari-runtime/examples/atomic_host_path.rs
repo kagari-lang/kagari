@@ -1,75 +1,105 @@
-//! Prepare host updates and reject readonly writes before touching the field.
-use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-use kagari_types::ty::Ty;
+//! Declare and bind manual paths once; prepare updates before committing them.
+use kagari_common::identity::{
+    DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+};
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeErrorKind,
+    host::{HostError, HostObjectId, HostPathAdapter, HostSchemaEpoch, PreparedHostPathWrite},
+    native::builder::ModuleBuilder,
+    value::Value,
+};
+use kagari_types::{
+    declaration::path::{
+        HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
+    },
+    declaration::{
+        FieldDef,
+        host::{
+            HostFieldPolicy, HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+        },
+    },
+    scalar::BuiltinType,
+    ty::Ty,
+    visibility::Visibility,
+};
 use std::sync::{
     Arc,
     atomic::{AtomicI32, Ordering},
 };
 
-use kagari_types::{
-    declaration::host::{HostTypeOwnership, PathAccess},
-    host_interface::{
-        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-        type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
-        value_type::HostValueType,
-    },
-};
-
-use kagari_runtime::{
-    Runtime, RuntimeConfig,
-    error::RuntimeErrorKind,
-    host::{
-        HostError, HostObjectId, HostPathAdapter, HostPathDescriptorRegistration, HostSchemaEpoch,
-        HostTypeRegistration, PreparedHostPathWrite,
-    },
-    resource::RuntimeLimits,
-    value::Value,
-};
-
 fn main() {
-    let mut runtime = Runtime::new(RuntimeConfig {
-        limits: RuntimeLimits {
-            ..Default::default()
+    let mut module = ModuleBuilder::new("game::state", &Default::default()).unwrap();
+    let field = DefinitionMetadata::checked(
+        DefinitionContext::new().unwrap().snapshot(),
+        FieldDef {
+            name: "hp".into(),
+            ty: Ty::Builtin(BuiltinType::I32),
+            visibility: Visibility::Public,
+            mutable: true,
+            host_policy: Some(HostFieldPolicy {
+                readable: true,
+                path_access: PathAccess::ReadWrite,
+            }),
         },
-        ..Default::default()
-    });
-    let context = DefinitionContext::new().unwrap();
-    // Nominal identity can differ from the export label and is shared with
-    // offline host signatures; registration does not derive identity from slots.
-    let mut player = HostTypeDeclaration::new(&context, "game.PlayerState").unwrap();
-    player.ownership = HostTypeOwnership::HostRoot;
-    player.path_access = PathAccess::ReadWrite;
-    let mut hp = HostFieldDeclaration::new(&context, player.id, "hp", HostValueType::I32).unwrap();
-    hp.writable = true;
-    hp.path_access = PathAccess::ReadWrite;
-    let hp_declaration = hp.id;
-    player.fields.push(hp);
-
-    let path_declaration = HostPathDeclaration {
-        root: player.id,
-        segments: vec![HostPathSegmentDeclaration::Field(hp_declaration)],
-        access: PathAccess::ReadWrite,
-        schema_epoch: 0,
-    };
-    let player =
-        DefinitionMetadata::checked(context.snapshot(), player, &Default::default()).unwrap();
-    let player = runtime
-        .register_host_type(HostTypeRegistration::new(player, "Player"))
+        &Default::default(),
+    )
+    .unwrap();
+    let mut player = module.define_type("Player").unwrap();
+    player
+        .external(HostTypePolicy {
+            ownership: HostTypeOwnership::HostRoot,
+            reflection: HostReflectionPolicy::Metadata,
+            path_access: PathAccess::ReadWrite,
+        })
         .unwrap();
-    let scalar = runtime.types().get(player).unwrap().fields[0].ty;
-    let root = runtime
-        .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
+    player.field(field).unwrap();
+    let player = player.finish().unwrap();
+    let definitions = player.definitions();
+    let hp_field = definitions
+        .lookup_child(player.id(), DefinitionKind::Field, "hp", 0)
         .unwrap();
-    let path_declaration =
-        DefinitionMetadata::checked(context.snapshot(), path_declaration, &Default::default())
-            .unwrap();
-    let path = runtime.register_host_path(&path_declaration).unwrap();
+    let path = module
+        .define_path(
+            DefinitionMetadata::checked(
+                definitions.clone(),
+                HostPathDeclaration {
+                    root: player.id(),
+                    segments: vec![HostPathSegmentDeclaration::Field(hp_field)],
+                    access: PathAccess::ReadWrite,
+                    schema_epoch: 0,
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    let preview = module
+        .define_path(
+            DefinitionMetadata::checked(
+                definitions.clone(),
+                HostPathDeclaration {
+                    root: player.id(),
+                    segments: vec![HostPathSegmentDeclaration::Virtual(
+                        HostVirtualSegmentDeclaration {
+                            name: "hp_preview".into(),
+                            result: Ty::Builtin(BuiltinType::I32),
+                            access: PathAccess::ReadOnly,
+                        },
+                    )],
+                    access: PathAccess::ReadOnly,
+                    schema_epoch: 0,
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
     let hp = Arc::new(AtomicI32::new(10));
-    let read_hp = hp.clone();
-    let prepare_hp = hp.clone();
-    runtime
-        .register_host_path_adapter(
-            path,
+    let (read_hp, prepare_hp) = (hp.clone(), hp.clone());
+    module
+        .bind_path(
+            &path,
             HostPathAdapter::new()
                 .with_read(move |_, _| Ok(Value::I32(read_hp.load(Ordering::SeqCst))))
                 .with_prepare_write(move |_, _, record| {
@@ -79,7 +109,7 @@ fn main() {
                     if value < 0 {
                         return Err(HostError::new("hp cannot be negative"));
                     }
-                    // Capture the resolved host location and checked scalar. No target write yet.
+                    // Capture the checked location and value. Preparation does not mutate it.
                     let hp = prepare_hp.clone();
                     Ok(PreparedHostPathWrite::new(move || {
                         hp.store(value, Ordering::SeqCst)
@@ -87,30 +117,26 @@ fn main() {
                 }),
         )
         .unwrap();
-    let preview = runtime
-        .register_host_path_descriptor(HostPathDescriptorRegistration {
-            definitions: context.snapshot(),
-            root_type: player,
-            result_type: scalar,
-            segments: vec![HostPathSegmentDeclaration::Virtual(
-                HostVirtualSegmentDeclaration {
-                    name: "hp_preview".into(),
-                    result: Ty::from_host_type(&(HostValueType::I32)),
-                    access: PathAccess::ReadOnly,
-                },
-            )],
-            access: PathAccess::ReadOnly,
-            schema_epoch: HostSchemaEpoch::new(0),
-        })
-        .unwrap();
     let preview_hp = hp.clone();
-    runtime
-        .register_host_path_adapter(
-            preview,
+    module
+        .bind_path(
+            &preview,
             HostPathAdapter::new()
                 .with_read(move |_, _| Ok(Value::I32(preview_hp.load(Ordering::SeqCst)))),
         )
         .unwrap();
+    let mut runtime = Runtime::default();
+    module.finish().unwrap().install(&mut runtime).unwrap();
+    let player = runtime
+        .types()
+        .get_by_name("game::state::Player")
+        .unwrap()
+        .id;
+    let root = runtime
+        .register_host_root(HostObjectId(1), player, HostSchemaEpoch::new(0))
+        .unwrap();
+    let path = runtime.resolve_host_path(&path).unwrap();
+    let preview = runtime.resolve_host_path(&preview).unwrap();
     let root = runtime.gc().alloc_host_root(root).unwrap();
     assert_eq!(
         runtime.read_host_path(&root, preview, vec![]).unwrap(),
@@ -126,7 +152,6 @@ fn main() {
     assert_eq!(hp.load(Ordering::SeqCst), 20);
     assert_eq!(runtime.host_dirty_paths().len(), 1);
     assert!(!runtime.is_quarantined());
-    // The host consumes committed records outside the mutation action.
     let record = runtime.host_dirty_paths().remove(0);
     assert_eq!(record.old_value, Some(Value::I32(10)));
     assert_eq!(record.new_value, Value::I32(20));

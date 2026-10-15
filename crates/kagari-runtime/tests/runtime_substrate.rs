@@ -17,10 +17,13 @@ use kagari_runtime::{
     },
     value::{Value, ValueCategory},
 };
+
 use kagari_types::{
-    declaration::host::{HostTypeOwnership, PathAccess},
-    host_interface::{
+    declaration::{
+        host::{HostTypeOwnership, PathAccess},
         path::HostPathSegmentDeclaration,
+    },
+    host_interface::{
         type_declaration::{HostFieldDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },

@@ -23,6 +23,7 @@ use kagari_contract::{
     layout,
     layout::StructFieldLayout,
     operations::BinaryOp as MirBinaryOp,
+    representation::semantic_representation,
     standard::RuntimePrimitive,
     types::{
         InterfaceBridge, InterfaceTable, PublicItem, inherent::native_signatures_match, verify,
@@ -30,6 +31,7 @@ use kagari_contract::{
 };
 use kagari_types::{
     callable::CallableImplementation,
+    declaration::host::PathAccess,
     declaration::verify::{concrete_type_valid, validate_native_declarations},
     ty::Ty,
 };
@@ -236,6 +238,18 @@ pub(super) fn verify_module_with_program(
         .any(|(index, path)| path.id.index() != index || path.root_ty != ValueType::HostHandle)
     {
         return Err(BytecodeVerificationError::InvalidPathLayout);
+    }
+    let path_contracts = module
+        .path_contracts(definitions)
+        .map_err(|_| BytecodeVerificationError::InvalidPathLayout)?;
+    for record in &module.paths {
+        if !path_contracts.iter().any(|(_, contract)| {
+            contract.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
+                && semantic_representation(&contract.result) == record.result_ty
+                && (record.read_only || contract.access == PathAccess::ReadWrite)
+        }) {
+            return Err(BytecodeVerificationError::InvalidPathLayout);
+        }
     }
     verify::validate(
         &module.public_items,

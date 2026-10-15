@@ -99,6 +99,7 @@ pub(super) fn verify(
         reason: "invalid collection access flow",
     };
     let semantic = &function.metadata.semantic;
+    let path_contracts = module.path_contracts(definitions).map_err(|_| invalid())?;
     if !semantic.protocol_adapter_valid(function.identity.as_ref(), definitions) {
         return Err(invalid());
     }
@@ -731,15 +732,13 @@ pub(super) fn verify(
                 }
                 I::SetPath { path, value, .. } => {
                     let record = &module.paths[path.index()];
-                    let ty = module
-                        .host_interface
-                        .paths
+                    let ty = path_contracts
                         .iter()
-                        .filter_map(|p| module.host_interface.path_contract(p, definitions).ok())
+                        .map(|(_, contract)| contract)
                         .find(|p| {
                             p.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
                         })
-                        .map(|p| p.result);
+                        .map(|p| p.result.clone());
                     if let (Some(value), Some(expected)) = (get(*value), ty)
                         && !flows(&value, &expected)
                     {
@@ -748,15 +747,13 @@ pub(super) fn verify(
                 }
                 I::ReadPath { dst, path, .. } => {
                     let record = &module.paths[path.index()];
-                    let ty = module
-                        .host_interface
-                        .paths
+                    let ty = path_contracts
                         .iter()
-                        .filter_map(|p| module.host_interface.path_contract(p, definitions).ok())
+                        .map(|(_, contract)| contract)
                         .find(|p| {
                             p.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
                         })
-                        .map(|p| p.result);
+                        .map(|p| p.result.clone());
                     produced = Some((*dst, ty.map(Fact::typed).unwrap_or_default()));
                 }
                 I::MakeCell { dst, value } => {

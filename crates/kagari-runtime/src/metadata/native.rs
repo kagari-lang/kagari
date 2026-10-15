@@ -11,6 +11,7 @@ use crate::{
 use kagari_common::identity::table::{DefinitionId, DefinitionTable};
 use kagari_contract::host::external;
 use kagari_types::{
+    declaration::path::HostPathSegmentDeclaration,
     declaration::{
         TypeDeclaration, TypeDef, TypeDefKind, fingerprint,
         host::{HostTypePolicy, PathAccess},
@@ -129,6 +130,23 @@ impl MetadataSnapshot {
             )?;
             builder.inner.by_id[id.index()].fields = fields;
             builder.members(record.declaration, id)?;
+        }
+        for paths in catalog.paths.values() {
+            for path in paths {
+                for segment in &path.segments {
+                    match segment {
+                        HostPathSegmentDeclaration::Field(_) => {}
+                        HostPathSegmentDeclaration::Index(index) => {
+                            for ty in [&index.collection, &index.index, &index.result] {
+                                builder.intern(ty, 0)?;
+                            }
+                        }
+                        HostPathSegmentDeclaration::Virtual(step) => {
+                            builder.intern(&step.result, 0)?;
+                        }
+                    }
+                }
+            }
         }
         Ok(Self { inner: staged })
     }

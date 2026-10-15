@@ -23,13 +23,14 @@ use kagari_common::{
         table::{DefinitionId, DefinitionTable},
     },
 };
+
 use kagari_types::{
-    declaration::host::{HostPassingStyle, HostTypePolicy, PathAccess},
-    host_interface::{
-        HostFunctionDeclaration,
+    declaration::{
+        host::{HostPassingStyle, HostTypePolicy, PathAccess},
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
-        type_declaration::HostTypeDeclaration,
-        value_type::HostValueType,
+    },
+    host_interface::{
+        HostFunctionDeclaration, type_declaration::HostTypeDeclaration, value_type::HostValueType,
     },
     ty::Ty,
 };

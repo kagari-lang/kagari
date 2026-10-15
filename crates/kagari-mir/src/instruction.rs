@@ -10,7 +10,7 @@ use kagari_contract::{
     standard::RuntimePrimitive,
 };
 use kagari_types::{
-    host_interface::path::HostPathDeclaration,
+    declaration::path::HostPathDeclaration,
     reference::ReferenceAccess,
     ty::{NominalTy, Ty},
 };

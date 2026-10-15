@@ -20,7 +20,7 @@ use kagari_contract::{
 };
 use kagari_types::reference::ReferenceAccess;
 use kagari_types::{
-    declaration::wire::leaf::NominalTyRecord, host_interface::wire::path::WireHostPathDeclaration,
+    declaration::wire::{leaf::NominalTyRecord, path::PathDeclarationRecord},
     ty::wire::WireType,
 };
 use serde::{Deserialize, Serialize};
@@ -68,7 +68,7 @@ impl AggregateFieldRefRecord {
 /// File-local PathRef facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub(crate) struct PathRefRecord {
-    declaration: Option<WireHostPathDeclaration>,
+    declaration: Option<PathDeclarationRecord>,
     contract_fingerprint: u64,
     root_ty: ValueType,
     result_ty: ValueType,
@@ -89,11 +89,7 @@ impl PathRefRecord {
             declaration: value
                 .declaration
                 .as_ref()
-                .map(|value| {
-                    Ok::<_, DefinitionMappingError>(WireHostPathDeclaration::encode(
-                        value, encoding, cancel,
-                    )?)
-                })
+                .map(|value| PathDeclarationRecord::encode(value, encoding, cancel))
                 .transpose()?,
             contract_fingerprint: value.contract_fingerprint,
             root_ty: value.root_ty,
@@ -114,7 +110,7 @@ impl PathRefRecord {
         Ok(PathRef {
             declaration: self
                 .declaration
-                .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
+                .map(|value| value.decode(decoding, cancel))
                 .transpose()?,
             contract_fingerprint: self.contract_fingerprint,
             root_ty: self.root_ty,

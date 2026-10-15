@@ -3,7 +3,7 @@
 mod dependencies;
 use crate::{
     error::RuntimeError,
-    host::HostFunctionId,
+    host::{HostFunctionId, HostPathAdapter},
     metadata::native::MetadataSnapshot,
     module::VerifiedProgram,
     native::{
@@ -101,6 +101,7 @@ pub(crate) struct NativeRegistry {
     entries: DefinitionMap<Arc<BindingRegistration>>,
     pub(crate) storage: DefinitionMap<NativeStorage>,
     pub(crate) catalog: DeclarationCatalog,
+    pub(crate) path_bindings: DefinitionMap<Vec<HostPathAdapter>>,
 }
 
 impl Default for NativeRegistry {
@@ -110,7 +111,8 @@ impl Default for NativeRegistry {
         Self {
             metadata: MetadataSnapshot::default(),
             entries: DefinitionMap::new(context.clone()),
-            storage: DefinitionMap::new(context),
+            storage: DefinitionMap::new(context.clone()),
+            path_bindings: DefinitionMap::new(context),
             catalog,
         }
     }

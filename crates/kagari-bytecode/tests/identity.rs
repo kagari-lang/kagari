@@ -160,29 +160,61 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
 #[test]
 fn artifact_preserves_portable_virtual_path_declarations() {
     let context = DefinitionContext::new().unwrap();
-    use kagari_types::host_interface::{
-        path::{HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration},
-        type_declaration::{HostTypeDeclaration, HostTypeOwnership, PathAccess},
-        value_type::HostValueType,
+    use kagari_contract::types::PublicItem;
+    use kagari_types::{
+        declaration::{
+            TypeDeclaration, TypeDef, TypeDefKind,
+            host::{HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess},
+            path::{
+                HostPathDeclaration, HostPathSegmentDeclaration, HostVirtualSegmentDeclaration,
+            },
+            wire::declarations::TypeDeclarationRecord,
+        },
+        scalar::BuiltinType,
     };
-    let mut root = HostTypeDeclaration::new(&context, "game.Player").unwrap();
-    root.ownership = HostTypeOwnership::HostRoot;
-    root.path_access = PathAccess::ReadOnly;
+    let identity = ModuleIdentity {
+        package: PackageId("game".into()),
+        path: vec!["state".into()],
+    };
+    let owner = context.intern_root(&identity).unwrap();
+    let root = context
+        .intern_child(owner, DefinitionKind::Struct, "Player", 0)
+        .unwrap();
     let path = HostPathDeclaration {
-        root: root.id,
+        root,
         segments: vec![HostPathSegmentDeclaration::Virtual(
             HostVirtualSegmentDeclaration {
                 name: "preview".into(),
-                result: Ty::from_host_type(&(HostValueType::I32)),
+                result: Ty::Builtin(BuiltinType::I32),
                 access: PathAccess::ReadOnly,
             },
         )],
         access: PathAccess::ReadOnly,
         schema_epoch: 1,
     };
-    let mut module = BytecodeModule::default();
-    module.host_interface.types.push(root);
-    module.host_interface.paths.push(path.clone());
+    let mut module = BytecodeModule {
+        identity,
+        ..Default::default()
+    };
+    module.external_types.push(TypeDeclaration {
+        declaration: root,
+        definition: TypeDef {
+            name: "Player".into(),
+            kind: TypeDefKind::Host(HostTypePolicy {
+                ownership: HostTypeOwnership::HostRoot,
+                reflection: HostReflectionPolicy::Metadata,
+                path_access: PathAccess::ReadOnly,
+            }),
+            generic_params: vec![],
+            bounds: vec![],
+            fields: vec![],
+            variants: vec![],
+        },
+    });
+    module.public_items.push(PublicItem::Type(
+        module.external_types[0].definition.clone(),
+    ));
+    module.path_declarations.push(path.clone());
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
             exports: Default::default(),
@@ -199,10 +231,10 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         .import_into(&context, &CancellationToken::default())
         .unwrap();
     assert_eq!(
-        same_scope.records().program.modules[0].host_interface.paths,
-        artifact.program.modules[0].host_interface.paths
+        same_scope.records().program.modules[0].path_declarations,
+        artifact.program.modules[0].path_declarations
     );
-    let decoded_path = &decoded.records().program.modules[0].host_interface.paths[0];
+    let decoded_path = &decoded.records().program.modules[0].path_declarations[0];
     assert_eq!(
         decoded
             .definitions()
@@ -263,22 +295,23 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     assert!(
         unverified
             .definitions()
-            .resolve(unverified.records().modules[0].host_interface.paths[0].root)
+            .resolve(unverified.records().modules[0].path_declarations[0].root)
             .is_ok()
     );
 
     // Corrupt a file-local reference in a current envelope; decoding cannot turn
     // it into a trusted process identity or silently fall back to a path.
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
-    // Read the identity-free prefix to locate this fixture's first Host path.
+    // Read the actual shared-schema prefix to locate this fixture's first path.
     // Its header and module references have the real codec types; counts are
     // asserted so a schema change cannot accidentally corrupt a different field.
     let mut cursor = Cursor::new(&bytes);
-    let (_, _, modules, dependencies, paths): (
+    let (_, _, modules, dependencies, schemas, paths): (
         ArtifactHeader,
         ModuleRef,
         u64,
         Vec<ModuleRef>,
+        Vec<TypeDeclarationRecord>,
         u64,
     ) = codec()
         .allow_trailing_bytes()
@@ -286,6 +319,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         .unwrap();
     assert_eq!(modules, 1);
     assert!(dependencies.is_empty());
+    assert_eq!(schemas.len(), 1);
     assert_eq!(paths, 1);
     let reference_offset = cursor.position() as usize;
     let mut forged = bytes;

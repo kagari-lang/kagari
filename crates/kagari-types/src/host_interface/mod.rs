@@ -1,9 +1,11 @@
 //! Offline host declarations contain no callback, runtime slot, or business service.
+
 use crate::{
-    declaration::host::{HostFunctionEffects, HostPassingStyle},
-    host_interface::{
-        path::HostPathDeclaration, type_declaration::HostTypeDeclaration, value_type::HostValueType,
+    declaration::{
+        host::{HostFunctionEffects, HostPassingStyle},
+        path::HostPathDeclaration,
     },
+    host_interface::{type_declaration::HostTypeDeclaration, value_type::HostValueType},
 };
 use bincode::{DefaultOptions, Options};
 use kagari_common::identity::{
@@ -21,7 +23,6 @@ const MAX_BYTES: u64 = 4 * 1024 * 1024;
 
 pub mod constraints;
 mod decode_limits;
-pub mod path;
 mod paths;
 
 pub mod value_type;

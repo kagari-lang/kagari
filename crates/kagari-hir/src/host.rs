@@ -6,7 +6,7 @@ use crate::{
     host::origin::{HostDeclarationOrigin, HostInput},
     resolver::resolved::ResolvedName,
     typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
-    types::{NominalType, TypeId, TypeSubstitution, semantic::raise_type},
+    types::{NominalType, TypeId, TypeSubstitution},
 };
 
 use callable::{HostCallable, HostSignature};
@@ -22,12 +22,15 @@ use kagari_common::{
     span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+
 use kagari_types::{
-    declaration::names::NameNamespace,
+    declaration::{
+        names::NameNamespace,
+        path::{HostPathContract, HostPathDeclaration},
+    },
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostInterfaceError,
         constraints::satisfies_standard_constraint,
-        path::{HostPathContract, HostPathDeclaration, HostPathSegmentDeclaration},
         type_declaration::{
             HostFieldDeclaration, HostTraitImplementationDeclaration, HostTypeDeclaration,
         },
@@ -48,6 +51,7 @@ use std::{
 mod adoption;
 pub mod callable;
 pub mod origin;
+pub(crate) mod paths;
 
 #[cfg(test)]
 mod facade_tests;
@@ -743,32 +747,7 @@ impl HostDeclarations {
         root: &DefinitionId,
         steps: &[HostSourcePathStep],
     ) -> Result<(HostPathDeclaration, HostPathContract), &'static str> {
-        let mut matches = self.interface.paths.iter().filter(|path| {
-            if &path.root != root || path.segments.len() != steps.len() {
-                return false;
-            }
-            let mut source_slots = HashSet::new();
-            path.segments
-                .iter()
-                .zip(steps)
-                .all(|(segment, source)| match (segment, source) {
-                    (HostPathSegmentDeclaration::Field(id), HostSourcePathStep::Member(name)) => {
-                        self.field(id).is_some_and(|field| field.name == *name)
-                    }
-                    (
-                        HostPathSegmentDeclaration::Virtual(virtual_step),
-                        HostSourcePathStep::Member(name),
-                    ) => virtual_step.name == *name,
-                    (HostPathSegmentDeclaration::Index(index), HostSourcePathStep::Index(ty)) => {
-                        source_slots.insert(index.slot) && raise_type(&index.index) == *ty
-                    }
-                    _ => false,
-                })
-        });
-        let declaration = matches.next().ok_or("path has no declared host contract")?;
-        if matches.next().is_some() {
-            return Err("path has ambiguous host declarations");
-        }
+        let declaration = paths::select(&self.interface.paths, &self.definitions, *root, steps)?;
         let contract = self
             .interface
             .path_contract(declaration, &self.definitions)

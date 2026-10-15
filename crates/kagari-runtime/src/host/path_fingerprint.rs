@@ -12,7 +12,7 @@ use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeModule};
 use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     declaration::host::PathAccess,
-    host_interface::path::{HostPathContract, HostPathDeclaration, HostPathInput},
+    declaration::path::{HostPathContract, HostPathDeclaration, HostPathInput},
     ty::Ty,
 };
 use std::collections::HashMap;
@@ -30,6 +30,28 @@ impl HostRegistry {
             ));
         }
         let functions = self.link_interface(&module.host_interface, definitions)?;
+        for (required, contract) in module
+            .path_contracts(definitions)
+            .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?
+        {
+            let fingerprint = contract
+                .fingerprint(definitions)
+                .map_err(|error| RuntimeError::typed_path_validation(error.to_string()))?;
+            if self
+                .path_descriptors()
+                .filter(|path| {
+                    path.abi_fingerprint.0 == fingerprint
+                        && path.declaration == *required
+                        && self.path_adapters.contains_key(&path.id)
+                })
+                .count()
+                != 1
+            {
+                return Err(RuntimeError::typed_path_validation(
+                    "required path has missing or ambiguous installed bindings",
+                ));
+            }
+        }
         let mut host_types = module
             .host_interface
             .types

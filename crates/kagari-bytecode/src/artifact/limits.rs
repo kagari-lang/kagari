@@ -12,7 +12,10 @@ use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::{AssociatedTypeDef, FnDecl, requirement::NativeCallableRequirement},
+    declaration::{
+        AssociatedTypeDef, FnDecl, path::HostPathSegmentDeclaration,
+        requirement::NativeCallableRequirement,
+    },
     ty::{Constraint, GenericBound, Ty},
 };
 
@@ -182,7 +185,11 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             return false;
         }
     }
-    for path in &module.host_interface.paths {
+    for path in module
+        .path_declarations
+        .iter()
+        .chain(&module.host_interface.paths)
+    {
         if !add(path.segments.len()) {
             return false;
         }
@@ -360,6 +367,23 @@ pub(super) fn module_abi_type_limit(
     definitions: &DefinitionTable,
 ) -> bool {
     let valid = |ty: &Ty| ty.within_wire_limits();
+    if !module
+        .path_declarations
+        .iter()
+        .chain(&module.host_interface.paths)
+        .all(|path| {
+            path.segments.len() <= 256
+                && path.segments.iter().all(|segment| match segment {
+                    HostPathSegmentDeclaration::Field(_) => true,
+                    HostPathSegmentDeclaration::Index(index) => {
+                        valid(&index.collection) && valid(&index.index) && valid(&index.result)
+                    }
+                    HostPathSegmentDeclaration::Virtual(step) => valid(&step.result),
+                })
+        })
+    {
+        return false;
+    }
     module
         .native_imports
         .iter()
@@ -504,11 +528,13 @@ pub(super) fn program_count_limit(
         module_records = module_records.saturating_add(
             [
                 module.dependencies.len(),
+                module.external_types.len(),
                 module.host_interface.types.len(),
                 module.host_interface.functions.len(),
                 module.native_imports.len(),
                 module.native_declarations.len(),
                 module.host_interface.paths.len(),
+                module.path_declarations.len(),
                 module.module_slots.len(),
                 module.constants.len(),
                 module.types.len(),
