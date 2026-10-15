@@ -64,7 +64,7 @@ impl<'a> BodyChecker<'a> {
                 let arguments = self.infer_typed_args(args, params.iter().cloned(), env);
                 self.type_table
                     .insert_call(call_expr, CallTarget::Value, Some(callee));
-                self.type_table.insert_call_signature(
+                self.record_applied_signature(
                     call_expr,
                     AppliedCallSignature {
                         params: params.clone(),
@@ -307,9 +307,7 @@ impl<'a> BodyChecker<'a> {
                 &function.return_type().instantiate(substitution),
             ),
         };
-        let result = signature.return_type.clone();
-        self.type_table.insert_call_signature(site, signature);
-        result
+        self.record_applied_signature(site, signature)
     }
 
     pub(super) fn record_protocol_application(
@@ -345,7 +343,7 @@ impl<'a> BodyChecker<'a> {
                 .zip(call.type_arguments),
         );
         substitution.insert_receiver(owner.id, receiver.clone());
-        self.type_table.insert_call_signature(
+        self.record_applied_signature(
             site,
             AppliedCallSignature {
                 params: method
@@ -364,6 +362,49 @@ impl<'a> BodyChecker<'a> {
                 return_type,
             },
         );
+    }
+
+    fn record_applied_signature(
+        &mut self,
+        site: ExprId,
+        signature: AppliedCallSignature,
+    ) -> TypeId {
+        self.check_applied_reference_positions(site, &signature);
+        let result = signature.return_type.clone();
+        self.type_table.insert_call_signature(site, signature);
+        result
+    }
+
+    /// Declaration checks cannot see references introduced by substitution. Check
+    /// the final inferred application, including callbacks and associated outputs,
+    /// using the same position rules as the shared semantic type model.
+    pub(super) fn check_applied_reference_positions(
+        &mut self,
+        site: ExprId,
+        signature: &AppliedCallSignature,
+    ) {
+        if self.solving {
+            return;
+        }
+        let result = self.solver.resolve(&signature.return_type);
+        let reason = if !result.is_unresolved() && result.contains_stored_reference() {
+            Some("a scoped view cannot be returned")
+        } else if !result.reference_position_valid()
+            || signature
+                .params
+                .iter()
+                .any(|ty| !self.solver.resolve(ty).reference_position_valid())
+        {
+            Some("views require a nominal target and cannot be nested in owning values")
+        } else {
+            None
+        };
+        if let Some(reason) = reason {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidReference { reason })
+                    .with_span(self.lowered.source_map.expr_span(site)),
+            );
+        }
     }
 
     pub(super) fn check_generic_call_bounds(

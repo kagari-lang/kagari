@@ -174,3 +174,90 @@ fn scoped_reference_escape_storage_targets_and_captures_reject() {
         );
     }
 }
+
+#[test]
+fn scoped_reference_applications_reject_returned_views_at_the_call() {
+    for (declaration, call) in [
+        ("fn identity<T>(value: T) -> T { value }", "identity(view)"),
+        (
+            "impl Player { fn identity<T>(self, value: T) -> T { value } }",
+            "owned.identity(view)",
+        ),
+        (
+            "trait Echo { fn echo<T>(self, value: T) -> T; } impl Echo for Player { fn echo<T>(self, value: T) -> T { value } }",
+            "owned.echo(view)",
+        ),
+    ] {
+        let source = format!(
+            "struct Player {{ var hp: i32 }} {declaration} fn probe(view: Ref<Player>, owned: Player) -> i32 {{ {call}.hp }}"
+        );
+        let analysis = analyze_source(
+            &SourceFile::new("applied-reference.kgr", source.clone()),
+            catalog::shared().unwrap(),
+        )
+        .unwrap();
+        let diagnostics = analysis.diagnostics();
+        assert_eq!(diagnostics.len(), 1, "{source}: {diagnostics:?}");
+        assert!(matches!(
+            diagnostics[0].kind,
+            DiagnosticKind::InvalidReference {
+                reason: "a scoped view cannot be returned"
+            }
+        ));
+        let span = diagnostics[0].span.unwrap();
+        assert_eq!(span.start, source.rfind(call).unwrap());
+        assert_eq!(span.end, span.start + call.len());
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
+fn scoped_reference_applications_check_parameter_targets_for_diverging_arguments() {
+    let source = "fn inspect<T>(value: Ref<T>) {} fn probe() { inspect::<i32>(loop {}); }";
+    let analysis = analyze_source(
+        &SourceFile::new("applied-reference-target.kgr", source),
+        catalog::shared().unwrap(),
+    )
+    .unwrap();
+    let diagnostics = analysis.diagnostics();
+    assert_eq!(diagnostics.len(), 1, "{diagnostics:?}");
+    assert!(matches!(
+        diagnostics[0].kind,
+        DiagnosticKind::InvalidReference { .. }
+    ));
+    let span = diagnostics[0].span.unwrap();
+    assert_eq!(&source[span.start..span.end], "inspect::<i32>(loop {})");
+    assert!(analysis.into_codegen().is_err());
+}
+
+#[test]
+fn scoped_reference_applications_preserve_inputs_and_callable_values() {
+    let analysis = analyze_source(
+        &SourceFile::new(
+            "applied-reference-inputs.kgr",
+            r#"
+        struct Player { var hp: i32 }
+        fn identity<T>(value: T) -> T { value }
+        fn discard<T>(value: T) {}
+        fn invoke<T>(callback: fn(T) -> i32, value: T) -> i32 { callback(value) }
+        fn callback() -> fn(Ref<Player>) -> i32 {
+            identity(|value: Ref<Player>| value.hp)
+        }
+        fn probe(value: RefMut<Player>) -> i32 {
+            discard(value);
+            val inspect: fn(Ref<Player>) -> i32 = |view| view.hp;
+            val saved = identity(inspect);
+            saved(value) + invoke(inspect, value) + callback()(value)
+        }
+    "#,
+        ),
+        catalog::shared().unwrap(),
+    )
+    .unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    assert!(analysis.into_codegen().is_ok());
+}

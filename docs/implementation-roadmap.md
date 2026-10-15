@@ -197,21 +197,6 @@ host aggregate/format and parallel registration/invocation APIs are removed.
 The HR01-HR03, RI00-RI05 and RF01-RF06 plans are retired; Git history retains their
 phase decisions and validation ledgers.
 
-The activated interop review fixes have three bounded checkpoints:
-
-- [x] R1: reuse complete layout compatibility for native scoped calls across reload.
-  The SDK regression reproduced the rejected old descriptor before the fix;
-  SDK `scoped_calls` (2 tests) and runtime `host_scopes` (11 tests) pass, covering
-  shared arguments, mutable receivers, pinned code and loan cleanup/ownership.
-- [x] R2: reject field reflection on scoped views during source checking.
-  The HIR reproduction failed before the fix; the 8 selected `reflection` tests
-  pass, including receiver diagnostics, argument recovery and member navigation.
-- [ ] R3: validate reference positions in applied callable signatures.
-
-Local validation selects SDK `scoped_calls`, runtime `host_scopes` and HIR
-reference/reflection contracts. These exercise the affected entry, lifetime and
-source-checking boundaries; exhaustive backend/feature coverage remains CI-owned.
-
 Current contracts live in [host interop](spec/host-interop.md),
 [the embedding guide](spec/embedding-api.md#typed-native-registration),
 [runtime ownership](spec/runtime.md), [traits](spec/traits.md),
@@ -230,10 +215,14 @@ Miri passed. The final Miri selection used nightly-2026-07-27 on
 aarch64-apple-darwin with MIRIFLAGS unset and default target/profile/parallelism.
 Full workspace, feature/backend/platform and broader Miri acceptance remains
 CI-owned and unrun locally; focused checks are not complete CI acceptance.
+Focused interop review coverage includes cross-generation scoped native calls,
+borrow cleanup/ownership, source reflection diagnostics and applied reference
+signatures, with ordinary reflection and propagation as adjacent regression cases.
 No known selected local integration or safety failure remains.
 
 Remaining scope stays separate: general view trait forwarding, borrowed returns,
-retaining references across suspension, packed/union/variant/index projections,
+reflective access to scoped views, retaining references across suspension,
+packed/union/variant/index projections,
 unrestricted editing/extraction of managed script-edge payloads and wider native
 reference execution are not implemented. Current unsupported native reference
 bodies select the interpreter before entry. Automatic derive/Serde supports the

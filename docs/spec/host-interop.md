@@ -480,7 +480,12 @@ for any view type or provide Rust access without an installed scope adapter.
 Views cannot be returned, captured, placed in owning fields/containers or retained
 across suspension; shared capability cannot upgrade to mutable capability. A
 function signature accepting a view is distinct from a function value capturing
-one. Source-free verification checks targets, positions, flows and suspension
+one. Source checking revalidates callable parameter and result positions after
+generic substitution and associated-type normalization. A generic identity
+function cannot return a view through an instantiated `T`, even when its caller
+immediately reads a field from that result; the diagnostic belongs to the call.
+Functions that accept views and return owned values remain valid callable values.
+Source-free verification checks targets, positions, flows and suspension
 independently. A valid schema/signature alone does not grant runtime Rust access:
 installed scope, target, owner/generation and loan capabilities are also required.
 
