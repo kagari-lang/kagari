@@ -365,154 +365,219 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
 
 #[test]
 fn host_trait_table_is_checked_against_script_trait_signatures() {
-    let definitions = DefinitionContext::new().unwrap();
-    let engine = KagariEngine::default();
-    let path = "mem://host-trait-contract";
-    let source = "use std::hash::{Hash};\ntrait Readable<T: Eq + Hash> { fn get(self, amount: T) -> T; } use demo::Counter; fn accept(value: Counter) {}";
-    let file = engine
-        .set_source(path, source.into(), SourceLayer::Base)
-        .unwrap();
-    let module = engine
-        .source_snapshot()
-        .file(file)
-        .unwrap()
-        .module_identity()
-        .clone();
-    let trait_id = DefinitionPath {
-        module,
+    use kagari_runtime::{
+        host::HostCallContext,
+        native::{builder::ModuleBuilder, catalog::DeclarationCatalog, types::Type},
+    };
+    use kagari_types::{
+        declaration::host::{HostCallPolicy, HostReflectionPolicy, HostTypePolicy},
+        scalar::BuiltinType,
+    };
+
+    let source =
+        "use std::hash::Hash; trait Readable<T: Eq + Hash> { fn get(self, amount: T) -> T; }";
+    let identity = ModuleIdentity {
+        package: PackageId("pkg".into()),
+        path: vec!["contract".into()],
+    };
+    let trait_path = DefinitionPath {
+        module: identity.clone(),
         path: vec![DefinitionPathSegment {
             kind: DefinitionKind::Trait,
             name: "Readable".into(),
             occurrence: 0,
         }],
     };
-    let mut trait_method = trait_id.clone();
-    trait_method.path.push(DefinitionPathSegment {
-        kind: DefinitionKind::Method,
-        name: "get".into(),
-        occurrence: 0,
-    });
-    let trait_id = definitions.intern(&trait_id).unwrap();
-    let trait_method = definitions.intern(&trait_method).unwrap();
-    let mut host = HostTypeDeclaration::new(&definitions, "demo.Counter").unwrap();
-    let method = HostMethodDeclaration::new(
-        &definitions,
-        host.id,
-        "read",
-        vec![HostParameter {
-            name: "amount".into(),
-            ty: HostValueType::I32,
-            passing: HostPassingStyle::Owned,
-        }],
-        HostValueType::I32,
-    )
-    .unwrap();
-    host.methods.push(method.clone());
-    host.trait_implementations
-        .push(HostTraitImplementationDeclaration::new(
-            trait_id,
-            vec![HostValueType::I32],
-            vec![HostTraitMethodBinding {
-                trait_method,
-                host_method: method.id,
-            }],
-        ));
-    let install = |host: HostTypeDeclaration| {
-        engine
-            .set_host_interface(scoped(
-                &definitions,
-                HostInterface {
-                    paths: vec![],
-                    types: vec![host],
-                    functions: vec![],
-                },
-            ))
+    let author = KagariEngine::default();
+    let file = author
+        .bind_module("mem://host-trait-contract", identity.clone())
+        .unwrap();
+    author
+        .set_source(
+            "mem://host-trait-contract",
+            source.into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let artifact = author
+        .emit_bytecode(
+            &author
+                .compile_snapshot(author.source_snapshot(), file, &Default::default())
+                .unwrap(),
+            Default::default(),
+        )
+        .unwrap();
+    let abi = artifact.records().program.modules[artifact.records().program.root.index()]
+        .trait_contracts[0]
+        .abi
+        .clone();
+    let expected =
+        DefinitionMetadata::checked(artifact.definitions().clone(), abi, &Default::default())
+            .unwrap();
+    let standard = kagari_stdlib::declarations::StandardDeclarations::default();
+    let providers = standard.catalog().unwrap();
+    let build_module = |ty: Type| {
+        let mut builder = ModuleBuilder::new("demo", &providers).unwrap();
+        let readable = builder
+            .reference_trait(&trait_path, expected.clone())
+            .unwrap();
+        let mut counter = builder.define_type("Counter").unwrap();
+        counter
+            .external(HostTypePolicy {
+                ownership: HostTypeOwnership::HostRoot,
+                reflection: HostReflectionPolicy::Metadata,
+                path_access: PathAccess::ReadOnly,
+            })
+            .unwrap();
+        let counter = counter.finish().unwrap();
+        assert!(
+            builder
+                .implement(counter.clone(), |group| {
+                    group.trait_impl(readable.apply([ty.clone()])?, |_| Ok(()))
+                })
+                .unwrap_err()
+                .to_string()
+                .contains("missing method")
+        );
+        assert!(
+            builder
+                .implement(counter.clone(), |group| {
+                    group.trait_impl(readable.apply([ty.clone()])?, |methods| {
+                        methods.bind("extra", |_: &HostCallContext<'_>, _: &[Value]| {
+                            Ok(Value::Unit)
+                        })
+                    })
+                })
+                .unwrap_err()
+                .to_string()
+                .contains("unknown implementation member")
+        );
+        builder
+            .implement(counter, |group| {
+                group.trait_impl(readable.apply([ty])?, |methods| {
+                    methods.host_policy(
+                        "get",
+                        HostCallPolicy {
+                            passing: vec![HostPassingStyle::SharedBorrow, HostPassingStyle::Owned],
+                            effects: Default::default(),
+                        },
+                    )?;
+                    methods.bind("get", |_: &HostCallContext<'_>, args: &[Value]| Ok(args[1]))
+                })
+            })
+            .unwrap();
+        builder.finish().unwrap()
+    };
+    let module = build_module(Type::i32());
+    let declaration = module.to_declaration();
+    let validate = |candidate| {
+        let candidate = DefinitionMetadata::checked(
+            declaration.definitions().clone(),
+            candidate,
+            &Default::default(),
+        )
+        .unwrap();
+        DeclarationCatalog::from_declarations(
+            standard
+                .declarations()
+                .unwrap()
+                .iter()
+                .map(AsRef::as_ref)
+                .chain([&candidate]),
+        )
+    };
+    assert!(validate(declaration.records().clone()).is_ok());
+    let mut wrong_result = declaration.records().clone();
+    wrong_result.implementations[0].methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
+    assert!(
+        validate(wrong_result)
+            .unwrap_err()
+            .to_string()
+            .contains("trait implementation differs")
+    );
+    let mut missing = declaration.records().clone();
+    missing.implementations[0].methods.clear();
+    assert!(
+        validate(missing)
+            .unwrap_err()
+            .to_string()
+            .contains("missing method")
+    );
+    let mut wrong_argument = declaration.records().clone();
+    wrong_argument.implementations[0].methods[0].params[1].ty = Ty::Builtin(BuiltinType::Bool);
+    assert!(
+        validate(wrong_argument)
+            .unwrap_err()
+            .to_string()
+            .contains("trait implementation differs")
+    );
+    let mut wrong_arity = declaration.records().clone();
+    wrong_arity.implementations[0]
+        .trait_type
+        .as_mut()
+        .unwrap()
+        .arguments
+        .clear();
+    assert!(validate(wrong_arity).is_err());
+    let mut extra = declaration.records().clone();
+    let mut method = extra.implementations[0].methods[0].clone();
+    method.name = "extra".into();
+    extra.implementations[0].methods.push(method);
+    assert!(validate(extra).is_err());
+
+    let install = |module| {
+        let engine = KagariEngine::with_native_modules(Default::default(), vec![module]).unwrap();
+        let file = engine
+            .bind_module("mem://host-trait-contract", identity.clone())
             .unwrap();
         engine
-            .signatures(engine.source_snapshot(), &Default::default())
-            .unwrap()
-            .file(file)
-            .unwrap()
-            .diagnostics()
-            .to_vec()
+            .set_source(
+                "mem://host-trait-contract",
+                format!("{source} use demo::Counter; fn accept(value: Counter) {{}}"),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        (engine, file)
     };
-    assert!(install(host.clone()).is_empty());
-
-    let mut wrong_result = host.clone();
-    wrong_result.methods[0].return_type = HostValueType::Bool;
-    assert!(install(wrong_result).iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidTraitImpl { reason, .. }
-            if reason.contains("return type")
-    )));
-
-    let mut missing = host.clone();
-    missing.trait_implementations[0].methods.clear();
-    assert!(install(missing).iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidTraitImpl { reason, .. }
-            if reason.contains("missing method")
-    )));
-    let mut wrong_argument = host.clone();
-    wrong_argument.methods[0].params[0].ty = HostValueType::Bool;
-    assert!(install(wrong_argument).iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidTraitImpl { reason, .. }
-            if reason.contains("parameter 1")
-    )));
-
-    let mut wrong_arity = host.clone();
-    wrong_arity.trait_implementations[0].trait_arguments.clear();
-    assert!(install(wrong_arity).iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidTraitImpl { reason, .. }
-            if reason.contains("type argument count")
-    )));
-    let mut unsatisfied_bound = host.clone();
-    unsatisfied_bound.trait_implementations[0].trait_arguments = vec![HostValueType::F32];
-    assert!(install(unsatisfied_bound).iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidTraitImpl { reason, .. }
-            if reason.contains("does not satisfy its bound")
-    )));
-
-    let mut extra = host.clone();
-    let mut extra_method = extra.trait_implementations[0].methods[0].clone();
-    let table = definitions.snapshot();
-    let parent = table.parent(extra_method.trait_method).unwrap().unwrap();
-    let segment = table
-        .resolve(extra_method.trait_method)
-        .unwrap()
-        .last()
-        .unwrap();
-    extra_method.trait_method = definitions
-        .intern_child(parent, segment.kind, "extra", segment.occurrence)
-        .unwrap();
-    extra.trait_implementations[0].methods.push(extra_method);
-    assert!(install(extra).iter().any(|diagnostic| matches!(
-        &diagnostic.kind,
-        DiagnosticKind::InvalidTraitImpl { reason, .. }
-            if reason.contains("extra trait method")
-    )));
-
-    assert!(install(host).is_empty());
+    let (engine, file) = install(module);
+    assert!(
+        engine
+            .compile_snapshot(engine.source_snapshot(), file, &Default::default())
+            .is_ok()
+    );
+    let (unbounded, invalid_file) = install(build_module(Type::scalar(BuiltinType::F32)));
+    let error = unbounded
+        .compile_snapshot(
+            unbounded.source_snapshot(),
+            invalid_file,
+            &Default::default(),
+        )
+        .unwrap_err();
+    let diagnostic = format!("{error:?}");
+    assert!(
+        diagnostic.contains("KG_TYPE_GENERIC_BOUND_NOT_SATISFIED")
+            && diagnostic.contains("does not satisfy `Eq`")
+            && diagnostic.contains("does not satisfy `Hash`"),
+        "{diagnostic}"
+    );
     engine
-        .set_source(path, source.replace("-> T;", "-> bool;"), SourceLayer::Base)
+        .set_source(
+            "mem://host-trait-contract",
+            format!(
+                "{} use demo::Counter; fn accept(value: Counter) {{}}",
+                source.replace("-> T;", "-> bool;")
+            ),
+            SourceLayer::Base,
+        )
         .unwrap();
     let changed = engine
-        .signatures(engine.source_snapshot(), &Default::default())
-        .unwrap();
+        .compile_snapshot(engine.source_snapshot(), file, &Default::default())
+        .unwrap_err();
+    let diagnostic = format!("{changed:?}");
     assert!(
-        changed
-            .file(file)
-            .unwrap()
-            .diagnostics()
-            .iter()
-            .any(|diagnostic| matches!(
-                &diagnostic.kind,
-                DiagnosticKind::InvalidTraitImpl { reason, .. }
-                    if reason.contains("return type")
-            ))
+        diagnostic.contains("KG_TYPE_TRAIT_METHOD_MISMATCH")
+            && diagnostic.contains("return type expected `bool`, found `i32`"),
+        "{diagnostic}"
     );
 }
 

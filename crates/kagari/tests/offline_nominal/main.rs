@@ -30,10 +30,7 @@ use kagari_types::{
     },
     host_interface::{
         HostFunctionDeclaration, HostInterface, HostParameter,
-        type_declaration::{
-            HostFieldDeclaration, HostMethodDeclaration, HostTraitImplementationDeclaration,
-            HostTraitMethodBinding, HostTypeDeclaration,
-        },
+        type_declaration::{HostFieldDeclaration, HostMethodDeclaration, HostTypeDeclaration},
         value_type::HostValueType,
     },
     ty::Ty,

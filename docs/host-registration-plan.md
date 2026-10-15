@@ -2127,6 +2127,31 @@ Focused local validation passed:
 Remaining legacy producers/consumers, HR03 removal and RF06/RI05 acceptance remain
 required. Complete workspace/features/backends/platforms are still pending CI.
 
+### HR02/RF05 checkpoint: common trait declaration validation consumer
+
+The remaining offline nominal trait schema fixture now authors the same private
+source reference, external Counter and explicit get binding through ModuleBuilder.
+Its cold invalid declarations use the ordinary scoped ModuleDecl catalog validator,
+covering wrong result/parameter types, missing/extra members and wrong applied
+arity. Generated source checking retains the distinct Eq and Hash bound rejection
+for f32, and rejects a changed actual source result with
+`KG_TYPE_TRAIT_METHOD_MISMATCH` before callback execution. The complete fixture
+file no longer authors KHI, installs HostInterface or registers HostFunction.
+
+Initial fixture compilation used nonexistent convenience/query methods; actual
+scalar authoring and retained file IDs replaced them. Empty application arguments
+may remain for inference, so the invalid arity assertion belongs to completed impl
+validation. Expected diagnostics now follow the shared generic-bound and trait
+method checker rather than the removed legacy table checker's wording/kind.
+No production contract, validation or assertion was weakened.
+
+Focused `cargo test -p kagari --test offline_nominal host_trait_table_is_checked_against_script_trait_signatures`
+passed (7.20 seconds). Scoped Clippy for the same target, formatting and diff checks
+passed. Earlier structure evidence covers these test-only import/fixture changes;
+no new unsafe/root code or Miri run is involved. Other nominal/path consumers,
+print/log and old production entrypoint retirement remain required; the complete
+workspace and feature/backend/platform matrix remains pending CI.
+
 ### HR02/RF05 checkpoint: private generic source-trait integration
 
 The existing host trait-bound execution fixture now declares Counter and explicitly
