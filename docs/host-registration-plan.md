@@ -2640,6 +2640,48 @@ legacy consumers, the trait-table example and HR03 retirement remain outstanding
 Complete workspace, backend/feature/platform and exhaustive safety acceptance remain
 CI-owned and are not claimed from these focused checks.
 
+### HR02/RF05 checkpoint: runtime offline contract consumers
+
+All eight offline_host cases now author ordinary ModuleDecl/FnDecl records and bind
+through ModuleBuilder. Their portable owner is KBC, with native declarations and
+common imports; no standalone HostInterface bytes, host function slot, compatibility
+alias or legacy registration remains in this target. The existing finite source-free
+fixture supplies ordinary frame invocation and table-scoped metadata.
+
+The migrated boundaries retain missing-binding rejection before module publication,
+unchanged reload epoch/resources, shared loaded code, cross-runtime owner rejection
+with a matching local positive control, argument/result validation before/after
+callbacks, exact callback counts and cleanup. Cold codec adoption compares native
+contracts/imports after importing both tables into one context; foreign and stale
+prefixes still reject. Identity, input/output type, effects and a valid String shared
+versus owned passing mismatch reject linking without Rust calls. Documentation changes
+leave executable bytes unchanged. Failed invalid/duplicate installation leaves the
+original callback callable with its original result.
+
+KBC now owns the portable canonicality test: equal contracts encoded from differently
+populated process tables are byte-identical, malformed magic/version/trailing/truncated
+input rejects, and duplicate native declarations reject artifact construction. Old
+KHI-only 4 MiB/version/fingerprint-domain assertions retire with that format rather
+than imposing a second envelope on common declarations. The existing KBC artifact
+owner retains 64 MiB envelope, nested count/depth and encoded-size coverage in
+artifact/canonical_tests.rs (including portable_mir_bounds_apply_before_decoding_and_to_combined_envelope_size,
+nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes and
+header_metadata_is_covered_and_old_format_cannot_be_opted_into). These unchanged
+codec tests remain in their CI scope; this fixture does not duplicate them.
+Immutable configuration retains recursive rejection for arrays, tuple-wrapped mutable
+sets, Option<Host>, and shared inputs, while accepting Option<(String, i32)>.
+
+Actual focused validation: all eight runtime offline_host cases passed (0.01 seconds),
+then the encoding case passed separately after adding explicit unsupported-version
+input. The first compile omitted NominalTy's associated-output map, then used the
+wrong empty container type; initializing its actual map resolved both mechanical
+errors before tests ran. Scoped offline_host Clippy and structure (1254 files, zero
+findings) passed. Formatting check found one new import layout and passed after rustfmt;
+diff checks passed. No runtime/unsafe/loan kernel changed and no new Miri run is needed.
+Remaining nominal/type/path and trait-table consumers plus legacy production owners
+still block HR02/HR03/RF05 completion. Full workspace/backend/features/platforms remain
+CI-owned and unrun locally.
+
 - [x] HR01: migration map, by-value contract and RI dependencies frozen.
 - [ ] HR02: shared registration and selected by-value/legacy consumers migrated.
 - [ ] HR03: dependent legacy retirement complete after RF05.
