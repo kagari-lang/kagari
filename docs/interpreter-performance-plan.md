@@ -499,16 +499,21 @@ Estimator/schema/invalid-evidence coverage passes (twelve Python tests).
 Focused window contracts pass (six tests); the manual timing probe is intentionally
 ignored in correctness runs and was run separately in release mode.
 
-IP03 admission inventory, refreshed against the current implementation:
+IP03 admission audit, checked against the current implementation:
 
-| Current check/work | Guarantee owner and intended treatment |
-| --- | --- |
-| `push_prepared_call`: runtime/top-frame validation, PC-key lookup and canonical instruction reread | Active session retains runtime/quarantine/borrow checks. Verified caller preparation owns ordinal and closure/interface/shared call facts. |
-| `push_admitted_arguments`: candidate-argument isolation, suspension entry and call-depth admission | Keep candidate isolation and active execution policy at the session boundary. A sealed transfer must not bypass candidate or owned-resume restrictions. |
-| `ExecutionFrame::new`: target/arity, environment shape and native layout selection | Callee/application preparation owns reusable signature/layout facts; dynamic selected application and generation must still match. |
-| `ExecutionFrame::new`: heap arguments, executable/environment metadata validation and linked-function lookup | Explicitly prove the live pinned owner before relocating repeated checks. Keep heap ownership at external ingress and transactional parameter/root publication. |
-| `ExecutionValues::allocate`: argument range/representation, generation/capacity and initialization | Frame storage owns checked identities, bounds, rollback and initialized roots. Prepared scalar transfers may reuse checked representation facts, not skip dynamic range requirements. |
-| `finish_return`: adapted result while callee is rooted, retirement, caller transfer | Preserve one return protocol and adapter failure/GC behavior; caller destination remains separate from reusable callee/application templates. |
+| Original check/work | Current guarantee owner and proof | Reuse boundary / checks retained |
+| --- | --- | --- |
+| Call transition repeated runtime/top-frame admission, PC lookup and canonical decode | `execute_region` admits runtime/session/window and selects the sealed call ordinal. Private `push_prepared_call` consumes that ordinal and prepared target facts after dropping cursor borrows. | No callback, collection or suspension intervenes. Public entry and every resumed activation admit again; callee availability is still checked. |
+| Candidate arguments, suspension entry and depth | `push_admitted_arguments` checks managed candidate values, the prepared callee's suspension policy and the owned-driver entry, reserves the frame, then admits depth. Failure releases depth. | These dynamic checks remain on every call; a prepared descriptor cannot authorize external candidate values or an illegal resume body. |
+| Target/arity, environment shape and repeated native layout construction | The selected program owns `CalleeLayout` and physical parameter placement. `ExecutionFrame::new` consumes it and still checks argument count and script/native environment compatibility. | Different selected targets or generic bodies select their own layout/environment. Caller source slots never enter a reusable callee template. |
+| Heap/executable/environment admission and linked-function lookup | Frame creation validates managed arguments, program metadata and environment identity, then obtains the exact linked function. Environment publication owns its immutable dependency list. | Runtime/module availability, owner/generation and candidate leases remain live checks. A retained descriptor or cached environment alone does not authorize an expired program. |
+| Argument bounds, representation, capacity and roots | `ExecutionValues::allocate` validates source identity/initialization and destination representation before reserve/transfer. One exclusive borrow covers transfer and atomic publication of arguments plus program/environment/invocation edges. | No GC, callback or retirement can move source banks during transfer. Caller and callee ranges are disjoint; failed admission publishes no partial roots. |
+| Return adaptation, retirement and caller publication | `finish_return` is the common owner. Interface/shared adapters run with callee roots live and without an exclusive bank/stack borrow; authority is checked again afterward. Retirement, depth release and caller transfer form one closed transition. | No GC/callback gap is introduced before the result is rooted in its caller or returned to the existing root/factory protocol. Destination bounds, representation and heap ownership remain checked. |
+| Driver classification after every internal transition | Calls, native entry and returns carry the runtime-established `ExecutionAction`/`ReturnAction`; activation/resume and ready awaits still classify authoritative state. | Actions are local to one activation, not cached session state. Cancellation, logical observation and slice/park checks retain their original boundaries. |
+| Repeated module probes and duplicate session termination lookup | ModuleStore resolves one installed record, checks the shared candidate-availability predicate and exact descriptor match. ResourceState checks global state and resolves the active session once; SessionState polls sticky termination before cancellation. | Neither operation crosses callbacks or mutable transitions. Store borrow errors, runtime/version/descriptor identity, abandonment and all polling sites remain unchanged. |
+
+This table documents implemented ownership, not completed performance acceptance.
+The existing phase ledger below records focused tests and remaining gates.
 
 Selected correctness commands, run only in their affected phase (not one broad
 local sweep): IP02 uses the six frame-value contracts above. IP03 adds the three
@@ -2279,6 +2284,16 @@ roots/state and retains installed program, tracing and borrow validation. These
 are the existing IP03 setup corrections, not new storage layouts or global caches.
 Source/content/fence and diff checks pass; this documentation-only handoff does not
 alter the running ordinary comparison or establish pending phase acceptance.
+
+The admission audit above is reconciled with current calls/frame creation/returns,
+module records and resource polling code. Existing command outputs confirm six
+record/session tests plus two quarantine tests, three VM depth/cancellation/reentry
+tests, and seven frame-value tests for the latest two production corrections. The
+manual window timing test remains intentionally excluded from the functional run;
+its separate seven-pair result already passes. Older selected generic/reload,
+source-free, prepared-native/host and allocation evidence remains recorded at its
+own checkpoint and is not described as freshly rerun. The complete original/forms
+comparison is still running on `1f48aed3...`; this audit changes documentation only.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
