@@ -4,7 +4,10 @@ use crate::{
     error::VmError,
     reentry::reenter,
     tests::{
-        common::{compile_native_test_bytecode, module_program, round_trip_bytecode},
+        common::{
+            compile_logging_test_bytecode, compile_native_test_bytecode, module_program,
+            round_trip_bytecode,
+        },
         native_fixtures,
     },
     vm::{fixtures::FixtureExecution, native::PreparedNativeEntry},
@@ -198,7 +201,7 @@ fn typed_path_callbacks_reenter_the_root_session_before_commit() {
     for encoded in [false, true] {
         for jit in [false, true] {
             let (mut runtime, hp) = register_vm_host_path_runtime(PathAccess::ReadWrite);
-            let bytecode = compile_test_bytecode(
+            let bytecode = compile_logging_test_bytecode(
                 "fn main() -> i32 { print(\"update\"); 42 } fn compute() -> [i32] { [7] }",
             );
             let compute = bytecode.records().modules[bytecode.records().root.index()]

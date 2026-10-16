@@ -121,6 +121,11 @@ pub fn logging_module(
     builder.finish().unwrap()
 }
 
+/// Compile the explicit logging contract; callers install their own logging implementation.
+pub fn compile_logging_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
+    compile_native_test_bytecode(source_text, &[&logging_module(|_, _| Ok(Value::Unit))])
+}
+
 pub fn compile_test_bytecode(source_text: &str) -> DefinitionMetadata<BytecodeProgram> {
     compile_native_test_bytecode(source_text, &[])
 }
@@ -140,7 +145,6 @@ pub fn compile_native_test_bytecode(
         .iter()
         .map(|module| Arc::new(module.to_declaration()))
         .collect::<Vec<_>>();
-    declarations.push(Arc::new(logging::declaration().unwrap()));
     declarations.extend(
         modules
             .iter()

@@ -27,7 +27,8 @@ use std::sync::{Arc, Mutex};
 
 #[test]
 fn source_artifact_and_jit_fallback_resolve_imports_to_registered_slots() {
-    let bytecode = common::compile_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
+    let bytecode =
+        common::compile_logging_test_bytecode(r#"fn main() -> i32 { print("linked"); 7 }"#);
     for artifact in [false, true] {
         for jit in [false, true] {
             let module = if artifact {

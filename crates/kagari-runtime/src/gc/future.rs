@@ -18,12 +18,12 @@ impl GcHeap {
     pub(crate) fn validate_async_values(&self, values: &[Value]) -> NativeResult<()> {
         self.ensure_no_native_borrow()?;
         let valid = self.resources.collect_operation(|| {
-            let valid_edges = |edges: &[&Value]| {
+            let valid_edges = |edges: &[Value]| {
                 edges
                     .iter()
                     .all(|value| value.is_storable(self) && self.validate_value(value))
             };
-            let mut edges = values.iter().rev().collect::<Vec<_>>();
+            let mut edges = values.iter().rev().copied().collect::<Vec<_>>();
             if !valid_edges(&edges) {
                 return None;
             }

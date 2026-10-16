@@ -1,5 +1,5 @@
 //! Opaque return packets keep concrete script values in their prepared representation.
-use crate::{frame::values::scalar, value::Value};
+use crate::value::{Value, scalar};
 use kagari_abi::representation::ValueType;
 
 pub struct ReturnValue(Contents);

@@ -138,7 +138,7 @@ impl<'code> ExecutionCursor<'code> {
     }
 
     #[inline(always)]
-    fn payload(&self, slot: ScalarSlot) -> Result<u64, RuntimeError> {
+    pub(super) fn payload(&self, slot: ScalarSlot) -> Result<u64, RuntimeError> {
         if !self
             .values
             .initialized
@@ -155,7 +155,7 @@ impl<'code> ExecutionCursor<'code> {
             .ok_or_else(|| self.invalid())
     }
 
-    fn write_payload(&mut self, slot: ScalarSlot, value: u64) -> Option<()> {
+    pub(super) fn write_payload(&mut self, slot: ScalarSlot, value: u64) -> Option<()> {
         *self.values.payloads.get_mut(slot.index())? = value;
         *self.values.initialized.get_mut(slot.index())? = true;
         Some(())

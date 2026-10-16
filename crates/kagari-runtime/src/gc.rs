@@ -10,6 +10,7 @@ use crate::{
     },
     gc::{
         directory::{ObjectSlot, ObjectStorage, PayloadKind, PayloadLocation},
+        fields::{StructStorage, StructStorageLayouts},
         interfaces::InterfaceValueSnapshot,
         leases::{LeaseTable, OwnedLease},
         roots::{RootTable, RootedValue},
@@ -19,7 +20,7 @@ use crate::{
     native::storage::{NativeObject, NativeStorage},
     resource::ResourceState,
     session::ExecutionPhase,
-    value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, StructValueField, Value},
+    value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, Value},
     value_check::matches_type_in,
 };
 use kagari_abi::representation::ValueType;
@@ -36,6 +37,7 @@ use std::{
 };
 
 mod arrays;
+mod fields;
 mod future;
 mod maps_sets;
 mod native;
@@ -180,6 +182,7 @@ pub struct GcHeap {
     owner: u64,
     config: GcHeapConfig,
     objects: RefCell<ObjectStorage>,
+    struct_layouts: RefCell<StructStorageLayouts>,
     free: RefCell<Vec<usize>>,
     moved: RefCell<HashSet<HeapObjectId>>,
     roots: RefCell<RootTable>,
@@ -247,6 +250,7 @@ impl GcHeap {
                 NativeStorageLayout::Iterator { item: 0 },
             ),
             objects: RefCell::new(ObjectStorage::default()),
+            struct_layouts: RefCell::new(StructStorageLayouts::default()),
             free: RefCell::new(Vec::new()),
             moved: RefCell::new(HashSet::new()),
             roots: RefCell::new(RootTable::default()),
@@ -309,7 +313,9 @@ impl GcHeap {
                 "invalid heap target, index, or payload",
             ));
         }
-        self.alloc_object(HeapObject::Struct { layout, fields })
+        let description = self.prepare_struct_storage(layout)?;
+        let storage = StructStorage::new(description, &fields)?;
+        self.alloc_object(HeapObject::Struct { storage })
     }
 
     pub(crate) fn alloc_enum(
@@ -374,20 +380,6 @@ impl GcHeap {
         Ok(())
     }
 
-    pub fn struct_layout(&self, id: HeapObjectId) -> Option<StructLayoutRef> {
-        self.with_struct(id, |layout, _| layout.clone())
-    }
-
-    pub fn struct_name(&self, id: HeapObjectId) -> Option<String> {
-        self.with_struct(id, |layout, _| {
-            layout
-                .module()
-                .definition_name(layout.layout().declaration)
-                .expect("verified struct definition")
-                .to_owned()
-        })
-    }
-
     pub(crate) fn enum_layout(&self, id: HeapObjectId) -> Option<EnumVariantRef> {
         self.enum_view(id).map(|snapshot| {
             let EnumTag::Declared(layout) = &snapshot.tag;
@@ -400,86 +392,6 @@ impl GcHeap {
     /// Synchronous reads should use `enum_view` and release it before either boundary.
     pub fn enum_snapshot(&self, id: HeapObjectId) -> Option<EnumValueSnapshot> {
         self.enum_view(id).map(|view| (*view).clone())
-    }
-
-    pub fn struct_snapshot(&self, id: HeapObjectId) -> Option<(String, Vec<StructValueField>)> {
-        self.with_struct(id, |layout, fields| {
-            (
-                layout
-                    .module()
-                    .definition_name(layout.layout().declaration)
-                    .expect("verified struct definition")
-                    .to_owned(),
-                fields
-                    .iter()
-                    .zip(&layout.layout().fields)
-                    .map(|(value, field)| StructValueField {
-                        name: field.name.clone(),
-                        value: *value,
-                    })
-                    .collect(),
-            )
-        })
-    }
-
-    pub fn struct_get_slot(
-        &self,
-        id: HeapObjectId,
-        expected: &StructLayoutRef,
-        slot: usize,
-    ) -> Option<Value> {
-        self.with_struct(id, |layout, fields| {
-            if !layout.matches(expected) {
-                return None;
-            }
-            fields.get(slot).cloned()
-        })
-        .flatten()
-    }
-
-    pub fn struct_set_slot(
-        &self,
-        id: HeapObjectId,
-        expected: &StructLayoutRef,
-        slot: usize,
-        next_value: Value,
-    ) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
-        if !self.valid_payload(&next_value) {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap payload",
-            ));
-        }
-        let field =
-            expected.layout().fields.get(slot).ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid field slot")
-            })?;
-        if !field.mutable
-            || !expected.field_type(slot).is_some_and(|(ty, environment)| {
-                matches_type_in(self, &next_value, ty, expected.module(), environment)
-            })
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "field is read-only or value has the wrong concrete type",
-            ));
-        }
-        self.with_struct_mut(id, |layout, fields| {
-            if !layout.matches(expected) {
-                return Err(RuntimeError::new(
-                    RuntimeErrorKind::ScriptTrap,
-                    "struct layout mismatch",
-                ));
-            }
-            let target = fields.get_mut(slot).ok_or_else(|| {
-                self.resources
-                    .quarantine("struct storage does not match its layout")
-            })?;
-            *target = next_value;
-            Ok(())
-        })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
     }
 
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
@@ -874,25 +786,19 @@ impl GcHeap {
         self.resources.release_heap_units(units);
     }
 
-    fn with_struct<R>(
-        &self,
-        id: HeapObjectId,
-        f: impl FnOnce(&StructLayoutRef, &Vec<Value>) -> R,
-    ) -> Option<R> {
+    fn with_struct<R>(&self, id: HeapObjectId, f: impl FnOnce(&StructStorage) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        let (layout, fields) = objects.structure(self.readable_location(&objects, id)?)?;
-        Some(f(layout, fields))
+        Some(f(objects.structure(self.readable_location(&objects, id)?)?))
     }
 
     fn with_struct_mut<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&StructLayoutRef, &mut Vec<Value>) -> R,
+        f: impl FnOnce(&mut StructStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
         let location = self.readable_location(&objects, id)?;
-        let (layout, fields) = objects.structure_mut(location)?;
-        Some(f(layout, fields))
+        Some(f(objects.structure_mut(location)?))
     }
 }
 

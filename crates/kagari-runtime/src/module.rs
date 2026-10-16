@@ -9,6 +9,7 @@ mod exports;
 pub(crate) mod layout_admission;
 mod layout_identity;
 pub(crate) mod layout_scope;
+pub(crate) mod layout_storage;
 mod layouts;
 pub(crate) mod linked_execution;
 mod records;

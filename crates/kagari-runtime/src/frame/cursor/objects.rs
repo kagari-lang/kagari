@@ -8,6 +8,7 @@ use crate::{
         fields::FieldAction,
     },
     module::execution::fields::FieldAccess,
+    value::Value,
 };
 
 impl ExecutionCursor<'_> {
@@ -35,6 +36,43 @@ impl ExecutionCursor<'_> {
                 index,
             })));
         };
+        if let Some(ty) = operation.scalar {
+            let bits = match operation.access {
+                FieldAccess::Read { .. } => None,
+                FieldAccess::Write { value } => {
+                    Some(self.payload(value.operand.scalar().ok_or_else(|| self.invalid())?)?)
+                }
+            };
+            let base = self
+                .values
+                .read_location(operation.base)
+                .ok_or_else(|| self.invalid())?;
+            let Value::Struct(id) = base else {
+                return Err(RegionError::TypeMismatch(match operation.access {
+                    FieldAccess::Read { .. } => "read_field expects struct value",
+                    FieldAccess::Write { .. } => "write_field expects struct value",
+                }));
+            };
+            match operation.access {
+                FieldAccess::Read { dst } => {
+                    let bits = self
+                        .runtime
+                        .gc()
+                        .struct_scalar(id, &layout, operation.slot as usize, ty)
+                        .ok_or(RegionError::TypeMismatch("struct layout or field mismatch"))?;
+                    self.write_payload(dst.operand.scalar().ok_or_else(|| self.invalid())?, bits)
+                        .ok_or_else(|| self.invalid())?;
+                }
+                FieldAccess::Write { .. } => self.runtime.gc().set_struct_scalar(
+                    id,
+                    &layout,
+                    operation.slot as usize,
+                    ty,
+                    bits.expect("prepared scalar write"),
+                )?,
+            }
+            return Ok(None);
+        }
         let action = match operation.access {
             FieldAccess::Read { .. } => FieldAction::Read,
             FieldAccess::Write { value } => FieldAction::Write(

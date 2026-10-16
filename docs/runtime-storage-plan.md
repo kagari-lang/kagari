@@ -1,6 +1,6 @@
 # Runtime storage and shared type descriptors execution plan
 
-Status: execution started on 2026-10-16; RS01-RS03 implemented; RS04 next, latency controls remain open.
+Status: execution started on 2026-10-16; RS01-RS04 implemented; RS05 deferred; RS06 integrated latency acceptance next.
 The execution document and follow-up consistency review are complete.
 The [roadmap](implementation-roadmap.md#runtime-storage-redesign)
 owns priority; this plan owns RS01-RS06, decisions, acceptance and the progress
@@ -779,14 +779,104 @@ RS06 owns numeric and collection regression resolution, including repeated match
 runs where the small numeric GC samples show noise. Keep all original gates.
 RS03 storage/lifetime acceptance is met; integrated latency acceptance remains open.
 
+### RS04 integration record
+
+Struct payloads now share a closed physical description keyed by registry, module
+version, nominal layout, concrete arguments and nominal argument provenance.
+Each instance owns one initialized byte buffer: exact-width scalar bits and a
+13-byte tagged full owner/slot/generation encoding for managed fields. Safe byte
+copies preserve unaligned mixed layouts and all float bit patterns. GC follows
+only described managed offsets; weak description entries are pruned after disposal.
+The general Value API adapts through the same field codec.
+
+Prepared concrete and applied scalar field operations transfer raw bits directly
+between that codec and existing initialized scalar banks. Receiver identity,
+layout compatibility, field permission, scalar domain, slot bounds and execution
+state checks remain enforced. Host references and reflection retain their existing
+admission paths. No unsafe code has been added.
+
+Initial focused runtime GC (15) and field-layout (4) cases passed, followed by the
+mixed-width/domain/float-bit layout case (5 total). The allocation lifecycle probe
+completed with zero retained bytes after all 16 warmed teardowns and unchanged
+98 requests / 6,928 requested bytes per field-loop invocation. Timing and broader
+selected boundary checks are pending. Initial VM field/reload cases failed during
+loading because the shared test compiler included an uninstalled logging contract.
+The fixture now declares logging explicitly for logging workloads; ordinary source
+fixtures carry only installed standard declarations. Revalidation is in progress;
+this is a fixture repair, not relaxed production loader validation.
+The subsequent nominal-generation case also failed unchanged on afec4a3b (RS01)
+and ce56ae7f (RS03): its expectation predated caller construction dependencies in
+shared environments. The fixture now requires that dependency to remain live
+with the closure, and requires both old and caller generations to retire after
+closure/interface roots are released. Pure aggregate provenance remains covered
+by the runtime layout retirement cases; production retention is unchanged.
+
+RS04 focused acceptance: all five runtime field-layout tests pass, including all
+scalar domains and f32/f64 NaN/signed-zero bits. VM checks pass for ordinary fields
+(2), integer-domain/source-free and overflow-before-commit cases (2), shared generic
+field provenance across reload (1), owned execution/reentry and iterator invalidation
+(2), and explicit logging registration (1). Overflow preserves prior effects,
+leaves the failed field unchanged, and skips later writes. The new overflow fixture
+initially selected a non-exported function as a public entry; exporting that entry
+resolved the fixture failure. Existing GC identity/compaction coverage remains
+applicable. Structure, formatting, workspace all-target Clippy and whitespace pass.
+No carried build or selected test failure remains; exhaustive CI is not run locally.
+
+Requested-byte increments above each loaded setup (512 objects):
+
+| Population | Live | Empty | Reused |
+| --- | ---: | ---: | ---: |
+| Point | 62,180 | 43,100 | 70,788 |
+| Pair<i32> | 63,020 | 41,092 | 71,212 |
+| Narrow interface | 132,712 | 102,296 | 153,192 |
+| Wide interface | 133,936 | 102,296 | 154,416 |
+| Generic interface | 134,152 | 102,712 | 154,664 |
+| One copied interface | 18,608 | 8,728 | 18,672 |
+| Cyclic nodes | 418,524 | 72,876 | 434,908 |
+| Numeric buffer | 10,224 | 7,488 | 10,256 |
+
+Point/Pair live increments fall 71.9% / 71.6% versus RS01; their empty increments
+fall 77.0% / 78.1%. Each Point's field bytes are exactly eight; totals include
+directory/store capacity and shared descriptions. Interface live storage falls
+84.1% / 90.7% / 89.8%; numeric storage does not grow.
+
+Two alternating release-process comparisons against a freshly rebuilt afec4a3b
+baseline use the identical probe, flags and environment. Read/write medians improve
+36.7-38.1% / 20.5-21.7%; i32/f64 RMW improves 46.2-46.6% / 43.9-44.7%; traversals
+improve 27.7-29.0%. The original RS01 read/write/RMW thresholds also pass. Allocation
+and required field latency acceptance are met. Integrated controls remain RS06 work:
+scalar ratios vary +2.7% to +6.4%, node release +9.0% to +14.2%, and tiny numeric
+release +1.1% to +12.4%. A third matched pair will distinguish drift from persistent
+regression without changing the original gates. No additional safe/unsafe tuning
+has been applied merely to manufacture a passing sample.
+
+### RS05 decision
+
+Defer heap-local owner elision. The migrated struct codec is the only proposed
+site: its fields are admitted to one heap before publication and currently retain
+the complete checked identity. External Value, roots, native collection payloads,
+host projections, captured Values and detached tracing edges continue to cross
+owner boundaries and must not accept an ownerless token.
+
+For the frozen 512-node reference-heavy workload, each Node contributes one
+managed struct field (its edge vector). Removing its four-byte owner would save
+2,048 requested bytes out of the measured 418,524-byte live increment, about 0.49%.
+The vector's internal reference elements are native-owned and outside this finite
+migration. Point/Pair already exceed the required 50% live/empty reduction with
+full handles. This small bounded benefit does not justify another owner-capability
+API and reconstruction invariant at every codec/trace boundary. Keep the 13-byte
+managed encoding and full owner/slot/generation validation. No compression or
+unsafe speedup is claimed; revisit only with a concrete reference-heavy workload
+showing a material opportunity.
+
 - [x] Planning: scope, priority, measured shallow-size evidence, target ownership
   and RS01-RS06 written on 2026-10-16.
 - [x] Planning consistency review against accepted direction, code and adjacent plans.
 - [x] RS01: baseline workloads, frozen gates and physical/ownership contracts.
 - [x] RS02: shared interface descriptions; overall numeric control carried above.
 - [x] RS03: compact directory and focused stores; integrated latency gates remain open.
-- [ ] RS04: type-directed struct fields and direct scalar-bank transfers.
-- [ ] RS05: local-reference decision and conditional implementation.
+- [x] RS04: type-directed struct fields and direct scalar-bank transfers.
+- [x] RS05: owner elision deferred with measured 0.49% node-workload opportunity.
 - [ ] RS06: integrated acceptance and documentation handoff.
 
 Accepted: preserve universal Value and existing scalar banks; prioritize actual

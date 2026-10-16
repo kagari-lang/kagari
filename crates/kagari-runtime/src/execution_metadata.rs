@@ -178,7 +178,7 @@ pub(crate) struct MetadataTrace<'a> {
     groups: &'a OperationGroupStore,
     interfaces: &'a InterfaceStore,
     live_interfaces: HashSet<InterfaceSnapshotId>,
-    values: Vec<&'a Value>,
+    values: Vec<Value>,
     applications: &'a ApplicationStore,
     live_applications: HashSet<ApplicationId>,
     live_groups: HashSet<OperationGroupId>,
@@ -268,7 +268,7 @@ impl<'a> MetadataTrace<'a> {
                         .push(MetadataEdge::InterfaceView(self.interfaces.get(id)?));
                 }
                 MetadataEdge::InterfaceView(snapshot) => {
-                    self.values.push(&snapshot.data);
+                    self.values.push(snapshot.data);
                     self.pending
                         .push(MetadataEdge::InterfaceDescription(&snapshot.description));
                     for parent in &snapshot.parent_views {
@@ -333,7 +333,7 @@ impl<'a> MetadataTrace<'a> {
         Some(())
     }
 
-    pub(crate) fn append_values(&mut self, values: &mut Vec<&'a Value>) {
+    pub(crate) fn append_values(&mut self, values: &mut Vec<Value>) {
         values.append(&mut self.values);
     }
 

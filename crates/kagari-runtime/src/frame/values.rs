@@ -2,7 +2,6 @@
 use kagari_abi::representation::ValueType;
 
 pub(crate) mod operands;
-pub(crate) mod scalar;
 
 use crate::{
     error::RuntimeError,
@@ -22,7 +21,7 @@ use crate::{
     },
     native::application::NativeApplication,
     objects::invocation::MethodInvocation,
-    value::Value,
+    value::{Value, scalar},
 };
 use std::{
     ops::Range,
@@ -256,7 +255,11 @@ impl ExecutionValues {
             .unwrap_or(false)
     }
 
-    fn scalar_location(&self, slots: FrameSlots, location: Location) -> Option<(ValueType, u64)> {
+    pub(crate) fn scalar_location(
+        &self,
+        slots: FrameSlots,
+        location: Location,
+    ) -> Option<(ValueType, u64)> {
         let window = self.window(slots)?;
         let slot = location.operand.scalar()?;
         Some((location.representation, self.payload(&window.ranges, slot)?))

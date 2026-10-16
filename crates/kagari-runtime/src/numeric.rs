@@ -1,8 +1,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    frame::values::scalar,
     gc::GcHeap,
-    value::Value,
+    value::{Value, scalar},
 };
 use kagari_bytecode::instruction::{BinaryOp, UnaryOp};
 use kagari_contract::{

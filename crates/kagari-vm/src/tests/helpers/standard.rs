@@ -1,7 +1,7 @@
 use super::*;
 use crate::tests::common::load_bytecode_program;
-use crate::tests::common::logging_module;
 use crate::tests::common::round_trip_bytecode;
+use crate::tests::common::{compile_logging_test_bytecode, logging_module};
 use kagari_runtime::module::entry::ProgramEntry;
 
 use kagari_runtime::value_semantics::script_equal;
@@ -23,7 +23,7 @@ fn executes_source_lowered_declared_host_log() {
     })
     .install(&mut runtime)
     .expect("host function should register");
-    let bytecode = compile_test_bytecode(r#"use host::log; fn main() { log("hello"); }"#);
+    let bytecode = compile_logging_test_bytecode(r#"use host::log; fn main() { log("hello"); }"#);
     let loaded = runtime
         .load_program("print.kgr", bytecode)
         .expect("print module should load");

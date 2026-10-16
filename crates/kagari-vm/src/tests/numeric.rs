@@ -2,6 +2,7 @@
 use crate::tests::common::round_trip_bytecode;
 use crate::{
     error::VmError,
+    executor::Executor,
     tests::common::{compile_test_bytecode, standard_runtime},
     vm::Vm,
 };
@@ -27,7 +28,7 @@ fn check(source: &str, entries: &[String], traps: bool) {
         "{source}\npub fn numeric_ready() -> bool {{ true }}"
     ));
     let decoded = round_trip_bytecode(source_program.clone());
-    // These fixtures only use scalar locals. Install/load once per artifact
+    // These fixtures use scalar locals and fields. Install/load once per artifact
     // route; the successful probe after every entry checks independent calls
     // still work after traps. The two routes retain separate heaps and roots.
     for (route, program) in [("direct", source_program), ("decoded", decoded)] {
@@ -189,4 +190,68 @@ fn numeric_conversions_preserve_all_supported_domains() {
     ));
     entries.push("main_bool".into());
     check(&source, &entries, false);
+}
+
+#[test]
+fn scalar_fields_transfer_all_checked_integer_domains() {
+    let mut source = String::new();
+    let mut entries = Vec::new();
+    for (ty, width, signed) in INTEGERS {
+        let min = if signed { -(1_i128 << (width - 1)) } else { 0 };
+        let max = (1_i128 << (width - u32::from(signed))) - 1;
+        let entry = format!("fields_{ty}");
+        source.push_str(&format!(
+            "struct S_{ty} {{ var before: bool, var value: {ty}, var after: bool }}
+             pub fn {entry}() -> bool {{
+                val p = S_{ty} {{ before: true, value: {min}{ty}, after: false }};
+                val initial = p.value == {min}{ty};
+                p.value = {max}{ty};
+                initial && p.before && !p.after && p.value == {max}{ty}
+             }}\n"
+        ));
+        entries.push(entry);
+    }
+    check(&source, &entries, false);
+}
+
+#[test]
+fn scalar_field_overflow_preserves_prior_effects_and_does_not_commit() {
+    let program = compile_test_bytecode(
+        "struct State { var before: i32, var value: i8, var after: i32 }
+         pub fn main() -> State { State { before: 0, value: 127i8, after: 0 } }
+         fn update(s: State) { s.before += 1; s.value += 1i8; s.after += 1; }
+         fn check(s: State) -> bool { s.before == 1 && s.value == 127i8 && s.after == 0 }",
+    );
+    let decoded = round_trip_bytecode(program.clone());
+    for program in [program, decoded] {
+        let mut runtime = standard_runtime(Default::default());
+        let loaded = runtime.load_program("field-overflow", program).unwrap();
+        let function = |name| {
+            loaded
+                .bytecode
+                .functions
+                .iter()
+                .find(|f| f.name == name)
+                .unwrap()
+                .id
+        };
+        let vm = Vm::new(runtime);
+        let kept = vm.execute(&loaded, "main").unwrap();
+        let value = kept.return_value.value(vm.runtime().gc()).unwrap();
+        let result = Executor::new(vm.runtime(), &loaded, function("update"), &[value])
+            .unwrap()
+            .run();
+        assert!(
+            matches!(result, Err(VmError::RuntimeError(error)) if error.kind() == RuntimeErrorKind::ScriptTrap)
+        );
+        vm.runtime().collect_garbage().unwrap();
+        assert_eq!(
+            Executor::new(vm.runtime(), &loaded, function("check"), &[value])
+                .unwrap()
+                .run()
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    }
 }

@@ -695,7 +695,7 @@ fn shared_composite_arguments_keep_distinct_nominal_generations() {
 }
 
 #[test]
-fn shared_closures_keep_type_metadata_without_retaining_caller_state() {
+fn shared_closures_keep_type_metadata_and_pinned_construction_dependencies() {
     check_type_provenance_reload(
         r#"
         struct Item { val value: i32 }
@@ -824,8 +824,10 @@ fn check_type_provenance_reload(source: &str) {
     let third = runtime.publish_staged_reload(candidate).unwrap();
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(!reclaimed.contains(&old.key()));
-    assert!(reclaimed.contains(&second.key()));
-    assert!(runtime.validate_loaded_module(&second).is_err());
+    // Shared execution keeps its caller-supplied construction applications pinned.
+    // Plain aggregate layout provenance alone is covered by runtime layout tests.
+    assert!(!reclaimed.contains(&second.key()));
+    runtime.validate_loaded_module(&second).unwrap();
     let call = third
         .bytecode
         .functions
@@ -844,6 +846,8 @@ fn check_type_provenance_reload(source: &str) {
     drop(interface_root);
     let reclaimed = runtime.collect_garbage().unwrap().reclaimed_modules;
     assert!(reclaimed.contains(&old.key()));
+    assert!(reclaimed.contains(&second.key()));
+    assert!(runtime.validate_loaded_module(&second).is_err());
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
 }
 

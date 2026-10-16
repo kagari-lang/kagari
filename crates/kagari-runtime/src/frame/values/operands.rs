@@ -1,8 +1,8 @@
 //! Borrowed banks preserve the ordinary slot representation rules after window admission.
 use crate::{
-    frame::values::{ExecutionValues, FrameSlots, scalar},
+    frame::values::{ExecutionValues, FrameSlots},
     module::execution::layout::Location,
-    value::Value,
+    value::{Value, scalar},
 };
 
 pub(crate) struct OperandWindow<'a> {

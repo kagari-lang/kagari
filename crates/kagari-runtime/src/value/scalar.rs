@@ -1,6 +1,7 @@
 //! Cold scalar admission/materialization. Hot kernels consume complete payloads.
 use crate::value::Value;
 use kagari_abi::representation::ValueType;
+use kagari_types::scalar::BuiltinType;
 
 pub(crate) fn encode(value: &Value) -> Option<u64> {
     Some(match *value {
@@ -26,4 +27,24 @@ pub(crate) fn decode(ty: ValueType, bits: u64) -> Option<Value> {
         ValueType::F64 => Value::F64(f64::from_bits(bits)),
         _ => return None,
     })
+}
+
+/// Shared scalar domain admission for banks and type-directed field storage.
+pub(crate) fn admits_payload(
+    representation: ValueType,
+    semantic: Option<BuiltinType>,
+    bits: u64,
+) -> bool {
+    if representation == ValueType::Bool && bits > 1 {
+        return false;
+    }
+    let Some((min, max)) = semantic.and_then(BuiltinType::integer_bounds) else {
+        return true;
+    };
+    let value = match representation {
+        ValueType::I32 | ValueType::I64 => i128::from(bits as i64),
+        ValueType::U64 => i128::from(bits),
+        _ => return false,
+    };
+    value >= min && value <= max
 }

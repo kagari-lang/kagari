@@ -32,7 +32,7 @@ impl GcHeap {
         let interfaces = self.interfaces.try_borrow().ok()?;
         let objects = self.objects.try_borrow().ok()?;
         let mut pending = Vec::new();
-        let mut edges = values.iter().rev().collect();
+        let mut edges = values.iter().rev().copied().collect();
         append_value_edges(&mut edges, &mut pending);
         collector::mark(pending, |id, pending| {
             let object = self.object_ref(&objects, id)?;
@@ -99,7 +99,7 @@ impl GcHeap {
                 Some(())
             })?;
         }
-        let mut edges = values.iter().rev().collect();
+        let mut edges = values.iter().rev().copied().collect();
         metadata.append_values(&mut edges);
         if !edges.iter().all(|value| self.collection_value_valid(value)) {
             return None;
@@ -124,7 +124,7 @@ impl GcHeap {
                 }
                 Node::Program(id) => {
                     let mut applications = Vec::new();
-                    programs.trace(id, &mut |value| edges.push(value), &mut applications)?;
+                    programs.trace(id, &mut |value| edges.push(*value), &mut applications)?;
                     for edge in applications {
                         metadata.programs(edge, |owner| {
                             pending.push(Node::Program(programs.executable_edge(owner)?));
@@ -280,6 +280,7 @@ impl GcHeap {
             }
         }
         self.interfaces.borrow_mut().prune_descriptions();
+        self.struct_layouts.borrow_mut().prune();
         self.mutations.prune();
         self.key_lookups.prune();
         self.native_operations.prune();

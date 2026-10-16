@@ -7,7 +7,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, StructId},
     module::BytecodeModule,
 };
-use kagari_types::{reference::ReferenceAccess, ty::Ty};
+use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType, ty::Ty};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FieldAccess {
@@ -24,6 +24,7 @@ pub(crate) struct PreparedFieldOperation {
     pub(crate) pc: usize,
     pub(crate) concrete: bool,
     pub(crate) reference: Option<ReferenceAccess>,
+    pub(crate) scalar: Option<BuiltinType>,
 }
 
 impl PreparedFieldOperation {
@@ -55,6 +56,13 @@ impl PreparedFieldOperation {
             _ => unreachable!("field preparation only"),
         };
         let layout = &module.structures[field.structure.index()];
+        let scalar_location = match access {
+            FieldAccess::Read { dst } => dst,
+            FieldAccess::Write { value } => value,
+        };
+        let scalar = (!scalar_location.operand.managed())
+            .then_some(scalar_location.semantic)
+            .flatten();
         Self {
             base: registers.location(base.index()).expect("sealed field base"),
             access,
@@ -64,6 +72,7 @@ impl PreparedFieldOperation {
             structure: field.structure,
             slot: field.slot,
             reference: field.reference,
+            scalar,
         }
     }
 

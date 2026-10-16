@@ -1,3 +1,5 @@
+pub(crate) mod scalar;
+
 use crate::{
     gc::{GcHeap, HeapObjectId},
     host::{FrameHostBorrowToken, HostRegistryId, scoped::ScopedHostView},

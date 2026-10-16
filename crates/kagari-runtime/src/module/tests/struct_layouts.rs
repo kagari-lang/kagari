@@ -372,3 +372,85 @@ fn nested_field_types_reject_wrong_nominals_before_allocation_or_commit() {
         Some(replacement)
     );
 }
+
+#[test]
+fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries() {
+    let cases = [
+        (BuiltinType::Bool, Value::Bool(true)),
+        (BuiltinType::Unit, Value::Unit),
+        (BuiltinType::I8, Value::I32(i8::MIN.into())),
+        (BuiltinType::I16, Value::I32(i16::MIN.into())),
+        (BuiltinType::I32, Value::I32(i32::MIN)),
+        (BuiltinType::I64, Value::I64(i64::MIN)),
+        (BuiltinType::ISize, Value::I64(i64::MAX)),
+        (BuiltinType::U8, Value::I64(u8::MAX.into())),
+        (BuiltinType::U16, Value::I64(u16::MAX.into())),
+        (BuiltinType::U32, Value::I64(u32::MAX.into())),
+        (BuiltinType::U64, Value::U64(u64::MAX)),
+        (BuiltinType::USize, Value::U64(u64::MAX)),
+        (BuiltinType::F32, Value::F32(f32::from_bits(0x7fc1_2345))),
+        (
+            BuiltinType::F64,
+            Value::F64(f64::from_bits(0x7ff8_1234_5678_9abc)),
+        ),
+    ];
+    let names = (0..cases.len())
+        .map(|slot| format!("field{slot}"))
+        .collect::<Vec<_>>();
+    let fields = cases
+        .iter()
+        .zip(&names)
+        .map(|((ty, _), name)| (name.as_str(), Ty::Builtin(*ty), true))
+        .collect::<Vec<_>>();
+    let mut runtime = Runtime::default();
+    let layout = layouts::layout(&mut runtime, "Scalars", &fields);
+    let object = runtime
+        .alloc_struct(
+            layout.clone(),
+            cases.iter().map(|(_, value)| *value).collect(),
+        )
+        .unwrap();
+    let root = runtime.root_value(Value::Struct(object)).unwrap();
+    runtime.collect_garbage().unwrap();
+    for (slot, (_, expected)) in cases.iter().enumerate() {
+        let actual = runtime.gc().struct_get_slot(object, &layout, slot).unwrap();
+        match (actual, expected) {
+            (Value::F32(actual), Value::F32(expected)) => {
+                assert_eq!(actual.to_bits(), expected.to_bits())
+            }
+            (Value::F64(actual), Value::F64(expected)) => {
+                assert_eq!(actual.to_bits(), expected.to_bits())
+            }
+            (actual, expected) => assert_eq!(actual, *expected),
+        }
+    }
+    runtime
+        .gc()
+        .struct_set_slot(object, &layout, 12, Value::F32(-0.0))
+        .unwrap();
+    runtime
+        .gc()
+        .struct_set_slot(object, &layout, 13, Value::F64(-0.0))
+        .unwrap();
+    let (_, fields) = runtime.gc().struct_snapshot(object).unwrap();
+    let Value::F32(value) = fields[12].value else {
+        unreachable!()
+    };
+    assert_eq!(value.to_bits(), (-0.0_f32).to_bits());
+    let Value::F64(value) = fields[13].value else {
+        unreachable!()
+    };
+    assert_eq!(value.to_bits(), (-0.0_f64).to_bits());
+    assert!(
+        runtime
+            .gc()
+            .struct_set_slot(object, &layout, 2, Value::I32(128))
+            .is_err()
+    );
+    assert_eq!(
+        runtime.gc().struct_get_slot(object, &layout, 2),
+        Some(Value::I32(-128))
+    );
+    drop(root);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}

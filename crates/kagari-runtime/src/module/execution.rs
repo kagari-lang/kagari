@@ -9,7 +9,6 @@ pub(crate) mod layout;
 pub mod managed;
 
 use crate::{
-    frame::values::scalar,
     module::execution::{
         calls::PreparedCall,
         fields::PreparedFieldOperation,
@@ -18,7 +17,7 @@ use crate::{
         managed::{ManagedOperation, PreparedManagedOperation},
     },
     numeric::binary_operation,
-    value::Value,
+    value::{Value, scalar},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{

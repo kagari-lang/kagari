@@ -4,7 +4,7 @@ use crate::{
     debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
     reentry::reenter,
     tests::{
-        common::{compile_test_bytecode, standard_runtime},
+        common::{compile_logging_test_bytecode, standard_runtime},
         native_fixtures,
     },
     vm::Vm,
@@ -19,7 +19,7 @@ fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
     for encoded in [false, true] {
         for jit in [false, true] {
             let source = "fn main() -> i32 { val kept = [42]; print(\"enter\"); kept[0] } fn nested(n: i32) -> i32 { val doubled = n + n; doubled + 2147483647 }";
-            let module = compile_test_bytecode(source);
+            let module = compile_logging_test_bytecode(source);
             let nested = module.records().modules[module.records().root.index()]
                 .functions
                 .iter()

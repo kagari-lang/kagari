@@ -126,6 +126,72 @@ impl ExecutionStack<'_> {
                 .with_location(frame.slots, location, |value| *value)
                 .ok_or_else(|| runtime.resources().quarantine("invalid field operand"))
         };
+        if operation.reference.is_none()
+            && let Some(ty) = operation.scalar
+        {
+            let bits = if let FieldAccess::Write { value } = operation.access {
+                Some(
+                    runtime
+                        .resources()
+                        .frame_values
+                        .try_borrow()
+                        .map_err(|_| {
+                            runtime
+                                .resources()
+                                .quarantine("field operands borrowed across transition")
+                        })?
+                        .scalar_location(frame.slots, value)
+                        .ok_or_else(|| {
+                            runtime
+                                .resources()
+                                .quarantine("invalid scalar field operand")
+                        })?
+                        .1,
+                )
+            } else {
+                None
+            };
+            let layout = if let Some(layout) = operation.concrete_layout(&frame.loaded) {
+                layout
+            } else {
+                frame.field_layout(runtime, operation.pc)?
+            };
+            let Value::Struct(id) = read(operation.base)? else {
+                return Err(RegionError::TypeMismatch(match operation.access {
+                    FieldAccess::Read { .. } => "read_field expects struct value",
+                    FieldAccess::Write { .. } => "write_field expects struct value",
+                }));
+            };
+            match operation.access {
+                FieldAccess::Read { dst } => {
+                    let bits = runtime
+                        .gc()
+                        .struct_scalar(id, &layout, operation.slot as usize, ty)
+                        .ok_or(RegionError::TypeMismatch("struct layout or field mismatch"))?;
+                    runtime
+                        .resources()
+                        .frame_values
+                        .try_borrow_mut()
+                        .map_err(|_| {
+                            runtime
+                                .resources()
+                                .quarantine("field operands borrowed during publication")
+                        })?
+                        .set_scalar_location(frame.slots, dst, dst.representation, bits)
+                        .ok_or_else(|| {
+                            runtime.resources().quarantine("invalid field destination")
+                        })?;
+                }
+                FieldAccess::Write { .. } => runtime.gc().set_struct_scalar(
+                    id,
+                    &layout,
+                    operation.slot as usize,
+                    ty,
+                    bits.expect("prepared scalar write"),
+                )?,
+            }
+            return Ok(RegionExit::Safepoint);
+        }
         let action = match operation.access {
             FieldAccess::Read { .. } => FieldAction::Read,
             FieldAccess::Write { value } => FieldAction::Write(read(value)?),

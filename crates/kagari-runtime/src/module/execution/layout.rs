@@ -1,7 +1,7 @@
 //! Sealed canonical locations map into disjoint scalar and managed banks.
 use crate::{
     module::execution::{OperandSlot, allocation::RegisterAllocation},
-    value::Value,
+    value::{Value, scalar},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::module::BytecodeFunction;
@@ -21,18 +21,7 @@ impl Location {
         if self.operand.managed() || self.representation != representation {
             return false;
         }
-        if representation == ValueType::Bool && bits > 1 {
-            return false;
-        }
-        let Some((min, max)) = self.semantic.and_then(BuiltinType::integer_bounds) else {
-            return true;
-        };
-        let value = match representation {
-            ValueType::I32 | ValueType::I64 => i128::from(bits as i64),
-            ValueType::U64 => i128::from(bits),
-            _ => return false,
-        };
-        value >= min && value <= max
+        scalar::admits_payload(representation, self.semantic, bits)
     }
 
     pub(crate) fn admits(self, value: &Value) -> bool {

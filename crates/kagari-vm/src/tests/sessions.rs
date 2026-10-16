@@ -3,7 +3,10 @@ use crate::{
     error::VmError,
     reentry::reenter,
     tests::{
-        common::{compile_test_bytecode, round_trip_bytecode, standard_runtime},
+        common::{
+            compile_logging_test_bytecode, compile_test_bytecode, round_trip_bytecode,
+            standard_runtime,
+        },
         native_fixtures,
     },
     vm::Vm,
@@ -49,7 +52,7 @@ fn host_reentry_keeps_outer_frames_results_and_borrow_scopes_alive() {
     use kagari_runtime::{error::RuntimeErrorKind, host::HostObjectId, metadata::TypeId};
     for encoded in [false, true] {
         for jit in [false, true] {
-            let module = compile_test_bytecode(
+            let module = compile_logging_test_bytecode(
                 "fn main() -> i32 { val kept = [42]; print(\"outer\"); kept[0] } fn make(n: i32) -> [i32] { print(\"inner\"); [n, 8] }",
             );
             let make = module.records().modules[module.records().root.index()]
@@ -169,7 +172,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
     for cancel in [false, true] {
         for encoded in [false, true] {
             for jit in [false, true] {
-                let module = compile_test_bytecode(
+                let module = compile_logging_test_bytecode(
                     "fn main() -> i32 { print(\"outer\"); 42 } fn nested() -> i32 { print(\"inner\"); 7 }",
                 );
                 let nested = module.records().modules[module.records().root.index()]
@@ -252,7 +255,7 @@ fn host_reentry_cannot_swallow_root_termination_and_releases_borrows() {
 
 #[test]
 fn reentry_rejects_foreign_and_stale_inputs() {
-    let module = compile_test_bytecode(
+    let module = compile_logging_test_bytecode(
         "fn main() -> i32 { print(\"enter\"); 42 } fn echo(value: Vec<i32>) -> Vec<i32> { value }",
     );
     let main = module.records().modules[module.records().root.index()]
@@ -320,7 +323,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
     for encoded in [false, true] {
         let program = |number| {
             route(
-                compile_test_bytecode(&format!(
+                compile_logging_test_bytecode(&format!(
                     "fn main() -> i32 {{ print(\"enter\"); 0 }} fn value() -> i32 {{ {number} }}"
                 )),
                 encoded,
@@ -368,7 +371,7 @@ fn reentry_uses_the_root_version_and_rejects_other_epochs() {
 
 #[test]
 fn reentry_trap_cleans_nested_frames_without_terminating_the_outer_call() {
-    let module = compile_test_bytecode(
+    let module = compile_logging_test_bytecode(
         "fn main() -> i32 { print(\"enter\"); 42 } fn fail(n: i32) -> i32 { val kept = [n]; n + 1 }",
     );
     let fail = module.records().modules[module.records().root.index()]
@@ -452,7 +455,7 @@ fn cancellation_after_a_host_effect_releases_frames_and_preserves_the_effect() {
             })
             .install(&mut runtime)
             .unwrap();
-            let module = compile_test_bytecode(
+            let module = compile_logging_test_bytecode(
                 "fn main() -> i32 { val kept = [1]; print(\"cancel\"); 42 } pub fn ready() -> i32 { 7 }",
             );
             let loaded = runtime
@@ -511,7 +514,7 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
     for encoded in [false, true] {
         let program = || {
             route(
-                compile_test_bytecode("fn main() { print(\"forbidden\"); }"),
+                compile_logging_test_bytecode("fn main() { print(\"forbidden\"); }"),
                 encoded,
             )
         };
@@ -565,8 +568,9 @@ fn staged_modules_cannot_execute_effects_through_an_ordinary_vm_entry() {
 fn host_created_err_captures_script_site_and_reentry_traps_keep_inner_origin() {
     use kagari_runtime::host::HostError;
     for encoded in [false, true] {
-        let module =
-            compile_test_bytecode("fn main()->i32 { print(\"entry\");42 } fn fail()->i32 {42/0}");
+        let module = compile_logging_test_bytecode(
+            "fn main()->i32 { print(\"entry\");42 } fn fail()->i32 {42/0}",
+        );
         let fail = module.records().modules[module.records().root.index()]
             .functions
             .iter()

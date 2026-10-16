@@ -5,11 +5,12 @@ use crate::{
     execution_metadata::interfaces::InterfaceSnapshotId,
     gc::{
         HeapObjectId,
+        fields::StructStorage,
         storage::{Exclusive, HeapObject, Shared},
         values::TupleData,
     },
     host::{HostPathViewHandle, HostRootHandle},
-    module::{ModuleKey, StructLayoutRef},
+    module::ModuleKey,
     native::storage::NativeObject,
     range::RangeValue,
     value::{EnumValueSnapshot, EphemeralValue, Value},
@@ -76,7 +77,7 @@ pub(super) struct PayloadStores {
     ephemerals: Vec<Entry<EphemeralValue>>,
     natives: Vec<Entry<NativeObject>>,
     enums: Vec<Entry<(EnumValueSnapshot, Option<Arc<ErrorTrace>>)>>,
-    structs: Vec<Entry<(StructLayoutRef, Vec<Value>)>>,
+    structs: Vec<Entry<StructStorage>>,
     interfaces: Vec<Entry<(InterfaceSnapshotId, usize)>>,
     closures: Vec<Entry<ClosureValueSnapshot>>,
     cells: Vec<Entry<(ValueType, Value)>>,
@@ -195,13 +196,13 @@ impl ObjectStorage {
                     index,
                 })
             }
-            HeapObject::Struct { layout, fields } => {
+            HeapObject::Struct { storage } => {
                 self.payloads.structs.try_reserve(1)?;
                 let index = u32::try_from(self.payloads.structs.len())
                     .expect("admitted heap payload index");
                 self.payloads.structs.push(Entry {
                     directory,
-                    payload: (layout, fields),
+                    payload: storage,
                 });
                 Ok(PayloadLocation {
                     kind: PayloadKind::Struct,
@@ -263,10 +264,7 @@ impl ObjectStorage {
             .then(|| &mut self.payloads.natives[location.index as usize].payload)
     }
 
-    pub(super) fn structure(
-        &self,
-        location: PayloadLocation,
-    ) -> Option<&(StructLayoutRef, Vec<Value>)> {
+    pub(super) fn structure(&self, location: PayloadLocation) -> Option<&StructStorage> {
         matches!(location.kind, PayloadKind::Struct)
             .then(|| &self.payloads.structs[location.index as usize].payload)
     }
@@ -274,7 +272,7 @@ impl ObjectStorage {
     pub(super) fn structure_mut(
         &mut self,
         location: PayloadLocation,
-    ) -> Option<&mut (StructLayoutRef, Vec<Value>)> {
+    ) -> Option<&mut StructStorage> {
         matches!(location.kind, PayloadKind::Struct)
             .then(|| &mut self.payloads.structs[location.index as usize].payload)
     }
@@ -316,10 +314,7 @@ impl ObjectStorage {
             }
             PayloadKind::Struct => {
                 let value = &self.payloads.structs[index].payload;
-                HeapObject::Struct {
-                    layout: &value.0,
-                    fields: &value.1,
-                }
+                HeapObject::Struct { storage: value }
             }
             PayloadKind::Interface => {
                 let value = &self.payloads.interfaces[index].payload;
@@ -379,10 +374,7 @@ impl ObjectStorage {
             }
             PayloadKind::Struct => {
                 let value = &mut self.payloads.structs[index].payload;
-                HeapObject::Struct {
-                    layout: &mut value.0,
-                    fields: &mut value.1,
-                }
+                HeapObject::Struct { storage: value }
             }
             PayloadKind::Interface => {
                 let value = &mut self.payloads.interfaces[index].payload;
@@ -446,10 +438,7 @@ impl ObjectStorage {
             }
             PayloadKind::Struct => {
                 let value = remove(&mut self.payloads.structs, &mut self.slots, index);
-                HeapObject::Struct {
-                    layout: value.0,
-                    fields: value.1,
-                }
+                HeapObject::Struct { storage: value }
             }
             PayloadKind::Interface => {
                 let value = remove(&mut self.payloads.interfaces, &mut self.slots, index);

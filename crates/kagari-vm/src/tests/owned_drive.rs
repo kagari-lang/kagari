@@ -3,7 +3,7 @@ use crate::tests::common::round_trip_bytecode;
 use crate::{
     error::VmError,
     reentry::reenter,
-    tests::common::{compile_test_bytecode, standard_runtime},
+    tests::common::{compile_logging_test_bytecode, standard_runtime},
     vm::{Vm, owned::DriveResult},
 };
 
@@ -32,7 +32,7 @@ impl Wake for WakeCount {
 
 #[test]
 fn async_owned_drive_contract() {
-    let program = compile_test_bytecode(
+    let program = compile_logging_test_bytecode(
         r#"
         struct State { var sum: i32, var kept: [i32] }
         fn helper(n: i32) -> i32 { n + 1 }
@@ -248,7 +248,7 @@ fn async_owned_drive_contract() {
 
 #[test]
 fn async_owned_drive_contract_iterator_invalidation() {
-    let program = compile_test_bytecode(
+    let program = compile_logging_test_bytecode(
         r#"
         pub fn make() -> Vec<i32> { Vec::from([1, 2, 3]) }
         pub fn sum(items: Vec<i32>) -> i32 {
