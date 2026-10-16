@@ -49,6 +49,10 @@ name = "runtime_initialization"
 required-features = ["source"]
 
 [[example]]
+name = "execution_completion"
+required-features = ["source"]
+
+[[example]]
 name = "regenerate_feature_artifact"
 required-features = ["source"]
 

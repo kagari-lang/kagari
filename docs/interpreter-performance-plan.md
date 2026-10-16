@@ -2042,6 +2042,73 @@ allocation/lifetime evidence remains applicable to unchanged owners, while these
 measured common-gate failures explicitly prevent combined IP02/IP03 acceptance.
 IP04-IP07 are still unstarted, and the full CI matrix remains separate.
 
+For completion attribution, predeclare a separate public-SDK example using the
+owned control's unchanged `hold(n)` body, 32 roots retired in tail order, and four
+routes: complete from the first instruction; resume the body and park immediately
+before Return; resume just the final Return; cancel from the first instruction.
+Count the body's logical instructions once with the existing observer outside
+timing, then detach the observer. Use ordinary instruction slices for every park,
+validate each expected Runnable/Complete outcome, result and cleanup, and never
+infer a logical PC from a source line. The body-only route adds a real park; its
+cost cannot be subtracted from whole completion as an exact component estimate.
+
+Build identical probe source at IP01 and the current revision with default release
+profiles/parallelism in their own default targets. After all builds/checks finish,
+run seven alternating process pairs, three warmups and eleven samples per route,
+each sample summing sixteen complete 32-root cycles. Admission and explicit GC
+stay outside each timed region. Reverse route order on alternating pairs. Record
+both image/source hashes, original measured paths, instruction count and checksums.
+This diagnostic localizes the regression; its new binary or extra slice/observer
+setup cannot replace any frozen ordinary acceptance result. Keep window-retirement
+attribution separate and do not change production before inspecting these results.
+
+The seven completion-probe pairs finish at UTC 20261016T205000Z. Both revisions
+execute 99 logical instructions, and all Runnable/Complete, value, cancellation,
+retired-owner and call-depth assertions pass. Aggregate/paired ratios are
+complete 1.02546/1.02941, body 1.01601/1.00804, final Return 1.02841/1.02520 and
+cancel 1.01357/1.01286. All samples remain, including the candidate completion
+process median of 59.68 us (the other six are 41.65–42.05 us). The probe does not
+reproduce the ordinary control's 13–33% completion regression. It cannot establish
+that the frozen gate passes or identify a return/scalar implementation defect.
+
+Probe source SHA-256 is
+`03d528c137e8027aa5d13f7415742ceffe364bde45be9c897e04fe891a683753`;
+baseline/current images are
+`9739b91f3441204cbe89149ad5a7e21c12b7c1dac27efb032e4f6091eb8e3ec5` and
+`6e2a33533cae87c02d6a5b58aa7466493196e8aeb5d01df24e88cfd6e3e08a85`.
+Build/run with `cargo build --release --locked -p kagari --example
+execution_completion`, then `target/release/examples/execution_completion.exe`
+(optionally `--reverse`) in each checkout. Source and the four measured boundaries
+live in [the diagnostic example](../crates/kagari/examples/execution_completion.rs).
+The environment remains the recorded Windows/MSVC i7-10700F, Rust 1.98.1/LLVM
+22.1.8, workspace release defaults and Cargo default parallelism. Setup is excluded;
+three warm cycles precede eleven samples of sixteen cycles, with explicit GC
+outside each timed region. These are warm process measurements, not cold startup.
+
+Offline PE/PDB inspection compares the exact current ordinary and probe images:
+Vm::drive, Executor::run_inner, both execute_region functions, finish_return and
+ExecutionValues::release have identical instruction shapes after normalizing image
+addresses and local branch offsets. Their sizes also match. This does not prove
+all callees or cache behavior identical. The probe differs in cycle batching,
+observer setup, retained compilation objects, root-vector handling and linked image;
+none is yet established as the cause. Do not repair production based on speculation.
+
+Local validation of the diagnostic: both release example builds pass; structure
+checks pass (1283 files, zero findings), formatting, diff checks and workspace
+all-target Clippy pass. Its runtime assertions provide the focused behavioral check;
+no full workspace tests or exhaustive CI matrix ran.
+
+Predeclare one bounded follow-up to distinguish batching from the other differences:
+add an explicit batch selector (1 or 16) to the same diagnostic source on both
+revisions, keeping the existing default of 16 and all measured boundaries unchanged.
+Build each example once, then run seven alternating pairs for each batch size on
+those same two images/original paths (28 processes total), reversing batch and
+variant order between pairs. Keep route reversal, three warm cycles, eleven samples,
+all checksums and every observation. Do not rebuild between batch modes. Batch 1
+matches the ordinary control's per-sample cycle count; other probe differences
+remain. This comparison can identify a batching-associated difference, not clear
+any ordinary acceptance gate. Complete both modes before deciding another action.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
