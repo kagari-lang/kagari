@@ -149,9 +149,26 @@ cancellation, roots and pinned generations, without a second interpreter or new
 standalone top-level-statement rule. [Debugger tooling](debugger-design.md) owns its
 separately proposed debug/DAP modes.
 
+## Runtime storage redesign
+
+The [runtime storage execution plan](runtime-storage-plan.md) owns RS01-RS06 and
+is prioritized ahead of downcast, NC migration and the proposed call-lifecycle
+optimization. Implementation has not started. Share receiver-independent interface
+descriptions, replace largest-variant heap slots with a compact identity directory
+and focused stores, and store script struct fields by verified type. Preserve
+general Value transport, scalar frame banks, numeric buffers and checked ownership.
+
+Heap-local reference compression is a conditional phase with a safety/measurement
+gate; universal 8-byte Value, new GC algorithms, state migration and native-backend
+expansion are outside scope. The plan records measured shallow sizes and requires
+matched total-storage/latency evidence before performance claims. It does not
+activate the dependent tracks or establish their acceptance.
+
 ## Library-owned native collections
 
 [NC01-NC06](native-collections-plan.md) are queued and unstarted.
+They follow the prioritized [runtime storage work](runtime-storage-plan.md);
+refresh the resulting shared heap/descriptor contracts before NC01.
 Refresh their API/code inventory against the current scoped identity APIs.
 Baseline 9cd90557 includes the completed Iterable APIs, retained selected-call slots
 and Vec/HashMap/HashSet FromIterator implementations.
@@ -202,7 +219,8 @@ Acceptance requires interpreter/Lua median <=1.0 for every unchanged matched
 workload on one machine, with uncertainty analysis near parity. Entry, adapters,
 alternate numeric diagnostics and JIT results cannot replace that gate.
 
-The proposed, unactivated next scope is a bounded call-lifecycle review: prepared
+After the prioritized [runtime storage work](runtime-storage-plan.md), the
+proposed, unactivated follow-up is a bounded call-lifecycle review: prepared
 invocation contracts, active-session admission, parameter/frame-window setup and
 return. Preserve changing receiver/type/version, roots, cancellation, host/reentry
 and trap order; measure unchanged workloads plus setup and retained memory. Native
@@ -319,6 +337,8 @@ The [interface downcast execution plan](interface-downcast-plan.md) records the
 accepted `is::<T>() -> bool` and `downcast::<T>() -> Option<T>` direction and owns
 DC01-DC04. Implementation has not started. Reuse concrete interface metadata,
 checked type environments, roots and pinned versions; no Any trait is added.
+Execute after the prioritized [runtime storage redesign](runtime-storage-plan.md)
+and refresh DC01's implementation inventory against its shared descriptions.
 Ordinary read-only interfaces may explicitly recover their concrete storage,
 while host access restrictions and scoped-reference exclusion remain intact.
 

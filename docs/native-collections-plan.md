@@ -5,6 +5,12 @@ Status: agreed direction recorded; implementation has not started. The
 placement. This plan owns NC01-NC06, the bounded API design, migration acceptance
 and progress ledger. API sketches are proposals, not currently callable APIs.
 
+Scheduling update, 2026-10-16: the user prioritized
+[runtime storage redesign](runtime-storage-plan.md) before NC01. Refresh the
+shared heap, descriptor and handle inventory after that work. NC still owns
+library collection storage/algorithms; the predecessor does not perform NC's
+collection migration or add new collection-family policy to generic storage.
+
 ## Outcome and scope
 
 Make Vec, HashMap and HashSet ordinary nominal native objects registered through
