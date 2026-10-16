@@ -7,6 +7,7 @@ use kagari_contract::types::PublicItem;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
+    frame::driver::ReturnAction,
     native::{
         builder::ModuleBuilder,
         conversion::context::ConversionContext,
@@ -160,7 +161,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     stack.start_native_entry(&runtime, |_, _, _, _| {
         unreachable!("Rust read never calls script")
     })?;
-    assert_eq!(stack.finish_native_return(&runtime)?, Some(Value::I32(42)));
+    assert_eq!(
+        stack.finish_native_return(&runtime)?,
+        ReturnAction::Complete(Value::I32(42))
+    );
     drop(stack);
     drop(encoded);
     drop(owned);

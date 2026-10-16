@@ -12,7 +12,10 @@ use kagari_bytecode::{
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_runtime::{
     Runtime,
-    frame::transfer::ReturnValue,
+    frame::{
+        driver::{ExecutionAction, ReturnAction},
+        transfer::ReturnValue,
+    },
     module::{LoadedModule, entry::ProgramEntry},
 };
 use kagari_types::ty::{NominalTy, Ty};
@@ -298,11 +301,11 @@ fn interface_frame_descendants_follow_the_receivers_pinned_program() {
     stack.push(&runtime, old.slot(), helper, &[], None).unwrap();
     assert_eq!(stack.current().unwrap().loaded().key(), old.key());
     stack.pop().unwrap();
-    assert!(
+    assert_eq!(
         stack
             .finish_return(&runtime, ReturnValue::general(Value::I32(8)))
-            .unwrap()
-            .is_none()
+            .unwrap(),
+        ReturnAction::Continue(ExecutionAction::Script)
     );
     assert_eq!(stack.current().unwrap().loaded().key(), new.key());
     stack.pop().unwrap();

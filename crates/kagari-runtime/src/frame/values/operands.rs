@@ -4,6 +4,14 @@ use crate::{
     module::execution::layout::Location,
     value::{Value, scalar},
 };
+use kagari_abi::representation::ValueType;
+
+/// A checked source window whose identity cannot change during the storage borrow.
+pub(crate) struct OperandView<'a> {
+    managed: &'a [Value],
+    payloads: &'a [u64],
+    initialized: &'a [bool],
+}
 
 pub(crate) struct OperandWindow<'a> {
     pub(crate) managed: &'a mut [Value],
@@ -12,16 +20,56 @@ pub(crate) struct OperandWindow<'a> {
 }
 
 impl ExecutionValues {
+    pub(crate) fn read_operands(&self, slots: FrameSlots) -> Option<OperandView<'_>> {
+        let ranges = &self.window(slots)?.ranges;
+        Some(OperandView {
+            managed: self.values.get(ranges.managed.clone())?,
+            payloads: self.payloads.get(ranges.scalars.clone())?,
+            initialized: self.initialized.get(ranges.scalars.clone())?,
+        })
+    }
+
     pub(crate) fn borrow_operands(&mut self, slots: FrameSlots) -> Option<OperandWindow<'_>> {
         // Validate owner/generation once, before any references into the banks escape.
         self.window(slots)?;
-        let window = self.windows.get(slots.index)?.as_ref()?;
+        let window = self.windows.get(slots.index)?;
         window.registers.as_ref()?;
         Some(OperandWindow {
             managed: self.values.get_mut(window.ranges.managed.clone())?,
             payloads: self.payloads.get_mut(window.ranges.scalars.clone())?,
             initialized: self.initialized.get_mut(window.ranges.scalars.clone())?,
         })
+    }
+}
+
+impl OperandView<'_> {
+    pub(crate) fn with_value<R>(
+        &self,
+        location: Location,
+        read: impl FnOnce(&Value) -> R,
+    ) -> Option<R> {
+        let value = read_operand(self.managed, self.payloads, self.initialized, location)?;
+        Some(read(&value))
+    }
+
+    fn scalar_location(&self, location: Location) -> Option<(ValueType, u64)> {
+        let slot = location.operand.scalar()?.index();
+        if !self.initialized.get(slot).copied()? {
+            return None;
+        }
+        Some((location.representation, *self.payloads.get(slot)?))
+    }
+
+    pub(crate) fn check_managed(
+        &self,
+        location: Location,
+        check: impl FnOnce(&Value) -> bool,
+    ) -> Option<bool> {
+        if location.operand.scalar().is_some() {
+            self.scalar_location(location)?;
+            return Some(true);
+        }
+        self.with_value(location, check)
     }
 }
 

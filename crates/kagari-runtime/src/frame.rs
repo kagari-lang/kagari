@@ -7,6 +7,7 @@ use crate::{
     execution_metadata::MetadataRoot,
     frame::{
         arguments::FrameArguments,
+        driver::ExecutionAction,
         types::TypeEnvironment,
         values::{FrameMetadata, FrameSlots},
     },
@@ -233,6 +234,7 @@ impl<'runtime> ExecutionStack<'runtime> {
                 environment,
             },
         )
+        .map(|_| ())
     }
 
     pub fn push_callable(
@@ -269,6 +271,7 @@ impl<'runtime> ExecutionStack<'runtime> {
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         self.push_admitted_arguments(runtime, loaded, target, args, return_dst, dispatch)
+            .map(|_| ())
     }
 
     /// Reuse a checked stack only across internal preparation without callbacks.
@@ -280,7 +283,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         args: FrameArguments<'_>,
         return_dst: Option<Register>,
         dispatch: FrameDispatch<'_>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<ExecutionAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallAdmission);
         if !args.all_managed(runtime, |value| runtime.gc.validate_candidate_value(value))? {
@@ -288,12 +291,10 @@ impl<'runtime> ExecutionStack<'runtime> {
                 "external object in candidate call arguments",
             ));
         }
-        if let CallableTarget::Script(function) = target
-            && loaded
-                .bytecode
-                .functions
-                .get(function.index())
-                .is_some_and(|function| function.metadata.effects.may_suspend)
+        if loaded
+            .execution()
+            .callee(target)
+            .is_some_and(|callee| callee.may_suspend)
             && (self.session.state().owner.borrow().is_none()
                 || (!self.frames()?.is_empty() && !matches!(dispatch.entry, FrameEntry::Await)))
         {
@@ -317,9 +318,9 @@ impl<'runtime> ExecutionStack<'runtime> {
         self.session.resources.enter_call()?;
         let prepared = ExecutionFrame::new(runtime, loaded, target, args, return_dst, dispatch);
         match prepared {
-            Ok(frame) => {
+            Ok((frame, action)) => {
                 frames.push(frame);
-                Ok(())
+                Ok(action)
             }
             Err(error) => {
                 self.session.resources.leave_call();
@@ -471,7 +472,7 @@ impl ExecutionFrame {
         args: FrameArguments<'_>,
         return_dst: Option<Register>,
         dispatch: FrameDispatch<'_>,
-    ) -> Result<Self, RuntimeError> {
+    ) -> Result<(Self, ExecutionAction), RuntimeError> {
         let heap = runtime.gc();
         let resources = runtime.resources();
         let FrameDispatch {
@@ -480,79 +481,60 @@ impl ExecutionFrame {
             invocation,
             environment,
         } = dispatch;
-        let (register_count, slot_count, argument_offset, native_entry, registers) = match target {
+        let callee = loaded
+            .execution()
+            .callee(target)
+            .ok_or_else(|| resources.quarantine("invalid prepared callee layout"))?;
+        let (native_entry, action) = match target {
             CallableTarget::Script(function) => {
-                let metadata = loaded
-                    .bytecode
-                    .functions
-                    .get(function.index())
-                    .ok_or_else(|| resources.quarantine("invalid frame function"))?;
-                if args.len() != usize::from(metadata.parameter_count) {
+                if args.len() != callee.parameter_count {
                     return Err(RuntimeError::module_validation(
                         "frame argument count does not match the linked function",
                     ));
                 }
-                if metadata
-                    .metadata
-                    .semantic
-                    .generic
-                    .as_ref()
-                    .is_some_and(|body| {
-                        environment
-                            .as_ref()
-                            .is_none_or(|environment| !environment.types.matches(body))
-                    })
+                if callee.generic
+                    && loaded.bytecode.functions[function.index()]
+                        .metadata
+                        .semantic
+                        .generic
+                        .as_ref()
+                        .is_some_and(|body| {
+                            environment
+                                .as_ref()
+                                .is_none_or(|environment| !environment.types.matches(body))
+                        })
                 {
                     return Err(RuntimeError::module_validation(
                         "shared generic entry requires a call environment",
                     ));
                 }
-                let register_count = usize::from(metadata.register_count);
-                let registers = loaded.execution().functions[function.index()]
-                    .registers
-                    .clone();
-                (
-                    register_count,
-                    register_count + usize::from(metadata.local_count),
-                    register_count,
-                    NativeEntryState::Script,
-                    Some(registers),
-                )
+                (NativeEntryState::Script, ExecutionAction::Script)
             }
             CallableTarget::Native(import) => {
-                let registers = loaded
-                    .execution()
-                    .native_layouts
-                    .get(import.index())
-                    .cloned()
-                    .ok_or_else(|| resources.quarantine("invalid prepared native layout"))?;
-                let import = loaded
-                    .bytecode
-                    .native_imports
-                    .get(import.index())
-                    .ok_or_else(|| resources.quarantine("invalid native frame import"))?;
-                if import.generic.as_ref().is_some_and(|body| {
-                    environment
+                if callee.generic
+                    && loaded.bytecode.native_imports[import.index()]
+                        .generic
                         .as_ref()
-                        .is_none_or(|environment| !environment.types.matches(body))
-                }) {
+                        .is_some_and(|body| {
+                            environment
+                                .as_ref()
+                                .is_none_or(|environment| !environment.types.matches(body))
+                        })
+                {
                     return Err(RuntimeError::module_validation(
                         "shared native frame environment",
                     ));
                 }
-                let signature = &import.signature;
-                if args.len() != signature.params.len() {
+                if args.len() != callee.parameter_count {
                     return Err(RuntimeError::module_validation("native frame arguments"));
                 }
-                (
-                    0,
-                    args.len() + 1,
-                    1,
-                    NativeEntryState::Pending,
-                    Some(registers),
-                )
+                (NativeEntryState::Pending, ExecutionAction::NativeEntry)
             }
         };
+        let register_count = callee.registers.register_count;
+        let slot_count = callee.registers.locations.len();
+        let argument_offset = callee.argument_offset;
+        let registers = Some(callee.registers.clone());
 
         heap.ensure_execution_allowed()?;
         if !args.all_managed(runtime, |value| heap.validate_value(value))? {
@@ -596,23 +578,26 @@ impl ExecutionFrame {
                 },
                 registers.clone(),
             )?;
-        Ok(Self {
-            links,
-            environment,
-            loaded,
-            target,
-            native_entry,
-            ip: 0,
-            executing: None,
-            slots,
-            register_count,
-            registers,
-            return_to: prepared.map_or(ReturnDestination::Register(return_dst), |call| {
-                ReturnDestination::Prepared(call.destination)
-            }),
-            invocation,
-            mutations: Vec::new(),
-        })
+        Ok((
+            Self {
+                links,
+                environment,
+                loaded,
+                target,
+                native_entry,
+                ip: 0,
+                executing: None,
+                slots,
+                register_count,
+                registers,
+                return_to: prepared.map_or(ReturnDestination::Register(return_dst), |call| {
+                    ReturnDestination::Prepared(call.destination)
+                }),
+                invocation,
+                mutations: Vec::new(),
+            },
+            action,
+        ))
     }
 
     /// Temporary storage after preparation. Logical register identities in the

@@ -13,6 +13,7 @@ use crate::{
     frame::types::{
         EnvironmentRecord,
         arguments::{ScopedSignature, TypeArgument},
+        construction::ConstructionScope,
         operations::OperationBindings,
     },
     objects::{invocation::MethodInvocation, method_view::SelectionView},
@@ -36,7 +37,11 @@ impl Runtime {
         for argument in arguments {
             argument.validate(self)?;
         }
-        let arguments = ApplicationArguments::new(view.implementation(), arguments.to_vec())?;
+        let arguments = ApplicationArguments::new(
+            view.implementation(),
+            arguments.to_vec(),
+            ConstructionScope::new(view.implementation()),
+        )?;
         drop(view);
         method.invocation =
             self.apply_method_invocation(method.invocation, &arguments, operations)?;
@@ -123,7 +128,7 @@ impl Runtime {
         )?;
         let mut constructions =
             self.construction_scope(view.implementation(), view.receiver_environment())?;
-        constructions.extend(&arguments.constructions);
+        constructions.extend(arguments.constructions());
         binders.constructions = constructions.clone();
         binders.include(view.receiver_environment().cloned())?;
         if let Some(group) = receiver_operations {

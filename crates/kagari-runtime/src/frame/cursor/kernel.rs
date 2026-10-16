@@ -5,7 +5,11 @@ use crate::diagnostics::{self, Event};
 use crate::{
     error::RuntimeError,
     frame::{
-        cursor::{ExecutionCursor, primitives::NativeContinuation, scalars::ScalarExit},
+        cursor::{
+            ExecutionCursor, objects::FieldContinuation, primitives::NativeContinuation,
+            scalars::ScalarExit,
+        },
+        driver::ExecutionAction,
         transfer::ReturnValue,
     },
     module::execution::{
@@ -20,6 +24,7 @@ pub enum RegionExit {
     Slice,
     Safepoint,
     Boundary,
+    Call(ExecutionAction),
     Return(ReturnValue),
 }
 
@@ -47,6 +52,8 @@ pub(super) enum CursorExit {
 }
 
 pub(super) enum PreparedTransition {
+    Call { index: usize },
+    Native { index: usize },
     Constant { dst: Location, constant: ConstantId },
     Field { index: usize },
     TupleWrite { operation: usize, index: usize },
@@ -75,6 +82,9 @@ impl ExecutionCursor<'_> {
                 ScalarExit::Safepoint => return Ok(CursorExit::Region(RegionExit::Safepoint)),
                 ScalarExit::Return(value) => {
                     return Ok(CursorExit::Region(RegionExit::Return(value)));
+                }
+                ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Call { index })) => {
+                    return Ok(CursorExit::Transition(PreparedTransition::Call { index }));
                 }
                 ScalarExit::Boundary => {
                     #[cfg(feature = "execution-diagnostics")]
@@ -135,8 +145,8 @@ impl ExecutionCursor<'_> {
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Field {
                     index,
                 })) => {
-                    if let Some(exit) = self.execute_field(index)? {
-                        return Ok(exit);
+                    if let FieldContinuation::Prepare = self.execute_field(index)? {
+                        return Ok(CursorExit::Transition(PreparedTransition::Field { index }));
                     }
                 }
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Index {
@@ -149,8 +159,8 @@ impl ExecutionCursor<'_> {
                 ScalarExit::Managed(PreparedManagedOperation(ManagedOperation::Native {
                     index,
                 })) => {
-                    if let NativeContinuation::Boundary = self.execute_native(index)? {
-                        return Ok(CursorExit::Region(RegionExit::Boundary));
+                    if let NativeContinuation::Callback = self.execute_native(index)? {
+                        return Ok(CursorExit::Transition(PreparedTransition::Native { index }));
                     }
                 }
             }

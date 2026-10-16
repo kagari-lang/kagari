@@ -1,7 +1,7 @@
 //! Reusable registration preparation, independent of any script runtime.
 use crate::{
     Runtime, RuntimeConfig,
-    host::HostRegistry,
+    host::{HostRegistry, installation::PreparedHostTypes},
     native::{binding::NativeResult, module::NativeModule, registry::NativeRegistry},
 };
 use std::sync::Arc;
@@ -12,9 +12,17 @@ use std::sync::Arc;
 /// callbacks explicitly capture. They do not share script heaps, loaded modules,
 /// host registries, borrow state or execution sessions. Prepare a separate set when
 /// application callbacks must own different captured state.
+/// Checked host type/path maps retain this installation's definition scope and are
+/// copied into each runtime; runtime creation does not repeat their preparation.
 #[derive(Debug, Clone)]
 pub struct NativeInstallation {
-    registry: Arc<NativeRegistry>,
+    prepared: Arc<PreparedInstallation>,
+}
+
+#[derive(Debug)]
+struct PreparedInstallation {
+    registry: NativeRegistry,
+    host_types: PreparedHostTypes,
 }
 
 impl NativeInstallation {
@@ -22,16 +30,24 @@ impl NativeInstallation {
     pub fn prepare(modules: &[NativeModule]) -> NativeResult<Self> {
         let mut registry = NativeRegistry::default();
         NativeModule::install_batch(modules, &mut registry)?;
-        HostRegistry::new(registry.catalog.types.context().clone())
+        let host_types = HostRegistry::new(registry.catalog.types.context().clone())
             .prepare_native_registration(&registry)?;
         Ok(Self {
-            registry: Arc::new(registry),
+            prepared: Arc::new(PreparedInstallation {
+                registry,
+                host_types,
+            }),
         })
     }
 
     /// Create an independent runtime. Later registrations affect only that runtime;
     /// loading still validates each program against its installed contracts.
     pub fn runtime(&self, config: RuntimeConfig) -> Runtime {
-        Runtime::with_native_registry(config, self.registry.as_ref().clone())
+        let registry = self.prepared.registry.clone();
+        let mut host = HostRegistry::new(registry.catalog.types.context().clone());
+        // The installation owns immutable checked paths and metadata slot IDs.
+        // Roots, registry identity and subsequent registrations remain runtime-local.
+        self.prepared.host_types.clone().publish(&mut host);
+        Runtime::with_native_registry(config, registry, host)
     }
 }

@@ -48,7 +48,13 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
     );
     assert!(frame.read_register(&runtime, Register::new(0)).is_err());
     drop(frame);
-    assert!(stack.execute_region(&runtime, &mut None).is_err());
+    assert!(
+        stack
+            .execute_region(&runtime, &mut None, |_, _, _, _| unreachable!(
+                "quarantined execution cannot invoke script"
+            ))
+            .is_err()
+    );
     drop(stack);
     assert_eq!(runtime.gc().active_roots(), 0);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);

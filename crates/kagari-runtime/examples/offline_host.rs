@@ -15,6 +15,7 @@ use kagari_contract::{
 };
 use kagari_runtime::{
     Runtime,
+    frame::driver::ReturnAction,
     host::HostCallContext,
     module::LoadedModule,
     native::{binding::NativeResult, builder::ModuleBuilder, catalog::DeclarationCatalog},
@@ -81,9 +82,10 @@ fn invoke_limit(runtime: &Runtime, owner: &LoadedModule) -> NativeResult<Value> 
     stack.start_native_entry(runtime, |_, _, _, _| {
         unreachable!("limit never calls script")
     })?;
-    Ok(stack
-        .finish_native_return(runtime)?
-        .expect("root native return"))
+    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+        panic!("root native return");
+    };
+    Ok(value)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {

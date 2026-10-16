@@ -8,13 +8,13 @@ use crate::{
         cursor::{ExecutionCursor, kernel::RegionError},
         values::operands::OperandWindow,
     },
-    module::{execution::layout::Location, linked_execution::LinkedPrimitiveBody},
+    module::{execution::layout::Location, linked_execution::LinkedNativeBody},
     native::primitive::{PrimitiveResult, string_byte_length},
 };
 
 pub(super) enum NativeContinuation {
     Complete,
-    Boundary,
+    Callback,
 }
 
 impl ExecutionCursor<'_> {
@@ -25,18 +25,17 @@ impl ExecutionCursor<'_> {
     ) -> Result<NativeContinuation, RegionError> {
         let operation = self
             .links
-            .and_then(|links| links.primitive(index))
+            .and_then(|links| links.native_call(index))
             .ok_or_else(|| self.invalid())?;
-        let Some(operation) = operation else {
-            // Arbitrary Rust bodies and result adapters retain ordinary native
-            // invocation. Names and argument representations confer no authority.
-            #[cfg(feature = "execution-diagnostics")]
-            diagnostics::record(Event::SlowBoundary);
-            return Ok(NativeContinuation::Boundary);
-        };
         let runtime = self.runtime;
         match &operation.body {
-            LinkedPrimitiveBody::StringByteLength(source) => {
+            LinkedNativeBody::Callback(_) => {
+                // Arbitrary Rust bodies run only after every cursor borrow ends.
+                #[cfg(feature = "execution-diagnostics")]
+                diagnostics::record(Event::SlowBoundary);
+                return Ok(NativeContinuation::Callback);
+            }
+            LinkedNativeBody::StringByteLength(source) => {
                 execute_primitive(runtime, &mut self.values, operation.destination, |values| {
                     string_byte_length(
                         runtime.gc(),
@@ -46,7 +45,7 @@ impl ExecutionCursor<'_> {
                     )
                 })
             }
-            LinkedPrimitiveBody::Vector(vector) => {
+            LinkedNativeBody::Vector(vector) => {
                 let owner = self.loaded;
                 execute_primitive(runtime, &mut self.values, operation.destination, |values| {
                     vector.operation.execute(

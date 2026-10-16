@@ -5,6 +5,7 @@ use crate::diagnostics::{self, Event};
 use kagari_abi::representation::ValueType;
 
 pub(crate) mod operands;
+mod windows;
 
 use crate::{
     error::RuntimeError,
@@ -12,7 +13,10 @@ use crate::{
     frame::{
         arguments::{ArgumentSource, FrameArguments},
         types::TypeEnvironment,
-        values::operands::{read_operand, write_operand},
+        values::{
+            operands::{read_operand, write_operand},
+            windows::Windows,
+        },
     },
     gc::GcHeap,
     module::{
@@ -88,7 +92,7 @@ pub(crate) struct ExecutionValues {
     pub(crate) values: Vec<Value>,
     pub(crate) payloads: Vec<u64>,
     pub(crate) initialized: Vec<bool>,
-    windows: Vec<Option<Window>>,
+    windows: Windows,
     allocation_order: Vec<usize>,
 }
 
@@ -103,7 +107,7 @@ impl Default for ExecutionValues {
             values: Vec::new(),
             payloads: Vec::new(),
             initialized: Vec::new(),
-            windows: Vec::new(),
+            windows: Windows::default(),
             allocation_order: Vec::new(),
         }
     }
@@ -141,6 +145,16 @@ impl ExecutionValues {
                 |layout| layout.location(index),
             )
         };
+        // One exclusive storage borrow covers validation, reserve, transfer and
+        // publication. Indices survive vector growth; no window can retire or
+        // move while these source ranges are used.
+        let source_ranges = arguments
+            .window()
+            .map(|slots| {
+                self.ranges(slots)
+                    .ok_or_else(|| RuntimeError::module_validation("invalid argument window"))
+            })
+            .transpose()?;
         // Admission is transactional: reject an invalid argument before growing
         // any bank or publishing a frame window. No partial roots can escape.
         for (index, source) in arguments.iter().enumerate() {
@@ -152,9 +166,11 @@ impl ExecutionValues {
             };
             let admitted = match source {
                 ArgumentSource::Value(value) => registers.is_none() || target.admits(value),
-                ArgumentSource::Window(slots, location) => {
-                    self.admits_transfer(slots, location, target)
-                }
+                ArgumentSource::Window(location) => self.admits_transfer(
+                    source_ranges.as_ref().expect("admitted source window"),
+                    location,
+                    target,
+                ),
             };
             if target.operand.index() >= capacity || !admitted {
                 return Err(RuntimeError::module_validation(
@@ -176,7 +192,7 @@ impl ExecutionValues {
             .try_reserve(scalar_count)
             .map_err(|_| RuntimeError::resource_limit("execution initialization stack"))?;
         self.windows
-            .try_reserve(1)
+            .reserve_slot()
             .map_err(|_| RuntimeError::resource_limit("execution frame windows"))?;
         self.allocation_order
             .try_reserve(1)
@@ -188,22 +204,10 @@ impl ExecutionValues {
         self.values
             .resize(managed_start + managed_count, Value::Unit);
         self.next_generation = generation;
-        let slots = FrameSlots {
-            owner: self.owner,
-            index: self
-                .windows
-                .iter()
-                .position(Option::is_none)
-                .unwrap_or(self.windows.len()),
-            generation,
-        };
         #[cfg(feature = "execution-diagnostics")]
         {
             diagnostics::record(Event::WindowAllocation);
-            diagnostics::record_amount(
-                Event::WindowSlotsExamined,
-                (slots.index + 1).min(self.windows.len()) as u64,
-            );
+            diagnostics::record_amount(Event::WindowSlotsExamined, 0);
             diagnostics::record_amount(
                 Event::BankBytesInitialized,
                 (scalar_count * (size_of::<u64>() + size_of::<bool>())
@@ -211,64 +215,69 @@ impl ExecutionValues {
             );
             diagnostics::record_amount(Event::ArgumentTransfer, arguments.len() as u64);
         }
-        let window = Some(Window {
-            generation,
-            ranges: WindowRanges {
-                scalars: scalar_start..scalar_start + scalar_count,
-                managed: managed_start..managed_start + managed_count,
-            },
-            program: metadata.program,
-            environment: metadata.environment,
-            invocation: metadata.invocation,
-            native_application: None,
-            registers,
-        });
-        if slots.index == self.windows.len() {
-            self.windows.push(window);
-        } else {
-            self.windows[slots.index] = window;
-        }
-        self.allocation_order.push(slots.index);
-        let ranges = self.ranges(slots).expect("published window");
+        let ranges = WindowRanges {
+            scalars: scalar_start..scalar_start + scalar_count,
+            managed: managed_start..managed_start + managed_count,
+        };
+        // Exclusive bank access excludes GC and callbacks. Initialize reserved
+        // parameter ranges before publishing their identity and metadata roots.
         for (index, source) in arguments.iter().enumerate() {
-            // This newly published window cannot be retired or replaced while
-            // allocate holds exclusive storage access.
-            let target = self.windows[slots.index]
-                .as_ref()
-                .and_then(|window| window.location(argument_offset + index))
-                .expect("admitted argument destination");
+            let target =
+                destination(argument_offset + index).expect("admitted argument destination");
             match source {
                 ArgumentSource::Value(value) => {
-                    self.set_location(slots, target, *value)
+                    self.write_range(&ranges, target, *value)
                         .expect("admitted argument");
                 }
-                ArgumentSource::Window(source, location) => {
+                ArgumentSource::Window(location) => {
+                    let source = source_ranges.as_ref().expect("admitted source window");
                     // Indices survive bank growth; source and destination are disjoint.
-                    if let Some((_, bits)) = self.scalar_location(source, location)
+                    if let Some(bits) = location
+                        .operand
+                        .scalar()
+                        .and_then(|slot| self.payload(source, slot))
                         && let Some(target) = target.operand.scalar()
                     {
                         self.write_payload(&ranges, target, bits)
                             .expect("admitted scalar transfer");
                     } else {
                         let value = self
-                            .with_location(source, location, Value::clone)
+                            .with_range(source, location, Value::clone)
                             .expect("checked source window");
-                        self.set_location(slots, target, value)
+                        self.write_range(&ranges, target, value)
                             .expect("admitted argument");
                     }
                 }
             }
         }
+        let index = self.windows.insert(Window {
+            generation,
+            ranges,
+            program: metadata.program,
+            environment: metadata.environment,
+            invocation: metadata.invocation,
+            native_application: None,
+            registers,
+        });
+        let slots = FrameSlots {
+            owner: self.owner,
+            index,
+            generation,
+        };
+        self.allocation_order.push(slots.index);
         Ok(slots)
     }
 
-    fn admits_transfer(&self, source: FrameSlots, location: Location, target: Location) -> bool {
-        if let Some((representation, bits)) = self.scalar_location(source, location)
+    fn admits_transfer(&self, source: &WindowRanges, location: Location, target: Location) -> bool {
+        if let Some(bits) = location
+            .operand
+            .scalar()
+            .and_then(|slot| self.payload(source, slot))
             && !target.operand.managed()
         {
-            return target.admits_payload(representation, bits);
+            return target.admits_payload(location.representation, bits);
         }
-        self.with_location(source, location, |value| target.admits(value))
+        self.with_range(source, location, |value| target.admits(value))
             .unwrap_or(false)
     }
 
@@ -280,20 +289,6 @@ impl ExecutionValues {
         let window = self.window(slots)?;
         let slot = location.operand.scalar()?;
         Some((location.representation, self.payload(&window.ranges, slot)?))
-    }
-
-    pub(crate) fn check_managed_location(
-        &self,
-        slots: FrameSlots,
-        location: Location,
-        check: impl FnOnce(&Value) -> bool,
-    ) -> Option<bool> {
-        let window = self.window(slots)?;
-        if let Some(slot) = location.operand.scalar() {
-            self.payload(&window.ranges, slot)?;
-            return Some(true);
-        }
-        self.with_location(slots, location, check)
     }
 
     pub(crate) fn set_scalar(
@@ -331,8 +326,7 @@ impl ExecutionValues {
             return None;
         }
         self.windows
-            .get(slots.index)?
-            .as_ref()
+            .get(slots.index)
             .filter(|window| window.generation == slots.generation)
     }
 
@@ -385,6 +379,15 @@ impl ExecutionValues {
         read: impl FnOnce(&Value) -> R,
     ) -> Option<R> {
         let ranges = &self.window(slots)?.ranges;
+        self.with_range(ranges, location, read)
+    }
+
+    fn with_range<R>(
+        &self,
+        ranges: &WindowRanges,
+        location: Location,
+        read: impl FnOnce(&Value) -> R,
+    ) -> Option<R> {
         let value = read_operand(
             self.values.get(ranges.managed.clone())?,
             self.payloads.get(ranges.scalars.clone())?,
@@ -407,10 +410,19 @@ impl ExecutionValues {
         value: Value,
     ) -> Option<()> {
         let ranges = self.window(slots)?.ranges.clone();
+        self.write_range(&ranges, location, value)
+    }
+
+    fn write_range(
+        &mut self,
+        ranges: &WindowRanges,
+        location: Location,
+        value: Value,
+    ) -> Option<()> {
         write_operand(
-            self.values.get_mut(ranges.managed)?,
+            self.values.get_mut(ranges.managed.clone())?,
             self.payloads.get_mut(ranges.scalars.clone())?,
-            self.initialized.get_mut(ranges.scalars)?,
+            self.initialized.get_mut(ranges.scalars.clone())?,
             location,
             value,
         )
@@ -452,7 +464,7 @@ impl ExecutionValues {
             .rposition(|index| *index == slots.index)?;
         let tail = order + 1 == self.allocation_order.len();
         self.allocation_order.remove(order);
-        self.windows[slots.index] = None;
+        self.windows.retire(slots.index);
         if tail {
             // Ordinary returns retire the most recently allocated window. Older
             // roots precede both ranges, including zero-width banks and reused IDs.
@@ -473,7 +485,7 @@ impl ExecutionValues {
             self.values.drain(ranges.managed.clone());
             self.payloads.drain(ranges.scalars.clone());
             self.initialized.drain(ranges.scalars.clone());
-            for window in self.windows.iter_mut().flatten() {
+            for window in self.windows.iter_mut() {
                 if window.ranges.managed.start >= ranges.managed.end {
                     window.ranges.managed.start -= ranges.managed.len();
                     window.ranges.managed.end -= ranges.managed.len();
@@ -484,14 +496,11 @@ impl ExecutionValues {
                 }
             }
         }
-        while self.windows.last().is_some_and(Option::is_none) {
-            self.windows.pop();
-        }
         Some(())
     }
 
     pub(crate) fn active_windows(&self) -> usize {
-        self.windows.iter().flatten().count()
+        self.windows.iter().count()
     }
 
     pub(crate) fn append_values(&self, roots: &mut Vec<Value>) {
@@ -499,7 +508,7 @@ impl ExecutionValues {
     }
 
     pub(crate) fn append_metadata(&self, roots: &mut Vec<MetadataRoot>) {
-        for window in self.windows.iter().flatten() {
+        for window in self.windows.iter() {
             if let Some(invocation) = window.invocation {
                 invocation.append_metadata(roots);
             }
@@ -538,8 +547,9 @@ impl FrameSlots {
         {
             return Err(invalid());
         }
-        values.windows[self.index]
-            .as_mut()
+        values
+            .windows
+            .get_mut(self.index)
             .ok_or_else(invalid)?
             .native_application = Some(application);
         Ok(())
@@ -564,6 +574,30 @@ impl FrameSlots {
 
     pub(crate) fn get(self, heap: &GcHeap, index: usize) -> Option<Value> {
         self.with_value(heap, index, Value::clone)
+    }
+
+    pub(crate) fn with_location<R>(
+        self,
+        heap: &GcHeap,
+        location: Location,
+        read: impl FnOnce(&Value) -> R,
+    ) -> Option<R> {
+        let values = heap.resources().frame_values.try_borrow().ok()?;
+        values.with_location(self, location, read)
+    }
+
+    pub(crate) fn set_location(
+        self,
+        heap: &GcHeap,
+        location: Location,
+        value: Value,
+    ) -> Option<()> {
+        heap.ensure_execution_allowed().ok()?;
+        if !heap.validate_value(&value) {
+            return None;
+        }
+        let mut values = heap.resources().frame_values.try_borrow_mut().ok()?;
+        values.set_location(self, location, value)
     }
 
     pub(crate) fn set(self, heap: &GcHeap, index: usize, value: Value) -> Option<()> {

@@ -1,39 +1,34 @@
 //! Admitted concrete and scoped fields share physical operands and storage kernels.
 use crate::{
     frame::{
-        cursor::{
-            ExecutionCursor,
-            kernel::{CursorExit, PreparedTransition, RegionError},
-        },
+        cursor::{ExecutionCursor, kernel::RegionError},
         fields::FieldAction,
     },
     module::execution::fields::FieldAccess,
     value::Value,
 };
 
+pub(super) enum FieldContinuation {
+    Complete,
+    Prepare,
+}
+
 impl ExecutionCursor<'_> {
     #[inline(never)]
-    pub(super) fn execute_field(
-        &mut self,
-        index: usize,
-    ) -> Result<Option<CursorExit>, RegionError> {
+    pub(super) fn execute_field(&mut self, index: usize) -> Result<FieldContinuation, RegionError> {
         let operation = self
             .function
             .fields
             .get(index)
             .ok_or_else(|| self.invalid())?;
         if operation.reference.is_some() {
-            return Ok(Some(CursorExit::Transition(PreparedTransition::Field {
-                index,
-            })));
+            return Ok(FieldContinuation::Prepare);
         }
         let Some(layout) = self
             .links
-            .and_then(|links| links.ready_field_layout(operation.pc))
+            .and_then(|links| links.ready_field_layout(operation.layout_site))
         else {
-            return Ok(Some(CursorExit::Transition(PreparedTransition::Field {
-                index,
-            })));
+            return Ok(FieldContinuation::Prepare);
         };
         if let Some(ty) = operation.scalar {
             let bits = match operation.access {
@@ -70,7 +65,7 @@ impl ExecutionCursor<'_> {
                     bits.expect("prepared scalar write"),
                 )?,
             }
-            return Ok(None);
+            return Ok(FieldContinuation::Complete);
         }
         let action = match operation.access {
             FieldAccess::Read { .. } => FieldAction::Read,
@@ -96,6 +91,6 @@ impl ExecutionCursor<'_> {
                 .write_location(dst, value)
                 .ok_or_else(|| self.invalid())?;
         }
-        Ok(None)
+        Ok(FieldContinuation::Complete)
     }
 }

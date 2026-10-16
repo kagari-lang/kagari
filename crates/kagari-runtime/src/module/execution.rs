@@ -1,17 +1,22 @@
 //! Compact physical operations derived once from sealed, verified bytecode.
-//! Logical PCs remain one-to-one with the canonical code. Identity-bearing and
-//! variable-length operands stay in that immutable code, addressed by the PC.
+//! Logical PCs remain one-to-one with canonical code. Caller ordinals and physical
+//! operands are shared across definition scopes. Runtime links own identity-bearing
+//! call contracts; other cold boundary operands remain in canonical code.
+pub(crate) mod aggregates;
 pub(crate) mod allocation;
 pub(crate) mod calls;
 pub(crate) mod fields;
+pub(crate) mod frames;
 pub(crate) mod indices;
 pub(crate) mod layout;
 pub mod managed;
 
 use crate::{
     module::execution::{
+        aggregates::{AggregateOperand, LayoutSite},
         calls::PreparedCall,
         fields::PreparedFieldOperation,
+        frames::CalleeLayout,
         indices::{IndexAccess, PreparedIndexOperation},
         layout::{FrameLayout, Location, scalar_type},
         managed::{ManagedOperation, PreparedManagedOperation},
@@ -24,11 +29,11 @@ use kagari_bytecode::{
     instruction::{
         BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Register, UnaryOp,
     },
-    module::BytecodeModule,
+    module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
 };
 use kagari_types::payload::{self, ScalarKernel};
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 /// A bounded physical operand in a prepared function's value window.
 #[derive(Debug, Clone, Copy)]
@@ -101,29 +106,28 @@ pub enum ExecutionInstruction {
 #[derive(Debug)]
 pub(crate) struct ExecutionModule {
     pub functions: Vec<ExecutionFunction>,
-    pub native_layouts: Vec<Arc<FrameLayout>>,
+    pub native_frames: Vec<CalleeLayout>,
 }
 
 #[derive(Debug)]
 pub(crate) struct ExecutionFunction {
     pub instructions: Box<[ExecutionInstruction]>,
-    pub registers: Arc<FrameLayout>,
+    pub frame: CalleeLayout,
     /// Managed physical locations retained immediately before an await. Slot
     /// coalescing may share a location: any live logical alias keeps it alive.
     pub awaits: BTreeMap<usize, Box<[u64]>>,
-    pub calls: BTreeMap<usize, PreparedCall>,
+    pub calls: Box<[PreparedCall]>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
     pub native_calls: usize,
-    pub interface_calls: usize,
-    pub has_closed_interface_calls: bool,
+    pub has_call_contracts: bool,
     has_linked_constants: bool,
     pub(crate) has_layout_operands: bool,
 }
 
 impl ExecutionFunction {
     pub(crate) fn needs_runtime_links(&self) -> bool {
-        self.has_closed_interface_calls
+        self.has_call_contracts
             || self.has_linked_constants
             || self.has_layout_operands
             || self.native_calls != 0
@@ -131,6 +135,13 @@ impl ExecutionFunction {
 }
 
 impl ExecutionModule {
+    pub(crate) fn callee(&self, target: CallableTarget) -> Option<&CalleeLayout> {
+        match target {
+            CallableTarget::Script(function) => Some(&self.functions.get(function.index())?.frame),
+            CallableTarget::Native(import) => self.native_frames.get(import.index()),
+        }
+    }
+
     // Only VerifiedProgram constructs this product, after artifact verification.
     // Identity normalization preserves instruction order and physical operands,
     // so the product can be shared across runtime-local definition scopes.
@@ -140,17 +151,18 @@ impl ExecutionModule {
         work: &mut usize,
     ) -> Self {
         Self {
-            native_layouts: module
+            native_frames: module
                 .native_imports
                 .iter()
-                .map(|import| Arc::new(FrameLayout::native(import)))
+                .map(CalleeLayout::native)
                 .collect(),
             functions: module
                 .functions
                 .iter()
                 .zip(suspensions)
                 .map(|(function, suspensions)| {
-                    let registers = Arc::new(FrameLayout::prepare(function, work));
+                    let frame = CalleeLayout::script(function, work);
+                    let registers = &frame.registers;
                     let awaits = suspensions
                         .iter()
                         .map(|point| {
@@ -167,15 +179,21 @@ impl ExecutionModule {
                     let mut fields = Vec::new();
                     let mut indices = Vec::new();
                     let mut native_calls = 0;
+                    let mut layout_sites = 0;
                     let instructions: Box<[_]> = function
                         .instructions
                         .iter()
-                        .enumerate()
-                        .map(|(pc, instruction)| {
+                        .map(|instruction| {
+                            let layout_site =
+                                AggregateOperand::from_instruction(instruction).map(|_| {
+                                    let site = LayoutSite(layout_sites);
+                                    layout_sites += 1;
+                                    site
+                                });
                             ExecutionInstruction::prepare(
-                                pc,
+                                layout_site,
                                 instruction,
-                                &registers,
+                                registers,
                                 module,
                                 &mut fields,
                                 &mut indices,
@@ -193,24 +211,14 @@ impl ExecutionModule {
                             )
                         }),
                         instructions,
-                        registers,
+                        frame,
                         awaits,
-                        calls: BTreeMap::new(),
-                        has_layout_operands: !fields.is_empty()
-                            || function.instructions.iter().any(|instruction| {
-                                matches!(
-                                    instruction,
-                                    BytecodeInstruction::MakeStruct { .. }
-                                        | BytecodeInstruction::MakeEnum { .. }
-                                        | BytecodeInstruction::TestEnumVariant { .. }
-                                        | BytecodeInstruction::ReadEnumPayload { .. }
-                                )
-                            }),
+                        calls: Box::default(),
+                        has_layout_operands: layout_sites != 0,
                         fields: fields.into_boxed_slice(),
                         indices: indices.into_boxed_slice(),
                         native_calls,
-                        interface_calls: 0,
-                        has_closed_interface_calls: false,
+                        has_call_contracts: false,
                     }
                 })
                 .collect(),
@@ -220,7 +228,7 @@ impl ExecutionModule {
 
 impl ExecutionInstruction {
     fn prepare(
-        pc: usize,
+        layout_site: Option<LayoutSite>,
         instruction: &BytecodeInstruction,
         registers: &FrameLayout,
         module: &BytecodeModule,
@@ -304,7 +312,11 @@ impl ExecutionInstruction {
             BytecodeInstruction::ReadAggregateField { .. }
             | BytecodeInstruction::WriteAggregateField { .. } => {
                 let index = fields.len();
-                fields.push(PreparedFieldOperation::prepare(pc, instruction, registers));
+                fields.push(PreparedFieldOperation::prepare(
+                    layout_site.expect("field has an aggregate operand"),
+                    instruction,
+                    registers,
+                ));
                 Self::managed(ManagedOperation::Field { index })
             }
             BytecodeInstruction::Unary { dst, op, operand } => {
@@ -411,7 +423,7 @@ mod tests {
             cursor::kernel::{RegionError, RegionExit},
         },
         module::linked_execution::{
-            LinkedFunction, LinkedPrimitive,
+            LinkedFunction, LinkedNativeCall,
             layouts::{AggregateLayout, AppliedLayouts, FunctionLayouts},
         },
         native::primitive::PrimitiveResult,
@@ -429,8 +441,8 @@ mod tests {
             size_of::<OnceLock<AggregateLayout>>()
         );
         eprintln!(
-            "linked primitive bytes: slot={}, operand={}, result={}",
-            size_of::<Option<LinkedPrimitive>>(),
+            "linked native bytes: slot={}, operand={}, result={}",
+            size_of::<LinkedNativeCall>(),
             size_of::<Location>(),
             size_of::<PrimitiveResult>()
         );

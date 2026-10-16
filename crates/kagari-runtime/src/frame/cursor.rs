@@ -8,6 +8,7 @@ use crate::{
         values::operands::OperandWindow,
     },
     module::{LoadedModule, execution::ExecutionFunction, linked_execution::LinkedFunction},
+    native::context::ScriptInvoker,
     session::SessionState,
 };
 use kagari_bytecode::module::CallableTarget;
@@ -36,12 +37,15 @@ struct ExecutionCursor<'a> {
 }
 
 impl ExecutionStack<'_> {
-    /// Run a closed region, releasing all transient views before returning a transition.
+    /// Execute prepared operations, releasing transient views before callbacks or transitions.
     /// The driver has already polled and observed the first logical instruction.
+    /// `invoke_script` supplies synchronous native-to-script reentry and never runs
+    /// while the cursor retains a frame, session-state or operand-bank borrow.
     pub fn execute_region(
         &self,
         runtime: &Runtime,
         remaining: &mut Option<usize>,
+        invoke_script: ScriptInvoker,
     ) -> Result<RegionExit, RegionError> {
         if !ptr::eq(runtime.resources(), self.session.resources) {
             return Err(RuntimeError::module_validation(
@@ -51,7 +55,9 @@ impl ExecutionStack<'_> {
         }
         match self.execute_admitted_region(runtime, remaining)? {
             CursorExit::Region(exit) => Ok(exit),
-            CursorExit::Transition(transition) => self.complete_transition(runtime, transition),
+            CursorExit::Transition(transition) => {
+                self.complete_transition(runtime, transition, invoke_script)
+            }
         }
     }
 

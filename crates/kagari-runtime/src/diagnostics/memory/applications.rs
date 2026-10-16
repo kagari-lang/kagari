@@ -63,7 +63,7 @@ fn method_lifecycle(
             .interface_snapshot(id)
             .unwrap()
             .description
-            .interface_type
+            .interface_type()
             .clone();
         let inputs = (1..=count)
             .map(|width| {

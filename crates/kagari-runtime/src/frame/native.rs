@@ -2,14 +2,15 @@
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, NativeEntryState, driver::ExecutionAction, transfer::ReturnValue},
+    frame::{
+        ExecutionStack, NativeEntryState,
+        driver::{ExecutionAction, ReturnAction},
+        transfer::ReturnValue,
+    },
+    module::linked_execution::LinkedNativeBody,
     native::context::{ArgumentSlots, ArgumentView, CallContext, ScriptInvoker},
-    value::Value,
 };
-use kagari_bytecode::{
-    instruction::{NativeImportId, Register},
-    module::CallableTarget,
-};
+use kagari_bytecode::module::CallableTarget;
 
 impl ExecutionStack<'_> {
     pub fn start_native_entry(
@@ -88,7 +89,7 @@ impl ExecutionStack<'_> {
     }
 
     /// Consume a completed native frame at an explicit return transition.
-    pub fn finish_native_return(&self, runtime: &Runtime) -> Result<Option<Value>, RuntimeError> {
+    pub fn finish_native_return(&self, runtime: &Runtime) -> Result<ReturnAction, RuntimeError> {
         self.validate_runtime(runtime)?;
         let value = {
             let frame = self.current()?;
@@ -105,34 +106,53 @@ impl ExecutionStack<'_> {
         self.finish_return(runtime, ReturnValue::general(value))
     }
 
-    pub fn invoke_native(
+    pub(super) fn invoke_prepared_native(
         &self,
         runtime: &Runtime,
-        import: NativeImportId,
-        arguments: &[Register],
-        destination: Option<Register>,
+        index: usize,
         invoke_script: ScriptInvoker,
     ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        let (loaded, roots) = {
+        // execute_region admitted this runtime/session; no callback or collection
+        // intervened. Retain the linked descriptor and roots, releasing all frame
+        // and bank borrows before invoking arbitrary Rust or reentrant script.
+        let (loaded, roots, links) = {
             let frame = self.current()?;
-            (frame.loaded.clone(), frame.slots)
+            (frame.loaded.clone(), frame.slots, frame.links.clone())
         };
-        let function = runtime
-            .modules
-            .native_binding(&loaded, import)
-            .ok_or_else(|| RuntimeError::module_validation("unlinked native callable"))?;
+        let operation = links
+            .as_ref()
+            .and_then(|links| links.native_call(index))
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine("missing prepared native call")
+            })?;
+        let LinkedNativeBody::Callback(callback) = &operation.body else {
+            return Err(runtime
+                .resources()
+                .quarantine("sealed native body reached callback transition"));
+        };
         let mut context = CallContext {
             runtime,
             owner: &loaded,
-            function: &function,
+            function: &callback.function,
             invoke_script,
-            arguments: ArgumentView::frame(&runtime.gc, roots, ArgumentSlots::Registers(arguments)),
+            arguments: ArgumentView::frame(
+                &runtime.gc,
+                roots,
+                ArgumentSlots::Prepared(&callback.arguments),
+            ),
         };
-        let value = function.invoke(&mut context)?;
-        if let Some(destination) = destination {
+        let value = callback.function.invoke(&mut context)?;
+        if let Some(destination) = operation.destination {
             self.current_mut()?
-                .write_register(runtime, destination, value)?;
+                .slots
+                .set_location(&runtime.gc, destination, value)
+                .ok_or_else(|| {
+                    runtime
+                        .resources()
+                        .quarantine("invalid native return destination")
+                })?;
         }
         Ok(())
     }

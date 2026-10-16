@@ -13,7 +13,7 @@ use crate::{
     },
     module::{LoadedModule, ModuleKey},
 };
-use kagari_types::ty::{NominalTy, Ty};
+use kagari_types::ty::Ty;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -27,7 +27,7 @@ pub(crate) struct InterfaceMethodIdentity {
     pub(crate) owner: ModuleKey,
     pub(crate) table: usize,
     pub(crate) slot: usize,
-    pub(crate) interface: NominalTy,
+    pub(crate) interface: Ty,
     pub(crate) result_adapter: Option<AdapterIdentity>,
     pub(crate) arguments: Vec<Ty>,
     pub(crate) environment: Option<EnvironmentId>,
@@ -39,7 +39,8 @@ pub(crate) struct InterfaceMethodIdentity {
 pub(crate) struct ApplicationArguments {
     values: Vec<TypeArgument>,
     identities: Arc<[Arc<TypeIdentity>]>,
-    pub(crate) constructions: ConstructionScope,
+    constructions: ConstructionScope,
+    construction_identity: Arc<[ModuleKey]>,
 }
 
 impl ApplicationArguments {
@@ -47,9 +48,14 @@ impl ApplicationArguments {
         &self.values
     }
 
+    pub(crate) fn constructions(&self) -> &ConstructionScope {
+        &self.constructions
+    }
+
     pub(crate) fn new(
         owner: &LoadedModule,
         values: Vec<TypeArgument>,
+        constructions: ConstructionScope,
     ) -> Result<Self, RuntimeError> {
         let identities = values
             .iter()
@@ -62,7 +68,8 @@ impl ApplicationArguments {
         Ok(Self {
             values,
             identities,
-            constructions: ConstructionScope::new(owner),
+            construction_identity: constructions.identity().into(),
+            constructions,
         })
     }
 }
@@ -79,7 +86,7 @@ pub(crate) struct AdapterIdentity {
 pub(crate) struct ApplicationKey {
     method: MethodIdentity,
     arguments: Arc<[Arc<TypeIdentity>]>,
-    constructions: Vec<ModuleKey>,
+    constructions: Arc<[ModuleKey]>,
     receiver_operations: Option<OperationGroupId>,
     operations: Option<Arc<Vec<OperationSegment>>>,
 }
@@ -94,7 +101,7 @@ impl ApplicationKey {
         Self {
             method,
             arguments: arguments.identities.clone(),
-            constructions: arguments.constructions.identity(),
+            constructions: arguments.construction_identity.clone(),
             receiver_operations,
             operations: operations.identity(),
         }

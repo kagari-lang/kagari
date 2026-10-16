@@ -2,9 +2,12 @@
 #[cfg(feature = "execution-diagnostics")]
 use crate::diagnostics::{self, Event};
 
-use crate::module::execution::{ExecutionModule, layout::Location};
+use crate::module::execution::{
+    ExecutionInstruction, ExecutionModule, layout::Location, managed::ManagedOperation,
+};
+use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget},
+    instruction::{BytecodeInstruction, CallTarget, Register},
     module::{BytecodeModule, CallableTarget},
     program::ModuleRef,
 };
@@ -13,23 +16,44 @@ use kagari_types::ty::Ty;
 
 #[derive(Debug)]
 pub(crate) struct PreparedCall {
+    pub pc: usize,
     pub target: PreparedCallTarget,
     pub arguments: Box<[Location]>,
     pub destination: Option<Location>,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub(crate) enum PreparedCallTarget {
     Static {
         module: ModuleRef,
         target: CallableTarget,
-        shared: bool,
+    },
+    Shared {
+        module: ModuleRef,
+        target: CallableTarget,
     },
     Interface {
-        index: usize,
         closed: bool,
+        receiver: Register,
     },
-    Closure,
+    Closure(Box<PreparedClosureCall>),
+}
+
+/// A closure's verified physical contract or scoped-signature marker.
+/// Runtime links supply lexical types; no active value/window is retained here.
+#[derive(Debug)]
+pub(crate) struct PreparedClosureCall {
+    pub register: Register,
+    pub signature: PreparedClosureSignature,
+}
+
+#[derive(Debug)]
+pub(crate) enum PreparedClosureSignature {
+    Physical {
+        params: Box<[ValueType]>,
+        result: ValueType,
+    },
+    Scoped,
 }
 
 impl ExecutionModule {
@@ -37,6 +61,7 @@ impl ExecutionModule {
     /// them through the caller's pinned descriptor, never the latest publication.
     pub(crate) fn prepare_calls(&mut self, slot: ModuleRef, module: &BytecodeModule) {
         for (prepared, function) in self.functions.iter_mut().zip(&module.functions) {
+            let mut calls = Vec::new();
             for (pc, instruction) in function.instructions.iter().enumerate() {
                 let BytecodeInstruction::Call { dst, callee, args } = instruction else {
                     continue;
@@ -45,32 +70,51 @@ impl ExecutionModule {
                     CallTarget::Function(function) => PreparedCallTarget::Static {
                         module: slot,
                         target: CallableTarget::Script(function),
-                        shared: false,
                     },
                     CallTarget::ModuleFunction { module, function } => PreparedCallTarget::Static {
                         module,
                         target: CallableTarget::Script(function),
-                        shared: false,
                     },
-                    CallTarget::Shared { module, target, .. } => PreparedCallTarget::Static {
-                        module,
-                        target,
-                        shared: true,
-                    },
-                    CallTarget::InterfaceMethod { ref contract, .. } => {
-                        let index = prepared.interface_calls;
-                        prepared.interface_calls += 1;
-                        let closed = closed_interface_contract(contract);
-                        prepared.has_closed_interface_calls |= closed;
-                        PreparedCallTarget::Interface { index, closed }
+                    CallTarget::Shared { module, target, .. } => {
+                        prepared.has_call_contracts = true;
+                        PreparedCallTarget::Shared { module, target }
                     }
-                    CallTarget::ClosureRegister { .. } => PreparedCallTarget::Closure,
+                    CallTarget::InterfaceMethod { ref contract, .. } => {
+                        let closed = closed_interface_contract(contract);
+                        prepared.has_call_contracts = true;
+                        PreparedCallTarget::Interface {
+                            closed,
+                            receiver: *args.first().expect("verified interface receiver"),
+                        }
+                    }
+                    CallTarget::ClosureRegister {
+                        register,
+                        ref params,
+                        return_type,
+                    } => {
+                        let signature = if return_type == ValueType::Generic
+                            || params.contains(&ValueType::Generic)
+                        {
+                            prepared.has_call_contracts = true;
+                            PreparedClosureSignature::Scoped
+                        } else {
+                            PreparedClosureSignature::Physical {
+                                params: params.clone().into_boxed_slice(),
+                                result: return_type,
+                            }
+                        };
+                        PreparedCallTarget::Closure(Box::new(PreparedClosureCall {
+                            register,
+                            signature,
+                        }))
+                    }
                     _ => continue,
                 };
                 let arguments = args
                     .iter()
                     .map(|register| {
                         prepared
+                            .frame
                             .registers
                             .location(register.index())
                             .expect("sealed caller operand")
@@ -78,21 +122,23 @@ impl ExecutionModule {
                     .collect();
                 let destination = dst.map(|register| {
                     prepared
+                        .frame
                         .registers
                         .location(register.index())
                         .expect("sealed return operand")
                 });
                 #[cfg(feature = "execution-diagnostics")]
                 diagnostics::record(Event::CallDescriptor);
-                prepared.calls.insert(
+                prepared.instructions[pc] =
+                    ExecutionInstruction::managed(ManagedOperation::Call { index: calls.len() });
+                calls.push(PreparedCall {
                     pc,
-                    PreparedCall {
-                        target,
-                        arguments,
-                        destination,
-                    },
-                );
+                    target,
+                    arguments,
+                    destination,
+                });
             }
+            prepared.calls = calls.into_boxed_slice();
         }
     }
 }

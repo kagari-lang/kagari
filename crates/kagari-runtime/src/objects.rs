@@ -517,7 +517,7 @@ impl Runtime {
         };
         let _root = self.root_value(*value).ok_or_else(invalid)?;
         let snapshot = self.gc.interface_snapshot(*id).ok_or_else(invalid)?;
-        if snapshot.description.interface_type != *source {
+        if snapshot.description.interface_type() != source {
             return Err(invalid());
         }
         if source == target {
@@ -589,7 +589,7 @@ impl Runtime {
             .gc
             .interface_metadata(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
-        let same = snapshot.description.interface_type == *interface;
+        let same = snapshot.description.interface_type() == interface;
         drop(snapshot);
         if same {
             Ok(id)

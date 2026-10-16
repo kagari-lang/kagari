@@ -45,6 +45,10 @@ name = "async_tasks"
 required-features = ["source"]
 
 [[example]]
+name = "runtime_initialization"
+required-features = ["source"]
+
+[[example]]
 name = "regenerate_feature_artifact"
 required-features = ["source"]
 

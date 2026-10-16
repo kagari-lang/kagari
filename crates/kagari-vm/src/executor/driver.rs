@@ -1,11 +1,14 @@
-//! Ordinary progress retains its action; frame and wait transitions re-enter runtime state.
+//! Frame transitions carry established actions; activation and waits admit runtime state.
 use crate::{
     error::VmError,
     executor::{DriveOutcome, Executor, dispatch::InstructionProgress, native},
 };
 use kagari_bytecode::module::CallableTarget;
 use kagari_runtime::{
-    frame::{cursor::kernel::RegionExit, driver::ExecutionAction},
+    frame::{
+        cursor::kernel::RegionExit,
+        driver::{ExecutionAction, ReturnAction},
+    },
     session::ExecutionEvent,
 };
 use std::task::Poll;
@@ -15,7 +18,8 @@ impl Executor<'_> {
         &mut self,
         mut remaining: Option<usize>,
     ) -> Result<DriveOutcome, VmError> {
-        // None denotes a real activation/frame/wait transition, never an ordinary PC.
+        // Initial/resumed activations and waits reclassify; internal frame
+        // transitions provide their established action without another lookup.
         let mut action = None;
         loop {
             self.runtime.resources().poll_execution()?;
@@ -45,10 +49,10 @@ impl Executor<'_> {
                         .stack
                         .finish_native_return(self.runtime)
                         .map_err(VmError::RuntimeError);
-                    if let Some(value) = self.report_operation(result)? {
-                        return Ok(DriveOutcome::Complete(value));
+                    match self.report_operation(result)? {
+                        ReturnAction::Complete(value) => return Ok(DriveOutcome::Complete(value)),
+                        ReturnAction::Continue(next) => action = Some(next),
                     }
-                    action = None;
                     continue;
                 }
                 ExecutionAction::NativeEntry => {
@@ -81,10 +85,14 @@ impl Executor<'_> {
 
             let result = self
                 .stack
-                .execute_region(self.runtime, &mut remaining)
+                .execute_region(self.runtime, &mut remaining, native::invoke_script)
                 .map_err(VmError::from);
             let progress = match self.report_operation(result)? {
                 RegionExit::Safepoint | RegionExit::Slice => continue,
+                RegionExit::Call(next) => {
+                    action = Some(next);
+                    continue;
+                }
                 RegionExit::Return(value) => InstructionProgress::Return(value),
                 RegionExit::Boundary => {
                     let (loaded, target, pc) = {
@@ -114,16 +122,16 @@ impl Executor<'_> {
             };
             match progress {
                 InstructionProgress::Continue => {}
-                InstructionProgress::Call | InstructionProgress::Await => action = None,
+                InstructionProgress::Await => action = None,
                 InstructionProgress::Return(value) => {
                     let result = self
                         .stack
                         .finish_return(self.runtime, value)
                         .map_err(VmError::RuntimeError);
-                    if let Some(value) = self.report_operation(result)? {
-                        return Ok(DriveOutcome::Complete(value));
+                    match self.report_operation(result)? {
+                        ReturnAction::Complete(value) => return Ok(DriveOutcome::Complete(value)),
+                        ReturnAction::Continue(next) => action = Some(next),
                     }
-                    action = None;
                 }
             }
         }

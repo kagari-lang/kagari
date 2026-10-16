@@ -6,23 +6,30 @@ use crate::{
     Runtime,
     error::RuntimeError,
     execution_metadata::call_contracts::InterfaceCallSite,
-    frame::{ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments},
-    module::execution::calls::PreparedCallTarget,
+    frame::{
+        ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
+        driver::ExecutionAction,
+    },
+    module::{execution::calls::PreparedCallTarget, linked_execution::calls::LinkedCall},
 };
-use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget},
-    module::CallableTarget,
-};
+use kagari_bytecode::module::CallableTarget;
 use std::slice;
 
 impl ExecutionStack<'_> {
     /// Only the executing sealed instruction selects a call record; external
     /// callers cannot supply a transfer plan or substitute a target generation.
-    pub fn push_prepared_call(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+    pub(super) fn push_prepared_call(
+        &self,
+        runtime: &Runtime,
+        index: usize,
+    ) -> Result<ExecutionAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallSelection);
-        self.validate_runtime(runtime)?;
-        let (owner, function, pc, slots, environment) = {
+        // execute_region admitted this runtime/session and selected the ordinal.
+        // Ending its cursor borrows cannot change authority: no callback,
+        // suspension or collection occurs before this private transition.
+        // Callee availability, dynamic values and depth remain checked below.
+        let (owner, function, slots, environment, links) = {
             let frames = self.frames()?;
             let caller = frames
                 .last()
@@ -36,40 +43,36 @@ impl ExecutionStack<'_> {
             (
                 caller.loaded.clone(),
                 function,
-                caller.instruction_offset(),
                 caller.slots,
                 caller.environment(),
+                caller.links.clone(),
             )
         };
         let call = owner.execution().functions[function.index()]
             .calls
-            .get(&pc)
+            .get(index)
             .ok_or_else(|| runtime.resources().quarantine("missing prepared call"))?;
-        let (module, target, shared) = match call.target {
-            PreparedCallTarget::Static {
-                module,
-                target,
-                shared,
-            } => (module, target, shared),
-            PreparedCallTarget::Closure => {
-                let BytecodeInstruction::Call {
-                    callee:
-                        CallTarget::ClosureRegister {
-                            register,
-                            params,
-                            return_type,
-                        },
-                    ..
-                } = &owner.bytecode.functions[function.index()].instructions[pc]
+        let (module, target, shared) = match &call.target {
+            PreparedCallTarget::Static { module, target } => (*module, *target, None),
+            PreparedCallTarget::Shared { module, target } => {
+                let Some(LinkedCall::Shared(contract)) =
+                    links.as_ref().and_then(|links| links.call_contract(index))
                 else {
                     return Err(runtime
                         .resources()
-                        .quarantine("missing prepared closure contract"));
+                        .quarantine("missing linked shared contract"));
                 };
+                (*module, *target, Some(contract.as_ref()))
+            }
+            PreparedCallTarget::Closure(contract) => {
                 let caller = self.current()?;
-                let value = caller.read_register(runtime, *register)?;
+                let value = caller.read_register(runtime, contract.register)?;
                 let closure = runtime.resolve_closure(&value)?;
-                caller.validate_closure_call(&closure, *register, params, *return_type)?;
+                caller.validate_closure_call(
+                    &closure,
+                    contract,
+                    links.as_ref().and_then(|links| links.call_contract(index)),
+                )?;
                 drop(caller);
                 return self.push_resolved_closure(
                     runtime,
@@ -79,25 +82,14 @@ impl ExecutionStack<'_> {
                     Some(call),
                 );
             }
-            PreparedCallTarget::Interface { index, closed } => {
-                let BytecodeInstruction::Call {
-                    callee: CallTarget::InterfaceMethod { .. },
-                    args,
-                    ..
-                } = &owner.bytecode.functions[function.index()].instructions[pc]
-                else {
-                    return Err(runtime
-                        .resources()
-                        .quarantine("missing prepared interface contract"));
-                };
+            PreparedCallTarget::Interface {
+                receiver, closed, ..
+            } => {
                 let (invocation, receiver) = {
                     let caller = self.current()?;
-                    let register = args.first().ok_or_else(|| {
-                        RuntimeError::module_validation("missing interface receiver")
-                    })?;
-                    let receiver = caller.read_register(runtime, *register)?;
+                    let receiver = caller.read_register(runtime, *receiver)?;
                     let scoped_call;
-                    let call = if closed {
+                    let call = if *closed {
                         caller
                             .links
                             .as_ref()
@@ -112,7 +104,10 @@ impl ExecutionStack<'_> {
                             environment.clone().ok_or_else(|| {
                                 RuntimeError::module_validation("missing interface call scope")
                             })?,
-                            InterfaceCallSite { function, pc },
+                            InterfaceCallSite {
+                                function,
+                                ordinal: index,
+                            },
                         )?;
                         scoped_call.as_ref()
                     };
@@ -149,16 +144,7 @@ impl ExecutionStack<'_> {
                 .quarantine("invalid prepared script module")
         })?;
         let arguments = FrameArguments::frame(slots, &call.arguments);
-        let environment = if shared {
-            let BytecodeInstruction::Call {
-                callee: CallTarget::Shared { contract, .. },
-                ..
-            } = &owner.bytecode.functions[function.index()].instructions[pc]
-            else {
-                return Err(runtime
-                    .resources()
-                    .quarantine("missing prepared shared contract"));
-            };
+        let environment = if let Some(contract) = shared {
             let prepared = runtime.prepare_shared_environment(
                 &owner,
                 environment.clone(),

@@ -7,7 +7,7 @@ use crate::{
         MetadataEdge, MetadataRoot,
         application_key::{ApplicationArguments, ApplicationKey, MethodIdentity},
     },
-    frame::types::{EnvironmentRecord, compatibility::TypeView},
+    frame::types::{EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope},
     module::LoadedModule,
     value::Value,
 };
@@ -156,7 +156,7 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
             .unwrap();
         let requirement = NativeCallableRequirement {
             receiver: snapshot.description.concrete_type.clone(),
-            interface: snapshot.description.interface_type.clone(),
+            interface: snapshot.description.interface_type().clone(),
             member: snapshot.description.methods[0].as_ref().unwrap().method,
             arguments: vec![],
         };
@@ -193,7 +193,7 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
             .unwrap();
         let key = ApplicationKey::new(
             MethodIdentity::Operation(operation_id),
-            &ApplicationArguments::new(&loaded, vec![]).unwrap(),
+            &ApplicationArguments::new(&loaded, vec![], ConstructionScope::new(&loaded)).unwrap(),
             Some(group),
             &Default::default(),
         );
@@ -264,7 +264,7 @@ fn selections() -> (Runtime, LoadedModule, Vec<OperationId>) {
                 .operation(
                     &NativeCallableRequirement {
                         receiver: snapshot.description.concrete_type.clone(),
-                        interface: snapshot.description.interface_type.clone(),
+                        interface: snapshot.description.interface_type().clone(),
                         member: method.method,
                         arguments: vec![],
                     },
@@ -456,7 +456,7 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
         .bind_table_operations(&snapshot.description.receiver_table, Default::default())
         .unwrap();
     let receiver = snapshot.description.concrete_type.clone();
-    let interface = snapshot.description.interface_type.clone();
+    let interface = snapshot.description.interface_type().clone();
     let (member, expected) = interface.associated_types.iter().next().unwrap();
     let member = *member;
     let expected = expected.clone();

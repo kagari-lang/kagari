@@ -3,11 +3,16 @@ use crate::{
     Runtime,
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, RuntimeErrorKind},
-    frame::{ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments},
-    module::execution::calls::PreparedCall,
+    frame::{
+        ExecutionFrame, ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
+        driver::ExecutionAction,
+    },
+    module::{
+        execution::calls::{PreparedCall, PreparedClosureCall, PreparedClosureSignature},
+        linked_execution::calls::LinkedCall,
+    },
     value::Value,
 };
-use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::Register, module::CallableTarget};
 use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
@@ -29,6 +34,7 @@ impl ExecutionStack<'_> {
             return_dst,
             None,
         )
+        .map(|_| ())
     }
 
     pub(super) fn push_resolved_closure(
@@ -38,7 +44,7 @@ impl ExecutionStack<'_> {
         explicit: FrameArguments<'_>,
         return_dst: Option<Register>,
         prepared: Option<&PreparedCall>,
-    ) -> Result<(), RuntimeError> {
+    ) -> Result<ExecutionAction, RuntimeError> {
         runtime.validate_loaded_module(&closure.implementation)?;
         let script_function = match &closure.target {
             ClosureTarget::Native(native) => {
@@ -140,30 +146,31 @@ impl ExecutionFrame {
     pub(super) fn validate_closure_call(
         &self,
         closure: &ClosureValueSnapshot,
-        register: Register,
-        params: &[ValueType],
-        result: ValueType,
+        contract: &PreparedClosureCall,
+        linked: Option<&LinkedCall>,
     ) -> Result<(), RuntimeError> {
-        let matches = if result != ValueType::Generic && !params.contains(&ValueType::Generic) {
-            closure.matches_physical_signature(params.iter().copied(), result)?
-        } else {
-            let function = self
-                .function()
-                .ok_or_else(|| RuntimeError::module_validation("shared closure call function"))?;
-            let semantic = function
-                .metadata
-                .semantic
-                .registers
-                .get(&register.index())
-                .ok_or_else(|| RuntimeError::module_validation("shared closure call signature"))?;
-            let resolved = self.resolve_type(semantic)?;
-            let Ty::Function { params, result } = resolved.as_ref() else {
-                return Err(RuntimeError::module_validation("shared closure call type"));
-            };
-            closure.matches_physical_signature(
-                params.iter().map(semantic_representation),
-                semantic_representation(result),
-            )?
+        let matches = match &contract.signature {
+            PreparedClosureSignature::Physical { params, result } => {
+                closure.matches_physical_signature(params.iter().copied(), *result)?
+            }
+            PreparedClosureSignature::Scoped => {
+                let Some(LinkedCall::Closure(semantic)) = linked else {
+                    return Err(RuntimeError::module_validation(
+                        "missing linked closure contract",
+                    ));
+                };
+                let semantic = semantic.as_ref().ok_or_else(|| {
+                    RuntimeError::module_validation("shared closure call signature")
+                })?;
+                let resolved = self.resolve_type(semantic)?;
+                let Ty::Function { params, result } = resolved.as_ref() else {
+                    return Err(RuntimeError::module_validation("shared closure call type"));
+                };
+                closure.matches_physical_signature(
+                    params.iter().map(semantic_representation),
+                    semantic_representation(result),
+                )?
+            }
         };
         if !matches {
             return Err(RuntimeError::new(

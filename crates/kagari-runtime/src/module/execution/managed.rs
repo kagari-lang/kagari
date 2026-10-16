@@ -1,4 +1,4 @@
-//! Closed managed operations retain physical locations from verified code.
+//! Non-scalar operations retain physical operands and closed transition ordinals.
 use crate::module::execution::{OperandSlot, layout::Location};
 use kagari_bytecode::instruction::ConstantId;
 
@@ -14,4 +14,5 @@ pub(crate) enum ManagedOperation {
     Field { index: usize },
     Index { index: usize },
     Native { index: usize },
+    Call { index: usize },
 }

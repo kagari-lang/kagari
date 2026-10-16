@@ -120,13 +120,10 @@ impl Runtime {
             let SelectionView::Interface { snapshot, .. } = &view.selection else {
                 return Err(invalid());
             };
-            TypeView::new(
-                &Ty::Trait(snapshot.description.interface_expression.clone()),
-                view.implementation(),
-                view.receiver_environment()
-                    .map(|environment| environment.types.as_ref()),
-            )
-            .compatible(call.interface.view(frame.loaded()))
+            snapshot
+                .description
+                .interface_view()
+                .compatible(call.interface.view(frame.loaded()))
         };
         if !compatible {
             return Err(invalid());

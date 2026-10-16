@@ -7,7 +7,7 @@ use crate::{
 #[derive(Clone, Copy)]
 pub(crate) enum ArgumentSource<'a> {
     Value(&'a Value),
-    Window(FrameSlots, Location),
+    Window(Location),
 }
 
 #[derive(Clone, Copy)]
@@ -87,16 +87,30 @@ impl<'args> FrameArguments<'args> {
                 })?)
             }
         };
+        let operands = self
+            .window()
+            .map(|slots| {
+                storage
+                    .as_ref()
+                    .expect("window argument storage")
+                    .read_operands(slots)
+                    .ok_or_else(|| {
+                        runtime
+                            .resources()
+                            .quarantine("invalid call argument window")
+                    })
+            })
+            .transpose()?;
         for (index, source) in self.iter().enumerate() {
             let valid = match source {
                 ArgumentSource::Value(value) => check(index, value),
-                ArgumentSource::Window(slots, location) => {
-                    let storage = storage.as_ref().expect("window argument storage");
+                ArgumentSource::Window(location) => {
+                    let operands = operands.as_ref().expect("admitted argument window");
                     let check = |value: &Value| check(index, value);
                     if managed_only {
-                        storage.check_managed_location(slots, location, check)
+                        operands.check_managed(location, check)
                     } else {
-                        storage.with_location(slots, location, check)
+                        operands.with_value(location, check)
                     }
                     .ok_or_else(|| {
                         runtime
@@ -116,6 +130,13 @@ impl<'args> FrameArguments<'args> {
         self.count
     }
 
+    pub(crate) fn window(self) -> Option<FrameSlots> {
+        match self.explicit {
+            ExplicitArguments::Values(_) => None,
+            ExplicitArguments::Window(slots, _) => Some(slots),
+        }
+    }
+
     pub(crate) fn iter(self) -> impl Iterator<Item = ArgumentSource<'args>> + Clone {
         (0..self.count).map(move |index| {
             if index < self.prefix.len() {
@@ -124,9 +145,7 @@ impl<'args> FrameArguments<'args> {
             let index = index - self.prefix.len();
             match self.explicit {
                 ExplicitArguments::Values(values) => ArgumentSource::Value(&values[index]),
-                ExplicitArguments::Window(slots, locations) => {
-                    ArgumentSource::Window(slots, locations[index])
-                }
+                ExplicitArguments::Window(_, locations) => ArgumentSource::Window(locations[index]),
             }
         })
     }

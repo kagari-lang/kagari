@@ -1,22 +1,22 @@
 //! Runtime-local execution links are admitted with their supplying program.
 pub(crate) mod builtin_results;
+pub(crate) mod calls;
 pub(crate) mod layouts;
-mod primitives;
+mod native_calls;
 use crate::{
     Runtime,
     error::RuntimeError,
     execution_metadata::{
-        MetadataEdge,
-        call_contracts::{InterfaceCallSite, ScopedInterfaceCall},
-        environments::EnvironmentId,
+        MetadataEdge, call_contracts::ScopedInterfaceCall, environments::EnvironmentId,
     },
     module::{
         LoadedModule, ModuleStore,
         constants::ConstantPool,
         descriptor_index::DescriptorIndex,
-        execution::{calls::PreparedCallTarget, layout::Location},
+        execution::layout::Location,
         linked_execution::{
             builtin_results::BuiltinResults,
+            calls::LinkedCall,
             layouts::{AppliedLayouts, FunctionLayouts},
         },
     },
@@ -28,22 +28,29 @@ use std::sync::Arc;
 #[derive(Debug, Clone)]
 pub(crate) struct LinkedFunction {
     pub(crate) constants: Arc<ConstantPool>,
-    calls: Arc<[Option<Arc<ScopedInterfaceCall>>]>,
+    calls: Arc<[LinkedCall]>,
     pub(crate) layouts: Option<Arc<FunctionLayouts>>,
-    primitives: Arc<[Option<LinkedPrimitive>]>,
+    native_calls: Arc<[LinkedNativeCall]>,
     pub(crate) applied_layouts: Option<Arc<AppliedLayouts>>,
 }
 
 #[derive(Debug)]
-pub(crate) struct LinkedPrimitive {
-    pub(crate) body: LinkedPrimitiveBody,
+pub(crate) struct LinkedNativeCall {
+    pub(crate) body: LinkedNativeBody,
     pub(crate) destination: Option<Location>,
 }
 
 #[derive(Debug)]
-pub(crate) enum LinkedPrimitiveBody {
+pub(crate) enum LinkedNativeBody {
     StringByteLength(Location),
     Vector(LinkedVectorPrimitive),
+    Callback(LinkedNativeCallback),
+}
+
+#[derive(Debug)]
+pub(crate) struct LinkedNativeCallback {
+    pub(crate) arguments: Box<[Location]>,
+    pub(crate) function: Arc<LinkedNativeFunction>,
 }
 
 #[derive(Debug)]
@@ -54,12 +61,16 @@ pub(crate) struct LinkedVectorPrimitive {
 }
 
 impl LinkedFunction {
-    pub(crate) fn primitive(&self, index: usize) -> Option<&Option<LinkedPrimitive>> {
-        self.primitives.get(index)
+    pub(crate) fn native_call(&self, index: usize) -> Option<&LinkedNativeCall> {
+        self.native_calls.get(index)
     }
 
     pub(crate) fn call(&self, index: usize) -> Option<&Arc<ScopedInterfaceCall>> {
-        self.calls.get(index)?.as_ref()
+        self.calls.get(index)?.interface()
+    }
+
+    pub(crate) fn call_contract(&self, index: usize) -> Option<&LinkedCall> {
+        self.calls.get(index)
     }
 }
 
@@ -78,7 +89,7 @@ impl LinkedExecution {
             function
                 .calls
                 .iter()
-                .flatten()
+                .filter_map(LinkedCall::interface)
                 .map(|call| MetadataEdge::InterfaceCall(call))
         }));
     }
@@ -104,48 +115,13 @@ impl Runtime {
                 functions.push(None);
                 continue;
             }
-            let mut calls = Vec::with_capacity(prepared.interface_calls);
-            for (&pc, call) in &prepared.calls {
-                let PreparedCallTarget::Interface { index, closed } = call.target else {
-                    continue;
-                };
-                if index != calls.len() {
-                    return Err(RuntimeError::module_validation(
-                        "invalid linked interface ordinal",
-                    ));
-                }
-                if !closed {
-                    calls.push(None);
-                    continue;
-                }
-                let call = self.build_interface_call(
-                    owner,
-                    None,
-                    InterfaceCallSite {
-                        function: function.id,
-                        pc,
-                    },
-                )?;
-                let dependencies =
-                    self.metadata_dependencies(MetadataEdge::InterfaceCall(&call))?;
-                // All closed witnesses were selected from this pinned program's
-                // members. Prove that its active root suffices before publishing.
-                if dependencies
-                    .iter()
-                    .any(|dependency| dependency.program_identity() != owner.program_identity())
-                {
-                    return Err(RuntimeError::module_validation(
-                        "foreign closed call dependency",
-                    ));
-                }
-                calls.push(Some(call));
-            }
+            let calls = self.link_calls(owner, function, prepared)?;
             functions.push(Some(Arc::new(LinkedFunction {
-                primitives: self.link_primitives(owner, function, prepared)?.into(),
+                native_calls: self.link_native_calls(owner, function, prepared)?.into(),
                 layouts: FunctionLayouts::link(self, owner, function, prepared)?,
                 applied_layouts: None,
                 constants: constants.clone(),
-                calls: calls.into(),
+                calls,
             })));
         }
         let mut records = self.modules.inner.try_borrow_mut().map_err(|_| {

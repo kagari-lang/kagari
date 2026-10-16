@@ -1,5 +1,8 @@
 //! Field contracts keep variable type arguments outside the compact instruction stream.
-use crate::module::execution::layout::{FrameLayout, Location};
+use crate::module::execution::{
+    aggregates::LayoutSite,
+    layout::{FrameLayout, Location},
+};
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType};
 
@@ -14,14 +17,14 @@ pub(crate) struct PreparedFieldOperation {
     pub(crate) base: Location,
     pub(crate) access: FieldAccess,
     pub(crate) slot: u32,
-    pub(crate) pc: usize,
+    pub(crate) layout_site: LayoutSite,
     pub(crate) reference: Option<ReferenceAccess>,
     pub(crate) scalar: Option<BuiltinType>,
 }
 
 impl PreparedFieldOperation {
     pub(super) fn prepare(
-        pc: usize,
+        layout_site: LayoutSite,
         instruction: &BytecodeInstruction,
         registers: &FrameLayout,
     ) -> Self {
@@ -56,7 +59,7 @@ impl PreparedFieldOperation {
         Self {
             base: registers.location(base.index()).expect("sealed field base"),
             access,
-            pc,
+            layout_site,
             slot: field.slot,
             reference: field.reference,
             scalar,

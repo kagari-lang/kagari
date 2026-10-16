@@ -12,17 +12,16 @@ use crate::{
         TypeEnvironment, arguments::TypeArgument, compatibility::TypeView,
         operations::OperationBindings,
     },
-    module::LoadedModule,
+    module::{LoadedModule, linked_execution::calls::LinkedCall},
 };
-use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
-use kagari_contract::ids::FunctionRef;
+use kagari_contract::{callable::interface::InterfaceCallContract, ids::FunctionRef};
 use kagari_types::ty::{NominalTy, Ty};
 use std::{slice, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct InterfaceCallSite {
     pub(crate) function: FunctionRef,
-    pub(crate) pc: usize,
+    pub(crate) ordinal: usize,
 }
 
 /// These facts contain no receiver value and do not own a host root. Witness
@@ -46,7 +45,7 @@ impl ScopedInterfaceCall {
 
     pub(crate) fn trace<'a>(&'a self, pending: &mut Vec<MetadataEdge<'a>>) {
         self.operations.trace_metadata(pending);
-        self.arguments.constructions.trace(pending);
+        self.arguments.constructions().trace(pending);
         pending.extend(self.operation.map(MetadataEdge::Operation));
     }
 }
@@ -64,7 +63,15 @@ impl Runtime {
         if let Some(prepared) = self.modules.interface_call(owner, scope, site) {
             return Ok(prepared);
         }
-        let prepared = self.build_interface_call(owner, Some(environment), site)?;
+        let invalid = || RuntimeError::module_validation("invalid linked interface contract");
+        let links = self
+            .modules
+            .linked_function(owner, site.function, Some(scope))
+            .ok_or_else(invalid)?;
+        let Some(LinkedCall::Interface { contract, .. }) = links.call_contract(site.ordinal) else {
+            return Err(invalid());
+        };
+        let prepared = self.build_interface_call(owner, Some(environment), contract)?;
         self.publish_interface_call(owner, scope, site, prepared.clone())?;
         Ok(prepared)
     }
@@ -73,23 +80,11 @@ impl Runtime {
         &self,
         owner: &LoadedModule,
         environment: Option<TypeEnvironment>,
-        site: InterfaceCallSite,
+        contract: &InterfaceCallContract,
     ) -> Result<Arc<ScopedInterfaceCall>, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::InterfaceCallPreparation);
         let invalid = || RuntimeError::module_validation("generic call operation environment");
-        let BytecodeInstruction::Call {
-            callee: CallTarget::InterfaceMethod { contract, .. },
-            ..
-        } = owner
-            .bytecode
-            .functions
-            .get(site.function.index())
-            .and_then(|function| function.instructions.get(site.pc))
-            .ok_or_else(invalid)?
-        else {
-            return Err(invalid());
-        };
         let types = environment
             .as_ref()
             .map(|environment| environment.types.clone());
@@ -117,11 +112,11 @@ impl Runtime {
         } else {
             None
         };
-        let mut arguments = ApplicationArguments::new(
+        let arguments = ApplicationArguments::new(
             owner,
             self.type_arguments(owner, types, &contract.arguments)?,
+            self.construction_scope(owner, environment.as_ref())?,
         )?;
-        arguments.constructions = self.construction_scope(owner, environment.as_ref())?;
         let operations = self.bind_operations_in(owner, environment, &contract.operations)?;
         let prepared = Arc::new(ScopedInterfaceCall {
             interface,

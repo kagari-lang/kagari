@@ -5,7 +5,9 @@ use crate::{
     module::{
         LoadedModule,
         execution::ExecutionFunction,
-        linked_execution::{LinkedPrimitive, LinkedPrimitiveBody, LinkedVectorPrimitive},
+        linked_execution::{
+            LinkedNativeBody, LinkedNativeCall, LinkedNativeCallback, LinkedVectorPrimitive,
+        },
     },
     native::primitive::NativePrimitive,
 };
@@ -15,12 +17,12 @@ use kagari_bytecode::{
 };
 
 impl Runtime {
-    pub(super) fn link_primitives(
+    pub(super) fn link_native_calls(
         &self,
         owner: &LoadedModule,
         function: &BytecodeFunction,
         prepared: &ExecutionFunction,
-    ) -> Result<Box<[Option<LinkedPrimitive>]>, RuntimeError> {
+    ) -> Result<Box<[LinkedNativeCall]>, RuntimeError> {
         let operations: Box<[_]> = function
             .instructions
             .iter()
@@ -37,44 +39,50 @@ impl Runtime {
                     let binding = self.modules.native_binding(owner, *import).ok_or_else(|| {
                         RuntimeError::module_validation("missing linked native implementation")
                     })?;
-                    let Some(operation) = binding.closed_primitive() else {
-                        return Ok(None);
-                    };
                     // The supplying record already owns this exact closed native
                     // signature. Its type provenance belongs to the pinned program.
                     if args.len() != binding.signature.params.len() {
-                        return Err(RuntimeError::module_validation("primitive call arity"));
+                        return Err(RuntimeError::module_validation("native call arity"));
                     }
                     let location = |register: Register| {
                         prepared
+                            .frame
                             .registers
                             .location(register.index())
                             .ok_or_else(|| {
-                                RuntimeError::module_validation("primitive operand location")
+                                RuntimeError::module_validation("native operand location")
                             })
                     };
-                    let body = match operation {
-                        NativePrimitive::StringByteLength => {
-                            LinkedPrimitiveBody::StringByteLength(location(args[0])?)
+                    let body = match binding.closed_primitive() {
+                        Some(NativePrimitive::StringByteLength) => {
+                            LinkedNativeBody::StringByteLength(location(args[0])?)
                         }
-                        NativePrimitive::VecIndex
-                        | NativePrimitive::VecSet
-                        | NativePrimitive::VecSetFluent => {
-                            LinkedPrimitiveBody::Vector(LinkedVectorPrimitive {
-                                operation,
-                                arguments: args
-                                    .iter()
-                                    .copied()
-                                    .map(location)
-                                    .collect::<Result<_, _>>()?,
-                                function: binding,
-                            })
-                        }
+                        Some(
+                            operation @ (NativePrimitive::VecIndex
+                            | NativePrimitive::VecSet
+                            | NativePrimitive::VecSetFluent),
+                        ) => LinkedNativeBody::Vector(LinkedVectorPrimitive {
+                            operation,
+                            arguments: args
+                                .iter()
+                                .copied()
+                                .map(location)
+                                .collect::<Result<_, _>>()?,
+                            function: binding,
+                        }),
+                        None => LinkedNativeBody::Callback(LinkedNativeCallback {
+                            arguments: args
+                                .iter()
+                                .copied()
+                                .map(location)
+                                .collect::<Result<_, _>>()?,
+                            function: binding,
+                        }),
                     };
-                    Ok(Some(LinkedPrimitive {
+                    Ok(LinkedNativeCall {
                         body,
                         destination: dst.map(location).transpose()?,
-                    }))
+                    })
                 })())
             })
             .collect::<Result<_, RuntimeError>>()?;

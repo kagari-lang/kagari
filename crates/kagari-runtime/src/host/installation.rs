@@ -14,6 +14,8 @@ use kagari_common::{
 use kagari_types::declaration::host::PathAccess;
 use std::collections::HashMap;
 
+/// Checked registration facts without host roots, dirty state or registry identity.
+#[derive(Debug, Clone)]
 pub(crate) struct PreparedHostTypes {
     types: HashMap<TypeId, RegisteredHostType>,
     declarations: HashMap<DefinitionId, TypeId>,

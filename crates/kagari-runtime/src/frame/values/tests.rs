@@ -100,6 +100,79 @@ fn frame_windows_reject_foreign_and_reused_identities() {
 }
 
 #[test]
+fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
+    let (_runtime, module) = module();
+    for width in [0, 2] {
+        let mut values = ExecutionValues::default();
+        let allocate = |values: &mut ExecutionValues, value: i32| {
+            let arguments = [Value::I32(value)];
+            values
+                .allocate(
+                    width,
+                    0,
+                    &FrameArguments::plain(&arguments[..width.min(1)]),
+                    FrameMetadata {
+                        program: module.clone(),
+                        environment: None,
+                        invocation: None,
+                    },
+                    None,
+                )
+                .unwrap()
+        };
+        let original: Vec<_> = (0..5).map(|value| allocate(&mut values, value)).collect();
+        values.release(original[3]).unwrap();
+        values.release(original[1]).unwrap();
+        // Trimming slot 3 must unlink a hole behind slot 1 in release order.
+        values.release(original[4]).unwrap();
+        assert!(
+            values
+                .allocate(
+                    0,
+                    0,
+                    &FrameArguments::plain(&[Value::I32(99)]),
+                    FrameMetadata {
+                        program: module.clone(),
+                        environment: None,
+                        invocation: None
+                    },
+                    None,
+                )
+                .is_err()
+        );
+        let reused = allocate(&mut values, 7);
+        let appended = allocate(&mut values, 8);
+        for old in [original[1], original[3], original[4]] {
+            assert!(values.get(old).is_none());
+            assert!(values.release(old).is_none());
+        }
+        for (slots, expected) in [
+            (original[0], 0),
+            (original[2], 2),
+            (reused, 7),
+            (appended, 8),
+        ] {
+            if width == 0 {
+                assert_eq!(values.get(slots), Some(vec![]));
+            } else {
+                assert_eq!(
+                    values.get(slots),
+                    Some(vec![Value::I32(expected), Value::Unit])
+                );
+            }
+        }
+        for slots in [reused, appended, original[0], original[2]] {
+            values.release(slots).unwrap();
+        }
+        assert_eq!(values.active_windows(), 0);
+        let next = allocate(&mut values, 9);
+        assert!(values.ranges(next).is_some());
+        assert!(values.ranges(reused).is_none());
+        values.release(next).unwrap();
+    }
+}
+
+#[test]
 fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
     let (_runtime, module) = module();
     let mut values = ExecutionValues::default();

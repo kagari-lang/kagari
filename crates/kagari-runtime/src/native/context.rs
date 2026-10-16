@@ -17,7 +17,7 @@ use crate::{
         values::FrameSlots,
     },
     gc::{GcCollection, GcHeap, HeapObjectId, custom_keys::KeyLookupRoots, roots::RootSet},
-    module::LoadedModule,
+    module::{LoadedModule, execution::layout::Location},
     native::{
         arguments::CallArguments,
         binding::{LinkedNativeFunction, NativeResult},
@@ -34,14 +34,14 @@ use crate::{
     },
     value::Value,
 };
-use kagari_bytecode::{instruction::Register, module::CallableTarget, program::ModuleRef};
+use kagari_bytecode::{module::CallableTarget, program::ModuleRef};
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::requirement::NativeCallableRequirement, ty::Ty};
 use std::{slice, sync::Arc};
 
 #[derive(Clone, Copy)]
-pub enum ArgumentSlots<'call> {
-    Registers(&'call [Register]),
+pub(crate) enum ArgumentSlots<'call> {
+    Prepared(&'call [Location]),
     Contiguous {
         start: usize,
         count: usize,
@@ -74,7 +74,7 @@ impl<'call> ArgumentView<'call> {
 
     pub fn len(&self) -> usize {
         match self.slots {
-            ArgumentSlots::Registers(slots) => slots.len(),
+            ArgumentSlots::Prepared(slots) => slots.len(),
             ArgumentSlots::Contiguous { count, .. } => count,
             ArgumentSlots::Scalars(values) => values.len(),
         }
@@ -82,14 +82,6 @@ impl<'call> ArgumentView<'call> {
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
-    }
-
-    fn rooted_slot(&self, index: usize) -> Option<usize> {
-        match self.slots {
-            ArgumentSlots::Registers(slots) => Some(slots.get(index)?.index()),
-            ArgumentSlots::Contiguous { start, count } if index < count => start.checked_add(index),
-            ArgumentSlots::Contiguous { .. } | ArgumentSlots::Scalars(_) => None,
-        }
     }
 
     pub(crate) fn contains(&self, index: usize) -> bool {
@@ -108,11 +100,18 @@ impl<'call> ArgumentView<'call> {
         if let Some(roots) = &self.narrowed {
             return roots.with_value(self.heap, index, read);
         }
-        if let ArgumentSlots::Scalars(values) = self.slots {
-            return values.get(index).map(read);
+        match self.slots {
+            ArgumentSlots::Scalars(values) => values.get(index).map(read),
+            ArgumentSlots::Prepared(slots) => {
+                self.frame?
+                    .with_location(self.heap, *slots.get(index)?, read)
+            }
+            ArgumentSlots::Contiguous { start, count } if index < count => {
+                self.frame?
+                    .with_value(self.heap, start.checked_add(index)?, read)
+            }
+            ArgumentSlots::Contiguous { .. } => None,
         }
-        let slot = self.rooted_slot(index)?;
-        self.frame?.with_value(self.heap, slot, read)
     }
 
     pub fn get(&self, index: usize) -> Option<Value> {

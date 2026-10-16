@@ -220,6 +220,10 @@ impl Runtime {
                 .collect(),
             environment: environment.clone(),
         };
+        let interface_type = Ty::Trait(interface_type.clone());
+        if !interface_type.is_concrete() {
+            return Err(invalid());
+        }
         let description = Arc::new(InterfaceDescription {
             receiver_operations: MetadataCache::new(),
             receiver_table,
@@ -242,11 +246,11 @@ impl Runtime {
                 .collect::<Result<_, RuntimeError>>()?,
             concrete_type,
             concrete_expression: template.for_type.clone(),
-            interface_type: interface_type.clone(),
+            interface_type,
             interface_expression: match view {
-                Some(view) => view.interface.clone(),
+                Some(view) => Ty::Trait(view.interface.clone()),
                 None => match &template.trait_type {
-                    Ty::Trait(ty) => ty.clone(),
+                    Ty::Trait(_) => template.trait_type.clone(),
                     _ => return Err(invalid()),
                 },
             },

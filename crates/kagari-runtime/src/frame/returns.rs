@@ -5,8 +5,11 @@ use crate::diagnostics::{self, Event};
 use crate::{
     Runtime,
     error::RuntimeError,
-    frame::{ExecutionStack, ReturnDestination, transfer::ReturnValue},
-    value::Value,
+    frame::{
+        ExecutionStack, ReturnDestination,
+        driver::{ExecutionAction, ReturnAction},
+        transfer::ReturnValue,
+    },
 };
 use kagari_bytecode::module::CallableTarget;
 
@@ -50,7 +53,7 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         mut packet: ReturnValue,
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<ReturnAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallReturn);
         self.validate_runtime(runtime)?;
@@ -87,15 +90,21 @@ impl ExecutionStack<'_> {
             let value = packet
                 .materialize()
                 .ok_or_else(|| RuntimeError::module_validation("return representation"))?;
-            return self.finish_factory_result(runtime, value);
+            return self
+                .finish_factory_result(runtime, value)
+                .map(|value| match value {
+                    Some(value) => ReturnAction::Complete(value),
+                    // A factory's completed frame has published its queued Future.
+                    None => ReturnAction::Continue(ExecutionAction::Await),
+                });
         }
+        let caller = frames.last().expect("retained caller");
         if matches!(
             destination,
             ReturnDestination::Register(None) | ReturnDestination::Prepared(None)
         ) {
-            return Ok(None);
+            return caller.execution_action(runtime).map(ReturnAction::Continue);
         }
-        let caller = frames.last().expect("retained caller");
         if let ReturnDestination::Register(Some(register)) = destination
             && register.index() >= caller.register_count
         {
@@ -136,6 +145,6 @@ impl ExecutionStack<'_> {
             }
         };
         published.ok_or_else(|| runtime.resources().quarantine("invalid return destination"))?;
-        Ok(None)
+        caller.execution_action(runtime).map(ReturnAction::Continue)
     }
 }

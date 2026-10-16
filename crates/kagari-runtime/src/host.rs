@@ -1,5 +1,5 @@
 mod borrows;
-mod installation;
+pub(crate) mod installation;
 mod registry;
 pub mod scoped;
 mod views;

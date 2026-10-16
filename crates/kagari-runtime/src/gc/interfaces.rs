@@ -49,11 +49,32 @@ pub(crate) struct InterfaceDescription {
     pub(crate) parents: Vec<InterfaceParentBinding>,
     pub(crate) concrete_type: Ty,
     pub(crate) concrete_expression: Ty,
-    pub(crate) interface_type: NominalTy,
-    pub(crate) interface_expression: NominalTy,
+    pub(crate) interface_type: Ty,
+    pub(crate) interface_expression: Ty,
     pub(crate) environment: Option<TypeEnvironment>,
     pub(crate) implementation: LoadedModule,
     pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
+}
+
+impl InterfaceDescription {
+    pub(crate) fn interface_type(&self) -> &NominalTy {
+        let Ty::Trait(interface) = &self.interface_type else {
+            unreachable!("prepared interface type");
+        };
+        interface
+    }
+
+    /// Reuse the checked closed type while preserving its lexical provenance.
+    pub(crate) fn interface_view(&self) -> TypeView<'_> {
+        TypeView::prepared(
+            &self.interface_expression,
+            &self.interface_type,
+            &self.implementation,
+            self.environment
+                .as_ref()
+                .map(|environment| environment.types.as_ref()),
+        )
+    }
 }
 
 /// Receiver data and parent views are never shared with another receiver.
@@ -84,14 +105,8 @@ impl InterfaceValueSnapshot {
         owner: &LoadedModule,
         environment: Option<&TypeBindings>,
     ) -> bool {
-        TypeView::new(
-            &Ty::Trait(self.description.interface_expression.clone()),
-            &self.description.implementation,
-            self.description
-                .environment
-                .as_ref()
-                .map(|environment| environment.types.as_ref()),
-        )
-        .compatible(TypeView::new(ty, owner, environment))
+        self.description
+            .interface_view()
+            .compatible(TypeView::new(ty, owner, environment))
     }
 }

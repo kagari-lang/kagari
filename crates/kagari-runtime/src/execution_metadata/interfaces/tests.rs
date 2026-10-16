@@ -9,7 +9,7 @@ use crate::{
         },
         applications::MethodApplication,
     },
-    frame::types::EnvironmentRecord,
+    frame::types::{EnvironmentRecord, construction::ConstructionScope},
     module::LoadedModule,
     value::Value,
     value_semantics::identity_equal,
@@ -97,7 +97,7 @@ fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
     assert!(runtime.cache_parent_interface(id, usize::MAX, id).is_err());
     let view = runtime.gc.interface_metadata(id).unwrap();
     assert!(view.parent_views[0].get().is_none());
-    let source = view.description.interface_type.clone();
+    let source = view.description.interface_type().clone();
     let target = view.description.parents[0].interface.clone();
     drop(view);
     let parent = runtime.upcast_interface(&value, &source, &target).unwrap();
@@ -130,7 +130,7 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
             environment: None,
             result_adapter: None,
         })),
-        &ApplicationArguments::new(&loaded, vec![]).unwrap(),
+        &ApplicationArguments::new(&loaded, vec![], ConstructionScope::new(&loaded)).unwrap(),
         None,
         &Default::default(),
     );
@@ -259,7 +259,7 @@ fn parent_cache_and_prepared_method_keep_views_until_last_root() {
     let (runtime, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let view = runtime.gc.interface_metadata(id).unwrap();
-    let source = view.description.interface_type.clone();
+    let source = view.description.interface_type().clone();
     let target = view.description.parents[0].interface.clone();
     drop(view);
     let parent = runtime.upcast_interface(&value, &source, &target).unwrap();
@@ -304,7 +304,7 @@ fn shared_descriptions_keep_receiver_views_separate_and_retire_after_last_root()
         &second_view.description
     ));
     let description = Arc::downgrade(&first_view.description);
-    let source = first_view.description.interface_type.clone();
+    let source = first_view.description.interface_type().clone();
     let target = first_view.description.parents[0].interface.clone();
     drop(first_view);
     drop(second_view);
@@ -492,7 +492,7 @@ fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown
     let (runtime, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let view = runtime.gc.interface_metadata(id).unwrap();
-    let target = view.description.interface_type.clone();
+    let target = view.description.interface_type().clone();
     drop(view);
     // An empty scope adds no substitutions; its checked ID observes record disposal.
     let environment = runtime
@@ -592,7 +592,7 @@ fn invalid_interface_inspection_preserves_declaration_and_slot_error_kinds() {
     let (runtime, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let snapshot = runtime.gc.interface_metadata(id).unwrap();
-    let target = snapshot.description.interface_type.clone();
+    let target = snapshot.description.interface_type().clone();
     let method = snapshot
         .description
         .methods

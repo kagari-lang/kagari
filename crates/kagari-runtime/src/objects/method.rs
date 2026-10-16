@@ -41,7 +41,7 @@ impl RootedInterfaceMethod {
             bound_receiver: BoundReceiver {
                 receiver: view.data,
                 concrete_type: view.description.concrete_type.clone(),
-                interface: view.description.interface_type.clone(),
+                interface: view.description.interface_type().clone(),
             },
             _root: root,
         })

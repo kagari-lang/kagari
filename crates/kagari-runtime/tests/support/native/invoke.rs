@@ -1,6 +1,9 @@
 //! Scoped native fixture metadata and the ordinary execution frame driver.
 use kagari_bytecode::{instruction::NativeImportId, module::CallableTarget};
-use kagari_runtime::{Runtime, module::LoadedModule, native::binding::NativeResult, value::Value};
+use kagari_runtime::{
+    Runtime, frame::driver::ReturnAction, module::LoadedModule, native::binding::NativeResult,
+    value::Value,
+};
 
 /// Enter a linked native callable with frame roots, session checks and ordinary cleanup.
 pub fn invoke(
@@ -20,7 +23,8 @@ pub fn invoke(
     stack.start_native_entry(runtime, |_, _, _, _| {
         unreachable!("fixture does not call script")
     })?;
-    Ok(stack
-        .finish_native_return(runtime)?
-        .expect("root native return"))
+    let ReturnAction::Complete(value) = stack.finish_native_return(runtime)? else {
+        panic!("root native return");
+    };
+    Ok(value)
 }

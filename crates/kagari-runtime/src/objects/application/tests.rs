@@ -5,10 +5,14 @@ use crate::{
         MetadataRoot, application_key::ApplicationArguments, call_contracts::InterfaceCallSite,
     },
     frame::{
+        driver::ReturnAction,
         transfer::ReturnValue,
-        types::{EnvironmentRecord, compatibility::TypeView, operations::OperationBindings},
+        types::{
+            EnvironmentRecord, compatibility::TypeView, construction::ConstructionScope,
+            operations::OperationBindings,
+        },
     },
-    module::{LoadedModule, execution::calls::PreparedCallTarget},
+    module::{LoadedModule, linked_execution::calls::LinkedCall},
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -20,7 +24,6 @@ use crate::{
     objects::invocation::MethodInvocation,
     value::Value,
 };
-use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::types::PublicItem;
 use kagari_hir::analysis::AnalysisDatabase;
@@ -125,7 +128,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             .method;
         let requirement = NativeCallableRequirement {
             receiver: snapshot.description.concrete_type.clone(),
-            interface: snapshot.description.interface_type.clone(),
+            interface: snapshot.description.interface_type().clone(),
             member,
             arguments: vec![],
         };
@@ -146,7 +149,8 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             let method = runtime
                 .apply_method_invocation(
                     method,
-                    &ApplicationArguments::new(&loaded, vec![]).unwrap(),
+                    &ApplicationArguments::new(&loaded, vec![], ConstructionScope::new(&loaded))
+                        .unwrap(),
                     Default::default(),
                 )
                 .unwrap();
@@ -266,7 +270,7 @@ fn apply_generic(
         .interface_snapshot(id)
         .unwrap()
         .description
-        .interface_type
+        .interface_type()
         .clone();
     let arguments = runtime.resolve_type_arguments(loaded, &[ty]).unwrap();
     runtime
@@ -413,7 +417,7 @@ fn polymorphic_retention_is_bounded_and_eviction_preserves_active_applications()
         stack
             .finish_return(&runtime, ReturnValue::general(Value::I32(7)))
             .unwrap(),
-        Some(Value::I32(7))
+        ReturnAction::Complete(Value::I32(7))
     );
     runtime.collect_garbage().unwrap();
     assert!(runtime.gc.method_application(application).is_none());
@@ -446,7 +450,7 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
         let group = runtime
             .bind_table_operations(&snapshot.description.receiver_table, Default::default())
             .unwrap();
-        let interface = snapshot.description.interface_type.clone();
+        let interface = snapshot.description.interface_type().clone();
         drop(snapshot);
         let mut operations = OperationBindings::default();
         operations.receiver(&runtime.gc, group).unwrap();
@@ -513,33 +517,31 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
             .functions
             .iter()
             .find_map(|function| {
-                function
-                    .instructions
-                    .iter()
-                    .enumerate()
-                    .find_map(|(pc, instruction)| match instruction {
-                        BytecodeInstruction::Call {
-                            callee: CallTarget::InterfaceMethod { contract, .. },
-                            ..
-                        } if !contract.operations.is_empty() => Some(InterfaceCallSite {
+                let links = runtime
+                    .modules
+                    .linked_function(&loaded, function.id, None)?;
+                let count = loaded.execution().functions[function.id.index()]
+                    .calls
+                    .len();
+                (0..count).find_map(|ordinal| match links.call_contract(ordinal) {
+                    Some(LinkedCall::Interface { contract, .. })
+                        if !contract.operations.is_empty() =>
+                    {
+                        Some(InterfaceCallSite {
                             function: function.id,
-                            pc,
-                        }),
-                        _ => None,
-                    })
+                            ordinal,
+                        })
+                    }
+                    _ => None,
+                })
             })
             .unwrap();
         let closed = || {
-            let PreparedCallTarget::Interface { index, .. } =
-                loaded.execution().functions[site.function.index()].calls[&site.pc].target
-            else {
-                unreachable!("interface call fixture");
-            };
             runtime
                 .modules
                 .linked_function(&loaded, site.function, None)
                 .unwrap()
-                .call(index)
+                .call(site.ordinal)
                 .unwrap()
                 .clone()
         };

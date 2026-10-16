@@ -7,14 +7,15 @@ use crate::{
     execution_metadata::environments::EnvironmentId,
     frame::types::TypeEnvironment,
     module::{
-        EnumVariantRef, LoadedModule, StructLayoutRef, execution::ExecutionFunction,
+        EnumVariantRef, LoadedModule, StructLayoutRef,
+        execution::{
+            ExecutionFunction,
+            aggregates::{AggregateKind, AggregateOperand, LayoutSite},
+        },
         linked_execution::LinkedFunction,
     },
 };
-use kagari_bytecode::{
-    instruction::{BytecodeInstruction, EnumId, StructId},
-    module::BytecodeFunction,
-};
+use kagari_bytecode::module::BytecodeFunction;
 use kagari_types::ty::Ty;
 use std::{
     collections::HashMap,
@@ -28,14 +29,8 @@ pub(crate) enum AggregateLayout {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-enum Aggregate {
-    Struct(StructId),
-    Enum(EnumId, u32),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 struct LayoutOperand {
-    aggregate: Aggregate,
+    aggregate: AggregateKind,
     arguments: Box<[Ty]>,
 }
 
@@ -64,11 +59,11 @@ pub(crate) struct FunctionLayouts {
 }
 
 impl LinkedFunction {
-    pub(crate) fn ready_field_layout(&self, pc: usize) -> Option<&StructLayoutRef> {
+    pub(crate) fn ready_field_layout(&self, site: LayoutSite) -> Option<&StructLayoutRef> {
         let AggregateLayout::Struct(layout) = self
             .layouts
             .as_ref()?
-            .ready(self.applied_layouts.as_deref(), pc)?
+            .ready(self.applied_layouts.as_deref(), site)?
         else {
             return None;
         };
@@ -91,44 +86,17 @@ impl FunctionLayouts {
         let mut identities = HashMap::new();
         let mut scoped_count = 0;
         for (pc, instruction) in function.instructions.iter().enumerate() {
-            let (aggregate, arguments) = match instruction {
-                BytecodeInstruction::MakeStruct {
-                    structure,
-                    arguments,
-                    ..
-                } => (Aggregate::Struct(*structure), arguments),
-                BytecodeInstruction::MakeEnum {
-                    enumeration,
-                    arguments,
-                    variant,
-                    ..
-                }
-                | BytecodeInstruction::TestEnumVariant {
-                    enumeration,
-                    arguments,
-                    variant,
-                    ..
-                }
-                | BytecodeInstruction::ReadEnumPayload {
-                    enumeration,
-                    arguments,
-                    variant,
-                    ..
-                } => (Aggregate::Enum(*enumeration, *variant), arguments),
-                BytecodeInstruction::ReadAggregateField { field, .. }
-                | BytecodeInstruction::WriteAggregateField { field, .. } => {
-                    (Aggregate::Struct(field.structure), &field.arguments)
-                }
-                _ => continue,
+            let Some(input) = AggregateOperand::from_instruction(instruction) else {
+                continue;
             };
             let operand = LayoutOperand {
-                aggregate,
-                arguments: arguments.clone().into_boxed_slice(),
+                aggregate: input.kind,
+                arguments: input.arguments.into(),
             };
             let index = if let Some(&index) = identities.get(&operand) {
                 index
             } else {
-                let linked = if arguments.iter().all(Ty::is_concrete) {
+                let linked = if input.arguments.iter().all(Ty::is_concrete) {
                     LinkedLayout::Closed(operand.prepare(runtime, owner, None)?)
                 } else {
                     let index = scoped_count;
@@ -168,18 +136,24 @@ impl FunctionLayouts {
         })
     }
 
-    fn operand(&self, pc: usize) -> Option<&LinkedLayout> {
-        let site = self.sites.binary_search_by_key(&pc, |&(pc, _)| pc).ok()?;
-        self.operands.get(self.sites[site].1)
+    pub(crate) fn site(&self, pc: usize) -> Option<LayoutSite> {
+        self.sites
+            .binary_search_by_key(&pc, |&(pc, _)| pc)
+            .ok()
+            .map(LayoutSite)
+    }
+
+    fn operand(&self, site: LayoutSite) -> Option<&LinkedLayout> {
+        self.operands.get(self.sites.get(site.0)?.1)
     }
 
     /// Read admitted facts without preparing metadata inside a closed cursor.
     pub(crate) fn ready<'a>(
         &'a self,
         active: Option<&'a AppliedLayouts>,
-        pc: usize,
+        site: LayoutSite,
     ) -> Option<&'a AggregateLayout> {
-        match self.operand(pc)? {
+        match self.operand(site)? {
             LinkedLayout::Closed(layout) => Some(layout),
             LinkedLayout::Scoped { index, .. } => active?.entries.get(*index)?.get(),
         }
@@ -191,10 +165,10 @@ impl FunctionLayouts {
         owner: &LoadedModule,
         environment: Option<&TypeEnvironment>,
         active: Option<&'a AppliedLayouts>,
-        pc: usize,
+        site: LayoutSite,
     ) -> Result<&'a AggregateLayout, RuntimeError> {
         let operand = self
-            .operand(pc)
+            .operand(site)
             .ok_or_else(|| RuntimeError::module_validation("missing prepared layout operand"))?;
         match operand {
             LinkedLayout::Closed(layout) => Ok(layout),
@@ -231,12 +205,12 @@ impl LayoutOperand {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::LayoutOperandPreparation);
         let declaration = match self.aggregate {
-            Aggregate::Struct(id) => owner
+            AggregateKind::Struct(id) => owner
                 .bytecode
                 .structures
                 .get(id.index())
                 .map(|layout| layout.declaration),
-            Aggregate::Enum(id, _) => owner
+            AggregateKind::Enum(id, _) => owner
                 .bytecode
                 .enumerations
                 .get(id.index())
@@ -262,11 +236,11 @@ impl LayoutOperand {
             arguments = &types;
         }
         match self.aggregate {
-            Aggregate::Struct(id) => runtime
+            AggregateKind::Struct(id) => runtime
                 .modules
                 .applied_struct_layout(owner, id, arguments, scope)
                 .map(AggregateLayout::Struct),
-            Aggregate::Enum(id, variant) => runtime
+            AggregateKind::Enum(id, variant) => runtime
                 .modules
                 .applied_enum_variant(owner, id, arguments, variant, scope)
                 .map(AggregateLayout::Enum),

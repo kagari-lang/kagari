@@ -1,14 +1,15 @@
 //! Allocation accounting isolates prepared native invocation from frame setup and compilation.
 use super::native_allocations_counter::{Counts, measured, verify_counter};
-use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, LocalSlot, NativeImportId, Register,
-};
+use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, LocalSlot, Register};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime,
-    frame::cursor::kernel::RegionExit,
+    frame::{
+        cursor::kernel::RegionExit,
+        driver::{ExecutionAction, ReturnAction},
+    },
     module::LoadedModule,
     native::{
         binding::NativeResult,
@@ -119,7 +120,7 @@ fn load() -> (Runtime, LoadedModule) {
 
 struct CallSite {
     function: FunctionRef,
-    import: NativeImportId,
+    pc: usize,
     arguments: Vec<Register>,
     destination: Option<Register>,
 }
@@ -132,21 +133,22 @@ impl CallSite {
             .iter()
             .find(|function| function.name == name)
             .unwrap();
-        let (import, arguments, destination) = function
+        let (pc, arguments, destination) = function
             .instructions
             .iter()
-            .find_map(|instruction| match instruction {
+            .enumerate()
+            .find_map(|(pc, instruction)| match instruction {
                 BytecodeInstruction::Call {
-                    callee: CallTarget::Native(import),
+                    callee: CallTarget::Native(_),
                     args,
                     dst,
-                } => Some((*import, args.clone(), *dst)),
+                } => Some((pc, args.clone(), *dst)),
                 _ => None,
             })
             .expect("ordinary direct native call");
         Self {
             function: function.id,
-            import,
+            pc,
             arguments,
             destination,
         }
@@ -183,14 +185,16 @@ fn sample(
     }
     let invoke = || {
         stack
-            .invoke_native(
-                runtime,
-                site.import,
-                &site.arguments,
-                site.destination,
-                unexpected_callback,
-            )
+            .current_mut()
             .unwrap()
+            .jump_to(runtime, site.pc)
+            .unwrap();
+        assert!(matches!(
+            stack
+                .execute_region(runtime, &mut Some(1), unexpected_callback)
+                .unwrap(),
+            RegionExit::Safepoint
+        ));
     };
     // Warm the boundary and initialize every thread-local/cache outside accounting.
     for _ in 0..128 {
@@ -275,20 +279,21 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         .iter()
         .find(|function| function.name == "script_caller")
         .unwrap();
-    let (module, callee, arguments, destination) = caller
+    let (pc, module, callee, arguments, destination) = caller
         .instructions
         .iter()
-        .find_map(|instruction| match instruction {
+        .enumerate()
+        .find_map(|(pc, instruction)| match instruction {
             BytecodeInstruction::Call {
                 callee: CallTarget::ModuleFunction { module, function },
                 args,
                 dst,
-            } => Some((*module, *function, args.as_slice(), *dst)),
+            } => Some((pc, *module, *function, args.as_slice(), *dst)),
             BytecodeInstruction::Call {
                 callee: CallTarget::Function(function),
                 args,
                 dst,
-            } => Some((loaded.slot(), *function, args.as_slice(), *dst)),
+            } => Some((pc, loaded.slot(), *function, args.as_slice(), *dst)),
             _ => None,
         })
         .unwrap();
@@ -303,10 +308,11 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         )
         .unwrap();
     assert!(matches!(
-        stack.execute_region(&runtime, &mut None).unwrap(),
-        RegionExit::Boundary
+        stack
+            .execute_region(&runtime, &mut None, unexpected_callback)
+            .unwrap(),
+        RegionExit::Call(ExecutionAction::Script)
     ));
-    stack.push_prepared_call(&runtime).unwrap();
     for (index, expected) in [11, 20, 11].into_iter().enumerate() {
         assert_eq!(
             stack
@@ -317,7 +323,10 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             Value::I32(expected)
         );
     }
-    let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap() else {
+    let RegionExit::Return(value) = stack
+        .execute_region(&runtime, &mut None, unexpected_callback)
+        .unwrap()
+    else {
         panic!("concrete scalar callee must remain in its prepared region");
     };
     stack.finish_return(&runtime, value).unwrap();
@@ -326,9 +335,18 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
         .push(&runtime, module, callee, &external, None)
         .unwrap();
     stack.pop().unwrap();
+    let enter = || {
+        stack.current_mut().unwrap().jump_to(&runtime, pc).unwrap();
+        assert!(matches!(
+            stack
+                .execute_region(black_box(&runtime), &mut None, unexpected_callback)
+                .unwrap(),
+            RegionExit::Call(ExecutionAction::Script)
+        ));
+    };
     let (window, _) = measured(|| {
         for _ in 0..1000 {
-            stack.push_prepared_call(black_box(&runtime)).unwrap();
+            enter();
             stack.pop().unwrap();
         }
     });
@@ -341,12 +359,17 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                     .write_register(&runtime, *register, *value)
                     .unwrap();
             }
-            stack.push_prepared_call(black_box(&runtime)).unwrap();
-            let RegionExit::Return(value) = stack.execute_region(&runtime, &mut None).unwrap()
+            enter();
+            let RegionExit::Return(value) = stack
+                .execute_region(&runtime, &mut None, unexpected_callback)
+                .unwrap()
             else {
                 panic!("scalar return");
             };
-            assert!(stack.finish_return(&runtime, value).unwrap().is_none());
+            assert_eq!(
+                stack.finish_return(&runtime, value).unwrap(),
+                ReturnAction::Continue(ExecutionAction::Script)
+            );
             assert_eq!(
                 stack
                     .current()

@@ -4,7 +4,10 @@ use crate::{
     error::RuntimeError,
     frame::{ExecutionFrame, types::arguments::TypeArgument},
     gc::HeapObjectId,
-    module::{EnumVariantRef, StructLayoutRef, linked_execution::layouts::AggregateLayout},
+    module::{
+        EnumVariantRef, StructLayoutRef, execution::aggregates::LayoutSite,
+        linked_execution::layouts::AggregateLayout,
+    },
     native::storage_type::StorageType,
     value::Value,
 };
@@ -72,7 +75,7 @@ impl ExecutionFrame {
     fn aggregate_layout(
         &self,
         runtime: &Runtime,
-        pc: usize,
+        prepared_site: Option<LayoutSite>,
     ) -> Result<&AggregateLayout, RuntimeError> {
         self.validate_runtime(runtime)?;
         let links = self
@@ -83,21 +86,26 @@ impl ExecutionFrame {
             .layouts
             .as_deref()
             .ok_or_else(|| RuntimeError::module_validation("missing function layout operands"))?;
+        // Prepared fields address the same table directly. Cold canonical aggregate
+        // operations select their site from the current logical PC.
+        let site = prepared_site
+            .or_else(|| layouts.site(self.instruction_offset()))
+            .ok_or_else(|| RuntimeError::module_validation("missing prepared layout site"))?;
         layouts.resolve(
             runtime,
             self.loaded(),
             self.environment.as_ref(),
             links.applied_layouts.as_deref(),
-            pc,
+            site,
         )
     }
 
     pub(super) fn field_layout(
         &self,
         runtime: &Runtime,
-        pc: usize,
+        site: LayoutSite,
     ) -> Result<StructLayoutRef, RuntimeError> {
-        let AggregateLayout::Struct(layout) = self.aggregate_layout(runtime, pc)? else {
+        let AggregateLayout::Struct(layout) = self.aggregate_layout(runtime, Some(site))? else {
             return Err(RuntimeError::module_validation(
                 "expected prepared struct layout",
             ));
@@ -107,14 +115,17 @@ impl ExecutionFrame {
 
     /// Resolve the checked struct operand at this frame's current program point.
     pub fn struct_layout(&self, runtime: &Runtime) -> Result<StructLayoutRef, RuntimeError> {
-        self.field_layout(runtime, self.instruction_offset())
+        let AggregateLayout::Struct(layout) = self.aggregate_layout(runtime, None)? else {
+            return Err(RuntimeError::module_validation(
+                "expected prepared struct layout",
+            ));
+        };
+        Ok(layout.clone())
     }
 
     /// Resolve the checked enum operand at this frame's current program point.
     pub fn enum_variant(&self, runtime: &Runtime) -> Result<EnumVariantRef, RuntimeError> {
-        let AggregateLayout::Enum(layout) =
-            self.aggregate_layout(runtime, self.instruction_offset())?
-        else {
+        let AggregateLayout::Enum(layout) = self.aggregate_layout(runtime, None)? else {
             return Err(RuntimeError::module_validation(
                 "expected prepared enum layout",
             ));

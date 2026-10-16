@@ -1,7 +1,4 @@
-use crate::{
-    error::VmError,
-    executor::{Executor, native::invoke_script},
-};
+use crate::{error::VmError, executor::Executor};
 use kagari_bytecode::instruction::{
     BytecodeInstruction, CallTarget, PathId, Register, RuntimeHelper,
 };
@@ -15,7 +12,6 @@ use std::{ops::Bound, slice};
 
 pub(super) enum InstructionProgress {
     Continue,
-    Call,
     Await,
     Return(ReturnValue),
 }
@@ -485,26 +481,19 @@ impl<'a> Executor<'a> {
         callee: &CallTarget,
         args: &[Register],
     ) -> Result<InstructionProgress, VmError> {
-        if let CallTarget::Native(import) = callee {
-            return self
-                .stack
-                .invoke_native(self.runtime, *import, args, dst, invoke_script)
-                .map(|()| InstructionProgress::Continue)
-                .map_err(VmError::RuntimeError);
-        }
         if matches!(
             callee,
-            CallTarget::Function(_)
+            CallTarget::Native(_)
+                | CallTarget::Function(_)
                 | CallTarget::ModuleFunction { .. }
                 | CallTarget::Shared { .. }
                 | CallTarget::InterfaceMethod { .. }
                 | CallTarget::ClosureRegister { .. }
         ) {
-            return self
-                .stack
-                .push_prepared_call(self.runtime)
-                .map(|()| InstructionProgress::Call)
-                .map_err(VmError::RuntimeError);
+            return Err(VmError::RuntimeError(
+                self.runtime
+                    .quarantine_execution_invariant("prepared call reached canonical dispatch"),
+            ));
         }
         let arg_values = args
             .iter()
@@ -512,8 +501,8 @@ impl<'a> Executor<'a> {
             .collect::<Result<Vec<_>, _>>()?;
 
         match *callee {
-            CallTarget::Native(_) => unreachable!("native calls execute before argument packing"),
-            CallTarget::ModuleFunction { .. }
+            CallTarget::Native(_)
+            | CallTarget::ModuleFunction { .. }
             | CallTarget::Function(_)
             | CallTarget::Shared { .. }
             | CallTarget::InterfaceMethod { .. }
