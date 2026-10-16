@@ -499,15 +499,25 @@ Reproduce on x64 Windows with 64-bit Python:
 
 ```powershell
 uv run python scripts/profile_lua_comparison.py arithmetic branches calls fibonacci arrays maps
+uv run python scripts/profile_lua_comparison.py --source-forms byte_state
+uv run python scripts/profile_lua_comparison.py --source-forms byte_state --executable <saved.exe> --pdb <matching.pdb>
 ```
 
-The driver builds the existing release profile with the child-process override
-`CARGO_PROFILE_RELEASE_DEBUG=2`, retaining optimization level 3 and adding private
-Rust PDB symbols. It saves the matching executable/PDB under
-`target/lua-comparison/profile/symbol-bin`; `--no-build` reuses that pair. The
-workspace profile and production sources are unchanged. This is a diagnostic
-build, and its execution durations are not pooled into the BP01 speed ratios.
-The first symbol build took 106.228 seconds; the recorded final invocation reused
+The current driver uses the workspace release profile without overrides, or
+accepts an existing executable and matching PDB without rebuilding. Each invocation
+saves both files, hashes and raw results in a fresh timestamped directory under
+`target/lua-comparison/profile/`. Source-form sampling uses `--source-forms`.
+Sampling durations never enter the ordinary speed ratios. Symbol names enter
+the summary only when their explicit size or matching x64 unwind range covers
+the sampled address. Unverified nearest-symbol matches remain raw diagnostic
+candidates and count as unresolved; reports retain the unresolved fraction.
+Ordinary release PDBs can omit private functions, so low coverage limits any
+hotspot conclusion. See Microsoft's [symbol record](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/ns-dbghelp-symbol_info)
+and [function table API](https://learn.microsoft.com/en-us/windows/win32/api/dbghelp/nf-dbghelp-symfunctiontableaccess64).
+
+The historical BP02 run below used `CARGO_PROFILE_RELEASE_DEBUG=2` for private
+Rust symbols at optimization level 3. Its first symbol build took 106.228 seconds;
+the recorded final invocation reused
 those products and rebuilt the diagnostic harness in 3.158 seconds. Build and
 setup costs are outside every sampling window.
 

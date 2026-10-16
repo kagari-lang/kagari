@@ -1388,6 +1388,57 @@ sequentially with no other builds/tests/diagnostics during timing. Keep the orig
 binary and all results, and do not edit production code until that sequence ends.
 Combined window/root timing and the remaining IP04-IP07 work are still required.
 
+The buildable intermediate integration is committed at 91ad3b48. Its ordinary
+candidate SHA-256 is `0d59d1c4c499e8aafbf79550e179f345d038e289d2ddced6f4ebb20fdd786ffb`.
+All three declared seven-pair runs finish with passing checksums. Source forms
+(UTC 20261016T155703Z) pass interface/shared_generic at 0.8366/0.8352 and
+0.8289/0.8276; field now passes at 0.9765/0.9785. Runtime initialization still
+fails at 1.1318/1.1261, and byte_state regresses to 1.1036/1.1107. Other forms
+rows pass. Calls (UTC 20261016T160042Z) passes execution at 0.8709/0.8709 and
+runtime initialization at 0.9538/0.9591; only Lua module initialization fails
+(1.0000/1.0625). Fibonacci (UTC 20261016T160814Z) passes every row, including
+execution 0.8483/0.8495 and runtime initialization 0.9257/0.9000. These results
+do not close the required combined checkpoint or its remaining control timings.
+
+Before another production edit, reuse the existing Windows main-thread RIP sampler
+for byte_state. Add source-form selection, saved executable/PDB input and isolated
+timestamped output; remove its old debug-profile override so it can sample this
+exact ordinary candidate. This is leaf-address sampling, not an inclusive call-stack
+profile. Preserve the matching PDB before later builds. Its instrumented ten-second
+execution window is attribution only, never throughput acceptance. All ordinary
+runs have stopped before sampling. Constructor/code-generation inspection follows
+the same separation; repeated local optimization without attribution is not the
+response to the new byte_state regression.
+
+The first exact-candidate RIP report (UTC 20261016T162150Z) has 3,896 samples and
+zero context errors, but nearest-public-symbol lookup misattributes addresses
+up to 23,794 bytes beyond a name. Do not use its named fractions as evidence.
+The sampler now checks explicit symbol sizes or matching x64 unwind starts,
+retains rejected candidates in raw rows, and reports unresolved samples instead
+of silently attributing them. The repeated exact-candidate report (UTC
+20261016T163855Z) has 3,884 samples, zero context errors and 37.18% unresolved.
+Verified leaf shares include buffer_contract 6.44%, execute_primitive 5.69%,
+TypeView::normalized 5.18%, readable_location 4.20% and TypeView::compare 3.91%.
+These identify current work, not the cause of a regression against IP01; no
+baseline PDB was saved. Warm counters show 15,054 allocation requests with no
+metadata preparation, so a claimed new warm descriptor-preparation cost is false.
+Do not introduce an IP06 collection transition merely from these incomplete
+IP03 samples. The current source-form checksum and zero live-object delta pass.
+
+Workspace-release assembly inspection completes separately from profiling.
+NativeInstallation::runtime now has a 1,680-byte stack frame and copies its
+448-byte registry plus a 296-byte HostRegistry into constructor arguments;
+the old wrapper had 20 instructions, while this one has 115. The constructor
+then copies the host registry again. Its frame shrank from 5,080 to 4,792 bytes,
+but preparation moved into the caller instead of yielding a single construction
+owner. The bounded follow-up passes the immutable prepared host facts into
+Runtime construction and constructs fresh host identity/roots there. Avoid
+default-constructing then replacing the four prepared maps. This preserves the
+installation-owned checked facts and runtime-local mutable state; it does not
+change the host registration contract or add a cache. Assembly demonstrates
+the redundant moves, not their share of the failed setup timing. Recheck the
+existing installation/isolation contracts and setup gates before retaining it.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

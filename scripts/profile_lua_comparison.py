@@ -3,6 +3,7 @@ import argparse
 from collections import Counter
 import ctypes as c
 from ctypes import wintypes as w
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import random
@@ -15,6 +16,7 @@ import threading
 import time
 
 from benchmark_lua import machine
+from benchmark_results import FORMS, ORIGINAL
 
 if os.name != "nt" or c.sizeof(c.c_void_p) != 8 or platform.machine().lower() not in {"amd64", "x86_64"}:
     raise SystemExit("This sampler requires 64-bit Python on x64 Windows.")
@@ -60,6 +62,14 @@ class Symbol(c.Structure):
 D.SymFromAddr.argtypes = [w.HANDLE, c.c_uint64, c.POINTER(c.c_uint64), c.POINTER(Symbol)]
 D.SymFromAddr.restype = w.BOOL
 
+class RuntimeFunction(c.Structure):
+    _fields_ = [("begin", w.DWORD), ("end", w.DWORD), ("unwind", w.DWORD)]
+
+D.SymFunctionTableAccess64.argtypes = [w.HANDLE, c.c_uint64]
+D.SymFunctionTableAccess64.restype = c.POINTER(RuntimeFunction)
+D.SymGetModuleBase64.argtypes = [w.HANDLE, c.c_uint64]
+D.SymGetModuleBase64.restype = c.c_uint64
+
 def threads(pid):
     snapshot = K.CreateToolhelp32Snapshot(4, 0)
     entry = ThreadEntry()
@@ -81,18 +91,38 @@ def symbol(handle, address):
     value.contents.SizeOfStruct = c.sizeof(Symbol)
     value.contents.MaxNameLen = 2048
     displacement = c.c_uint64()
+    module = D.SymGetModuleBase64(handle, address)
+    entry = D.SymFunctionTableAccess64(handle, address)
+    begin, end = (module + entry.contents.begin, module + entry.contents.end) if entry else (None, None)
+    result = {"symbol": "unresolved", "displacement": None,
+              "module_base": hex(module), "function_begin": hex(begin) if begin else None,
+              "function_end": hex(end) if end else None, "range_verified": False}
     if D.SymFromAddr(handle, address, c.byref(displacement), value):
         name = c.string_at(c.addressof(buffer) + Symbol.Name.offset, value.contents.NameLen).decode("utf-8", "replace")
-        return name, displacement.value
-    return "unresolved", None
+        info = value.contents
+        # Public-only release PDBs can return a preceding symbol from a different
+        # function. A successful lookup alone is not attribution evidence. Accept
+        # an explicit size or a matching x64 unwind start; retain rejected names
+        # only as diagnostic candidates. Leaf functions may have no unwind entry.
+        verified = (info.Size > 0 and info.Address <= address < info.Address + info.Size
+                    and (begin is None or begin <= info.Address < end)) or (
+                        begin == info.Address and begin <= address < end)
+        result.update(candidate_symbol=name, symbol_address=hex(info.Address),
+                      symbol_size=info.Size, displacement=displacement.value,
+                      range_verified=verified)
+        if verified:
+            result["symbol"] = name
+    return result
 
-def sample(workload, exe):
-    root = Path(__file__).resolve().parents[1]
-    output = root / "target/lua-comparison/profile" / workload
-    output.mkdir(parents=True, exist_ok=True)
+def sample(workload, exe, output, source_forms):
+    output = output / workload
+    output.mkdir()
     lines = []
     with (output / "stderr.log").open("w") as error_log:
-        process = subprocess.Popen([str(exe), f"--profile={workload}"], stdout=subprocess.PIPE,
+        arguments = [str(exe), "--interpreter-only", f"--profile={workload}"]
+        if source_forms:
+            arguments.append("--source-forms")
+        process = subprocess.Popen(arguments, stdout=subprocess.PIPE,
                                    stderr=error_log, text=True, bufsize=1)
         try:
             for line in process.stdout:
@@ -156,16 +186,16 @@ def sample(workload, exe):
                 names = Counter()
                 resolved = []
                 for address, count in addresses.items():
-                    name, displacement = symbol(handle, address)
-                    names[name] += count
-                    resolved.append({"pc": hex(address), "count": count, "symbol": name,
-                                     "displacement": displacement})
-                assert names and names["unresolved"] < sum(names.values()) / 2, "Symbols unavailable"
+                    details = symbol(handle, address)
+                    names[details["symbol"]] += count
+                    resolved.append({"pc": hex(address), "count": count, **details})
+                assert names, "No samples collected"
                 report = {"workload": workload, "pid": process.pid, "thread": target_tid,
                           "initial_thread_cycles": cycles,
                           "sample_wall_seconds": duration, "samples": sum(names.values()),
                           "errors": errors, "interval_seconds": [0.0015, 0.0025],
-                          "method": "jittered target main-thread RIP samples; brief suspend/context/resume; local release PDB symbols",
+                          "unresolved_fraction": names["unresolved"] / sum(names.values()),
+                          "method": "jittered target main-thread RIP samples; brief suspend/context/resume; local release PDB symbols with size/unwind range checks; no inclusive stacks",
                           "symbols": names.most_common(), "addresses": resolved}
                 (output / "samples.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
                 for name, count in names.most_common(25):
@@ -191,24 +221,42 @@ def sample(workload, exe):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("workloads", nargs="+", choices=["entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps"])
-    parser.add_argument("--no-build", action="store_true", help="Use an already saved optimized symbol build")
+    parser.add_argument("workloads", nargs="+", choices=sorted(set(ORIGINAL + FORMS)))
+    parser.add_argument("--source-forms", action="store_true", help="Sample the source-form matrix")
+    parser.add_argument("--executable", type=Path, help="Sample an existing release binary without rebuilding")
+    parser.add_argument("--pdb", type=Path, help="Matching local PDB for --executable")
     args = parser.parse_args()
+    if bool(args.executable) != bool(args.pdb):
+        parser.error("saved sampling requires both --executable and --pdb")
+    if len(set(args.workloads)) != len(args.workloads):
+        parser.error("select each workload once")
+    if any(name not in (FORMS if args.source_forms else ORIGINAL) for name in args.workloads):
+        parser.error("selected workload is not in this matrix")
     root = Path(__file__).resolve().parents[1]
-    output = root / "target/lua-comparison/profile"
-    output.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    output = root / "target/lua-comparison/profile" / f"windows-{stamp}"
+    output.mkdir(parents=True)
     binary = output / "symbol-bin"
-    binary.mkdir(exist_ok=True)
-    if not args.no_build:
-        environment = dict(os.environ, CARGO_PROFILE_RELEASE_DEBUG="2")
+    binary.mkdir()
+    elapsed = 0
+    if args.executable:
+        executable, pdb = args.executable.resolve(), args.pdb.resolve()
+        if not executable.is_file() or not pdb.is_file():
+            parser.error("saved executable or PDB does not exist")
+    else:
         started = time.perf_counter()
         with (output / "symbol-build.log").open("w") as log:
-            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark"], cwd=root, env=environment, stdout=log, stderr=subprocess.STDOUT, check=True)
-        for name in ["kagari-lua-benchmark.exe", "kagari_lua_benchmark.pdb"]:
-            shutil.copy2(root / "target/release" / name, binary / name)
-        metadata = {
-            "build_seconds": time.perf_counter() - started,
-            "profile": "release opt-level=3; debug=2 for symbols; no throughput measurements",
+            subprocess.run(["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark"], cwd=root, stdout=log, stderr=subprocess.STDOUT, check=True)
+        elapsed = time.perf_counter() - started
+        executable = root / "target/release/kagari-lua-benchmark.exe"
+        pdb = root / "target/release/kagari_lua_benchmark.pdb"
+    shutil.copy2(executable, binary / "kagari-lua-benchmark.exe")
+    shutil.copy2(pdb, binary / "kagari_lua_benchmark.pdb")
+    metadata = {
+            "build_seconds": elapsed,
+            "profile": "workspace release defaults; local PDB; sampling only, no throughput measurements",
+            "source_executable": str(executable), "source_pdb": str(pdb),
+            "source_forms": args.source_forms, "workloads": args.workloads,
             "rustc": subprocess.check_output(["rustc", "-Vv"], text=True),
             "cargo": subprocess.check_output(["cargo", "-V"], text=True),
             "machine": machine(),
@@ -230,10 +278,11 @@ def main():
             "binary_sha256": hashlib.sha256((binary / "kagari-lua-benchmark.exe").read_bytes()).hexdigest(),
             "pdb_sha256": hashlib.sha256((binary / "kagari_lua_benchmark.pdb").read_bytes()).hexdigest(),
         }
-        (output / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    (output / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    print(f"Output: {output}", flush=True)
     for workload in args.workloads:
         print(f"Sampling {workload}", flush=True)
-        sample(workload, binary / "kagari-lua-benchmark.exe")
+        sample(workload, binary / "kagari-lua-benchmark.exe", output, args.source_forms)
 
 
 if __name__ == "__main__":
