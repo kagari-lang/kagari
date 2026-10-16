@@ -2295,6 +2295,35 @@ source-free, prepared-native/host and allocation evidence remains recorded at it
 own checkpoint and is not described as freshly rerun. The complete original/forms
 comparison is still running on `1f48aed3...`; this audit changes documentation only.
 
+The retained-byte/allocation audit for the current candidate is complete by
+reusing the applicable measurements and inspecting subsequent production changes.
+From d53dbe82 (the return-view allocation checkpoint) through 2dbc51a8, production
+differences are limited to module record resolution, resource polling and window
+range traversal in five runtime files. They introduce no allocation site, retained
+field, storage representation, capacity policy, preparation product or lifetime
+owner. No later VM/SDK production change exists in that interval. Error/identity
+checks and root cleanup remain covered by the focused corrections above.
+
+The saved return-view reducer and underlying cold/warm output cover 14 original
+records and 72 forms/protocol records with no increased warm requests/bytes. Helper
+remains 7 requests/152 bytes; interface and shared_generic remain 11/618 and 11/628.
+Fixed-interface 2,500 and 5,000 iterations both report 11 requests/644 bytes; the
+alternating-interface rows both report 15/1,110. These include fixed root/setup
+work and are not claims of zero allocations for the whole public execution. They
+show no per-internal-call request growth or warm preparation/environment growth.
+
+Prepared executable and runtime-linked retention remains 43,011/52,983 bytes versus
+IP01's 43,794/52,583, with zero teardown. Retained prepared-owner root/window evidence
+covers all eight/six cases with setup subtraction, warm-request comparisons, equal
+reuse plateaus and zero teardown; subsequent fixes leave those allocations/layouts
+unchanged. The latest applicable loaded-storage report passes all 297 comparisons
+and sixteen zero-net teardowns. The 512-Point live/empty/reused increments remain
+58,092/40,516/66,700 bytes over setup. Source inspection and the recorded counters,
+not a fresh diagnostic run, support reuse of these results. No diagnostic workload
+runs alongside the current ordinary timings. IP02/IP03 still require the complete
+current-image ordinary gates; final composition and conditional decisions remain
+IP04-IP07 work. No unresolved local functional/build failure is known.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
