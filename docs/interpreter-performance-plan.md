@@ -2438,6 +2438,19 @@ the original-position difference leaves that hypothesis unsupported. Neither res
 alone changes the acceptance gates or authorizes padding, cache flushing or repeated
 work in the runtime. Record the outcome before selecting another action.
 
+Both probe builds pass with default workspace release settings and their own
+default targets: IP01 takes 1m33s with partial dependency reuse; the current
+isolated checkout takes 2m46s. Frozen probe hashes are baseline
+`e9d49163cb285ec32a9ff2f4a53a531e28d5acaaaa4ab5c807dba810b5575d7f` and candidate
+`483fdadb167be122e1c1fecbcf5fb79505e152ec260568b21b00be31854cff32`.
+Exact-PDB/PE-range inspection finds equal normalized instruction sequences for
+luaD_precall (83 bytes), luaD_poscall (76) and luaF_newLclosure (67). LuaV_execute
+is 15,600 bytes in both; embedded jump-table/RVA differences prevent claiming a
+complete normalized match. The private Rust helper lacks an enumerated symbol and
+luaD_callnoyield lacks a matched PE unwind range, so neither is attributed by this
+inspection. Equal selected code shapes do not prove equal timing or allocator/cache
+state; those limits remain explicit when interpreting the pending order experiment.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
