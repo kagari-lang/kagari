@@ -1,4 +1,7 @@
 //! Prepared calls share physical argument admission, dependencies and publication.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -16,6 +19,8 @@ impl ExecutionStack<'_> {
     /// Only the executing sealed instruction selects a call record; external
     /// callers cannot supply a transfer plan or substitute a target generation.
     pub fn push_prepared_call(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::CallSelection);
         self.validate_runtime(runtime)?;
         let (owner, function, pc, slots, environment) = {
             let frames = self.frames()?;

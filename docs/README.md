@@ -32,7 +32,7 @@ behavior; queued designs do not imply implemented APIs.
 - [Repository and architecture review](review.md): unresolved findings and native
   expansion requirements, with historical measurements linked at their owner.
 
-## Queued work
+## Active and queued work
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
@@ -40,7 +40,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   unstarted; attribute total costs, relocate native revisions, then conditionally
   group struct layouts and consolidate interface records under measured gates.
 - [Interpreter performance](interpreter-performance-plan.md): IP01-IP07 are
-  unstarted; replace window-slot scanning and complete prepared call transitions,
+  active with the IP01 baseline/tooling frozen; next replace window-slot scanning
+  and complete prepared call transitions,
   then conditionally evaluate session storage, typed instructions and selected
   library transitions. Object storage remains under OM.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and

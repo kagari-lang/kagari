@@ -72,4 +72,16 @@ fn count(
         execution.driver_admissions,
         execution.await_polls,
     );
+    println!(
+        "TRANSITION,{entry},phase={phase},selections={},admissions={},returns={},descriptors={},windows={},slots_examined={},initialized_bytes={},moved_bytes={},arguments={}",
+        execution.call_selections,
+        execution.call_admissions,
+        execution.call_returns,
+        execution.call_descriptors,
+        execution.window_allocations,
+        execution.window_slots_examined,
+        execution.bank_bytes_initialized,
+        execution.bank_bytes_moved,
+        execution.argument_transfers,
+    );
 }

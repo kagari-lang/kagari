@@ -73,17 +73,48 @@ loops. Its ratios are diagnostic, outside the frozen matched parity gate; it doe
 not claim Lua implements Kagari's entire integer/float domain or checked-overflow
 semantics.
 
-A baseline binary built from the selected revision can be paired with either
-unchanged matrix as well as the original suite. Replace the placeholder below
-with that binary's path; no saved binary from another machine is required:
+A baseline binary and its report are frozen together before production changes.
+Run each selected suite against the same destination to add its frozen report:
 
 ```text
-uv run python scripts/benchmark_lua.py --source-forms --baseline-executable <baseline-executable>
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
+uv run python scripts/benchmark_lua.py --source-forms --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
+uv run python scripts/benchmark_lua.py --execution-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
+uv run python scripts/benchmark_lua.py --window-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01-windows.exe
+uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable target/interpreter-performance/ip01.exe --baseline-report target/interpreter-performance/ip01.exe.forms.json
+uv run python scripts/check_benchmark.py <paired-results.json> --target forms_interface=0.90 --target forms_shared_generic=0.90
 ```
 
 Both binaries must contain the same selected fixtures. Results, binary/source hashes
 and process order are recorded; setup, allocation instrumentation and throughput
 runs remain separate. See the [measurement scope](../../docs/performance-baseline.md#frozen-paired-throughput).
+The single-process freeze verifies the workload contract and preserves a runnable
+binary; it is not timing acceptance. Subsequent comparisons rerun that binary in
+at least seven fresh alternating pairs. A focused original-suite comparison may
+select `--workload calls` against the full frozen original report; the entire
+baseline report is still validated before selecting that row.
+The checker validates the frozen binary/configuration, complete process/sample
+identities, workload sizes, batches and checksums. It requires seven alternating
+process pairs, three warmups and eleven execution samples. Both the ratio of
+process medians and the median paired ratio must satisfy the target. Values within
+0.01 of a gate are inconclusive and return a failing exit status; further pairs
+must be declared before collection and all evidence retained. This checks timing
+only, not allocation, correctness or CI acceptance.
+
+`--execution-controls` is a separate Kagari-only lifecycle matrix, outside Lua
+parity. It parks 1/32/256 owned executions after one instruction, then completes
+or cancels them in tail, forward or seeded random order (seed `0x4b4147415249`).
+Admission, retirement and explicit post-retirement collection have separate rows;
+compilation/setup is outside these control timers. Three equal diagnostic cycles
+record setup/live/empty/reused requested bytes and zero-net runtime teardown.
+Run the diagnostic build with `--execution-controls --diagnostics`; never use
+instrumented timings. Private window controls additionally cover zero-width and
+mixed scalar/managed windows, deep allocation, holes and reuse; they are storage
+measurements, not substitutes for these full session controls.
+Their `--window-controls` mode builds/freezes the ordinary release library test
+harness and uses the same report/checker protocol, with 32 cycles per sample and
+separate admission/retirement/fragmentation rows. Its binary is distinct from the
+Lua benchmark executable. Never substitute the diagnostic test executable.
 
 | Workload | Input | Measured script work |
 | --- | ---: | --- |
@@ -99,8 +130,10 @@ Measured execution starts after source compilation, artifact verification,
 runtime construction, linking and native preparation. Each supported route gets
 three untimed warmup calls and 11 measured samples per process. Engine order
 rotates each sample; the second process reverses the initial engine and workload
-order. The reported execution median pools 22 samples, normalized by the batch
-size. Every timed batch accumulates a checksum and validates it after the timer;
+order. The reported execution median is the median of process sample medians,
+normalized by batch size; raw samples and process ranges remain available.
+Historical pooled reports below retain their original methodology.
+Every timed batch accumulates a checksum and validates it after the timer;
 warmup results are also validated. The timer is Rust `Instant` on both routes.
 Host API entry, return conversion and default GC during execution remain included.
 Console output, source file I/O, expected-value calculation and setup are excluded.

@@ -1,4 +1,7 @@
 //! All call kinds share retirement and publication after any result adaptation.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     Runtime,
     error::RuntimeError,
@@ -48,6 +51,8 @@ impl ExecutionStack<'_> {
         runtime: &Runtime,
         mut packet: ReturnValue,
     ) -> Result<Option<Value>, RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::CallReturn);
         self.validate_runtime(runtime)?;
         let borrow_frames = || {
             self.session

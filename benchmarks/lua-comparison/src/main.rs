@@ -3,6 +3,7 @@
 mod diagnostic_forms;
 #[cfg(feature = "diagnostics")]
 mod diagnostics;
+mod execution_controls;
 mod forms;
 mod numeric;
 mod profile;
@@ -35,6 +36,7 @@ struct Options {
     numeric_matrix: bool,
     source_forms: bool,
     diagnostics: bool,
+    execution_controls: bool,
 }
 
 impl Options {
@@ -50,6 +52,7 @@ impl Options {
             numeric_matrix: false,
             source_forms: false,
             diagnostics: false,
+            execution_controls: false,
         };
         for argument in env::args().skip(1) {
             match argument.as_str() {
@@ -62,6 +65,7 @@ impl Options {
                 "--interpreter-only" => options.interpreter_only = true,
                 "--numeric-matrix" => options.numeric_matrix = true,
                 "--source-forms" => options.source_forms = true,
+                "--execution-controls" => options.execution_controls = true,
                 "--diagnostics" => {
                     #[cfg(not(feature = "diagnostics"))]
                     panic!("build with --features diagnostics");
@@ -80,7 +84,7 @@ impl Options {
                     options.workload = Some(argument["--workload=".len()..].to_owned());
                 }
                 _ => panic!(
-                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --diagnostics, --profile=WORKLOAD, --workload=WORKLOAD"
+                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --execution-controls, --diagnostics, --profile=WORKLOAD, --workload=WORKLOAD"
                 ),
             }
         }
@@ -91,6 +95,14 @@ impl Options {
         assert!(
             !options.diagnostics || !options.numeric_matrix,
             "numeric diagnostics are unsupported"
+        );
+        assert!(
+            !options.execution_controls
+                || (!options.source_forms
+                    && !options.numeric_matrix
+                    && options.workload.is_none()
+                    && options.profile.is_none()),
+            "execution controls require a separate run"
         );
         assert!(
             options.workload.is_none()
@@ -334,6 +346,10 @@ fn run(workload: &Workload, options: &Options) {
 fn main() {
     let options = Options::parse();
     println!("phase,workload,engine,size,batch,sample,ns,checksum");
+    if options.execution_controls {
+        execution_controls::run(&options);
+        return;
+    }
     if options.source_forms {
         forms::run(&options);
         #[cfg(feature = "diagnostics")]
@@ -390,6 +406,7 @@ mod tests {
             numeric_matrix: false,
             source_forms: false,
             diagnostics: false,
+            execution_controls: false,
         };
         for size in [0, 1] {
             for workload in WORKLOADS {

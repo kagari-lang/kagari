@@ -21,6 +21,15 @@ pub struct ExecutionCounts {
     pub environment_allocations: u64,
     pub metadata_validations: u64,
     pub slow_boundaries: u64,
+    pub call_selections: u64,
+    pub call_admissions: u64,
+    pub call_returns: u64,
+    pub call_descriptors: u64,
+    pub window_allocations: u64,
+    pub window_slots_examined: u64,
+    pub bank_bytes_initialized: u64,
+    pub bank_bytes_moved: u64,
+    pub argument_transfers: u64,
 }
 
 pub(crate) enum Event {
@@ -37,6 +46,15 @@ pub(crate) enum Event {
     EnvironmentAllocation,
     MetadataValidation,
     SlowBoundary,
+    CallSelection,
+    CallAdmission,
+    CallReturn,
+    CallDescriptor,
+    WindowAllocation,
+    WindowSlotsExamined,
+    BankBytesInitialized,
+    BankBytesMoved,
+    ArgumentTransfer,
 }
 
 thread_local! {
@@ -44,6 +62,10 @@ thread_local! {
 }
 
 pub(crate) fn record(event: Event) {
+    record_amount(event, 1);
+}
+
+pub(crate) fn record_amount(event: Event, amount: u64) {
     ACTIVE.with(|active| {
         let Some(mut counts) = active.get() else {
             return;
@@ -62,8 +84,17 @@ pub(crate) fn record(event: Event) {
             Event::EnvironmentAllocation => &mut counts.environment_allocations,
             Event::MetadataValidation => &mut counts.metadata_validations,
             Event::SlowBoundary => &mut counts.slow_boundaries,
+            Event::CallSelection => &mut counts.call_selections,
+            Event::CallAdmission => &mut counts.call_admissions,
+            Event::CallReturn => &mut counts.call_returns,
+            Event::CallDescriptor => &mut counts.call_descriptors,
+            Event::WindowAllocation => &mut counts.window_allocations,
+            Event::WindowSlotsExamined => &mut counts.window_slots_examined,
+            Event::BankBytesInitialized => &mut counts.bank_bytes_initialized,
+            Event::BankBytesMoved => &mut counts.bank_bytes_moved,
+            Event::ArgumentTransfer => &mut counts.argument_transfers,
         };
-        *counter += 1;
+        *counter += amount;
         active.set(Some(counts));
     });
 }

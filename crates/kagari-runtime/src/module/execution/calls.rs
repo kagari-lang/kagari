@@ -1,4 +1,7 @@
 //! Physical argument sources from sealed call sites; callee layouts own placement.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::module::execution::{ExecutionModule, layout::Location};
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
@@ -79,6 +82,8 @@ impl ExecutionModule {
                         .location(register.index())
                         .expect("sealed return operand")
                 });
+                #[cfg(feature = "execution-diagnostics")]
+                diagnostics::record(Event::CallDescriptor);
                 prepared.calls.insert(
                     pc,
                     PreparedCall {

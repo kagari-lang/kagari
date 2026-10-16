@@ -241,15 +241,17 @@ workload on one machine, with uncertainty analysis near parity. Entry, adapters,
 alternate numeric diagnostics and JIT results cannot replace that gate.
 
 The [interpreter performance execution plan](interpreter-performance-plan.md)
-records IP01-IP07; implementation is unstarted. Required work freezes a fresh
-baseline, replaces window-slot scanning and carries prepared invocation contracts
+owns active IP01-IP07 work as of 2026-10-16. IP01 has frozen the fresh baseline
+and acceptance tooling; IP02 is next, and IP02-IP07 implementation is unstarted.
+Required work freezes a fresh baseline, replaces window-slot scanning and carries prepared invocation contracts
 through parameter transfer, frame admission and return. Session-owned banks,
 typed instructions and at most two installed library transitions are separate
 conditional decisions under measured gates, not assumed implementations.
 
 The [OM plan](object-storage-overhead-plan.md) remains the sole owner of object
-storage changes. Prefer a coherent accepted OM checkpoint before IP01, then keep
-storage and interpreter measurements isolated. Preserve changing receiver/type/version,
+storage changes and remains queued. IP01 explicitly starts from the accepted RS
+implementation at 35077323, keeping heap storage fixed during interpreter work.
+Preserve changing receiver/type/version,
 roots, cancellation, host/reentry, logical observation and trap order; include
 setup, retirement and retained memory in acceptance. NC collection migration,
 enum unboxing and new GC/native backends remain outside IP scope.

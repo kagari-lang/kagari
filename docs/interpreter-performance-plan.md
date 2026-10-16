@@ -1,9 +1,10 @@
 # Interpreter performance execution plan
 
-Status: proposed plan recorded on 2026-10-16; IP01-IP07 are unstarted.
+Status: activated on 2026-10-16 by the user's execution request. IP01 is complete;
+IP02 is next. IP02-IP07 implementation is unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
-the progress ledger. Writing the plan does not start production changes.
+the progress ledger.
 
 ## Outcome and relationship to object storage
 
@@ -223,7 +224,7 @@ If a later conditional hypothesis needs another diagnostic, run it equivalently
 against the frozen baseline; do not rewrite the original workloads. Record exact
 focused correctness filters and the check-to-owner inventory to complete in IP03.
 Extend the existing benchmark reporting with the process/pair aggregation and gate
-checker defined below; do not substitute its current pooled-sample summary. Verify
+checker defined below; do not substitute the previous pooled-sample summary. Verify
 the estimator with synthetic unequal process distributions, paired-order reversal,
 missing/duplicate records, zero baselines and passing/failing thresholds. These
 checks validate measurement tooling, not runtime performance.
@@ -354,17 +355,18 @@ Near-threshold noise is inconclusive: predeclare additional pairs and retain all
 results. Keep raw files under ignored target/ and the methods, hashes, conclusions
 and limits in this ledger until handoff. Do not select favorable samples.
 
-Existing sample-collection commands are below; replace the placeholder with the
-IP01 binary built on the same machine. The
-[current driver](../scripts/benchmark_lua.py) builds before timing and treats
---runs as the number of matched process pairs when a baseline is supplied, but its
-pooled summary and successful exit do not establish these gates. IP01 records the
-implemented gate-check command, plus separate window/retirement and allocation
-probe commands. No new command is assumed to exist before that phase completes.
+The [driver](../scripts/benchmark_lua.py) builds before timing and treats --runs as
+the number of matched process pairs when a baseline is supplied. Freeze the binary
+and each matrix report with --freeze-baseline before production edits. A successful
+measurement is not acceptance: the [checker](../scripts/check_benchmark.py) validates
+both process-level estimators and the complete frozen matrix contract. IP01 also
+records separate storage, session-retirement and allocation measurements.
 
 ```text
-uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable <baseline-executable>
-uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable <baseline-executable>
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-original-report>
+uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-forms-report>
+uv run python scripts/benchmark_lua.py --execution-controls --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-controls-report>
+uv run python scripts/check_benchmark.py <paired-results.json>
 ```
 
 Common gates apply to each retained checkpoint and the final result against IP01;
@@ -457,7 +459,7 @@ Use Conventional Commits with Plan-Phase: IPxx trailers for implementation phase
 ## Progress and decisions
 
 - [x] Planning: owners, phase order, finite experiments and acceptance recorded.
-- [ ] IP01: fresh baseline, attribution, frozen controls, gate checker and test selection.
+- [x] IP01: fresh baseline, attribution, frozen controls, gate checker and test selection.
 - [ ] IP02: explicit window-slot reuse and local acceptance.
 - [ ] IP03: unified prepared calls, transfer and return with measured acceptance.
 - [ ] IP04: session storage decision and accepted implementation or deferral.
@@ -468,13 +470,199 @@ Use Conventional Commits with Plan-Phase: IPxx trailers for implementation phase
 Current decisions: OM retains object-storage scope; IP02/IP03 are required once
 activated; IP04-IP06 are conditional. No new production cache, second semantic
 engine or universal representation change is authorized by a conditional proposal.
-No implementation checks or performance measurements have run for this plan.
+IP01 starts from b8f83cde, with production storage unchanged since 35077323.
+OM remains queued; the accepted predecessor is RS, not an invented OM checkpoint.
+This explicitly selects the stable existing storage baseline instead of interleaving
+an unstarted OM migration. No heap-storage optimization is included in IP scope.
+
+Activation environment: Intel Core i7-10700F (8 cores/16 logical processors),
+Windows x64 MSVC target, rustc 1.98.1 (48a229cea, LLVM 22.1.8), Cargo 1.98.1.
+The initial ordinary release benchmark build passed (3m18s), with default target
+and parallelism; build time is excluded from execution measurements. Baseline
+tooling, diagnostics, frozen controls and correctness selection are recorded below.
+
+IP01 tooling now aggregates process medians and validates alternating pair order,
+complete row/sample identities, checksums, frozen source/binary/configuration and
+both timing ratios. The fixed inconclusive band is 0.01 below each gate.
+Estimator/schema/invalid-evidence coverage passes (twelve Python tests).
+Focused window contracts pass (six tests); the manual timing probe is intentionally
+ignored in correctness runs and was run separately in release mode.
+
+IP03 admission inventory, refreshed against the current implementation:
+
+| Current check/work | Guarantee owner and intended treatment |
+| --- | --- |
+| `push_prepared_call`: runtime/top-frame validation, PC-key lookup and canonical instruction reread | Active session retains runtime/quarantine/borrow checks. Verified caller preparation owns ordinal and closure/interface/shared call facts. |
+| `push_admitted_arguments`: candidate-argument isolation, suspension entry and call-depth admission | Keep candidate isolation and active execution policy at the session boundary. A sealed transfer must not bypass candidate or owned-resume restrictions. |
+| `ExecutionFrame::new`: target/arity, environment shape and native layout selection | Callee/application preparation owns reusable signature/layout facts; dynamic selected application and generation must still match. |
+| `ExecutionFrame::new`: heap arguments, executable/environment metadata validation and linked-function lookup | Explicitly prove the live pinned owner before relocating repeated checks. Keep heap ownership at external ingress and transactional parameter/root publication. |
+| `ExecutionValues::allocate`: argument range/representation, generation/capacity and initialization | Frame storage owns checked identities, bounds, rollback and initialized roots. Prepared scalar transfers may reuse checked representation facts, not skip dynamic range requirements. |
+| `finish_return`: adapted result while callee is rooted, retirement, caller transfer | Preserve one return protocol and adapter failure/GC behavior; caller destination remains separate from reusable callee/application templates. |
+
+Selected correctness commands, run only in their affected phase (not one broad
+local sweep): IP02 uses the six frame-value contracts above. IP03 adds the three
+VM filters `tests::execution::frames::deterministic_frames_`,
+`tests::execution::frames::reload_preserves_active_old_epoch_` and
+`tests::reentry_debug::nested_breakpoints_` with `cargo test -p kagari-vm --lib --`;
+SDK `runtime::tests::embedding::generic_reload::retained_generic_` with
+`cargo test -p kagari --lib --`; and `cargo test -p kagari --no-default-features
+--test artifact_features -- source_free_try_carriers_execute_with_selected_residual_calls`.
+IP04 additionally selects SDK `runtime::tests::embedding::async_execution::lifecycle::lifecycle_reload_contract`
+and the public `cargo test -p kagari --test async_execution -- sdk_owned_native_wait_contract`.
+These cover caller isolation/depth unwind, pinned applications, callback reentry,
+source-free adapters and waiting/cancellation cleanup. IP05/IP06 selections remain
+conditional on their concrete retained changes; exhaustive matrices stay in CI.
+
+Frozen control design (before production changes): private windows use
+depth/width/order `(1,0,tail)`, `(32,8,tail)`, `(256,128,tail)`, `(256,0,random)`,
+`(256,8,forward)`, `(256,128,random)`. Widths alternate scalar i32 and managed
+Generic operands carrying i32 values; fragmentation retires/replaces even slots.
+Owned-session controls park populations 1 and 32 in tail order, and 256 in forward
+and random order, at a one-instruction slice boundary, then independently complete
+or cancel them. Random order uses xorshift seed `0x4b4147415249`. Ordinary timing
+uses three warmups/eleven samples; diagnostics run three equal reuse cycles.
+Private storage timing batches 32 cycles per sample, summing the three timing
+regions separately to avoid zero medians for the smallest windows.
+These are fixed mechanism controls, not additional Lua-parity rows. Diagnostic
+bank bytes count logical initialized/copied bank payload, excluding allocator
+growth and window/order metadata; allocation accounting includes retained capacity.
+
+Initial IP01 attribution (Windows environment above; diagnostic builds, no latency
+claim) confirms that ordinary tail calls move zero bank bytes:
+
+| Warm complete execution | Frame admissions | Slots examined | Bank bytes initialized | Rust allocation requests / requested bytes |
+| --- | ---: | ---: | ---: | ---: |
+| calls | 10,002 | 20,001 | 360,090 | 7 / 151 |
+| fibonacci | 21,892 | 306,001 | 1,182,132 | 7 / 155 |
+| forms helper | 5,001 | 5,000 | 180,072 | 7 / 152 |
+| forms interface | 5,001 | 5,000 | 225,120 | 5,011 / 40,618 |
+| forms shared_generic | 5,001 | 5,000 | 205,147 | 10,011 / 120,628 |
+
+All five warmed rows have zero preparation counters for method/interface/shared
+applications and zero environment allocations. Thus direct-call allocation is
+already bounded, while interface/shared entry still allocates despite prepared
+selection; IP03 must attribute those requests rather than add another target cache.
+The 256-root random completion and cancellation controls each move 3,712,392 bank
+bytes across three equal cycles and examine 97,920 slots. All eight owned-root
+cases reach a stable empty capacity by cycles two/three and return to zero net
+requested bytes on runtime teardown. Compilation/artifact preparation is outside
+this lifecycle counter; runtime creation/linking is its separately recorded setup.
+An initial overbroad diagnostic counted compilation too; it was stopped before
+baseline freezing and replaced by this scoped measurement.
+
+Implementation validation: twelve Python evidence tests, the six window
+contracts, the ordinary owned-root checksum/cancellation run, full original/forms
+diagnostic runs and both default-workspace and diagnostic runtime/benchmark Clippy
+pass. Clippy initially found one missing `execution_controls` field in the existing
+benchmark test initializer (E0063); it was repaired and both Clippy scopes completed.
+Windows emitted an informational `linker_messages` warning for the derive DLL;
+Clippy returned success. The release private-window/count probes, three existing
+metadata lifecycle probes, new prepared-execution retention probe and original
+storage timing/allocation controls also pass. The added preparation probe is
+separate from compilation: five call descriptors retain 43,794 executable/metadata
+bytes; runtime creation/linking adds 52,583 bytes; warmed teardown is zero.
+The 512-Point storage control retains 58,092 live, 40,516 empty and 66,700 reused
+bytes above a 5,186,413-byte loaded setup on Windows. All sixteen existing storage
+population/control teardown checks return zero. These are current-machine controls,
+not elapsed-time comparisons with RS's Apple measurements.
+
+### IP01 frozen evidence and reproduction
+
+This checkpoint contains the complete fixture/tooling source; its production
+semantics are unchanged from b8f83cde/35077323. The frozen ordinary matrices each
+use one fresh process to verify/preserve the contract (not acceptance), with three
+warmups and eleven samples; original setup has three samples and forms setup one.
+All later acceptance reruns both saved baseline and candidate in at least seven
+alternating pairs. No production storage/call change preceded freezing.
+
+Saved binaries under ignored `target/interpreter-performance/`:
+
+| Binary | SHA-256 |
+| --- | --- |
+| `ip01.exe` (original/forms/owned controls) | `69f82baf0ad67534fc605576cfd935f04cc6e1671b2c4887818402cbe8fed327` |
+| `ip01-windows.exe` (ordinary private storage) | `f8a5d3c477a1fe533b9607bbe22d37322365dea43b977e27826607341a620997` |
+| `ip01-storage.exe` (unchanged RS probe) | `f1558dfcafc7c800a889f0e56c2d2618d4158a5b69570db1016895eb4ccea6f9` |
+| `ip01-diagnostics.exe` (protocol/allocation counts) | `8f60f25257f26452e8f9ee80cade593204ed72d721affa391d91da769cb9dc64` |
+| `ip01-runtime-counts.exe` (window/metadata counts) | `d16136cf73c645a36f19f962ad2892012d93282bd2e596655e1595f4f431762a` |
+| `ip01-preparation-counts.exe` (added executable preparation probe) | `bdd5d7fd75535c4d9776e89fb539464b457f6bb7f73aaa0e69f1a7b1fa32c954` |
+| `ip01-storage-counts.exe` (RS allocations) | `742b2e60ba5681b9775edb0f61e951a4b8ee63374c8570786546ef729c8e3c62` |
+
+The preparation-retention probe was added afterward without changing any frozen
+fixture or production semantics; its separate diagnostic binary is also retained.
+Do not use diagnostic binary times. Four frozen JSON reports preserve exact
+machine/toolchain/features/lockfile/fixture hashes and raw checksums. The tracked
+driver recreates those reports; this ledger retains the method and conclusions if
+ignored files are cleaned. Preserve the accepted binaries before a production edit.
+
+Baseline VM/Lua execution medians in microseconds (single-process context only):
+
+| Matched workload | VM | Lua |
+| --- | ---: | ---: |
+| arithmetic | 2,042.7 | 884.9 |
+| branches | 2,430.3 | 1,433.1 |
+| calls | 6,749.9 | 438.6 |
+| fibonacci | 14,225.4 | 473.0 |
+| arrays | 4,060.6 | 137.5 |
+| maps | 5,564.9 | 136.6 |
+| forms direct | 283.2 | 118.1 |
+| forms helper | 3,403.6 | 198.5 |
+| forms concrete_generic | 3,596.3 | 204.9 |
+| forms interface | 7,311.1 | 216.1 |
+| forms shared_generic | 9,116.8 | 207.3 |
+| forms capture_cell | 8,433.5 | 217.5 |
+| forms field | 1,149.8 | 184.0 |
+| forms byte_state | 6,898.2 | 223.4 |
+| forms string_constants | 1,045.2 | 146.2 |
+| forms string_calls | 4,916.7 | 218.1 |
+
+Entry, host_callback and the unmatched native row remain separate controls.
+No speedup, significance or Lua parity is claimed from this freeze.
+
+Logical profile passes retain Value/ExecutionInstruction sizes of 16/24 bytes
+(canonical instruction 136 bytes, return packet 24 bytes). Observed logical
+instruction totals: arithmetic 550,015; branches 600,022; forms direct 75,015;
+string_constants 100,012; byte_state 175,022. These use the existing observer and
+ten-second profiling window separately from throughput. No fresh CPU sampling
+profile was collected on Windows; logical counts do not establish inclusive CPU
+time or predict a specialization win. IP05 must close that uncertainty before
+retaining an instruction experiment. IP06 must account for byte_state's 15,001
+logical calls but only one admitted frame: installed primitives already consume
+these calls inside the admitted region.
+
+Reproduction (default Cargo target/profile/parallelism, same machine and toolchain):
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
+uv run python scripts/benchmark_lua.py --source-forms --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
+uv run python scripts/benchmark_lua.py --execution-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
+uv run python scripts/benchmark_lua.py --window-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01-windows.exe
+cargo build --release --locked -p kagari-lua-benchmark --features diagnostics
+target/release/kagari-lua-benchmark.exe --diagnostics
+target/release/kagari-lua-benchmark.exe --diagnostics --source-forms
+target/release/kagari-lua-benchmark.exe --diagnostics --execution-controls
+cargo test --release -p kagari-runtime --lib --features execution-diagnostics diagnostics::memory -- --ignored --nocapture --test-threads=1
+cargo test --release -p kagari-runtime --lib --features execution-diagnostics frame::values::tests::measurements::window_storage_counts -- --exact --ignored --nocapture --test-threads=1
+cargo run --release --locked -p kagari-lua-benchmark --example runtime_storage
+cargo run --release --locked -p kagari-lua-benchmark --example runtime_storage --features diagnostics
+target/interpreter-performance/ip01.exe --interpreter-only --profile=arithmetic
+target/interpreter-performance/ip01.exe --interpreter-only --source-forms --profile=direct
+```
+
+Use a fresh destination when recreating the frozen snapshots; the driver refuses
+to replace existing reports or a different binary. Other recorded profiles use
+`branches`, or source forms `string_constants`/`byte_state`. The gate checker is
+`uv run python scripts/check_benchmark.py <paired-results.json>`; IP03 adds targets
+`calls=0.90`, `fibonacci=0.90`, `forms_interface=0.90`, `forms_shared_generic=0.90`
+to their respective matrix runs. Focused original comparisons can select a single
+workload against the full frozen original report. Correctness/byte gates remain
+separate from this timing checker. All broader feature/backend/platform CI remains
+unrun and is not implied by IP01 completion.
 
 Review decisions: caller locations and callee templates have separate owners;
 IP01 supplies validated process/pair statistics and explicit setup sampling; memory
 limits cover performance targets; fusion requires a complete internal-PC resume
 and root model before prototyping. These requirements refine the existing phases
-without activating implementation or changing OM scope.
+without changing OM scope.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its

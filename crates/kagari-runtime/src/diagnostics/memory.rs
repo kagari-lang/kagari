@@ -1,5 +1,6 @@
 //! Manual retained-memory probes: checked inputs, no script execution or VM frames.
 mod applications;
+mod execution;
 mod layouts;
 
 use crate::{

@@ -1,4 +1,7 @@
 //! Runtime-owned execution windows, independent of persistent host root leases.
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use kagari_abi::representation::ValueType;
 
 pub(crate) mod operands;
@@ -194,6 +197,20 @@ impl ExecutionValues {
                 .unwrap_or(self.windows.len()),
             generation,
         };
+        #[cfg(feature = "execution-diagnostics")]
+        {
+            diagnostics::record(Event::WindowAllocation);
+            diagnostics::record_amount(
+                Event::WindowSlotsExamined,
+                (slots.index + 1).min(self.windows.len()) as u64,
+            );
+            diagnostics::record_amount(
+                Event::BankBytesInitialized,
+                (scalar_count * (size_of::<u64>() + size_of::<bool>())
+                    + managed_count * size_of::<Value>()) as u64,
+            );
+            diagnostics::record_amount(Event::ArgumentTransfer, arguments.len() as u64);
+        }
         let window = Some(Window {
             generation,
             ranges: WindowRanges {
@@ -446,6 +463,13 @@ impl ExecutionValues {
             // Independent roots can finish in any order. Compact the banks while
             // retaining generational window identities; no cursor may be borrowed
             // during release. Leaving interior holes would grow with historical work.
+            #[cfg(feature = "execution-diagnostics")]
+            diagnostics::record_amount(
+                Event::BankBytesMoved,
+                ((self.values.len() - ranges.managed.end) * size_of::<Value>()
+                    + (self.payloads.len() - ranges.scalars.end)
+                        * (size_of::<u64>() + size_of::<bool>())) as u64,
+            );
             self.values.drain(ranges.managed.clone());
             self.payloads.drain(ranges.scalars.clone());
             self.initialized.drain(ranges.scalars.clone());

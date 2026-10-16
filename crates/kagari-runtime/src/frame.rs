@@ -1,3 +1,6 @@
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::{self, Event};
+
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -278,6 +281,8 @@ impl<'runtime> ExecutionStack<'runtime> {
         return_dst: Option<Register>,
         dispatch: FrameDispatch<'_>,
     ) -> Result<(), RuntimeError> {
+        #[cfg(feature = "execution-diagnostics")]
+        diagnostics::record(Event::CallAdmission);
         if !args.all_managed(runtime, |value| runtime.gc.validate_candidate_value(value))? {
             return Err(RuntimeError::execution_phase_violation(
                 "external object in candidate call arguments",
