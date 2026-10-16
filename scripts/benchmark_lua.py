@@ -16,7 +16,7 @@ import statistics
 import subprocess
 import time
 
-from benchmark_results import process_summary, validate_baseline
+from benchmark_results import process_summary, validate_baseline, validate_extension
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -80,6 +80,8 @@ def main() -> None:
                         help="Frozen single-variant report matching the baseline binary and matrix")
     parser.add_argument("--freeze-baseline", type=Path,
                         help="Save this ordinary binary and matrix report after successful measurements")
+    parser.add_argument("--extend-report", type=Path,
+                        help="Retain a prior paired report and extend it to --runs total pairs")
     args = parser.parse_args()
     if args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls or args.baseline_executable:
         args.interpreter_only = True
@@ -93,6 +95,8 @@ def main() -> None:
         parser.error("--runs must be positive")
     if bool(args.baseline_executable) != bool(args.baseline_report):
         parser.error("paired execution requires both --baseline-executable and --baseline-report")
+    if args.extend_report and (not args.baseline_executable or args.check):
+        parser.error("extend an ordinary paired run with the same binary and configuration")
     if args.freeze_baseline and (args.baseline_executable or args.check or args.numeric_matrix):
         parser.error("freeze an ordinary unpaired original/forms run")
     if args.freeze_baseline:
@@ -164,11 +168,22 @@ def main() -> None:
         baseline = json.loads(args.baseline_report.read_text(encoding="utf-8"))
         validate_baseline(metadata, baseline)
     rows = []
+    start_pair = 0
+    if args.extend_report:
+        previous = json.loads(args.extend_report.read_text(encoding="utf-8"))
+        start_pair = validate_extension(metadata, previous)
+        if previous["baseline"] != baseline:
+            parser.error("extension must retain the exact frozen baseline report")
+        rows.extend(previous["raw"])
+        metadata["continued_report_sha256"] = hashlib.sha256(args.extend_report.read_bytes()).hexdigest()
+        metadata["continued_metadata"] = previous["metadata"]
+        metadata.update({key: value for key, value in previous["metadata"].items() if key.startswith("run_")})
     routes = []
-    for pair in range(args.runs):
+    for pair in range(start_pair, args.runs):
         variants = ["baseline", "candidate"] if pair % 2 == 0 else ["candidate", "baseline"]
         routes.extend((pair, variant) for variant in (variants if args.baseline_executable else ["candidate"]))
-    for run, (pair, variant) in enumerate(routes):
+    first_run = start_pair * 2
+    for run, (pair, variant) in enumerate(routes, start=first_run):
         argv = [str(args.baseline_executable if variant == "baseline" else executable)]
         if args.check:
             argv.append("--check")
@@ -200,7 +215,7 @@ def main() -> None:
                 row["pair"] = pair
                 row["variant"] = variant
                 rows.append(row)
-        print(f"Run {run + 1}/{len(routes)} ({variant}): all checksums pass", flush=True)
+        print(f"Run {run + 1}/{first_run + len(routes)} ({variant}): all checksums pass", flush=True)
     summary = []
     for variant in sorted({row["variant"] for row in rows}):
         summary.extend(dict(row, variant=variant) for row in summarize([row for row in rows if row["variant"] == variant]))

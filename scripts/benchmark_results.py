@@ -149,6 +149,18 @@ def validate_baseline(current: dict, baseline: dict) -> None:
             "baseline binary does not match its frozen report")
 
 
+def validate_extension(current: dict, previous: dict) -> int:
+    """Extend unchanged paired evidence without discarding earlier samples/order."""
+    validate_report(previous)
+    earlier = previous["metadata"]
+    require(earlier["paired"] and not earlier["check"], "extend ordinary paired evidence only")
+    require(current["runs"] > earlier["runs"], "extension must add process pairs")
+    for key in (*MATCHED_CONFIG, "binary_sha256", "baseline_binary_sha256"):
+        require(current[key] == earlier[key], f"extension configuration mismatch: {key}")
+    validate_baseline(current, previous["baseline"])
+    return earlier["runs"]
+
+
 def compare(report: dict, targets: dict[str, float] | None = None,
             minimum_pairs: int = 7, margin: float = 0.01) -> dict:
     """Check timing gates only; correctness and allocation acceptance remain separate."""

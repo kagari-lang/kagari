@@ -7,7 +7,7 @@ import unittest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark_lua import summarize, window_rows
-from benchmark_results import ORIGINAL, EvidenceError, compare, expected_rows, validate_report
+from benchmark_results import ORIGINAL, EvidenceError, compare, expected_rows, validate_extension, validate_report
 
 
 def metadata(paired=False, runs=1):
@@ -43,6 +43,18 @@ def fixture(before=None, after=None):
 
 
 class BenchmarkResultsTests(unittest.TestCase):
+    def test_extension_preserves_binary_configuration_and_all_prior_pairs(self):
+        previous = fixture()
+        current = dict(previous["metadata"], runs=21)
+        self.assertEqual(validate_extension(current, previous), 7)
+        for field, value in (("runs", 7), ("binary_sha256", "d" * 64),
+                             ("baseline_binary_sha256", "d" * 64), ("workload", "fibonacci")):
+            with self.subTest(field=field), self.assertRaises(EvidenceError):
+                validate_extension(dict(current, **{field: value}), previous)
+        previous["raw"].pop()
+        with self.assertRaises(EvidenceError):
+            validate_extension(current, previous)
+
     def test_summary_uses_process_medians_instead_of_pooling(self):
         distributions = [[0, 0, 0], [1, 10, 10], [2, 11, 11]]
         rows = [dict(phase="execute", workload="calls", engine="kagari_vm", run=run,

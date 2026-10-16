@@ -101,6 +101,13 @@ process medians and the median paired ratio must satisfy the target. Values with
 must be declared before collection and all evidence retained. This checks timing
 only, not allocation, correctness or CI acceptance.
 
+After declaring additional pairs, keep the same matrix/baseline options and add
+`--extend-report <previous-paired-results.json> --runs <new-total-pairs>`. This
+retains every earlier row and continues the alternating order. The driver rejects
+changed candidate/baseline hashes or configuration; a changed implementation needs
+a separate new comparison. The new report also retains the previous metadata and
+report hash, so extending noisy evidence cannot silently discard unfavorable runs.
+
 `--execution-controls` is a separate Kagari-only lifecycle matrix, outside Lua
 parity. It parks 1/32/256 owned executions after one instruction, then completes
 or cancels them in tail, forward or seeded random order (seed `0x4b4147415249`).
