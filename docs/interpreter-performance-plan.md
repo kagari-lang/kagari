@@ -2243,6 +2243,34 @@ selection and per-call/return driver reclassification descriptions. Source inspe
 content/fence/link and diff checks validate this documentation-only update; no
 build/test/profiling workload overlaps the timing sequence.
 
+Read-only attribution for the pending IP04 decision identifies another independent
+root-lifecycle cost. [Vm::drive](../crates/kagari-vm/src/vm/owned.rs) drains abandoned
+owners before activation and after terminal completion.
+[SessionStore::retired_owners](../crates/kagari-runtime/src/session/store.rs) scans
+the full retained slot vector on each drain, including vacant slots; removal retains
+that vector and returns the identity to its free list. Thus a terminal cycle of N
+roots at an N-slot high-water mark visits 2*N*N slots in those two per-root drains,
+plus N for the control's final explicit drain: 131,328 slot visits at N=256, before
+counting admission. This is a source-derived operation count, not a sampled latency
+share. There are no callbacks or nested executions in this fixed control that could
+add another session to that count. Checks of occupied records additionally borrow
+the owner and inspect its abandoned flag.
+
+The private-window controls exclude this owner-drain path. Their movement counters
+and the owned-root timings therefore cannot be treated as an additive decomposition
+or as proof that session-bank segmentation removes the full out-of-order cost.
+The current 21-pair candidate medians are 672.8/649.7 us for forward/random complete
+retirement and 720.2/698.9 us for cancellation; 32-root tail retirement is
+41.8/45.3 us. The populations differ, so extrapolating the tail measurement is not
+a causal estimate. Empty retained root bytes after setup subtraction are 538,912
+(complete) / 538,624 (cancel) at 256 roots in both IP01 and the retained prepared-owner
+allocation evidence. A future segment design must still account for added per-root
+headers/pools and preserve immediate drop cleanup, quarantine cleanup and provider
+cancellation. No drain is skipped and no notification queue or segmentation is added
+in this checkpoint. Use this distinction when deciding whether IP04's projected
+benefit justifies migration after required IP02/IP03 acceptance; it is not permission
+to silently substitute a different lifecycle optimization or mark IP04 complete.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
