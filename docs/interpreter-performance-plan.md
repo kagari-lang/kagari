@@ -2109,6 +2109,60 @@ matches the ordinary control's per-sample cycle count; other probe differences
 remain. This comparison can identify a batching-associated difference, not clear
 any ordinary acceptance gate. Complete both modes before deciding another action.
 
+The declared batching comparison completes all 28 processes at UTC
+20261016T210233Z. Every process reports 99 instructions and passes all checksums
+and cleanup assertions. Aggregate/paired ratios are:
+
+| Route | Batch 1 | Batch 16 |
+| --- | ---: | ---: |
+| Complete | 1.01208 / 1.01205 | 1.00212 / 1.00811 |
+| Body | 1.00000 / 1.00833 | 0.99974 / 1.00104 |
+| Final Return | 1.01384 / 1.02076 | 1.01108 / 1.01328 |
+| Cancel | 0.99557 / 0.99778 | 0.99638 / 0.99568 |
+
+Neither mode reproduces the large ordinary completion regression. This does not
+support cycle batching as its explanation; linked-image/retained-setup differences
+remain unresolved, and the failed ordinary results are unchanged. The baseline
+batch-16 Return outlier (36.73 us) is retained. Reproduce with the existing example
+and explicit `--batch 1` or `--batch 16`, optionally `--reverse`. Source hash is
+`95107d4860bb9378feb5e46738deb457d849820678f827661bec94948f0a2417`;
+baseline/current images are
+`aaf1a53b1dabcc498a6cba99a8d95dd0bdbe3c2aa1a2975bd7b8f1a838e5ffa7` and
+`d652483fafc606d31f09953ec55a883c5999488c6ba0b00826eb05a39ddfb853`.
+The same recorded environment/profile applies. Both builds, structure (1283 files,
+zero findings), formatting, diff checks and workspace all-target Clippy pass.
+No production repair of scalar execution or final Return is justified by this probe.
+
+The next bounded correction targets a separately identified storage-retirement
+redundancy. ExecutionValues already keeps allocation_order, which follows append
+order in both banks even when identity slots are reused. After removing a window,
+release currently scans every occupied/vacant identity slot and compares each live
+window's ranges against the removed ranges. Only the surviving allocation-order
+suffix can follow those ranges; earlier windows and vacant slots cannot need an
+update. For example, releasing the oldest of A/B/C moves B/C, while retiring B
+updates only C, regardless of the numeric identities assigned to A/B/C.
+
+Use that existing suffix to update both bank ranges directly, and skip adjustment
+when both removed ranges are empty. Keep owner/generation validation, immediate
+metadata drop, bank movement, zero-width behavior and the existing tail path. Remove
+the superseded mutable whole-table iterator. This is a bounded correction within
+ExecutionValues, with no new cache, representation or session-bank segmentation.
+It removes provably unnecessary traversal; the effect on the measured regressions
+must still be established. Do not claim it fixes the unexplained root-body cost.
+
+Reuse frame-value contracts for stale/foreign identities, zero-width/nonzero holes,
+reuse, scalar/managed bank movement and suspended-root retention. Run those focused
+runtime tests plus structure/format/diff and workspace all-target Clippy. Then build
+the ordinary image, archive its EXE/PDB/hash, run seven private-window pairs and
+seven owned-root pairs against the unchanged frozen baselines, serially with no
+other workloads. Preserve every result even if the first suite fails. Both suites
+retain their original workloads, paths, samples and common gates. No extension or
+other suites are declared until these results are inspected. The new image must
+later establish all required call/setup gates if retained; the previous image's
+passes remain evidence for that image only. Memory layout/allocations are unchanged
+by this traversal correction; retain the earlier byte/lifetime evidence with that
+explicit limit. IP02/IP03 remain open and IP04-IP07 remain unstarted.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

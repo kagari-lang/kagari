@@ -34,7 +34,6 @@ pub fn hold(n: i32) -> i32 {
 }
 "#;
 const POPULATION: usize = 32;
-const BATCH: usize = 16;
 
 #[derive(Debug)]
 struct InstructionCount(Arc<AtomicUsize>);
@@ -219,11 +218,22 @@ fn slice(instructions: usize) -> NonZeroUsize {
 }
 
 fn main() {
-    let reverse = match env::args().skip(1).collect::<Vec<_>>().as_slice() {
-        [] => false,
-        [flag] if flag == "--reverse" => true,
-        _ => panic!("expected optional --reverse"),
-    };
+    let mut reverse = false;
+    let mut batch = 16;
+    let mut arguments = env::args().skip(1);
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "--reverse" => reverse = true,
+            "--batch" => {
+                batch = match arguments.next().as_deref() {
+                    Some("1") => 1,
+                    Some("16") => 16,
+                    _ => panic!("expected --batch 1 or --batch 16"),
+                };
+            }
+            _ => panic!("expected optional --reverse and --batch 1|16"),
+        }
+    }
     let fixture = Fixture::new();
     println!("INSTRUCTIONS,{}", fixture.instructions);
     let mut routes = [Route::Complete, Route::Body, Route::Return, Route::Cancel];
@@ -238,13 +248,13 @@ fn main() {
         for sample in 0..11 {
             let mut elapsed = 0;
             let mut checksum = 0;
-            for _ in 0..BATCH {
+            for _ in 0..batch {
                 let result = fixture.cycle(&mut roots, route);
                 elapsed += result.0;
                 checksum += result.1;
             }
             println!(
-                "COMPLETION,{},{POPULATION},{BATCH},{sample},{elapsed},{checksum}",
+                "COMPLETION,{},{POPULATION},{batch},{sample},{elapsed},{checksum}",
                 route.name()
             );
         }
