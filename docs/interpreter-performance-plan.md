@@ -1828,6 +1828,27 @@ The redundant image override is removed in 4b4a9cc5; extensions now have only th
 recorded-path route. Commit this local return correction, then execute the declared
 seven-pair forms comparison before any other build or diagnostic work.
 
+The return-view correction is committed at d53dbe82. The ordinary seven-pair forms
+comparison (UTC 20261016T190147Z) passes every timing gate and checksum under the
+recorded image-path protocol. Candidate SHA-256 is
+`1989b853144af708ffdad4c43fe21af9e07bc0d2f5c177df56a21dfcac921154`;
+its EXE/PDB copies are archival, while the measured candidate remains at the
+unchanged Cargo release path. Interface passes 0.88844/0.88851 and shared_generic
+0.88401/0.87259. Initialization passes 1.0045/1.0136, field 0.9991/0.9966,
+byte_state 0.8284/0.8331, string_constants 1.0237/1.0138 and Lua string_calls
+0.9991/0.9986. These results do not retroactively accept earlier candidates or
+prove that all earlier timing differences were caused by image paths.
+
+Predeclare the next required sequence on this exact candidate: seven alternating
+original-suite pairs each for calls, fibonacci, arrays and maps, in that order.
+Calls/fibonacci retain the 0.90 targets and all four comparisons retain every
+common setup/execution gate. Do not change production or run other timing/build/
+diagnostic work during this sequence; each driver's unchanged-product check uses
+the same ordinary image path and SHA-256. Complete all four before selecting any
+repair or extension, preserving failed results. Combined root/window controls and
+final phase acceptance remain pending. IP02/IP03 are not accepted by forms alone;
+IP04-IP07 remain unstarted, and exhaustive correctness/backend CI remains separate.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
