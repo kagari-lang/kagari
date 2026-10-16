@@ -1,5 +1,5 @@
 //! Compiler-independent fixtures for VM native-entry and fallback decisions.
-use std::{ffi::c_void, sync::Arc};
+use std::sync::Arc;
 
 use kagari_bytecode::instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register};
 use kagari_runtime::{
@@ -9,7 +9,7 @@ use kagari_runtime::{
 use {
     kagari_abi::{
         native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-        native_call::{JIT_STATUS_OK, JitValue},
+        native_call::{JIT_STATUS_OK, JitCompiledFunction, JitValue, NativeInvocationContext},
     },
     kagari_contract::native::{
         ExecutableDebugInfo, ExecutableDebugPoint, ExecutableFunctionArtifact,
@@ -32,11 +32,11 @@ struct StaticCode;
 impl NativeCodeOwner for StaticCode {}
 
 unsafe extern "C" fn constant_i32<const VALUE: i32>(
-    runtime: *const c_void,
+    context: *const NativeInvocationContext,
     result: *mut JitValue,
 ) -> i32 {
     for offset in 0..2 {
-        let status = unsafe { jit_poll_execution(runtime.cast(), offset) };
+        let status = unsafe { jit_poll_execution((*context).runtime.cast(), offset) };
         if status != JIT_STATUS_OK {
             return status;
         }
@@ -75,9 +75,10 @@ pub(super) fn install_i32<const VALUE: i32>(
         BackendTarget::new("host", usize::BITS as u8),
         function.id,
     );
+    let entry: JitCompiledFunction = constant_i32::<VALUE>;
     artifact.code.entry = ExecutableEntryPoint::Native {
         symbol: "constant_i32".into(),
-        address: constant_i32::<VALUE> as *const () as usize,
+        address: entry as *const () as usize,
     };
     // Deliberately claim complete metadata to prove that flags alone cannot
     // authorize native execution while the runtime has an attached observer.
@@ -101,7 +102,7 @@ pub(super) fn install_i32<const VALUE: i32>(
     }
     // SAFETY: the assertion above binds this static C-ABI implementation to the
     // exact bytecode. Each logical point uses the runtime helper for GC, cancellation,
-    // cancellation and traps; static code remains callable for the process life.
+    // and traps; static code remains callable for the process life.
     unsafe {
         runtime.install_native_function(
             module,
