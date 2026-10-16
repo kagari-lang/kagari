@@ -3,9 +3,10 @@
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass. Current calls/recursion/forms/arrays/maps timing
-gates pass. Combined owned-root completion and private-window retirement gates
-remain failed/inconclusive, so IP02/IP03 acceptance stays open.
+correctness and memory checks pass. The current image passes all Kagari timing
+rows, all forms rows, extended owned-root controls and private-window controls.
+The full original comparison has ten failed and two inconclusive Lua preparation
+controls, so IP02/IP03 acceptance stays open pending attribution of that difference.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -2355,6 +2356,47 @@ arbitrary callbacks labelled pure. Reuse those authority rules and one collectio
 engine when IP06 is decided. No operation, new effect API, fused instruction or
 production code is added by this review; IP04-IP06 dispositions still follow the
 required current-image IP02/IP03 acceptance.
+
+The declared current-image sequence finishes with unchanged
+ordinary SHA-256 `1f48aed38eaa020b0e7f02c560cb181be771720f2418b4894862a170330d58a0`.
+The complete original seven-pair report (UTC 20261016T212227Z) has 58 passing,
+10 failed and two inconclusive gates; all Kagari gates pass. The forms seven-pair
+report (UTC 20261016T221411Z) passes all 28 gates. All checksums pass. Combined
+with the recorded 21-pair root and seven-pair private-window controls, this closes
+the current-image measurement sequence, not required phase acceptance.
+
+| Current-image execution row | Aggregate C/B | Paired C/B |
+| --- | ---: | ---: |
+| calls | 0.853912 | 0.860956 |
+| fibonacci | 0.824899 | 0.824899 |
+| forms_interface | 0.842666 | 0.836285 |
+| forms_shared_generic | 0.773908 | 0.768546 |
+| arrays | 0.766359 | 0.764572 |
+| maps | 0.886881 | 0.888069 |
+
+Failures are Lua module_init on arithmetic, arrays, branches, calls, fibonacci and
+maps, plus source_to_chunk on arithmetic, branches, calls and fibonacci. Lua
+engine_init is inconclusive on arithmetic and entry. For example, arithmetic
+module_init has baseline process medians [1300, 1400, 1300, 1400, 1300, 1300, 1300]
+ns and candidate [1700, 1800, 1600, 1600, 1900, 1500, 1800], ratios
+1.307692/1.285714. Its source_to_chunk medians are 17.8/19.2 us, ratios
+1.078652/1.062857; engine_init is 88.5/91.7 us, ratios 1.036158/1.041002.
+The consistent direction is not dismissed as random noise or timer granularity.
+Lua dependencies, sources and preparation operations are unchanged; that does not
+prove equal linked code, allocator/cache state or mapping behavior. Existing
+same-image path evidence establishes a possible confound, not this failure's cause.
+
+Predeclare one diagnostic of seven alternating baseline/candidate pairs on the
+unchanged arithmetic workload, using three fresh setup samples and three warmups /
+eleven execution samples. Launch both preserved images from one dedicated temporary
+executable path, replacing its bytes only after each child has exited. Verify each
+source and launched SHA-256 before/after every process; never replace either frozen
+source image or Cargo's output. Retain all rows and alternate --reverse by pair.
+This tests whether the preparation difference persists with a common launch path;
+file replacement does not guarantee identical mappings or physical cache placement.
+It is a diagnostic only: no acceptance extension, threshold exemption, revised
+baseline or production change is authorized by its result. Complete it before
+choosing further attribution or a justified measurement-protocol correction.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
