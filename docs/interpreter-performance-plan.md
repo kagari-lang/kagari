@@ -1730,6 +1730,25 @@ than another extension solely to seek a passing median. Calls/fibonacci, affecte
 arrays/maps and combined root/window controls remain pending for the final candidate;
 IP02/IP03 are unaccepted and IP04-IP07 remain unstarted.
 
+The borrowed-value extension finishes all 21 pairs at UTC 20261016T183835Z,
+retaining all seven originals and the exact `1dea1c62...` candidate. Every checksum
+passes. Initialization now passes at 1.0180/1.0383, field at 0.9787/0.9830,
+string_constants at 1.0124/1.0128 and shared_generic at 0.8864/0.8839. Interface
+still fails at 0.90118/0.90053 (and would remain inconclusive inside the fixed
+one-percent acceptance band even just below 0.90). Lua string_calls now fails at
+1.0916/1.0712; all other forms rows pass. Keep both failures. No further extension
+of this candidate is authorized merely to obtain a favorable median.
+
+Next work is architectural attribution of the remaining interface transitions
+and investigation of the unchanged Lua string-call control, before selecting any
+additional production change. The current source-form profiles have substantial
+unresolved samples and cannot explain either failure by themselves. Compare exact
+saved products and ownership paths; do not infer that an unchanged Lua source or a
+near-miss interface row can be waived. Pending required final-candidate comparisons
+remain calls/fibonacci, affected arrays/maps and combined root/window controls.
+This checkpoint is buildable with the recorded local correctness/memory checks;
+performance phase acceptance and exhaustive CI acceptance remain open separately.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
