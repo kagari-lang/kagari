@@ -308,6 +308,34 @@ record the evidence-backed deferral in RS05. Required RS02-RS04 work still stand
   Unsupported native bodies retain pre-entry interpreter selection. Do not expand
   J01-J06 or count a JIT-enabled fallback test as actual native execution.
 
+### Bounded unsafe implementation policy
+
+This plan does not require an all-safe implementation. Prefer safe representations
+and APIs; permit small private unsafe kernels inside the RS03 storage owner and
+RS04 field codec/transfer boundary when the selected layout requires raw memory,
+or when a measured hot path retains avoidable checks after safe restructuring.
+This does not authorize a separate rewrite of the scalar interpreter or a general
+unchecked access API. Existing host/JIT unsafe boundaries keep their own contracts.
+
+For each new unsafe operation, document allocation provenance, bounds/alignment,
+initialized bytes and valid bit patterns, aliasing, lifetime and invalidation
+conditions. Enforce those conditions through construction and access APIs, including
+independent artifact validation; debug assertions alone are not a safety proof.
+Unchecked indexing requires proof for the actual admitted storage window and every
+reachable access. Removing an initialization check additionally requires definite
+initialization evidence. Neither proof follows merely from static scalar typing.
+Keep these obligations across error cleanup, GC, callbacks/reentry and suspension;
+no invalid raw access may replace an existing script error or quarantine result.
+
+Performance-motivated unsafe changes require a matched safe baseline, generated-code
+or profile evidence of the remaining cost, and repeatable improvement on the frozen
+affected workloads. If safe code produces equivalent code/performance, keep it.
+For raw storage required by the chosen representation, record that necessity and
+measure the whole representation change without attributing its gains to unsafe
+alone. Keep one production implementation after comparison. Use focused Miri and
+boundary tests for new unsafe kernels; record unsupported checks and their coverage
+gaps explicitly. Passing tests supplements, but does not replace, invariant review.
+
 ## Execution phases and migration policy
 
 Execute RS01-RS06 in order. Keep coherent checkpoints buildable and attempt
@@ -521,6 +549,11 @@ Planning extension, 2026-10-16: direct field/scalar transfers and evidence-backe
 check reuse are required RS04 scope. RS01 freezes their proof boundaries and
 field-loop performance gates; single-object, traversal and scalar-control workloads
 separate execution overhead from storage density and existing arithmetic behavior.
+
+Planning clarification, 2026-10-16: bounded unsafe storage/transfer kernels are
+permitted with enforced safety invariants and focused validation. Check-elision
+optimizations additionally require measured benefit over a safe baseline; no new
+phase or general scalar-loop optimization is added.
 
 Planning validation: 212 local links/anchors across the five changed documents,
 Markdown fences, phase/checklist consistency and plan whitespace passed;
