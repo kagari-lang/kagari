@@ -2173,6 +2173,51 @@ visibility expansion and removes the obsolete Windows::iter_mut method. The rele
 ordinary build and the declared two performance suites are the next checkpoint;
 no speed or combined-acceptance claim is made from functional tests.
 
+The correction is committed at 2dbc51a8. Its ordinary release build passes;
+image SHA-256 is
+`1f48aed38eaa020b0e7f02c560cb181be771720f2418b4894862a170330d58a0`,
+retained with its matching PDB and measured at the original Cargo release path.
+The seven private-window pairs (UTC 20261016T211117Z) pass all eighteen gates and
+checksums. The distinct runtime-test image is
+`21ed2f1d257b98313a023c703fb0a7d99f7006dc56ea0f2d8d74213eefc79801`
+at the recorded Cargo release test-harness path. Retirement aggregate/paired ratios
+are 0.55903/0.55940 for 256/0 random, 0.88429/0.89607 for 256/8 forward and
+0.84848/0.81616 for 256/128 random. Tail controls also pass. These measurements
+support the bounded traversal correction; they are not IP04 session segregation.
+
+The seven owned-root pairs (UTC 20261016T211307Z) retain the same ordinary image
+and pass all eight admission and all eight retirement gates/checksums. Completion
+retirement ratios are 0.94444/0.94444 (1/tail), 1.01942/1.01442 (32/tail),
+0.99854/1.00266 (256/forward) and 0.86058/0.87284 (256/random). No scalar/return
+repair was made: do not causally attribute the previous tail-completion regression
+to non-tail range adjustment. This establishes the current image's retirement
+comparison, not an explanation of the previous image's differing behavior.
+
+Two explicit collection gates fail: 256/random/cancel at 1.02500/1.06154 and
+256/random/complete at 1.05042/1.01739. They prevent combined acceptance. Cancel
+baseline process medians are `11300,11800,11800,12900,12000,12200,13000` ns and
+candidate medians `12000,12300,11900,14000,12300,14100,13800` ns. Complete baseline
+medians are `11900,11500,11900,12100,11900,13400,13200` ns and candidate medians
+`11400,11700,12500,12600,12100,13000,14500` ns. Both series drift upward and the
+two estimators disagree; cancellation nevertheless has a consistent positive
+paired difference, so this is not dismissed as harmless noise. Collection owns
+a separate gate even though retirement now passes.
+
+Predeclare one precision extension of that root report to exactly 21 pairs,
+retaining all seven original pairs, the same executable paths/hashes, workloads,
+sampling and unchanged thresholds/band. Do not rebuild before or during this
+extension. If collection still fails, keep the failure and inspect its owner before
+another repair; do not extend again merely to seek a pass. After that completes,
+run seven original-suite pairs (all six workloads, with calls/fibonacci targets
+0.90) and seven forms pairs (interface/shared_generic targets 0.90), serially on
+the unchanged ordinary image. Finish this finite sequence even if a gate fails,
+so candidate selection uses the complete ordinary comparison. Every setup/Lua and
+nontarget common gate remains mandatory. This includes arithmetic/branches for
+later IP07 composition evidence, without declaring IP07 complete. Reuse the passing
+private-window result rather than rerunning it. Archive all reports, assert the
+ordinary hash between suites, and run no build/test/profile/diagnostic workload
+during timing. Allocation/lifetime audit and phase acceptance remain separate.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
