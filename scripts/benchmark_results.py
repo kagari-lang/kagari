@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 import math
+from pathlib import PurePosixPath, PureWindowsPath
 import re
 from statistics import median
 
@@ -19,6 +20,7 @@ MATCHED_CONFIG = ("rustc", "cargo", "machine", "profile", "features", "paralleli
                   "environment", "source_sha256", "lock_sha256", "suite", "workload",
                   "samples_per_process", "warmups_per_route", "setup_samples_per_workload",
                   "setup_scope", "interpreter_only", "check")
+IMAGE_PATHS = ("candidate_executable", "baseline_executable")
 
 
 class EvidenceError(ValueError):
@@ -32,6 +34,17 @@ def require(condition: bool, message: str) -> None:
 
 def row_key(row: dict) -> tuple[str, str, str]:
     return row["phase"], row["workload"], row["engine"]
+
+
+def validate_extension_identity(current: dict, earlier: dict) -> None:
+    """Image paths are part of one paired experiment, even for identical bytes."""
+    require(earlier.get("paired") is True and earlier.get("check") is False,
+            "extend ordinary paired evidence only")
+    require(type(earlier.get("runs")) is int and type(current.get("runs")) is int
+            and 0 < earlier["runs"] < current["runs"], "extension must add process pairs")
+    for key in (*MATCHED_CONFIG, "binary_sha256", "baseline_binary_sha256", *IMAGE_PATHS):
+        require(key in current and key in earlier, f"missing extension metadata: {key}")
+        require(current[key] == earlier[key], f"extension configuration mismatch: {key}")
 
 
 def expected_rows(metadata: dict) -> dict[tuple[str, str, str], int]:
@@ -84,6 +97,18 @@ def validate_report(report: dict) -> dict[tuple[int, str, str, str], list[dict]]
         require(isinstance(value, str) and re.fullmatch("[0-9a-f]{64}", value), "invalid SHA-256 evidence")
     require(type(metadata["runs"]) is int and metadata["runs"] > 0, "invalid process count")
     require(type(metadata["paired"]) is bool, "invalid paired mode")
+    if metadata["paired"]:
+        for key in IMAGE_PATHS:
+            path = metadata.get(key)
+            require(isinstance(path, str) and bool(path)
+                    and (PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute()),
+                    f"missing absolute image path: {key}")
+        continued = metadata
+        while "continued_metadata" in continued:
+            earlier = continued["continued_metadata"]
+            require(isinstance(earlier, dict), "invalid continued metadata")
+            validate_extension_identity(continued, earlier)
+            continued = earlier
     schema = expected_rows(metadata)
     variants = 2 if metadata["paired"] else 1
     grouped = defaultdict(list)
@@ -153,10 +178,7 @@ def validate_extension(current: dict, previous: dict) -> int:
     """Extend unchanged paired evidence without discarding earlier samples/order."""
     validate_report(previous)
     earlier = previous["metadata"]
-    require(earlier["paired"] and not earlier["check"], "extend ordinary paired evidence only")
-    require(current["runs"] > earlier["runs"], "extension must add process pairs")
-    for key in (*MATCHED_CONFIG, "binary_sha256", "baseline_binary_sha256"):
-        require(current[key] == earlier[key], f"extension configuration mismatch: {key}")
+    validate_extension_identity(current, earlier)
     validate_baseline(current, previous["baseline"])
     return earlier["runs"]
 

@@ -17,7 +17,8 @@ def metadata(paired=False, runs=1):
                 suite="original", workload="calls", samples_per_process=11,
                 warmups_per_route=3, setup_samples_per_workload=3, setup_scope="per workload",
                 interpreter_only=True, check=False, binary_sha256="c" * 64,
-                revision="baseline", runs=runs, paired=paired)
+                revision="baseline", runs=runs, paired=paired,
+                candidate_executable="C:/bench/candidate.exe", baseline_executable="C:/bench/baseline.exe")
 
 
 def fixture(before=None, after=None):
@@ -48,12 +49,32 @@ class BenchmarkResultsTests(unittest.TestCase):
         current = dict(previous["metadata"], runs=21)
         self.assertEqual(validate_extension(current, previous), 7)
         for field, value in (("runs", 7), ("binary_sha256", "d" * 64),
-                             ("baseline_binary_sha256", "d" * 64), ("workload", "fibonacci")):
+                             ("baseline_binary_sha256", "d" * 64), ("workload", "fibonacci"),
+                             ("candidate_executable", "C:/saved/same-bytes.exe"),
+                             ("baseline_executable", "C:/saved/baseline.exe")):
             with self.subTest(field=field), self.assertRaises(EvidenceError):
                 validate_extension(dict(current, **{field: value}), previous)
         previous["raw"].pop()
         with self.assertRaises(EvidenceError):
             validate_extension(current, previous)
+
+    def test_image_paths_are_required_and_preserved_through_continuation_history(self):
+        report = fixture()
+        original = dict(report["metadata"], runs=1)
+        intermediate = dict(report["metadata"], runs=3, continued_metadata=original)
+        report["metadata"]["continued_metadata"] = intermediate
+        self.assertTrue(compare(report)["passed"])
+        for field in ("candidate_executable", "baseline_executable"):
+            for replacement in (None, "relative.exe", "C:/relocated/same-bytes.exe"):
+                with self.subTest(field=field, replacement=replacement):
+                    changed = copy.deepcopy(report)
+                    changed["metadata"]["continued_metadata"]["continued_metadata"][field] = replacement
+                    with self.assertRaises(EvidenceError):
+                        compare(changed)
+            changed = copy.deepcopy(report)
+            del changed["metadata"][field]
+            with self.assertRaises(EvidenceError):
+                compare(changed)
 
     def test_summary_uses_process_medians_instead_of_pooling(self):
         distributions = [[0, 0, 0], [1, 10, 10], [2, 11, 11]]

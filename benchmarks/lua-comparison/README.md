@@ -104,14 +104,25 @@ only, not allocation, correctness or CI acceptance.
 After declaring additional pairs, keep the same matrix/baseline options and add
 `--extend-report <previous-paired-results.json> --runs <new-total-pairs>`. This
 retains every earlier row and continues the alternating order. The driver rejects
-changed candidate/baseline hashes or configuration; a changed implementation needs
+changed candidate/baseline hashes, absolute image paths or configuration; a changed implementation needs
 a separate new comparison. The new report also retains the previous metadata and
 report hash, so extending noisy evidence cannot silently discard unfavorable runs.
-If a later build replaced the original executable, add
-`--candidate-executable <saved-candidate>` to skip rebuilding and use that exact
-binary. This option requires an extension report and retains its binary-hash,
-fixture and configuration checks. Current revision/status describe the measuring
-worktree; `continued_metadata` retains the original candidate's build provenance.
+Extensions reuse the original candidate image path without rebuilding. Finish any
+extension before another build replaces that image. The optional
+`--candidate-executable <original-path>` must match both the original path and hash;
+an archived copy at another path cannot extend the experiment. Older paired reports
+without image-path evidence cannot be extended or establish new acceptance. Frozen
+single-variant IP01 reports still supply their unchanged workload/checksum contract;
+their old setup timings are not substituted for new matched baseline processes.
+Current revision/status describe the measuring worktree; `continued_metadata`
+retains the original candidate's build provenance and path through every extension.
+
+On Windows, identical executable bytes at two paths produced a roughly 10% Lua
+string-call difference in a seven-pair diagnostic. Image loading/placement is part
+of the measurement environment; hash equality alone did not preserve it. Keep
+archival EXE/PDB copies, but do not relocate or replace either measured image during
+one experiment. This restriction does not identify the underlying OS/CPU mechanism
+or waive any regression gate.
 
 `--execution-controls` is a separate Kagari-only lifecycle matrix, outside Lua
 parity. It parks 1/32/256 owned executions after one instruction, then completes

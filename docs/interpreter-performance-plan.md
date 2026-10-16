@@ -327,6 +327,12 @@ default target and build parallelism for matched pairs. Build first; never overl
 timing with compilation, tests or another agent-started workload. Separate ordinary
 timing, sampling, allocation instrumentation and logical counters. Report setup,
 execution, collection and retirement separately, with GC policy fixed per pair.
+Record the absolute candidate/baseline image paths from the first pair and retain
+them through every extension, in addition to hashes. Extensions do not rebuild or
+relocate images: complete them before another build replaces the original image.
+Archival EXE/PDB copies remain useful for attribution, but cannot stand in for the
+original measured path. Paired reports without this evidence cannot establish new
+acceptance; frozen single-variant IP01 workload/checksum contracts remain valid.
 
 For execution and lifecycle acceptance use at least seven alternating
 baseline/current process pairs, three warmups and eleven samples per timed row.
@@ -1748,6 +1754,49 @@ near-miss interface row can be waived. Pending required final-candidate comparis
 remain calls/fibonacci, affected arrays/maps and combined root/window controls.
 This checkpoint is buildable with the recorded local correctness/memory checks;
 performance phase acceptance and exhaustive CI acceptance remain open separately.
+
+Follow-up Lua control analysis finds a diagnostic confound worth testing before
+another runtime edit. The first seven borrowed-value pairs launched Cargo's output
+path; the 14 added pairs launched its preserved copy. Both have exact SHA-256
+`1dea1c62...`. Lua string_calls candidate medians are mostly 215-225 us initially
+(one 290 us process), then mostly 229-253 us in the extension; frozen baseline
+medians remain 213-219 us across both. Pair direction does not explain the split.
+Lua source uses local string constants, a local identity function and string length;
+there is no table/hash lookup in its timed loop. Exact saved-PDB inspection finds
+identical Lua VM/function sizes in the two latest production candidates, with
+changed linked addresses; neither that nor unchanged source proves equal timing.
+
+Predeclare a separate diagnostic of seven alternating process pairs between the
+identical current Cargo-output EXE and its already preserved copy, verifying both
+hashes before/after. Run the unchanged source-form workload/warmups/samples/reversal
+and retain every row. This tests image-file-path/loading effects, not a new candidate
+or an extension/waiver of failed acceptance. No code edit, build, test or profile
+runs concurrently. If there is no path effect, retain that negative result; if an
+effect is observed, investigate measurement identity before proposing a protocol
+change. Existing 21-pair failures remain evidence and all gates remain unchanged.
+
+The identical-image diagnostic completes all seven alternating pairs at UTC
+20261016T185009Z. Both executable hashes are unchanged and all results agree.
+For Lua string_calls the original image path yields 215.3-216.6 us, while its
+saved copy yields 216.7-240.9 us: saved/original aggregate 1.0998 and paired 1.0988.
+Kagari string_calls is also path-associated at 1.0267/1.0302. This demonstrates
+a measurement-environment confound, not a runtime semantic/code difference; it
+does not identify ASLR, physical cache placement or another OS/CPU mechanism.
+
+Correct the measurement tool rather than tune runtime code to these Lua results.
+Record both canonical executable paths on every paired run. Extensions reuse the
+original existing path automatically, never rebuild, and reject changed paths even
+when hashes match. The checker validates this identity through nested continuation
+metadata. Preserve legacy raw results and failure reports as historical evidence,
+with their image-path limitation; they do not establish new phase acceptance.
+The frozen IP01 single-variant contract, input/workload/checksums, all performance
+thresholds and estimator bands are unchanged. This strengthens experimental
+identity, not a rebaseline, discarded-outlier rule or Lua gate exemption.
+
+The measurement repair passes all 14 existing/extended benchmark-evidence tests,
+including same-hash path changes, absent path evidence and nested continuation
+tampering. It changes Python reporting/validation and documentation only; prior
+passing Rust tests and Clippy remain evidence for the unchanged runtime.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its

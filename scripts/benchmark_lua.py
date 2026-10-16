@@ -83,7 +83,7 @@ def main() -> None:
     parser.add_argument("--extend-report", type=Path,
                         help="Retain a prior paired report and extend it to --runs total pairs")
     parser.add_argument("--candidate-executable", type=Path,
-                        help="Extend using the saved candidate; its hash must match the prior report")
+                        help="Extend without rebuilding; path and hash must match the prior report")
     args = parser.parse_args()
     if args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls or args.baseline_executable:
         args.interpreter_only = True
@@ -153,11 +153,17 @@ def main() -> None:
     metadata["driver_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     metadata["lock_sha256"] = hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()
     print(f"Output: {output}", flush=True)
-    if args.candidate_executable:
-        executable = args.candidate_executable.resolve()
+    previous = None
+    if args.extend_report:
+        previous = json.loads(args.extend_report.read_text(encoding="utf-8"))
+        original_path = previous["metadata"].get("candidate_executable")
+        if not original_path:
+            parser.error("extension report lacks the original candidate image path")
+        executable = (args.candidate_executable or Path(original_path)).resolve()
+        if not executable.is_file():
+            parser.error("original candidate image no longer exists; cannot extend this experiment")
         metadata["build_wall_seconds"] = 0
-        metadata["candidate_executable"] = str(executable)
-        metadata["cache"] = "saved candidate from continued report; fresh process/state; warmed execution separate from setup"
+        metadata["cache"] = "original candidate image path; no rebuild; fresh process/state; warmed execution separate from setup"
     else:
         start = time.perf_counter()
         with (output / "build.log").open("w", encoding="utf-8") as log:
@@ -173,16 +179,19 @@ def main() -> None:
                          if line.startswith('{"reason":')]
             executable = Path(next(item["executable"] for item in artifacts
                                    if item.get("executable") and item["target"]["name"] == "kagari_runtime"))
+    executable = executable.resolve()
+    metadata["candidate_executable"] = str(executable)
     metadata["binary_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
     if args.baseline_executable:
+        args.baseline_executable = args.baseline_executable.resolve()
+        metadata["baseline_executable"] = str(args.baseline_executable)
         metadata["baseline_binary_sha256"] = hashlib.sha256(args.baseline_executable.read_bytes()).hexdigest()
         metadata["process_order"] = "baseline,candidate,candidate,baseline (alternating by pair)"
         baseline = json.loads(args.baseline_report.read_text(encoding="utf-8"))
         validate_baseline(metadata, baseline)
     rows = []
     start_pair = 0
-    if args.extend_report:
-        previous = json.loads(args.extend_report.read_text(encoding="utf-8"))
+    if previous is not None:
         start_pair = validate_extension(metadata, previous)
         if previous["baseline"] != baseline:
             parser.error("extension must retain the exact frozen baseline report")
