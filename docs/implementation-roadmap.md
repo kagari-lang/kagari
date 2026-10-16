@@ -169,11 +169,27 @@ This completion does not activate downcast, NC migration or the proposed call-li
 review. Universal 8-byte Value, new GC algorithms, state migration and native-backend
 expansion were outside scope; interpreter/Lua throughput goals remain independent.
 
+## Object storage overhead
+
+The [object storage overhead execution plan](object-storage-overhead-plan.md)
+records OM01-OM05; implementation is unstarted. It follows the completed local
+RS storage work. The required next change attributes total storage and moves native
+mutation revisions out of the common identity directory. Layout-grouped structs
+and interface-record consolidation are conditional on additional measured savings,
+sparse-layout capacity, unchanged semantics and non-compounding latency gates.
+Value and full owner/slot/generation handles remain unchanged.
+
+This is a recorded follow-up, not activation of implementation or a new dependency
+that blocks DC/NC. Before activating another storage-dependent track, refresh its
+inventory against whichever OM checkpoints have actually been accepted. OM owns
+its decisions and ledger; downcast, collection-library migration and call-lifecycle
+optimization remain separate scopes.
+
 ## Library-owned native collections
 
 [NC01-NC06](native-collections-plan.md) are queued and unstarted.
 Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
-Reuse the resulting heap/descriptor contracts and refresh NC01's API/code inventory
+reuse the resulting heap/descriptor contracts and refresh NC01's API/code inventory
 against the current scoped identity APIs.
 Baseline 9cd90557 includes the completed Iterable APIs, retained selected-call slots
 and Vec/HashMap/HashSet FromIterator implementations.

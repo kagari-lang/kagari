@@ -36,6 +36,9 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Object storage overhead](object-storage-overhead-plan.md): OM01-OM05 are
+  unstarted; attribute total costs, relocate native revisions, then conditionally
+  group struct layouts and consolidate interface records under measured gates.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and
