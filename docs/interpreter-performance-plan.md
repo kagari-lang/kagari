@@ -2418,6 +2418,26 @@ allocator/cache state after Kagari setup. Both are outside the timed Kagari exec
 region, but unchanged Lua source alone does not settle either. No new production
 edit or measurement-protocol exemption is justified yet; IP02/IP03 remain open.
 
+Next bounded attribution: build the same preparation-order probe in isolated
+IP01/current checkouts, leaving ordinary images and benchmark sources untouched
+in the main checkout. Extract the existing Lua preparation into one non-inlined
+helper retaining Lua, chunk and returned Function for the full sample lifetime.
+In each sample choose that helper either before Kagari engine/compile/prepare/link
+or at its original position afterward. Preserve workload text, all operations,
+checksums, three fresh samples and ordinary warmups/execution. The probe changes
+linked code and is therefore not the original acceptance image.
+
+Freeze both probe images after builds, then run exactly seven process pairs for
+each preparation order, 28 sequential processes total, on arithmetic only. Balance
+image/order sequencing and --reverse by pair; retain per-sample cold preparation
+values as well as process medians. No builds, tests or other measurements overlap.
+If the difference reproduces only after Kagari preparation, the within-image order
+interaction supports preceding allocator/cache/retained-state attribution without
+identifying its exact mechanism. Persistence in both orders or failure to reproduce
+the original-position difference leaves that hypothesis unsupported. Neither result
+alone changes the acceptance gates or authorizes padding, cache flushing or repeated
+work in the runtime. Record the outcome before selecting another action.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
