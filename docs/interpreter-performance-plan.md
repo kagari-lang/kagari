@@ -3,9 +3,9 @@
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass. Current path-recorded forms pass, but ordinary
-calls/recursion miss their targets and some setup gates remain failed/inconclusive;
-combined lifecycle/performance comparisons also keep phase acceptance open.
+correctness and memory checks pass. Current calls/recursion execution targets pass;
+one Lua setup gate and the remaining same-candidate forms/collection/lifecycle
+comparisons keep phase acceptance open.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -1940,6 +1940,40 @@ and retains SessionState::poll (631 to 484 bytes of linked code). These are code
 observations, not speed claims. Start the declared calls/fibonacci sequence on
 the unchanged Cargo release path after this inspection; all earlier evidence and
 open acceptance obligations remain as recorded above.
+
+The `20f10699...` candidate completes both declared seven-pair comparisons with
+all checksums and identities validated. Calls (UTC 20261016T194714Z) passes every
+gate, including execution at 0.84359/0.84946. Fibonacci (UTC 20261016T195447Z)
+passes execution at 0.79884/0.80258 and every other gate except Lua module
+initialization (1.06667/1.00000). This is a failed aggregate gate, not an accepted
+or inconclusive result. Its baseline process medians are
+`1500,1900,1300,1500,1700,1800,1400` ns; candidate medians are
+`1500,1600,1400,1800,1700,1600,1900` ns. The distributions overlap and the aggregate
+median difference is one observed 100 ns timing increment (1500 to 1600 ns),
+while the paired estimator shows no change. That disagreement warrants one
+bounded precision check; it does not prove absence of a regression.
+
+Predeclare the next serial sequence on this unchanged main image/path:
+
+1. Extend only that fibonacci report to exactly 21 pairs, retaining all seven
+   original pairs and every row. Do not rebuild or relocate the candidate.
+   The 0.90 target, common gates, 0.01 band and setup sampling stay unchanged.
+   If it still fails, retain the failure for renewed attribution; do not schedule
+   another extension merely to seek a passing median.
+2. Seven forms pairs, retaining 0.90 targets for interface and shared_generic.
+3. Seven original pairs each for arrays and maps, with every common gate.
+4. Seven owned-root control pairs against the frozen ordinary controls.
+5. Build the private-window harness outside all timing, then run seven window
+   pairs against the frozen private-window baseline. Archive that distinct image
+   and its measured path/hash; it is not the ordinary benchmark binary.
+
+Complete this finite sequence even if a timing gate fails, preserving its result.
+No production edits, other builds, tests, profiling or allocation diagnostics run
+concurrently with any timing process. Ordinary drivers may verify/build unchanged
+products between suites; assert the main image hash before and after every suite.
+Prior passing calls is retained rather than rerun for a fresh transcript. Required
+IP02/IP03 acceptance still needs the complete combined evidence and correctness/
+memory audit. IP04-IP07 remain unstarted and exhaustive CI remains separate.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
