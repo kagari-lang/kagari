@@ -110,6 +110,51 @@ impl GcHeap {
     pub(super) fn prepare_struct_storage(
         &self,
         layout: StructLayoutRef,
+        values: Vec<Value>,
+    ) -> Result<StructInitializer, RuntimeError> {
+        if values.len() != layout.layout().fields.len() {
+            return Err(field_error("invalid heap target, index, or payload"));
+        }
+        let description = self.struct_storage_description(layout)?;
+        // Closed scalar domains need no lexical type resolution. Managed fields
+        // still require heap admission and nominal/environment compatibility.
+        for (slot, (field, value)) in description.fields.iter().zip(&values).enumerate() {
+            let admitted = match *field {
+                StoredField::Scalar { encoding, .. } => {
+                    value.has_representation(encoding.representation)
+                        && scalar::encode(value).is_some_and(|bits| {
+                            scalar::admits_payload(encoding.representation, Some(encoding.ty), bits)
+                        })
+                }
+                StoredField::Managed { .. } => {
+                    self.valid_payload(value)
+                        && description
+                            .semantic
+                            .field_type(slot)
+                            .is_some_and(|(ty, environment)| {
+                                matches_type_in(
+                                    self,
+                                    value,
+                                    ty,
+                                    description.semantic.module(),
+                                    environment,
+                                )
+                            })
+                }
+            };
+            if !admitted {
+                return Err(field_error("invalid heap target, index, or payload"));
+            }
+        }
+        Ok(StructInitializer {
+            description,
+            values,
+        })
+    }
+
+    fn struct_storage_description(
+        &self,
+        layout: StructLayoutRef,
     ) -> Result<Arc<StructStorageLayout>, RuntimeError> {
         let key = layout.storage_key();
         let mut layouts = self

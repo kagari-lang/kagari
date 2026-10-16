@@ -69,8 +69,7 @@ pub(super) struct ObjectStorage {
     payloads: PayloadStores,
 }
 
-/// Typed detached batches keep disposal outside the storage borrow without
-/// rebuilding a maximum-sized enum for every dead object.
+/// Persistent payloads are dense within their concrete storage family.
 #[derive(Debug, Default)]
 pub(super) struct PayloadStores {
     strings: Vec<Entry<String>>,
@@ -86,6 +85,29 @@ pub(super) struct PayloadStores {
     interfaces: Vec<Entry<(InterfaceSnapshotId, usize)>>,
     closures: Vec<Entry<ClosureValueSnapshot>>,
     cells: Vec<Entry<(ValueType, Value)>>,
+}
+
+/// Only changed kinds cross the storage borrow for panic-contained disposal.
+#[derive(Debug)]
+pub(super) struct RetiredPayloads(Vec<RetiredBatch>);
+
+#[derive(Debug)]
+enum RetiredBatch {
+    String(Vec<Entry<String>>),
+    Tuple(Vec<Entry<TupleData>>),
+    Range(Vec<Entry<RangeValue>>),
+    HostRoot(Vec<Entry<HostRootHandle>>),
+    HostPath(Vec<Entry<Arc<HostPathViewHandle>>>),
+    Ephemeral(Vec<Entry<EphemeralValue>>),
+    Native(Vec<Entry<NativeObject>>),
+    Enum(Vec<Entry<(EnumValueSnapshot, Option<Arc<ErrorTrace>>)>>),
+    Interface(Vec<Entry<(InterfaceSnapshotId, usize)>>),
+    Closure(Vec<Entry<ClosureValueSnapshot>>),
+    Cell(Vec<Entry<(ValueType, Value)>>),
+    Structs {
+        records: Vec<Entry<StructRecord>>,
+        bytes: Vec<u8>,
+    },
 }
 
 /// Field bytes are packed independently of the stable object and record indices.
@@ -472,91 +494,109 @@ impl ObjectStorage {
         self.initialization_owners.remove(&id);
     }
 
-    pub(super) fn detach_marked(&mut self, counts: DetachedCounts) -> PayloadStores {
-        let structs = extract(
-            &mut self.payloads.structs,
-            &mut self.slots,
-            counts.0[PayloadKind::Struct as usize],
-        );
-        let struct_bytes = if structs.is_empty() {
-            Vec::new()
-        } else if self.payloads.structs.is_empty() {
-            mem::take(&mut self.payloads.struct_bytes)
-        } else {
-            let mut offset = 0;
-            for entry in &mut self.payloads.structs {
-                let record = &mut entry.payload;
-                let size = record.description.size;
-                self.payloads
-                    .struct_bytes
-                    .copy_within(record.offset..record.offset + size, offset);
-                record.offset = offset;
-                offset += size;
-            }
-            self.payloads.struct_bytes.truncate(offset);
-            shrink(&mut self.payloads.struct_bytes);
-            Vec::new()
-        };
-        self.shrink_initialization_owners();
-        PayloadStores {
-            strings: extract(
+    pub(super) fn detach_marked(&mut self, counts: DetachedCounts) -> RetiredPayloads {
+        let mut retired = Vec::with_capacity(counts.0.iter().filter(|&&count| count != 0).count());
+        if counts.0[PayloadKind::String as usize] != 0 {
+            retired.push(RetiredBatch::String(extract(
                 &mut self.payloads.strings,
                 &mut self.slots,
                 counts.0[PayloadKind::String as usize],
-            ),
-            tuples: extract(
+            )));
+        }
+        if counts.0[PayloadKind::Tuple as usize] != 0 {
+            retired.push(RetiredBatch::Tuple(extract(
                 &mut self.payloads.tuples,
                 &mut self.slots,
                 counts.0[PayloadKind::Tuple as usize],
-            ),
-            ranges: extract(
+            )));
+        }
+        if counts.0[PayloadKind::Range as usize] != 0 {
+            retired.push(RetiredBatch::Range(extract(
                 &mut self.payloads.ranges,
                 &mut self.slots,
                 counts.0[PayloadKind::Range as usize],
-            ),
-            host_roots: extract(
+            )));
+        }
+        if counts.0[PayloadKind::HostRoot as usize] != 0 {
+            retired.push(RetiredBatch::HostRoot(extract(
                 &mut self.payloads.host_roots,
                 &mut self.slots,
                 counts.0[PayloadKind::HostRoot as usize],
-            ),
-            host_paths: extract(
+            )));
+        }
+        if counts.0[PayloadKind::HostPath as usize] != 0 {
+            retired.push(RetiredBatch::HostPath(extract(
                 &mut self.payloads.host_paths,
                 &mut self.slots,
                 counts.0[PayloadKind::HostPath as usize],
-            ),
-            ephemerals: extract(
+            )));
+        }
+        if counts.0[PayloadKind::Ephemeral as usize] != 0 {
+            retired.push(RetiredBatch::Ephemeral(extract(
                 &mut self.payloads.ephemerals,
                 &mut self.slots,
                 counts.0[PayloadKind::Ephemeral as usize],
-            ),
-            natives: extract(
+            )));
+        }
+        if counts.0[PayloadKind::Native as usize] != 0 {
+            retired.push(RetiredBatch::Native(extract(
                 &mut self.payloads.natives,
                 &mut self.slots,
                 counts.0[PayloadKind::Native as usize],
-            ),
-            enums: extract(
+            )));
+        }
+        if counts.0[PayloadKind::Enum as usize] != 0 {
+            retired.push(RetiredBatch::Enum(extract(
                 &mut self.payloads.enums,
                 &mut self.slots,
                 counts.0[PayloadKind::Enum as usize],
-            ),
-            structs,
-            struct_bytes,
-            interfaces: extract(
+            )));
+        }
+        let count = counts.0[PayloadKind::Struct as usize];
+        if count != 0 {
+            let records = extract(&mut self.payloads.structs, &mut self.slots, count);
+            let bytes = if self.payloads.structs.is_empty() {
+                mem::take(&mut self.payloads.struct_bytes)
+            } else {
+                let mut offset = 0;
+                for entry in &mut self.payloads.structs {
+                    let record = &mut entry.payload;
+                    let size = record.description.size;
+                    self.payloads
+                        .struct_bytes
+                        .copy_within(record.offset..record.offset + size, offset);
+                    record.offset = offset;
+                    offset += size;
+                }
+                self.payloads.struct_bytes.truncate(offset);
+                shrink(&mut self.payloads.struct_bytes);
+                Vec::new()
+            };
+            retired.push(RetiredBatch::Structs { records, bytes });
+        }
+        if counts.0[PayloadKind::Interface as usize] != 0 {
+            retired.push(RetiredBatch::Interface(extract(
                 &mut self.payloads.interfaces,
                 &mut self.slots,
                 counts.0[PayloadKind::Interface as usize],
-            ),
-            closures: extract(
+            )));
+        }
+        if counts.0[PayloadKind::Closure as usize] != 0 {
+            retired.push(RetiredBatch::Closure(extract(
                 &mut self.payloads.closures,
                 &mut self.slots,
                 counts.0[PayloadKind::Closure as usize],
-            ),
-            cells: extract(
+            )));
+        }
+        if counts.0[PayloadKind::Cell as usize] != 0 {
+            retired.push(RetiredBatch::Cell(extract(
                 &mut self.payloads.cells,
                 &mut self.slots,
                 counts.0[PayloadKind::Cell as usize],
-            ),
+            )));
         }
+        self.shrink_initialization_owners();
+        RetiredPayloads(retired)
     }
 
     fn shrink_initialization_owners(&mut self) {
@@ -588,21 +628,27 @@ fn shrink<T>(store: &mut Vec<T>) {
     }
 }
 
-impl PayloadStores {
+impl RetiredPayloads {
     pub(super) fn dispose(self, mut on_panic: impl FnMut()) {
-        dispose(self.strings, &mut on_panic);
-        dispose(self.tuples, &mut on_panic);
-        dispose(self.ranges, &mut on_panic);
-        dispose(self.host_roots, &mut on_panic);
-        dispose(self.host_paths, &mut on_panic);
-        dispose(self.ephemerals, &mut on_panic);
-        dispose(self.natives, &mut on_panic);
-        dispose(self.enums, &mut on_panic);
-        dispose(self.structs, &mut on_panic);
-        drop(self.struct_bytes);
-        dispose(self.interfaces, &mut on_panic);
-        dispose(self.closures, &mut on_panic);
-        dispose(self.cells, &mut on_panic);
+        for batch in self.0 {
+            match batch {
+                RetiredBatch::String(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Tuple(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Range(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::HostRoot(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::HostPath(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Ephemeral(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Native(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Enum(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Interface(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Closure(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Cell(entries) => dispose(entries, &mut on_panic),
+                RetiredBatch::Structs { records, bytes } => {
+                    dispose(records, &mut on_panic);
+                    drop(bytes);
+                }
+            }
+        }
     }
 }
 
@@ -630,16 +676,9 @@ fn extract<T>(store: &mut Vec<Entry<T>>, slots: &mut [ObjectSlot], count: usize)
     detached
 }
 
-#[inline]
-fn dispose<T>(entries: Vec<Entry<T>>, on_panic: &mut impl FnMut()) {
-    if !entries.is_empty() {
-        dispose_nonempty(entries, on_panic);
-    }
-}
-
-// Isolate destructor/panic machinery from the common empty-batch branch.
+// Batches are nonempty; keep destructor/panic machinery outside sweep orchestration.
 #[inline(never)]
-fn dispose_nonempty<T>(entries: Vec<Entry<T>>, on_panic: &mut impl FnMut()) {
+fn dispose<T>(entries: Vec<Entry<T>>, on_panic: &mut impl FnMut()) {
     for entry in entries {
         if catch_unwind(AssertUnwindSafe(|| drop(entry))).is_err() {
             on_panic();

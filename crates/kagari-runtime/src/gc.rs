@@ -10,7 +10,7 @@ use crate::{
     },
     gc::{
         directory::{ObjectSlot, ObjectStorage, PayloadKind, PayloadLocation},
-        fields::{StructInitializer, StructStorageLayouts, StructView, StructViewMut},
+        fields::{StructStorageLayouts, StructView, StructViewMut},
         interfaces::InterfaceValueSnapshot,
         leases::{LeaseTable, OwnedLease},
         roots::{RootTable, RootedValue},
@@ -300,24 +300,7 @@ impl GcHeap {
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
-        if fields.len() != layout.layout().fields.len()
-            || !fields.iter().enumerate().all(|(slot, value)| {
-                self.valid_payload(value)
-                    && layout.field_type(slot).is_some_and(|(ty, environment)| {
-                        matches_type_in(self, value, ty, layout.module(), environment)
-                    })
-            })
-        {
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::ScriptTrap,
-                "invalid heap target, index, or payload",
-            ));
-        }
-        let description = self.prepare_struct_storage(layout)?;
-        let storage = StructInitializer {
-            description,
-            values: fields,
-        };
+        let storage = self.prepare_struct_storage(layout, fields)?;
         self.alloc_object(HeapObject::Struct { storage })
     }
 

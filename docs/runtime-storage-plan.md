@@ -1,6 +1,6 @@
 # Runtime storage and shared type descriptors execution plan
 
-Status: execution started on 2026-10-16; RS01-RS04 implemented; RS05 deferred; RS06 integrated latency acceptance next.
+Status: execution started on 2026-10-16; RS01-RS04 implemented; RS05 deferred; RS06 latency gates passed; final allocation/checks and documentation handoff in progress.
 The execution document and follow-up consistency review are complete.
 The [roadmap](implementation-roadmap.md#runtime-storage-redesign)
 owns priority; this plan owns RS01-RS06, decisions, acceptance and the progress
@@ -919,6 +919,62 @@ trace/destructor panic cleanup (3), and interface dispatch/retirement allocation
 composition (3). Structure, formatting, workspace all-target Clippy and diff
 whitespace pass; 294 links across eight touched documents are valid. Final matched
 measurements remain the only open local acceptance item.
+
+The changed-store sweep checkpoint d4b5a761 passes 25 of 26 matched latency gates;
+numeric release remains 4,250 ns versus 3,625 ns (+17.2%). The 10% gate remains
+unchanged. Its retirement transfer still materializes all twelve typed-store
+headers even when only one store has dead objects. The follow-up transfers only
+nonempty typed batches in a bounded list (at most twelve), preserving kind disposal
+order and per-payload panic isolation. This adds one small temporary list allocation
+on a nonempty sweep in exchange for removing empty batch construction/transfer/drop;
+loop execution and retained storage are unaffected. The tradeoff requires the same
+matched GC and allocation validation before acceptance.
+
+The first nonempty-batch list trial clears numeric release but leaves Point release
+at +10.5% (ratio of process medians; paired-ratio median +6.0%). An inline-first
+batch prototype does not improve the controls consistently and is removed. Neither
+trial establishes final acceptance. Construction review also finds that scalar
+fields still traverse the general semantic type matcher even though their closed
+physical description already contains the exact scalar representation/domain.
+Struct construction now admits scalar Values using that description and the shared
+scalar-domain helper; managed fields retain payload, nominal type and environment
+validation. Preparation and admission finish before heap publication or accounting.
+The description registry remains weak, including after rejected construction.
+This reuses checked layout facts without weakening narrow-integer or foreign-handle
+checks. Seven alternating baseline/current process pairs are selected for the next
+comparison because three-process results overlap the unchanged lifecycle gates.
+
+Final ordinary comparison uses seven alternating process pairs, each with three
+warmups and eleven samples; baseline afec4a3b is rebuilt with the identical frozen
+probe/toolchain. All 26 gates pass both the ratio of process-median medians and
+median paired ratios. Field read/write/i32 RMW/f64 RMW time changes are -30.5%,
+-15.6%, -36.7%, -35.1%. Scalar +3.2%, numeric execution +2.8%, Point construction
++6.8%, Point release +5.6%, node release +9.4%, numeric release -2.1% remain within
+the original limits. Node release is close to its gate (baseline process medians
+69,000-73,166 ns; current 75,375-77,667 ns); numeric release is noisier
+(3,584-4,042 / 3,667-4,833 ns), so these are aggregate local results, not
+per-run or cross-machine speed guarantees. Earlier prototypes/initial baselines
+are not mixed into this final comparison.
+
+The final constructor/sweep regression selection passes 21 runtime cases (GC
+ownership plus struct layout/initializer/relocation contracts) and three native
+trace/destructor/teardown cases. Narrow integer initializer underflow/overflow is
+added to the existing scalar-domain contract, retaining zero-publication/accounting
+assertions. The first command placed both filters before libtest's separator and
+was rejected by Cargo without running tests; the corrected command below passes.
+
+```text
+cargo test -p kagari-runtime --lib -- gc::tests:: module::tests::struct_layouts::
+cargo test -p kagari-vm --lib tests::native_boundary::native_boundary_gc::payload_failures::
+```
+
+Earlier selected VM/source-free/host/interface tests remain evidence for unchanged
+paths. Final diagnostics allocation/teardown passes: all sixteen warmed teardowns are
+zero, live/empty/reuse increments retain the recorded values, and warmed field
+loops remain 98 requests / 6,928 bytes / zero net. Loaded setup is 5,186,139 bytes
+for the complete benchmark. Structure (1,274 files, zero violations), formatting,
+diff whitespace and workspace all-target Clippy pass. These complete the local gate. The exhaustive workspace,
+feature/backend/platform matrix remains CI-only and has not run locally.
 
 ### RS05 decision
 

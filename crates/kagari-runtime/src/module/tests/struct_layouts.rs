@@ -404,6 +404,31 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
         .collect::<Vec<_>>();
     let mut runtime = Runtime::default();
     let layout = layouts::layout(&mut runtime, "Scalars", &fields);
+    let counters = runtime.resources().counters();
+    for (slot, invalid) in [
+        (2, Value::I32(-129)),
+        (2, Value::I32(128)),
+        (3, Value::I32(-32_769)),
+        (3, Value::I32(32_768)),
+        (7, Value::I64(-1)),
+        (7, Value::I64(256)),
+        (8, Value::I64(-1)),
+        (8, Value::I64(65_536)),
+        (9, Value::I64(-1)),
+        (9, Value::I64(4_294_967_296)),
+    ] {
+        let mut initial = cases.iter().map(|(_, value)| *value).collect::<Vec<_>>();
+        initial[slot] = invalid;
+        assert_eq!(
+            runtime
+                .alloc_struct(layout.clone(), initial)
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
+    }
+    assert_eq!(runtime.resources().counters(), counters);
+    assert_eq!(runtime.gc().allocated_objects(), 0);
     let object = runtime
         .alloc_struct(
             layout.clone(),
