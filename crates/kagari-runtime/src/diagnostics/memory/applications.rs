@@ -1,5 +1,5 @@
 //! Distinct executable descriptor owners, with caller inputs kept outside preparation.
-use super::{Phases, compare, compile, preparation, provider, snapshot};
+use super::{Phases, compare, compile, preparation, snapshot};
 use crate::{
     Runtime,
     diagnostics::allocations::{self, Counts},
@@ -11,7 +11,7 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
     program::BytecodeProgram,
 };
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 const SOURCE: &str = r#"
@@ -26,7 +26,11 @@ const SOURCE: &str = r#"
     fn main() -> i32 { val f: Forward = 0; f.checked(7); f.forward(8) }
 "#;
 
-fn method_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Phases, Counts) {
+fn method_lifecycle(
+    code: &DefinitionMetadata<BytecodeProgram>,
+    count: usize,
+    prepare: bool,
+) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
         let loaded = runtime.load_program("memory", code.clone()).unwrap();
@@ -96,7 +100,11 @@ fn method_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Pha
     })
 }
 
-fn shared_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Phases, Counts) {
+fn shared_lifecycle(
+    code: &DefinitionMetadata<BytecodeProgram>,
+    count: usize,
+    prepare: bool,
+) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
         let loaded = runtime.load_program("memory", code.clone()).unwrap();
@@ -181,7 +189,11 @@ fn shared_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Pha
     })
 }
 
-fn witness_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Phases, Counts) {
+fn witness_lifecycle(
+    code: &DefinitionMetadata<BytecodeProgram>,
+    count: usize,
+    prepare: bool,
+) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
         let loaded = runtime.load_program("memory", code.clone()).unwrap();
@@ -251,7 +263,7 @@ fn witness_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Ph
 #[test]
 #[ignore = "manual descriptor allocation accounting; run release with --nocapture"]
 fn executable_descriptor_retention() {
-    let code = compile(SOURCE, &provider());
+    let code = compile(SOURCE, None);
     for count in [1, 4, 160] {
         compare(&format!("method applications={count}"), |prepare| {
             method_lifecycle(&code, count, prepare)

@@ -18,20 +18,22 @@ use crate::{
     value::Value,
 };
 use kagari_bytecode::{instruction::NativeImportId, program::BytecodeProgram};
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::sync::Arc;
 
-fn compile(source: &str, provider: &NativeModule) -> BytecodeProgram {
+fn compile(source: &str, provider: Option<&NativeModule>) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("memory.kgr", source.into(), SourceLayer::Base)
         .unwrap();
     let mut analysis = AnalysisDatabase::default();
-    analysis.set_native_modules(vec![Arc::new(provider.to_declaration().unwrap())]);
+    if let Some(provider) = provider {
+        analysis.set_native_modules(vec![Arc::new(provider.to_declaration())]);
+    }
     let snapshot = analysis
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
@@ -41,7 +43,7 @@ fn compile(source: &str, provider: &NativeModule) -> BytecodeProgram {
 }
 
 fn provider() -> NativeModule {
-    let mut builder = ModuleBuilder::new("test::memory", &DeclarationCatalog::default());
+    let mut builder = ModuleBuilder::new("test::memory", &DeclarationCatalog::default()).unwrap();
     let read = builder
         .define_function(FunctionDecl::new("read").returns(Type::i32()))
         .unwrap();
@@ -55,8 +57,8 @@ fn provider() -> NativeModule {
     builder
         .function(&pass, |function| {
             let item = function.type_parameter("T")?.ty();
-            function.parameter("value", item.clone());
-            function.returns(item);
+            function.parameter("value", item.clone())?;
+            function.returns(item)?;
             Ok(())
         })
         .unwrap();
@@ -122,7 +124,7 @@ fn preparation(runtime: &Runtime, mut prepare: impl FnMut()) -> (Counts, Counts,
 
 fn native_lifecycle(
     provider: &NativeModule,
-    code: &BytecodeProgram,
+    code: &DefinitionMetadata<BytecodeProgram>,
     applications: usize,
     prepare: bool,
 ) -> (Phases, Counts) {
@@ -239,7 +241,7 @@ fn native_descriptor_retention() {
         impl Forward for i32 {}
         fn main() -> i32 { val f: Forward = 0; f.forward(read()) }
         "#,
-        &provider,
+        Some(&provider),
     );
     // Initialize process/thread state before either side of the comparison.
     native_lifecycle(&provider, &code, 1, true);

@@ -1,5 +1,5 @@
 //! Pure layout facts and cross-version admission, measured separately from inputs.
-use super::{Phases, compare, compile, preparation, provider, snapshot};
+use super::{Phases, compare, compile, preparation, snapshot};
 use crate::{
     Runtime,
     diagnostics::allocations::{self, Counts},
@@ -8,6 +8,7 @@ use kagari_bytecode::{
     instruction::{EnumId, StructId},
     program::BytecodeProgram,
 };
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_types::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
@@ -28,7 +29,7 @@ const SOURCE: &str = r#"
 "#;
 
 fn layout_lifecycle(
-    code: &BytecodeProgram,
+    code: &DefinitionMetadata<BytecodeProgram>,
     count: usize,
     enumeration: bool,
     prepare: bool,
@@ -126,7 +127,11 @@ fn layout_lifecycle(
     })
 }
 
-fn admission_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (Phases, Counts) {
+fn admission_lifecycle(
+    code: &DefinitionMetadata<BytecodeProgram>,
+    count: usize,
+    prepare: bool,
+) -> (Phases, Counts) {
     allocations::measure(|| {
         let mut runtime = Runtime::default();
         let old = runtime.load_program("memory", code.clone()).unwrap();
@@ -200,7 +205,7 @@ fn admission_lifecycle(code: &BytecodeProgram, count: usize, prepare: bool) -> (
 #[test]
 #[ignore = "manual descriptor allocation accounting; run release with --nocapture"]
 fn layout_descriptor_retention() {
-    let code = compile(SOURCE, &provider());
+    let code = compile(SOURCE, None);
     for count in [1, 4, 160] {
         compare(&format!("struct applications={count}"), |prepare| {
             layout_lifecycle(&code, count, false, prepare)

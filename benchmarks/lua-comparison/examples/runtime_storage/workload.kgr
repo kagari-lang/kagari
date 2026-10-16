@@ -1,0 +1,156 @@
+struct Point { var x: i32, var y: i32 }
+struct FloatPoint { var x: f64, var y: f64 }
+struct Pair<T> { var x: T, var y: T }
+struct Node { var value: i32, val edges: Vec<Node> }
+
+trait Read { fn read(self) -> i32; }
+trait Wide {
+    fn a(self) -> i32;
+    fn b(self) -> i32;
+    fn c(self) -> i32;
+    fn d(self) -> i32;
+}
+impl Read for Point { fn read(self) -> i32 { self.x } }
+impl<T> Read for Pair<T> { fn read(self) -> i32 { 1 } }
+impl Wide for Point {
+    fn a(self) -> i32 { self.x }
+    fn b(self) -> i32 { self.y }
+    fn c(self) -> i32 { self.x }
+    fn d(self) -> i32 { self.y }
+}
+
+pub fn point() -> Point { Point { x: 0, y: 1 } }
+pub fn floating() -> FloatPoint { FloatPoint { x: 0.0, y: 1.0 } }
+pub fn scalar(n: i32) -> i32 {
+    var x = 0;
+    var i = 0;
+    while i < n { x = x + 1; i = i + 1; }
+    x
+}
+pub fn fields(p: Point, n: i32) -> i32 {
+    p.x = 0;
+    var i = 0;
+    while i < n { p.x = p.x + p.y; i = i + 1; }
+    p.x
+}
+pub fn read_fields(p: Point, n: i32) -> i32 {
+    var sum = 0;
+    var i = 0;
+    while i < n { sum = sum + p.y; i = i + 1; }
+    sum
+}
+pub fn write_fields(p: Point, n: i32) -> i32 {
+    var i = 0;
+    while i < n { p.x = i; i = i + 1; }
+    p.x + 1
+}
+pub fn float_fields(p: FloatPoint, n: i32) -> f64 {
+    p.x = 0.0;
+    var i = 0;
+    while i < n { p.x = p.x + p.y; i = i + 1; }
+    p.x
+}
+pub fn points(n: i32) -> Vec<Point> {
+    val values: Vec<Point> = Vec::new();
+    var i = 0;
+    while i < n { values.push(Point { x: i, y: 1 }); i = i + 1; }
+    values
+}
+pub fn pairs(n: i32) -> Vec<Pair<i32>> {
+    val values: Vec<Pair<i32>> = Vec::new();
+    var i = 0;
+    while i < n { values.push(Pair { x: i, y: 1 }); i = i + 1; }
+    values
+}
+pub fn traverse(values: Vec<Point>, n: i32) -> i32 {
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        val p = values[i as usize];
+        p.x = p.y;
+        sum = sum + p.x;
+        i = i + 1;
+    }
+    sum
+}
+pub fn traverse_pairs(values: Vec<Pair<i32>>, n: i32) -> i32 {
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        val p = values[i as usize];
+        p.x = p.y;
+        sum = sum + p.x;
+        i = i + 1;
+    }
+    sum
+}
+pub fn sparse(values: Vec<Point>, n: i32) -> Vec<Point> {
+    val kept: Vec<Point> = Vec::new();
+    var i = 0;
+    while i < n { kept.push(values[i as usize]); i = i + 16; }
+    kept
+}
+pub fn interfaces(n: i32) -> Vec<Read> {
+    val values: Vec<Read> = Vec::new();
+    var i = 0;
+    while i < n {
+        val p: Read = Point { x: i, y: 1 };
+        values.push(p);
+        i = i + 1;
+    }
+    values
+}
+pub fn wide_interfaces(n: i32) -> Vec<Wide> {
+    val values: Vec<Wide> = Vec::new();
+    var i = 0;
+    while i < n {
+        val p: Wide = Point { x: i, y: 1 };
+        values.push(p);
+        i = i + 1;
+    }
+    values
+}
+pub fn generic_interfaces(n: i32) -> Vec<Read> {
+    val values: Vec<Read> = Vec::new();
+    var i = 0;
+    while i < n {
+        val p: Read = Pair { x: i, y: 1 };
+        values.push(p);
+        i = i + 1;
+    }
+    values
+}
+pub fn copied_interface(n: i32) -> Vec<Read> {
+    val values: Vec<Read> = Vec::new();
+    val p: Read = Point { x: 1, y: 1 };
+    var i = 0;
+    while i < n { values.push(p); i = i + 1; }
+    values
+}
+pub fn nodes(n: i32) -> Vec<Node> {
+    val values: Vec<Node> = Vec::new();
+    var i = 0;
+    while i < n {
+        val p = Node { value: i, edges: Vec::new() };
+        p.edges.push(p);
+        values.push(p);
+        i = i + 1;
+    }
+    values
+}
+pub fn numbers(n: i32) -> Vec<i32> {
+    val values: Vec<i32> = Vec::new();
+    var i = 0;
+    while i < n { values.push(i); i = i + 1; }
+    values
+}
+pub fn numeric_buffer(values: Vec<i32>, n: i32) -> i32 {
+    var sum = 0;
+    var i = 0;
+    while i < n {
+        values[i as usize] = 1;
+        sum = sum + values[i as usize];
+        i = i + 1;
+    }
+    sum
+}

@@ -1,10 +1,10 @@
 # Runtime storage and shared type descriptors execution plan
 
-Status: prioritized design recorded on 2026-10-16; implementation has not started.
+Status: execution started on 2026-10-16; RS01 complete, RS02 next.
 The execution document and follow-up consistency review are complete.
 The [roadmap](implementation-roadmap.md#runtime-storage-redesign)
 owns priority; this plan owns RS01-RS06, decisions, acceptance and the progress
-ledger. This checkpoint records the design; implementation remains unstarted.
+ledger. Required phases remain open until their measured acceptance gates pass.
 All target structures below are conceptual designs, not existing APIs.
 
 ## Outcome, priority and finite scope
@@ -521,10 +521,168 @@ Documentation-only planning uses content/link/diff checks, not builds or Clippy.
 
 ## Progress, decisions and review ledger
 
+### RS01 execution record
+
+Baseline runtime revision: `159c74ef`. The new
+[storage probe](../benchmarks/lua-comparison/examples/runtime_storage/main.rs)
+uses one fixed script, 512 retained instances (plus a one-instance memory control),
+50,000 single-object/scalar iterations, three warmups and eleven timing samples.
+It uses the interpreter, explicit GC and no observer. Source compilation,
+preparation and linking are outside execution timing. The numeric sequence control
+retains 512 i32 elements. Sparse release keeps every sixteenth Point, then drops
+all roots and repeats the original population to exercise identity/capacity reuse.
+
+Commands (run sequentially so measurement does not compete with builds):
+
+```text
+cargo run -p kagari-lua-benchmark --example runtime_storage --release
+cargo run -p kagari-lua-benchmark --example runtime_storage --release --features diagnostics
+cargo test -p kagari-runtime --release --features execution-diagnostics --lib diagnostics::memory:: -- --ignored --nocapture
+```
+
+The last command reuses existing native, applied-layout/cross-version admission,
+method-application and witness-scope retention probes at 1, 4 and 160 applications.
+It is selected allocation evidence, not a runtime test-suite sweep. Each runtime
+lifecycle must balance requested allocation bytes at teardown. First-use immutable
+program caches are reported separately; the measured runtime lifecycle follows an
+identical warmup so shared preparation is not mistaken for a runtime leak.
+
+Environment: Apple M1 Max, macOS 26.6.2 (25G83), arm64, rustc 1.98.1
+(`48a229cea`, 2026-09-01), workspace release profile and default build parallelism.
+The first build populated missing release dependencies; timings exclude compilation.
+The ordinary probe uses the benchmark package's default features; only the separate
+allocation probe enables diagnostics. No allocator overhead or RSS claim follows
+from requested-byte accounting.
+
+Initial ordinary-run medians (ns; repeat before final comparisons if noise warrants):
+
+| Workload | Execution | Construction | Live GC | Release GC |
+| --- | ---: | ---: | ---: | ---: |
+| Scalar, 50,000 iterations | 1,563,625 | — | — | — |
+| Field read / write, 50,000 iterations | 4,459,500 / 3,700,375 | — | — | — |
+| i32 / f64 field RMW, 50,000 iterations | 9,433,750 / 9,397,792 | — | — | — |
+| Point traversal, 512 instances | 219,084 | 509,042 | 103,667 | 20,833 |
+| Pair<i32> traversal, 512 instances | 217,750 | — | — | — |
+| Cyclic nodes, 512 instances | — | 1,515,375 | 215,208 | 69,208 |
+| Narrow interfaces, 512 instances | — | 1,817,875 | 452,542 | 76,083 |
+| Wide interfaces, 512 instances | — | 2,679,125 | 451,375 | 106,750 |
+| Generic interfaces, 512 instances | — | 3,453,458 | 552,708 | 156,334 |
+| Numeric buffer, 512 elements | 242,041 | 311,708 | 5,584 | 3,584 |
+
+Requested retained bytes above the loaded, collected Runtime setup baseline:
+
+| 512-instance workload | Live | After all roots are dropped and GC runs |
+| --- | ---: | ---: |
+| Point | 220,896 | 187,632 |
+| Pair<i32> | 221,672 | 187,672 |
+| Narrow interfaces | 834,960 | 613,056 |
+| Wide interfaces (four methods) | 1,437,072 | 613,056 |
+| Generic interfaces | 1,314,192 | 666,304 |
+| One interface copied 512 times | 18,776 | 9,472 |
+| Cyclic nodes | 581,360 | 367,456 |
+| Numeric buffer | 10,256 | 7,520 |
+
+These totals include retained directory capacity, wrapper/field allocations,
+runtime preparation, roots and backing-container capacity. After-release retention
+is not necessarily a leak: the baseline keeps directory/free-list capacities.
+All sixteen warmed runtime teardown samples balanced to zero requested bytes.
+Each warmed 50,000-iteration read/write/RMW call requests 98 allocations / 6,928
+bytes including host entry/exit, with zero net retained bytes.
+
+Frozen gates, before storage implementation:
+
+- RS02: narrow, wide and generic interface live increments fall by at least 40%
+  against the table above. Method/type descriptions scale with distinct applications;
+  increasing interface width must not add a method table per receiver.
+- RS03/RS04: Point and Pair live increments fall by at least 50%; empty retained
+  increments fall by at least 50%. Cyclic-node live storage must not grow. Sparse
+  release/reuse remains bounded, and every runtime teardown balances to zero.
+- RS04: each single-object field read/write/RMW median improves at least 10%
+  against baseline; Point/generic traversal does not regress more than 5%.
+- Scalar and numeric-buffer execution medians may not regress more than 5%.
+  Construction and GC medians may not regress more than 10% for the fixed workloads;
+  numeric-buffer retained bytes may not grow more than 5%. Allocation requests may
+  not grow for warmed field-loop execution. RS03 is measured again before RS04.
+- Use repeat process runs when ranges overlap a gate or machine noise is visible;
+  a noisy sample is inconclusive, not permission to relax thresholds. Architecture
+  diagnosis owns a missed gate before further optimization. Exhaustive CI remains
+  separate from these local measurements and focused semantic tests.
+
+Selected representation contracts for implementation:
+
+- RS02 uses an owner-local weak canonical registry of shared descriptions. Keys
+  contain the exact implementation ModuleKey/table/view, complete TypeArgument
+  identities and construction-program provenance used by preparation. Shared
+  environments are created once per description; receiver parent-view caches stay
+  in snapshots. The registry supplies no executable root. Snapshot traversal visits
+  each shared description once, including its lazy operation/environment edges;
+  detached snapshots release their descriptions and dead registry entries are pruned.
+  The preparation audit confirms that it copies supplied type bindings and only
+  the caller's construction scope: it does not inherit caller operation bindings or
+  parent environments. Complete TypeArgument identities distinguish normalized
+  nominal provenance; construction program order is retained. Method operations
+  are subsequently derived from this shared table/environment. This is interface
+  description equivalence, not general environment interning.
+- RS03 uses one checked directory and dense typed stores per existing heap kind.
+  A payload entry retains its directory index; swap removal updates the moved
+  entry's locator while preserving external identity/generation. Revision remains
+  in the directory to avoid adding a lookup to native mutation; rare candidate
+  initialization ownership moves to an identity-keyed side table. All stores share
+  the existing heap borrow exclusion. Capacity shrinks with hysteresis after sweep;
+  identity generations are never reset by payload compaction. The wide owned enum
+  may serve transient allocation/detachment, never persistent directory storage.
+- RS04 uses shared closed physical descriptions and a single byte buffer per
+  struct. Scalar fields use exact semantic widths (Unit consumes no payload),
+  native-endian byte codecs and shared scalar domain rules. Managed fields initially
+  encode a representation discriminator and the full owner/slot/generation identity;
+  the descriptor enumerates only their reference offsets. This avoids reinterpreting
+  Rust values or requiring unsafe aligned loads. GC decodes copied identities through
+  the same codec; native Rust payload tracing keeps its existing borrowed-value API.
+  RS05 separately assesses owner elision. Physical descriptions retain immutable
+  layout provenance without turning plain objects into executable-version roots.
+- Construction validates all values and prepares storage before publication; failed
+  construction drops unpublished buffers. No partially initialized object is exposed
+  to GC. Field writes validate before mutating bytes. Prepared scalar operations
+  bind actual-layout-compatible offsets and bounded initialized bank access, with
+  proofs ending at existing region exits. Existing semantic/host adapters share
+  the codec; no second unchecked object model is introduced.
+
+Heap-kind coverage: String, Tuple, Range, HostRoot, HostPath, Ephemeral, Native,
+Enum, Struct, Interface, Closure and Cell each receive a typed store. Array/Map/Set,
+future/task state and custom native payloads remain Native-owned; their existing
+trace/drop policies are reused. Error traces remain with Enum payloads. No native
+Rust allocation is recast as a script struct. Source-free checked layouts supply
+physical descriptions; reflection and native projections use the same field codec.
+
+Repeated-check inventory: checked bytecode preparation owns field direction,
+semantic type and register bounds for the immutable program generation. Closed
+layout preparation owns representation/offsets for that application. The actual
+object's identity, candidate visibility and compatible layout remain checked per
+access; any temporary borrowed proof ends before GC, reentry, suspension or moving
+storage. Scalar domains are established by existing numeric/bank rules and the
+field codec, so the direct path can omit generic Value tag and managed-edge checks.
+No general arithmetic-loop check hoisting is authorized by these facts.
+
+Existing descriptor probes passed after updating their stale DefinitionMetadata
+and native builder APIs, and omitting an unused native declaration from non-native
+fixtures (the runtime correctly rejected that uninstalled contract). All three
+selected probes passed with teardown zero. Extra retained bytes at 160 applications
+(repeated preparation / retired generation): native 1,720,072 / 0; struct 3,868,112
+/ 0; enum 3,873,240 / 0; cross-version admission 26,396 / 0; method 2,743,268 /
+180,224; shared application 194,312 / 26,624; witness scope 486,032 / 56,896.
+Retired executable-store capacity is reported separately from live descriptors.
+These are controls for provenance/retirement, not additional migration targets.
+
+Probe repair: direct generic-parameter-to-interface conversion in
+`fn erase<T: Read>(value: T) -> Read` produced KG_TYPE_RETURN_TYPE_MISMATCH. This is
+the queued shared-construction feature, not RS scope. The workload now uses supported
+`impl<T> Read for Pair<T>` instantiated as Pair<i32>. The corrected ordinary probe
+and allocation lifecycle run passed; no production behavior was changed for it.
+
 - [x] Planning: scope, priority, measured shallow-size evidence, target ownership
   and RS01-RS06 written on 2026-10-16.
 - [x] Planning consistency review against accepted direction, code and adjacent plans.
-- [ ] RS01: baseline workloads, frozen gates and physical/ownership contracts.
+- [x] RS01: baseline workloads, frozen gates and physical/ownership contracts.
 - [ ] RS02: shared interface descriptions.
 - [ ] RS03: compact directory and focused stores.
 - [ ] RS04: type-directed struct fields and direct scalar-bank transfers.
@@ -533,9 +691,8 @@ Documentation-only planning uses content/link/diff checks, not builds or Clippy.
 
 Accepted: preserve universal Value and existing scalar banks; prioritize actual
 per-object storage and shared descriptions. Conditional: local handle compression.
-Pending RS01: allocator/locator details, physical encoding and exact descriptor
-equivalence, concrete workload counts and numerical performance gates. These
-decisions are finite phase gates, not permission to invent new semantic systems.
+RS01 fixes allocator/locator details, physical encoding, descriptor equivalence,
+workload counts and numerical gates above. RS05 remains a conditional decision.
 
 Review conclusions: parent-interface snapshot caches contain receivers and cannot
 be copied into shared descriptions; applied environments require complete witness
@@ -559,3 +716,10 @@ Planning validation: 212 local links/anchors across the five changed documents,
 Markdown fences, phase/checklist consistency and plan whitespace passed;
 git diff --check passed. No implementation edits or new implementation test
 results are claimed. No intermediate build failure has been established.
+
+RS01 validation: ordinary timing and diagnostics lifecycle probes passed; the
+three existing ignored descriptor probes passed after the fixture repairs above.
+Structural review found no new re-exports, unsafe blocks or mixed storage owners.
+Structure check, formatting, workspace all-target Clippy, diagnostics runtime/probe
+Clippy and diff whitespace passed. No carried build error remains. Full-workspace
+and exhaustive feature/backend tests remain CI-only and have not been run locally.
