@@ -2,20 +2,21 @@
 use crate::{
     error::RuntimeError,
     host::{
-        HostPathAdapter, HostPathDescriptor, HostPathDescriptorId, HostRegistry, RegisteredHostType,
+        HostPathAdapter, HostPathDescriptor, HostPathDescriptorId, HostRegistry, HostRegistryId,
+        RegisteredHostType,
     },
     metadata::TypeId,
     native::registry::NativeRegistry,
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{metadata::DefinitionMetadata, table::DefinitionId},
+    identity::{map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId},
 };
 use kagari_types::declaration::host::PathAccess;
 use std::collections::HashMap;
 
 /// Checked registration facts without host roots, dirty state or registry identity.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct PreparedHostTypes {
     types: HashMap<TypeId, RegisteredHostType>,
     declarations: HashMap<DefinitionId, TypeId>,
@@ -50,6 +51,27 @@ impl PreparedHostTypes {
 }
 
 impl HostRegistry {
+    /// Construct runtime-local identity and roots around checked installation facts.
+    /// An empty registry has no facts to validate; installed maps are copied directly
+    /// without first initializing and replacing four empty randomized maps.
+    pub(crate) fn new(
+        definitions: DefinitionContext,
+        prepared: Option<&PreparedHostTypes>,
+    ) -> Self {
+        let prepared = prepared.cloned().unwrap_or_default();
+        Self {
+            definitions,
+            owner: HostRegistryId::default(),
+            next_path_descriptor_id: prepared.next_path_descriptor_id,
+            type_declarations: prepared.declarations,
+            registered_types: prepared.types,
+            roots: Default::default(),
+            path_descriptors: prepared.path_descriptors,
+            path_adapters: prepared.path_adapters,
+            dirty_paths: Default::default(),
+        }
+    }
+
     pub(crate) fn prepare_native_registration(
         &self,
         registry: &NativeRegistry,
@@ -73,7 +95,7 @@ impl HostRegistry {
                 ));
             }
         }
-        let mut staged = Self::new(self.definitions.clone());
+        let mut staged = Self::new(self.definitions.clone(), None);
         staged.registered_types = types;
         staged.type_declarations = declarations;
         staged.path_descriptors = self.path_descriptors.clone();

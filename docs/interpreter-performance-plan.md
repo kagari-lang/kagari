@@ -1439,6 +1439,42 @@ change the host registration contract or add a cache. Assembly demonstrates
 the redundant moves, not their share of the failed setup timing. Recheck the
 existing installation/isolation contracts and setup gates before retaining it.
 
+The construction follow-up now passes borrowed prepared host facts through
+Runtime::with_native_registry. HostRegistry::new owns both empty construction and
+fresh identity/root construction from those facts, and lives with registration
+preparation so its map fields stay private. Runtime-local dynamic publication
+still uses the same transactional PreparedHostTypes::publish path. Seven native
+installation/module contracts and the SDK independent-runtime/heap-owner contract
+pass. Structure, formatting, whitespace and workspace all-target Clippy pass.
+No new test duplicates the existing isolation and foreign-root assertions.
+Repeat the loaded-storage diagnostic because runtime setup is affected; existing
+window/root/executable allocation evidence remains applicable to unchanged owners.
+Inspect the new constructor assembly before ordinary timing. The next ordinary
+sequence is seven forms pairs, seven calls pairs and seven fibonacci pairs,
+with unchanged targets/bands, every pair retained and all other diagnostics stopped.
+Do not edit production until this declared sequence ends. This remains an
+intermediate IP03 repair, not a phase acceptance or IP04/IP06 scope change.
+
+The follow-up loaded-storage diagnostic passes all 297 comparisons and 16
+zero-net teardown cases. Setup/live/empty/reused requested-byte values are
+unchanged from the prepared-owner candidate. New workspace-release assembly
+reduces NativeInstallation::runtime from 115 instructions/1,680 stack bytes to
+24 instructions/488 stack bytes and removes both wrapper memcpy calls. Runtime
+construction is 487 instructions/5,080 stack bytes; do not mistake moving work
+between functions for a measured speedup. No diagnostic/build remains active at
+the start of ordinary timing.
+
+Read-only inspection also finds a concrete prepared-fact loss in native argument
+matching: TypeArgument::view supplies a prepared TypeView, but value_check passes
+only its lexical type/owner/environment to GcHeap::matches_native_type, and
+NativeObject::matches reconstructs an unprepared TypeView. This can repeat
+Ty::is_concrete traversal for each native receiver. It predates this candidate;
+neither the incomplete RIP sample nor this observation proves the regression's
+cause. Finish the declared sequence before deciding on a repair. Any follow-up
+must preserve the complete scoped view and actual object owner, without weakening
+nominal generation, handle/lease or bounds checks, changing collection operations,
+or adding another native transition engine.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

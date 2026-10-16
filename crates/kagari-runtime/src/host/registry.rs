@@ -36,25 +36,14 @@ use std::iter;
 
 impl Default for HostRegistry {
     fn default() -> Self {
-        Self::new(DefinitionContext::new().expect("definition context allocation"))
+        Self::new(
+            DefinitionContext::new().expect("definition context allocation"),
+            None,
+        )
     }
 }
 
 impl HostRegistry {
-    pub(crate) fn new(definitions: DefinitionContext) -> Self {
-        Self {
-            definitions,
-            owner: HostRegistryId::default(),
-            next_path_descriptor_id: 0,
-            type_declarations: Default::default(),
-            registered_types: Default::default(),
-            roots: Default::default(),
-            path_descriptors: Default::default(),
-            path_adapters: Default::default(),
-            dirty_paths: Default::default(),
-        }
-    }
-
     pub fn definitions(&self) -> DefinitionTable {
         self.definitions.snapshot()
     }

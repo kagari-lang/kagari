@@ -30,7 +30,7 @@ impl NativeInstallation {
     pub fn prepare(modules: &[NativeModule]) -> NativeResult<Self> {
         let mut registry = NativeRegistry::default();
         NativeModule::install_batch(modules, &mut registry)?;
-        let host_types = HostRegistry::new(registry.catalog.types.context().clone())
+        let host_types = HostRegistry::new(registry.catalog.types.context().clone(), None)
             .prepare_native_registration(&registry)?;
         Ok(Self {
             prepared: Arc::new(PreparedInstallation {
@@ -43,11 +43,10 @@ impl NativeInstallation {
     /// Create an independent runtime. Later registrations affect only that runtime;
     /// loading still validates each program against its installed contracts.
     pub fn runtime(&self, config: RuntimeConfig) -> Runtime {
-        let registry = self.prepared.registry.clone();
-        let mut host = HostRegistry::new(registry.catalog.types.context().clone());
-        // The installation owns immutable checked paths and metadata slot IDs.
-        // Roots, registry identity and subsequent registrations remain runtime-local.
-        self.prepared.host_types.clone().publish(&mut host);
-        Runtime::with_native_registry(config, registry, host)
+        Runtime::with_native_registry(
+            config,
+            self.prepared.registry.clone(),
+            Some(&self.prepared.host_types),
+        )
     }
 }

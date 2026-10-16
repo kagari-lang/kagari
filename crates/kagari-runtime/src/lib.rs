@@ -11,7 +11,10 @@ use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::ExecutionStack,
     gc::{GcCollection, GcHeap, GcHeapConfig, HeapObjectId, roots::RootedValue},
-    host::{FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostRegistry},
+    host::{
+        FrameHostBorrowToken, HostBorrowKind, HostBorrowTable, HostRegistry,
+        installation::PreparedHostTypes,
+    },
     host_scope::HostResourceScope,
     metadata::{TypeId, TypeRegistry},
     module::{
@@ -153,16 +156,15 @@ impl Runtime {
     }
 
     pub fn new(config: RuntimeConfig) -> Self {
-        let registry = NativeRegistry::default();
-        let host = HostRegistry::new(registry.catalog.types.context().clone());
-        Self::with_native_registry(config, registry, host)
+        Self::with_native_registry(config, NativeRegistry::default(), None)
     }
 
     fn with_native_registry(
         config: RuntimeConfig,
         native_entries: NativeRegistry,
-        host: HostRegistry,
+        host_types: Option<&PreparedHostTypes>,
     ) -> Self {
+        let host = HostRegistry::new(native_entries.catalog.types.context().clone(), host_types);
         let resources = ResourceState::new(config.limits);
         let types = native_entries.metadata.runtime_registry();
         Self {
