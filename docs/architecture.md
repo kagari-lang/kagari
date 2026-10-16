@@ -1152,6 +1152,11 @@ in separate scalar and managed banks. Scalar slots hold complete 64-bit payloads
 and explicit initialization flags; managed slots retain ordinary Values and full
 handle identities. GC traces the managed bank and program/environment edges, including suspended
 callers, independently of host leases. Session frames use indexed storage.
+The window table owns a free chain inside vacant identity slots. Backlinks permit
+trailing holes to be trimmed without searching live windows or the free chain.
+Allocation reuses the free head in constant time; owner/index/generation checks
+still reject stale and foreign handles. Retirement immediately drops executable
+dependencies even when the vacant identity slot remains available for reuse.
 `ExecutionStack::execute_region` admits the active session/frame scope and window
 owner/generation, then borrows bounded scalar/managed banks for the closed operation.
 Its cursor is private and cannot escape to callers or accept callbacks/external Values.
@@ -1171,9 +1176,11 @@ checks through the same bank access implementation as external frame access.
 Window generation checks continue to reject expired native views.
 
 The VM driver classifies authoritative runtime state on activation/resume and after
-call, return or await transitions. Ordinary progress retains its script action instead
-of probing pending waits and native entry/return state. This action is local control
-flow, not a second persistent session state; every resumed activation classifies again.
+await transitions. Internal call, native-entry and return transitions carry the action
+established by their runtime owner directly to the driver. Ordinary progress retains
+its script action instead of probing pending waits and native entry/return state.
+This action is local control flow, not a second persistent session state; every
+resumed activation classifies again.
 Region exits release operand borrows before observation, collection, native callbacks,
 frame changes or parking. Synchronous native reentry must unwind back to its caller;
 the next region still admits the session/frame/window. Cancellation and debugger
@@ -1210,9 +1217,11 @@ before growing the banks. Scalar-only sources skip heap-reference walks. Concret
 returns use an opaque packet until the caller slot or public host boundary;
 shared environments and interface adapters retain their full return validation.
 Function/ModuleFunction, Shared, InterfaceMethod and ClosureRegister call sites prepare
-physical arguments and return destinations once. The executing canonical PC selects the record; module slots bind
-through the caller's pinned program descriptor. Shared calls select their runtime-owned
-environment and retain caller-scoped semantic argument checks before common admission.
+physical arguments and return destinations once. The sealed execution instruction
+selects a dense function-local call ordinal; canonical PCs remain the debug and
+trap locations. Module slots bind through the caller's pinned program descriptor.
+Shared calls select their runtime-owned environment and retain caller-scoped
+semantic argument checks before common admission.
 Interface calls retain a `MethodInvocation` containing checked selection/application
 identities. Preparation borrows immutable snapshot/operation facts instead of cloning
 receiver type descriptions. The selected receiver is a borrowed parameter prefix;
@@ -1236,8 +1245,9 @@ functions with no runtime links need no such record.
 Calls borrow facts directly by ordinal while the active window's program root protects
 the record and its traced edges.
 These code-bounded links are not optional application caches and cannot be evicted.
-Environment-dependent contracts use the common bounded descriptor index keyed by
-verified function/PC and exact EnvironmentId, with checked publication/GC tracing.
+Environment-dependent interface contracts use the common bounded descriptor index
+keyed by verified function/call ordinal and exact EnvironmentId, with checked
+publication/GC tracing.
 Changed scopes receive different entries; an expired scope is rejected even if a
 cached descriptor remains. The previous closed-scope dynamic index path is removed.
 Shared-call application entries can retain reusable environments and operation groups
@@ -1276,9 +1286,14 @@ publication. Required environment/interface adapters run before retirement while
 callee roots are live, with no exclusive frame/bank borrow across adaptation.
 Unadapted scalar packets retain raw payload transfers; general Values keep heap
 ownership and destination checks. Root/factory conversion releases the stack borrow.
-Arena allocation order
-allows last-allocated windows to truncate both banks; independent out-of-order
-retirement still compacts ranges and preserves surviving window identities.
+Bank allocation order is independent of identity-slot reuse. Last-allocated windows
+truncate both banks. Independent out-of-order retirement compacts the banks and
+adjusts only the surviving allocation-order suffix, preserving window identities.
+For A/B/C allocated in that order, retiring B updates C's ranges, even if C reused
+an identity slot numerically below A. Earlier windows and vacant slots need no
+range adjustment; removing two empty ranges needs none at all. No cursor or bank
+view can remain borrowed during compaction. Banks remain runtime-owned rather than
+segmented per session, so non-tail retirement can still move another session's data.
 Native callable frames have prepared signature layouts. Native arithmetic and
 casts admit tagged inputs once and invoke the same payload kernels as scripts.
 Managed results retain their normal allocation/root protocol.

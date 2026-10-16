@@ -2234,6 +2234,15 @@ are retained. Required call targets, other ordinary gates and the correctness/
 allocation audit still prevent marking IP02/IP03 accepted before that sequence and
 audit finish. Do not restart the live runner or replace its measured images.
 
+While the declared ordinary comparisons run, architecture documentation now
+reflects the implemented free-chain identity table, allocation-order range updates,
+call-ordinal selection/scoped identity and action-carrying transitions. The ownership
+text retains runtime-owned banks and cross-session compaction; it does not describe
+IP04 segmentation or claim pending performance acceptance. It replaces stale PC-keyed
+selection and per-call/return driver reclassification descriptions. Source inspection,
+content/fence/link and diff checks validate this documentation-only update; no
+build/test/profiling workload overlaps the timing sequence.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
