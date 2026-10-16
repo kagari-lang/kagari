@@ -3,9 +3,9 @@
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass. Current calls/recursion execution targets pass;
-one Lua setup gate and the remaining same-candidate forms/collection/lifecycle
-comparisons keep phase acceptance open.
+correctness and memory checks pass. Current calls/recursion timing gates pass;
+the remaining same-candidate forms/collection/lifecycle comparisons keep phase
+acceptance open.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -1974,6 +1974,18 @@ products between suites; assert the main image hash before and after every suite
 Prior passing calls is retained rather than rerun for a fresh transcript. Required
 IP02/IP03 acceptance still needs the complete combined evidence and correctness/
 memory audit. IP04-IP07 remain unstarted and exhaustive CI remains separate.
+
+The single declared fibonacci extension completes at UTC 20261016T200459Z with
+all 21 pairs retained, the same `20f10699...` image/original paths, unchanged
+configuration and all checksums valid. Every gate passes. VM execution is
+0.80703/0.80557; Lua module initialization is 1.00000/1.00000. The original seven
+failed-pair observations remain nested in the extended report; no outlier removal,
+rebaseline, new timing band or gate exemption is used. This establishes the
+declared extended comparison, not a causal explanation of the initial difference.
+Calls keeps its earlier passing seven-pair result. The serial runner has moved
+to the seven-pair forms matrix; arrays, maps, owned roots and private windows
+remain in its already declared sequence. Do not restart the runner or change its
+candidate while that sequence is live. IP02/IP03 acceptance remains open.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
