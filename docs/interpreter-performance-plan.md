@@ -2218,6 +2218,22 @@ private-window result rather than rerunning it. Archive all reports, assert the
 ordinary hash between suites, and run no build/test/profile/diagnostic workload
 during timing. Allocation/lifetime audit and phase acceptance remain separate.
 
+The fixed root extension completes at UTC 20261016T211712Z with all 21 pairs,
+including the original seven, retained. Every gate and checksum passes on the same
+`1f48aed3...` image and original measured paths; build duration is zero. Random
+collection is 0.95238/0.99130 for cancellation and 0.93023/0.95868 for completion.
+Completion retirement is 0.94444/0.94444 (1/tail), 1.01456/1.01442 (32/tail),
+0.98305/0.97747 (256/forward) and 0.86327/0.86289 (256/random). No threshold,
+workload, observation or sample exclusion changed. This establishes the declared
+extended result; it does not identify the cause of the initial collection
+estimator disagreement. The earlier failed finding remains recorded above.
+
+The serial runner has started the already declared seven-pair full original suite;
+forms follows on the unchanged image. The passing window and extended root controls
+are retained. Required call targets, other ordinary gates and the correctness/
+allocation audit still prevent marking IP02/IP03 accepted before that sequence and
+audit finish. Do not restart the live runner or replace its measured images.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
