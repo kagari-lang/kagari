@@ -98,9 +98,7 @@ impl GcHeap {
 
     pub(crate) fn buffer_contract(&self, id: HeapObjectId) -> Option<Arc<StorageType>> {
         let objects = self.objects.borrow();
-        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
-            return None;
-        };
+        let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
             || !matches!(
                 object.storage.layout(),
@@ -252,9 +250,7 @@ impl GcHeap {
         f: impl FnOnce(&SequenceStorage) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
-            return None;
-        };
+        let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
             || !matches!(
                 object.storage.layout(),
@@ -276,10 +272,8 @@ impl GcHeap {
         f: impl FnOnce(&mut SequenceStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
-        let revision = objects.get(id.index())?.revision.checked_add(1)?;
-        let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
-            return None;
-        };
+        let revision = objects.slots.get(id.index())?.revision.checked_add(1)?;
+        let object = self.native_mut(&mut objects, id)?;
         if !matches!(object.ty, Ty::Array(..) | Ty::NativeObject(_))
             || !matches!(
                 object.storage.layout(),
@@ -292,7 +286,7 @@ impl GcHeap {
         let old_len = values.len();
         let result = f(values);
         if values.len() != old_len {
-            objects[id.index()].revision = revision;
+            objects.slots[id.index()].revision = revision;
         }
         Some(result)
     }

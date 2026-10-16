@@ -9,13 +9,14 @@ use crate::{
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
     gc::{
+        directory::{ObjectSlot, ObjectStorage, PayloadKind, PayloadLocation},
         interfaces::InterfaceValueSnapshot,
         leases::{LeaseTable, OwnedLease},
         roots::{RootTable, RootedValue},
-        storage::HeapObject,
+        storage::{Exclusive, HeapObject, Shared},
     },
     module::{EnumVariantRef, ModuleKey, StructLayoutRef},
-    native::storage::NativeStorage,
+    native::storage::{NativeObject, NativeStorage},
     resource::ResourceState,
     session::ExecutionPhase,
     value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, StructValueField, Value},
@@ -46,6 +47,7 @@ mod capacity;
 mod collection;
 mod collector;
 pub(crate) mod custom_keys;
+mod directory;
 pub(crate) mod interfaces;
 mod iter;
 pub(crate) mod leases;
@@ -145,14 +147,6 @@ pub struct GcCollection {
     pub pause: Duration,
 }
 
-#[derive(Debug)]
-struct ObjectSlot {
-    revision: u64,
-    generation: u32,
-    initialization_owner: Option<ModuleKey>,
-    object: Option<HeapObject>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GcObjectKind {
     String,
@@ -185,7 +179,7 @@ pub(crate) struct CollectionMutation {
 pub struct GcHeap {
     owner: u64,
     config: GcHeapConfig,
-    objects: RefCell<Vec<ObjectSlot>>,
+    objects: RefCell<ObjectStorage>,
     free: RefCell<Vec<usize>>,
     moved: RefCell<HashSet<HeapObjectId>>,
     roots: RefCell<RootTable>,
@@ -252,7 +246,7 @@ impl GcHeap {
             cursor_storage: NativeStorage::provided_with_layout::<iter::NativeIter>(
                 NativeStorageLayout::Iterator { item: 0 },
             ),
-            objects: RefCell::new(Vec::new()),
+            objects: RefCell::new(ObjectStorage::default()),
             free: RefCell::new(Vec::new()),
             moved: RefCell::new(HashSet::new()),
             roots: RefCell::new(RootTable::default()),
@@ -490,26 +484,27 @@ impl GcHeap {
 
     pub fn object_kind(&self, id: HeapObjectId) -> Option<GcObjectKind> {
         let objects = self.objects.try_borrow().ok()?;
-        match self.object_ref(&objects, id)? {
-            HeapObject::String(_) => Some(GcObjectKind::String),
-            HeapObject::Tuple(_) => Some(GcObjectKind::Tuple),
-            HeapObject::Range(_) => Some(GcObjectKind::Range),
-            HeapObject::HostRoot(_) => Some(GcObjectKind::HostRoot),
-            HeapObject::HostPath(_) => Some(GcObjectKind::HostPath),
-            HeapObject::Ephemeral(_) => Some(GcObjectKind::Ephemeral),
-            HeapObject::Native(object) => Some(match object.ty {
+        let location = self.object_location(&objects, id)?;
+        Some(match location.kind {
+            PayloadKind::String => GcObjectKind::String,
+            PayloadKind::Tuple => GcObjectKind::Tuple,
+            PayloadKind::Range => GcObjectKind::Range,
+            PayloadKind::HostRoot => GcObjectKind::HostRoot,
+            PayloadKind::HostPath => GcObjectKind::HostPath,
+            PayloadKind::Ephemeral => GcObjectKind::Ephemeral,
+            PayloadKind::Native => match objects.native(location)?.ty {
                 Ty::Array(..) => GcObjectKind::Array,
                 Ty::Map { .. } => GcObjectKind::Map,
                 Ty::Set(..) => GcObjectKind::Set,
                 Ty::Iter(..) => GcObjectKind::Iter,
                 _ => GcObjectKind::Native,
-            }),
-            HeapObject::Enum(..) => Some(GcObjectKind::Enum),
-            HeapObject::Struct { .. } => Some(GcObjectKind::Struct),
-            HeapObject::Interface { .. } => Some(GcObjectKind::Interface),
-            HeapObject::Closure { .. } => Some(GcObjectKind::Closure),
-            HeapObject::Cell { .. } => Some(GcObjectKind::Cell),
-        }
+            },
+            PayloadKind::Enum => GcObjectKind::Enum,
+            PayloadKind::Struct => GcObjectKind::Struct,
+            PayloadKind::Interface => GcObjectKind::Interface,
+            PayloadKind::Closure => GcObjectKind::Closure,
+            PayloadKind::Cell => GcObjectKind::Cell,
+        })
     }
 
     pub(crate) fn alloc_interface(
@@ -736,7 +731,7 @@ impl GcHeap {
                     | HeapObject::String(_)
                     | HeapObject::Tuple(_)
                     | HeapObject::Range(_)
-            ) || objects[id.index()].initialization_owner == Some(owner)
+            ) || objects.initialization_owners.get(&id) == Some(&owner)
         })
     }
 
@@ -746,7 +741,7 @@ impl GcHeap {
 
     // Scoped metadata views can borrow slots. Reject a conflicting write before
     // changing storage or accounting instead of panicking inside RefCell.
-    fn objects_mut(&self) -> Result<RefMut<'_, Vec<ObjectSlot>>, RuntimeError> {
+    fn objects_mut(&self) -> Result<RefMut<'_, ObjectStorage>, RuntimeError> {
         self.objects
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("heap storage is borrowed"))
@@ -760,88 +755,119 @@ impl GcHeap {
             .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
             .map(|session| session.root.program_root().key());
         let mut objects = self.objects_mut()?;
-        let slot = if let Some(index) = self.free.borrow_mut().pop() {
-            objects[index].revision = 0;
-            objects[index].object = Some(object);
-            objects[index].initialization_owner = initialization_owner;
-            index
-        } else {
-            u32::try_from(objects.len()).map_err(|_| self.resource_limit("heap object slots"))?;
+        let mut free = self.free.borrow_mut();
+        let index = free.last().copied().unwrap_or(objects.slots.len());
+        let directory =
+            u32::try_from(index).map_err(|_| self.resource_limit("heap object slots"))?;
+        if index == objects.slots.len() {
             objects
+                .slots
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            let index = objects.len();
-            objects.push(ObjectSlot {
+        }
+        if initialization_owner.is_some() {
+            objects
+                .initialization_owners
+                .try_reserve(1)
+                .map_err(|_| self.resource_limit("initialization owners"))?;
+        }
+        let location = objects
+            .insert(directory, object)
+            .map_err(|_| self.resource_limit("allocation capacity"))?;
+        let slot = if index == objects.slots.len() {
+            objects.slots.push(ObjectSlot {
                 revision: 0,
                 generation: 0,
-                initialization_owner,
-                object: Some(object),
+                location: Some(location),
             });
             index
+        } else {
+            free.pop();
+            objects.slots[index].revision = 0;
+            objects.slots[index].location = Some(location);
+            index
         };
+        let id = HeapObjectId::new(self.owner, slot, objects.slots[slot].generation);
+        if let Some(owner) = initialization_owner {
+            objects.initialization_owners.insert(id, owner);
+        }
         self.stats.borrow_mut().allocated_objects += 1;
         growth.commit();
-        Ok(HeapObjectId::new(
-            self.owner,
-            slot,
-            objects[slot].generation,
-        ))
+        Ok(id)
+    }
+
+    fn object_location(
+        &self,
+        objects: &ObjectStorage,
+        id: HeapObjectId,
+    ) -> Option<PayloadLocation> {
+        if u64::from(id.owner) != self.owner {
+            return None;
+        }
+        let slot = objects.slots.get(id.index())?;
+        (slot.generation == id.generation)
+            .then_some(slot.location)
+            .flatten()
+    }
+
+    fn readable_location(
+        &self,
+        objects: &ObjectStorage,
+        id: HeapObjectId,
+    ) -> Option<PayloadLocation> {
+        let location = self.object_location(objects, id)?;
+        if let Some(session) = self
+            .resources
+            .active_session()
+            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
+            && objects.initialization_owners.get(&id) != Some(&session.root.program_root().key())
+        {
+            return None;
+        }
+        Some(location)
     }
 
     fn object_ref<'a>(
         &self,
-        objects: &'a [ObjectSlot],
+        objects: &'a ObjectStorage,
         id: HeapObjectId,
-    ) -> Option<&'a HeapObject> {
-        if u64::from(id.owner) != self.owner {
-            return None;
-        }
-        let slot = objects.get(id.index())?;
-        if slot.generation != id.generation {
-            return None;
-        }
-        slot.object.as_ref()
+    ) -> Option<HeapObject<Shared<'a>>> {
+        Some(objects.get(self.object_location(objects, id)?))
     }
 
     // Script-visible reads are isolated; collector traversal uses object_ref directly.
     fn readable_object<'a>(
         &self,
-        objects: &'a [ObjectSlot],
+        objects: &'a ObjectStorage,
         id: HeapObjectId,
-    ) -> Option<&'a HeapObject> {
-        let object = self.object_ref(objects, id)?;
-        if let Some(session) = self
-            .resources
-            .active_session()
-            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
-            && objects[id.index()].initialization_owner != Some(session.root.program_root().key())
-        {
-            return None;
-        }
-        Some(object)
+    ) -> Option<HeapObject<Shared<'a>>> {
+        Some(objects.get(self.readable_location(objects, id)?))
     }
 
     fn object_mut<'a>(
         &self,
-        objects: &'a mut [ObjectSlot],
+        objects: &'a mut ObjectStorage,
         id: HeapObjectId,
-    ) -> Option<&'a mut HeapObject> {
-        if u64::from(id.owner) != self.owner {
-            return None;
-        }
-        let slot = objects.get_mut(id.index())?;
-        if slot.generation != id.generation {
-            return None;
-        }
-        if let Some(session) = self
-            .resources
-            .active_session()
-            .filter(|session| session.options.phase == ExecutionPhase::CandidateInitialization)
-            && slot.initialization_owner != Some(session.root.program_root().key())
-        {
-            return None;
-        }
-        slot.object.as_mut()
+    ) -> Option<HeapObject<Exclusive<'a>>> {
+        let location = self.readable_location(objects, id)?;
+        Some(objects.get_mut(location))
+    }
+
+    fn native_ref<'a>(
+        &self,
+        objects: &'a ObjectStorage,
+        id: HeapObjectId,
+    ) -> Option<&'a NativeObject> {
+        objects.native(self.readable_location(objects, id)?)
+    }
+
+    fn native_mut<'a>(
+        &self,
+        objects: &'a mut ObjectStorage,
+        id: HeapObjectId,
+    ) -> Option<&'a mut NativeObject> {
+        let location = self.readable_location(objects, id)?;
+        objects.native_mut(location)
     }
 
     fn release_heap_units(&self, units: usize) {
@@ -854,20 +880,8 @@ impl GcHeap {
         f: impl FnOnce(&StructLayoutRef, &Vec<Value>) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        match self.readable_object(&objects, id)? {
-            HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
-            HeapObject::String(_)
-            | HeapObject::Tuple(_)
-            | HeapObject::Range(_)
-            | HeapObject::HostRoot(_)
-            | HeapObject::HostPath(_)
-            | HeapObject::Ephemeral(_)
-            | HeapObject::Native(_)
-            | HeapObject::Enum(..)
-            | HeapObject::Interface { .. }
-            | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
-        }
+        let (layout, fields) = objects.structure(self.readable_location(&objects, id)?)?;
+        Some(f(layout, fields))
     }
 
     fn with_struct_mut<R>(
@@ -876,20 +890,9 @@ impl GcHeap {
         f: impl FnOnce(&StructLayoutRef, &mut Vec<Value>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
-        match self.object_mut(&mut objects, id)? {
-            HeapObject::Struct { layout, fields } => Some(f(layout, fields)),
-            HeapObject::String(_)
-            | HeapObject::Tuple(_)
-            | HeapObject::Range(_)
-            | HeapObject::HostRoot(_)
-            | HeapObject::HostPath(_)
-            | HeapObject::Ephemeral(_)
-            | HeapObject::Native(_)
-            | HeapObject::Enum(..)
-            | HeapObject::Interface { .. }
-            | HeapObject::Closure { .. }
-            | HeapObject::Cell { .. } => None,
-        }
+        let location = self.readable_location(&objects, id)?;
+        let (layout, fields) = objects.structure_mut(location)?;
+        Some(f(layout, fields))
     }
 }
 

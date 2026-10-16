@@ -1,7 +1,7 @@
 //! Checked writes to declared native fields. The collector only sees their trace.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, native::NativeBorrow, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId, native::NativeBorrow},
     native::{
         binding::NativeResult,
         payload::{
@@ -24,19 +24,19 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let mut objects = self.objects_mut()?;
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+        let Some(object) = self.native_ref(&objects, id) else {
             return Err(invalid());
         };
         let payload = object.payload::<Managed<T>>()?;
         if !payload.schema.registered_in(&object.storage) {
             return Err(invalid());
         }
-        let revision = objects[id.index()]
+        let revision = objects.slots[id.index()]
             .revision
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("native revision exhausted"))?;
-        objects[id.index()].revision = revision;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+        objects.slots[id.index()].revision = revision;
+        let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(invalid());
         };
         let payload = object.payload_mut::<Managed<T>>()?;

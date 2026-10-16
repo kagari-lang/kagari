@@ -181,12 +181,16 @@ impl GcHeap {
         let dead = {
             let objects = self.objects.try_borrow().ok()?;
             objects
+                .slots
                 .iter()
                 .enumerate()
                 .filter_map(|(index, slot)| {
                     let id = HeapObjectId::new(self.owner, index, slot.generation);
                     (!live.contains(&id))
-                        .then(|| slot.object.as_ref().map(|object| (index, object.units())))
+                        .then(|| {
+                            slot.location
+                                .map(|location| (index, objects.get(location).units()))
+                        })
                         .flatten()
                 })
                 .collect::<Vec<_>>()
@@ -204,19 +208,22 @@ impl GcHeap {
         let reclaimed_objects = dead.len();
         let reclaimed_units =
             dead.iter().map(|(_, units)| units).sum::<usize>() + retired_identities;
-        let mut retired = Vec::with_capacity(reclaimed_objects);
-        {
+        let retired = {
             let mut objects = self.objects.try_borrow_mut().ok()?;
             let mut free = self.free.try_borrow_mut().ok()?;
             for (index, _) in dead {
-                let slot = &mut objects[index];
-                retired.push(slot.object.take().expect("marked unreachable record"));
+                let id = HeapObjectId::new(self.owner, index, objects.slots[index].generation);
+                objects.mark_detached(id);
+                let slot = &mut objects.slots[index];
                 if let Some(generation) = slot.generation.checked_add(1) {
                     slot.generation = generation;
                     free.push(index);
                 }
             }
-        }
+            let retired = objects.detach_marked();
+            objects.shrink_payloads();
+            retired
+        };
         moved.retain(|id| live_moved.contains(id));
         drop(moved);
         let retired_groups = groups.detach(&graph.metadata.groups);
@@ -238,12 +245,10 @@ impl GcHeap {
         self.roots.borrow_mut().prune();
         // Destructors run with no storage-table borrow. Finish disposal even when
         // one panics; the execution gate keeps the affected runtime quarantined.
-        for object in retired {
-            if catch_unwind(AssertUnwindSafe(|| drop(object))).is_err() {
-                self.resources
-                    .quarantine("native payload destruction panicked");
-            }
-        }
+        retired.dispose(|| {
+            self.resources
+                .quarantine("native payload destruction panicked");
+        });
         for group in retired_groups {
             if catch_unwind(AssertUnwindSafe(|| drop(group))).is_err() {
                 self.resources

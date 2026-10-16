@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId},
     native::sequence::{SequencePayload, SequenceStorage},
     value::Value,
 };
@@ -149,12 +149,13 @@ impl GcHeap {
         self.ensure_structure_mutable(id)?;
         let mut objects = self.objects_mut()?;
         let revision = objects
+            .slots
             .get(id.index())
             .ok_or_else(invalid)?
             .revision
             .checked_add(1)
             .ok_or_else(invalid)?;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+        let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(invalid());
         };
         if !matches!(object.ty, Ty::NativeObject(_)) {
@@ -166,7 +167,7 @@ impl GcHeap {
         }
         values.swap(a, b)?;
         if a != b {
-            objects[id.index()].revision = revision;
+            objects.slots[id.index()].revision = revision;
         }
         Ok(())
     }
@@ -179,12 +180,13 @@ impl GcHeap {
         self.resources.poll_execution()?;
         let mut objects = self.objects_mut()?;
         let revision = objects
+            .slots
             .get(id.index())
             .ok_or_else(invalid)?
             .revision
             .checked_add(1)
             .ok_or_else(invalid)?;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+        let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(invalid());
         };
         if !matches!(object.ty, Ty::NativeObject(_)) {
@@ -192,7 +194,7 @@ impl GcHeap {
         }
         object.payload_mut::<SequencePayload>()?.values.reverse();
         if count > 1 {
-            objects[id.index()].revision = revision;
+            objects.slots[id.index()].revision = revision;
         }
         Ok(())
     }

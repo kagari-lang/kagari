@@ -17,7 +17,7 @@ impl GcHeap {
         }
         let object = {
             let mut objects = self.objects_mut()?;
-            let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+            let Some(object) = self.native_ref(&objects, id) else {
                 return Err(RuntimeError::module_validation(
                     "invalid native extraction receiver",
                 ));
@@ -41,11 +41,11 @@ impl GcHeap {
                 .map_err(|_| RuntimeError::module_validation("heap free slots are borrowed"))?;
             free.try_reserve(1)
                 .map_err(|_| RuntimeError::resource_limit("heap free slots"))?;
-            let slot = &mut objects[id.index()];
-            let Some(HeapObject::Native(object)) = slot.object.take() else {
+            let Some(HeapObject::Native(object)) = objects.detach(id) else {
                 unreachable!("validated native extraction receiver")
             };
             moved.insert(id);
+            let slot = &mut objects.slots[id.index()];
             if let Some(generation) = slot.generation.checked_add(1) {
                 slot.generation = generation;
                 free.push(id.index());

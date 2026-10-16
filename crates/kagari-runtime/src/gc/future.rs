@@ -2,10 +2,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
-    gc::{
-        GcHeap, HeapObjectId, collector,
-        storage::{HeapObject, append_value_edges},
-    },
+    gc::{GcHeap, HeapObjectId, collector, storage::append_value_edges},
     module::LoadedModule,
     native::{
         binding::NativeResult,
@@ -63,7 +60,7 @@ impl GcHeap {
             .objects
             .try_borrow()
             .map_err(|_| RuntimeError::module_validation("conflicting Future storage borrow"))?;
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+        let Some(object) = self.native_ref(&objects, id) else {
             return Err(RuntimeError::module_validation("invalid Future receiver"));
         };
         object.payload::<FuturePayload>()?;
@@ -79,7 +76,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         let cold = {
             let mut objects = self.objects_mut()?;
-            let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+            let Some(object) = self.native_mut(&mut objects, id) else {
                 return Err(RuntimeError::module_validation("invalid Future receiver"));
             };
             object

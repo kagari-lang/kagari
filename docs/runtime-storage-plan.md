@@ -1,6 +1,6 @@
 # Runtime storage and shared type descriptors execution plan
 
-Status: execution started on 2026-10-16; RS01-RS02 implemented; RS03 next, one latency control remains open.
+Status: execution started on 2026-10-16; RS01-RS03 implemented; RS04 next, latency controls remain open.
 The execution document and follow-up consistency review are complete.
 The [roadmap](implementation-roadmap.md#runtime-storage-redesign)
 owns priority; this plan owns RS01-RS06, decisions, acceptance and the progress
@@ -707,8 +707,8 @@ application controls and zero teardown. Structure, formatting, workspace all-tar
 Clippy, diagnostics Clippy and diff checks pass. No build error remains; exhaustive
 workspace/backend tests remain CI-only.
 
-Uncontended timing repeats confirm interface construction medians of 1,116,000 /
-1,113,083 / 2,394,083 ns (narrow/wide/generic; the narrow value is rounded), and
+Uncontended timing repeats confirm interface construction medians of 1,113,500 /
+1,113,083 / 2,394,083 ns (narrow/wide/generic), and
 live GC around 304,000 ns. These meet the construction/GC regression gates.
 Numeric-buffer execution is 258,666 ns initially and 257,833 ns on repeat, versus
 242,041 ns baseline (6.5-6.9% slower); the 5% overall gate is **not passed**.
@@ -720,12 +720,71 @@ the next matched storage/control measurement; RS06 must resolve the regression
 against the original gate before integrated acceptance. No local arithmetic-loop
 optimization or threshold relaxation is authorized by this result.
 
+### RS03 execution record
+
+The directory is now 24 bytes per slot on the recorded arm64 release target,
+down from 168. All twelve existing heap kinds use dense typed stores. Transient
+HeapObject owned/shared/exclusive forms preserve one tracing/accounting policy;
+no maximum-sized enum or separately boxed maximum-sized payload remains in slots.
+Single-object extraction repairs the swapped payload's locator; collection detaches
+typed batches and compacts survivors. Revisions remain in the stable
+directory; candidate owners use a full-identity-keyed side table. Store shrinking
+uses a four-times-live/64-entry hysteresis; tombstone generations remain intact.
+Allocation reserves all required storage before publishing a payload/identity.
+
+Initial requested-byte increments (512 instances; live / empty / repeated population):
+Point 114,944 / 45,840 / 123,552; Pair 115,720 / 40,760 / 123,912; narrow interface
+185,476 / 101,964 / 205,956; wide interface 186,700 / 101,964 / 207,180; generic
+interface 186,852 / 102,380 / 207,364; cyclic nodes 466,672 / 72,544 / 483,056;
+numeric buffer 10,224 / 7,488 / 10,256. Point sparse retention is 45,184 bytes.
+The 50% combined RS03/RS04 live gate awaits field storage; Point is already 48.0%
+lower, and empty retention is 75.6% lower. Every warmed teardown balances to zero.
+Warmed field loops retain the same 98 allocation requests per call.
+
+Local checks so far: 14 existing GC ownership/storage cases, one new sparse
+relocation/alias mutation case, candidate-slot validation, three native panic/drop
+cases, two extraction/slot-reuse cases and the existing release layout probe pass.
+The initial integration errors were old direct slot accesses and whole-native
+replacement; they are resolved through the directory and concrete native store.
+The first timing run exposed representation-boundary costs: native/struct reads
+still built a general borrowed enum, and collection repacked every dead payload
+into the wide transfer enum. Concrete access now goes directly from the checked
+locator into its typed store. Collection detaches typed batches, takes a wholly
+dead large buffer directly, and disposes each payload outside storage borrows with
+panic containment. Reachability, generation retirement and root policy are unchanged.
+Repeated focused GC, candidate, panic/drop and extraction checks pass after these
+changes; requested retained bytes and warmed-loop allocations are unchanged.
+Structure, formatting, workspace all-target Clippy and diff checks pass. No carried
+build/test failure remains. Revised ordinary timing medians (ns) are:
+
+| Workload | Execute | Construct | Live GC | Release GC |
+| --- | ---: | ---: | ---: | ---: |
+| Scalar | 1,637,791 | — | — | — |
+| Field read / write | 4,971,500 / 3,855,167 | — | — | — |
+| i32 / f64 RMW | 10,271,084 / 10,164,292 | — | — | — |
+| Point | 229,792 | 541,667 | 110,041 | 24,250 |
+| Pair | 233,791 | — | — | — |
+| Cyclic nodes | — | 1,612,083 | 227,000 | 80,333 |
+| Narrow interface | — | 1,145,667 | 308,291 | 44,042 |
+| Wide interface | — | 1,141,833 | 310,584 | 44,167 |
+| Generic interface | — | 2,434,042 | 313,916 | 44,958 |
+| Numeric buffer | 271,667 | 323,875 | 6,000 | 3,917 |
+
+This is the required pre-RS04 measurement, **not integrated performance acceptance**.
+The first RS03 release-GC medians for Point/nodes were 37,500 / 107,792 ns; typed
+batch disposal reduces them to 24,250 / 80,333 ns, but they remain 16.4% / 16.1%
+above baseline, outside 10%. Numeric execution is still 12.2% above baseline;
+Pair traversal is 7.4% above baseline. RS04 owns field/traversal improvements;
+RS06 owns numeric and collection regression resolution, including repeated matched
+runs where the small numeric GC samples show noise. Keep all original gates.
+RS03 storage/lifetime acceptance is met; integrated latency acceptance remains open.
+
 - [x] Planning: scope, priority, measured shallow-size evidence, target ownership
   and RS01-RS06 written on 2026-10-16.
 - [x] Planning consistency review against accepted direction, code and adjacent plans.
 - [x] RS01: baseline workloads, frozen gates and physical/ownership contracts.
 - [x] RS02: shared interface descriptions; overall numeric control carried above.
-- [ ] RS03: compact directory and focused stores.
+- [x] RS03: compact directory and focused stores; integrated latency gates remain open.
 - [ ] RS04: type-directed struct fields and direct scalar-bank transfers.
 - [ ] RS05: local-reference decision and conditional implementation.
 - [ ] RS06: integrated acceptance and documentation handoff.

@@ -1,7 +1,7 @@
 //! Terminal publication updates one sealed Task payload without a native borrow.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId},
     native::binding::NativeResult,
     task::{
         TaskFailure, TaskId,
@@ -39,7 +39,7 @@ impl GcHeap {
             .objects
             .try_borrow()
             .map_err(|_| RuntimeError::module_validation("Task storage is borrowed"))?;
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
+        let Some(object) = self.native_ref(&objects, *id) else {
             return Err(RuntimeError::module_validation("Task payload"));
         };
         let payload = object.payload::<TaskPayload>()?;
@@ -64,7 +64,7 @@ impl GcHeap {
             return Err(RuntimeError::module_validation("Task output"));
         }
         let mut objects = self.objects_mut()?;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+        let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(RuntimeError::module_validation("Task payload"));
         };
         let payload = object.payload_mut::<TaskPayload>()?;

@@ -93,7 +93,7 @@ impl GcHeap {
                 {
                     return None;
                 }
-                Some(objects[id.index()].revision)
+                Some(objects.slots[id.index()].revision)
             }
             _ => None,
         }
@@ -253,7 +253,7 @@ impl GcHeap {
         };
         let (payload, next_position, string_cursor) = {
             let objects = self.objects.borrow();
-            let Some(HeapObject::Native(object)) = self.readable_object(&objects, *id) else {
+            let Some(object) = self.native_ref(&objects, *id) else {
                 return Err(invalid());
             };
             let iter = object.payload::<NativeIter>()?;
@@ -336,7 +336,7 @@ impl GcHeap {
         let has_item = payload.is_some();
         let result = finish(payload)?;
         let mut objects = self.objects_mut()?;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, *id) else {
+        let Some(object) = self.native_mut(&mut objects, *id) else {
             return Err(invalid());
         };
         let iter = object.payload_mut::<NativeIter>()?;

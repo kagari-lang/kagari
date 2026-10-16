@@ -1,6 +1,6 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
-    gc::{GcHeap, HeapObjectId, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId},
     native::{
         hash_storage::{HashMapStorage, HashSetStorage},
         hashed::{MapPayload, SetPayload},
@@ -198,9 +198,7 @@ impl GcHeap {
         id: HeapObjectId,
     ) -> Option<(Arc<StorageType>, Arc<StorageType>, bool)> {
         let objects = self.objects.borrow();
-        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
-            return None;
-        };
+        let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Map { .. }) {
             return None;
         }
@@ -214,9 +212,7 @@ impl GcHeap {
 
     pub(crate) fn set_contract(&self, id: HeapObjectId) -> Option<(Arc<StorageType>, bool)> {
         let objects = self.objects.borrow();
-        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
-            return None;
-        };
+        let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Set(..)) {
             return None;
         }
@@ -240,9 +236,7 @@ impl GcHeap {
     /// inspection is read-only; user Hash/Eq callbacks use custom_keys instead.
     fn with_map_payload<R>(&self, id: HeapObjectId, f: impl FnOnce(&MapPayload) -> R) -> Option<R> {
         let objects = self.objects.borrow();
-        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
-            return None;
-        };
+        let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Map { .. }) {
             return None;
         }
@@ -255,10 +249,8 @@ impl GcHeap {
         f: impl FnOnce(&mut HashMapStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
-        let revision = objects.get(id.index())?.revision.checked_add(1)?;
-        let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
-            return None;
-        };
+        let revision = objects.slots.get(id.index())?.revision.checked_add(1)?;
+        let object = self.native_mut(&mut objects, id)?;
         if !matches!(object.ty, Ty::Map { .. }) {
             return None;
         }
@@ -266,7 +258,7 @@ impl GcHeap {
         let old_len = entries.len();
         let result = f(entries);
         if entries.len() != old_len {
-            objects[id.index()].revision = revision;
+            objects.slots[id.index()].revision = revision;
         }
         Some(result)
     }
@@ -277,9 +269,7 @@ impl GcHeap {
         f: impl FnOnce(&HashSetStorage) -> R,
     ) -> Option<R> {
         let objects = self.objects.borrow();
-        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
-            return None;
-        };
+        let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Set(..)) {
             return None;
         }
@@ -292,10 +282,8 @@ impl GcHeap {
         f: impl FnOnce(&mut HashSetStorage) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
-        let revision = objects.get(id.index())?.revision.checked_add(1)?;
-        let HeapObject::Native(object) = self.object_mut(&mut objects, id)? else {
-            return None;
-        };
+        let revision = objects.slots.get(id.index())?.revision.checked_add(1)?;
+        let object = self.native_mut(&mut objects, id)?;
         if !matches!(object.ty, Ty::Set(..)) {
             return None;
         }
@@ -303,7 +291,7 @@ impl GcHeap {
         let old_len = entries.len();
         let result = f(entries);
         if entries.len() != old_len {
-            objects[id.index()].revision = revision;
+            objects.slots[id.index()].revision = revision;
         }
         Some(result)
     }

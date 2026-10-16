@@ -242,7 +242,7 @@ fn exhausted_object_generation_retires_storage_without_aliasing_old_values() {
     let first = heap.alloc_cell(ValueType::I32, Value::I32(7)).unwrap();
     // Advance the existing allocation to its final reusable generation without
     // billions of collections. No stale handle is admitted as a root.
-    heap.objects.borrow_mut()[first.index()].generation = u32::MAX - 1;
+    heap.objects.borrow_mut().slots[first.index()].generation = u32::MAX - 1;
     let penultimate = HeapObjectId::new(heap.owner, first.index(), u32::MAX - 1);
     let root = heap.root_value(Value::Cell(penultimate)).unwrap();
     assert!(!heap.validate_value(&Value::Cell(first)));
@@ -266,6 +266,56 @@ fn exhausted_object_generation_retires_storage_without_aliasing_old_values() {
     assert!(heap.root_value(Value::Cell(last)).is_none());
     assert_eq!(heap.cell_get(next, ValueType::I32).unwrap(), Value::I32(9));
     assert_eq!(heap.stats().allocated_objects, 1);
+}
+
+#[test]
+fn sparse_collection_preserves_aliases_and_mutation_across_payload_relocation() {
+    let runtime = Runtime::default();
+    let heap = runtime.gc();
+    let mut retained = Vec::new();
+    for index in 0..256_i32 {
+        let text = heap.alloc_string(index.to_string()).unwrap();
+        let cell = heap.alloc_cell(ValueType::I32, Value::I32(index)).unwrap();
+        let tuple = heap.alloc_tuple(vec![text, Value::Cell(cell)]).unwrap();
+        if index % 31 == 0 || index == 255 {
+            retained.push((heap.root_value(tuple).unwrap(), text, cell, index));
+        }
+    }
+    assert_eq!(
+        runtime.collect_garbage().unwrap().live_objects,
+        retained.len() * 3
+    );
+    for (_, text, cell, expected) in &retained {
+        let Value::Str(id) = text else { unreachable!() };
+        assert_eq!(&*heap.string(*id).unwrap(), expected.to_string());
+        assert_eq!(
+            heap.cell_get(*cell, ValueType::I32).unwrap(),
+            Value::I32(*expected)
+        );
+        heap.cell_set(*cell, ValueType::I32, Value::I32(*expected + 1))
+            .unwrap();
+    }
+    // Reuse directory slots and grow the now sparse stores again.
+    for index in 0..512_i32 {
+        heap.alloc_string(index.to_string()).unwrap();
+        heap.alloc_cell(ValueType::I32, Value::I32(index)).unwrap();
+    }
+    runtime.collect_garbage().unwrap();
+    for (root, text, cell, expected) in &retained {
+        let Value::Tuple(tuple) = root.value(heap).unwrap() else {
+            unreachable!()
+        };
+        assert_eq!(&*heap.tuple(tuple).unwrap(), &[*text, Value::Cell(*cell)]);
+        assert_eq!(
+            heap.cell_get(*cell, ValueType::I32).unwrap(),
+            Value::I32(*expected + 1)
+        );
+    }
+    let stale = retained[0].2;
+    drop(retained);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    heap.alloc_cell(ValueType::I32, Value::I32(1)).unwrap();
+    assert!(!heap.validate_value(&Value::Cell(stale)));
 }
 
 #[test]

@@ -35,7 +35,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
         let mut objects = self.objects_mut()?;
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+        let Some(object) = self.native_ref(&objects, id) else {
             return Err(RuntimeError::module_validation(
                 "invalid native edit receiver",
             ));
@@ -48,14 +48,14 @@ impl GcHeap {
         // The sealed descriptor grants this flag only through data::<S: NativeData>.
         // Matching its Rust TypeId recovers that proof for erased loan adapters;
         // traced/managed/take-only storage never receives direct editing authority.
-        let revision = objects[id.index()]
+        let revision = objects.slots[id.index()]
             .revision
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("native revision exhausted"))?;
         // Publish the revision before lending data so unwind preserves both the
         // completed writes and their invalidation. Size and graph edges are fixed.
-        objects[id.index()].revision = revision;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+        objects.slots[id.index()].revision = revision;
+        let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(RuntimeError::module_validation(
                 "invalid native edit receiver",
             ));
@@ -128,9 +128,7 @@ impl GcHeap {
 
     pub(crate) fn native_type_name(&self, id: HeapObjectId) -> Option<String> {
         let objects = self.objects.borrow();
-        let HeapObject::Native(object) = self.readable_object(&objects, id)? else {
-            return None;
-        };
+        let object = self.native_ref(&objects, id)?;
         let Ty::NativeObject(nominal) = &object.ty else {
             return None;
         };
@@ -166,7 +164,7 @@ impl GcHeap {
             .objects
             .try_borrow()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+        let Some(object) = self.native_ref(&objects, id) else {
             return Err(RuntimeError::module_validation(
                 "invalid native storage receiver",
             ));
@@ -198,7 +196,7 @@ impl GcHeap {
             let objects = self.objects.try_borrow().map_err(|_| {
                 RuntimeError::module_validation("conflicting native storage borrow")
             })?;
-            let Some(HeapObject::Native(object)) = self.readable_object(&objects, id) else {
+            let Some(object) = self.native_ref(&objects, id) else {
                 return Err(RuntimeError::module_validation("invalid sequence receiver"));
             };
             let sequence = object.payload::<SequencePayload>()?;
@@ -216,7 +214,7 @@ impl GcHeap {
             .objects
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+        let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(RuntimeError::module_validation("invalid sequence receiver"));
         };
         let sequence = object.payload_mut::<SequencePayload>()?;
@@ -242,12 +240,13 @@ impl GcHeap {
             .try_borrow_mut()
             .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
         let revision = objects
+            .slots
             .get(id.index())
             .ok_or_else(|| RuntimeError::module_validation("invalid sequence receiver"))?
             .revision
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("sequence revision exhausted"))?;
-        let Some(HeapObject::Native(object)) = self.object_mut(&mut objects, id) else {
+        let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(RuntimeError::module_validation("invalid sequence receiver"));
         };
         let sequence = object.payload_mut::<SequencePayload>()?;
@@ -258,7 +257,7 @@ impl GcHeap {
         let result = access(values);
         // A bulk write may permute slots. Closed cursors must observe that change
         // even when the closure returned an error after completed scalar writes.
-        objects[id.index()].revision = revision;
+        objects.slots[id.index()].revision = revision;
         result
     }
 }

@@ -215,7 +215,10 @@ Its responsibilities include:
 
 The GC must not own Rust host borrows.
 
-The implemented collector is nonmoving, stop-the-world mark-sweep. It traverses
+The implemented collector uses stop-the-world mark-sweep over stable checked
+handles. A compact generation directory locates dense typed payload stores; sweep
+can compact those stores without changing handle identity. Scoped storage borrows
+exclude collection and relocation. It traverses
 tuples, enum payloads, array/map values and struct fields with an explicit work stack,
 handles cycles, and reclaims unreachable slots. Reuse increments the slot generation;
 a saturated generation retires its slot. Reads, writes, root registration and script
