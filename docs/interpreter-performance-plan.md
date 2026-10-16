@@ -2398,6 +2398,26 @@ It is a diagnostic only: no acceptance extension, threshold exemption, revised
 baseline or production change is authorized by its result. Complete it before
 choosing further attribution or a justified measurement-protocol correction.
 
+The shared-launch diagnostic (UTC 20261016T221953Z) completes all seven pairs:
+every process has all 46 expected row/sample identities, matching checksums and
+unchanged source/launched hashes. Arithmetic Lua module_init still differs:
+baseline process medians [1300, 1300, 1500, 1300, 1800, 1900, 1300] ns versus
+candidate [2800, 1800, 1800, 1800, 1900, 1400, 1700], ratios 1.384615/1.307692.
+A common launch path is therefore insufficient to remove that difference.
+Lua engine_init is 1.012277/1.022548, source_to_chunk 1.000000/1.033898 and
+execution 1.010713/1.012305. Preserve their outliers too. All Kagari diagnostic
+ratios remain below 1.04, but these are not replacement acceptance measurements.
+
+This run selects arithmetic alone whereas the failed acceptance runs the full
+original matrix. Workload-prefix state and file replacement are additional limits;
+the smaller source_to_chunk difference is not causally assigned to path alone.
+Do not extend the failed comparison merely to seek a passing median, or introduce
+runtime padding/duplicate preparation to tune the Lua control. Remaining attribution
+must distinguish the cold Lua preparation path's linked code from the process's
+allocator/cache state after Kagari setup. Both are outside the timed Kagari execution
+region, but unchanged Lua source alone does not settle either. No new production
+edit or measurement-protocol exemption is justified yet; IP02/IP03 remain open.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
