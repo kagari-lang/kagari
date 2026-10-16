@@ -151,26 +151,30 @@ separately proposed debug/DAP modes.
 
 ## Runtime storage redesign
 
-The [runtime storage execution plan](runtime-storage-plan.md) owns RS01-RS06 and
-is prioritized ahead of downcast, NC migration and the proposed call-lifecycle
-optimization. RS01-RS04 are implemented and RS05 owner elision is deferred; RS06 final latency
-validation is in progress. Receiver-independent interface descriptions are shared,
-compact directory entries locate typed stores, and script struct fields occupy
-packed bytes with direct scalar-bank transfers. Preserve
-general Value transport, scalar frame banks, numeric buffers and checked ownership.
+RS01-RS06 are locally complete as of 2026-10-16. Receiver-independent interface
+descriptions are shared, compact directory entries locate typed stores, and script
+struct fields occupy a packed arena with direct scalar-bank transfers. General
+Value transport, scalar frame banks, numeric buffers and full checked identities
+remain in place. The implementation uses safe Rust; owner elision is deferred
+because the measured node workload offers only a projected 0.49% benefit.
 
-Heap-local reference compression is a conditional phase with a safety/measurement
-gate; universal 8-byte Value, new GC algorithms, state migration and native-backend
-expansion are outside scope. The plan records measured shallow sizes and requires
-matched total-storage/latency evidence before performance claims. It does not
-activate the dependent tracks or establish their acceptance.
+[Architecture](architecture.md#runtime-model) and the [runtime specification](spec/runtime.md)
+own current contracts. [Matched measurements](performance-baseline.md#runtime-storage-2026-10-16)
+record all frozen local memory/latency gates passing, including uncertainty near
+GC thresholds. Focused tests and required local checks pass. The exhaustive
+workspace and feature/backend/platform matrix remains pending CI; local results do
+not establish that acceptance. Git history owns the completed execution ledger.
+
+This completion does not activate downcast, NC migration or the proposed call-lifecycle
+review. Universal 8-byte Value, new GC algorithms, state migration and native-backend
+expansion were outside scope; interpreter/Lua throughput goals remain independent.
 
 ## Library-owned native collections
 
 [NC01-NC06](native-collections-plan.md) are queued and unstarted.
-They follow the prioritized [runtime storage work](runtime-storage-plan.md);
-refresh the resulting shared heap/descriptor contracts before NC01.
-Refresh their API/code inventory against the current scoped identity APIs.
+Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
+Reuse the resulting heap/descriptor contracts and refresh NC01's API/code inventory
+against the current scoped identity APIs.
 Baseline 9cd90557 includes the completed Iterable APIs, retained selected-call slots
 and Vec/HashMap/HashSet FromIterator implementations.
 
@@ -220,8 +224,8 @@ Acceptance requires interpreter/Lua median <=1.0 for every unchanged matched
 workload on one machine, with uncertainty analysis near parity. Entry, adapters,
 alternate numeric diagnostics and JIT results cannot replace that gate.
 
-After the prioritized [runtime storage work](runtime-storage-plan.md), the
-proposed, unactivated follow-up is a bounded call-lifecycle review: prepared
+With the [runtime storage work](#runtime-storage-redesign) locally complete, the
+proposed, unactivated follow-up remains a bounded call-lifecycle review: prepared
 invocation contracts, active-session admission, parameter/frame-window setup and
 return. Preserve changing receiver/type/version, roots, cancellation, host/reentry
 and trap order; measure unchanged workloads plus setup and retained memory. Native
@@ -338,8 +342,8 @@ The [interface downcast execution plan](interface-downcast-plan.md) records the
 accepted `is::<T>() -> bool` and `downcast::<T>() -> Option<T>` direction and owns
 DC01-DC04. Implementation has not started. Reuse concrete interface metadata,
 checked type environments, roots and pinned versions; no Any trait is added.
-Execute after the prioritized [runtime storage redesign](runtime-storage-plan.md)
-and refresh DC01's implementation inventory against its shared descriptions.
+The [runtime storage predecessor](#runtime-storage-redesign) is locally complete.
+Refresh DC01's implementation inventory against its shared descriptions before activation.
 Ordinary read-only interfaces may explicitly recover their concrete storage,
 while host access restrictions and scoped-reference exclusion remain intact.
 

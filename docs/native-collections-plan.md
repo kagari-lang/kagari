@@ -5,8 +5,9 @@ Status: agreed direction recorded; implementation has not started. The
 placement. This plan owns NC01-NC06, the bounded API design, migration acceptance
 and progress ledger. API sketches are proposals, not currently callable APIs.
 
-Scheduling update, 2026-10-16: the user prioritized
-[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) before NC01.
+Predecessor update, 2026-10-16: the prioritized
+[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) is locally complete.
+NC01 remains queued and unstarted.
 The shared storage inventory now includes the compact directory, typed native
 payload store, packed script-struct arena and weak shared interface descriptions.
 Full owner/slot/generation handles, native tracing, extraction, revision checks and

@@ -26,7 +26,8 @@ behavior; queued designs do not imply implemented APIs.
 - [Runnable examples](../examples/README.md), [structure checks](structure-checks.md)
   and [engineering rules](../AGENTS.md).
 - [Test preparation and execution](testing.md).
-- [Performance measurements](performance-baseline.md) and
+- [Performance measurements](performance-baseline.md), including the completed
+  [runtime storage evaluation](performance-baseline.md#runtime-storage-2026-10-16), and
   [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
 - [Repository and architecture review](review.md): unresolved findings and native
   expansion requirements, with historical measurements linked at their owner.
@@ -35,10 +36,6 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Runtime storage redesign](runtime-storage-plan.md): prioritized RS01-RS06,
-  RS01-RS04 implemented; RS06 acceptance in progress; shared descriptions, compact heap
-  slots and store
-  struct fields by type while preserving checked transport and ownership.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and

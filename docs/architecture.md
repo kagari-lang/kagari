@@ -1081,8 +1081,10 @@ arrays, collections and custom Rust payloads retain their existing native owner.
 Rare candidate-initialization ownership is keyed by full identity outside the
 common directory slot. Sweep updates private locators when compacting records,
 keeps generation tombstones, shrinks payload capacity with hysteresis and disposes
-detached batches outside storage borrows. Native destructor panics remain isolated
-per payload and quarantine execution while cleanup continues.
+only nonempty detached batches outside storage borrows. Exact per-kind retirement
+counts avoid rescanning unchanged stores; a wholly dead store transfers its buffer.
+Native destructor panics remain isolated per payload and quarantine execution
+while cleanup continues.
 
 Script struct records share a closed physical layout and locate their initialized
 bytes in one heap-owned arena. Scalar fields use exact semantic widths, Unit uses
@@ -1090,8 +1092,12 @@ no bytes, and managed fields store a tag plus the full 12-byte checked identity.
 Point { x: i32, y: i32 } therefore uses eight field bytes, independently of its
 directory/record/shared-description cost. Safe native-endian byte copies support
 unaligned fields and preserve float bits. GC scans only described reference fields.
-Allocation reserves arena/record capacity before publication; collection compacts
-surviving rows and updates offsets under the same exclusive heap borrow. No raw
+Construction admits scalar Values through the closed description and shared scalar
+domain rules; managed fields still check heap ownership and nominal/environment
+compatibility. Admission finishes before accounting or object publication. Rejected
+construction publishes no object or description root. Allocation reserves arena/record
+capacity before publication; collection compacts surviving rows and updates offsets
+under the same exclusive heap borrow. No raw
 address or view survives either operation. General Value/reflection APIs use the
 same field codec; tuple/enum slots and native buffers keep their existing models.
 

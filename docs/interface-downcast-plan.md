@@ -6,8 +6,9 @@ queue placement. This plan owns DC01-DC04, remaining design decisions, acceptanc
 and the progress ledger. Recording this plan does not start implementation.
 Examples below are proposed behavior, not currently executable APIs.
 
-Scheduling update, 2026-10-16: the user prioritized
-[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) before DC01.
+Predecessor update, 2026-10-16: the prioritized
+[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) is locally complete.
+DC01 remains queued and unstarted.
 The inventory below now reflects shared descriptions, compact directory entries
 and packed field storage; reuse these mechanisms without per-receiver metadata. Downcast semantics and DC01's remaining design gates are unchanged.
 
@@ -26,7 +27,7 @@ required. This work does not add implicit downcasts, automatic type narrowing,
 arbitrary trait membership queries, interface-to-interface discovery, reflection
 invocation, a public raw TypeId API or user-supplied type identity methods.
 
-The prioritized storage work is a scheduled predecessor, not part of DC01-DC04.
+The completed local storage work is a separate predecessor to DC01-DC04.
 NC collection migration, SA22 generic interface construction, blanket impls,
 derive, state migration, the broader compatible-update proposal and Cranelift
 interface expansion remain separate. Restoring a value from an already valid

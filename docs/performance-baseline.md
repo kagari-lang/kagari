@@ -21,8 +21,9 @@ not significance claims, and local correctness does not imply GitHub CI or Lua p
 Baseline runtime: 159c74ef, with the probe frozen in afec4a3b. Storage checkpoints:
 086e422f (shared interface descriptions), ce56ae7f (compact directory), 7a8c85f4
 (type-directed fields/direct scalar transfer), followed by the packed field arena
-and sweep-count correction. These are storage microbenchmarks, not Lua/Java parity
-or a general interpreter speed claim.
+and sweep-count correction in d4b5a761. Final measured implementation: 35077323
+(closed scalar admission and nonempty retirement batches). These are storage
+microbenchmarks, not Lua/Java parity or a general interpreter speed claim.
 
 Environment: Apple M1 Max, arm64 macOS 26.6.2 (25G83), rustc 1.98.1
 (48a229cea 2026-09-01); workspace default release profile, target directory and
@@ -63,9 +64,9 @@ Requested-byte increments above each independently loaded setup:
 | Numeric buffer | 10,256 | 10,224 | 7,520 | 6,944 | 10,256 |
 
 These totals include retained directory/store capacity and descriptions, not only
-live field bytes. Current loaded setup is 5,185,659 requested bytes for this complete compiled
+live field bytes. Current loaded setup is 5,186,139 requested bytes for this complete compiled
 workload plus standard declarations; it is not a universal empty-runtime estimate.
-Point/Pair live increments fall approximately 74%; interface populations fall
+Point/Pair live increments fall approximately 73-74%; interface populations fall
 85-91%. The directory entry is 24 bytes instead of 168 on this target. Value stays
 16 bytes and external identities stay 12 bytes. Each Point has eight field bytes;
 its total cost also includes the directory, arena record and amortized descriptions.
@@ -84,8 +85,82 @@ Native edge-vector elements are outside that proposed encoding change. Retaining
 complete identities avoids an additional owner-capability/reconstruction protocol;
 no compressed handle or unsafe speedup is claimed.
 
-Final matched latency acceptance remains open in the [active plan](runtime-storage-plan.md);
-the memory figures above are measured, not a claim that every latency gate passes.
+Final latency comparison uses seven process pairs, alternating baseline/current
+and current/baseline order. Baseline afec4a3b and final 35077323 use the identical
+frozen probe; both were built with the toolchain above. Builds reused the ordinary
+Cargo cache and were excluded from timing. Each process compiles/prepares the fixed
+script once, then runs warmed execution samples; lifecycle setup loads each fresh
+runtime outside its construction/GC timers. These are warm-machine measurements,
+not cold filesystem/startup guarantees. Earlier exploratory runs are not combined
+with the final samples.
+
+The table gives the median of seven process medians, in nanoseconds. Ranges are
+minimum/maximum **process medians**, not confidence intervals or individual-sample
+bounds. Every gate also passes using the median of seven paired current/baseline
+ratios. Frozen limits are at least 10% lower time for each field loop, at most 5%
+regression for scalar/traversal/numeric execution, and at most 10% for each
+construction/GC workload. All 26 aggregate latency gates pass.
+
+| Workload / phase | Baseline ns | Current ns | Change | Baseline process range | Current process range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Scalar loop: execute | 1,582,417 | 1,633,750 | +3.2% | 1,566,000–1,603,750 | 1,601,750–1,661,125 |
+| Field read: execute | 4,565,250 | 3,170,917 | -30.5% | 4,480,167–4,580,958 | 3,117,542–3,298,125 |
+| Field write: execute | 3,759,084 | 3,173,625 | -15.6% | 3,728,417–3,798,666 | 3,134,708–3,337,333 |
+| i32 field RMW: execute | 9,595,584 | 6,070,625 | -36.7% | 9,573,416–9,642,417 | 6,066,000–6,143,666 |
+| f64 field RMW: execute | 9,381,709 | 6,085,041 | -35.1% | 9,331,667–9,455,375 | 6,015,708–6,192,542 |
+| Point traversal: execute | 216,083 | 184,167 | -14.8% | 214,583–222,625 | 183,209–188,250 |
+| Pair traversal: execute | 219,208 | 187,542 | -14.4% | 217,958–225,583 | 186,000–191,208 |
+| Numeric-buffer traversal: execute | 242,833 | 249,625 | +2.8% | 241,750–261,375 | 246,750–251,708 |
+| Point: construct | 523,792 | 559,250 | +6.8% | 509,500–534,416 | 547,292–581,333 |
+| Point: live GC | 106,417 | 103,250 | -3.0% | 101,417–107,458 | 99,250–106,291 |
+| Point: release GC | 20,667 | 21,833 | +5.6% | 19,542–21,125 | 20,542–22,708 |
+| Cyclic nodes: construct | 1,542,125 | 1,638,708 | +6.3% | 1,518,250–1,583,542 | 1,610,666–1,665,541 |
+| Cyclic nodes: live GC | 219,375 | 219,625 | +0.1% | 210,667–224,875 | 217,667–225,834 |
+| Cyclic nodes: release GC | 69,917 | 76,500 | +9.4% | 69,000–73,166 | 75,375–77,667 |
+| Narrow interfaces: construct | 1,833,000 | 1,155,042 | -37.0% | 1,796,458–1,865,458 | 1,124,083–1,182,583 |
+| Narrow interfaces: live GC | 454,042 | 302,333 | -33.4% | 441,334–464,458 | 298,250–309,167 |
+| Narrow interfaces: release GC | 76,667 | 41,875 | -45.4% | 73,000–77,167 | 39,583–43,833 |
+| Wide interfaces: construct | 2,686,209 | 1,158,458 | -56.9% | 2,623,834–2,832,291 | 1,136,458–1,181,750 |
+| Wide interfaces: live GC | 466,083 | 305,666 | -34.4% | 445,167–488,000 | 295,959–314,916 |
+| Wide interfaces: release GC | 108,458 | 42,500 | -60.8% | 104,583–117,583 | 39,583–44,292 |
+| Generic interfaces: construct | 3,504,375 | 2,462,291 | -29.7% | 3,455,334–3,606,875 | 2,434,667–2,564,625 |
+| Generic interfaces: live GC | 586,500 | 307,958 | -47.5% | 564,292–601,208 | 300,041–313,209 |
+| Generic interfaces: release GC | 161,667 | 42,417 | -73.8% | 157,458–162,416 | 41,125–45,209 |
+| Numeric buffer: construct | 322,625 | 318,292 | -1.3% | 317,333–339,791 | 310,583–327,084 |
+| Numeric buffer: live GC | 6,375 | 5,959 | -6.5% | 5,708–6,833 | 5,625–6,792 |
+| Numeric buffer: release GC | 3,958 | 3,875 | -2.1% | 3,584–4,042 | 3,667–4,833 |
+
+Current field read/write/i32 RMW/f64 RMW cost is respectively 63.4, 63.5, 121.4
+and 121.7 ns per loop iteration (about 15.8, 15.8, 8.24 and 8.22 million iterations/s).
+An RMW iteration includes both field access and arithmetic; these are complete
+benchmark iterations, not isolated instruction latency. Node release (+9.4%) is
+close to the 10% gate. Numeric release is particularly noisy: its aggregate ratio
+is -2.1%, while the paired-ratio median is +4.6%. Individual runs can exceed a
+threshold; this result establishes the fixed aggregate local gate, not a guarantee
+for every run or machine. Scalar (+3.2%) and numeric execution (+2.8%) are regression
+controls, not evidence of faster general arithmetic.
+
+Compilation/preparation/linking median times are 3.352 s / 1.744 s / 9.024 ms
+baseline and 3.372 s / 1.749 s / 9.052 ms current, excluded from execution results.
+The representation changes preserve all memory gates: Point/Pair live and empty
+increments fall more than 50%; each interface population falls more than 40%;
+node live storage does not grow; numeric retained storage stays within +5%; sparse
+release/reuse and all sixteen teardowns remain bounded. Warm field-loop requests
+do not grow. Nonempty sweep allocates one bounded list of changed payload kinds
+(at most twelve), replacing transfer/disposal of empty typed stores; that temporary
+allocation is included in lifecycle accounting and retains no bytes.
+
+Focused local correctness covers GC ownership/generation reuse/relocation, every
+scalar field domain and float bits, rejected initializer accounting, managed-field
+nominal provenance, overflow side effects, pinned generic reload, source-free
+nominal/reference rejection, scoped Rust loans, interface sharing/dispatch/retirement,
+native extraction and trace/destructor panic cleanup. Final changed-owner reruns
+pass 21 runtime and three native cleanup cases; earlier selected VM/host/source-free
+results remain evidence for unchanged paths. Structure, formatting, workspace
+all-target Clippy and diff checks pass. The exhaustive workspace and feature/backend/
+platform test matrix remains CI-only and was not run locally. The
+[architecture](architecture.md#runtime-model) and [runtime contract](spec/runtime.md)
+own lasting storage behavior; the completed RS01-RS06 ledger remains in Git history.
 
 ## Focused preparation recheck, 2026-10-11
 
