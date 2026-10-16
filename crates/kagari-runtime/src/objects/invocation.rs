@@ -30,13 +30,19 @@ impl MethodInvocation {
             .gc
             .interface_metadata(snapshot)
             .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
-        if view.methods.get(slot).and_then(Option::as_ref).is_none() {
+        if view
+            .description
+            .methods
+            .get(slot)
+            .and_then(Option::as_ref)
+            .is_none()
+        {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "interface method unavailable",
             ));
         }
-        runtime.validate_loaded_module(&view.implementation)?;
+        runtime.validate_loaded_module(&view.description.implementation)?;
         Ok(Self {
             selection: MethodSelection::Interface { snapshot, slot },
             application: None,
@@ -105,7 +111,7 @@ impl MethodInvocation {
         };
         match &view.selection {
             SelectionView::Interface { snapshot, slot } => {
-                let cell = &snapshot.methods[*slot]
+                let cell = &snapshot.description.methods[*slot]
                     .as_ref()
                     .expect("checked interface slot")
                     .receiver_operations;
@@ -116,7 +122,7 @@ impl MethodInvocation {
                     view.implementation(),
                     view.target(),
                     table,
-                    snapshot.receiver_operations.get().copied(),
+                    snapshot.description.receiver_operations.get().copied(),
                 )?;
                 let MethodSelection::Interface { snapshot: id, slot } = self.selection else {
                     unreachable!("interface selection view");

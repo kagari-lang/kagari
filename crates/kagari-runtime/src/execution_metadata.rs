@@ -22,7 +22,7 @@ use crate::{
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
     frame::types::{EnvironmentRecord, TypeEnvironment, operations::OperationBindings},
-    gc::interfaces::{InterfaceResultBinding, InterfaceValueSnapshot},
+    gc::interfaces::{InterfaceDescription, InterfaceResultBinding, InterfaceValueSnapshot},
     module::LoadedModule,
     native::{application::NativeApplication, stored_selection::StoredSelection},
     value::Value,
@@ -132,6 +132,7 @@ pub(crate) enum MetadataEdge<'a> {
     Group(OperationGroupId),
     Interface(InterfaceSnapshotId),
     InterfaceView(&'a InterfaceValueSnapshot),
+    InterfaceDescription(&'a InterfaceDescription),
     Application(ApplicationId),
     Binding(&'a InterfaceResultBinding),
     Closure(&'a ClosureValueSnapshot),
@@ -154,6 +155,7 @@ impl MetadataEdge<'_> {
                 return None;
             }
             Self::InterfaceView(value) => (4, value as *const _ as usize),
+            Self::InterfaceDescription(value) => (11, value as *const _ as usize),
             Self::Binding(value) => (6, value as *const _ as usize),
             Self::Closure(value) => (7, value as *const _ as usize),
             Self::Selections(_) | Self::Operations(_) => return None,
@@ -268,6 +270,15 @@ impl<'a> MetadataTrace<'a> {
                 MetadataEdge::InterfaceView(snapshot) => {
                     self.values.push(&snapshot.data);
                     self.pending
+                        .push(MetadataEdge::InterfaceDescription(&snapshot.description));
+                    for parent in &snapshot.parent_views {
+                        if let Some(prepared) = parent.get() {
+                            self.pending.push(MetadataEdge::Interface(*prepared));
+                        }
+                    }
+                }
+                MetadataEdge::InterfaceDescription(snapshot) => {
+                    self.pending
                         .push(MetadataEdge::Program(&snapshot.implementation));
                     self.pending
                         .push(MetadataEdge::Binding(&snapshot.receiver_table));
@@ -277,9 +288,6 @@ impl<'a> MetadataTrace<'a> {
                     }
                     for parent in &snapshot.parents {
                         self.pending.push(MetadataEdge::Binding(&parent.binding));
-                        if let Some(prepared) = parent.prepared.get() {
-                            self.pending.push(MetadataEdge::Interface(*prepared));
-                        }
                     }
                     for method in snapshot.methods.iter().flatten() {
                         if let Some(Some(group)) = method.receiver_operations.get() {

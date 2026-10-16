@@ -522,7 +522,7 @@ impl GcHeap {
             .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
         // Runtime checks the full receiver ABI before publication.
         let durable_host = matches!(
-            (&view.data, &view.concrete_type),
+            (&view.data, &view.description.concrete_type),
             (Value::HostRoot(_), Ty::Host(_))
         );
         if !durable_host && !self.valid_payload(&view.data) {
@@ -531,7 +531,7 @@ impl GcHeap {
                 "invalid interface receiver",
             ));
         }
-        let method_count = view.methods.len();
+        let method_count = view.description.methods.len();
         drop(view);
         self.alloc_object(HeapObject::Interface {
             snapshot,

@@ -1,6 +1,6 @@
 # Runtime storage and shared type descriptors execution plan
 
-Status: execution started on 2026-10-16; RS01 complete, RS02 next.
+Status: execution started on 2026-10-16; RS01-RS02 implemented; RS03 next, one latency control remains open.
 The execution document and follow-up consistency review are complete.
 The [roadmap](implementation-roadmap.md#runtime-storage-redesign)
 owns priority; this plan owns RS01-RS06, decisions, acceptance and the progress
@@ -679,11 +679,52 @@ the queued shared-construction feature, not RS scope. The workload now uses supp
 `impl<T> Read for Pair<T>` instantiated as Pair<i32>. The corrected ordinary probe
 and allocation lifecycle run passed; no production behavior was changed for it.
 
+### RS02 execution record
+
+Receiver records now hold data, a shared Arc description and receiver-local parent
+view caches. Complete implementation/table/view/type/construction keys use a weak
+runtime registry. GC traces each description once and prunes expired registry
+entries after detached snapshots are disposed. Method identity and lazy executable
+edges use OnceLock, preserving Runtime's Send contract without unsafe code.
+Construction remains checked on every receiver; sharing does not waive mutable
+host liveness, heap ownership or generation validation. Interface preparation now
+lives in objects/interfaces.rs; there is one construction implementation.
+
+For 512 distinct receivers, requested live increments are 418,404 bytes (narrow),
+419,628 (four-method wide), and 419,780 (generic): reductions of 49.9%, 70.8% and
+68.1% from RS01. Width adds 1,224 bytes for the shared description, rather than
+602,112 bytes across all receivers. Generic environments fall from 512 to one.
+All sixteen teardown samples balance to zero; non-interface storage increments
+and warmed field-loop allocation counts are unchanged.
+
+Focused validation covers 13 interface graph/publication tests, five applied-fact/
+witness-retirement tests and three interpreter dispatch/allocation contracts.
+New coverage establishes that sharing never shares receiver/parent-view identity,
+and that old/new loaded generations retain separate descriptions. Existing host
+receiver preparation, witness providers and cached native dispatch remain covered.
+All three descriptor retention probes also pass, with unchanged reported retained
+application controls and zero teardown. Structure, formatting, workspace all-target
+Clippy, diagnostics Clippy and diff checks pass. No build error remains; exhaustive
+workspace/backend tests remain CI-only.
+
+Uncontended timing repeats confirm interface construction medians of 1,116,000 /
+1,113,083 / 2,394,083 ns (narrow/wide/generic; the narrow value is rounded), and
+live GC around 304,000 ns. These meet the construction/GC regression gates.
+Numeric-buffer execution is 258,666 ns initially and 257,833 ns on repeat, versus
+242,041 ns baseline (6.5-6.9% slower); the 5% overall gate is **not passed**.
+Architecture review finds no changed numeric-buffer, scalar-bank or native-sequence
+access path in RS02; the only changed graph work is interface descriptions and a
+weak-registry prune at collection. The loop does not collect. Code-generation or
+machine-state effects remain unproven, so this is not dismissed as noise. RS03 owns
+the next matched storage/control measurement; RS06 must resolve the regression
+against the original gate before integrated acceptance. No local arithmetic-loop
+optimization or threshold relaxation is authorized by this result.
+
 - [x] Planning: scope, priority, measured shallow-size evidence, target ownership
   and RS01-RS06 written on 2026-10-16.
 - [x] Planning consistency review against accepted direction, code and adjacent plans.
 - [x] RS01: baseline workloads, frozen gates and physical/ownership contracts.
-- [ ] RS02: shared interface descriptions.
+- [x] RS02: shared interface descriptions; overall numeric control carried above.
 - [ ] RS03: compact directory and focused stores.
 - [ ] RS04: type-directed struct fields and direct scalar-bank transfers.
 - [ ] RS05: local-reference decision and conditional implementation.

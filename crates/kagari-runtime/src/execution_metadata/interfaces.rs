@@ -1,12 +1,29 @@
 //! Runtime-owned interface snapshots, addressed by checked identities.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, interfaces::InterfaceValueSnapshot},
+    frame::types::compatibility::TypeIdentity,
+    gc::{
+        GcHeap,
+        interfaces::{InterfaceDescription, InterfaceValueSnapshot},
+    },
+    module::ModuleKey,
 };
 use std::{
     cell::Ref,
-    collections::{HashSet, TryReserveError},
+    collections::{HashMap, HashSet, TryReserveError},
+    sync::{Arc, Weak},
 };
+
+/// Equality preserves applied type provenance and ordered construction witnesses.
+/// This runtime-local registry holds no executable roots or receivers.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct InterfaceDescriptionKey {
+    pub(crate) owner: ModuleKey,
+    pub(crate) table: usize,
+    pub(crate) view: bool,
+    pub(crate) arguments: Vec<Arc<TypeIdentity>>,
+    pub(crate) constructions: Vec<ModuleKey>,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct InterfaceSnapshotId {
@@ -27,6 +44,7 @@ pub(crate) struct InterfaceStore {
     slots: Vec<Slot>,
     free: Vec<usize>,
     count: usize,
+    descriptions: HashMap<InterfaceDescriptionKey, Weak<InterfaceDescription>>,
 }
 
 impl InterfaceStore {
@@ -36,6 +54,7 @@ impl InterfaceStore {
             slots: Vec::new(),
             free: Vec::new(),
             count: 0,
+            descriptions: HashMap::new(),
         }
     }
 
@@ -75,6 +94,11 @@ impl InterfaceStore {
             .flatten()
     }
 
+    pub(crate) fn prune_descriptions(&mut self) {
+        self.descriptions
+            .retain(|_, description| description.strong_count() != 0);
+    }
+
     pub(crate) fn count(&self) -> usize {
         self.count
     }
@@ -107,6 +131,37 @@ impl InterfaceStore {
 }
 
 impl GcHeap {
+    pub(crate) fn interface_description(
+        &self,
+        key: &InterfaceDescriptionKey,
+    ) -> Option<Arc<InterfaceDescription>> {
+        self.interfaces
+            .try_borrow()
+            .ok()?
+            .descriptions
+            .get(key)?
+            .upgrade()
+    }
+
+    /// Called after complete preparation and before publication, without a safepoint.
+    pub(crate) fn cache_interface_description(
+        &self,
+        key: InterfaceDescriptionKey,
+        description: &Arc<InterfaceDescription>,
+    ) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let mut store = self
+            .interfaces
+            .try_borrow_mut()
+            .map_err(|_| RuntimeError::module_validation("interface snapshot store is borrowed"))?;
+        store
+            .descriptions
+            .try_reserve(1)
+            .map_err(|_| self.resource_limit("interface description registry"))?;
+        store.descriptions.insert(key, Arc::downgrade(description));
+        Ok(())
+    }
+
     pub(crate) fn alloc_interface_snapshot(
         &self,
         interface: InterfaceValueSnapshot,

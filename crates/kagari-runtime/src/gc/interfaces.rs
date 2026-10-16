@@ -11,11 +11,11 @@ use crate::{
 use kagari_bytecode::module::CallableTarget;
 use kagari_common::identity::table::DefinitionId;
 use kagari_types::ty::{GenericParam, NominalTy, Ty};
-use std::cell::OnceCell;
+use std::sync::{Arc, OnceLock};
 
 #[derive(Debug)]
 pub(crate) struct InterfaceMethodBinding {
-    pub(crate) identity: OnceCell<MethodIdentity>,
+    pub(crate) identity: OnceLock<MethodIdentity>,
     pub(crate) receiver_operations: MetadataCache<Option<OperationGroupId>>,
     pub(crate) parameters: Vec<GenericParam>,
     pub(crate) entry_parameters: Vec<GenericParam>,
@@ -37,18 +37,16 @@ pub(crate) struct InterfaceResultBinding {
 
 #[derive(Debug, Clone)]
 pub(crate) struct InterfaceParentBinding {
-    pub(crate) prepared: MetadataCache<InterfaceSnapshotId>,
     pub(crate) interface: NominalTy,
     pub(crate) binding: InterfaceResultBinding,
     pub(crate) view: bool,
 }
 
 #[derive(Debug)]
-pub(crate) struct InterfaceValueSnapshot {
+pub(crate) struct InterfaceDescription {
     pub(crate) receiver_operations: MetadataCache<OperationGroupId>,
     pub(crate) receiver_table: InterfaceResultBinding,
     pub(crate) parents: Vec<InterfaceParentBinding>,
-    pub(crate) data: Value,
     pub(crate) concrete_type: Ty,
     pub(crate) concrete_expression: Ty,
     pub(crate) interface_type: NominalTy,
@@ -58,7 +56,28 @@ pub(crate) struct InterfaceValueSnapshot {
     pub(crate) methods: Vec<Option<InterfaceMethodBinding>>,
 }
 
+/// Receiver data and parent views are never shared with another receiver.
+#[derive(Debug)]
+pub(crate) struct InterfaceValueSnapshot {
+    pub(crate) description: Arc<InterfaceDescription>,
+    pub(crate) data: Value,
+    pub(crate) parent_views: Box<[MetadataCache<InterfaceSnapshotId>]>,
+}
+
 impl InterfaceValueSnapshot {
+    pub(crate) fn new(description: Arc<InterfaceDescription>, data: Value) -> Self {
+        let parent_views = description
+            .parents
+            .iter()
+            .map(|_| MetadataCache::new())
+            .collect();
+        Self {
+            description,
+            data,
+            parent_views,
+        }
+    }
+
     pub(crate) fn matches_type(
         &self,
         ty: &Ty,
@@ -66,9 +85,10 @@ impl InterfaceValueSnapshot {
         environment: Option<&TypeBindings>,
     ) -> bool {
         TypeView::new(
-            &Ty::Trait(self.interface_expression.clone()),
-            &self.implementation,
-            self.environment
+            &Ty::Trait(self.description.interface_expression.clone()),
+            &self.description.implementation,
+            self.description
+                .environment
                 .as_ref()
                 .map(|environment| environment.types.as_ref()),
         )

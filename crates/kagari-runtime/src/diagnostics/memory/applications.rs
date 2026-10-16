@@ -62,6 +62,7 @@ fn method_lifecycle(
             .gc
             .interface_snapshot(id)
             .unwrap()
+            .description
             .interface_type
             .clone();
         let inputs = (1..=count)

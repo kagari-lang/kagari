@@ -121,7 +121,7 @@ impl Runtime {
                 return Err(invalid());
             };
             TypeView::new(
-                &Ty::Trait(snapshot.interface_expression.clone()),
+                &Ty::Trait(snapshot.description.interface_expression.clone()),
                 view.implementation(),
                 view.receiver_environment()
                     .map(|environment| environment.types.as_ref()),

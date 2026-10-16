@@ -274,6 +274,7 @@ impl GcHeap {
                     .quarantine("module metadata destruction panicked");
             }
         }
+        self.interfaces.borrow_mut().prune_descriptions();
         self.mutations.prune();
         self.key_lookups.prune();
         self.native_operations.prune();

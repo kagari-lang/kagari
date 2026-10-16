@@ -96,18 +96,16 @@ fn rejected_parent_publication_keeps_the_cache_empty_until_valid_upcast() {
     }
     assert!(runtime.cache_parent_interface(id, usize::MAX, id).is_err());
     let view = runtime.gc.interface_metadata(id).unwrap();
-    assert!(view.parents[0].prepared.get().is_none());
-    let source = view.interface_type.clone();
-    let target = view.parents[0].interface.clone();
+    assert!(view.parent_views[0].get().is_none());
+    let source = view.description.interface_type.clone();
+    let target = view.description.parents[0].interface.clone();
     drop(view);
     let parent = runtime.upcast_interface(&value, &source, &target).unwrap();
     let parent_id = identity(&runtime, &parent);
     assert!(runtime.cache_parent_interface(id, 0, parent_id).is_err());
     runtime.collect_garbage().unwrap();
     assert_eq!(
-        runtime.gc.interface_metadata(id).unwrap().parents[0]
-            .prepared
-            .get(),
+        runtime.gc.interface_metadata(id).unwrap().parent_views[0].get(),
         Some(&parent_id)
     );
     assert!(runtime.gc.interface_metadata(parent_id).is_some());
@@ -127,8 +125,8 @@ fn application_publication_checks_owners_and_retains_only_published_edges() {
             owner: loaded.key(),
             table,
             slot: 0,
-            interface: snapshot.interface_expression.clone(),
-            arguments: snapshot.receiver_table.arguments.clone(),
+            interface: snapshot.description.interface_expression.clone(),
+            arguments: snapshot.description.receiver_table.arguments.clone(),
             environment: None,
             result_adapter: None,
         })),
@@ -223,9 +221,9 @@ fn receiver_cache_rejects_invalid_edges_before_publishing_either_cell() {
             .is_err()
     );
     let view = runtime.gc.interface_metadata(id).unwrap();
-    assert!(view.receiver_operations.get().is_none());
+    assert!(view.description.receiver_operations.get().is_none());
     assert!(
-        view.methods[0]
+        view.description.methods[0]
             .as_ref()
             .unwrap()
             .receiver_operations
@@ -242,9 +240,13 @@ fn receiver_cache_rejects_invalid_edges_before_publishing_either_cell() {
             .is_err()
     );
     let view = runtime.gc.interface_metadata(id).unwrap();
-    assert!(view.receiver_operations.get().is_none());
+    assert!(view.description.receiver_operations.get().is_none());
     assert_eq!(
-        view.methods[0].as_ref().unwrap().receiver_operations.get(),
+        view.description.methods[0]
+            .as_ref()
+            .unwrap()
+            .receiver_operations
+            .get(),
         Some(&None)
     );
     drop(view);
@@ -257,8 +259,8 @@ fn parent_cache_and_prepared_method_keep_views_until_last_root() {
     let (runtime, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let view = runtime.gc.interface_metadata(id).unwrap();
-    let source = view.interface_type.clone();
-    let target = view.parents[0].interface.clone();
+    let source = view.description.interface_type.clone();
+    let target = view.description.parents[0].interface.clone();
     drop(view);
     let parent = runtime.upcast_interface(&value, &source, &target).unwrap();
     let parent_id = identity(&runtime, &parent);
@@ -283,6 +285,96 @@ fn parent_cache_and_prepared_method_keep_views_until_last_root() {
     assert_eq!(result.reclaimed_interface_snapshots, 2);
     assert!(runtime.gc.interface_metadata(id).is_none());
     assert!(runtime.gc.interface_metadata(parent_id).is_none());
+}
+
+#[test]
+fn shared_descriptions_keep_receiver_views_separate_and_retire_after_last_root() {
+    let (runtime, loaded, table, first) = fixture();
+    let second = runtime
+        .make_interface(&loaded, table, Value::I32(23))
+        .unwrap();
+    let first_root = runtime.root_value(first).unwrap();
+    let second_root = runtime.root_value(second).unwrap();
+    let first_id = identity(&runtime, &first);
+    let second_id = identity(&runtime, &second);
+    let first_view = runtime.gc.interface_metadata(first_id).unwrap();
+    let second_view = runtime.gc.interface_metadata(second_id).unwrap();
+    assert!(Arc::ptr_eq(
+        &first_view.description,
+        &second_view.description
+    ));
+    let description = Arc::downgrade(&first_view.description);
+    let source = first_view.description.interface_type.clone();
+    let target = first_view.description.parents[0].interface.clone();
+    drop(first_view);
+    drop(second_view);
+    let first_parent = runtime.upcast_interface(&first, &source, &target).unwrap();
+    let second_parent = runtime.upcast_interface(&second, &source, &target).unwrap();
+    let first_parent_id = identity(&runtime, &first_parent);
+    let second_parent_id = identity(&runtime, &second_parent);
+    assert_ne!(first_parent_id, second_parent_id);
+    for (parent, receiver) in [(first_parent, 7), (second_parent, 23)] {
+        let method = runtime
+            .resolve_interface_method_slot(&parent, &target, 0, &[])
+            .unwrap();
+        assert_eq!(method.receiver(), &Value::I32(receiver));
+    }
+    let first_parent_view = runtime.gc.interface_metadata(first_parent_id).unwrap();
+    let second_parent_view = runtime.gc.interface_metadata(second_parent_id).unwrap();
+    assert!(Arc::ptr_eq(
+        &first_parent_view.description,
+        &second_parent_view.description
+    ));
+    drop(first_parent_view);
+    drop(second_parent_view);
+    drop(first_root);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.interface_metadata(first_id).is_none());
+    assert!(runtime.gc.interface_metadata(first_parent_id).is_none());
+    assert!(description.upgrade().is_some());
+    assert_eq!(
+        runtime
+            .gc
+            .interface_metadata(second_parent_id)
+            .unwrap()
+            .data,
+        Value::I32(23)
+    );
+    drop(second_root);
+    runtime.collect_garbage().unwrap();
+    assert!(description.upgrade().is_none());
+    assert!(runtime.gc.interfaces.borrow().descriptions.is_empty());
+}
+
+#[test]
+fn interface_descriptions_do_not_merge_reloaded_implementation_generations() {
+    let (runtime, loaded, table, old) = fixture();
+    let old_root = runtime.root_value(old).unwrap();
+    let staged = runtime
+        .stage_reload_verified_program(&loaded, "interfaces", loaded.verified_program().clone())
+        .unwrap();
+    let next = runtime.publish_staged_reload(staged).unwrap();
+    let new = runtime
+        .make_interface(&next, table, Value::I32(19))
+        .unwrap();
+    let new_root = runtime.root_value(new).unwrap();
+    let old_id = identity(&runtime, &old);
+    let new_id = identity(&runtime, &new);
+    let old_view = runtime.gc.interface_metadata(old_id).unwrap();
+    let new_view = runtime.gc.interface_metadata(new_id).unwrap();
+    assert!(!Arc::ptr_eq(&old_view.description, &new_view.description));
+    assert_eq!(old_view.description.implementation.key(), loaded.key());
+    assert_eq!(new_view.description.implementation.key(), next.key());
+    let old_description = Arc::downgrade(&old_view.description);
+    drop(old_view);
+    drop(new_view);
+    runtime.collect_garbage().unwrap();
+    assert!(runtime.gc.interface_metadata(old_id).is_some());
+    drop(old_root);
+    runtime.collect_garbage().unwrap();
+    assert!(old_description.upgrade().is_none());
+    assert!(runtime.gc.interface_metadata(new_id).is_some());
+    drop(new_root);
 }
 
 #[test]
@@ -378,13 +470,11 @@ fn invalid_cached_parent_aborts_before_any_storage_is_detached() {
             )
             .is_err()
     );
-    assert!(view.parents[0].prepared.get().is_none());
-    view.parents[0]
-        .prepared
-        .corrupt_for_test(InterfaceSnapshotId {
-            generation: id.generation + 1,
-            ..id
-        });
+    assert!(view.parent_views[0].get().is_none());
+    view.parent_views[0].corrupt_for_test(InterfaceSnapshotId {
+        generation: id.generation + 1,
+        ..id
+    });
     drop(view);
     let _root = runtime.root_value(value).unwrap();
     let before = runtime.gc.stats();
@@ -402,7 +492,7 @@ fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown
     let (runtime, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let view = runtime.gc.interface_metadata(id).unwrap();
-    let target = view.interface_type.clone();
+    let target = view.description.interface_type.clone();
     drop(view);
     // An empty scope adds no substitutions; its checked ID observes record disposal.
     let environment = runtime
@@ -412,11 +502,13 @@ fn interface_metadata_root_and_prepared_method_do_not_own_records_after_teardown
         .unwrap();
     let environment_id = environment.id;
     let runtime_owner = runtime.resources().lifetime_probe();
-    runtime.gc.interfaces.borrow_mut().slots[id.slot]
-        .interface
-        .as_mut()
-        .unwrap()
-        .environment = Some(environment);
+    {
+        let mut store = runtime.gc.interfaces.borrow_mut();
+        // Remove the weak registry entry before modifying this isolated fixture.
+        store.descriptions.clear();
+        let snapshot = store.slots[id.slot].interface.as_mut().unwrap();
+        Arc::get_mut(&mut snapshot.description).unwrap().environment = Some(environment);
+    }
     let root = runtime
         .root_metadata(vec![MetadataRoot::Interface(id)])
         .unwrap();
@@ -500,8 +592,15 @@ fn invalid_interface_inspection_preserves_declaration_and_slot_error_kinds() {
     let (runtime, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
     let snapshot = runtime.gc.interface_metadata(id).unwrap();
-    let target = snapshot.interface_type.clone();
-    let method = snapshot.methods.iter().flatten().next().unwrap().method;
+    let target = snapshot.description.interface_type.clone();
+    let method = snapshot
+        .description
+        .methods
+        .iter()
+        .flatten()
+        .next()
+        .unwrap()
+        .method;
     drop(snapshot);
     let error = runtime
         .resolve_interface_method(&Value::I32(7), &method)

@@ -95,7 +95,7 @@ impl MethodView<'_> {
 
     pub(crate) fn implementation(&self) -> &LoadedModule {
         match &self.selection {
-            SelectionView::Interface { snapshot, .. } => &snapshot.implementation,
+            SelectionView::Interface { snapshot, .. } => &snapshot.description.implementation,
             SelectionView::Operation { operation, .. } => &operation.owner,
         }
     }
@@ -103,7 +103,7 @@ impl MethodView<'_> {
     pub(crate) fn target(&self) -> CallableTarget {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
-                snapshot.methods[*slot]
+                snapshot.description.methods[*slot]
                     .as_ref()
                     .expect("checked interface slot")
                     .target
@@ -118,7 +118,7 @@ impl MethodView<'_> {
         }
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
-                &snapshot.methods[*slot]
+                &snapshot.description.methods[*slot]
                     .as_ref()
                     .expect("checked interface slot")
                     .parameter_types
@@ -133,7 +133,7 @@ impl MethodView<'_> {
         }
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
-                &snapshot.methods[*slot]
+                &snapshot.description.methods[*slot]
                     .as_ref()
                     .expect("checked interface slot")
                     .return_type
@@ -145,7 +145,7 @@ impl MethodView<'_> {
     pub(crate) fn type_parameters(&self) -> &[GenericParam] {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
-                &snapshot.methods[*slot]
+                &snapshot.description.methods[*slot]
                     .as_ref()
                     .expect("checked interface slot")
                     .parameters
@@ -161,7 +161,7 @@ impl MethodView<'_> {
     pub(crate) fn entry_parameters(&self) -> &[GenericParam] {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
-                &snapshot.methods[*slot]
+                &snapshot.description.methods[*slot]
                     .as_ref()
                     .expect("checked interface slot")
                     .entry_parameters
@@ -177,7 +177,7 @@ impl MethodView<'_> {
     pub(crate) fn entry_arguments(&self) -> &[Ty] {
         match &self.selection {
             SelectionView::Interface { snapshot, slot } => {
-                &snapshot.methods[*slot]
+                &snapshot.description.methods[*slot]
                     .as_ref()
                     .expect("checked interface slot")
                     .entry_arguments
@@ -192,7 +192,7 @@ impl MethodView<'_> {
 
     pub(crate) fn receiver_environment(&self) -> Option<&TypeEnvironment> {
         match &self.selection {
-            SelectionView::Interface { snapshot, .. } => snapshot.environment.as_ref(),
+            SelectionView::Interface { snapshot, .. } => snapshot.description.environment.as_ref(),
             SelectionView::Operation { operation, .. } => operation
                 .generic
                 .as_ref()
@@ -202,7 +202,7 @@ impl MethodView<'_> {
 
     pub(crate) fn receiver_table(&self) -> Option<&InterfaceResultBinding> {
         match &self.selection {
-            SelectionView::Interface { snapshot, .. } => Some(&snapshot.receiver_table),
+            SelectionView::Interface { snapshot, .. } => Some(&snapshot.description.receiver_table),
             SelectionView::Operation { operation, .. } => operation
                 .generic
                 .as_ref()
@@ -215,7 +215,7 @@ impl MethodView<'_> {
             return application.result_adapter.as_ref();
         }
         match &self.selection {
-            SelectionView::Interface { snapshot, slot } => snapshot.methods[*slot]
+            SelectionView::Interface { snapshot, slot } => snapshot.description.methods[*slot]
                 .as_ref()
                 .expect("checked interface slot")
                 .result_adapter
@@ -232,23 +232,23 @@ impl MethodView<'_> {
 
     pub(super) fn identity(&self) -> MethodIdentity {
         match &self.selection {
-            SelectionView::Interface { snapshot, slot } => snapshot.methods[*slot]
+            SelectionView::Interface { snapshot, slot } => snapshot.description.methods[*slot]
                 .as_ref()
                 .expect("checked interface slot")
                 .identity
                 .get_or_init(|| {
-                    let binding = &snapshot.receiver_table;
+                    let binding = &snapshot.description.receiver_table;
                     MethodIdentity::Interface(Arc::new(InterfaceMethodIdentity {
                         owner: binding.owner.key(),
                         table: binding.table,
                         slot: *slot,
-                        interface: snapshot.interface_expression.clone(),
+                        interface: snapshot.description.interface_expression.clone(),
                         arguments: binding.arguments.clone(),
                         environment: binding
                             .environment
                             .as_ref()
                             .map(|environment| environment.id),
-                        result_adapter: snapshot.methods[*slot]
+                        result_adapter: snapshot.description.methods[*slot]
                             .as_ref()
                             .and_then(|method| method.result_adapter.as_ref())
                             .map(|adapter| AdapterIdentity {

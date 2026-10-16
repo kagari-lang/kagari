@@ -2,39 +2,30 @@ use crate::{
     RootedInterfaceMethod, Runtime,
     closure::{ClosureTarget, ClosureValueSnapshot},
     error::{RuntimeError, RuntimeErrorKind},
-    execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId, links::MetadataCache},
+    execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId},
     frame::{
         arguments::FrameArguments,
-        types::{
-            EnvironmentRecord, TypeEnvironment, arguments::TypeArgument,
-            operations::OperationBindings,
-        },
+        types::{TypeEnvironment, arguments::TypeArgument, operations::OperationBindings},
     },
-    gc::{
-        HeapObjectId,
-        interfaces::{
-            InterfaceMethodBinding, InterfaceParentBinding, InterfaceResultBinding,
-            InterfaceValueSnapshot,
-        },
-    },
+    gc::{HeapObjectId, interfaces::InterfaceValueSnapshot},
     module::{self, LoadedModule},
     objects::invocation::MethodInvocation,
     value,
     value::{EnumTag, Value},
 };
 use kagari_abi::representation::ValueType;
-use kagari_bytecode::module::CallableTarget;
-use kagari_common::identity::{DefinitionKind, table::DefinitionId};
-use kagari_contract::{ids::FunctionRef, operations::IterOp, types as abi, types::PublicItem};
+use kagari_common::identity::table::DefinitionId;
+use kagari_contract::{ids::FunctionRef, operations::IterOp};
 use kagari_types::{
     declaration::native::NativeStorageLayout,
     language::binding,
-    ty::{NominalTy, Ty, substitution::TypeSubstitution},
+    ty::{NominalTy, Ty},
 };
 use std::{cell::Ref, slice};
 mod adapters;
 mod application;
 mod calls;
+mod interfaces;
 pub(crate) mod invocation;
 pub(crate) mod method;
 mod method_view;
@@ -136,225 +127,6 @@ impl Runtime {
         self.publish_interface(snapshot)
     }
 
-    fn prepare_interface_snapshot(
-        &self,
-        implementation: &LoadedModule,
-        table_index: usize,
-        arguments: &[TypeArgument],
-        construction_environment: Option<&TypeEnvironment>,
-        data: Value,
-        use_view: bool,
-    ) -> Result<InterfaceValueSnapshot, RuntimeError> {
-        let invalid = || RuntimeError::module_validation("invalid interface implementation table");
-        if !implementation.belongs_to(self.host.owner()) {
-            return Err(invalid());
-        }
-        for argument in arguments {
-            argument.validate(self)?;
-        }
-        let concrete_arguments = arguments
-            .iter()
-            .map(|argument| argument.ty().clone())
-            .collect::<Vec<_>>();
-        let linked = implementation
-            .bytecode
-            .interface_tables
-            .get(table_index)
-            .ok_or_else(invalid)?;
-        if linked.arguments.iter().all(Ty::is_concrete) && linked.arguments != concrete_arguments {
-            return Err(invalid());
-        }
-        let template = implementation
-            .bytecode
-            .public_items
-            .iter()
-            .find_map(|item| match item {
-                PublicItem::InterfaceTable(table) if table.declaration == linked.declaration => {
-                    Some(table.as_ref())
-                }
-                _ => None,
-            })
-            .ok_or_else(invalid)?;
-        let table = template
-            .instantiate(&concrete_arguments, &[], implementation.definitions())
-            .ok_or_else(invalid)?;
-        let environment = if template.generic_params.is_empty() {
-            None
-        } else {
-            let mut environment = EnvironmentRecord::new(
-                self.definition_context(),
-                template.generic_params.clone(),
-                arguments.to_vec(),
-            )?;
-            environment.constructions =
-                self.construction_scope(implementation, construction_environment)?;
-            Some(self.alloc_environment(environment)?)
-        };
-        let mut substitution = TypeSubstitution::default();
-        for (parameter, argument) in template.generic_params.iter().zip(&concrete_arguments) {
-            substitution.bind(&parameter.owner, parameter.position, argument);
-        }
-        let concrete_type = table.for_type.clone();
-        if !concrete_type.is_concrete() {
-            return Err(invalid());
-        }
-        let Ty::Trait(interface_type) = &table.trait_type else {
-            return Err(invalid());
-        };
-        if !table.trait_type.is_concrete() {
-            return Err(invalid());
-        }
-        let view = if use_view {
-            Some(linked.view.as_ref().ok_or_else(invalid)?)
-        } else {
-            None
-        };
-        let view_interface = view
-            .map(|view| substitution.apply_nominal(&view.interface, &Default::default()))
-            .transpose()
-            .map_err(|_| invalid())?;
-        let interface_type = view_interface.as_ref().unwrap_or(interface_type);
-        let module = implementation
-            .definition(interface_type.declaration)?
-            .module();
-        let trait_contract = implementation
-            .members()
-            .find(|member| &member.bytecode.identity == module)
-            .and_then(|member| {
-                abi::trait_contract(
-                    &member.bytecode.identity,
-                    &member.bytecode.public_items,
-                    &member.bytecode.trait_contracts,
-                    &interface_type.declaration,
-                    member.definitions(),
-                )
-                .cloned()
-            })
-            .ok_or_else(invalid)?;
-        if table.methods.iter().any(|method| {
-            !trait_contract
-                .methods
-                .iter()
-                .any(|declared| declared.name == method.name)
-        }) {
-            return Err(invalid());
-        }
-        let mut methods = Vec::with_capacity(trait_contract.methods.len());
-        for declared in &trait_contract.methods {
-            let method = template
-                .methods
-                .iter()
-                .find(|method| method.name == declared.name);
-            let Some(method) = method else {
-                return Err(invalid());
-            };
-            let method_id = implementation
-                .definitions()
-                .lookup_child(
-                    interface_type.declaration,
-                    DefinitionKind::Method,
-                    &method.name,
-                    0,
-                )
-                .ok_or_else(invalid)?;
-            let mut candidates = linked
-                .methods
-                .iter()
-                .filter(|slot| slot.method == method_id);
-            let Some(slot) = candidates.next() else {
-                return Err(invalid());
-            };
-            if candidates.next().is_some() {
-                return Err(invalid());
-            }
-            let result_adapter = view
-                .and_then(|view| {
-                    view.results
-                        .iter()
-                        .find(|adapter| adapter.method == method_id)
-                })
-                .map(|adapter| {
-                    calls::interface_binding(
-                        implementation,
-                        &adapter.implementation,
-                        environment.clone(),
-                    )
-                })
-                .transpose()?;
-            methods.push(Some(InterfaceMethodBinding {
-                identity: Default::default(),
-                receiver_operations: MetadataCache::new(),
-                parameters: method.generic_params.clone(),
-                entry_parameters: match slot.target {
-                    CallableTarget::Script(target) => implementation.bytecode.functions
-                        [target.index()]
-                    .metadata
-                    .semantic
-                    .generic
-                    .as_ref(),
-                    CallableTarget::Native(target) => implementation.bytecode.native_imports
-                        [target.index()]
-                    .generic
-                    .as_ref(),
-                }
-                .map(|body| body.parameters.clone())
-                .unwrap_or_default(),
-                entry_arguments: slot.arguments.clone(),
-                result_adapter,
-                method: method_id,
-                target: slot.target,
-                parameter_types: method.params.iter().map(|param| param.ty.clone()).collect(),
-                return_type: method.return_type.clone(),
-            }));
-        }
-        let receiver_table = InterfaceResultBinding {
-            owner: implementation.clone(),
-            table: table_index,
-            arguments: template
-                .generic_params
-                .iter()
-                .map(|parameter| parameter.as_type())
-                .collect(),
-            environment: environment.clone(),
-        };
-        Ok(InterfaceValueSnapshot {
-            receiver_operations: MetadataCache::new(),
-            receiver_table,
-            parents: linked
-                .parents
-                .iter()
-                .map(|parent| {
-                    Ok(InterfaceParentBinding {
-                        prepared: MetadataCache::new(),
-                        interface: substitution
-                            .apply_nominal(&parent.interface, &Default::default())
-                            .map_err(|_| invalid())?,
-                        binding: calls::interface_binding(
-                            implementation,
-                            &parent.implementation,
-                            environment.clone(),
-                        )?,
-                        view: parent.view,
-                    })
-                })
-                .collect::<Result<_, RuntimeError>>()?,
-            data,
-            concrete_type,
-            concrete_expression: template.for_type.clone(),
-            interface_type: interface_type.clone(),
-            interface_expression: match view {
-                Some(view) => view.interface.clone(),
-                None => match &template.trait_type {
-                    Ty::Trait(ty) => ty.clone(),
-                    _ => return Err(invalid()),
-                },
-            },
-            environment,
-            implementation: implementation.clone(),
-            methods,
-        })
-    }
-
     fn publish_interface(&self, snapshot: InterfaceValueSnapshot) -> Result<Value, RuntimeError> {
         self.validate_interface_receiver(&snapshot)?;
         self.validate_metadata(MetadataEdge::InterfaceView(&snapshot))?;
@@ -373,9 +145,10 @@ impl Runtime {
         // handles. Check the receiver again whenever an escaping view is published.
         if !self.matches_type_in(
             &snapshot.data,
-            &snapshot.concrete_expression,
-            &snapshot.implementation,
+            &snapshot.description.concrete_expression,
+            &snapshot.description.implementation,
             snapshot
+                .description
                 .environment
                 .as_ref()
                 .map(|environment| environment.types.as_ref()),
@@ -408,12 +181,13 @@ impl Runtime {
             || RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface upcast");
         let snapshot = self.gc.interface_metadata(id).ok_or_else(invalid)?;
         let slot = snapshot
+            .description
             .parents
             .iter()
             .position(|parent| parent.interface == *target)
             .ok_or_else(invalid)?;
-        let parent = &snapshot.parents[slot];
-        if let Some(prepared) = parent.prepared.get() {
+        let parent = &snapshot.description.parents[slot];
+        if let Some(prepared) = snapshot.parent_views[slot].get() {
             let view = self.gc.interface_metadata(*prepared).ok_or_else(invalid)?;
             self.validate_interface_receiver(&view)?;
             return Ok(*prepared);
@@ -667,6 +441,7 @@ impl Runtime {
             .ok_or_else(|| RuntimeError::module_validation("invalid interface handle"))?;
         let method = *method;
         snapshot
+            .description
             .receiver_table
             .owner
             .definitions()
@@ -675,7 +450,7 @@ impl Runtime {
         let root = self.root_value(*value).ok_or_else(|| {
             RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid interface handle")
         })?;
-        let slot = snapshot.methods.iter().position(|binding| {
+        let slot = snapshot.description.methods.iter().position(|binding| {
             binding
                 .as_ref()
                 .is_some_and(|binding| binding.method == method)
@@ -689,6 +464,7 @@ impl Runtime {
             );
         }
         let owner = snapshot
+            .description
             .receiver_table
             .owner
             .definitions()
@@ -696,6 +472,7 @@ impl Runtime {
             .map_err(|error| RuntimeError::module_validation(error.to_string()))?
             .ok_or_else(|| RuntimeError::module_validation("interface method parent"))?;
         let parent = snapshot
+            .description
             .parents
             .iter()
             .find(|parent| parent.interface.declaration == owner)
@@ -706,7 +483,7 @@ impl Runtime {
             let snapshot = self.gc.interface_metadata(id).ok_or_else(|| {
                 RuntimeError::module_validation("invalid parent interface snapshot")
             })?;
-            let slot = snapshot.methods.iter().position(|binding| {
+            let slot = snapshot.description.methods.iter().position(|binding| {
                 binding
                     .as_ref()
                     .is_some_and(|binding| binding.method == method)
@@ -740,7 +517,7 @@ impl Runtime {
         };
         let _root = self.root_value(*value).ok_or_else(invalid)?;
         let snapshot = self.gc.interface_snapshot(*id).ok_or_else(invalid)?;
-        if snapshot.interface_type != *source {
+        if snapshot.description.interface_type != *source {
             return Err(invalid());
         }
         if source == target {
@@ -812,7 +589,7 @@ impl Runtime {
             .gc
             .interface_metadata(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid interface snapshot"))?;
-        let same = snapshot.interface_type == *interface;
+        let same = snapshot.description.interface_type == *interface;
         drop(snapshot);
         if same {
             Ok(id)

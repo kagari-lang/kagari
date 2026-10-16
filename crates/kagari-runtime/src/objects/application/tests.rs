@@ -113,9 +113,10 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.receiver_table, Default::default())
+            .bind_table_operations(&snapshot.description.receiver_table, Default::default())
             .unwrap();
         let member = snapshot
+            .description
             .methods
             .iter()
             .flatten()
@@ -123,8 +124,8 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
             .unwrap()
             .method;
         let requirement = NativeCallableRequirement {
-            receiver: snapshot.concrete_type.clone(),
-            interface: snapshot.interface_type.clone(),
+            receiver: snapshot.description.concrete_type.clone(),
+            interface: snapshot.description.interface_type.clone(),
             member,
             arguments: vec![],
         };
@@ -264,6 +265,7 @@ fn apply_generic(
         .gc
         .interface_snapshot(id)
         .unwrap()
+        .description
         .interface_type
         .clone();
     let arguments = runtime.resolve_type_arguments(loaded, &[ty]).unwrap();
@@ -442,9 +444,9 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.receiver_table, Default::default())
+            .bind_table_operations(&snapshot.description.receiver_table, Default::default())
             .unwrap();
-        let interface = snapshot.interface_type.clone();
+        let interface = snapshot.description.interface_type.clone();
         drop(snapshot);
         let mut operations = OperationBindings::default();
         operations.receiver(&runtime.gc, group).unwrap();

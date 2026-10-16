@@ -152,12 +152,12 @@ fn operation_application_environment_cycles_release_the_actual_metadata_records(
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.receiver_table, Default::default())
+            .bind_table_operations(&snapshot.description.receiver_table, Default::default())
             .unwrap();
         let requirement = NativeCallableRequirement {
-            receiver: snapshot.concrete_type.clone(),
-            interface: snapshot.interface_type.clone(),
-            member: snapshot.methods[0].as_ref().unwrap().method,
+            receiver: snapshot.description.concrete_type.clone(),
+            interface: snapshot.description.interface_type.clone(),
+            member: snapshot.description.methods[0].as_ref().unwrap().method,
             arguments: vec![],
         };
         let operation_id = runtime
@@ -249,9 +249,10 @@ fn selections() -> (Runtime, LoadedModule, Vec<OperationId>) {
     };
     let snapshot = runtime.gc.interface_snapshot(id).unwrap();
     let group = runtime
-        .bind_table_operations(&snapshot.receiver_table, Default::default())
+        .bind_table_operations(&snapshot.description.receiver_table, Default::default())
         .unwrap();
     let operations = snapshot
+        .description
         .methods
         .iter()
         .flatten()
@@ -262,12 +263,12 @@ fn selections() -> (Runtime, LoadedModule, Vec<OperationId>) {
                 .unwrap()
                 .operation(
                     &NativeCallableRequirement {
-                        receiver: snapshot.concrete_type.clone(),
-                        interface: snapshot.interface_type.clone(),
+                        receiver: snapshot.description.concrete_type.clone(),
+                        interface: snapshot.description.interface_type.clone(),
                         member: method.method,
                         arguments: vec![],
                     },
-                    &TypeView::new(&snapshot.concrete_type, &loaded, None)
+                    &TypeView::new(&snapshot.description.concrete_type, &loaded, None)
                         .identity()
                         .unwrap(),
                 )
@@ -452,10 +453,10 @@ fn associated_type_snapshots_survive_selection_collection_without_owning_environ
     };
     let snapshot = runtime.gc.interface_snapshot(value).unwrap();
     let group = runtime
-        .bind_table_operations(&snapshot.receiver_table, Default::default())
+        .bind_table_operations(&snapshot.description.receiver_table, Default::default())
         .unwrap();
-    let receiver = snapshot.concrete_type.clone();
-    let interface = snapshot.interface_type.clone();
+    let receiver = snapshot.description.concrete_type.clone();
+    let interface = snapshot.description.interface_type.clone();
     let (member, expected) = interface.associated_types.iter().next().unwrap();
     let member = *member;
     let expected = expected.clone();

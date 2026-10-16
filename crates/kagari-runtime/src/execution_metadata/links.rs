@@ -8,15 +8,15 @@ use crate::{
         interfaces::InterfaceSnapshotId,
     },
 };
-use std::cell::OnceCell;
+use std::sync::OnceLock;
 
 /// Construction and reads are available to object policy; writes stay in this module.
 #[derive(Debug, Clone)]
-pub(crate) struct MetadataCache<T>(OnceCell<T>);
+pub(crate) struct MetadataCache<T>(OnceLock<T>);
 
 impl<T> MetadataCache<T> {
     pub(crate) fn new() -> Self {
-        Self(OnceCell::new())
+        Self(OnceLock::new())
     }
 
     pub(crate) fn get(&self) -> Option<&T> {
@@ -50,8 +50,8 @@ impl Runtime {
         self.validate_metadata(MetadataEdge::Interface(prepared))?;
         let invalid = || RuntimeError::module_validation("invalid parent interface cache");
         let view = self.gc.interface_metadata(owner).ok_or_else(invalid)?;
-        let parent = view.parents.get(slot).ok_or_else(invalid)?;
-        parent.prepared.0.set(prepared).map_err(|_| invalid())
+        let parent = view.parent_views.get(slot).ok_or_else(invalid)?;
+        parent.0.set(prepared).map_err(|_| invalid())
     }
 
     pub(crate) fn cache_receiver_operations(
@@ -68,13 +68,15 @@ impl Runtime {
         let invalid = || RuntimeError::module_validation("invalid receiver operation cache");
         let view = self.gc.interface_metadata(owner).ok_or_else(invalid)?;
         let method = view
+            .description
             .methods
             .get(slot)
             .and_then(Option::as_ref)
             .ok_or_else(invalid)?;
         if method.receiver_operations.get().is_some()
             || prepared.is_some_and(|group| {
-                view.receiver_operations
+                view.description
+                    .receiver_operations
                     .get()
                     .is_some_and(|old| *old != group)
             })
@@ -83,10 +85,11 @@ impl Runtime {
         }
         // Validate both cells before either write; no callback or safepoint can
         // intervene. None caches successful preparation with no required group.
-        if view.receiver_operations.get().is_none()
+        if view.description.receiver_operations.get().is_none()
             && let Some(group) = prepared
         {
-            view.receiver_operations
+            view.description
+                .receiver_operations
                 .0
                 .set(group)
                 .expect("checked empty receiver cache");
