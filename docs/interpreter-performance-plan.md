@@ -1,10 +1,10 @@
 # Interpreter performance execution plan
 
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
-at 60bfaacb; IP02 is implemented with two carried timing failures. IP03's ordinal,
-callee-layout, runtime-contract, parameter-publication, action-continuation and
-prepared native-callback changes are integrated;
-focused validation and complete lifecycle/performance acceptance are in progress.
+at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
+prepared calls, native type evidence and construction ownership. Selected local
+correctness and memory checks pass; setup regressions and remaining combined
+lifecycle/performance comparisons keep phase acceptance open.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -1536,6 +1536,43 @@ Only after it completes select the next required ordinary comparisons (calls,
 fibonacci, affected arrays/maps, and combined window/root controls). The required
 IP02/IP03 checkpoint remains unaccepted until those carried gates close; IP04-IP07
 remain unstarted. No production edit overlaps ordinary timing.
+
+The native scope/evidence repair is committed at b3a1b3dd. Its saved ordinary
+candidate SHA-256 is
+`1309ceea537d71468555816d061eb4adceb2a0a883c28bca840f4dedff347467`,
+with a matching preserved PDB. The seven-pair forms comparison (UTC
+20261016T173403Z) completes with all checksums passing. Byte_state now passes
+at 0.8290/0.8385, interface at 0.8693/0.8651, shared_generic at 0.8625/0.8624
+and field at 0.9898/0.9718. All forms rows except runtime initialization pass.
+Initialization fails at 1.1198/1.1250 (aggregate medians 24.3 versus 21.7 us).
+Do not waive it or infer complete acceptance from the large allocation reduction.
+
+Runtime construction source is unchanged between 9e72947e (passing forms setup)
+and b3a1b3dd (failing forms setup). Inspect corresponding workspace-release
+constructor assembly before another optimization; separate emitted work from
+binary placement and cold-cache variability. No measurement is discarded and
+no new candidate is pooled with an old one. Ordinary timing has stopped before
+this compiler diagnostic. Current required follow-ups remain setup attribution,
+calls/fibonacci and affected arrays/maps on the final candidate, then combined
+window/root controls. This is not an IP04-IP07 acceptance or sequencing change.
+
+The follow-up assembly diagnostic finishes: after normalizing local block labels,
+NativeInstallation::runtime and Runtime::with_native_registry have zero instruction
+diffs against the passing construction-owner candidate, with the same 24/487
+instructions and 488/5,080-byte stack frames. Field execution is also unchanged;
+region differences are jump-table label renumbering. This is a source-level
+workspace-release diagnostic, not proof that final linked addresses, out-of-line
+callees or cache state are identical. It provides no basis for another speculative
+constructor rewrite. Preserve the architectural fixes and quantify the uncertain
+cold setup boundary once more before selecting further implementation work.
+
+Predeclare a single extension of this exact native-view forms candidate from
+seven to 21 total alternating pairs, keeping every original pair. Use the saved
+executable via --candidate-executable; no rebuild, changed fixture, discarded
+outlier, acceptance-band change or pooling with the construction-owner candidate.
+The extension does not itself clear a failed gate. All compiler diagnostics have
+stopped before it starts. Finish all 21 pairs before any further production edit
+or diagnostic workload; preserve any remaining failure for renewed attribution.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
