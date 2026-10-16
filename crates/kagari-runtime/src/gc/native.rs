@@ -3,9 +3,8 @@ mod managed;
 mod take;
 use crate::{
     error::RuntimeError,
-    frame::types::{bindings::TypeBindings, compatibility::TypeView},
+    frame::types::compatibility::TypeView,
     gc::{GcHeap, HeapObjectId, leases::BorrowedLease, storage::HeapObject},
-    module::LoadedModule,
     native::{
         binding::NativeResult,
         sequence::{NativeElement, SequencePayload},
@@ -106,15 +105,9 @@ impl GcHeap {
         self.native_operations.borrow(id).map(Some)
     }
 
-    pub(crate) fn matches_native_type(
-        &self,
-        id: HeapObjectId,
-        ty: &Ty,
-        owner: &LoadedModule,
-        environment: Option<&TypeBindings>,
-    ) -> bool {
+    pub(crate) fn matches_native_type(&self, id: HeapObjectId, expected: TypeView<'_>) -> bool {
         let objects = self.objects.borrow();
-        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(ty, owner, environment))
+        matches!(self.readable_object(&objects, id), Some(HeapObject::Native(object)) if object.matches(expected))
     }
 
     pub(crate) fn default_storage(&self, ty: &Ty) -> Option<&NativeStorage> {
@@ -200,7 +193,7 @@ impl GcHeap {
                 return Err(RuntimeError::module_validation("invalid sequence receiver"));
             };
             let sequence = object.payload::<SequencePayload>()?;
-            if !object.matches(expected.ty, expected.owner, expected.environment)
+            if !object.matches(expected)
                 || !self.valid_payload(&value)
                 || !sequence.contract.accepts_value(self, &value)
             {

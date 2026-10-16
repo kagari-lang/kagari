@@ -77,9 +77,7 @@ pub(crate) fn matches_view(heap: &GcHeap, value: &Value, view: TypeView<'_>) -> 
         (Value::Interface(id), Ty::Trait(_)) => heap
             .interface_snapshot(*id)
             .is_some_and(|actual| actual.matches_type(view.ty, view.owner, view.environment)),
-        (Value::GcHandle(id), Ty::NativeObject(_)) => {
-            heap.matches_native_type(*id, view.ty, view.owner, view.environment)
-        }
+        (Value::GcHandle(id), Ty::NativeObject(_)) => heap.matches_native_type(*id, view),
         (Value::GcHandle(id), Ty::Iter(_)) => view
             .parameter(0)
             .is_some_and(|element| heap.matches_iter_type(*id, element)),

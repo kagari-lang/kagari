@@ -1475,6 +1475,68 @@ must preserve the complete scoped view and actual object owner, without weakenin
 nominal generation, handle/lease or bounds checks, changing collection operations,
 or adding another native transition engine.
 
+Construction ownership is committed at 9e72947e. The saved ordinary candidate
+and matching PDB have executable SHA-256
+`a20790205820551b06f974da6f96d8ccb72b1f6ecd5c6d9a6dd0affc6a2ee55e`.
+All three declared seven-pair comparisons and checksums complete. Forms (UTC
+20261016T165423Z) passes interface 0.8007/0.8011, shared_generic 0.7992/0.7983
+and runtime initialization 0.8834/0.8829. Its only failed row is byte_state
+1.0845/1.0896. Calls (UTC 20261016T165803Z) passes every row, with execution
+0.8699/0.8735. Fibonacci (UTC 20261016T170534Z) passes execution 0.8436/0.8454
+but fails Lua module initialization at 1.0667/1.0714. No failed row is waived;
+combined window/root controls and phase acceptance remain open.
+
+The next bounded IP03 repair forwards TypeView intact through native receiver
+matching, including the existing sequence-push path that discards the same facts.
+NativeObject still supplies its actual stored scope (or an unprepared view for an
+object without scoped evidence); compatibility still checks both nominal owners
+and nested arguments. Keep all heap handle/readability, borrow/lease, mutation and
+bounds checks. No retained data or collection implementation changes. Validate
+with existing VM native-list reload, composite generations, native factory/runtime
+identity, ordinary/bulk sequence borrowing and generic managed-field contracts;
+measure warm allocation counts before ordinary performance. This repairs the
+prepared-call proof boundary, not IP06's optional library-operation experiment.
+
+Five selected VM contracts pass, but the generic managed-field contract fails at
+its first wrap(item()) call with `definition belongs to a different identity table`.
+Temporarily removing only the native-view patch reproduces the identical failure
+on committed 9e72947e (one test, zero passed); the patch is then restored. This
+is not a stale artifact: the fixture compiles and round-trips its program afresh.
+AppliedSchema::prepare reads the registration field's raw Ty and validates its
+authoring-table IDs directly against the runtime table. The Type already retains
+its checked source scope, but that scope is discarded before generic substitution.
+Repair this adjacent application boundary with the existing Type::adopt protocol
+before constructing scoped field arguments. Keep schema/token identity and the
+existing runtime argument/storage checks. This is a bounded correctness repair,
+not a storage-layout migration or permission to bypass definition validation.
+Rerun the failed contract and complete Clippy before collecting new performance.
+
+The corrected managed-field contract passes, including independent generations
+and rejected cross-scope values. Two adjacent construction/replacement and failed
+converter/root-retention contracts also pass. Together with the five unchanged
+passing selections, all eight selected VM contracts pass; the earlier failure
+is resolved. Structure (1,282 files), formatting, whitespace and workspace
+all-target Clippy pass. No assertion or scope check is disabled.
+
+Native-view diagnostics pass all 14 original and 72 forms records, all 297
+loaded-storage comparisons and 16 zero-net teardown cases. Warm byte_state
+allocation requests fall from 15,054 to 53 and requested bytes from 124,340 to
+4,332: exactly 15,001 eight-byte temporary requests disappear. Its two script
+objects, one collection and 62 net requested bytes are unchanged; metadata
+preparation counters remain zero. The 512-Point setup retains 5,186,381 bytes;
+live/empty/reused increments remain 58,092/40,516/66,700. Reuse prior window/root
+and executable-retention allocation evidence for their unchanged owners; do not
+represent those as freshly measured. Counter-build timings are not acceptance.
+
+Commit this buildable correctness/proof-boundary checkpoint, then run exactly
+seven ordinary source-form pairs against frozen IP01, retaining every pair and
+the new executable/PDB. This first comparison targets the unresolved byte_state
+regression while checking interface/shared_generic and all forms setup rows.
+Only after it completes select the next required ordinary comparisons (calls,
+fibonacci, affected arrays/maps, and combined window/root controls). The required
+IP02/IP03 checkpoint remains unaccepted until those carried gates close; IP04-IP07
+remain unstarted. No production edit overlaps ordinary timing.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

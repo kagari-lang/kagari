@@ -17,7 +17,6 @@ use crate::{
         storage_type::StorageType,
     },
 };
-use kagari_common::identity::{mapping::DefinitionMappingError, scoped::DefinitionReferences};
 use kagari_types::ty::Ty;
 use std::{marker::PhantomData, ptr, slice, sync::Arc};
 
@@ -51,25 +50,16 @@ impl AppliedSchema {
             declared.generic_params.clone(),
             arguments,
         )?);
-        let definitions = runtime.definition_context().snapshot();
         let mut fields = Vec::new();
         fields
             .try_reserve_exact(declaration.fields.len())
             .map_err(|_| RuntimeError::resource_limit("managed field applications"))?;
         for field in &declaration.fields {
-            let ty = field.ty.abi();
-            ty.visit_definition_ids(
-                &mut |id| {
-                    definitions
-                        .resolve(*id)
-                        .map(|_| ())
-                        .map_err(DefinitionMappingError::from)
-                },
-                &Default::default(),
-            )
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+            // Registration fields retain their author's definition table. Adopt
+            // that checked type before binding runtime-scoped generic parameters.
+            let ty = field.ty.adopt(runtime.definition_context())?;
             let argument = runtime
-                .type_arguments(owner, Some(environment.clone()), slice::from_ref(ty))?
+                .type_arguments(owner, Some(environment.clone()), slice::from_ref(&ty))?
                 .pop()
                 .ok_or_else(invalid)?;
             let contract = StorageType::prepare_scoped(argument.clone(), owner)?;

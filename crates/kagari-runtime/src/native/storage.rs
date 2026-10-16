@@ -5,7 +5,6 @@ use crate::{
     error::RuntimeError,
     frame::types::{
         arguments::{TypeArgument, type_parameter},
-        bindings::TypeBindings,
         compatibility::TypeView,
     },
     gc::GcHeap,
@@ -372,17 +371,14 @@ impl NativeObject {
         self._owner.definition_name(id)
     }
 
-    pub(crate) fn matches(
-        &self,
-        ty: &Ty,
-        owner: &LoadedModule,
-        environment: Option<&TypeBindings>,
-    ) -> bool {
+    pub(crate) fn matches(&self, expected: TypeView<'_>) -> bool {
         let actual = match &self.scope {
             Some(scope) => scope.view(&self._owner),
             None => TypeView::new(&self.ty, &self._owner, None),
         };
-        actual.compatible(TypeView::new(ty, owner, environment))
+        // Preserve the caller's closed proof and lexical scope together. Rebuilding
+        // a view from its type spelling would repeat preparation for every operand.
+        actual.compatible(expected)
     }
 
     pub(crate) fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value)) {
