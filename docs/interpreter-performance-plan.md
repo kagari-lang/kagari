@@ -3,9 +3,9 @@
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass. Current calls/recursion/forms timing gates pass;
-the remaining same-candidate collection/lifecycle comparisons keep phase
-acceptance open.
+correctness and memory checks pass. Current calls/recursion/forms/arrays/maps timing
+gates pass. Combined owned-root completion and private-window retirement gates
+remain failed/inconclusive, so IP02/IP03 acceptance stays open.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -1997,6 +1997,50 @@ compilation 1.00625/1.01311. All other forms execution rows pass their common
 gates. Arrays has started; maps, owned roots and private windows follow under
 the unchanged declared sequence. Do not infer the remaining controls or IP07's
 arithmetic/branches rows from these passing call targets.
+
+The complete declared combined sequence finishes without overlapping timing with
+build/test/profile work. Arrays (UTC 20261016T202300Z) and maps (203031Z) pass every
+gate/checksum on the same `20f10699...` ordinary image. Their VM execution ratios
+are 0.74135/0.74586 and 0.88391/0.88377 respectively. The owned-root comparison
+(203819Z) passes all admission, collection and cancellation-retirement gates, but
+all four normal-completion retirement gates fail:
+
+| Root completion workload | Aggregate | Paired |
+| --- | ---: | ---: |
+| 1 / tail | 1.22222 | 1.22222 |
+| 32 / tail | 1.33415 | 1.33415 |
+| 256 / forward | 1.17014 | 1.18055 |
+| 256 / random | 1.13644 | 1.13488 |
+
+Here `retire` includes resuming the parked root, executing the unchanged eight-
+iteration body, materializing its result and releasing the execution; it does not
+isolate bank compaction. Cancellation skips that body. This distinction and the
+passing ordinary call targets require attribution of the resumed completion path,
+not an assumption that moving banks causes every failure. The scalar-loop source
+is unchanged from IP01, while its containing transition/result machinery changed;
+source identity alone does not prove identical generated code or cost.
+
+The private-window comparison (UTC 20261016T204058Z) uses its separately built
+library-test image, SHA-256
+`8259a53a35b3ab4147973204be9be2af2f37875dc8d3e15a75c4a98e94d1f63c`,
+at its recorded Cargo release test-harness path. The ordinary image hash remains
+unchanged. All checksums pass; sixteen of eighteen timing gates pass. Random
+256/0 retirement is inconclusive at 1.04024/1.03778, and forward 256/8 retirement
+fails at 1.06269/1.07089. This is a distinct storage-retirement issue to attribute;
+it cannot be hidden behind passing call targets or the root control's body cost.
+Both image archives and every failed report are retained. No further extension is
+declared simply to obtain a passing median.
+
+The next work is bounded architectural/code attribution of these two paths before
+another production edit. Inspect resumed completion versus cancellation and the
+exact candidate's linked region/return/window code; isolate retirement timing from
+body execution in a separate diagnostic, equivalently for IP01 and current code,
+if existing evidence cannot distinguish them. Keep the frozen acceptance workloads
+unchanged. Preserve checks/observation/slice/cancellation/error order and cleanup;
+do not introduce session-bank segmentation as an undeclared IP03 repair. Existing
+allocation/lifetime evidence remains applicable to unchanged owners, while these
+measured common-gate failures explicitly prevent combined IP02/IP03 acceptance.
+IP04-IP07 are still unstarted, and the full CI matrix remains separate.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
