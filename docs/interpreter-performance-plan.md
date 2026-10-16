@@ -81,8 +81,8 @@ facts through parameter transfer and result publication.
 
 | Owner | Responsibility after replacement |
 | --- | --- |
-| Verified program and runtime execution preparation | Produce bounded call ordinals, physical operand locations and immutable transfer shapes without source analysis. |
-| Runtime-linked function or exact generic/method application | Bind the target generation, environment, callee layout, argument conversions, result adapter and dependency edges. |
+| Verified program and runtime execution preparation | Own each caller's call ordinal, argument source locations and return destination without source analysis. |
+| Runtime-linked function or exact generic/method application | Bind the target generation, environment, callee parameter layout, conversion template, result adapter and dependency edges; exclude caller-specific offsets. |
 | Active execution scope | Admit the current runtime/session and enforce cancellation, depth, quarantine and real dynamic boundaries. |
 | Frame/window owner | Publish parameter and executable roots transactionally, retain them through suspension and adapt/transfer results before retirement permits collection. |
 | VM driver | Drive transitions and observation using runtime-owned contracts; do not resolve types or own another semantic implementation. |
@@ -93,11 +93,21 @@ descriptor carries its checked contract directly; it must not rediscover it by
 decoding the original call instruction. Canonical bytecode remains the verified
 portable/debug owner, not a duplicate call-policy engine.
 
-Static calls can prepare both source and destination locations and required
-representation conversions. Interface and shared-generic calls select an exact
-application first, then consume its transfer plan. Do not cache by receiver shape
-or method name alone. Version, nominal arguments, witnesses and installed binding
-authority remain part of identity wherever they affect selection.
+Static calls can bind caller sources to callee parameter locations and required
+representation conversions during preparation. Interface and shared-generic calls
+first select an exact application, then combine its callee template with the
+current call site's sources and return destination. Receiver/capture prefixes and
+external argument slices remain explicit argument sources, not assumed frame slots.
+
+For example, callers A and B can invoke the same application from scalar slots 1
+and 7 respectively. The application shares its callee layout and conversions;
+it must not retain A's source offset for B. Prefer composing borrowed descriptions
+without another cache. If a retained combined plan is justified, its identity must
+bind the caller's pinned program, function, call ordinal and physical layout to the
+exact callee/application identity, including environment-dependent conversions.
+Version, nominal arguments, witnesses and installed binding authority remain in
+the relevant identities. Never retain active window IDs, values or raw bank views
+in reusable plans. Do not cache by receiver shape or method name alone.
 
 Preparation belongs to the supplying program/application and retires with it.
 Use traced IDs or scoped borrows for cyclic executable dependencies; adding strong
@@ -152,11 +162,27 @@ do not add a third retained execution representation beside the existing canonic
 and prepared products.
 
 IP05 may prototype at most six typed scalar forms and two fused forms, selected
-and frozen before implementation. A fused operation must preserve each logical
-PC's trap, cancellation, slicing and observer boundary. For example, a field
-read, checked addition and write cannot publish the write before overflow is
-known. If preserving these semantics eliminates the measured gain, reject the
-fusion. Debug execution must share the same semantic handlers.
+and frozen before implementation. Typed operations may preserve the existing
+one-to-one logical PC mapping. Before prototyping fusion, record these decisions:
+
+- Map every constituent logical PC to its execution entry and successor, including
+  branches, debugger positions, trap attribution and observation. Exclude fusion
+  across an interior branch target unless that target has a correct entry path.
+- Define slice accounting and resumable state for exits at every internal boundary.
+  Completed suboperations must neither replay nor disappear after resumption.
+- Store intermediate results and initialization state in owned frame storage when
+  they must survive an exit. Describe and trace managed intermediates at each such
+  point; no cursor borrow or handler-local temporary survives as resumable state.
+- Preserve cancellation and collection opportunities, observer events, completed
+  effects and mutation commit order through the same semantic handlers.
+
+For example, after the read in a fused field read/add/write, a one-instruction slice
+can return to the host, which may mutate the field through another alias. Resuming
+must add to the saved read value, not reread the field or skip the write. Overflow
+still traps before write publication. Exercise internal exits, intervening GC and
+alias mutation, stepping, cancellation and valid interior control-flow entries.
+If this model is not closed before the prototype, limit IP05 to typed operations
+and defer fusion. Reject fusion if preserving these semantics removes its benefit.
 
 IP06 may evaluate at most two installed library operations. Reuse the existing
 [prepared native primitive path](../crates/kagari-runtime/src/frame/cursor/primitives.rs)
@@ -196,8 +222,16 @@ timing regions and targeted rows for all later phases before production edits.
 If a later conditional hypothesis needs another diagnostic, run it equivalently
 against the frozen baseline; do not rewrite the original workloads. Record exact
 focused correctness filters and the check-to-owner inventory to complete in IP03.
-Acceptance: all selected controls build/run, allocation attribution and profiling
-limits are documented, and the baseline is reproducible on the selected machine.
+Extend the existing benchmark reporting with the process/pair aggregation and gate
+checker defined below; do not substitute its current pooled-sample summary. Verify
+the estimator with synthetic unequal process distributions, paired-order reversal,
+missing/duplicate records, zero baselines and passing/failing thresholds. These
+checks validate measurement tooling, not runtime performance.
+Acceptance: all selected controls build/run, the gate checker rejects incomplete
+evidence and reports both required ratios, allocation/profiling limits and separate
+setup sampling are documented, and the baseline is reproducible on the selected
+machine. Preserve each accepted checkpoint's revision, binary hash and rebuild
+inputs for later comparisons against the preceding accepted checkpoint.
 
 ### IP02 Replace window slot scanning
 
@@ -214,6 +248,12 @@ transitions with one return protocol. Cover static, closure, interface, shared
 generic and native callers, including result adapters. Review earlier HP prepared
 facts and region admission first; preserve their useful owners and remove any
 superseded call lookup/preparation path in this checkpoint.
+
+Validate that distinct call sites with different physical source/return locations
+can reuse one application without sharing caller offsets. Include repeated/reordered
+arguments, receiver/capture prefixes and pinned caller/callee generations in the
+focused transfer selection. Record which owner retains each half of the plan and
+how any combined plan becomes invalid or retires.
 
 Acceptance: each of calls, fibonacci, interface and shared_generic is at least 10%
 faster than IP01, common gates pass, and diagnostics show which repeated work was
@@ -234,7 +274,9 @@ retain the existing banks and record measured or architectural reasons for defer
 ### IP05 Decide typed instruction specialization
 
 Freeze the finite operation set and target rows from IP01 profiles before editing
-the execution representation. Retain the change only with at least 10% improvement
+the execution representation. Close the logical-PC/resumption and intermediate-root
+model above before any fused prototype; otherwise record fusion as deferred and
+evaluate only typed operations. Retain the change only with at least 10% improvement
 on every selected target row against the preceding accepted checkpoint, improvement
 against IP01, and all common gates passing. Report instruction count, execution
 product size and setup cost together. Rejected experiments leave no extra opcode
@@ -281,18 +323,44 @@ timing with compilation, tests or another agent-started workload. Separate ordin
 timing, sampling, allocation instrumentation and logical counters. Report setup,
 execution, collection and retirement separately, with GC policy fixed per pair.
 
-For acceptance use at least seven alternating baseline/current process pairs,
-three warmups and eleven samples per timed row. Report process medians/ranges,
-the ratio of aggregate medians and median paired ratios; both ratios must pass.
+For execution and lifecycle acceptance use at least seven alternating
+baseline/current process pairs, three warmups and eleven samples per timed row.
+Setup has a separate fresh-state protocol: the current driver samples each setup
+phase three times per process for the original suite and once for source forms.
+Freeze those counts and cold/warm shared-preparation treatment in IP01, retain all
+seven process pairs and report setup separately. Do not describe setup as eleven
+warmed samples or mix Cargo build duration with script compilation/preparation.
+
+For each phase/workload/engine row and matched process pair i, compute B_i and C_i
+as that process's baseline and candidate sample medians after batch normalization.
+Report all process medians/ranges and both ratios:
+
+```text
+aggregate ratio = median(C_i) / median(B_i)
+paired ratio    = median(C_i / B_i)
+```
+
+Both must satisfy each applicable gate; a 10% improvement means <=0.90 and a 5%
+regression limit means <=1.05. Pooling samples across processes is not equivalent.
+The IP01 checker must validate pair/variant identity, expected rows and sample
+counts, checksums, fixture hashes and matched configuration before computing gates.
+Missing, duplicate, mismatched or failed evidence cannot pass. A zero timing median
+requires a predeclared longer batch and a new matched measurement, not division by
+zero. Report pass/fail/inconclusive per gate and fail automated acceptance when any
+required evidence is missing or any gate is not passed. Setup uses these same
+process-level estimators with its separately declared sample count.
+
 Near-threshold noise is inconclusive: predeclare additional pairs and retain all
 results. Keep raw files under ignored target/ and the methods, hashes, conclusions
 and limits in this ledger until handoff. Do not select favorable samples.
 
-Existing final comparison commands are below; replace the placeholder with the
-IP01 binary built on the same machine. The driver builds before timing and treats
---runs as the number of matched process pairs when a baseline is supplied. IP01
-records separate commands for the added window/retirement controls and allocation
-probes; these are not silently included in the existing driver.
+Existing sample-collection commands are below; replace the placeholder with the
+IP01 binary built on the same machine. The
+[current driver](../scripts/benchmark_lua.py) builds before timing and treats
+--runs as the number of matched process pairs when a baseline is supplied, but its
+pooled summary and successful exit do not establish these gates. IP01 records the
+implemented gate-check command, plus separate window/retirement and allocation
+probe commands. No new command is assumed to exist before that phase completes.
 
 ```text
 uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable <baseline-executable>
@@ -308,9 +376,15 @@ allowances do not compound across phases:
 - Compilation, preparation and linking are each within +5%. Separately attributed
   prepared-code/metadata and loaded-setup requested bytes are each within +5%.
   Report the cost of added descriptors rather than hiding it in runtime setup.
-- Non-target live, empty and reused requested bytes remain within +5%. Warm request
-  counts/bytes cannot increase on the changed call paths. A zero baseline requires
-  zero, not a percentage comparison. Report capacity separately from live payload.
+- Live, empty and reused requested bytes for every workload, including performance
+  targets and segmented-session controls, remain within +5%. Include all retained
+  segment/free-pool capacity; a bounded plateau alone does not satisfy this gate.
+  Warm request counts/bytes cannot increase on changed call paths. A zero byte
+  baseline requires zero, not a percentage comparison. Report capacity separately
+  from live payload. There is no implicit target exemption. Any proposed exception
+  requires an explicit plan change before its prototype, identifying the workload,
+  lifecycle state, absolute byte cap, reason and acceptance tradeoff; it cannot
+  waive correctness, zero-net teardown or inherited OM/RS obligations.
 - Repeated equal workloads reach bounded capacity/metadata plateaus. Warm runtime
   teardown returns to zero net requested bytes. Old versions retire after their
   actual roots disappear; intentional current roots are accounted for separately.
@@ -344,6 +418,9 @@ IP01 records exact filters after inspecting the current test layout. Add cases o
 for uncovered contracts, such as reused free slots after trimming or another root's
 retirement while a host callback retains its caller. Reuse numerical overflow and
 ordered-effect conformance for IP05 and native mutation/borrow owners for IP06.
+IP05 fusion additionally requires targeted internal-boundary resume/GC/observer
+coverage from its declared PC model, including alias mutation between slices;
+successful uninterrupted execution alone cannot establish fused correctness.
 Changed pointer kernels, if any, require focused Miri/sanitizer evidence under the
 architecture's bounded-unsafe policy. A faster unchecked path is not acceptance.
 
@@ -380,7 +457,7 @@ Use Conventional Commits with Plan-Phase: IPxx trailers for implementation phase
 ## Progress and decisions
 
 - [x] Planning: owners, phase order, finite experiments and acceptance recorded.
-- [ ] IP01: fresh baseline, attribution, frozen controls and test selection.
+- [ ] IP01: fresh baseline, attribution, frozen controls, gate checker and test selection.
 - [ ] IP02: explicit window-slot reuse and local acceptance.
 - [ ] IP03: unified prepared calls, transfer and return with measured acceptance.
 - [ ] IP04: session storage decision and accepted implementation or deferral.
@@ -393,6 +470,12 @@ activated; IP04-IP06 are conditional. No new production cache, second semantic
 engine or universal representation change is authorized by a conditional proposal.
 No implementation checks or performance measurements have run for this plan.
 
+Review decisions: caller locations and callee templates have separate owners;
+IP01 supplies validated process/pair statistics and explicit setup sampling; memory
+limits cover performance targets; fusion requires a complete internal-PC resume
+and root model before prototyping. These requirements refine the existing phases
+without activating implementation or changing OM scope.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
@@ -401,7 +484,7 @@ reproduced HEAD failure, and shared identity cannot stand in for Add coverage.
 No new local integration failure is known; exhaustive prior CI acceptance remains
 unverified.
 
-Planning validation: 182 repository-relative links/anchors across this plan and
-the three updated companion documents, Markdown fences, whitespace, all seven
-phase/checklist entries and roadmap/index/OM links pass. This documentation-only
-checkpoint does not run Rust builds, tests or Clippy.
+Planning validation: repository-relative links/anchors across this plan and its
+three companion documents, Markdown fences, whitespace, all seven phase/checklist
+entries and roadmap/index/OM links pass. This documentation-only checkpoint does
+not run Rust builds, tests or Clippy.
