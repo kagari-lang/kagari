@@ -48,8 +48,13 @@ impl OperandView<'_> {
         location: Location,
         read: impl FnOnce(&Value) -> R,
     ) -> Option<R> {
-        let value = read_operand(self.managed, self.payloads, self.initialized, location)?;
-        Some(read(&value))
+        with_operand(
+            self.managed,
+            self.payloads,
+            self.initialized,
+            location,
+            read,
+        )
     }
 
     fn scalar_location(&self, location: Location) -> Option<(ValueType, u64)> {
@@ -74,6 +79,20 @@ impl OperandView<'_> {
 }
 
 impl OperandWindow<'_> {
+    pub(crate) fn with_value<R>(
+        &self,
+        location: Location,
+        read: impl FnOnce(&Value) -> R,
+    ) -> Option<R> {
+        with_operand(
+            self.managed,
+            self.payloads,
+            self.initialized,
+            location,
+            read,
+        )
+    }
+
     pub(crate) fn read_location(&self, location: Location) -> Option<Value> {
         read_operand(self.managed, self.payloads, self.initialized, location)
     }
@@ -95,15 +114,26 @@ pub(super) fn read_operand(
     initialized: &[bool],
     location: Location,
 ) -> Option<Value> {
+    with_operand(managed, payloads, initialized, location, |value| *value)
+}
+
+fn with_operand<R>(
+    managed: &[Value],
+    payloads: &[u64],
+    initialized: &[bool],
+    location: Location,
+    read: impl FnOnce(&Value) -> R,
+) -> Option<R> {
     let slot = location.operand;
     if slot.managed() {
-        return managed.get(slot.index()).copied();
+        return managed.get(slot.index()).map(read);
     }
     if !initialized.get(slot.index()).copied()? {
         // Inspection preserves unavailable Unit; scalar kernels reject missing payloads.
-        return Some(Value::Unit);
+        return Some(read(&Value::Unit));
     }
-    scalar::decode(location.representation, *payloads.get(slot.index())?)
+    let value = scalar::decode(location.representation, *payloads.get(slot.index())?)?;
+    Some(read(&value))
 }
 
 pub(super) fn write_operand(

@@ -1646,6 +1646,37 @@ are ignored. All test/build/diagnostic work has finished before ordinary timing.
 Commit the constructor repair and start the declared seven-pair forms comparison;
 required calls/fibonacci, affected arrays/maps and combined controls remain open.
 
+The constructor repair is committed at 3dfd36a1. Its seven-pair forms comparison
+(UTC 20261016T181904Z) preserves candidate/PDB SHA-256
+`9297b4ebbe2cb51fbb7a8db4d2e23fdb6fb70dd600dea51f01a1b37a4671112b`.
+All checksums pass. Initialization passes at 0.9031/0.9152, byte_state at
+0.8340/0.8335, interface at 0.8779/0.8736 and shared_generic at 0.8565/0.8546.
+Field fails at 1.1475/1.1342 and string_constants is inconclusive at 1.0500/1.0306.
+No gate is waived; do not advance IP04 or extend this run merely to seek a pass.
+
+Exact saved EXE/PDB inspection verifies the PE ranges of execute_region and its
+direct field callee. GcHeap::new shrinks from 2,343 to 1,995 code bytes; the region
+body remains 3,494 bytes. The field callee changes from 2,069 to 2,014 bytes despite
+unchanged field source. Its scalar-field receiver read now calls the general
+OperandWindow::read_location out of line and copies the returned Value through
+several temporary slots before extracting a Struct handle; the prior binary
+inlined that read. Smaller total code is not proof of less hot-path work. This is
+a concrete code-generation difference, not a complete causal profile or a claim
+that binary placement/cache effects are excluded.
+
+Repair this narrow operand boundary using the existing borrowed-window owner.
+Provide closure-based value access sharing one scalar/managed decoding kernel;
+ordinary copied reads remain a projection through that kernel. Scalar-field
+execution borrows the receiver and extracts only its checked Struct handle, keeping
+unavailable/out-of-bounds versus wrong-kind errors distinct. Preserve all payload,
+owner/generation, layout, field-type, mutation and logical-PC checks. No new opcode,
+field storage path, cache or public API is introduced. Review the prior borrowed
+argument access too: it should use the same borrowed read rather than copy a Value
+before its callback. Validate existing operand/cursor, scalar/scoped field and
+nested-debug boundaries, allocation/teardown gates and final linked code before
+another seven-pair forms comparison. This is a local IP03 proof/transfer boundary
+repair, not IP05 specialization or an OM storage migration.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

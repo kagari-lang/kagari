@@ -37,11 +37,14 @@ impl ExecutionCursor<'_> {
                     Some(self.payload(value.operand.scalar().ok_or_else(|| self.invalid())?)?)
                 }
             };
-            let base = self
+            let id = self
                 .values
-                .read_location(operation.base)
+                .with_value(operation.base, |value| match value {
+                    Value::Struct(id) => Some(*id),
+                    _ => None,
+                })
                 .ok_or_else(|| self.invalid())?;
-            let Value::Struct(id) = base else {
+            let Some(id) = id else {
                 return Err(RegionError::TypeMismatch(match operation.access {
                     FieldAccess::Read { .. } => "read_field expects struct value",
                     FieldAccess::Write { .. } => "write_field expects struct value",
