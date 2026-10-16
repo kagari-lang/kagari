@@ -664,17 +664,14 @@ This is intentionally not Rust borrowing.
 
 The following syntax and behavior are a design target, not current executable
 features. Downcast is defined in terms of concrete runtime type identity, not generic trait reasoning.
+The [execution plan](../interface-downcast-plan.md) owns the accepted return
+contracts, scope, access/reload decisions, remaining design gates and DC01-DC04.
 
-Example:
+Proposed call shapes, using the existing generic-call syntax:
 
-```kagari
-if val p = x.downcast<Player>() {
-    ...
-}
-
-if x.is<Player>() {
-    ...
-}
+```text
+x.is::<Player>()       -> bool
+x.downcast::<Player>() -> Option<Player>
 ```
 
 Downcast model:

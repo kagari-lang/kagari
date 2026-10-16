@@ -309,9 +309,25 @@ and exhaustive feature/backend acceptance remain unrun locally and belong to CI.
 The completed plan and resolved findings are retained in Git history.
 
 [SA22 generic construction witnesses](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses),
-source interface impl targets, blanket impls, derive/downcast additions and NC
+source interface impl targets, blanket impls, derive additions and NC
 migration remain outside this work; their completion is not implied. Host
 registration/interop is implemented separately as described above.
+
+## Interface type tests and downcast
+
+The [interface downcast execution plan](interface-downcast-plan.md) records the
+accepted `is::<T>() -> bool` and `downcast::<T>() -> Option<T>` direction and owns
+DC01-DC04. Implementation has not started. Reuse concrete interface metadata,
+checked type environments, roots and pinned versions; no Any trait is added.
+Ordinary read-only interfaces may explicitly recover their concrete storage,
+while host access restrictions and scoped-reference exclusion remain intact.
+
+DC01 closes intrinsic/member resolution, target eligibility and cross-version
+recovery/call provenance before implementation. Later phases own source-independent
+contracts/runtime execution, source/tooling integration and focused boundary
+acceptance. Arbitrary trait queries, SA22 construction witnesses, NC, broader
+reload redesign and native interface expansion remain separate. Recording this
+plan does not activate those tracks or imply executable downcast support.
 
 ## Review follow-up order
 

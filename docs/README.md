@@ -41,6 +41,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   host/library integration while keeping explicit native coverage requirements.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
+- [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are
+  not started; recover concrete values through checked identity and lifetime
+  contracts without introducing Any.
 - [Host API unification](host-api-refactor.md).
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI distribution and the separate REPL proposal; source packages are
