@@ -1677,6 +1677,59 @@ nested-debug boundaries, allocation/teardown gates and final linked code before
 another seven-pair forms comparison. This is a local IP03 proof/transfer boundary
 repair, not IP05 specialization or an OM storage migration.
 
+The borrowed-value repair is committed at 491a8147. It passes four runtime
+operand/cursor contracts, four VM scalar/nominal/scoped-field and nested-debug
+contracts, and both warm argument/native allocation contracts (ten tests).
+Structure, format, whitespace and workspace all-target Clippy pass. Diagnostics
+pass all 14 original and 72 forms records, 297 storage comparisons and 16 zero-net
+teardowns. The measured 512-Point setup retains 5,186,061 bytes; live/empty/reused
+increments remain unchanged. No warm allocation growth or semantic-check removal
+is accepted. A documentation append failed on the shell's default GBK decoding
+before the commit; this UTF-8 follow-up records the already completed evidence.
+
+The saved ordinary executable SHA-256 is
+`1dea1c62fa08f3516732b82b5b8377b66f1c230899581ef6ec22972d588775a3`,
+with its matching PDB. Verified final linked code now checks the managed slot/tag
+and copies only the 12-byte Struct handle directly on the scalar-field path;
+its out-of-line generic read and repeated Value temporaries disappear. General
+field paths retain ordinary copied reads. Total field code grows from 2,014 to
+2,072 bytes, while execute_region shrinks from 3,494 to 3,429 bytes; these are
+mechanism observations, not speed acceptance. Exactly seven new ordinary forms
+pairs are running with the unchanged gates. No build, test, counter or disassembly
+workload overlaps that timing sequence; no production source changes during it.
+
+The borrowed-value seven-pair forms comparison completes at UTC 20261016T183220Z
+with all checksums passing and the preserved `1dea1c62...` binary unchanged.
+Field passes at 0.9885/0.9830 and string_constants at 1.0223/1.0208. Shared_generic
+passes at 0.8842/0.8829. Interface fails at 0.9117/0.9018; initialization fails at
+1.0308/1.0516. These failures remain required acceptance work. Candidate interface
+process medians are 5.758-5.888 ms against baseline 6.377-6.503 ms; this is not
+an isolated discarded outlier. Initialization is much less stable (21.8-38.2 us
+candidate versus 21.2-24.2 us baseline), with the two estimators on opposite sides
+of the common threshold.
+
+After ordinary timing stops, sample both saved lazy-codec and borrowed-value
+interface executables sequentially with matching PDBs, three warmups, ten-second
+windows and the established jittered main-thread RIP method. UTC 20261016T183612Z
+and 20261016T183636Z collect 3,897/3,903 samples with zero sampling errors and
+45.14%/41.66% unresolved. Resolved leaves include termination (4.44%/4.74%),
+memmove (3.72%/4.18%), window allocation (3.49%/2.82%) and region entry
+(1.85%/3.18%). No inclusive stack or frozen-IP01 PDB comparison is available;
+these fractions neither prove a specific regression cause nor justify removing
+termination, owner or generation checks. No new production optimization is
+selected from this incomplete profile.
+
+Predeclare one extension of the exact borrowed-value candidate from seven to
+21 total alternating forms pairs, preserving every old pair and all gates. This
+quantifies the near-threshold interface result and inconsistent initialization
+estimators; it cannot convert a failure into an exemption. Use the saved executable
+without rebuilding, changing workloads or pooling other candidate binaries.
+Sampling has ended before ordinary timing resumes. Complete all 21 before any
+production edit, and keep any remaining failure for architectural diagnosis rather
+than another extension solely to seek a passing median. Calls/fibonacci, affected
+arrays/maps and combined root/window controls remain pending for the final candidate;
+IP02/IP03 are unaccepted and IP04-IP07 remain unstarted.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
