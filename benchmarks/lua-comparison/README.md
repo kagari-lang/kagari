@@ -108,9 +108,8 @@ changed candidate/baseline hashes, absolute image paths or configuration; a chan
 a separate new comparison. The new report also retains the previous metadata and
 report hash, so extending noisy evidence cannot silently discard unfavorable runs.
 Extensions reuse the original candidate image path without rebuilding. Finish any
-extension before another build replaces that image. The optional
-`--candidate-executable <original-path>` must match both the original path and hash;
-an archived copy at another path cannot extend the experiment. Older paired reports
+extension before another build replaces that image. An archived copy at another
+path cannot extend the experiment; there is no image-path override. Older paired reports
 without image-path evidence cannot be extended or establish new acceptance. Frozen
 single-variant IP01 reports still supply their unchanged workload/checksum contract;
 their old setup timings are not substituted for new matched baseline processes.

@@ -82,8 +82,6 @@ def main() -> None:
                         help="Save this ordinary binary and matrix report after successful measurements")
     parser.add_argument("--extend-report", type=Path,
                         help="Retain a prior paired report and extend it to --runs total pairs")
-    parser.add_argument("--candidate-executable", type=Path,
-                        help="Extend without rebuilding; path and hash must match the prior report")
     args = parser.parse_args()
     if args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls or args.baseline_executable:
         args.interpreter_only = True
@@ -99,10 +97,6 @@ def main() -> None:
         parser.error("paired execution requires both --baseline-executable and --baseline-report")
     if args.extend_report and (not args.baseline_executable or args.check):
         parser.error("extend an ordinary paired run with the same binary and configuration")
-    if args.candidate_executable and not args.extend_report:
-        parser.error("--candidate-executable requires --extend-report and its binary identity")
-    if args.candidate_executable and not args.candidate_executable.is_file():
-        parser.error("saved candidate executable does not exist")
     if args.freeze_baseline and (args.baseline_executable or args.check or args.numeric_matrix):
         parser.error("freeze an ordinary unpaired original/forms run")
     if args.freeze_baseline:
@@ -159,7 +153,7 @@ def main() -> None:
         original_path = previous["metadata"].get("candidate_executable")
         if not original_path:
             parser.error("extension report lacks the original candidate image path")
-        executable = (args.candidate_executable or Path(original_path)).resolve()
+        executable = Path(original_path).resolve()
         if not executable.is_file():
             parser.error("original candidate image no longer exists; cannot extend this experiment")
         metadata["build_wall_seconds"] = 0
