@@ -583,6 +583,15 @@ The builder is the explicit fallible entrypoint. An empty staging builder used
 internally is not a new no_std engine mode. Generic Runtime construction starts
 with execution services only; Engine installs its sealed modules into each runtime.
 
+`NativeInstallation` owns the checked native registration closure and prepared
+host type/path maps in the same definition scope. Creating a runtime copies these
+facts into a fresh `HostRegistry` with independent identity, roots, dirty state and
+borrow tracking; it does not repeat registration preparation. Runtime construction
+owns this registry directly. Loading still validates each program's installed
+contracts, and later registration changes remain local to that runtime. Cloned
+installations share their Rust callbacks and any explicitly captured Rust state,
+but do not share script heaps, sessions or host roots.
+
 Module/trait/type builders expose `documentation(&mut self, text)`; FunctionDecl
 and MethodDecl expose chainable `documentation(self, text) -> Self`. These accept
 full Markdown. Type registration still requires checked NativeStorage and payload
@@ -711,6 +720,12 @@ is a traced heap edge, while host-retained callbacks use PinnedFunction.
 New payloads require no concrete Value/HeapObject variants. Scalar sequences use
 typed compact buffers; GC-bearing sequences use traced Values. Hash callbacks run
 outside table borrows with checked hashes and stable key tokens.
+
+Each heap lazily constructs its sequence, map, set and iterator storage codec on
+first use. These bounded per-heap cells contain immutable storage operations and
+layout contracts, without script values, executable roots or applied-type results.
+Unused codecs allocate nothing. This changes construction cost, not object layout,
+installed binding authority, payload tracing or scoped-borrow validation.
 
 Vec stable sorting edits its actual buffer through a scoped lease. Roots
 protect reference elements during callback reentry. Cleanup restores valid storage

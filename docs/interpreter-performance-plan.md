@@ -2271,6 +2271,15 @@ in this checkpoint. Use this distinction when deciding whether IP04's projected
 benefit justifies migration after required IP02/IP03 acceptance; it is not permission
 to silently substitute a different lifecycle optimization or mark IP04 complete.
 
+Architecture also records the implemented setup ownership: NativeInstallation
+retains checked host registration facts, Runtime constructs its independent
+HostRegistry directly, and four bounded per-heap builtin codec cells initialize on
+first use. It distinguishes shared Rust callback captures from independent runtime
+roots/state and retains installed program, tracing and borrow validation. These
+are the existing IP03 setup corrections, not new storage layouts or global caches.
+Source/content/fence and diff checks pass; this documentation-only handoff does not
+alter the running ordinary comparison or establish pending phase acceptance.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
