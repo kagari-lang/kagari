@@ -10,7 +10,7 @@ use crate::{
     },
     gc::{
         directory::{ObjectSlot, ObjectStorage, PayloadKind, PayloadLocation},
-        fields::{StructStorage, StructStorageLayouts},
+        fields::{StructInitializer, StructStorageLayouts, StructView, StructViewMut},
         interfaces::InterfaceValueSnapshot,
         leases::{LeaseTable, OwnedLease},
         roots::{RootTable, RootedValue},
@@ -314,7 +314,10 @@ impl GcHeap {
             ));
         }
         let description = self.prepare_struct_storage(layout)?;
-        let storage = StructStorage::new(description, &fields)?;
+        let storage = StructInitializer {
+            description,
+            values: fields,
+        };
         self.alloc_object(HeapObject::Struct { storage })
     }
 
@@ -786,7 +789,7 @@ impl GcHeap {
         self.resources.release_heap_units(units);
     }
 
-    fn with_struct<R>(&self, id: HeapObjectId, f: impl FnOnce(&StructStorage) -> R) -> Option<R> {
+    fn with_struct<R>(&self, id: HeapObjectId, f: impl FnOnce(StructView<'_>) -> R) -> Option<R> {
         let objects = self.objects.borrow();
         Some(f(objects.structure(self.readable_location(&objects, id)?)?))
     }
@@ -794,7 +797,7 @@ impl GcHeap {
     fn with_struct_mut<R>(
         &self,
         id: HeapObjectId,
-        f: impl FnOnce(&mut StructStorage) -> R,
+        f: impl FnOnce(StructViewMut<'_>) -> R,
     ) -> Option<R> {
         let mut objects = self.objects_mut().ok()?;
         let location = self.readable_location(&objects, id)?;

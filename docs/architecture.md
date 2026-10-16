@@ -1075,6 +1075,50 @@ outside the script heap. Runtime-only ephemeral IDs remain a distinct value tag.
 Every heap access still checks owner, generation and object kind. Saturated slot
 generations retire storage; owner/slot exhaustion cannot truncate or wrap identity.
 
+The heap directory stores generation, revision and a kind/store locator (24 bytes
+on the measured 64-bit target). Dense typed stores own each payload family; native
+arrays, collections and custom Rust payloads retain their existing native owner.
+Rare candidate-initialization ownership is keyed by full identity outside the
+common directory slot. Sweep updates private locators when compacting records,
+keeps generation tombstones, shrinks payload capacity with hysteresis and disposes
+detached batches outside storage borrows. Native destructor panics remain isolated
+per payload and quarantine execution while cleanup continues.
+
+Script struct records share a closed physical layout and locate their initialized
+bytes in one heap-owned arena. Scalar fields use exact semantic widths, Unit uses
+no bytes, and managed fields store a tag plus the full 12-byte checked identity.
+Point { x: i32, y: i32 } therefore uses eight field bytes, independently of its
+directory/record/shared-description cost. Safe native-endian byte copies support
+unaligned fields and preserve float bits. GC scans only described reference fields.
+Allocation reserves arena/record capacity before publication; collection compacts
+surviving rows and updates offsets under the same exclusive heap borrow. No raw
+address or view survives either operation. General Value/reflection APIs use the
+same field codec; tuple/enum slots and native buffers keep their existing models.
+
+Physical-description lookup reuses canonical layout identities scoped by registry
+and supplying module generation. Canonical identity already includes the full
+shape and nominal argument provenance; detached descriptions retain a structural
+key with those facts. Weak entries neither root executable state nor retain dead
+field storage and are pruned after disposal. Layouts keep immutable type metadata;
+interfaces/closures separately trace their actual executable dependencies.
+
+Interface snapshots keep their receiver and parent-view cells private and share
+an immutable description of the receiver table, methods, applied types, environment
+and lazy operation selections. Equivalence includes the supplying version, table,
+nominal type argument provenance and ordered construction dependencies. Each boxing
+operation still admits its own receiver. The weak registry introduces no root;
+metadata tracing visits a shared description once and traces each receiver/view
+separately. Sharing parent snapshots would incorrectly share receivers and is forbidden.
+
+The storage and scalar-transfer kernels use safe Rust. Any future bounded unsafe
+kernel must expose a safe owner-controlled API with enforced bounds, initialization,
+alignment, aliasing and lifetime invariants, and focused validation including Miri
+or applicable sanitizers. Check elision additionally needs measured benefit over
+the safe baseline; it cannot replace host, owner/generation, source-free or reload
+validation with assertions about trusted callers. Full handles remain in struct
+storage: owner elision saved only a projected 0.49% on the frozen node workload and
+was deferred. See the [storage measurements](performance-baseline.md#runtime-storage-2026-10-16).
+
 Canonical `LoadConst` refers to a deduplicated module constant table by checked
 `ConstantId`. Equality of portable float constants uses their exact bits. Shared
 verified programs contain no runtime heap identities. Each runtime module record
@@ -1253,10 +1297,15 @@ keep the common instruction stream at 24 bytes. Concrete layouts bind directly t
 the admitted frame's exact version; scoped applications exit the cursor before
 layout preparation, with no operand-bank borrow held. Runtime-linked function
 records retain scoped field type arguments from normalized code; the shared verified
-execution table holds no runtime-local DefinitionIds. Both paths use the same field
-actions and checked heap storage. Write-value admission still precedes layout
-preparation and receiver access; reads prepare their layout before reading the
-receiver. Type mismatches preserve VM error categories and trap observation without
+execution table holds no runtime-local DefinitionIds. Both paths use the same checked
+field storage. Eligible ordinary scalar fields transfer raw payloads directly to
+initialized scalar slots, omitting intermediate Value tags, managed-edge admission
+and generic bank conversion. Prepared slot/domain facts and the closed field codec
+supply those proofs; dynamic receiver identity, compatible layout, mutability,
+scalar domain and execution-state checks remain. Managed fields, host references
+and reflection retain their Value/scoped-borrow adapters. Write operands are read
+before layout preparation and receiver access; reads prepare their layout before
+reading the receiver. Type mismatches preserve VM error categories and trap observation without
 falling back to canonical interpretation. Copying a field value does not allocate, create a root lease or run a
 destructor; the frame and object remain traced at the surrounding safepoints.
 The scalar loop hands prepared managed operations back to the cursor's object

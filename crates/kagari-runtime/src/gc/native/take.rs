@@ -1,7 +1,7 @@
 //! Successful extraction detaches storage and preserves inert moved identities.
 use crate::{
     error::RuntimeError,
-    gc::{GcHeap, HeapObjectId, storage::HeapObject},
+    gc::{GcHeap, HeapObjectId},
     native::{binding::NativeResult, payload::take::NativeTake},
 };
 
@@ -41,7 +41,7 @@ impl GcHeap {
                 .map_err(|_| RuntimeError::module_validation("heap free slots are borrowed"))?;
             free.try_reserve(1)
                 .map_err(|_| RuntimeError::resource_limit("heap free slots"))?;
-            let Some(HeapObject::Native(object)) = objects.detach(id) else {
+            let Some(object) = objects.detach_native(id) else {
                 unreachable!("validated native extraction receiver")
             };
             moved.insert(id);

@@ -5,12 +5,12 @@ use crate::{
     execution_metadata::interfaces::InterfaceSnapshotId,
     gc::{
         HeapObjectId,
-        fields::StructStorage,
+        fields::{StructView, StructViewMut},
         storage::{Exclusive, HeapObject, Shared},
         values::TupleData,
     },
     host::{HostPathViewHandle, HostRootHandle},
-    module::ModuleKey,
+    module::{ModuleKey, layout_storage::StructStorageLayout},
     native::storage::NativeObject,
     range::RangeValue,
     value::{EnumValueSnapshot, EphemeralValue, Value},
@@ -38,6 +38,10 @@ pub(super) enum PayloadKind {
     Closure,
     Cell,
 }
+
+/// Exact counts produced while retiring checked directory entries in this sweep.
+#[derive(Default)]
+pub(super) struct DetachedCounts([usize; PayloadKind::Cell as usize + 1]);
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PayloadLocation {
@@ -77,10 +81,18 @@ pub(super) struct PayloadStores {
     ephemerals: Vec<Entry<EphemeralValue>>,
     natives: Vec<Entry<NativeObject>>,
     enums: Vec<Entry<(EnumValueSnapshot, Option<Arc<ErrorTrace>>)>>,
-    structs: Vec<Entry<StructStorage>>,
+    structs: Vec<Entry<StructRecord>>,
+    struct_bytes: Vec<u8>,
     interfaces: Vec<Entry<(InterfaceSnapshotId, usize)>>,
     closures: Vec<Entry<ClosureValueSnapshot>>,
     cells: Vec<Entry<(ValueType, Value)>>,
+}
+
+/// Field bytes are packed independently of the stable object and record indices.
+#[derive(Debug)]
+struct StructRecord {
+    description: Arc<StructStorageLayout>,
+    offset: usize,
 }
 
 impl ObjectStorage {
@@ -198,11 +210,29 @@ impl ObjectStorage {
             }
             HeapObject::Struct { storage } => {
                 self.payloads.structs.try_reserve(1)?;
+                self.payloads
+                    .struct_bytes
+                    .try_reserve(storage.description.size)?;
                 let index = u32::try_from(self.payloads.structs.len())
                     .expect("admitted heap payload index");
+                let offset = self.payloads.struct_bytes.len();
+                self.payloads
+                    .struct_bytes
+                    .resize(offset + storage.description.size, 0);
+                let mut view = StructViewMut {
+                    description: &storage.description,
+                    bytes: &mut self.payloads.struct_bytes[offset..],
+                };
+                for (slot, value) in storage.values.into_iter().enumerate() {
+                    view.set(slot, value)
+                        .expect("validated struct field encoding");
+                }
                 self.payloads.structs.push(Entry {
                     directory,
-                    payload: storage,
+                    payload: StructRecord {
+                        description: storage.description,
+                        offset,
+                    },
                 });
                 Ok(PayloadLocation {
                     kind: PayloadKind::Struct,
@@ -264,17 +294,36 @@ impl ObjectStorage {
             .then(|| &mut self.payloads.natives[location.index as usize].payload)
     }
 
-    pub(super) fn structure(&self, location: PayloadLocation) -> Option<&StructStorage> {
-        matches!(location.kind, PayloadKind::Struct)
-            .then(|| &self.payloads.structs[location.index as usize].payload)
+    pub(super) fn structure(&self, location: PayloadLocation) -> Option<StructView<'_>> {
+        if !matches!(location.kind, PayloadKind::Struct) {
+            return None;
+        }
+        let record = &self.payloads.structs[location.index as usize].payload;
+        Some(StructView {
+            description: &record.description,
+            bytes: &self.payloads.struct_bytes
+                [record.offset..record.offset + record.description.size],
+        })
     }
 
-    pub(super) fn structure_mut(
-        &mut self,
-        location: PayloadLocation,
-    ) -> Option<&mut StructStorage> {
-        matches!(location.kind, PayloadKind::Struct)
-            .then(|| &mut self.payloads.structs[location.index as usize].payload)
+    pub(super) fn structure_mut(&mut self, location: PayloadLocation) -> Option<StructViewMut<'_>> {
+        if !matches!(location.kind, PayloadKind::Struct) {
+            return None;
+        }
+        let record = &self.payloads.structs[location.index as usize].payload;
+        Some(StructViewMut {
+            description: &record.description,
+            bytes: &mut self.payloads.struct_bytes
+                [record.offset..record.offset + record.description.size],
+        })
+    }
+
+    #[cfg(test)]
+    pub(super) fn corrupt_structure_for_test(&mut self, id: HeapObjectId) {
+        let location = self.slots[id.index()].location.unwrap();
+        let record = &mut self.payloads.structs[location.index as usize].payload;
+        let description = Arc::make_mut(&mut record.description);
+        description.fields = Box::new([]);
     }
 
     pub(super) fn get(&self, location: PayloadLocation) -> HeapObject<Shared<'_>> {
@@ -312,10 +361,9 @@ impl ObjectStorage {
                 let value = &self.payloads.enums[index].payload;
                 HeapObject::Enum(&value.0, &value.1)
             }
-            PayloadKind::Struct => {
-                let value = &self.payloads.structs[index].payload;
-                HeapObject::Struct { storage: value }
-            }
+            PayloadKind::Struct => HeapObject::Struct {
+                storage: self.structure(location).expect("struct location"),
+            },
             PayloadKind::Interface => {
                 let value = &self.payloads.interfaces[index].payload;
                 HeapObject::Interface {
@@ -372,10 +420,9 @@ impl ObjectStorage {
                 let value = &mut self.payloads.enums[index].payload;
                 HeapObject::Enum(&mut value.0, &mut value.1)
             }
-            PayloadKind::Struct => {
-                let value = &mut self.payloads.structs[index].payload;
-                HeapObject::Struct { storage: value }
-            }
+            PayloadKind::Struct => HeapObject::Struct {
+                storage: self.structure_mut(location).expect("struct location"),
+            },
             PayloadKind::Interface => {
                 let value = &mut self.payloads.interfaces[index].payload;
                 HeapObject::Interface {
@@ -399,103 +446,120 @@ impl ObjectStorage {
 
     /// Detach without running payload destructors. The caller advances the stable
     /// generation; moved payloads only change their private locator.
-    pub(super) fn detach(&mut self, id: HeapObjectId) -> Option<HeapObject> {
-        let location = self.slots.get_mut(id.index())?.location.take()?;
-        self.initialization_owners.remove(&id);
-        let index = location.index as usize;
-        Some(match location.kind {
-            PayloadKind::String => {
-                let value = remove(&mut self.payloads.strings, &mut self.slots, index);
-                HeapObject::String(value)
-            }
-            PayloadKind::Tuple => {
-                let value = remove(&mut self.payloads.tuples, &mut self.slots, index);
-                HeapObject::Tuple(value)
-            }
-            PayloadKind::Range => {
-                let value = remove(&mut self.payloads.ranges, &mut self.slots, index);
-                HeapObject::Range(value)
-            }
-            PayloadKind::HostRoot => {
-                let value = remove(&mut self.payloads.host_roots, &mut self.slots, index);
-                HeapObject::HostRoot(value)
-            }
-            PayloadKind::HostPath => {
-                let value = remove(&mut self.payloads.host_paths, &mut self.slots, index);
-                HeapObject::HostPath(value)
-            }
-            PayloadKind::Ephemeral => {
-                let value = remove(&mut self.payloads.ephemerals, &mut self.slots, index);
-                HeapObject::Ephemeral(value)
-            }
-            PayloadKind::Native => {
-                let value = remove(&mut self.payloads.natives, &mut self.slots, index);
-                HeapObject::Native(value)
-            }
-            PayloadKind::Enum => {
-                let value = remove(&mut self.payloads.enums, &mut self.slots, index);
-                HeapObject::Enum(value.0, value.1)
-            }
-            PayloadKind::Struct => {
-                let value = remove(&mut self.payloads.structs, &mut self.slots, index);
-                HeapObject::Struct { storage: value }
-            }
-            PayloadKind::Interface => {
-                let value = remove(&mut self.payloads.interfaces, &mut self.slots, index);
-                HeapObject::Interface {
-                    snapshot: value.0,
-                    method_count: value.1,
-                }
-            }
-            PayloadKind::Closure => {
-                let value = remove(&mut self.payloads.closures, &mut self.slots, index);
-                HeapObject::Closure { snapshot: value }
-            }
-            PayloadKind::Cell => {
-                let value = remove(&mut self.payloads.cells, &mut self.slots, index);
-                HeapObject::Cell {
-                    ty: value.0,
-                    value: value.1,
-                }
-            }
-        })
-    }
-
-    pub(super) fn mark_detached(&mut self, id: HeapObjectId) {
+    pub(super) fn detach_native(&mut self, id: HeapObjectId) -> Option<NativeObject> {
+        let location = self.slots.get(id.index())?.location?;
+        if !matches!(location.kind, PayloadKind::Native) {
+            return None;
+        }
         self.slots[id.index()].location = None;
         self.initialization_owners.remove(&id);
+        let object = remove(
+            &mut self.payloads.natives,
+            &mut self.slots,
+            location.index as usize,
+        );
+        shrink(&mut self.payloads.natives);
+        self.shrink_initialization_owners();
+        Some(object)
     }
 
-    pub(super) fn detach_marked(&mut self) -> PayloadStores {
+    pub(super) fn mark_detached(&mut self, id: HeapObjectId, counts: &mut DetachedCounts) {
+        let location = self.slots[id.index()]
+            .location
+            .take()
+            .expect("marked live directory entry");
+        counts.0[location.kind as usize] += 1;
+        self.initialization_owners.remove(&id);
+    }
+
+    pub(super) fn detach_marked(&mut self, counts: DetachedCounts) -> PayloadStores {
+        let structs = extract(
+            &mut self.payloads.structs,
+            &mut self.slots,
+            counts.0[PayloadKind::Struct as usize],
+        );
+        let struct_bytes = if structs.is_empty() {
+            Vec::new()
+        } else if self.payloads.structs.is_empty() {
+            mem::take(&mut self.payloads.struct_bytes)
+        } else {
+            let mut offset = 0;
+            for entry in &mut self.payloads.structs {
+                let record = &mut entry.payload;
+                let size = record.description.size;
+                self.payloads
+                    .struct_bytes
+                    .copy_within(record.offset..record.offset + size, offset);
+                record.offset = offset;
+                offset += size;
+            }
+            self.payloads.struct_bytes.truncate(offset);
+            shrink(&mut self.payloads.struct_bytes);
+            Vec::new()
+        };
+        self.shrink_initialization_owners();
         PayloadStores {
-            strings: extract(&mut self.payloads.strings, &mut self.slots),
-            tuples: extract(&mut self.payloads.tuples, &mut self.slots),
-            ranges: extract(&mut self.payloads.ranges, &mut self.slots),
-            host_roots: extract(&mut self.payloads.host_roots, &mut self.slots),
-            host_paths: extract(&mut self.payloads.host_paths, &mut self.slots),
-            ephemerals: extract(&mut self.payloads.ephemerals, &mut self.slots),
-            natives: extract(&mut self.payloads.natives, &mut self.slots),
-            enums: extract(&mut self.payloads.enums, &mut self.slots),
-            structs: extract(&mut self.payloads.structs, &mut self.slots),
-            interfaces: extract(&mut self.payloads.interfaces, &mut self.slots),
-            closures: extract(&mut self.payloads.closures, &mut self.slots),
-            cells: extract(&mut self.payloads.cells, &mut self.slots),
+            strings: extract(
+                &mut self.payloads.strings,
+                &mut self.slots,
+                counts.0[PayloadKind::String as usize],
+            ),
+            tuples: extract(
+                &mut self.payloads.tuples,
+                &mut self.slots,
+                counts.0[PayloadKind::Tuple as usize],
+            ),
+            ranges: extract(
+                &mut self.payloads.ranges,
+                &mut self.slots,
+                counts.0[PayloadKind::Range as usize],
+            ),
+            host_roots: extract(
+                &mut self.payloads.host_roots,
+                &mut self.slots,
+                counts.0[PayloadKind::HostRoot as usize],
+            ),
+            host_paths: extract(
+                &mut self.payloads.host_paths,
+                &mut self.slots,
+                counts.0[PayloadKind::HostPath as usize],
+            ),
+            ephemerals: extract(
+                &mut self.payloads.ephemerals,
+                &mut self.slots,
+                counts.0[PayloadKind::Ephemeral as usize],
+            ),
+            natives: extract(
+                &mut self.payloads.natives,
+                &mut self.slots,
+                counts.0[PayloadKind::Native as usize],
+            ),
+            enums: extract(
+                &mut self.payloads.enums,
+                &mut self.slots,
+                counts.0[PayloadKind::Enum as usize],
+            ),
+            structs,
+            struct_bytes,
+            interfaces: extract(
+                &mut self.payloads.interfaces,
+                &mut self.slots,
+                counts.0[PayloadKind::Interface as usize],
+            ),
+            closures: extract(
+                &mut self.payloads.closures,
+                &mut self.slots,
+                counts.0[PayloadKind::Closure as usize],
+            ),
+            cells: extract(
+                &mut self.payloads.cells,
+                &mut self.slots,
+                counts.0[PayloadKind::Cell as usize],
+            ),
         }
     }
 
-    pub(super) fn shrink_payloads(&mut self) {
-        shrink(&mut self.payloads.strings);
-        shrink(&mut self.payloads.tuples);
-        shrink(&mut self.payloads.ranges);
-        shrink(&mut self.payloads.host_roots);
-        shrink(&mut self.payloads.host_paths);
-        shrink(&mut self.payloads.ephemerals);
-        shrink(&mut self.payloads.natives);
-        shrink(&mut self.payloads.enums);
-        shrink(&mut self.payloads.structs);
-        shrink(&mut self.payloads.interfaces);
-        shrink(&mut self.payloads.closures);
-        shrink(&mut self.payloads.cells);
+    fn shrink_initialization_owners(&mut self) {
         // Slot tombstones and their generations are permanent until Runtime drop.
         // Releasing payload capacity must never recreate an old external identity.
         if self.initialization_owners.capacity()
@@ -518,7 +582,7 @@ fn remove<T>(store: &mut Vec<Entry<T>>, slots: &mut [ObjectSlot], index: usize) 
     entry.payload
 }
 
-fn shrink<T>(store: &mut Vec<Entry<T>>) {
+fn shrink<T>(store: &mut Vec<T>) {
     if store.capacity() > store.len().saturating_mul(4).max(64) {
         store.shrink_to(store.len().saturating_mul(2));
     }
@@ -535,21 +599,20 @@ impl PayloadStores {
         dispose(self.natives, &mut on_panic);
         dispose(self.enums, &mut on_panic);
         dispose(self.structs, &mut on_panic);
+        drop(self.struct_bytes);
         dispose(self.interfaces, &mut on_panic);
         dispose(self.closures, &mut on_panic);
         dispose(self.cells, &mut on_panic);
     }
 }
 
-fn extract<T>(store: &mut Vec<Entry<T>>, slots: &mut [ObjectSlot]) -> Vec<Entry<T>> {
-    let count = store
-        .iter()
-        .filter(|entry| slots[entry.directory as usize].location.is_none())
-        .count();
+fn extract<T>(store: &mut Vec<Entry<T>>, slots: &mut [ObjectSlot], count: usize) -> Vec<Entry<T>> {
     if count == 0 {
         return Vec::new();
     }
-    if count == store.len() && store.capacity() > 64 {
+    // An entirely dead store is already the detached batch. Moving its buffer
+    // avoids allocating/copying a second batch even for a single native object.
+    if count == store.len() {
         return mem::take(store);
     }
     let mut detached = Vec::with_capacity(count);
@@ -563,10 +626,20 @@ fn extract<T>(store: &mut Vec<Entry<T>>, slots: &mut [ObjectSlot]) -> Vec<Entry<
             .expect("retained payload locator")
             .index = index as u32;
     }
+    shrink(store);
     detached
 }
 
+#[inline]
 fn dispose<T>(entries: Vec<Entry<T>>, on_panic: &mut impl FnMut()) {
+    if !entries.is_empty() {
+        dispose_nonempty(entries, on_panic);
+    }
+}
+
+// Isolate destructor/panic machinery from the common empty-batch branch.
+#[inline(never)]
+fn dispose_nonempty<T>(entries: Vec<Entry<T>>, on_panic: &mut impl FnMut()) {
     for entry in entries {
         if catch_unwind(AssertUnwindSafe(|| drop(entry))).is_err() {
             on_panic();

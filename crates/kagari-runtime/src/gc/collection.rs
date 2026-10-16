@@ -2,7 +2,10 @@
 use crate::{
     error::RuntimeError,
     execution_metadata::{MetadataLive, MetadataTrace},
-    gc::{GcCollection, GcHeap, HeapObjectId, collector, storage::append_value_edges},
+    gc::{
+        GcCollection, GcHeap, HeapObjectId, collector, directory::DetachedCounts,
+        storage::append_value_edges,
+    },
     module::{ModuleKey, ModuleStore, collection::ProgramGraph},
     value::Value,
 };
@@ -208,21 +211,23 @@ impl GcHeap {
         let reclaimed_objects = dead.len();
         let reclaimed_units =
             dead.iter().map(|(_, units)| units).sum::<usize>() + retired_identities;
-        let retired = {
+        // Extraction maintains its own capacity; sweep only touches changed stores.
+        let retired = if dead.is_empty() {
+            None
+        } else {
             let mut objects = self.objects.try_borrow_mut().ok()?;
             let mut free = self.free.try_borrow_mut().ok()?;
+            let mut counts = DetachedCounts::default();
             for (index, _) in dead {
                 let id = HeapObjectId::new(self.owner, index, objects.slots[index].generation);
-                objects.mark_detached(id);
+                objects.mark_detached(id, &mut counts);
                 let slot = &mut objects.slots[index];
                 if let Some(generation) = slot.generation.checked_add(1) {
                     slot.generation = generation;
                     free.push(index);
                 }
             }
-            let retired = objects.detach_marked();
-            objects.shrink_payloads();
-            retired
+            Some(objects.detach_marked(counts))
         };
         moved.retain(|id| live_moved.contains(id));
         drop(moved);
@@ -245,10 +250,12 @@ impl GcHeap {
         self.roots.borrow_mut().prune();
         // Destructors run with no storage-table borrow. Finish disposal even when
         // one panics; the execution gate keeps the affected runtime quarantined.
-        retired.dispose(|| {
-            self.resources
-                .quarantine("native payload destruction panicked");
-        });
+        if let Some(retired) = retired {
+            retired.dispose(|| {
+                self.resources
+                    .quarantine("native payload destruction panicked");
+            });
+        }
         for group in retired_groups {
             if catch_unwind(AssertUnwindSafe(|| drop(group))).is_err() {
                 self.resources

@@ -36,7 +36,7 @@ behavior; queued designs do not imply implemented APIs.
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
 - [Runtime storage redesign](runtime-storage-plan.md): prioritized RS01-RS06,
-  RS01-RS03 implemented; share interface descriptions, replace uniform heap
+  RS01-RS04 implemented; RS06 acceptance in progress; shared descriptions, compact heap
   slots and store
   struct fields by type while preserving checked transport and ownership.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and

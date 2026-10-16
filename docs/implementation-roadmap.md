@@ -153,10 +153,10 @@ separately proposed debug/DAP modes.
 
 The [runtime storage execution plan](runtime-storage-plan.md) owns RS01-RS06 and
 is prioritized ahead of downcast, NC migration and the proposed call-lifecycle
-optimization. RS01-RS03 are implemented; RS04 is next. Share
-receiver-independent interface
-descriptions, replace largest-variant heap slots with a compact identity directory
-and focused stores, and store script struct fields by verified type. Preserve
+optimization. RS01-RS04 are implemented and RS05 owner elision is deferred; RS06 final latency
+validation is in progress. Receiver-independent interface descriptions are shared,
+compact directory entries locate typed stores, and script struct fields occupy
+packed bytes with direct scalar-bank transfers. Preserve
 general Value transport, scalar frame banks, numeric buffers and checked ownership.
 
 Heap-local reference compression is a conditional phase with a safety/measurement

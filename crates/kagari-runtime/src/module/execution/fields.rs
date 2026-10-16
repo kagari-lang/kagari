@@ -1,13 +1,7 @@
 //! Field contracts keep variable type arguments outside the compact instruction stream.
-use crate::module::{
-    LoadedModule, StructLayoutRef,
-    execution::layout::{FrameLayout, Location},
-};
-use kagari_bytecode::{
-    instruction::{BytecodeInstruction, StructId},
-    module::BytecodeModule,
-};
-use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType, ty::Ty};
+use crate::module::execution::layout::{FrameLayout, Location};
+use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_types::{reference::ReferenceAccess, scalar::BuiltinType};
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum FieldAccess {
@@ -19,10 +13,8 @@ pub(crate) enum FieldAccess {
 pub(crate) struct PreparedFieldOperation {
     pub(crate) base: Location,
     pub(crate) access: FieldAccess,
-    pub(crate) structure: StructId,
     pub(crate) slot: u32,
     pub(crate) pc: usize,
-    pub(crate) concrete: bool,
     pub(crate) reference: Option<ReferenceAccess>,
     pub(crate) scalar: Option<BuiltinType>,
 }
@@ -32,7 +24,6 @@ impl PreparedFieldOperation {
         pc: usize,
         instruction: &BytecodeInstruction,
         registers: &FrameLayout,
-        module: &BytecodeModule,
     ) -> Self {
         let (base, field, access) = match instruction {
             BytecodeInstruction::ReadAggregateField { dst, base, field } => (
@@ -55,7 +46,6 @@ impl PreparedFieldOperation {
             ),
             _ => unreachable!("field preparation only"),
         };
-        let layout = &module.structures[field.structure.index()];
         let scalar_location = match access {
             FieldAccess::Read { dst } => dst,
             FieldAccess::Write { value } => value,
@@ -66,25 +56,10 @@ impl PreparedFieldOperation {
         Self {
             base: registers.location(base.index()).expect("sealed field base"),
             access,
-            concrete: layout.arguments == field.arguments
-                && layout.arguments.iter().all(Ty::is_concrete),
             pc,
-            structure: field.structure,
             slot: field.slot,
             reference: field.reference,
             scalar,
         }
-    }
-
-    /// Shared verified metadata contains no runtime identities. The admitted
-    /// frame supplies the exact version; applied layouts require a transition.
-    pub(crate) fn concrete_layout(&self, owner: &LoadedModule) -> Option<StructLayoutRef> {
-        self.concrete.then(|| StructLayoutRef {
-            module: owner.clone(),
-            id: self.structure,
-            applied: None,
-            canonical: Some(owner.program.layouts.structure(owner.slot, self.structure)),
-            scope: None,
-        })
     }
 }

@@ -7,10 +7,9 @@ and the progress ledger. Recording this plan does not start implementation.
 Examples below are proposed behavior, not currently executable APIs.
 
 Scheduling update, 2026-10-16: the user prioritized
-[runtime storage redesign](runtime-storage-plan.md) before DC01. Refresh the
-snapshot/layout inventory below against its shared descriptions and physical
-stores; reuse those completed mechanisms rather than reintroducing per-receiver
-metadata. Downcast semantics and DC01's remaining design gates are unchanged.
+[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) before DC01.
+The inventory below now reflects shared descriptions, compact directory entries
+and packed field storage; reuse these mechanisms without per-receiver metadata. Downcast semantics and DC01's remaining design gates are unchanged.
 
 ## Outcome and bounded scope
 
@@ -41,9 +40,10 @@ No implementation changes or Cargo validation were performed during planning.
 | Owner | Evidence and intended use |
 | --- | --- |
 | [Trait specification](spec/traits.md#planned-downcast) | Already proposes concrete type tests and recovery, explicitly unimplemented. This plan completes the execution contract without treating the sketch as a shipped API. |
-| [Interface metadata](../crates/kagari-runtime/src/gc/interfaces.rs) | InterfaceValueSnapshot retains data, concrete type/expression, generic environment and implementation module. Reuse these facts; interface identity alone is not the payload type. |
-| [Interface construction and upcasts](../crates/kagari-runtime/src/objects.rs) | Construction and parent views validate payloads and retain supplying metadata. Reuse receiver admission and lifetime rules on extraction, including mutable host liveness checks. |
+| [Interface metadata](../crates/kagari-runtime/src/gc/interfaces.rs) | InterfaceValueSnapshot retains data and receiver-specific parent-view cells; its shared InterfaceDescription retains the concrete type/expression, generic environment and implementation version. Reuse these facts without copying description or receiver caches; interface identity alone is not the payload type. |
+| [Interface construction and upcasts](../crates/kagari-runtime/src/objects/interfaces.rs) | Construction and parent views validate payloads and retain supplying metadata. Reuse receiver admission and lifetime rules on extraction, including mutable host liveness checks. |
 | [Type compatibility](../crates/kagari-runtime/src/frame/types/compatibility.rs) | TypeView carries lexical provenance, normalizes applied types and compares compatible layout graphs. Audit its exact suitability for extraction; a scoped ID, closed spelling or Rust TypeId alone is insufficient. |
+| [Checked storage](../crates/kagari-runtime/src/gc/directory.rs), [field codec](../crates/kagari-runtime/src/gc/fields.rs) | Stable full identities locate typed payloads and packed struct bytes. Downcast returns the same checked payload, not a field copy or arena address; preserve owner/generation and scoped-view exclusion. |
 | [Runtime values](../crates/kagari-runtime/src/value.rs) | Value is unrooted transport. Copying its tag/handle neither keeps the payload alive nor establishes a complete semantic type. |
 | [HIR method checking](../crates/kagari-hir/src/typeck/body/methods.rs) | Owns member resolution and records checked operations separately from spelling. Resolve intrinsic/member collisions here, not by backend string matching. |
 | [Grammar](kagari.ebnf) | Existing call suffixes use `::<T>()`; no new generic-call syntax is needed. |

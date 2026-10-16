@@ -116,13 +116,17 @@ arity, storage/representation and nested payload type/schema consistency before
 publishing the allocation. Declared payload structs/enums must match the receiving
 version's nominal layout. Standard-enum built-ins reject same-named declared types.
 Enum equality compares tags/layouts and then members using script equality, so
-mutable members compare by identity. Enum objects retain their executable version
+mutable members compare by identity. Enum objects retain immutable version metadata
 and trace their payloads through the same mark-sweep root mechanism. Publication
 does not invalidate old values; rooted old enum objects keep their original layout.
 
-Script struct objects contain a `StructLayoutRef` and positional `Value` slots.
-The layout handle comes from a verified `LoadedModule` and retains that immutable
-executable generation. Objects do not duplicate field names. Allocation requires
+Script struct objects share a closed layout derived from `StructLayoutRef` and
+store positional field bytes in a compact heap arena. Scalars use their exact
+semantic widths, preserving float bits; Unit needs no bytes. Managed fields retain
+a tag and full owner/slot/generation identity. Layout-directed tracing visits only
+reference fields. Safe byte codecs also serve Value-based host/reflection access.
+The layout comes from a verified `LoadedModule` and retains immutable version
+metadata. Objects do not duplicate field names. Allocation requires
 a layout belonging to the receiving runtime and validates field count, payload
 storage boundaries and value representations before publishing the allocation.
 GcHeapConfig configures collection scheduling; successful mutations update live
@@ -217,7 +221,7 @@ The GC must not own Rust host borrows.
 
 The implemented collector uses stop-the-world mark-sweep over stable checked
 handles. A compact generation directory locates dense typed payload stores; sweep
-can compact those stores without changing handle identity. Scoped storage borrows
+can compact those stores and struct field bytes without changing handle identity. Scoped storage borrows
 exclude collection and relocation. It traverses
 tuples, enum payloads, array/map values and struct fields with an explicit work stack,
 handles cycles, and reclaims unreachable slots. Reuse increments the slot generation;

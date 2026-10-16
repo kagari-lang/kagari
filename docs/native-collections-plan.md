@@ -6,8 +6,11 @@ placement. This plan owns NC01-NC06, the bounded API design, migration acceptanc
 and progress ledger. API sketches are proposals, not currently callable APIs.
 
 Scheduling update, 2026-10-16: the user prioritized
-[runtime storage redesign](runtime-storage-plan.md) before NC01. Refresh the
-shared heap, descriptor and handle inventory after that work. NC still owns
+[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) before NC01.
+The shared storage inventory now includes the compact directory, typed native
+payload store, packed script-struct arena and weak shared interface descriptions.
+Full owner/slot/generation handles, native tracing, extraction, revision checks and
+panic-contained disposal remain the contracts NC must reuse. NC still owns
 library collection storage/algorithms; the predecessor does not perform NC's
 collection migration or add new collection-family policy to generic storage.
 
@@ -87,6 +90,7 @@ Recheck implementation at NC01 without reopening the completed Iterable API work
 | --- | --- |
 | [Stdlib declarations](../crates/kagari-stdlib/src/catalog/defaults.rs) | Vec is nominal but declares Sequence storage; HashMap/HashSet still use special native constructors. Move all three to ordinary native declarations. |
 | [Shared native declarations](../crates/kagari-types/src/declaration/native.rs), [HIR application](../crates/kagari-hir/src/native.rs) | Collection constructor/layout variants leak implementation families into semantic modeling. Remove these dependencies coherently rather than rename them. |
+| [Heap directory](../crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](../crates/kagari-runtime/src/gc/interfaces.rs) | Native payloads have a focused store behind stable full identities; shared descriptions do not own receivers. Script struct field bytes are separately packed and do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
 | [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Extend these owners only for proven gaps. |
 | [Managed fields](../crates/kagari-runtime/src/native/payload/managed/mod.rs), [fixed native data](../crates/kagari-runtime/src/native/payload/data.rs) | Safe edits separate fixed Rust data from checked script edges. Dynamic storage must preserve that boundary; arbitrary mutable payload access is not a solution. |
 | [Sequences](../crates/kagari-runtime/src/native/sequence.rs), [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [tables](../crates/kagari-runtime/src/native/hash_storage.rs) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |

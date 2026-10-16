@@ -116,12 +116,7 @@ impl FunctionLayouts {
                     ..
                 } => (Aggregate::Enum(*enumeration, *variant), arguments),
                 BytecodeInstruction::ReadAggregateField { field, .. }
-                | BytecodeInstruction::WriteAggregateField { field, .. }
-                    if prepared
-                        .fields
-                        .binary_search_by_key(&pc, |field| field.pc)
-                        .is_ok_and(|index| !prepared.fields[index].concrete) =>
-                {
+                | BytecodeInstruction::WriteAggregateField { field, .. } => {
                     (Aggregate::Struct(field.structure), &field.arguments)
                 }
                 _ => continue,

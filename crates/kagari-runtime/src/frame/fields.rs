@@ -151,11 +151,7 @@ impl ExecutionStack<'_> {
             } else {
                 None
             };
-            let layout = if let Some(layout) = operation.concrete_layout(&frame.loaded) {
-                layout
-            } else {
-                frame.field_layout(runtime, operation.pc)?
-            };
+            let layout = frame.field_layout(runtime, operation.pc)?;
             let Value::Struct(id) = read(operation.base)? else {
                 return Err(RegionError::TypeMismatch(match operation.access {
                     FieldAccess::Read { .. } => "read_field expects struct value",
@@ -197,11 +193,7 @@ impl ExecutionStack<'_> {
             FieldAccess::Write { value } => FieldAction::Write(read(value)?),
         };
         action.validate(runtime)?;
-        let layout = if let Some(layout) = operation.concrete_layout(&frame.loaded) {
-            layout
-        } else {
-            frame.field_layout(runtime, operation.pc)?
-        };
+        let layout = frame.field_layout(runtime, operation.pc)?;
         let base = read(operation.base)?;
         let mut result_root = None;
         let result = if let Some(access) = operation.reference {

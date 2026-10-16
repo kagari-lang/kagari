@@ -27,11 +27,10 @@ impl ExecutionCursor<'_> {
                 index,
             })));
         }
-        let Some(layout) = operation.concrete_layout(self.loaded).or_else(|| {
-            self.links
-                .and_then(|links| links.ready_field_layout(operation.pc))
-                .cloned()
-        }) else {
+        let Some(layout) = self
+            .links
+            .and_then(|links| links.ready_field_layout(operation.pc))
+        else {
             return Ok(Some(CursorExit::Transition(PreparedTransition::Field {
                 index,
             })));
@@ -58,14 +57,14 @@ impl ExecutionCursor<'_> {
                     let bits = self
                         .runtime
                         .gc()
-                        .struct_scalar(id, &layout, operation.slot as usize, ty)
+                        .struct_scalar(id, layout, operation.slot as usize, ty)
                         .ok_or(RegionError::TypeMismatch("struct layout or field mismatch"))?;
                     self.write_payload(dst.operand.scalar().ok_or_else(|| self.invalid())?, bits)
                         .ok_or_else(|| self.invalid())?;
                 }
                 FieldAccess::Write { .. } => self.runtime.gc().set_struct_scalar(
                     id,
-                    &layout,
+                    layout,
                     operation.slot as usize,
                     ty,
                     bits.expect("prepared scalar write"),
@@ -86,7 +85,7 @@ impl ExecutionCursor<'_> {
             .values
             .read_location(operation.base)
             .ok_or_else(|| self.invalid())?;
-        if let Some(value) = action.execute(self.runtime, &layout, operation.slot as usize, base)? {
+        if let Some(value) = action.execute(self.runtime, layout, operation.slot as usize, base)? {
             let FieldAccess::Read { dst } = operation.access else {
                 return Err(self.invalid().into());
             };

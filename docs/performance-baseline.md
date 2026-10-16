@@ -16,6 +16,77 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Runtime storage, 2026-10-16
+
+Baseline runtime: 159c74ef, with the probe frozen in afec4a3b. Storage checkpoints:
+086e422f (shared interface descriptions), ce56ae7f (compact directory), 7a8c85f4
+(type-directed fields/direct scalar transfer), followed by the packed field arena
+and sweep-count correction. These are storage microbenchmarks, not Lua/Java parity
+or a general interpreter speed claim.
+
+Environment: Apple M1 Max, arm64 macOS 26.6.2 (25G83), rustc 1.98.1
+(48a229cea 2026-09-01); workspace default release profile, target directory and
+build parallelism. The benchmark enables SDK source/native features. Ordinary
+latency runs do not enable diagnostics. Allocation runs separately enable the
+counting allocator through diagnostics; their times are not performance evidence.
+
+Reproduce with:
+
+```text
+cargo run -p kagari-lua-benchmark --example runtime_storage --release
+cargo run -p kagari-lua-benchmark --example runtime_storage --release --features diagnostics
+```
+
+The [probe](../benchmarks/lua-comparison/examples/runtime_storage/main.rs) reports
+compilation, program preparation and linking separately. Field/scalar loops run
+50,000 iterations; traversals and lifecycle populations use 512 objects. Each
+ordinary workload uses three warmups and eleven measured samples, reporting
+minimum/median/maximum. Lifecycle samples use fresh runtimes and explicit live
+and post-release collections; automatic collection is disabled equally. No test
+or build runs concurrently with reported latency comparisons. Small controls use
+one object. Allocation runs first warm shared immutable program preparation, then
+measure setup, construction, live GC, sparse/released roots, empty GC, reuse and
+runtime teardown. One Point initially populates 6,430 shared-program bytes, reported
+separately; warmed teardown is zero in all sixteen population/control cases.
+
+Requested-byte increments above each independently loaded setup:
+
+| Population (512) | Baseline live | Current live | Baseline empty | Current empty | Current reused |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Point | 220,896 | 58,084 | 187,632 | 40,508 | 66,692 |
+| Pair<i32> | 221,672 | 58,860 | 187,672 | 40,548 | 67,052 |
+| Narrow interface | 834,960 | 128,616 | 613,056 | 101,752 | 149,096 |
+| Wide interface | 1,437,072 | 129,840 | 613,056 | 101,752 | 150,320 |
+| Generic interface | 1,314,192 | 129,992 | 666,304 | 102,168 | 150,504 |
+| One copied interface | 18,776 | 18,576 | 9,472 | 7,896 | 18,640 |
+| Cyclic nodes | 581,360 | 414,428 | 367,456 | 72,876 | 430,812 |
+| Numeric buffer | 10,256 | 10,224 | 7,520 | 6,944 | 10,256 |
+
+These totals include retained directory/store capacity and descriptions, not only
+live field bytes. Current loaded setup is 5,185,659 requested bytes for this complete compiled
+workload plus standard declarations; it is not a universal empty-runtime estimate.
+Point/Pair live increments fall approximately 74%; interface populations fall
+85-91%. The directory entry is 24 bytes instead of 168 on this target. Value stays
+16 bytes and external identities stay 12 bytes. Each Point has eight field bytes;
+its total cost also includes the directory, arena record and amortized descriptions.
+
+The initial per-object byte buffers added an allocation after constructor staging.
+A packed arena removes that boundary while preserving exact field widths. Relative
+to 7a8c85f4, constructing 512 Points now requests 1,712 allocations instead of 2,214;
+Pair construction requests 1,740 instead of 2,754 (canonical description keys also
+avoid argument-vector copies). Repeated field loops retain the baseline 98 requests,
+6,928 requested bytes and zero net bytes per invocation, including entry/exit.
+Empty/sparse capacity and teardown are checked independently of those loop costs.
+
+Owner elision is deferred. Removing four owner bytes from each Node's one managed
+struct field would save 2,048 bytes, about 0.49% of the reference-heavy live increment.
+Native edge-vector elements are outside that proposed encoding change. Retaining
+complete identities avoids an additional owner-capability/reconstruction protocol;
+no compressed handle or unsafe speedup is claimed.
+
+Final matched latency acceptance remains open in the [active plan](runtime-storage-plan.md);
+the memory figures above are measured, not a claim that every latency gate passes.
+
 ## Focused preparation recheck, 2026-10-11
 
 After the user reported lower CPU load, nine selected scenarios ran twice: 18

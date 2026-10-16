@@ -850,6 +850,76 @@ release +1.1% to +12.4%. A third matched pair will distinguish drift from persis
 regression without changing the original gates. No additional safe/unsafe tuning
 has been applied merely to manufacture a passing sample.
 
+### RS06 architecture follow-up
+
+Three matched process pairs confirm remaining medians outside the original 10%
+gate: Point construction +10.6%, Point release +10.3%, node release +13.2%.
+Reusing canonical layout identities removes repeated structural-key preparation
+(including transient generic argument copies), but the first trial did not resolve
+construction/retirement latency. A borrowed-view inlining hint showed no benefit
+and was removed.
+
+Diagnosis: RS04 retained a separately allocated byte buffer for every struct in
+addition to its already staged constructor Values. This added an allocation/copy
+boundary and per-object buffer disposal. Replace those boxes with one packed
+struct-byte arena under the existing ObjectStorage borrow. Records own a shared
+layout and private byte offset; stable directory handles remain unchanged.
+Construction reserves record/byte capacity before writing admitted fields and
+publishing an entry. Sweep keeps record order, packs surviving bytes with safe
+copy_within, updates offsets and shrinks with the existing hysteresis; an empty
+arena detaches its allocation for disposal outside the borrow. A live view cannot
+survive allocation, sweep, reentry or suspension. General native payloads remain
+separate typed entries. This is a storage-boundary correction within RS scope,
+not a GC algorithm change. The per-object byte-buffer checkpoint is superseded.
+
+Integration currently builds; an unused import from general extraction was
+removed after restricting single-object extraction to its sole native consumer.
+Focused GC (15), field-layout (5), mixed-layout relocation (1), field/domain/
+overflow (2), nominal reload (1), native extraction (2) and native trace/drop panic
+cases (3) pass. Mixed-size/zero-byte rows retain managed references, NaN bits and
+alias-visible mutation through compaction, growth and directory reuse. Structure,
+formatting and workspace Clippy pass before the final field-link cleanup.
+The packed arena lowers Point/Pair live increments to 58,084 / 58,860 bytes and
+removes 502 / 1,014 construction requests versus RS04; warmed teardown and loop
+allocation contracts remain unchanged.
+
+Further GC diagnosis found repeated per-store scans after directory retirement.
+Retirement now supplies exact per-kind counts; extraction scans only partially
+dead stores and moves an entirely dead buffer directly, including small stores.
+With no dead payload and no outstanding native extraction identity, sweep skips
+payload maintenance; marking, metadata cleanup and validation still run. Moving a
+small dead buffer avoids the former temporary batch allocation/copy, rather than
+adding a new allocation to each create/collect cycle.
+
+Field handlers also reconstructed/cloned concrete layouts while function links
+separately owned aggregate/scoped layouts. Concrete field sites now join that
+existing linked-layout owner and borrow its descriptor for the closed region; scoped misses still
+exit before preparation. The duplicate concrete-layout constructor and redundant
+prepared fields are removed. Focused field/reload checks and final matched
+latencies are being rerun; no gate has been relaxed. The first cleanup build found
+two remaining concrete-site exclusion filters; both now include all field sites
+in the shared linked-layout preparation. No check was disabled to resolve them.
+
+The linked-layout checkpoint passes field/domain/overflow (4), pinned generic
+reload (1), source-free nominal/reference rejection (2) and scoped Rust loan (2)
+cases. Its final three process pairs pass all controls except numeric-buffer
+release GC (4,667 ns versus 3,667 ns, +27.3%). The unchanged 10% gate remains open.
+Other controls include scalar +1.9%, Point construction +6.7%, node release +8.1%;
+field read/write/RMW gains are 24.9-47.3% on the matched rebuilt baseline.
+
+The remaining tiny-collection diagnosis found capacity checks for all twelve
+stores after retiring one object and destructor-loop calls for empty batches.
+Capacity maintenance now belongs to the changed store: partial extraction shrinks
+its survivors, complete extraction detaches its whole buffer, and native take
+maintains its own store immediately. An empty sweep need not visit payload stores.
+Empty disposal branches stay inline while nonempty destructor/panic loops remain
+out of line. Full marking/identity validation and per-payload panic containment are
+unchanged. Focused cleanup checks pass: GC (15), mixed-row relocation (1), native take (2),
+trace/destructor panic cleanup (3), and interface dispatch/retirement allocation
+composition (3). Structure, formatting, workspace all-target Clippy and diff
+whitespace pass; 294 links across eight touched documents are valid. Final matched
+measurements remain the only open local acceptance item.
+
 ### RS05 decision
 
 Defer heap-local owner elision. The migrated struct codec is the only proposed

@@ -196,7 +196,7 @@ impl ExecutionModule {
                         registers,
                         awaits,
                         calls: BTreeMap::new(),
-                        has_layout_operands: fields.iter().any(|field| !field.concrete)
+                        has_layout_operands: !fields.is_empty()
                             || function.instructions.iter().any(|instruction| {
                                 matches!(
                                     instruction,
@@ -304,12 +304,7 @@ impl ExecutionInstruction {
             BytecodeInstruction::ReadAggregateField { .. }
             | BytecodeInstruction::WriteAggregateField { .. } => {
                 let index = fields.len();
-                fields.push(PreparedFieldOperation::prepare(
-                    pc,
-                    instruction,
-                    registers,
-                    module,
-                ));
+                fields.push(PreparedFieldOperation::prepare(pc, instruction, registers));
                 Self::managed(ManagedOperation::Field { index })
             }
             BytecodeInstruction::Unary { dst, op, operand } => {

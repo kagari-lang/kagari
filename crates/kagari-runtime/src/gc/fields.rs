@@ -1,4 +1,4 @@
-//! Ordinary structs own initialized compact bytes and share a closed layout.
+//! Ordinary structs borrow initialized arena bytes under the heap storage guard.
 mod codec;
 
 use crate::{
@@ -29,58 +29,34 @@ impl StructStorageLayouts {
     }
 }
 
+/// Unpublished values already admitted by the allocation owner.
 #[derive(Debug)]
-pub(super) struct StructStorage {
+pub(super) struct StructInitializer {
     pub(super) description: Arc<StructStorageLayout>,
-    bytes: Box<[u8]>,
+    pub(super) values: Vec<Value>,
 }
 
-impl StructStorage {
-    #[cfg(test)]
-    pub(super) fn corrupt_storage_for_test(&mut self) {
-        self.bytes = Box::new([]);
-    }
+/// Views cannot escape the heap's storage borrow; allocation and sweep may move bytes.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct StructView<'a> {
+    pub(super) description: &'a StructStorageLayout,
+    pub(super) bytes: &'a [u8],
+}
 
-    pub(super) fn new(
-        description: Arc<StructStorageLayout>,
-        values: &[Value],
-    ) -> Result<Self, RuntimeError> {
-        let mut bytes = Vec::new();
-        bytes
-            .try_reserve_exact(description.size)
-            .map_err(|_| RuntimeError::resource_limit("struct field storage"))?;
-        bytes.resize(description.size, 0);
-        let mut storage = Self {
-            description,
-            bytes: bytes.into_boxed_slice(),
-        };
-        for (slot, value) in values.iter().enumerate() {
-            storage
-                .set(slot, *value)
-                .ok_or_else(|| RuntimeError::module_validation("struct field encoding"))?;
-        }
-        Ok(storage)
-    }
+#[derive(Debug)]
+pub(super) struct StructViewMut<'a> {
+    pub(super) description: &'a StructStorageLayout,
+    pub(super) bytes: &'a mut [u8],
+}
 
+impl StructView<'_> {
     pub(super) fn get(&self, slot: usize) -> Option<Value> {
         match *self.description.fields.get(slot)? {
             StoredField::Scalar { offset, encoding } => scalar::decode(
                 encoding.representation,
-                codec::read_scalar(&self.bytes, offset, encoding)?,
+                codec::read_scalar(self.bytes, offset, encoding)?,
             ),
-            StoredField::Managed { offset } => codec::read_managed(&self.bytes, offset),
-        }
-    }
-
-    pub(super) fn set(&mut self, slot: usize, value: Value) -> Option<()> {
-        match *self.description.fields.get(slot)? {
-            StoredField::Scalar { offset, encoding } => {
-                if !value.has_representation(encoding.representation) {
-                    return None;
-                }
-                codec::write_scalar(&mut self.bytes, offset, encoding, scalar::encode(&value)?)
-            }
-            StoredField::Managed { offset } => codec::write_managed(&mut self.bytes, offset, value),
+            StoredField::Managed { offset } => codec::read_managed(self.bytes, offset),
         }
     }
 
@@ -89,8 +65,29 @@ impl StructStorage {
             return None;
         };
         (encoding.ty == expected)
-            .then(|| codec::read_scalar(&self.bytes, offset, encoding))
+            .then(|| codec::read_scalar(self.bytes, offset, encoding))
             .flatten()
+    }
+
+    pub(super) fn trace(&self, visit: &mut dyn FnMut(Value)) -> Option<()> {
+        for slot in self.description.references.iter().rev() {
+            visit(self.get(*slot)?);
+        }
+        Some(())
+    }
+}
+
+impl StructViewMut<'_> {
+    pub(super) fn set(&mut self, slot: usize, value: Value) -> Option<()> {
+        match *self.description.fields.get(slot)? {
+            StoredField::Scalar { offset, encoding } => {
+                if !value.has_representation(encoding.representation) {
+                    return None;
+                }
+                codec::write_scalar(self.bytes, offset, encoding, scalar::encode(&value)?)
+            }
+            StoredField::Managed { offset } => codec::write_managed(self.bytes, offset, value),
+        }
     }
 
     pub(super) fn set_scalar(
@@ -105,14 +102,7 @@ impl StructStorage {
         if encoding.ty != expected {
             return None;
         }
-        codec::write_scalar(&mut self.bytes, offset, encoding, bits)
-    }
-
-    pub(super) fn trace(&self, visit: &mut dyn FnMut(Value)) -> Option<()> {
-        for slot in self.description.references.iter().rev() {
-            visit(self.get(*slot)?);
-        }
-        Some(())
+        codec::write_scalar(self.bytes, offset, encoding, bits)
     }
 }
 
@@ -227,7 +217,7 @@ impl GcHeap {
                 "field is read-only or value has the wrong concrete type",
             ));
         }
-        self.with_struct_mut(id, |storage| {
+        self.with_struct_mut(id, |mut storage| {
             if !storage.description.semantic.matches(expected) {
                 return Err(field_error("struct layout mismatch"));
             }
@@ -287,7 +277,7 @@ impl GcHeap {
                 "field is read-only or value has the wrong concrete type",
             ));
         }
-        self.with_struct_mut(id, |storage| {
+        self.with_struct_mut(id, |mut storage| {
             if !storage.description.semantic.matches(expected) {
                 return Err(field_error("struct layout mismatch"));
             }

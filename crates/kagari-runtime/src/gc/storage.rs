@@ -6,19 +6,26 @@ use crate::{
         MetadataEdge,
         interfaces::{InterfaceSnapshotId, InterfaceStore},
     },
-    gc::{HeapObjectId, fields::StructStorage, values::TupleData},
+    gc::{
+        HeapObjectId,
+        fields::{StructInitializer, StructView, StructViewMut},
+        values::TupleData,
+    },
     host::{HostPathViewHandle, HostRootHandle},
     native::storage::NativeObject,
     range::RangeValue,
     value::{EnumValueSnapshot, EphemeralValue, Value},
 };
 use kagari_abi::representation::ValueType;
-use std::{fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{borrow::Borrow, fmt::Debug, marker::PhantomData, sync::Arc};
 
 /// One object shape for owned transfer and scoped shared/exclusive views. The
 /// heap stores typed payloads; this enum is only a transient access/transfer value.
 pub(super) trait ObjectAccess {
-    type Field<T: Debug + 'static>: Debug;
+    type Field<T: Debug + 'static>: Debug + Borrow<T>;
+    type Structure: Debug;
+
+    fn field_count(structure: &Self::Structure) -> usize;
 }
 
 #[derive(Debug)]
@@ -32,14 +39,29 @@ pub(super) struct Exclusive<'a>(PhantomData<&'a mut ()>);
 
 impl ObjectAccess for Owned {
     type Field<T: Debug + 'static> = T;
+    type Structure = StructInitializer;
+
+    fn field_count(structure: &Self::Structure) -> usize {
+        structure.description.fields.len()
+    }
 }
 
 impl<'a> ObjectAccess for Shared<'a> {
     type Field<T: Debug + 'static> = &'a T;
+    type Structure = StructView<'a>;
+
+    fn field_count(structure: &Self::Structure) -> usize {
+        structure.description.fields.len()
+    }
 }
 
 impl<'a> ObjectAccess for Exclusive<'a> {
     type Field<T: Debug + 'static> = &'a mut T;
+    type Structure = StructViewMut<'a>;
+
+    fn field_count(structure: &Self::Structure) -> usize {
+        structure.description.fields.len()
+    }
 }
 
 #[derive(Debug)]
@@ -56,7 +78,7 @@ pub(super) enum HeapObject<A: ObjectAccess = Owned> {
         A::Field<Option<Arc<ErrorTrace>>>,
     ),
     Struct {
-        storage: A::Field<StructStorage>,
+        storage: A::Structure,
     },
     Interface {
         snapshot: A::Field<InterfaceSnapshotId>,
@@ -79,47 +101,18 @@ impl Clone for HeapObject<Shared<'_>> {
     }
 }
 
-impl HeapObject {
-    pub(super) fn view(&self) -> HeapObject<Shared<'_>> {
-        match self {
-            Self::String(value) => HeapObject::String(value),
-            Self::Tuple(value) => HeapObject::Tuple(value),
-            Self::Range(value) => HeapObject::Range(value),
-            Self::HostRoot(value) => HeapObject::HostRoot(value),
-            Self::HostPath(value) => HeapObject::HostPath(value),
-            Self::Ephemeral(value) => HeapObject::Ephemeral(value),
-            Self::Native(value) => HeapObject::Native(value),
-            Self::Enum(value, trace) => HeapObject::Enum(value, trace),
-            Self::Struct { storage } => HeapObject::Struct { storage },
-            Self::Interface {
-                snapshot,
-                method_count,
-            } => HeapObject::Interface {
-                snapshot,
-                method_count,
-            },
-            Self::Closure { snapshot } => HeapObject::Closure { snapshot },
-            Self::Cell { ty, value } => HeapObject::Cell { ty, value },
-        }
-    }
-
+impl<A: ObjectAccess> HeapObject<A> {
     pub(super) fn units(&self) -> usize {
-        self.view().units()
-    }
-}
-
-impl HeapObject<Shared<'_>> {
-    pub(super) fn units(self) -> usize {
         1 + match self {
-            Self::String(text) => text.len(),
-            Self::Tuple(tuple) => tuple.members.len(),
-            Self::HostPath(path) => path.retained_values().count(),
+            Self::String(text) => text.borrow().len(),
+            Self::Tuple(tuple) => tuple.borrow().members.len(),
+            Self::HostPath(path) => path.borrow().retained_values().count(),
             Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => 0,
-            Self::Native(object) => object.units(),
-            Self::Enum(value, _) => value.fields.len(),
-            Self::Struct { storage } => storage.description.fields.len(),
-            Self::Interface { method_count, .. } => 1 + *method_count,
-            Self::Closure { snapshot, .. } => 1 + snapshot.captures.len(),
+            Self::Native(object) => object.borrow().units(),
+            Self::Enum(value, _) => value.borrow().fields.len(),
+            Self::Struct { storage } => A::field_count(storage),
+            Self::Interface { method_count, .. } => 1 + *method_count.borrow(),
+            Self::Closure { snapshot, .. } => 1 + snapshot.borrow().captures.len(),
             Self::Cell { .. } => 2,
         }
     }

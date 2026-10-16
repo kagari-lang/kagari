@@ -454,3 +454,115 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
     drop(root);
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
 }
+
+#[test]
+fn mixed_layout_relocation_preserves_references_empty_records_and_aliases() {
+    let mut runtime = Runtime::default();
+    let empty = layouts::layout(&mut runtime, "Empty", &[]);
+    let small = layouts::layout(
+        &mut runtime,
+        "Small",
+        &[("flag", Ty::Builtin(BuiltinType::Bool), true)],
+    );
+    let packed = layouts::layout(
+        &mut runtime,
+        "Packed",
+        &[
+            ("number", Ty::Builtin(BuiltinType::I8), true),
+            ("text", Ty::Builtin(BuiltinType::String), true),
+            ("bits", Ty::Builtin(BuiltinType::F64), true),
+        ],
+    );
+    let mut kept = Vec::new();
+    for index in 0..200_i32 {
+        let zero = runtime.alloc_struct(empty.clone(), vec![]).unwrap();
+        let flag = runtime
+            .alloc_struct(small.clone(), vec![Value::Bool(true)])
+            .unwrap();
+        let text = runtime.gc().alloc_string(index.to_string()).unwrap();
+        let bits = 0x7ff8_0000_0000_0000 + index as u64;
+        let record = runtime
+            .alloc_struct(
+                packed.clone(),
+                vec![
+                    Value::I32(index - 100),
+                    text,
+                    Value::F64(f64::from_bits(bits)),
+                ],
+            )
+            .unwrap();
+        if index % 17 == 0 {
+            let tuple = runtime
+                .gc()
+                .alloc_tuple(vec![
+                    Value::Struct(zero),
+                    Value::Struct(flag),
+                    Value::Struct(record),
+                ])
+                .unwrap();
+            kept.push((
+                runtime.root_value(tuple).unwrap(),
+                zero,
+                flag,
+                record,
+                index,
+                bits,
+            ));
+        }
+    }
+    assert_eq!(
+        runtime.collect_garbage().unwrap().live_objects,
+        kept.len() * 5
+    );
+    for (_, _, flag, record, _, _) in &kept {
+        runtime
+            .gc()
+            .struct_set_slot(*flag, &small, 0, Value::Bool(false))
+            .unwrap();
+        runtime
+            .gc()
+            .struct_set_slot(*record, &packed, 0, Value::I32(-128))
+            .unwrap();
+    }
+    // Grow after compaction, reusing directory IDs while byte offsets remain private.
+    for _ in 0..400 {
+        runtime
+            .alloc_struct(
+                packed.clone(),
+                vec![
+                    Value::I32(127),
+                    runtime.gc().alloc_string("dead".to_owned()).unwrap(),
+                    Value::F64(-0.0),
+                ],
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        runtime.collect_garbage().unwrap().live_objects,
+        kept.len() * 5
+    );
+    for (_, zero, flag, record, index, bits) in &kept {
+        assert!(runtime.gc().struct_snapshot(*zero).unwrap().1.is_empty());
+        assert_eq!(
+            runtime.gc().struct_get_slot(*flag, &small, 0),
+            Some(Value::Bool(false))
+        );
+        assert_eq!(
+            runtime.gc().struct_get_slot(*record, &packed, 0),
+            Some(Value::I32(-128))
+        );
+        let Some(Value::Str(text)) = runtime.gc().struct_get_slot(*record, &packed, 1) else {
+            panic!("retained string")
+        };
+        assert_eq!(&*runtime.gc().string(text).unwrap(), &index.to_string());
+        let Some(Value::F64(value)) = runtime.gc().struct_get_slot(*record, &packed, 2) else {
+            panic!("retained f64")
+        };
+        assert_eq!(value.to_bits(), *bits);
+    }
+    let stale = kept[0].3;
+    drop(kept);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+    runtime.alloc_struct(empty, vec![]).unwrap();
+    assert!(!runtime.gc().validate_value(&Value::Struct(stale)));
+}

@@ -406,8 +406,7 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
         Some(Value::I32(7))
     );
     // Simulate a broken engine invariant rather than a script type error.
-    heap.with_struct_mut(object, |storage| storage.corrupt_storage_for_test())
-        .unwrap();
+    heap.objects.borrow_mut().corrupt_structure_for_test(object);
     let error = crate::reflection::set_field(heap, &Value::Struct(object), "value", Value::I32(9))
         .unwrap_err();
     assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);

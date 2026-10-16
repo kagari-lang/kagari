@@ -2,7 +2,7 @@
 use crate::{
     frame::types::compatibility::TypeIdentity,
     host::HostRegistryId,
-    module::{ModuleKey, StructLayoutRef},
+    module::{ModuleKey, StructLayoutRef, layout_identity::LayoutIdentity},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::StructId;
@@ -14,9 +14,19 @@ use std::sync::Arc;
 pub(crate) struct StructStorageKey {
     registry: HostRegistryId,
     owner: ModuleKey,
-    structure: StructId,
-    arguments: Vec<Ty>,
-    provenance: Option<Arc<[Arc<TypeIdentity>]>>,
+    identity: StorageIdentity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum StorageIdentity {
+    // Canonical identities already include shape and nominal argument provenance.
+    // Their counters are never reused within the supplying program generation.
+    Canonical(LayoutIdentity),
+    Detached {
+        structure: StructId,
+        arguments: Vec<Ty>,
+        provenance: Option<Arc<[Arc<TypeIdentity>]>>,
+    },
 }
 
 impl StructLayoutRef {
@@ -24,9 +34,14 @@ impl StructLayoutRef {
         StructStorageKey {
             registry: self.module.registry_owner,
             owner: self.module.key(),
-            structure: self.id,
-            arguments: self.layout().arguments.clone(),
-            provenance: self.scope.as_ref().map(|scope| scope.arguments().clone()),
+            identity: match self.canonical {
+                Some(identity) => StorageIdentity::Canonical(identity),
+                None => StorageIdentity::Detached {
+                    structure: self.id,
+                    arguments: self.layout().arguments.clone(),
+                    provenance: self.scope.as_ref().map(|scope| scope.arguments().clone()),
+                },
+            },
         }
     }
 }
@@ -42,7 +57,7 @@ pub(crate) enum StoredField {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct StructStorageLayout {
     pub(crate) semantic: StructLayoutRef,
     pub(crate) fields: Box<[StoredField]>,
@@ -85,7 +100,7 @@ impl StructStorageLayout {
     }
 }
 
-pub(crate) fn scalar_width(ty: BuiltinType) -> Option<usize> {
+fn scalar_width(ty: BuiltinType) -> Option<usize> {
     Some(match ty {
         BuiltinType::Unit => 0,
         BuiltinType::Bool => 1,
