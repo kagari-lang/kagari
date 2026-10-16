@@ -1930,6 +1930,17 @@ root/window comparisons remain necessary for the eventual accepted candidate.
 The previous candidate's forms pass cannot establish acceptance for a new image.
 Do not run build/test/profile/diagnostic work concurrently with the paired runs.
 
+The correction is committed at e4cf9ee2. Its ordinary release candidate is
+`20f106994dcbf4b4f039887df90f184e716ae59183e5a33641a853356c5c17c9`.
+Matching EXE/PDB archives are retained. Exact linked inspection confirms that
+resolve/resolve_mut now perform one record hash/probe followed by the shared
+candidate-availability check; their previous call through available and second
+record probe are absent. poll_execution no longer calls termination separately
+and retains SessionState::poll (631 to 484 bytes of linked code). These are code
+observations, not speed claims. Start the declared calls/fibonacci sequence on
+the unchanged Cargo release path after this inspection; all earlier evidence and
+open acceptance obligations remain as recorded above.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
