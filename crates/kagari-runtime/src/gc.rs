@@ -24,9 +24,9 @@ use crate::{
     value_check::matches_type_in,
 };
 use kagari_abi::representation::ValueType;
-use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
+use kagari_types::ty::Ty;
 use std::{
-    cell::{Cell, Ref, RefCell, RefMut},
+    cell::{Cell, OnceCell, Ref, RefCell, RefMut},
     collections::HashSet,
     slice,
     sync::{
@@ -198,10 +198,12 @@ pub struct GcHeap {
     native_operations: LeaseTable,
     next_key_token: Cell<i64>,
     native_borrows: Cell<usize>,
-    sequence_storage: NativeStorage,
-    map_storage: NativeStorage,
-    set_storage: NativeStorage,
-    cursor_storage: NativeStorage,
+    // Heap-local immutable codecs contain no object identity or loaded types.
+    // Initialize only when used; descriptor construction cannot execute callbacks.
+    sequence_storage: OnceCell<NativeStorage>,
+    map_storage: OnceCell<NativeStorage>,
+    set_storage: OnceCell<NativeStorage>,
+    cursor_storage: OnceCell<NativeStorage>,
 }
 
 impl GcHeap {
@@ -243,12 +245,10 @@ impl GcHeap {
             native_operations: Default::default(),
             next_key_token: Cell::new(0),
             native_borrows: Cell::new(0),
-            sequence_storage: NativeStorage::sequence(0),
-            map_storage: NativeStorage::map(0, 1),
-            set_storage: NativeStorage::set(0),
-            cursor_storage: NativeStorage::provided_with_layout::<iter::NativeIter>(
-                NativeStorageLayout::Iterator { item: 0 },
-            ),
+            sequence_storage: OnceCell::new(),
+            map_storage: OnceCell::new(),
+            set_storage: OnceCell::new(),
+            cursor_storage: OnceCell::new(),
             objects: RefCell::new(ObjectStorage::default()),
             struct_layouts: RefCell::new(StructStorageLayouts::default()),
             free: RefCell::new(Vec::new()),

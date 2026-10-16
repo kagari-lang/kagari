@@ -1574,6 +1574,78 @@ The extension does not itself clear a failed gate. All compiler diagnostics have
 stopped before it starts. Finish all 21 pairs before any further production edit
 or diagnostic workload; preserve any remaining failure for renewed attribution.
 
+The native-view extension finishes all 21 pairs at UTC 20261016T174713Z, retaining
+the original seven and the same `1309ceea...` executable. Checksums all pass.
+Byte_state passes at 0.8449/0.8504, interface at 0.8531/0.8610, shared_generic at
+0.8571/0.8559 and field at 0.9864/0.9778. Runtime initialization is the sole failed
+forms row at 1.0991/1.1355. Do not extend again merely to obtain a passing median.
+
+Offline inspection now checks the actual saved ordinary executables/PDBs, using
+DbgHelp with loaded-PDB hashes verified and PE exception ranges to bound functions;
+MSVC dumpbin supplies disassembly. Construction-owner/native-view both retain
+78-byte NativeInstallation::runtime, 178-byte KagariEngine::runtime, 2,296-byte
+Runtime construction, 516-byte ResourceState construction and 1,395-byte host
+construction bodies. Linked addresses differ; GcHeap::new is 2,397 versus 2,343
+bytes. No constructor work increase has been established. The SDK wrapper does
+expose a concrete avoidable boundary: it allocates a 3,624-byte stack frame, calls
+installation construction into a temporary, and copies the 3,512-byte Runtime
+into its returned wrapper. This cost also predates IP03; it is not proven to
+explain the difference between the two candidates.
+
+Evaluate one bounded code-generation repair: make the small engine/installation
+construction wrappers available for cross-crate inlining while keeping one Runtime
+constructor and unchanged ownership/validation. Inspect the final generated caller
+for eliminated temporary/memcpy work; reject the hints if that does not occur.
+Do not introduce global descriptor caches, heap-layout changes, new construction
+APIs or another semantic path. Existing construction/isolation checks and allocation
+evidence remain the contract owners. Timing acceptance still uses the frozen
+baseline and original gates; fewer copies alone do not satisfy it.
+
+The bounded inline experiment is rejected: it removes the two wrapper symbols,
+but the final forms caller still copies the 3,512-byte Runtime and grows from
+8,846 to 10,656 code bytes. Both inline attributes are reverted. Its saved binary
+is an unmeasured diagnostic, not an acceptance candidate.
+
+Continue with a bounded constructor preparation change. GcHeap currently creates
+four immutable builtin storage descriptors eagerly, including allocation of their
+erased factories, even when no array, map, set or cursor is ever created. These
+descriptors contain no heap identity, roots or loaded type scope. Keep their owner
+in GcHeap and initialize each with std::cell::OnceCell on first existing use; the
+initializer only constructs a descriptor and never invokes its factory or script.
+The runtime is exclusively driven (Send, not Sync), so no synchronized or global
+cache is needed. Descriptors still drop with the heap. Actual payload preparation,
+scope checks, borrow/lease validation, resource checks and mutation order stay in
+their existing owners. This changes constructor metadata preparation, not OM's
+object directory/payload model or IP06's collection transition engine.
+
+The cost predates IP03 and is not a proven cause of the difference between the two
+saved candidates. Measure both cold/first-use and warm allocation records; this
+can move work into first use and must pass the existing common gates there too.
+Reuse fixed-array alias/construction, array source-free provider, map/set alias and
+iterator revision/GC/failure contracts, then structure/format/diff and workspace
+Clippy. Compare original/forms and loaded-storage counters against frozen IP01,
+including teardown and warm allocation growth, before ordinary timing. If those
+pass, commit this coherent repair and measure seven new forms pairs with all
+existing gates; preserve the candidate and PDB. Do not pool it with earlier runs.
+
+The lazy-codec repair passes the five selected SDK contracts plus the existing
+Runtime Send and foreign-handle/tag rejection contracts (seven tests total).
+Structure (1,282 files, zero violations), formatting, whitespace and workspace
+all-target Clippy pass. No tests or assertions were removed. Original/forms and
+storage diagnostic counters are being collected; no ordinary timing has started.
+Prior unrelated call/reload/cancellation checks remain evidence for unchanged code,
+while the exhaustive backend/platform matrix remains pending CI.
+
+Lazy-codec counters pass all 14 original and 72 forms records, 297 loaded-storage
+comparisons and 16 zero-net teardown cases. Cold execution remains within its
+existing bounds and warm allocation requests/bytes do not grow. The 512-Point
+setup retains 5,186,541 requested bytes (IP01: 5,186,413); live/empty/reused
+increments remain 58,092/40,516/66,700. Report this small setup increase rather
+than claiming a retained-memory saving from lazy construction. Diagnostic times
+are ignored. All test/build/diagnostic work has finished before ordinary timing.
+Commit the constructor repair and start the declared seven-pair forms comparison;
+required calls/fibonacci, affected arrays/maps and combined controls remain open.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

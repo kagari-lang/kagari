@@ -112,11 +112,16 @@ impl GcHeap {
 
     pub(crate) fn default_storage(&self, ty: &Ty) -> Option<&NativeStorage> {
         match ty {
-            Ty::Array(..) => Some(&self.sequence_storage),
-            Ty::Map { .. } => Some(&self.map_storage),
-            Ty::Set(..) => Some(&self.set_storage),
+            Ty::Array(..) => Some(self.array_storage()),
+            Ty::Map { .. } => Some(self.map_storage.get_or_init(|| NativeStorage::map(0, 1))),
+            Ty::Set(..) => Some(self.set_storage.get_or_init(|| NativeStorage::set(0))),
             _ => None,
         }
+    }
+
+    pub(super) fn array_storage(&self) -> &NativeStorage {
+        self.sequence_storage
+            .get_or_init(|| NativeStorage::sequence(0))
     }
 
     pub(crate) fn native_type_name(&self, id: HeapObjectId) -> Option<String> {

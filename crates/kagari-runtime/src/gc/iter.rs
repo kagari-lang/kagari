@@ -4,12 +4,16 @@ use crate::{
     frame::types::{arguments::TypeArgument, compatibility::TypeView},
     gc::{GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     module::LoadedModule,
-    native::{sequence::SequencePayload, storage::NativePayload, storage_type::StorageType},
+    native::{
+        sequence::SequencePayload,
+        storage::{NativePayload, NativeStorage},
+        storage_type::StorageType,
+    },
     value::{MapKey, Value},
     value_check::matches_type,
 };
 use kagari_contract::operations::StringIterKind;
-use kagari_types::{scalar::BuiltinType, ty::Ty};
+use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
 
 struct IterTypeScope<'a> {
     source: &'a TypeArgument,
@@ -212,6 +216,11 @@ impl GcHeap {
         };
         let object = self
             .cursor_storage
+            .get_or_init(|| {
+                NativeStorage::provided_with_layout::<NativeIter>(NativeStorageLayout::Iterator {
+                    item: 0,
+                })
+            })
             .prepare_payload(self, &cursor_type, payload, owner)?;
         let id = self.alloc_native(object)?;
         Ok(Value::GcHandle(id))

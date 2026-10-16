@@ -38,7 +38,7 @@ impl GcHeap {
         let element = contract.ty.clone();
         let values = self.prepare_buffer_values(&contract, elements)?;
         let ty = Ty::Array(Box::new(element.clone()));
-        let object = self.sequence_storage.prepare_payload(
+        let object = self.array_storage().prepare_payload(
             self,
             &ty,
             SequencePayload {
@@ -92,7 +92,7 @@ impl GcHeap {
             values.append_repeated(value, (count - start).min(1024))?;
         }
         let ty = Ty::Array(Box::new(element.clone()));
-        let object = self.sequence_storage.prepare_payload(
+        let object = self.array_storage().prepare_payload(
             self,
             &ty,
             SequencePayload {
