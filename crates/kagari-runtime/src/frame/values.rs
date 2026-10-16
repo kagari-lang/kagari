@@ -485,14 +485,18 @@ impl ExecutionValues {
             self.values.drain(ranges.managed.clone());
             self.payloads.drain(ranges.scalars.clone());
             self.initialized.drain(ranges.scalars.clone());
-            for window in self.windows.iter_mut() {
-                if window.ranges.managed.start >= ranges.managed.end {
-                    window.ranges.managed.start -= ranges.managed.len();
-                    window.ranges.managed.end -= ranges.managed.len();
-                }
-                if window.ranges.scalars.start >= ranges.scalars.end {
-                    window.ranges.scalars.start -= ranges.scalars.len();
-                    window.ranges.scalars.end -= ranges.scalars.len();
+            let managed = ranges.managed.len();
+            let scalars = ranges.scalars.len();
+            if managed != 0 || scalars != 0 {
+                // Banks append in allocation order, independently of reused slot
+                // identities. Only this surviving suffix follows the removed
+                // ranges; earlier windows and vacant slots cannot move.
+                for &index in &self.allocation_order[order..] {
+                    let window = self.windows.get_mut(index).expect("live allocation order");
+                    window.ranges.managed.start -= managed;
+                    window.ranges.managed.end -= managed;
+                    window.ranges.scalars.start -= scalars;
+                    window.ranges.scalars.end -= scalars;
                 }
             }
         }

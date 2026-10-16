@@ -2163,6 +2163,16 @@ passes remain evidence for that image only. Memory layout/allocations are unchan
 by this traversal correction; retain the earlier byte/lifetime evidence with that
 explicit limit. IP02/IP03 remain open and IP04-IP07 remain unstarted.
 
+The allocation-order correction is implemented. The seven selected frame-value
+contracts pass, covering the identity, empty/nonempty reuse, scalar/managed
+relocation, transactional admission and native metadata-root boundaries; the manual
+window timing test is intentionally ignored in that functional invocation and
+remains scheduled separately. Structure checks (1283 files, zero findings), format,
+diff and workspace all-target Clippy pass. Changed Rust has no import/re-export or
+visibility expansion and removes the obsolete Windows::iter_mut method. The release
+ordinary build and the declared two performance suites are the next checkpoint;
+no speed or combined-acceptance claim is made from functional tests.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

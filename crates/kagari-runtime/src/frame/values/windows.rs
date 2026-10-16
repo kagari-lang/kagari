@@ -126,10 +126,6 @@ impl Windows {
         self.slots.iter().filter_map(Slot::window)
     }
 
-    pub(super) fn iter_mut(&mut self) -> impl Iterator<Item = &mut Window> {
-        self.slots.iter_mut().filter_map(Slot::window_mut)
-    }
-
     #[cfg(test)]
     pub(super) fn len(&self) -> usize {
         self.slots.len()
