@@ -82,6 +82,8 @@ def main() -> None:
                         help="Save this ordinary binary and matrix report after successful measurements")
     parser.add_argument("--extend-report", type=Path,
                         help="Retain a prior paired report and extend it to --runs total pairs")
+    parser.add_argument("--candidate-executable", type=Path,
+                        help="Extend using the saved candidate; its hash must match the prior report")
     args = parser.parse_args()
     if args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls or args.baseline_executable:
         args.interpreter_only = True
@@ -97,6 +99,10 @@ def main() -> None:
         parser.error("paired execution requires both --baseline-executable and --baseline-report")
     if args.extend_report and (not args.baseline_executable or args.check):
         parser.error("extend an ordinary paired run with the same binary and configuration")
+    if args.candidate_executable and not args.extend_report:
+        parser.error("--candidate-executable requires --extend-report and its binary identity")
+    if args.candidate_executable and not args.candidate_executable.is_file():
+        parser.error("saved candidate executable does not exist")
     if args.freeze_baseline and (args.baseline_executable or args.check or args.numeric_matrix):
         parser.error("freeze an ordinary unpaired original/forms run")
     if args.freeze_baseline:
@@ -147,20 +153,26 @@ def main() -> None:
     metadata["driver_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     metadata["lock_sha256"] = hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()
     print(f"Output: {output}", flush=True)
-    start = time.perf_counter()
-    with (output / "build.log").open("w", encoding="utf-8") as log:
-        build = (["cargo", "test", "--release", "--locked", "-p", "kagari-runtime", "--lib",
-                  "--no-run", "--message-format=json"] if args.window_controls else
-                 ["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark"])
-        subprocess.run(build,
-                       cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
-    metadata["build_wall_seconds"] = time.perf_counter() - start
-    executable = ROOT / "target/release" / ("kagari-lua-benchmark.exe" if os.name == "nt" else "kagari-lua-benchmark")
-    if args.window_controls:
-        artifacts = [json.loads(line) for line in (output / "build.log").read_text(encoding="utf-8").splitlines()
-                     if line.startswith('{"reason":')]
-        executable = Path(next(item["executable"] for item in artifacts
-                               if item.get("executable") and item["target"]["name"] == "kagari_runtime"))
+    if args.candidate_executable:
+        executable = args.candidate_executable.resolve()
+        metadata["build_wall_seconds"] = 0
+        metadata["candidate_executable"] = str(executable)
+        metadata["cache"] = "saved candidate from continued report; fresh process/state; warmed execution separate from setup"
+    else:
+        start = time.perf_counter()
+        with (output / "build.log").open("w", encoding="utf-8") as log:
+            build = (["cargo", "test", "--release", "--locked", "-p", "kagari-runtime", "--lib",
+                      "--no-run", "--message-format=json"] if args.window_controls else
+                     ["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark"])
+            subprocess.run(build,
+                           cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
+        metadata["build_wall_seconds"] = time.perf_counter() - start
+        executable = ROOT / "target/release" / ("kagari-lua-benchmark.exe" if os.name == "nt" else "kagari-lua-benchmark")
+        if args.window_controls:
+            artifacts = [json.loads(line) for line in (output / "build.log").read_text(encoding="utf-8").splitlines()
+                         if line.startswith('{"reason":')]
+            executable = Path(next(item["executable"] for item in artifacts
+                                   if item.get("executable") and item["target"]["name"] == "kagari_runtime"))
     metadata["binary_sha256"] = hashlib.sha256(executable.read_bytes()).hexdigest()
     if args.baseline_executable:
         metadata["baseline_binary_sha256"] = hashlib.sha256(args.baseline_executable.read_bytes()).hexdigest()

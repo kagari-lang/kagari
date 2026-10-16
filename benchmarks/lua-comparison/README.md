@@ -107,6 +107,11 @@ retains every earlier row and continues the alternating order. The driver reject
 changed candidate/baseline hashes or configuration; a changed implementation needs
 a separate new comparison. The new report also retains the previous metadata and
 report hash, so extending noisy evidence cannot silently discard unfavorable runs.
+If a later build replaced the original executable, add
+`--candidate-executable <saved-candidate>` to skip rebuilding and use that exact
+binary. This option requires an extension report and retains its binary-hash,
+fixture and configuration checks. Current revision/status describe the measuring
+worktree; `continued_metadata` retains the original candidate's build provenance.
 
 `--execution-controls` is a separate Kagari-only lifecycle matrix, outside Lua
 parity. It parks 1/32/256 owned executions after one instruction, then completes
