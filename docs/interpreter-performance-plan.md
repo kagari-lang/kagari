@@ -3,8 +3,8 @@
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass. Current calls/recursion timing gates pass;
-the remaining same-candidate forms/collection/lifecycle comparisons keep phase
+correctness and memory checks pass. Current calls/recursion/forms timing gates pass;
+the remaining same-candidate collection/lifecycle comparisons keep phase
 acceptance open.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
@@ -1978,14 +1978,25 @@ memory audit. IP04-IP07 remain unstarted and exhaustive CI remains separate.
 The single declared fibonacci extension completes at UTC 20261016T200459Z with
 all 21 pairs retained, the same `20f10699...` image/original paths, unchanged
 configuration and all checksums valid. Every gate passes. VM execution is
-0.80703/0.80557; Lua module initialization is 1.00000/1.00000. The original seven
-failed-pair observations remain nested in the extended report; no outlier removal,
+0.80703/0.80557; Lua module initialization is 1.00000/1.00000. All observations
+from the original seven pairs remain in the extended report, with their failed
+aggregate finding recorded above; no outlier removal,
 rebaseline, new timing band or gate exemption is used. This establishes the
 declared extended comparison, not a causal explanation of the initial difference.
 Calls keeps its earlier passing seven-pair result. The serial runner has moved
 to the seven-pair forms matrix; arrays, maps, owned roots and private windows
 remain in its already declared sequence. Do not restart the runner or change its
 candidate while that sequence is live. IP02/IP03 acceptance remains open.
+
+The seven forms pairs (UTC 20261016T201959Z) complete on the same `20f10699...`
+image and pass every gate/checksum. Interface execution is 0.80269/0.79374 and
+shared_generic is 0.75931/0.75757, so all four required IP03 execution targets now
+pass for one ordinary candidate. Forms artifact preparation is 1.00899/1.01021,
+program linking 1.03332/1.01148, runtime initialization 0.99087/0.99087 and source
+compilation 1.00625/1.01311. All other forms execution rows pass their common
+gates. Arrays has started; maps, owned roots and private windows follow under
+the unchanged declared sequence. Do not infer the remaining controls or IP07's
+arithmetic/branches rows from these passing call targets.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
