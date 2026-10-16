@@ -24,7 +24,10 @@ field transfers, exact scalar widths, shared interface descriptions and typed
 native storage. Do not change language value/alias semantics, introduce inline
 value-type collections, compress owners, replace the GC algorithm, expand native
 backends, implement downcast or perform the NC collection-library migration.
-General arithmetic and call-lifecycle optimization remain separate work.
+General arithmetic and call-lifecycle optimization belong to the separate
+[interpreter performance plan](interpreter-performance-plan.md). That plan reuses
+accepted OM ownership and measurements; it does not duplicate this ledger or
+require conditional storage changes to be implemented.
 
 ## Evidence and cost ownership
 

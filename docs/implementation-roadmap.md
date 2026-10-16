@@ -240,12 +240,19 @@ Acceptance requires interpreter/Lua median <=1.0 for every unchanged matched
 workload on one machine, with uncertainty analysis near parity. Entry, adapters,
 alternate numeric diagnostics and JIT results cannot replace that gate.
 
-With the [runtime storage work](#runtime-storage-redesign) locally complete, the
-proposed, unactivated follow-up remains a bounded call-lifecycle review: prepared
-invocation contracts, active-session admission, parameter/frame-window setup and
-return. Preserve changing receiver/type/version, roots, cancellation, host/reentry
-and trap order; measure unchanged workloads plus setup and retained memory. Native
-collection optimization and kernel/bytecode design are separate decisions.
+The [interpreter performance execution plan](interpreter-performance-plan.md)
+records IP01-IP07; implementation is unstarted. Required work freezes a fresh
+baseline, replaces window-slot scanning and carries prepared invocation contracts
+through parameter transfer, frame admission and return. Session-owned banks,
+typed instructions and at most two installed library transitions are separate
+conditional decisions under measured gates, not assumed implementations.
+
+The [OM plan](object-storage-overhead-plan.md) remains the sole owner of object
+storage changes. Prefer a coherent accepted OM checkpoint before IP01, then keep
+storage and interpreter measurements isolated. Preserve changing receiver/type/version,
+roots, cancellation, host/reentry, logical observation and trap order; include
+setup, retirement and retained memory in acceptance. NC collection migration,
+enum unboxing and new GC/native backends remain outside IP scope.
 
 Shared generic Add failed MIR lowering with
 `MissingBinding("checked callable requirement")` at the measured revision. Its
