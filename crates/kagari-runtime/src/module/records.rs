@@ -1,16 +1,20 @@
 //! Runtime-local links and caches are owned with the installed module instance.
 use crate::{
     module::{
-        LoadedModule, ModuleInstance, ModuleStore, ModuleStoreInner,
+        LoadedModule, ModuleInstance, ModuleKey, ModuleStore, ModuleStoreInner,
         constants::ConstantPool,
         descriptors::LinkedDescriptors,
         layouts::{LayoutCache, ProgramLayoutCache},
         linked_execution::LinkedExecution,
+        staging::CandidateLease,
     },
     native::binding::LinkedNativeFunction,
 };
 use kagari_bytecode::instruction::NativeImportId;
-use std::sync::Arc;
+use std::{
+    collections::HashMap,
+    sync::{Arc, Weak},
+};
 
 #[derive(Debug)]
 pub(super) struct ModuleRecord {
@@ -55,19 +59,36 @@ impl ModuleRecord {
 }
 
 impl ModuleStoreInner {
+    pub(super) fn available(&self, key: ModuleKey) -> Option<&LoadedModule> {
+        self.available_record(key).map(|record| &record.module)
+    }
+
+    fn available_record(&self, key: ModuleKey) -> Option<&ModuleRecord> {
+        let record = self.records.get(&key)?;
+        candidate_available(&self.staged, &record.module).then_some(record)
+    }
+
     pub(super) fn resolve(&self, module: &LoadedModule) -> Option<&ModuleRecord> {
-        self.available(module.key())?;
-        self.records
-            .get(&module.key())
+        self.available_record(module.key())
             .filter(|record| record.matches(module))
     }
 
     pub(super) fn resolve_mut(&mut self, module: &LoadedModule) -> Option<&mut ModuleRecord> {
-        self.available(module.key())?;
-        self.records
-            .get_mut(&module.key())
-            .filter(|record| record.matches(module))
+        let record = self.records.get_mut(&module.key())?;
+        (candidate_available(&self.staged, &record.module) && record.matches(module))
+            .then_some(record)
     }
+}
+
+/// Availability belongs to the installed record, including abandoned candidates
+/// whose immutable descriptors still exist outside the runtime.
+fn candidate_available(
+    staged: &HashMap<ModuleKey, Weak<CandidateLease>>,
+    module: &LoadedModule,
+) -> bool {
+    staged
+        .get(&module.program_key())
+        .is_none_or(|lease| lease.strong_count() != 0)
 }
 
 impl ModuleStore {

@@ -627,16 +627,6 @@ struct ModuleStoreInner {
     retentions: HashMap<ModuleKey, Retentions>,
 }
 
-impl ModuleStoreInner {
-    fn available(&self, key: ModuleKey) -> Option<&LoadedModule> {
-        let module = &self.records.get(&key)?.module;
-        self.staged
-            .get(&module.program_key())
-            .is_none_or(|lease| lease.strong_count() != 0)
-            .then_some(module)
-    }
-}
-
 impl ModuleStore {
     pub(crate) fn reserve_epoch(&self, name: &str) -> Result<ModuleEpoch, RuntimeError> {
         self.inner

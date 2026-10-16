@@ -154,7 +154,9 @@ impl ResourceState {
     }
 
     pub fn poll_execution(&self) -> Result<(), RuntimeError> {
-        self.ensure_execution_allowed()?;
+        self.execution.ensure_allowed()?;
+        // Session polling checks sticky termination before cancellation. Resolve
+        // that session once; no callback can change it during this operation.
         if let Some(session) = self.active_session().as_ref() {
             session.poll(self)?;
         }

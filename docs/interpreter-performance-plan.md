@@ -3,8 +3,9 @@
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass; setup regressions and remaining combined
-lifecycle/performance comparisons keep phase acceptance open.
+correctness and memory checks pass. Current path-recorded forms pass, but ordinary
+calls/recursion miss their targets and some setup gates remain failed/inconclusive;
+combined lifecycle/performance comparisons also keep phase acceptance open.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -1848,6 +1849,86 @@ the same ordinary image path and SHA-256. Complete all four before selecting any
 repair or extension, preserving failed results. Combined root/window controls and
 final phase acceptance remain pending. IP02/IP03 are not accepted by forms alone;
 IP04-IP07 remain unstarted, and exhaustive correctness/backend CI remains separate.
+
+The declared four original comparisons complete on the same `1989b853...` image
+and original measured paths, with seven alternating pairs each, three fresh setup
+samples, three execution warmups and eleven execution samples per process. All
+checksums and report identities pass; no builds/tests/diagnostics overlap timing.
+The reports are UTC 20261016T190701Z (calls), 191431Z (fibonacci), 192208Z (arrays)
+and 192940Z (maps). Aggregate/paired VM execution ratios are:
+
+| Workload | Aggregate | Paired | Execution gate |
+| --- | ---: | ---: | --- |
+| calls | 0.99648 | 0.99593 | Fail 0.90 target |
+| fibonacci | 0.93368 | 0.93463 | Fail 0.90 target |
+| arrays | 0.75380 | 0.76293 | Pass common gate |
+| maps | 0.92482 | 0.93222 | Pass common gate |
+
+Lua module initialization fails in calls (1.1250/1.0588), fibonacci (1.2500/1.2500),
+arrays (1.0000/1.0667) and maps (1.0800/1.0000). Fibonacci Lua engine initialization
+also fails (1.0332/1.0566); arrays program linking is inconclusive (1.04177/1.01337).
+Every other setup/execution gate passes. Fibonacci's Lua module-initialization
+process medians span 1.5-1.7 us baseline and 1.5-2.2 us candidate, with medians
+1.6 and 2.0 us. Short duration is a measurement limitation, not proof of noise or
+permission to waive its gate. The prior forms pass remains valid for this image;
+it does not cover ordinary direct-call or recursive targets. No extension is
+declared merely to seek passing medians.
+
+Next attribution is bounded to calls and fibonacci: use the existing Windows
+main-thread sampler with this archived image and matching PDB, three warmups and
+one ten-second execution window per workload, sequentially after ordinary timing.
+The sampler records its actual copied image path; these perturbed diagnostic
+samples cannot replace original-path acceptance times. Report range-verified leaf
+samples and unresolved share, then inspect the exact linked hot functions before
+selecting a production change. There is no matching baseline PDB, so this cannot
+establish differential CPU attribution. Source review finds separate candidate
+object checks, heap validity checks and parameter transfer on call admission;
+their distinct semantics and error order must be preserved, and source proximity
+alone does not establish their cost. Combined root/window controls, required
+IP02/IP03 acceptance and IP04-IP07 remain open.
+
+The bounded sampling completes at UTC 20261016T193806Z with 3,900 samples and no
+sampling errors per workload. Unresolved shares are 40.15% calls and 34.72%
+fibonacci. Identified leaf shares include termination 5.08%/6.05%, module-key
+hashing 5.59%/4.92%, window allocation 4.08%/4.46%, and memmove 4.51%/4.92%.
+These are perturbed, non-inclusive samples, not additive predicted savings.
+Exact archived-image disassembly with matching PDB and PE unwind ranges confirms
+that module resolve/resolve_mut call available and then hash/probe the same record
+again, while poll_execution calls termination before SessionState::poll checks
+sticky termination again. Both are local repeated admission work, not evidence
+for replacing window ownership or weakening host boundaries.
+
+Correct these two responsibilities together: module record lookup owns one record
+resolution plus the shared candidate-lease availability predicate and exact
+descriptor match; ResourceState checks global execution state and resolves the
+active session once, while SessionState::poll retains sticky termination before
+cancellation. No callback or mutable transition exists between the replaced
+duplicate checks. Keep borrow errors, runtime/version/descriptor identity checks,
+candidate abandonment and all polling sites unchanged. No new cache, data layout,
+root owner or second execution path is introduced. Validate existing installed
+record identity/borrow/abandonment contracts and selected sticky cancellation,
+quarantine and frame-depth contracts; run local structural/format/Clippy checks.
+Then attribute exact linked lookup/poll code and measure a new declared candidate;
+the current missed targets and setup gates remain open until measured otherwise.
+
+The admission-lookup correction passes eight selected runtime tests: installed
+link runtime/version/bounds/borrow validation, abandoned-candidate link release,
+copied-descriptor rejection, shared nested cancellation, sticky cancellation,
+cached candidate termination, module-state borrow quarantine and abandonment
+after quarantine. Three selected VM tests pass: depth failure cleanup, cancellation
+after a host effect and host reentry preserving root termination/borrow cleanup.
+Structure (1,282 files), format, whitespace and workspace all-target Clippy pass.
+No storage or allocation owner changes; prior cold/warm allocation, retained-byte
+plateau and teardown checks remain evidence for unchanged owners, not fresh runs.
+
+After archiving the next ordinary release image/PDB and checking its exact linked
+lookup/poll code, predeclare seven alternating calls pairs followed by seven
+fibonacci pairs, both with the unchanged 0.90 execution target and every common
+setup/Lua gate. Retain one unchanged main image/path throughout both comparisons;
+complete both before selecting another repair. Forms, arrays/maps and combined
+root/window comparisons remain necessary for the eventual accepted candidate.
+The previous candidate's forms pass cannot establish acceptance for a new image.
+Do not run build/test/profile/diagnostic work concurrently with the paired runs.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
