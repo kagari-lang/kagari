@@ -1798,6 +1798,36 @@ including same-hash path changes, absent path evidence and nested continuation
 tampering. It changes Python reporting/validation and documentation only; prior
 passing Rust tests and Clippy remain evidence for the unchanged runtime.
 
+Measurement identity is repaired in 1138432d. Continue the required IP03 return
+review with one concrete local correction: finish_method_result currently acquires
+and validates the selected method metadata view twice consecutively, once for
+result validation and again for its optional result adapter. There is no callback,
+collection or mutable-state transition between them. Use one checked borrowed
+MethodView for both operations, then drop it before rooting/allocating an adapted
+interface result. The callee window still retains the invocation metadata and raw
+return; owner/generation, result-type and adapter checks remain in their existing
+owners. No retained cache, new public API or second return protocol is introduced.
+
+Validate existing interface result adaptation, shared tuple/closure environments,
+native interface application/root retention and boxed return contracts, plus the
+ordinary original/forms cold/warm allocation records. Reuse loaded-storage and
+zero-teardown evidence for unchanged retention/storage owners; this local borrow
+does not survive adapter publication. Run structure, format, diff and workspace
+Clippy. Then measure seven new forms pairs under the repaired path-identity rule,
+retaining the EXE/PDB as archives while measuring the unchanged Cargo image path.
+Any extension must finish on that path before another build. The previous
+image-confounded reports stay historical; no row or threshold is waived.
+
+The return-view correction passes all five selected SDK/VM result contracts,
+including generic result roots and independent tuple generations. Structure
+(1,282 files), format, diff and workspace all-target Clippy pass. Original/forms
+allocation diagnostics pass all 14/72 cold/warm records with unchanged semantic
+counters and no warm allocation growth. Prior loaded-storage and zero-net teardown
+checks remain evidence for unchanged owners, not freshly measured results.
+The redundant image override is removed in 4b4a9cc5; extensions now have only the
+recorded-path route. Commit this local return correction, then execute the declared
+seven-pair forms comparison before any other build or diagnostic work.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a

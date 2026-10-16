@@ -613,8 +613,11 @@ impl Runtime {
         method: &MethodInvocation,
         result: Value,
     ) -> Result<Value, RuntimeError> {
-        method.view(self)?.validate_result(self, &result)?;
-        let adapter = method.view(self)?.result_adapter().cloned();
+        let adapter = {
+            let view = method.view(self)?;
+            view.validate_result(self, &result)?;
+            view.result_adapter().cloned()
+        };
         if let Some(adapter) = adapter {
             // Keep the raw return alive until its interface wrapper is published.
             let _root = self
