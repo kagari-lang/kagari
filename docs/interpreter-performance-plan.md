@@ -2324,6 +2324,38 @@ runs alongside the current ordinary timings. IP02/IP03 still require the complet
 current-image ordinary gates; final composition and conditional decisions remain
 IP04-IP07 work. No unresolved local functional/build failure is known.
 
+Read-only preparation for the pending instruction/library decisions uses the
+frozen IP01 logical counts and current owners, without activating a prototype.
+Arithmetic executes 550,015 logical instructions, including 200,001 Binary;
+branches executes 600,022, including 270,001 Binary. Their unchanged sources use
+i32 Add, Mul, Rem, Eq and Lt. These five forms are a bounded candidate set for the
+two rows, within IP05's six-form limit. Current scalar execution calls the selected
+payload kernel indirectly. A typed experiment would need to reuse kagari-types'
+checked payload semantics, preserve one logical PC per instruction, and account for
+code/product footprint and setup; these counts do not establish the fraction of
+time attributable to dispatch or forecast a 10% gain. Any eventual target/form
+selection and fusion disposition must be frozen before that phase edits code.
+
+For IP06, the arrays source performs 2,000 Vec pushes, then reads/replaces through
+already installed VecIndex/VecSet primitives. The remaining push callback uses the
+same sequence storage as the public SDK. A push reserves Rust buffer capacity and
+commits heap-unit growth; GcHeap::collection_due includes those units. The current
+closed cursor snapshots collection_due at region entry under its no-script-heap-
+growth contract. Merely adding push to that region would therefore leave a stale
+collection decision. Any push experiment needs an explicit effect/transition owner,
+correct logical successor/safepoint handling, mutation/revision/borrow checks and
+pre/post cancellation order before it can be considered eligible.
+
+The maps source's lookup also constructs an ordinary Option; generic hash/equality
+selection can execute script callbacks outside table borrows. Its insertion returns
+Unit but still has selected hash/equality and mutation/growth effects. Neither can
+be treated as a name-selected closed primitive. Current String byte length and Vec
+index/replacement primitives already install exact fixed bodies rather than trusting
+arbitrary callbacks labelled pure. Reuse those authority rules and one collection
+engine when IP06 is decided. No operation, new effect API, fused instruction or
+production code is added by this review; IP04-IP06 dispositions still follow the
+required current-image IP02/IP03 acceptance.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
