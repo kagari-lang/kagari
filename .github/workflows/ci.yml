@@ -105,7 +105,7 @@ jobs:
           New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -PropertyType DWord -Value 1 -Force | Out-Null
 
       - name: Test Windows formatter replacement and link contracts
-        run: cargo test --locked -p kagari-cli --bin kg formatting:: --no-fail-fast
+        run: 'cargo test --locked -p kagari-cli --bin kg formatting:: --no-fail-fast'
 
       - name: Test Windows toolchain command contracts
         run: cargo test --locked -p kagari-cli --test toolchain --no-fail-fast
