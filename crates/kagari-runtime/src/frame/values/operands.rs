@@ -79,6 +79,8 @@ impl OperandView<'_> {
 }
 
 impl OperandWindow<'_> {
+    // Let the caller consume its projection without a separate transport result.
+    #[inline]
     pub(crate) fn with_value<R>(
         &self,
         location: Location,

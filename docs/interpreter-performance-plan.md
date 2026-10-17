@@ -2777,6 +2777,53 @@ fibonacci bias nor proves that preceding subject state caused it. Original failu
 remain mandatory unresolved evidence. No sampling/protocol change or extension is
 made from this result alone.
 
+The single OperandWindow projection hint is implemented and passes the cursor
+borrow/quarantine contract and two nominal/scoped-generation field contracts.
+Structure, fmt, workspace all-target Clippy and diff checks pass. Manual review
+confirms no public surface, representation, allocation or semantic-check change.
+The ordinary ARM64 image no longer calls the standalone borrowed receiver
+projection from execute_field; general copied reads retain their shared owner.
+
+Seven forms pairs at UTC 20261017T030544Z pass all checksums and 27/28 gates.
+Field now passes at 0.98290/0.98513; interface/shared_generic pass at
+0.78594/0.78594 and 0.76336/0.76922. Only program_link fails: aggregate 1.07479
+versus paired 0.99444. Baseline process medians are 8772583, 9341000, 8634000,
+8859958, 8727333, 9746417 and 9872834 ns; candidate medians are 9522584, 9006833,
+9614542, 8810667, 10001125, 8874292 and 9523333 ns. Both estimators remain
+mandatory. The projection is not executed during linking and adds no prepared
+product, but that alone cannot exclude image-layout or preceding-state effects.
+
+Predeclare one finite extension of this exact forms image/path from seven to 21
+total alternating pairs, retaining every original sample, source and gate. This
+tests the inconsistent process estimators; it is not a waiver or repeated search
+for passing samples. Do not rebuild/relocate either image, run diagnostics or edit
+production code during it. If a gate remains open at 21, attribute it instead of
+extending again. Ordinary original/reference acceptance and remaining composition
+evidence are separate and still open.
+
+After that extension, predeclare a distinct reference-state diagnostic with the
+saved IP01 and pre-retirement ordinary images: seven alternating subject pairs,
+fibonacci only, each subject bracketed by fresh fixed-reference workers before and
+after it. Use unchanged subject setup/execution counts, the three-by-32 reference
+contract and every checksum. Retain the exact archived candidate path/hash and
+record that it differs from the original measurement path. Compare baseline/current
+reference groups separately for before and after; also retain within-subject changes.
+The workload prefix differs from the full failed suite, so even a directional
+result cannot assign the original bias to one machine mechanism. This is diagnostic
+only, with no acceptance substitution, batching change or protocol exemption.
+No profile, build or other timing workload overlaps either experiment.
+
+The finite forms extension finishes at UTC 20261017T030857Z with all 42 process
+checksums and evidence identities valid. It retains all seven initial pairs and
+passes 27/28 timing gates. Field is 0.98590/0.98583, interface 0.78110/0.78212,
+and shared_generic 0.76378/0.76922. Program_link is now inconclusive at
+1.04771/1.00250; the near-gate rule remains mandatory. No further extension is
+permitted for this experiment. The borrowed-projection change has demonstrated
+its local execution effect, but this checkpoint does not accept IP02/IP03.
+Before another ordinary forms comparison, attribute linking separately; preserve
+this report and the initial failure rather than declaring the scatter harmless.
+The predeclared fixed-reference bracketing diagnostic proceeds next.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
