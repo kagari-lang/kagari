@@ -2912,6 +2912,49 @@ remains applicable. Current-image ordinary forms timing is next, with seven pair
 and the unchanged interface/shared_generic targets. Other current-image timing,
 full-workload metadata accounting and IP04-IP07 remain open.
 
+Predeclare the remaining metadata accounting before running it: use the unchanged
+seven original sources plus the common forms module on clean IP01 and this candidate.
+Temporary, identical benchmark-only instrumentation uses the existing allocation
+allocator, three prepare/load/execute/drop cycles per artifact, and fresh prepared
+program/runtime objects each cycle. Compilation stays outside accounting. Record
+prepared and additional loaded retained/requested bytes separately before execution,
+verify the original entry result (forms uses field), and require zero net teardown
+after warming. These eight artifacts cover the metadata owner shared by all timed
+entries; unchanged live object/root storage evidence remains separate. Keep each
+cycle, including cold persistent engine-prefix growth. Restore instrumented sources,
+retain diagnostic image/source hashes, and never overlap this accounting or its
+builds with ordinary timing. No acceptance threshold or ordinary fixture changes.
+
+The seven-pair forms comparison at UTC 20261017T032746Z passes 27/28 gates and
+every checksum. Linking now passes at 0.82924/0.82465 and artifact preparation at
+0.99546/0.99597. Interface/shared_generic remain 0.78374/0.78204 and
+0.75796/0.75985. Field execution fails again at 1.07161/1.07536; do not extend
+this run or attribute acceptance from the linking gain. Exact current assembly
+still inlines OperandWindow::with_value but now calls its inner generic with_operand
+decoder/projection out of line. The previous passing image inlined both layers.
+The original wrapper hint therefore did not establish stable caller consumption
+across this link. Revisit that abstraction/code-generation boundary before choosing
+a correction; do not add arbitrary hints or change field semantics. Candidate image
+SHA256 is 05e9ea64a3217c32692a6dcc22ff52162398890ebe623303bb27cb848ee2423c,
+archived as macos-prepared-references-candidate before diagnostic builds. The declared
+eight-artifact allocation comparison proceeds separately; IP02/IP03 remain open.
+
+The declared eight-artifact allocation comparison completes all 48 lifecycle records
+and result checks; all 32 warmed teardown observations are zero. Across the final
+warm cycle's eight artifacts, prepared retained ratios are 1.00123-1.00208, additional
+loaded retained ratios 1.00104-1.00127, preparation requested ratios
+0.99934-1.00218, and additional load requested ratios 0.81558-0.82250. Every cold
+and warm cycle also satisfies the +5% retained/requested gates. The source walk's
+temporary allocations moved out of repeated loading, while its shared scoped slice
+adds less than 0.21% to these prepared products and less than 0.13% to loaded
+retention. Do not infer throughput from allocation counts. The exact temporary
+instrumentation, diagnostic image/source hashes and all records are retained in
+target/interpreter-performance/macos-prepared-references-memory/results.json;
+both checkouts' benchmark sources are restored. Existing object/root storage and
+warm execution allocation evidence remains applicable because those paths and
+retained representations are unchanged. The field code-generation boundary and
+new-image ordinary original/lifecycle comparisons still block timing acceptance.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
