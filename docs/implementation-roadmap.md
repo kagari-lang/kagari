@@ -126,12 +126,24 @@ dependency resolution, and check/lint share HIR analysis and strict language che
 Required diagnostics cannot be disabled through optional-rule policy.
 
 Deferred source-tool work: range/on-type formatting, comment reflow, import sorting,
-skip regions, check/lint stdin overlays, watch/daemon/LSP, per-path configuration,
-custom rules, autofix and persistent caches. Further lint candidates include unused
+skip regions, check/lint stdin overlays, watch/daemon, full IDE/LSP features,
+per-path configuration, custom rules, autofix and persistent caches. Further lint
+candidates include unused
 imports, dead declarations, ignored Results, unreachable code, dead stores,
 expression simplification and measured performance advice. Each requires its own
 semantic justification for exports, trait lookup, traps and side effects; none is
 part of the six-rule release.
+
+The [editor tooling plan](editor-tooling-plan.md) owns the agreed next sequence:
+ET01 establishes a real stdio `kagari-analyzer` and document synchronization in
+this workspace, then ET02-ET04 deliver Tree-sitter/Zed and TextMate/VS Code basic
+highlighting, followed by ET05 integration and documentation. All phases are
+unstarted. Reuse existing source identities, overlays and analysis ownership;
+do not import a second VFS/database or preserve empty skeleton crates from the
+separate analyzer repository. Basic highlighting does not depend on the server.
+Semantic IDE features, editor server-launch integration and marketplace publication
+remain deferred. The plan owns the old-repository preservation/retirement audit;
+remote deletion is not part of the documentation change.
 
 The [script testing design](script-testing-design.md) proposes `kg test` with
 source-owned private `#[test]` functions, limited `#[cfg(test)]` selection,

@@ -53,6 +53,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; recover concrete values through checked identity and lifetime
   contracts without introducing Any.
 - [Host API unification](host-api-refactor.md).
+- [Editor tooling](editor-tooling-plan.md): ET01-ET05 are unstarted; consolidate
+  the LSP foundation into this workspace, then add Zed/VS Code basic highlighting
+  independent of a server. Full semantic IDE features remain deferred.
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from
   formatter/checker/linter implementation.
