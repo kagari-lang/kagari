@@ -56,10 +56,17 @@ with explicit responsibilities; follow the active plan's migration size/build po
   affected paths: retain sound foundations, merge overlaps and remove superseded
   workarounds. Prior benchmark wins grant no exemption; temporary migration bridges
   need a removal checkpoint.
-- Where useful, consult mature language/runtime designs through primary documentation
-  or source. Explain their fit and differing assumptions for Kagari's typing, GC,
-  host boundaries, reload and execution semantics; do not copy incompatible models
-  or infer unmeasured speedups.
+- For architecture and performance design decisions, consult relevant mature
+  language/runtime implementations before inventing a mechanism or adding a local
+  workaround. Prefer primary documentation and source: Rust for typed lowering and
+  compiler organization, Java/OpenJDK for managed-runtime and GC boundaries, and
+  other established runtimes where their execution model fits the problem. Syntax
+  similarity alone is not evidence of runtime suitability. Record the mechanism,
+  source/version, applicable ownership rules and differing assumptions in the active
+  plan; explain why a custom approach is needed when existing designs do not fit.
+  Preserve Kagari's typing, GC, host boundaries, reload and execution semantics;
+  do not copy incompatible models or infer unmeasured speedups. Scale research to
+  the decision; routine local corrections do not require a new comparative study.
 - Recommendations must state evidence, root cause/uncertainty, intended ownership/model
   changes, affected mechanisms and correctness/performance validation. Missed performance
   targets require renewed architectural diagnosis before more local optimization.

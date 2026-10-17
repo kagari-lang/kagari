@@ -64,6 +64,15 @@ per-object saving from shallow sizes alone.
 
 ## Ownership changes
 
+Before selecting an ownership change, follow the
+[reference-first design review](interpreter-performance-plan.md#reference-designs-and-applicability).
+OM01 must compare relevant Java/OpenJDK, Go or other established storage/GC
+mechanisms with Kagari's checked handles, exact nominal layouts, host state and
+pinned reload roots. Record source/version, applicable mechanism and reasons for
+adoption or rejection here. Distinguish JVM specification contracts from concrete
+collector/object-layout implementations. This is part of OM01's existing diagnosis,
+not authorization to replace the collector or activate OM ahead of the roadmap.
+
 ### Common identity directory and native mutation state
 
 Current owners are [ObjectStorage](../crates/kagari-runtime/src/gc/directory.rs),

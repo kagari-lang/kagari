@@ -19,6 +19,9 @@ The subsequently authorized instability investigation identifies mixed process
 warmth, observed minor faults/preemption and confounded order factors; its bounded
 diagnostic results below do not replace acceptance or fully explain residual noise.
 IP04-IP07 are unstarted.
+The 2026-10-17 user review requires the architecture follow-up below before further
+code-generation tuning or new specialization. It does not close timing acceptance
+or activate the conditional implementation phases.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
 the progress ledger.
@@ -214,15 +217,45 @@ into the VM or activate the collection-library migration indirectly.
 
 ## Reference designs and applicability
 
-These primary references informed the design review on 2026-10-16. They provide
-mechanisms, not directly comparable benchmark targets.
+The initial references informed the design review on 2026-10-16; Rust and Java
+reading targets were added after the user's architecture review on 2026-10-17.
+They provide mechanisms, not directly comparable benchmark targets. Before an
+architecture change or another performance workaround, inspect the relevant
+primary documentation and implementation first. Record the source revision/version,
+mechanism, ownership/lifetime rules, Kagari differences, and adoption or rejection
+reason in this ledger. A reference list alone does not complete that comparison.
+Prefer adapting an established model; justify custom mechanisms with a concrete
+constraint that the reference does not satisfy. Keep research bounded to the
+affected decision rather than surveying every language.
 
 | Reference | Useful mechanism | Kagari-specific constraint |
 | --- | --- | --- |
+| [Rust MIR guide](https://rustc-dev-guide.rust-lang.org/mir/index.html) and its linked compiler source | Explicit typed operands, places, control flow and lowering responsibilities | Useful for prepared execution and projection boundaries. Similar syntax does not imply Rust's ownership, destruction or native execution model fits a GC-backed interpreter. |
+| [JVM runtime areas and frames](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-2.html), [Java GC guide](https://docs.oracle.com/en/java/javase/25/gctuning/introduction-garbage-collection-tuning.html), and [OpenJDK heap boundary](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/collectedHeap.hpp) | Study stack/frame ownership, shared heap responsibilities and collector interfaces | The JVM specification does not prescribe a collector or concrete object layout. Inspect implementation before drawing those conclusions; Java threads are not Kagari sessions, and JIT/concurrent collector machinery is not automatically appropriate. |
 | [Go allocator source](https://go.googlesource.com/go/+/refs/tags/go1.24.0/src/runtime/malloc.go) | Size-class spans and batch-managed allocation metadata | OM can evaluate amortization; exact nominal layouts and checked handles remain Kagari responsibilities. Copying Go's concurrent allocator hierarchy is unnecessary for a single driven heap. |
 | [Luau performance design](https://luau.org/performance/) | Page-based sweeping, specialized builtin calls and 16-byte tagged values | Supports evaluating management overhead and transitions without assuming an eight-byte Value is necessary. Builtin shortcuts must consume installed effects and borrow authority. |
 | [Lua call implementation](https://www.lua.org/source/5.4/ldo.c.html) | Function prototypes supply frame size and calls reuse stack arguments | Prepared frame transitions are relevant; Lua's dynamic typing and version model do not discharge Kagari's nominal/generation checks. |
+| [Lua state and call-frame source](https://www.lua.org/source/5.4/lstate.h.html) | Study per-execution stack state alongside shared runtime state | Compare suspension, independent roots and reentry explicitly; do not assume Lua's coroutine or stack relocation contracts match Kagari's. |
 | [Pulley design principles](https://github.com/bytecodealliance/wasmtime/blob/main/pulley/README.md) and [execution model](https://docs.wasmtime.dev/examples-pulley.html) | Typed register execution, compact opcode decoding and superinstructions | Kagari must preserve checked arithmetic, GC roots, logical observation and cancellation. Its existing preparation product is the replacement boundary. |
+
+### Architecture follow-up from the 2026-10-17 review
+
+Retain the coherent packed-field representation, prepared call lifecycle, explicit
+free-slot owner and single semantic implementations. Removing duplicate lookups,
+borrowing a projected value and dropping retired storage in place are ordinary
+local improvements, not grounds for a wholesale rewrite. Resolve the following
+bounded concerns within the existing phases; do not add another progress queue:
+
+| Owning phase | Problem and required follow-up | Completion evidence |
+| --- | --- | --- |
+| IP03 follow-up, before more code-generation tuning | Field projection performance changed when an unrelated preparation change altered inlining. Review `OperandWindow::with_value`, its shared `with_operand` decoder and `Windows::insert`; compare a simpler projection/transfer boundary with the current forced inlining. Replace or remove redundant layers and hints where justified. Do not add a struct-only decoder or spread hints to individual handlers to rescue a timing row. | One decoding/validation owner; disposition for each retained hint with code-generation rationale, affected contract checks, ordinary timing and code-size evidence. Removing every inline attribute is not itself an acceptance criterion. |
+| IP04 | Non-tail release still moves another session's banks; narrowing the range-adjustment traversal only reduces part of that cost. Compare Lua execution-stack ownership and JVM frame/runtime-area boundaries before deciding Kagari's session storage model. Resolve roots, suspension, reentry, capacity reuse and teardown together; do not conceal shared ownership costs behind more indexes or caches. | The existing IP04 implementation or explicit deferral decision, with reference comparison and movement/lifetime evidence. A faster suffix loop does not count as eliminating cross-session movement. |
+| IP05/IP06, before any new specialization | Inventory the existing fixed string/vector bodies and proposed additions. Verify installed identity/effect authority, common semantic handlers and lifecycle boundaries against relevant mature interpreter designs. Remove overlapping or superseded paths; reject additions whose benefit requires duplicate semantics or workload-specific recognition. | A finite retained/rejected inventory in this ledger, concrete reasons for any Kagari-specific mechanism, and the existing correctness, footprint and performance gates. A benchmark win alone does not justify another path. |
+
+Object-layout and GC ownership follow-ups remain in OM, using the same reference-first
+method. Do not import a new collector, compiler architecture or collection migration
+through this review. The pending measurement-design decision remains separate;
+unstable external controls are not a reason to add runtime special cases.
 
 ## Phases and checkpoints
 
@@ -502,6 +535,10 @@ Use Conventional Commits with Plan-Phase: IPxx trailers for implementation phase
 - [ ] IP05: typed instruction decision and accepted implementation or deferral.
 - [ ] IP06: selected library transition decision and implementation or deferral.
 - [ ] IP07: integrated local acceptance and documentation handoff.
+
+The architecture follow-up above is required work within IP03-IP06, not a new
+phase. The 2026-10-17 review records it as pending; no implementation or comparative
+source study is claimed complete by this documentation checkpoint.
 
 Current decisions: OM retains object-storage scope; IP02/IP03 are required once
 activated; IP04-IP06 are conditional. No new production cache, second semantic

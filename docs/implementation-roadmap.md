@@ -242,9 +242,12 @@ alternate numeric diagnostics and JIT results cannot replace that gate.
 
 The [interpreter performance execution plan](interpreter-performance-plan.md)
 owns active IP01-IP07 work as of 2026-10-16. IP01 has frozen the fresh baseline
-and acceptance tooling at 60bfaacb. IP02 window-slot reuse is implemented with two
-carried timing gates; IP03 call transitions are in progress in the same unaccepted
-checkpoint. IP04-IP07 are unstarted.
+and acceptance tooling at 60bfaacb. IP02 window-slot reuse and IP03 call transitions
+are implemented but remain unaccepted; the finite reference experiment ended with
+independent Lua setup gates open. IP04-IP07 are unstarted. The plan's
+[architecture follow-up](interpreter-performance-plan.md#architecture-follow-up-from-the-2026-10-17-review)
+requires reference-first review of fragile inlining, session storage ownership and
+specialized paths within the existing phases before further affected optimization.
 Required work freezes a fresh baseline, replaces window-slot scanning and carries prepared invocation contracts
 through parameter transfer, frame admission and return. Session-owned banks,
 typed instructions and at most two installed library transitions are separate
