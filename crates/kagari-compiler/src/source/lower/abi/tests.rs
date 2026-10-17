@@ -20,6 +20,7 @@ use kagari_types::{
         verify::validate_native_declarations,
     },
     language::Protocol,
+    reference::ReferenceAccess,
     scalar::IntegerType,
     ty::{NominalTy, Ty, inheritance::trait_closure},
 };
@@ -96,6 +97,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let mut count = 0;
+    let mut seen_references = BTreeMap::new();
     let mut seen_map = false;
     let mut seen_vec = false;
     let mut seen_result = false;
@@ -137,6 +139,15 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             };
             assert!(ty.fields.is_empty());
             match ty.kind {
+                TypeDefKind::Native(NativeTypeConstructor::Reference(access)) => {
+                    assert_eq!(ty.name, access.name());
+                    assert_eq!(ty.generic_params.len(), 1);
+                    assert!(ty.variants.is_empty());
+                    let owner = declared.source().module_identity();
+                    assert_eq!(owner.package.0, "kagari-core");
+                    assert_eq!(owner.path, ["host"]);
+                    assert!(seen_references.insert(ty.name.clone(), access).is_none());
+                }
                 TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element }) => {
                     assert_eq!(ty.name, "Vec");
                     assert_eq!(ty.generic_params.len(), 1);
@@ -150,6 +161,7 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
                 }
                 TypeDefKind::Enum if ty.name == "Result" => {
                     assert_eq!(ty.name, "Result");
+                    assert_eq!(ty.generic_params.len(), 2);
                     assert_eq!(
                         ty.variants
                             .iter()
@@ -178,7 +190,14 @@ fn installed_native_declarations_keep_public_representation_and_payload_contract
             count += 1;
         }
     }
-    assert_eq!(count, 20);
+    assert_eq!(
+        seen_references,
+        BTreeMap::from([
+            ("Ref".into(), ReferenceAccess::Shared),
+            ("RefMut".into(), ReferenceAccess::Mutable),
+        ])
+    );
+    assert_eq!(count, 22);
     assert!(seen_vec && seen_map && seen_result && seen_spawn_error);
 }
 

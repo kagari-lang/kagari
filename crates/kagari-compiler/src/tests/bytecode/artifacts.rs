@@ -1,10 +1,11 @@
-use crate::tests::bytecode::*;
+use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
 use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use kagari_bytecode::{
     artifact::KBC_ARTIFACT_FORMAT_VERSION,
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_types::{
+    declaration::host::PathAccess,
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
@@ -371,15 +372,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
             root: ModuleRef::new(0),
             modules: vec![BytecodeModule {
                 types: vec![ValueType::HostHandle, ValueType::I32],
-                paths: vec![PathRecord {
-                    contract_fingerprint: 0,
-                    id: PathId::new(0),
-                    root_ty: ValueType::HostHandle,
-                    result_ty: ValueType::I32,
-                    read_only: false,
-                    debug_name: "Actor.health".to_owned(),
-                }],
-                ..Default::default()
+                ..actor_path_module(&context, "health", PathAccess::ReadWrite)
             }],
         },
         ArtifactBuildOptions::default(),
@@ -404,7 +397,14 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         renamed.verification.typed_path_fingerprints
     );
     let mut changed = renamed.program;
-    changed.modules[0].paths[0].contract_fingerprint = 42;
+    let module = &mut changed.modules[0];
+    module.path_declarations[0].schema_epoch += 1;
+    let definitions = context.snapshot();
+    module.paths[0].contract_fingerprint = module.path_declarations[0]
+        .contract(&module.external_types, &definitions)
+        .unwrap()
+        .fingerprint(&definitions)
+        .unwrap();
     let changed =
         KbcArtifact::from_program(changed, ArtifactBuildOptions::default(), &context).unwrap();
     assert_ne!(

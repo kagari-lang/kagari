@@ -9,7 +9,7 @@ use kagari_bytecode::{
         BinaryOp, BytecodeInstruction, CallTarget, FieldRef, JumpTarget, LocalSlot, PathId,
         Register, RuntimeHelper, StructId, UnaryOp,
     },
-    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, PathRecord, SafeDebugPointKind},
+    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, SafeDebugPointKind},
     verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
@@ -21,4 +21,5 @@ mod host_contracts;
 mod identities;
 mod interfaces;
 mod lowering;
+mod path_fixtures;
 mod validation;

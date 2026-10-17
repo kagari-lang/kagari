@@ -1,4 +1,4 @@
-use crate::tests::bytecode::*;
+use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{ConstantId, ConstantOperand, NativeImportId},
@@ -6,7 +6,7 @@ use kagari_bytecode::{
     program::verify_program,
 };
 use kagari_contract::{effects::EffectSet, standard::RuntimePrimitive};
-use kagari_types::{range::RangeKind, scalar::BuiltinType, ty::Ty};
+use kagari_types::{declaration::host::PathAccess, range::RangeKind, scalar::BuiltinType, ty::Ty};
 
 #[test]
 fn rejects_function_fallthrough_before_loading() {
@@ -408,14 +408,6 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
     let context = DefinitionContext::new().unwrap();
     let unresolved_path = BytecodeModule {
         types: vec![ValueType::HostHandle, ValueType::I32],
-        paths: vec![PathRecord {
-            contract_fingerprint: 0,
-            id: PathId::new(0),
-            root_ty: ValueType::HostHandle,
-            result_ty: ValueType::I32,
-            read_only: false,
-            debug_name: "Actor.health".to_owned(),
-        }],
         function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
@@ -449,9 +441,8 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
                 BytecodeInstruction::Return(Some(Register::new(1))),
             ],
         }],
-        ..Default::default()
+        ..actor_path_module(&context, "health", PathAccess::ReadWrite)
     };
-    context.intern_root(&unresolved_path.identity).unwrap();
     assert!(matches!(
         verify_module(&unresolved_path, &context.snapshot()),
         Err(BytecodeVerificationError::InvalidPathId { .. })
@@ -459,14 +450,6 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
 
     let read_only_path = BytecodeModule {
         types: vec![ValueType::Unit, ValueType::HostHandle, ValueType::I32],
-        paths: vec![PathRecord {
-            contract_fingerprint: 0,
-            id: PathId::new(0),
-            root_ty: ValueType::HostHandle,
-            result_ty: ValueType::I32,
-            read_only: true,
-            debug_name: "Actor.id".to_owned(),
-        }],
         function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
@@ -500,9 +483,8 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
                 BytecodeInstruction::Return(None),
             ],
         }],
-        ..Default::default()
+        ..actor_path_module(&context, "id", PathAccess::ReadOnly)
     };
-    context.intern_root(&read_only_path.identity).unwrap();
     assert!(matches!(
         verify_module(&read_only_path, &context.snapshot()),
         Err(BytecodeVerificationError::ReadOnlyPath { .. })

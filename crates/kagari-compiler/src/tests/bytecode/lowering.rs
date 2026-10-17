@@ -1,5 +1,6 @@
-use crate::tests::bytecode::*;
+use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
 use kagari_contract::effects::EffectSet;
+use kagari_types::declaration::host::PathAccess;
 
 use kagari_bytecode::{
     instruction::ConstantOperand, module::FunctionRecord, program::verify_program,
@@ -441,14 +442,6 @@ fn verifier_accepts_resolved_typed_path_instructions() {
     let context = DefinitionContext::new().unwrap();
     let mut module = BytecodeModule {
         types: vec![ValueType::HostHandle, ValueType::I32],
-        paths: vec![PathRecord {
-            contract_fingerprint: 0,
-            id: PathId::new(0),
-            root_ty: ValueType::HostHandle,
-            result_ty: ValueType::I32,
-            read_only: false,
-            debug_name: "Actor.health".to_owned(),
-        }],
         function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
             identity: None,
@@ -482,11 +475,10 @@ fn verifier_accepts_resolved_typed_path_instructions() {
                 BytecodeInstruction::Return(Some(Register::new(1))),
             ],
         }],
-        ..Default::default()
+        ..actor_path_module(&context, "health", PathAccess::ReadWrite)
     };
 
-    context.intern_root(&module.identity).unwrap();
-    assert!(verify_module(&module, &context.snapshot()).is_ok());
+    assert_eq!(verify_module(&module, &context.snapshot()), Ok(()));
     module.paths[0].root_ty = ValueType::HeapObject;
     assert_eq!(
         verify_module(&module, &context.snapshot()),
