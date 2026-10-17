@@ -1,7 +1,9 @@
 use std::collections::{MutableList};
 use std::num::{TryFromIntError};
+fn main() -> i32 { 42 }
+
 struct FeatureBinding<T> { val value: T, val spare: i32 }
-fn main() -> i32 {
+pub fn declaration_patterns() -> i32 {
     val (FeatureBinding { value: (values, offset), .. }, _) = (
         FeatureBinding { value: (Vec::from([19]), 22), spare: 0 }, 0
     );

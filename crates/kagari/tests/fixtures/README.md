@@ -7,7 +7,12 @@ source text. All four standalone SDK feature routes consume the same bytes:
 artifact-only, `source`, `native`, and `source,native`.
 
 `main` remains the two-step scalar function used by both the trusted static ABI
-fixture and real Cranelift compilation. `library_and_object` exercises trait sorting,
+fixture and real Cranelift compilation. Keep heap operations and calls out of this
+entry: the static backend accepts only its exact constant/return contract.
+`declaration_patterns` separately exercises nested generic struct/tuple bindings,
+explicit rest omission and captured mutable leaves. The portable execution test
+calls both entries, including in builds without source support.
+`library_and_object` exercises trait sorting,
 an external native object retaining a callback, and lazy map.
 `required_methods` exercises checked MutableList methods, Vec FromIterator,
 numeric Sum, FromStr, derived TryInto and primitive From. It also checks all twelve

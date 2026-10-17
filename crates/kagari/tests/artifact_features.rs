@@ -89,15 +89,21 @@ fn portable_artifact_executes_without_source_compilation() {
     let context = ExecutionContext::default();
     let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
-    assert_eq!(
-        runtime
-            .execute(&loaded, ProgramEntry::Main, &[], &context)
-            .unwrap()
-            .return_value
-            .value(runtime.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(42)
-    );
+    for entry in [
+        ProgramEntry::Main,
+        ProgramEntry::Export("declaration_patterns"),
+    ] {
+        assert_eq!(
+            runtime
+                .execute(&loaded, entry, &[], &context)
+                .unwrap()
+                .return_value
+                .value(runtime.runtime().gc())
+                .expect("retained execution result"),
+            Value::I32(42),
+            "{entry:?}",
+        );
+    }
 }
 
 #[test]
