@@ -2980,6 +2980,40 @@ any failing/inconclusive gate and record it. No concurrent production edits, tes
 builds or diagnostics occur during ordinary timing. Original reference batching and
 all numerical thresholds are unchanged.
 
+The projection candidate passes all 28 forms gates at UTC 20261017T033822Z:
+field 1.02242/1.02239, interface 0.77295/0.77185, shared_generic
+0.76107/0.76646, and linking 0.76654/0.82401. The subsequent windows comparison
+at UTC 20261017T033958Z passes 17/18; only windows_1_0_tail fragmentation fails
+at 1.05620/1.02740. Baseline process medians are 45.53125, 46.84375, 45.5625,
+45.5, 46.90625, 45.59375 and 45.625 ns; candidate medians are 117.15625,
+46.875, 48.1875, 49.40625, 48.15625, 45.59375 and 46.875 ns. All checksums
+and retained source/image contracts pass. The sequence stops before controls and
+original, as declared; no later matrix has run for this image.
+
+Predeclare one finite windows extension from seven to 21 total alternating pairs,
+retaining every sample and the exact executable paths/hashes. The inconsistent
+estimators and isolated first-process deviation motivate this extension; neither
+is dismissed as harmless. Keep batch 32 and both mandatory gates. If a gate remains
+open at 21, attribute it instead of adding pairs. No build, production edit, test,
+profiling or allocation diagnostic overlaps this extension.
+
+The single windows extension finishes at UTC 20261017T034140Z and passes all
+18 gates with the original seven pairs retained. The formerly failing smallest
+fragmentation row is 1.00134/1.00067. Tail retirement at widths/populations
+1/0, 32/8 and 256/128 is respectively 0.91784/0.95896, 0.78458/0.78774,
+and 0.76642/0.76374. No further extension is needed or planned. Resume the
+declared sequence at owned-root controls, then original/reference only if controls
+pass; the forms evidence is unchanged and will not be rerun for a fresh transcript.
+
+Owned-root controls finish at UTC 20261017T034259Z with all 24 gates and all
+completion/cancellation checksums passing. The ordinary forms/control image is
+847c6d505231fabbbcd43c57b67b5f1f8496e3b6536b729f151b23d753d8c6d4.
+The declared original/reference comparison begins at UTC 20261017T034422Z using
+that ordinary candidate and the unchanged fixed reference. It remains outstanding;
+no performance acceptance is inferred from starting it. No production change or
+diagnostic/build/test runs concurrently. Conditional IP04-IP06 decisions remain
+sequenced after the required combined acceptance.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
