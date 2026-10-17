@@ -133,6 +133,13 @@ expression simplification and measured performance advice. Each requires its own
 semantic justification for exports, trait lookup, traps and side effects; none is
 part of the six-rule release.
 
+The [script testing design](script-testing-design.md) proposes `kg test` with
+source-owned private `#[test]` functions, limited `#[cfg(test)]` selection,
+verified test entries and per-case runtime isolation. Ordinary tests use the
+default CLI environment; hosts orchestrate custom-service fixtures through shared
+testing capabilities. Design is authorized; implementation is unstarted and
+separate from TT01-TT05. Test-mode check/lint options belong to that later work.
+
 `kg repl` remains a separate unimplemented mode. Explicit public-function selection
 and argument forwarding, standalone dependency/host declaration policy and
 file-versus-project discovery for the remaining execution modes

@@ -53,6 +53,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; recover concrete values through checked identity and lifetime
   contracts without introducing Any.
 - [Host API unification](host-api-refactor.md).
+- [Script testing](script-testing-design.md): proposed `kg test`, source-owned
+  `#[test]` functions and host-orchestrated fixtures; design only, separate from
+  formatter/checker/linter implementation.
 - [Toolchain distribution and remaining modes](implementation-roadmap.md#toolchain-distribution-and-modes):
   SDK/CLI distribution and the separate REPL proposal; source packages are
   specified above.
