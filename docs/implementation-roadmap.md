@@ -198,7 +198,8 @@ expansion were outside scope; interpreter/Lua throughput goals remain independen
 
 The [object storage overhead execution plan](object-storage-overhead-plan.md)
 records OM01-OM05; activated on 2026-10-18, with OM01/OM02 locally accepted,
-OM03 layout-grouping decision active and OM04/OM05 unstarted. It follows the completed local
+OM03 grouping explicitly deferred after its sparse-cost projection,
+OM04 interface review active and OM05 unstarted. It follows the completed local
 RS storage work. The required next change attributes total storage and moves native
 mutation revisions out of the common identity directory. Layout-grouped structs
 and interface-record consolidation are conditional on additional measured savings,

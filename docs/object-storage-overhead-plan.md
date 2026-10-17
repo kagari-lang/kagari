@@ -1,8 +1,8 @@
 # Object storage overhead execution plan
 
 Status: activated on 2026-10-18 after the baseline/measurement policy refresh.
-OM01/OM02 are locally accepted. OM03 layout-grouping decision is active;
-OM04/OM05 are unstarted.
+OM01/OM02 are locally accepted. OM03 defers per-layout groups after the sparse
+cost screen; OM04 interface consolidation review is active and OM05 is unstarted.
 The [roadmap](implementation-roadmap.md#object-storage-overhead) owns
 activation and ordering. This plan owns OM01-OM05, conditional decisions,
 acceptance and the progress ledger. The user authorized execution and staged commits.
@@ -382,7 +382,7 @@ checks, not workspace builds or tests.
 - [x] Planning: current owners, finite phases and numerical gates recorded.
 - [x] OM01: cost attribution, consumer audit and frozen current baseline/controls.
 - [x] OM02: common-directory/native-revision migration and local acceptance.
-- [ ] OM03: layout grouping decision; accepted implementation or explicit deferral.
+- [x] OM03: retain packed arena; per-layout group model explicitly deferred.
 - [ ] OM04: interface record decision; accepted implementation or explicit deferral.
 - [ ] OM05: integrated local acceptance, CI scope and documentation handoff.
 
@@ -607,3 +607,43 @@ checks, thirteen focused contracts and required local quality checks, this close
 OM02 local acceptance at runtime 1788d94b. All fixed runs/images are retained,
 without an extension or discarded pair. Complete CI remains pending. OM03 now
 runs the predeclared bounded cost projection; no grouping prototype is selected.
+
+### OM03 layout grouping disposition, 2026-10-18
+
+The predeclared temporary manual probe runs at runtime 1788d94b, after ordinary
+timing. It compiles 64 distinct exact eight-byte scalar layouts in a separate
+program and roots one/four rows per selected layout. Runtime loading, semantic
+layout inputs and the host root container are setup; actual heap/root/type storage
+increments remain measured. Shared immutable preparation is warmed separately.
+All four cases pass zero-net runtime teardown. The temporary test is restored after
+its run; no grouping model or extra test remains in production/tracked sources.
+Its initial isize/i128 diagnostic arithmetic mismatch is corrected before the
+accepted run, without changing the runtime or acceptance rules.
+
+| Exact layouts / rows each | Current live bytes | Current empty bytes | Optimistic group delta | Projected live ratio |
+| --- | ---: | ---: | ---: | ---: |
+| 1 / 1 | 924 | 700 | -4 | 0.995671 |
+| 1 / 4 | 1,044 | 700 | +8 | 1.007663 |
+| 64 / 1 | 29,064 | 16,264 | +2,816 | 1.096890 |
+| 64 / 4 | 55,944 | 33,928 | +512 | 1.009152 |
+
+Rust measures the proposed Arc/byte-Vec/reverse-owner-Vec group header at 56 bytes,
+group/row location at eight and each reverse directory index at four. The optimistic
+projection uses the current global row capacity with those smaller rows, one group
+header per layout and exactly one backref per live row, replacing 24-byte current
+records. It excludes lookup maps, group free lists, growth slack and extra child
+allocation overhead in the proposed model's favor. Field bytes are unchanged.
+The 64 single-row case still exceeds the +5% sparse-layout gate before those costs.
+For 512 homogeneous Points this same optimistic model could save about 6,088 bytes
+(13.6% of current live bytes), but that does not satisfy the diverse-layout limit.
+
+Defer this group model before a production prototype. A sparse fallback would add
+another placement/lifetime policy to rescue the benchmark rather than resolve the
+shared owner. Go's span element-size/occupancy split remains a useful reference,
+but a size class can combine allocations that Kagari must distinguish by exact
+nominal generation and field/trace provenance. No cross-type grouping, shortened
+provenance, per-row cache or new allocator is introduced. A future uniform model
+needs a new sparse-capacity justification; this decision does not assert that every
+possible grouping design is impossible. Additional zero-byte/reference/generation
+prototype checks are unnecessary for the rejected model. The existing packed arena,
+codec and full checked identities remain the single storage implementation.
