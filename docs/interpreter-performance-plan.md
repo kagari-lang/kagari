@@ -2615,6 +2615,56 @@ extension, retain every result and never merge Windows/macOS pairs. This changes
 the measurement environment, not IP01 source identity, required phases or targets.
 IP02/IP03 remain unaccepted; IP04-IP07 decisions still follow their closure.
 
+The four clean IP01 freezes complete with all checksums passing. The current
+checker validates the original/forms/controls single-variant evidence (322/268/264
+records), clean 60bfaacb revision, matching image hashes and every current subject
+source fingerprint. Frozen macOS ordinary SHA-256 is
+`5684ddd3d567ee4314abc05f8ea37d5b94183baaf46c9af826659817143c6ea3`;
+private-window SHA-256 is
+`6e598ecd81713e99dc93b140f8bc84848569eeb9d15e13aaff2c78f999c178c8`.
+The independent reference SHA-256 is
+`9c1ad124897367b82815111bec7b77344ff28e8c273e5f876194be4ed3bd849b`.
+The original and window baseline builds take 67.102/66.423 seconds; these are
+excluded from all timing rows and are not compilation speed comparisons.
+
+The declared windows comparison at UTC 20261017T022339Z finishes with all seven
+pairs/checksums retained: 15/18 gates pass, two fail and one is inconclusive.
+Candidate window image SHA-256 is
+`b21bb4c15dd73b635052930e31a6a2a7f7eeb439240e32757f3fa2642c968b62`.
+All admission/fragmentation gates pass. Tail retirement fails for 1/0
+(aggregate/paired 1.04489/1.09100) and 256/128 (1.15831/1.15492); 32/8 tail
+retirement is inconclusive (1.04515/1.03835). The 256/128 baseline process medians
+are 3,265.66, 3,216.38, 3,086.09, 3,118.47, 3,175.66, 3,180.94 and 3,169.31 ns;
+candidate medians are 3,665.31, 3,678.41, 3,983.06, 3,601.59, 3,721.34, 3,665.38
+and 3,679.63 ns. The consistent deep-tail difference needs attribution, not a
+retroactive pass based on Windows or removal of the shallow outlier.
+
+Read-only disassembly of those exact ordinary harness images identifies a concrete
+retirement boundary cost: current `Windows::retire` copies the complete 176-byte
+occupied Slot to a stack temporary for `Vec::pop`, then drops its dependencies
+there. IP01 first drops the occupied Window in place, then pops the empty slot
+(its empty pop also copies bytes). Retirement consumes no returned Slot. After
+the declared unchanged-image matrix finishes, evaluate safe in-place truncation
+at the identity-table owner, preserving immediate dependency retirement, free-link
+unlinking, generation rejection and existing bank ownership. This is a bounded
+IP02/IP03 repair hypothesis, not proof of its latency contribution or activation
+of segmentation. Reuse the seven frame-value contracts and direct call-depth/
+reentry coverage; inspect generated code and collect fresh window pairs before
+retaining a change. No production edit or diagnostic build overlaps live timing.
+
+The declared owned-root comparison at UTC 20261017T022516Z passes all 24 gates
+and every checksum with seven pairs. Forward complete/cancel retirement ratios
+are 0.97264/0.97209 and 0.97118/0.97100; random complete/cancel ratios are
+0.86784/0.88958 and 0.85209/0.84640. Ordinary candidate SHA-256 is
+`aeb1ddb73ed59e0131fc8fb6a546bf2a3c0cc0cd34c98898d1be88fdd288353d`, archived as
+`target/interpreter-performance/macos-ip03-candidate`. The complete original run
+at UTC 20261017T022642Z is in progress; forms follows on this same ordinary image.
+The sequential runner and per-suite logs are under `target/interpreter-performance`
+(`macos_sequence.py`, `macos-paired-*.log`, `macos-sequence-summary.json`). Do not
+start duplicate runs, edit production code or replace measured images until it
+finishes. Original/forms acceptance is not yet available; no extension is declared.
+The carried window failures keep IP02/IP03 open independently of those results.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
