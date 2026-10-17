@@ -1,0 +1,132 @@
+//! Convert checked HIR types to source-independent semantic facts in the same scope.
+use crate::types::{GenericParameterType, NominalType, TypeId};
+use kagari_types::ty::{NominalTy, Ty};
+
+/// Converts a nominal application to source-independent semantic metadata; child recovery types panic as in `lower_type`.
+pub fn lower_nominal_type(ty: &NominalType) -> NominalTy {
+    NominalTy {
+        associated_types: ty
+            .associated_types
+            .iter()
+            .map(|(id, ty)| (*id, lower_type(ty)))
+            .collect(),
+        declaration: ty.declaration,
+        arguments: ty.arguments.iter().map(lower_type).collect(),
+    }
+}
+
+/// Converts HIR semantic types to the shared source-independent type representation.
+///
+/// Generic parameters and projections are preserved; this does not monomorphize.
+///
+/// # Panics
+///
+/// Panics if any inference variable, unknown or error type reaches this checked boundary.
+pub fn lower_type(ty: &TypeId) -> Ty {
+    match ty {
+        TypeId::Reference { target, access } => Ty::Reference {
+            target: Box::new(lower_type(target)),
+            access: *access,
+        },
+        TypeId::Projection {
+            receiver,
+            interface,
+            member,
+            arguments,
+        } => Ty::Projection {
+            arguments: arguments.iter().map(lower_type).collect(),
+            receiver: Box::new(lower_type(receiver)),
+            interface: Box::new(lower_nominal_type(interface)),
+            member: *member,
+        },
+        TypeId::Host(id) => Ty::Host(*id),
+        TypeId::Builtin(ty) => Ty::Builtin(*ty),
+        TypeId::Tuple(elements) => Ty::Tuple(elements.iter().map(lower_type).collect()),
+        TypeId::Function { params, result } => Ty::Function {
+            params: params.iter().map(lower_type).collect(),
+            result: Box::new(lower_type(result)),
+        },
+        TypeId::Range(element, kind) => Ty::Range(Box::new(lower_type(element)), *kind),
+        TypeId::Iter(element) => Ty::Iter(Box::new(lower_type(element))),
+        TypeId::Array(element) => Ty::Array(Box::new(lower_type(element))),
+        TypeId::Map { key, value, access } => Ty::Map {
+            key: Box::new(lower_type(key)),
+            value: Box::new(lower_type(value)),
+            access: *access,
+        },
+        TypeId::Set(element, access) => Ty::Set(Box::new(lower_type(element)), *access),
+        TypeId::NativeObject(ty) => Ty::NativeObject(lower_nominal_type(ty)),
+        TypeId::Struct(ty) => Ty::Struct(lower_nominal_type(ty)),
+        TypeId::Enum(ty) => Ty::Enum(lower_nominal_type(ty)),
+        TypeId::Trait(ty) => Ty::Trait(lower_nominal_type(ty)),
+
+        TypeId::Generic(parameter) => Ty::Parameter {
+            owner: parameter.owner,
+            position: parameter.position,
+        },
+        TypeId::SelfType(owner) => Ty::SelfType(*owner),
+        TypeId::Inference(_) | TypeId::Unknown | TypeId::Error => {
+            unreachable!("non-concrete type reached concrete ABI encoding")
+        }
+    }
+}
+
+/// Reconstructs a HIR nominal application from scoped semantic metadata.
+pub fn raise_nominal_type(ty: &NominalTy) -> NominalType {
+    NominalType {
+        associated_types: ty
+            .associated_types
+            .iter()
+            .map(|(id, ty)| (*id, raise_type(ty)))
+            .collect(),
+        declaration: ty.declaration,
+        arguments: ty.arguments.iter().map(raise_type).collect(),
+    }
+}
+
+/// Reconstructs a HIR semantic type from scoped metadata, synthesizing generic display names where needed.
+pub fn raise_type(ty: &Ty) -> TypeId {
+    match ty {
+        Ty::Reference { target, access } => TypeId::Reference {
+            target: Box::new(raise_type(target)),
+            access: *access,
+        },
+        Ty::Projection {
+            receiver,
+            interface,
+            member,
+            arguments,
+        } => TypeId::Projection {
+            arguments: arguments.iter().map(raise_type).collect(),
+            receiver: Box::new(raise_type(receiver)),
+            interface: Box::new(raise_nominal_type(interface)),
+            member: *member,
+        },
+        Ty::Host(id) => TypeId::Host(*id),
+        Ty::SelfType(id) => TypeId::SelfType(*id),
+        Ty::Parameter { owner, position } => TypeId::Generic(GenericParameterType {
+            owner: *owner,
+            position: *position,
+            name: String::new(),
+        }),
+        Ty::Builtin(ty) => TypeId::Builtin(*ty),
+        Ty::Tuple(types) => TypeId::Tuple(types.iter().map(raise_type).collect()),
+        Ty::Function { params, result } => TypeId::Function {
+            params: params.iter().map(raise_type).collect(),
+            result: Box::new(raise_type(result)),
+        },
+        Ty::Range(ty, kind) => TypeId::Range(Box::new(raise_type(ty)), *kind),
+        Ty::Iter(ty) => TypeId::Iter(Box::new(raise_type(ty))),
+        Ty::Array(ty) => TypeId::Array(Box::new(raise_type(ty))),
+        Ty::Map { key, value, access } => TypeId::Map {
+            key: Box::new(raise_type(key)),
+            value: Box::new(raise_type(value)),
+            access: *access,
+        },
+        Ty::Set(ty, access) => TypeId::Set(Box::new(raise_type(ty)), *access),
+        Ty::NativeObject(ty) => TypeId::NativeObject(raise_nominal_type(ty)),
+        Ty::Struct(ty) => TypeId::Struct(raise_nominal_type(ty)),
+        Ty::Enum(ty) => TypeId::Enum(raise_nominal_type(ty)),
+        Ty::Trait(ty) => TypeId::Trait(raise_nominal_type(ty)),
+    }
+}

@@ -1,151 +1,119 @@
 mod aggregate_ops;
 mod dispatch;
+mod driver;
+pub(crate) mod native;
 mod value_ops;
 
-use std::cell::RefMut;
+use kagari_bytecode::{instruction::Register, program::ModuleRef};
+use kagari_contract::ids::FunctionRef;
+use kagari_runtime::{
+    RootedInterfaceMethod, Runtime,
+    frame::{ExecutionFrame, ExecutionStack},
+    module::LoadedModule,
+    session::owned::OwnedExecution,
+    value::Value,
+};
+use std::{
+    cell::{Ref, RefMut},
+    num::NonZeroUsize,
+};
 
-use kagari_ir::bytecode::{BytecodeInstruction, BytecodeModule, FunctionRef};
-use kagari_runtime::{ModuleInstance, Runtime, value::Value};
-
-use crate::debug::DebugSession;
 use crate::error::VmError;
-use crate::frame::Frame;
 
-#[derive(Debug)]
 pub(crate) struct Executor<'a> {
     runtime: &'a Runtime,
-    module: &'a BytecodeModule,
-    module_instance: RefMut<'a, ModuleInstance>,
-    frames: Vec<Frame<'a>>,
-    debug_session: Option<&'a mut DebugSession>,
+    stack: ExecutionStack<'a>,
+}
+
+pub(crate) enum DriveOutcome {
+    Runnable,
+    Waiting,
+    Complete(Value),
 }
 
 impl<'a> Executor<'a> {
     pub(crate) fn new(
         runtime: &'a Runtime,
-        module: &'a BytecodeModule,
-        module_instance: RefMut<'a, ModuleInstance>,
+        loaded: &'a LoadedModule,
         entry: FunctionRef,
-        debug_session: Option<&'a mut DebugSession>,
+        args: &[Value],
     ) -> Result<Self, VmError> {
-        let function = module
+        let module = &loaded.bytecode;
+        module
             .functions
             .get(entry.index())
             .ok_or(VmError::InvalidFunctionRef(entry))?;
 
         let mut executor = Self {
             runtime,
-            module,
-            module_instance,
-            frames: Vec::new(),
-            debug_session,
+            stack: runtime.enter_execution_stack(loaded)?,
         };
-        executor.push_frame(function, &[], None)?;
+        executor.push_frame(loaded.slot(), entry, args, None)?;
         Ok(executor)
     }
 
+    pub(crate) fn new_interface(
+        runtime: &'a Runtime,
+        method: RootedInterfaceMethod,
+        args: &[Value],
+    ) -> Result<Self, VmError> {
+        let loaded = method.implementation(runtime)?;
+        let stack = runtime.enter_execution_stack(&loaded)?;
+        stack.push_interface_method(runtime, method, args, None)?;
+        Ok(Self { runtime, stack })
+    }
+
     pub(crate) fn run(&mut self) -> Result<Value, VmError> {
-        loop {
-            if let Some(debug_session) = self.debug_session.as_deref_mut() {
-                debug_session.before_instruction(
-                    self.runtime,
-                    &self.module_instance.name,
-                    self.module_instance.id,
-                    self.module_instance.epoch.0,
-                    &self.frames,
-                )?;
-            }
+        self.run_inner(None)
+            .and_then(|outcome| match outcome {
+                DriveOutcome::Complete(value) => Ok(value),
+                _ => Err(VmError::UnsupportedInstruction(
+                    "synchronous entry cannot suspend",
+                )),
+            })
+            .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))
+    }
 
-            let instruction = {
-                let frame = self.current_frame_mut()?;
-                frame.next_instruction().cloned()
-            };
+    pub(crate) fn resume(runtime: &'a Runtime, owner: &OwnedExecution) -> Result<Self, VmError> {
+        Ok(Self {
+            runtime,
+            stack: runtime.resume_owned_execution(owner)?,
+        })
+    }
 
-            let Some(instruction) = instruction else {
-                return Ok(Value::Unit);
-            };
-
-            self.runtime
-                .consume_instruction_step()
-                .map_err(VmError::RuntimeError)?;
-
-            match instruction {
-                BytecodeInstruction::Return(value) => {
-                    let value = match value {
-                        Some(register) => self.current_frame()?.read_register(register)?,
-                        None => Value::Unit,
-                    };
-                    let return_dst = self.current_frame()?.return_dst();
-                    self.pop_frame()?;
-                    if let Some(frame) = self.frames.last_mut() {
-                        if let Some(dst) = return_dst {
-                            frame.write_register(dst, value)?;
-                        }
-                    } else {
-                        return Ok(value);
-                    }
-                }
-                instruction => {
-                    if let Err(error) = self.dispatch_instruction(instruction) {
-                        if let Some(debug_session) = self.debug_session.as_deref_mut() {
-                            debug_session.record_trap(
-                                self.runtime,
-                                self.module_instance.id,
-                                self.module_instance.epoch.0,
-                                &self.frames,
-                            )?;
-                        }
-                        return Err(error);
-                    }
-                }
-            }
+    pub(crate) fn run_slice(mut self, slice: NonZeroUsize) -> Result<DriveOutcome, VmError> {
+        let value = self
+            .run_inner(Some(slice.get()))
+            .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))?;
+        match &value {
+            DriveOutcome::Runnable => self.stack.park(self.runtime)?,
+            DriveOutcome::Waiting => self.stack.park_waiting(self.runtime)?,
+            DriveOutcome::Complete(_) => {}
         }
+        Ok(value)
     }
 
-    pub(crate) fn current_frame(&self) -> Result<&Frame<'a>, VmError> {
-        self.frames
-            .last()
-            .ok_or(VmError::UnsupportedInstruction("missing_frame"))
+    pub(crate) fn current_loaded(&self) -> Result<LoadedModule, VmError> {
+        Ok(self.current_frame()?.loaded().clone())
     }
 
-    pub(crate) fn current_frame_mut(&mut self) -> Result<&mut Frame<'a>, VmError> {
-        self.frames
-            .last_mut()
-            .ok_or(VmError::UnsupportedInstruction("missing_frame"))
+    pub(crate) fn current_frame(&self) -> Result<Ref<'_, ExecutionFrame>, VmError> {
+        Ok(self.stack.current()?)
+    }
+
+    pub(crate) fn current_frame_mut(&self) -> Result<RefMut<'_, ExecutionFrame>, VmError> {
+        Ok(self.stack.current_mut()?)
     }
 
     pub(crate) fn push_frame(
         &mut self,
-        function: &'a kagari_ir::bytecode::BytecodeFunction,
+        module: ModuleRef,
+        function: FunctionRef,
         args: &[Value],
-        return_dst: Option<kagari_ir::bytecode::Register>,
+        return_dst: Option<Register>,
     ) -> Result<(), VmError> {
-        self.runtime.enter_call().map_err(VmError::RuntimeError)?;
-        match Frame::new(function, args, return_dst) {
-            Ok(frame) => {
-                self.frames.push(frame);
-                Ok(())
-            }
-            Err(error) => {
-                self.runtime.leave_call();
-                Err(error)
-            }
-        }
-    }
-
-    fn pop_frame(&mut self) -> Result<(), VmError> {
-        self.frames
-            .pop()
-            .ok_or(VmError::UnsupportedInstruction("missing_frame"))?;
-        self.runtime.leave_call();
-        Ok(())
-    }
-}
-
-impl Drop for Executor<'_> {
-    fn drop(&mut self) {
-        while self.frames.pop().is_some() {
-            self.runtime.leave_call();
-        }
+        Ok(self
+            .stack
+            .push(self.runtime, module, function, args, return_dst)?)
     }
 }

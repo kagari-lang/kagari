@@ -1,0 +1,30 @@
+struct ReadError {
+    val code: i32
+}
+
+enum AppError {
+    Read(ReadError)
+}
+
+impl From<ReadError> for AppError {
+    fn from(error: ReadError) -> Self {
+        AppError::Read(error)
+    }
+}
+
+fn read() -> Result<i32, ReadError> {
+    Err(ReadError { code: 42 })
+}
+
+fn load() -> Result<i32, AppError> {
+    // Only the Err branch calls AppError::from; the original stack is preserved.
+    val value = read()?;
+    Ok(value)
+}
+
+fn main() -> i32 {
+    match load() {
+        Ok(value) => value,
+        Err(AppError::Read(error)) => error.code,
+    }
+}

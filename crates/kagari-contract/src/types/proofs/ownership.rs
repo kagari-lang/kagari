@@ -1,0 +1,188 @@
+use crate::{
+    language::primitive as intrinsic,
+    types::proofs::{Budget, ProofCatalog, implementation::Implementation},
+};
+use kagari_common::cancellation::CancellationToken;
+use kagari_types::{
+    declaration::{conversion::ConversionAdapter, ownership::ReceiverOwners},
+    language::Protocol,
+    ty::{Ty, substitution::TypeTransformError},
+};
+use std::iter;
+
+impl ProofCatalog<'_> {
+    pub fn overrides_valid(
+        &self,
+        owners: &ReceiverOwners,
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        let budget = Budget::new(cancel);
+
+        for table in &self.implementations {
+            budget.step(0)?;
+            if !self.table_override_valid(table, owners, &budget)? {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+
+    fn iteration_conflict(
+        &self,
+        kind: Protocol,
+        receiver: &Ty,
+        budget: &Budget<'_>,
+    ) -> Result<bool, TypeTransformError> {
+        let other = if kind == Protocol::Iterator {
+            Protocol::Iterable
+        } else {
+            Protocol::Iterator
+        };
+        for table in &self.implementations {
+            budget.step(0)?;
+            if let Some(applied) = table.interface()
+                && Protocol::from_definition(&applied.declaration, &self.definitions) == Some(other)
+                && overlapping(table.receiver(), receiver)
+            {
+                return Ok(true);
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn table_override_valid(
+        &self,
+        table: &Implementation<'_>,
+        owners: &ReceiverOwners,
+        budget: &Budget<'_>,
+    ) -> Result<bool, TypeTransformError> {
+        let Some(interface) = table.interface() else {
+            return Ok(false);
+        };
+        let adapter = self
+            .trait_contract(&interface.declaration)
+            .and_then(|contract| contract.conversion_adapter.as_ref());
+        let kind = Protocol::from_definition(&interface.declaration, &self.definitions);
+        if matches!(adapter, Some(ConversionAdapter::Reverse { .. })) {
+            return Ok(false);
+        }
+        if kind == Some(Protocol::From)
+            && interface.arguments.first().is_some_and(|input| {
+                input == table.receiver()
+                    || match (input, table.receiver()) {
+                        (Ty::Parameter { .. }, target) => !occurs_in_constructor(input, target),
+                        (source, Ty::Parameter { .. }) => {
+                            !occurs_in_constructor(table.receiver(), source)
+                        }
+                        _ => overlapping(input, table.receiver()),
+                    }
+            })
+        {
+            return Ok(false);
+        }
+        if kind == Some(Protocol::From)
+            || matches!(adapter, Some(ConversionAdapter::Forward { .. }))
+        {
+            if iter::once(table.receiver())
+                .chain(&interface.arguments)
+                .any(|ty| matches!(ty, Ty::Host(_)))
+            {
+                return Ok(false);
+            }
+            let owner = self.module(*table.declaration())?;
+            if self.module(interface.declaration)? == owner {
+                return Ok(true);
+            }
+            for ty in iter::once(table.receiver()).chain(&interface.arguments) {
+                if owners.owner(ty, &self.definitions).as_ref() == Some(owner) {
+                    return Ok(true);
+                }
+            }
+            return Ok(false);
+        }
+        let Some(kind) = kind else {
+            return Ok(true);
+        };
+        if kind.iteration() && self.iteration_conflict(kind, table.receiver(), budget)? {
+            return Ok(false);
+        }
+        if kind.host_implementable() {
+            return Ok(true);
+        }
+        if owners.owner(table.receiver(), &self.definitions).as_ref()
+            != Some(self.module(*table.declaration())?)
+        {
+            return Ok(false);
+        }
+        if !kind.equality_protocol() {
+            return Ok(true);
+        }
+        for required in [Protocol::PartialEq, Protocol::Eq] {
+            if kind == Protocol::PartialEq || kind == Protocol::Eq && required == Protocol::Eq {
+                continue;
+            }
+            // All nested checks share the override audit's work/cancellation budget.
+            if self.explicit(
+                &intrinsic::applied(required, vec![], &self.definitions)?,
+                table.receiver(),
+                table.bounds(),
+                &mut Default::default(),
+                budget,
+                0,
+            )? != 1
+            {
+                return Ok(false);
+            }
+        }
+        Ok(true)
+    }
+}
+
+fn overlapping(left: &Ty, right: &Ty) -> bool {
+    if left == right {
+        return true;
+    }
+    if left.is_concrete() && right.is_concrete() {
+        return false;
+    }
+    match (left, right) {
+        (Ty::Struct(left), Ty::Struct(right))
+        | (Ty::NativeObject(left), Ty::NativeObject(right))
+        | (Ty::Enum(left), Ty::Enum(right)) => left.declaration == right.declaration,
+
+        (Ty::Tuple(left), Ty::Tuple(right)) => left.len() == right.len(),
+        (Ty::Function { params: left, .. }, Ty::Function { params: right, .. }) => {
+            left.len() == right.len()
+        }
+        (Ty::Range(_, left), Ty::Range(_, right)) => left == right,
+        (Ty::Iter(_), Ty::Iter(_))
+        | (Ty::Array(_), Ty::Array(_))
+        | (Ty::Set(_, _), Ty::Set(_, _))
+        | (Ty::Map { .. }, Ty::Map { .. }) => true,
+        _ => false,
+    }
+}
+
+fn occurs_in_constructor(parameter: &Ty, ty: &Ty) -> bool {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        if ty == parameter {
+            return true;
+        }
+        match ty {
+            Ty::Struct(n) | Ty::NativeObject(n) | Ty::Enum(n) => pending.extend(&n.arguments),
+            Ty::Tuple(items) => pending.extend(items),
+            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
+                pending.push(item)
+            }
+            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            Ty::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
+            _ => {}
+        }
+    }
+    false
+}

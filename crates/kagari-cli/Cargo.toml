@@ -4,14 +4,33 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "kg"
+path = "src/main.rs"
+
 [dependencies]
+kagari-lint.workspace = true
+kagari-format.workspace = true
+serde.workspace = true
+serde_json = "1"
+toml = "1.1"
+blake3 = "1"
+kagari-package.workspace = true
+kagari-types.workspace = true
+kagari-source.workspace = true
+thiserror.workspace = true
 kagari-common.workspace = true
-kagari-embed.workspace = true
-kagari-jit-cranelift = { workspace = true, optional = true }
+kagari = { workspace = true, features = ["source"] }
+kagari-bytecode.workspace = true
+kagari-codegen-cranelift = { workspace = true, optional = true }
 kagari-syntax.workspace = true
 kagari-runtime.workspace = true
 kagari-vm.workspace = true
 
 [features]
 default = []
-jit = ["dep:kagari-jit-cranelift", "kagari-jit-cranelift/jit"]
+aot = ["dep:kagari-codegen-cranelift", "kagari/aot-build"]
+jit = ["dep:kagari-codegen-cranelift", "kagari/native"]
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }

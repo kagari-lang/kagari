@@ -1,0 +1,172 @@
+//! Check type-family contracts under their own declaration-owned binders.
+
+use super::applications;
+use crate::{
+    DiagnosticBuffer,
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
+    declarations::Declarations,
+    lower::LoweredModule,
+    types::{NominalType, TypeId, TypeSubstitution},
+};
+
+use {
+    kagari_common::cancellation::CancellationToken,
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
+
+pub(super) fn validate(
+    lowered: &LoweredModule,
+    declarations: &Declarations,
+    catalog: &AggregateCatalog,
+    diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
+) {
+    for item in &lowered.module.impls {
+        if cancel.check().is_err() {
+            return;
+        }
+        let Some(implementation) = declarations
+            .impl_identity(item.id)
+            .and_then(|id| catalog.implementation_signature(id))
+        else {
+            continue;
+        };
+        let Some(contract) = catalog.trait_(&implementation.trait_type.declaration) else {
+            continue;
+        };
+        for (member, family) in &implementation.associated_type_families {
+            let Some(inputs) = contract.associated_type_parameters.get(member) else {
+                continue;
+            };
+            let mut substitution: TypeSubstitution = contract
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(implementation.trait_type.arguments.iter().cloned())
+                .chain(
+                    inputs.parameters.iter().cloned().zip(
+                        family
+                            .inputs
+                            .parameters
+                            .iter()
+                            .cloned()
+                            .map(TypeId::Generic),
+                    ),
+                )
+                .collect();
+            substitution.insert_receiver(contract.id, implementation.for_type.clone());
+            let normalize_bound = |bound: &NominalType| bound.instantiate(&substitution);
+            let required = inputs
+                .bounds
+                .iter()
+                .map(|(target, constraints)| {
+                    (
+                        target.instantiate(&substitution),
+                        constraints.iter().map(normalize_bound).collect::<Vec<_>>(),
+                    )
+                })
+                .collect::<super::GenericBounds>();
+            if family.inputs.bounds.iter().any(|(target, provided)| {
+                required
+                    .get(target)
+                    .is_none_or(|required| provided.iter().any(|bound| !required.contains(bound)))
+            }) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
+                        name: declarations.definitions().resolve(*member).expect("scoped associated type").last().expect("associated type").name.to_owned(),
+                        reason:
+                            "generic associated type implementation strengthens the trait input bounds"
+                                .into(),
+                    })
+                    .with_span(lowered.source_map.impl_span(item.id)),
+                );
+            }
+            let mut available = implementation.bounds.clone();
+            for (target, bounds) in required.into_iter().chain(family.inputs.bounds.clone()) {
+                let entry = available.entry(target).or_default();
+                for bound in bounds {
+                    if !entry.contains(&bound) {
+                        entry.push(bound);
+                    }
+                }
+            }
+            let available = catalog
+                .expanded_bounds(&available, cancel)
+                .unwrap_or(available);
+            applications::validate(
+                applications::ApplicationContext {
+                    definitions: declarations.definitions(),
+                    catalog,
+                    receiver: None,
+                },
+                &family.value,
+                &available,
+                lowered.source_map.impl_span(item.id),
+                diagnostics,
+                cancel,
+            );
+            let output = catalog.normalize_type(declarations.definitions(), &family.value);
+            if output.is_unresolved() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
+                        name: declarations
+                            .definitions()
+                            .resolve(*member)
+                            .expect("scoped associated type")
+                            .last()
+                            .expect("associated type")
+                            .name
+                            .to_owned(),
+                        reason: "generic associated type recursively depends on itself".into(),
+                    })
+                    .with_span(lowered.source_map.impl_span(item.id)),
+                );
+            }
+            for required in contract.associated_types.get(member).into_iter().flatten() {
+                let satisfies = {
+                    let required = normalize_bound(required);
+                    available.get(&output).is_some_and(|bounds| {
+                        bounds.iter().any(|actual| actual.satisfies(&required))
+                    }) || catalog.intrinsic_implementation(
+                        declarations.definitions(),
+                        &required,
+                        &output,
+                        &available,
+                    ) || catalog
+                        .concrete_interface_implementation(
+                            declarations.definitions(),
+                            &required,
+                            &output,
+                            &available,
+                            ImplementationSearchLimits {
+                                max_checks: 100_000,
+                                max_depth: 64,
+                            },
+                            cancel,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_some()
+                };
+                if !satisfies {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
+                            name: declarations
+                                .definitions()
+                                .resolve(*member)
+                                .expect("scoped associated type")
+                                .last()
+                                .expect("associated type")
+                                .name
+                                .to_owned(),
+                            reason:
+                                "generic associated type output does not satisfy its declared bound"
+                                    .into(),
+                        })
+                        .with_span(lowered.source_map.impl_span(item.id)),
+                    );
+                }
+            }
+        }
+    }
+}

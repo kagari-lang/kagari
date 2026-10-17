@@ -1,9 +1,31 @@
-use kagari_common::Severity;
-
 use crate::{
-    ast::{Expr, Stmt},
+    ast::{expr::Expr, stmt::Stmt},
+    parser::parse,
     tests::common,
 };
+use kagari_source::diagnostic::Severity;
+
+#[test]
+fn compound_assignments_preserve_lossless_computed_targets() {
+    use crate::ast::traits::AstNode;
+    for op in ["=", "+=", "-=", "*=", "/="] {
+        let source = format!("fn main() {{ (root())[index()].field {op} // rhs\n value(); }}");
+        let parsed = parse(&common::source(&source));
+        assert!(
+            parsed.diagnostics().is_empty(),
+            "{:?}",
+            parsed.diagnostics()
+        );
+        let syntax = parsed.syntax();
+        assert_eq!(syntax.syntax().text().to_string(), source);
+        let body = common::first_function(&syntax).body().unwrap();
+        let Some(Stmt::AssignStmt(statement)) = body.statements().next() else {
+            panic!("expected assignment")
+        };
+        assert!(matches!(statement.target(), Some(Expr::FieldExpr(_))));
+        assert!(statement.operator().is_some());
+    }
+}
 
 #[test]
 fn parses_let_return_and_tail_expr_in_block() {

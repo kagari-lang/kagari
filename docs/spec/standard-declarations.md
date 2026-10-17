@@ -1,0 +1,402 @@
+# Native declarations and library modules
+
+Kagari declarations describe Kagari types, functions, traits and implementations.
+Rust entries implement those declarations. Registration is explicit: a Rust
+function's signature does not define a Kagari API, and no declaration attribute
+macro is involved. `kagari-stdlib` owns all 40 standard trait registrations,
+including the 26 reserved language traits. Source-free runtime installation uses
+these same declarations and local Rust bindings without a binary declaration product.
+
+This page describes current implemented behavior. Shared semantic declarations
+feed explicit analysis providers and runtime registration. Generated modules,
+cached navigation and checked language roles use the same library inputs.
+[Architecture](../architecture.md#unified-library-registration) defines the owners.
+
+## Ownership and installation
+
+The installed `core`/`alloc`/`std` foundation contains complete language contracts:
+operators, comparisons, hashing, Index, Fn, iteration, collection interfaces,
+formatting and error conversion. It also declares Option/Result/Ordering/Bound,
+range forms, cold Future values and the default Vec/HashMap/HashSet types. The SDK installs their basic native operations by default. Array literals
+construct builtin fixed-length arrays independently of installed declarations.
+Vec is registered nominal sequence storage; Vec::from and HashSet::from are
+ordinary associated constructors taking `[T]`. Explicit registrations declare the core traits; validated language
+roles select their semantic duties. Installation remains independent of syntax/HIR.
+Each declaration has one canonical core/alloc/std owner; checked `std` re-exports
+retain its definition identity. Native modules carry public alias targets, and
+installation verifies that the canonical declarations exist in their providers.
+Authored export aliases use `(NameNamespace, spelling)` keys, allowing Type and
+Value aliases with the same spelling. Validation checks category agreement with
+the canonical target and rejects duplicates within one category. The supported
+portable aliases remain traits, registered types and enum variants. Canonical
+definition identities and native symbol uniqueness are independent of spelling.
+Generated source views follow the same two-space lookup rules as authored source.
+The [namespace and prelude inventory](builtins.md#namespaces-and-prelude) defines
+public paths and default name visibility.
+
+Map/Set interfaces do not prescribe storage or traversal order. Default HashMap
+and HashSet use Rust `std::collections` hash tables and require Eq + Hash keys.
+They promise neither insertion nor sorted order. LinkedHashMap/LinkedHashSet and
+other additional containers belong to optional modules; none are installed by
+the current bounded library proof.
+
+`Runtime::new` constructs an empty native registry. Low-level consumers explicitly
+install `kagari_stdlib::modules()` with `NativeModule::install_all`, including for
+source-free execution. All engine constructors select and install the standard
+modules. The builder's `install(module)` adds an application module,
+and `with_native_modules` accepts application modules in addition to the foundation.
+The fallible mutable builder uses `install`/`install_all` as atomic transactions;
+`build` consumes it. `builder.declarations()` supplies the installed authoring
+providers to application ModuleBuilders. Duplicate module identities, conflicting
+bindings, missing dependencies and declaration mismatches are rejected. A finished module contains
+both portable declarations and runtime-local Rust entries/storage descriptors.
+Compiler-only consumers can read the same declarations without a runtime.
+
+`ModuleBuilder::from_declaration` adopts separately authored `ModuleDecl` records
+into its own definition scope. `declared_function(name)` selects a free function;
+`declared_method(implementation, name)` selects a member using its position in that
+declaration's implementation list. Both return the same binding token for `bind`.
+Missing implementation/member selections reject immediately, and `finish` rejects
+missing callbacks. The declaration remains the signature and identity authority.
+
+Installed package names resolve to their unique physical root module when one is
+present. Packages supplied only through child modules use an implicit namespace
+prefix. Independently installed child modules also populate a unique installed
+native parent's namespace when that name has no explicit declaration. Existing
+declarations retain their visibility and ambiguity rules; source modules require
+their ordinary explicit child declarations. Qualified types in generated signatures
+follow the same member visibility and ambiguity checks as ordinary source references.
+
+`core::future::Future<T>` is the canonical single-drive native storage type, with
+one invariant output parameter. `std::future` and the prelude re-export that exact
+declaration. It has no public constructor or trait-based await protocol. Typed
+`bind` with `Async<A>` selects this checked storage role;
+ordinary invocation captures values and first await submits the operation. Source
+async callables construct the same Future role with private script resume state;
+both producers support encoded wait/resume.
+`ModuleBuilder::bind_storage` binds a separately authored local type declaration
+to its Rust storage descriptor, validating exact declaration/layout agreement and
+rejecting duplicate or foreign bindings. Compiler declarations contain no Rust
+factory, payload or completion endpoint.
+
+List/MutableList declare common algorithms directly. The bundled
+`core::iter` module owns all seventeen Iterable defaults, including lazy
+transformations, paired traversal and terminal consumption:
+
+```kagari
+use std::collections;
+fn main() -> i32 {
+    val values = Vec::from([22, 20]);
+    values.sort();
+    val mapped = values.map(|value| value + 1);
+    match mapped.next() { Some(value) => value + values[1], None => 0 }
+}
+```
+
+List provides sorted, sorted_by, sorted_by_key, reversed and distinct. MutableList
+provides sort, sort_by, sort_by_key, reverse, retain and dedup. Natural sorting
+requires T: Ord, while key methods accept a method-local K: Ord. Eq-only distinct
+preserves first occurrences without adding a Hash bound. These are declared trait
+methods with native defaults and optimized Vec overrides. Custom containers
+reuse the defaults through their selected iterator and set/remove operations.
+`Iterable.map<U>` accepts `fn(Self::Item) -> U` and returns
+`core::iter::MapIterator<Self::Item, U>`. Filter, take, filter_map, skip,
+enumerate, zip and chain return element-only adapters in the same module; the full signatures and consumption rules are in
+[builtins](builtins.md#iteration-protocols). Iterator retains only next; identity Iterable
+adaptation gives cursors the same defaults with shared progress. Containers,
+generic receivers, custom Iterable implementations and interface values reuse
+checked iter/next selections. The former collections map function is removed.
+Collect, sum and product delegate to FromIterator, Sum and Product on the
+requested destination. Fold consumes one cursor in source order and returns its
+initial accumulator on empty input. Native terminal consumption uses
+revision checks that reject stale reads after structural writes.
+
+String also supplies the finite inherent methods documented in
+[builtins](builtins.md). Predecessor APIs outside the accepted surface, including
+parse conveniences, enum combinators, snapshots, windows,
+grouping and set algebra, remain withdrawn. They are not compatibility
+requirements. New libraries may implement such APIs through ordinary registrations.
+
+## Explicit registration
+
+`ModuleBuilder` owns a module's declarations. `FunctionBuilder` introduces fresh
+Kagari generic parameters, parameter/result types, bounds and selected callable
+requirements. `TypeBuilder` declares a nominal native type and its storage.
+`implement` introduces scoped implementation parameters; `inherent_impl` and
+`trait_impl` declare the appropriate method groups. Native implementations
+reference complete checked trait contracts instead of redeclaring them.
+Generic and associated bounds contain ordinary applied trait records, including
+their exact identities, arguments and associated outputs; there is no separate
+builtin-constraint variant. Bound normalization preserves complete applications
+and canonical identity order, and declaration/loading checks still enforce trait
+kind, arity, member ownership and binder scope. Source operators use the same
+[operation-specific bounds](traits.md#operation-specific-bounds).
+
+A bound is not a callable dependency. For example, a hash key requires Eq + Hash,
+while a selected equality callback names PartialEq::eq. Native declarations keep
+both the admission requirement and the exact executable dependency; shared callers
+forward checked operations without runtime trait lookup.
+
+Collection interfaces use ordinary methods and parent traits. There is no
+storage-access marker on trait declarations. Installed implementations can supply
+protocols for nominal interface values; type-owned protocols belong to that
+interface's defining module. The standard library explicitly implements bounded
+Debug for its six collection interfaces, without PartialEq, Eq or Hash.
+`Interface::debug_preview` supplies bounded formatting. Content helpers compare
+through selected element/key protocols; boxing never forwards a hidden receiver's
+equality. These operations grant no storage layout or writable methods. Concrete host
+Map/Set access descriptors remain checked at their independent storage boundary.
+
+`ModuleBuilder::define_enum` authors an ordinary managed nominal enum rather than
+an opaque Rust storage object. Its `EnumBuilder` declares type parameters and unit
+or tuple-payload variants, exposes `self_type()` for recursive payloads, and
+validates the completed declaration before publishing it into the module's
+authoring providers. `finish()` returns the same `TypeRef` handle used by generic
+implementation builders; `apply` produces `Ty::Enum` for an enum declaration.
+`TypeRef::variant` returns an owner-qualified `VariantRef`, not a raw discriminant.
+Enum and variant documentation use `documentation` and `variant_documentation`.
+Module completion checks the referenced enum providers and generic applications;
+installation rejects absent or conflicting dependencies atomically.
+These declarations use ordinary generated enum syntax and parsed nominal HIR.
+Native functions obtain scoped applied types through
+`CallContext::result_type_argument` or `argument_type_argument`.
+`allocate_enum(&applied, &variant, fields)` checks the installed nominal owner,
+variant membership, substituted payload types and live heap handles before
+allocation. `enum_argument_is` and `enum_argument_field` inspect rooted arguments
+through those same pinned layouts; wrong variants and payload indices fail.
+Enum codecs use managed Values while the declared native signature retains the
+exact nominal type. Root newly allocated Values before further allocation or
+synchronous reentry. Generic native enum templates travel in checked executable
+layouts, so artifact-only hosts use these APIs without source analysis.
+
+For example, a scalar application entry can be declared and bound as follows:
+
+```rust
+use kagari_runtime::native::{
+    binding::NativeResult,
+    builder::ModuleBuilder,
+    context::CallContext,
+    declarations::FunctionDecl,
+    module::NativeModule,
+    types::Type,
+};
+
+use kagari_stdlib::declarations::StandardDeclarations;
+
+fn module() -> NativeResult<NativeModule> {
+    let standard = StandardDeclarations::default();
+    let mut module = ModuleBuilder::new("demo::numbers", &standard.catalog()?);
+    let maximum = module.define_function(FunctionDecl::new("maximum"))?;
+    module.function(&maximum, |function| {
+        function.parameter("left", Type::i32());
+        function.parameter("right", Type::i32());
+        function.returns(Type::i32());
+        Ok(())
+    })?;
+    module.bind(maximum, |_cx: &mut CallContext<'_>, left: i32, right: i32| -> NativeResult<i32> {
+        Ok(left.max(right))
+    })?;
+    module.finish()
+}
+```
+
+`bind` accepts an explicit raw/primitive binding, a flat call-context entry or
+an owned typed callback. Adapter selection retains the authored Kagari signature;
+all forms use its binding validator and contextual entries check each concrete
+application before conversion effects. Rust definitions never infer Kagari
+traits, impls or generic constraints.
+
+Registration checks ownership, generic scope, complete trait method coverage,
+substituted signatures and storage compatibility before publishing a module.
+Unbound functions, foreign declaration handles and incompatible Rust conversions
+are rejected. The application fixture at
+`crates/kagari/tests/support/native_provider.rs` demonstrates a generic
+factory and a non-sequence object with an inherent method and retained callback.
+
+Documentation registration preserves complete Markdown, blank paragraphs and
+fenced examples. `ModuleBuilder::documentation`, `TraitBuilder::documentation`
+and `TypeBuilder::documentation` set their overviews. `FunctionDecl::documentation`
+and `MethodDecl::documentation` attach item/member documentation.
+`TraitBuilder::associated_type_documentation` checks the declared member name.
+Trait implementations inherit the provider's method docs across module boundaries;
+`MethodsBuilder::documentation(name, text)` overrides a particular implementation.
+Finished `ModuleDecl` records retain module and member documentation independently
+of executable signatures and contract matching.
+
+## Engine source presentation
+
+Source-enabled engines render every installed module from the sealed registrations
+and check complete generated KGR with the ordinary frontend before publishing it.
+`engine.native_declaration_sources()` returns those immutable views and their sites.
+For example, a tooling host configures file materialization before sealing:
+
+```rust
+let mut builder = KagariEngine::builder()?;
+// Construct application modules against builder.declarations(), then install them.
+builder.declaration_cache("target/kagari-declarations");
+let engine = builder.build()?;
+```
+
+Omitting the directory keeps views in memory without filesystem IO. CLI source
+commands configure it automatically. The cache uses renderer-version/content paths;
+unchanged content reuses paths and doc-only changes preserve old snapshot targets.
+SDK errors retain the failing filesystem path and IO cause. Published normalized
+absolute paths and declaration ranges match the analyzed content; LSP integrations
+encode paths as file URIs at their protocol boundary. HIR declaration snapshots
+provide `documentation` and `module_documentation`; full analysis supplies
+`documentation_at` and `module_documentation_at` for item and module references.
+All return the complete registered Markdown from parsed owning source locations.
+
+Artifact-only and native-only SDK consumers install the same checked registration
+records without a source frontend, generated KGR or declaration binary. User-program
+KBC/MIR artifacts and linked verification remain independent execution features.
+
+## Checked executable contracts
+
+Source analysis parses native-generated declaration views through ordinary
+declaration analysis, then attaches checked registration metadata. Lowering carries
+provider-qualified native imports with concrete types, signatures, bounds and
+selected callable dependencies. Portable validation proves those facts against
+the executable dependency closure. Artifact loading checks the installed entry
+against the complete carried declaration; matching names alone are insufficient.
+
+An ordinary generic bound states applicability. A selected callable requirement
+additionally states that the Rust body invokes a particular trait member. Linking
+resolves that member once for the concrete native application. `cx.selected(slot)`
+borrows the prepared callable; invocation does not repeat source lookup or trait
+resolution. Implicit language operations and explicit script implementations
+retain distinct checked targets.
+
+Runtime bindings and Rust storage factories are local installation data, not
+serialized function pointers. Artifacts retain portable identities and contracts.
+Executable loading works without HIR, source parsing or generated declaration text.
+Retained callables pin their defining code generation across reload.
+
+## Calls, roots and storage
+
+Ordinary native functions and their script callbacks execute synchronously.
+`CallContext` exposes checked arguments, selected calls, allocation and execution
+checks. `CallableHandle` borrows a callback during its invocation. A payload that
+retains a callback uses `StoredCallable` and traces it. Returned script heap values
+must be rooted before further allocation or reentry; callback argument packs do
+not create a script tuple merely to carry Rust arguments.
+
+Scoped sequence views borrow rooted existing storage. Primitive layouts use
+contiguous typed buffers, including empty sequences whose layout is determined by
+the declared element type. Heap-reference elements use traced Values. Bulk slice
+access does not copy the entire sequence or allocate a per-call scratch buffer.
+Mutable access respects native borrow/callback guards and storage revisions. These
+sequence codecs and edit leases accept registered nominal sequence storage, never
+builtin arrays. Fixed arrays share internal buffer kernels only after separate
+family and element-contract validation.
+
+`SequenceEdit` leases the actual sequence buffer for synchronous mutation. The
+lease excludes receiver-slot access through other aliases and restores storage on
+success, failure or unwind. Primitive edits do not clone the buffer. Traced values
+keep explicit roots while sorting may move elements into Rust scratch space.
+Sort, reverse, retain and dedup preserve completed effects; no rollback guarantee
+or atomic bulk replacement is required. Receiver identity, generation, callback
+protection and storage revisions remain checked.
+
+`NativePayload` supplies tracing, logical units and ordinary Rust destruction.
+Every retained script Value and stored callable must be traced. `NativeStorage`
+registers the payload layout and either a checked factory or an explicitly
+constructed payload. New opaque types use the generic Opaque handle;
+they do not require new compiler, ABI, verifier or VM type variants.
+
+## Sorting and lazy iteration
+
+Primitive infallible ordering sorts the compact Rust slice directly. Script Ord,
+supplied comparators and key selectors run synchronously while editing the actual
+buffer. Sorting is stable; key selectors run during comparisons without a caching
+prepass. A failed comparison prevents further user comparisons. Rust may finish
+internal bookkeeping; all original elements survive, but their order can change.
+Length-changing algorithms preserve completed removals. Custom set/remove failures
+can leave earlier writes or removals. Comparison counts are unspecified.
+
+Only genuinely retained computations need state. Lazy adapters retain
+source values, checked stored next selections, any callbacks, progress state and
+a reentry guard. Zip and chain retain both selected cursors; concrete cursors
+keep their checked concrete types. Construction performs no next or callback
+calls. Aliases share progress. Map next consumes one source item before invoking
+the mapper; a mapper failure does not cause that item to be processed again.
+The public Option is allocated once for a successful next result.
+
+`allocate_result_payload(payload, slots)` retains the requested selected-call
+metadata on the native object. `call_stored_values` validates and invokes those
+original selections after the construction call ends. Stored selections and
+callbacks are GC metadata edges, preserving supplying generations without host
+root cycles. Generic callers carry the immediate associated cursor operations
+promised by their bounds; runtime consumption does not infer types again.
+
+A payload traces every retained source cursor and callback through `trace`.
+Native adapters retain no collection iteration leases. Base cursors validate
+source revisions on reads; early termination needs no resource-graph cleanup.
+Reentrant next on the same adapter is rejected. The generic execution loop does
+not identify an adapter by its library name.
+
+Installed conversion adapter records identify the forward trait/method, result
+constructor and associated error members used by checked selection and reverse
+conversion. Numeric TryFrom pairs are ordinary registered implementations with
+declared Error outputs. Scalar numeric code computes conversion outcomes; it does
+not choose a library enum or error declaration. Portable proofs validate the
+installed contracts without source analysis.
+
+Option, Result, Ordering, Bound, ParseError, TryFromIntError, Infallible and
+ControlFlow are
+ordinary enum records owned by their core-library modules. Standard Rust bodies
+construct and inspect them through checked declaration handles and pinned nominal
+layouts. No semantic type, fixed runtime tag or dedicated instruction inventories
+these families. Iterator and comparison contracts retain only the checked symbolic
+member bindings they consume. Library authoring handles are cached; layouts and
+type arguments remain scoped to the executing generation.
+
+A variant's `reports_failure` fact is explicit checked declaration/layout metadata.
+The library sets it on Result::Err, which has exactly one payload field. Construction
+captures optional diagnostic origin; checked native library methods copy that
+sidecar after validated enum construction. Source enums and ordinary native enum
+builders leave the fact false. Equality, hashing and payload access ignore it.
+
+Try and FromResidual are ordinary registered traits; their standard bodies live
+in the library alongside the carrier declarations. A native carrier uses
+`ModuleBuilder::implement`, `trait_impl`, `associated_type` and `bind`, just
+like other trait implementations. `CallContext::type_parameter` retains the
+selected result's executable scope when constructing its nested residual.
+Result FromResidual declares a checked F: From<E> callable requirement. Static
+bound methods can be selected or forwarded through the same validated witness
+path as receiver methods; no execution-time trait search is added.
+
+Result branch copies origin into its residual, and FromResidual copies it into
+the returned failure after conversion. `CallContext::forward_enum_origin` uses
+checked live enum values and a validated installed owner; both values must stay
+rooted across allocation. The compiler's generic `?` path emits ordinary selected
+calls and ControlFlow variant operations, without a Result-specific origin opcode.
+
+## Tooling
+
+Generated `.kgr` is a read-only projection for navigation, completion, signatures
+and documentation. Generic binders use `T` for one parameter and `T1, T2, ...`
+for multiple parameters. Method-local binders use `M` / `M1, M2, ...` when an
+enclosing generic binder already uses `T`, avoiding shadowing. Declarations,
+bounds and bodies share this spelling; semantic binder positions remain zero-based.
+The generated view is not an independently installable library or a second
+signature authority. The compiler parses/lowers this view through ordinary
+declaration machinery and checks non-trivia correspondence with registration
+before attaching native storage, bindings and default provenance. Registered
+trait defaults include real forwarding bodies to typed native helpers; ordinary
+body checking must prove those calls before direct native lowering. The SDK
+checks unused defaults too, before publishing materialized source files. Declaration
+locations and docs come from the same records used by compilation. Standard
+registrations own all trait and module documentation. Core and application views
+use the uniform renderer and optional materialized declaration cache; navigation
+resolves their parsed owning ranges in the exact generated snapshot.
+Changing a view's URI changes its presentation location, while its registered
+module and callable identities remain unchanged. Native registration does not infer
+a Rust implementation source location or use a URI to grant native authority.
+Other generated views include library-owned types,
+inherent methods and trait impl methods, including MapIterator.next.
+
+Behavioral and tooling coverage lives in native_provider_reset,
+VM library_collections/library_mapping and the independent artifact_features
+consumer. [Performance measurements](../performance-baseline.md) record measured
+costs; the [roadmap](../implementation-roadmap.md) owns pending work.

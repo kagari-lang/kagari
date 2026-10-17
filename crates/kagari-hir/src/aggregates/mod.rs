@@ -1,0 +1,628 @@
+//! Checked nominal contracts shared by local and imported member access.
+
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::{
+        DefinitionKind, ModuleIdentity,
+        table::{DefinitionId, DefinitionTable},
+    },
+};
+
+use crate::{
+    aggregates::{implementations::ImplementationSignature, traits::TraitSignature},
+    declarations::{Declaration, DeclarationId, Declarations},
+    hir::writeability::Writeability,
+    imports::{ModuleGraph, SourceDeclRef, SourceItem, SourceUnit},
+    language::semantics as builtin_traits,
+    lower::LoweredModule,
+    native::NativeTypeKind,
+    resolver::resolved::ResolvedName,
+    typeck::{GenericBounds, ModuleSignatures, TypedFunction},
+    types::{GenericParameterType, NominalType, TypeId},
+};
+use kagari_types::{
+    language::{Protocol, role::LangRole},
+    reference::ReferenceAccess,
+    visibility::Visibility,
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+pub mod implementations;
+mod interfaces;
+mod native;
+pub mod protocols;
+mod relationships;
+pub mod traits;
+
+/// A canonical struct field contract used for local and imported member access.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldSignature {
+    /// Canonical semantic definition identity used as the catalog key.
+    pub id: DefinitionId,
+    /// Canonical definition identity of the enclosing declaration.
+    pub owner: DefinitionId,
+    /// Zero-based member position within the enclosing declaration, not a byte offset.
+    pub slot: usize,
+    /// Member/type spelling for lookup and diagnostics; identity is stored separately.
+    pub name: String,
+    /// Declared access boundary checked when selecting this member.
+    pub visibility: Visibility,
+    /// Declared binding/field mutation policy.
+    pub writeability: Writeability,
+    /// Checked or recovered semantic value type.
+    pub ty: TypeId,
+    /// Semantic identity and authoritative source navigation site.
+    pub declaration: Declaration,
+}
+
+/// A canonical inherent method, its receiver pattern and typed callable contract.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InherentMethodSignature {
+    /// Explicit native member's required Rust loan, independent of storage.
+    pub receiver_access: Option<ReferenceAccess>,
+    /// Qualified source declaration address of the method function.
+    pub id: SourceDeclRef,
+    /// Canonical method definition identity.
+    pub declaration: DefinitionId,
+    /// Original method declaration/navigation record.
+    pub site: Declaration,
+    /// Semantic receiver pattern to which this method belongs.
+    pub owner: TypeId,
+    /// Declared access boundary checked when selecting this member.
+    pub visibility: Visibility,
+    /// Checked callable contract, including generic binders and implementation provenance.
+    pub function: TypedFunction,
+}
+
+/// Shared nominal struct contract with typed field slots and generic requirements.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StructSignature {
+    /// Canonical semantic definition identity used as the catalog key.
+    pub id: DefinitionId,
+    /// Generic binders in declaration order, identified by owner and position.
+    pub generic_params: Vec<GenericParameterType>,
+    /// Checked generic constraints used during application/implementation selection.
+    pub bounds: GenericBounds,
+    /// Semantic identity and authoritative source navigation site.
+    pub declaration: Declaration,
+    /// Fields in declaration slot order.
+    pub fields: Vec<FieldSignature>,
+}
+
+/// Shared registered nominal type contract and its installed representation descriptor.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NativeTypeSignature {
+    /// Canonical semantic definition identity used as the catalog key.
+    pub id: DefinitionId,
+    /// Generic binders in declaration order, identified by owner and position.
+    pub generic_params: Vec<GenericParameterType>,
+    /// Checked generic constraints used during application/implementation selection.
+    pub bounds: GenericBounds,
+    /// Semantic identity and authoritative source navigation site.
+    pub declaration: Declaration,
+    /// Installed storage/type representation; independent of source spelling.
+    pub representation: NativeTypeKind,
+}
+
+/// Canonical enum variant, payload types and logical variant slot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariantSignature {
+    /// Registration metadata marks this variant as reporting failure.
+    pub reports_failure: bool,
+    /// Canonical semantic definition identity used as the catalog key.
+    pub id: DefinitionId,
+    /// Canonical definition identity of the enclosing declaration.
+    pub owner: DefinitionId,
+    /// Zero-based member position within the enclosing declaration, not a byte offset.
+    pub slot: usize,
+    /// Member/type spelling for lookup and diagnostics; identity is stored separately.
+    pub name: String,
+    /// Payload semantic types in positional order.
+    pub payload: Vec<TypeId>,
+    /// Semantic identity and authoritative source navigation site.
+    pub declaration: Declaration,
+}
+
+/// Shared nominal enum contract with typed payloads and generic requirements.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnumSignature {
+    /// Canonical semantic definition identity used as the catalog key.
+    pub id: DefinitionId,
+    /// Generic binders in declaration order, identified by owner and position.
+    pub generic_params: Vec<GenericParameterType>,
+    /// Checked generic constraints used during application/implementation selection.
+    pub bounds: GenericBounds,
+    /// Semantic identity and authoritative source navigation site.
+    pub declaration: Declaration,
+    /// Variants in logical slot order.
+    pub variants: Vec<VariantSignature>,
+}
+
+/// Canonical nominal, member, trait and implementation contracts across prepared modules.
+///
+/// Built from declaration/signature facts, then read by body checking and compiler
+/// lowering. Source aliases do not create duplicate nominal types. Records are
+/// shared with `Arc`; reverse member indexes retain an owner identity and a slot.
+///
+/// ```text
+/// structures[struct_definition] -> Arc<StructSignature { fields, ... }>
+/// fields[field_definition]      -> (struct_definition, slot) -> fields[slot]
+/// traits[trait_definition]      -> Arc<TraitSignature { methods, ... }>
+/// methods[method_definition]    -> (trait_definition, slot) -> methods[slot]
+/// implementations[impl_definition] -> trait application + receiver pattern + bounds
+/// ```
+///
+/// The slots are semantic member positions, not native memory layout offsets.
+/// The catalog can contain recovered error types until the enclosing checked gate
+/// rejects diagnostics. Generic matching/normalization does not execute methods.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AggregateCatalog {
+    language_items: BTreeMap<LangRole, DefinitionId>,
+    implementation_constants: BTreeMap<DefinitionId, BTreeMap<DefinitionId, DefinitionId>>,
+    traits: BTreeMap<DefinitionId, Arc<TraitSignature>>,
+    implementations: BTreeMap<DefinitionId, Arc<ImplementationSignature>>,
+    methods: BTreeMap<DefinitionId, (DefinitionId, usize)>,
+    /// Visits inherent method contracts in definition-key order.
+    inherent_methods: BTreeMap<DefinitionId, Arc<InherentMethodSignature>>,
+    native_types: BTreeMap<DefinitionId, Arc<NativeTypeSignature>>,
+    /// Visits struct contracts in definition-key order.
+    structures: BTreeMap<DefinitionId, Arc<StructSignature>>,
+    fields: BTreeMap<DefinitionId, (DefinitionId, usize)>,
+    /// Visits enum contracts in definition-key order.
+    enumerations: BTreeMap<DefinitionId, Arc<EnumSignature>>,
+    variants: BTreeMap<DefinitionId, (DefinitionId, usize)>,
+}
+
+impl AggregateCatalog {
+    /// Returns the installed declaration for a supported language protocol, or `None` if its role/trait is absent.
+    pub fn language_trait(&self, protocol: Protocol) -> Option<NominalType> {
+        let role = LangRole::from_protocol(protocol)?;
+        let declaration = *self.language_items.get(&role)?;
+        self.trait_(&declaration)?;
+        Some(NominalType {
+            declaration,
+            arguments: vec![],
+            associated_types: BTreeMap::new(),
+        })
+    }
+
+    /// Checks whether intrinsic protocol rules apply under the supplied generic bounds.
+    pub fn intrinsic_implementation(
+        &self,
+        definitions: &DefinitionTable,
+        interface: &NominalType,
+        ty: &TypeId,
+        bounds: &GenericBounds,
+    ) -> bool {
+        builtin_traits::intrinsic_applies(definitions, interface, ty, Some(self), bounds)
+    }
+
+    pub(crate) fn add_module(
+        &mut self,
+        lowered: &LoweredModule,
+        declarations: &Declarations,
+        signatures: &ModuleSignatures,
+        cancel: &CancellationToken,
+    ) -> Result<(), Cancelled> {
+        cancel.check()?;
+        if !lowered.source.module_identity().within_path_limit() {
+            return Ok(());
+        }
+        self.language_items.extend(
+            declarations
+                .language_items
+                .iter()
+                .map(|(role, id)| (*role, *id)),
+        );
+        for item in &lowered.module.opaque_types {
+            cancel.check()?;
+            let Some(declaration) = declarations.target(ResolvedName::OpaqueType(item.id)) else {
+                continue;
+            };
+            let DeclarationId::Definition(id) = &declaration.id else {
+                continue;
+            };
+            let Some(representation) = declarations.native_type(item.id) else {
+                continue;
+            };
+            self.native_types.insert(
+                *id,
+                Arc::new(NativeTypeSignature {
+                    id: *id,
+                    generic_params: declarations.parameters_of(id),
+                    bounds: signatures
+                        .type_bounds(id)
+                        .expect("checked native type constraints")
+                        .clone(),
+                    declaration: declaration.clone(),
+                    representation,
+                }),
+            );
+        }
+        for structure in &lowered.module.structs {
+            cancel.check()?;
+            let Some(declaration) = declarations.target(ResolvedName::Struct(structure.id)) else {
+                continue;
+            };
+            let DeclarationId::Definition(id) = &declaration.id else {
+                continue;
+            };
+            let mut fields = Vec::new();
+            for field in &structure.fields {
+                cancel.check()?;
+                let Some(declaration) = declarations.field(field.id) else {
+                    continue;
+                };
+                let DeclarationId::Definition(field_id) = &declaration.id else {
+                    continue;
+                };
+                self.fields.insert(*field_id, (*id, fields.len()));
+                fields.push(FieldSignature {
+                    id: *field_id,
+                    owner: *id,
+                    slot: field.id.slot(),
+                    name: field.name.clone(),
+                    visibility: field.visibility,
+                    writeability: field.writeability,
+                    ty: signatures
+                        .type_table()
+                        .field_type(field.id)
+                        .unwrap_or(TypeId::Error),
+                    declaration: declaration.clone(),
+                });
+            }
+            self.structures.insert(
+                *id,
+                Arc::new(StructSignature {
+                    id: *id,
+                    generic_params: declarations.parameters_of(id),
+                    bounds: signatures
+                        .type_bounds(id)
+                        .expect("checked type constraints")
+                        .clone(),
+                    declaration: declaration.clone(),
+                    fields,
+                }),
+            );
+        }
+        for enumeration in &lowered.module.enums {
+            cancel.check()?;
+            let declaration = declarations
+                .target(ResolvedName::Enum(enumeration.id))
+                .expect("lowered enum has a declaration");
+            let DeclarationId::Definition(id) = &declaration.id else {
+                unreachable!("enum has nominal identity");
+            };
+            let mut variants = Vec::new();
+            for variant in &enumeration.variants {
+                cancel.check()?;
+                let declaration = declarations
+                    .variant(variant.id)
+                    .expect("variant declaration");
+                let DeclarationId::Definition(variant_id) = &declaration.id else {
+                    unreachable!("variant has nominal identity");
+                };
+                let mut payload = Vec::new();
+                for ty in &variant.payload {
+                    cancel.check()?;
+                    payload.push(
+                        signatures
+                            .type_table()
+                            .type_ref(*ty)
+                            .expect("signature query visits every payload type")
+                            .ty
+                            .clone(),
+                    );
+                }
+                self.variants.insert(*variant_id, (*id, variants.len()));
+                variants.push(VariantSignature {
+                    reports_failure: lowered.registered_enum_failures.contains(&variant.id),
+                    id: *variant_id,
+                    owner: *id,
+                    slot: variant.id.slot(),
+                    name: variant.name.clone(),
+                    payload,
+                    declaration: declaration.clone(),
+                });
+            }
+            self.enumerations.insert(
+                *id,
+                Arc::new(EnumSignature {
+                    id: *id,
+                    generic_params: declarations.parameters_of(id),
+                    bounds: signatures
+                        .type_bounds(id)
+                        .expect("checked type constraints")
+                        .clone(),
+                    declaration: declaration.clone(),
+                    variants,
+                }),
+            );
+        }
+        self.add_traits(lowered, declarations, signatures, cancel)?;
+        self.add_implementations(lowered, declarations, signatures, cancel)?;
+        for implementation in &lowered.module.impls {
+            let Some(owner) = declarations.impl_identity(implementation.id) else {
+                continue;
+            };
+            let Some(contract) = self.implementation_signature(owner) else {
+                continue;
+            };
+            let constants = implementation
+                .associated_consts
+                .iter()
+                .filter_map(|member| {
+                    let initializer = member.initializer?;
+                    Some((
+                        declarations.definitions().lookup_child(
+                            contract.trait_type.declaration,
+                            DefinitionKind::Const,
+                            &member.name,
+                            0,
+                        )?,
+                        *declarations.definition(ResolvedName::Const(initializer))?,
+                    ))
+                })
+                .collect();
+            self.implementation_constants.insert(*owner, constants);
+        }
+        for implementation in &lowered.module.impls {
+            cancel.check()?;
+            if implementation.trait_ref.is_some() {
+                continue;
+            }
+            let Some(owner) = implementation
+                .for_type
+                .and_then(|ty| signatures.type_table().type_ref(ty))
+                .map(|resolved| resolved.ty.clone())
+            else {
+                continue;
+            };
+            for method in &implementation.methods {
+                cancel.check()?;
+                let Some(function) = signatures
+                    .functions()
+                    .iter()
+                    .find(|item| item.id == method.function)
+                else {
+                    continue;
+                };
+                let Some(declaration) =
+                    declarations.definition(ResolvedName::Function(method.function))
+                else {
+                    continue;
+                };
+                let Some(lowered_function) = lowered
+                    .module
+                    .functions
+                    .iter()
+                    .find(|item| item.id == method.function)
+                else {
+                    continue;
+                };
+                let Some(site) = declarations.target(ResolvedName::Function(method.function))
+                else {
+                    continue;
+                };
+                self.inherent_methods.insert(
+                    *declaration,
+                    Arc::new(InherentMethodSignature {
+                        receiver_access: lowered
+                            .method_policies
+                            .get(&method.function)
+                            .and_then(|policy| policy.receiver_access),
+                        id: SourceDeclRef {
+                            unit: SourceUnit::of(lowered),
+                            item: SourceItem::Function(method.function),
+                        },
+                        declaration: *declaration,
+                        site: site.clone(),
+                        owner: owner.clone(),
+                        visibility: lowered_function.visibility,
+                        function: function.clone(),
+                    }),
+                );
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn for_module(
+        &self,
+        root: &ModuleIdentity,
+        graph: &ModuleGraph,
+        definitions: &DefinitionTable,
+        cancel: &CancellationToken,
+    ) -> Result<Self, Cancelled> {
+        let mut reachable = BTreeSet::new();
+        let mut pending = vec![root.clone()];
+        while let Some(module) = pending.pop() {
+            cancel.check()?;
+            if !reachable.insert(module.clone()) {
+                continue;
+            }
+            if let Some(node) = graph.node(&module) {
+                pending.extend(node.dependencies().iter().cloned());
+            }
+        }
+        let mut result = Self {
+            language_items: self.language_items.clone(),
+            ..Self::default()
+        };
+        self.include_traits(&mut result, &reachable, definitions, cancel)?;
+        for (id, implementation) in &self.implementations {
+            cancel.check()?;
+            if !reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped implementation identity")
+                    .module(),
+            ) {
+                continue;
+            }
+            result.implementations.insert(*id, implementation.clone());
+            if let Some(constants) = self.implementation_constants.get(id) {
+                result
+                    .implementation_constants
+                    .insert(*id, constants.clone());
+            }
+        }
+        for (id, method) in &self.inherent_methods {
+            cancel.check()?;
+            if reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped method identity")
+                    .module(),
+            ) {
+                result.inherent_methods.insert(*id, method.clone());
+            }
+        }
+        for (id, native_type) in &self.native_types {
+            cancel.check()?;
+            if reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped type identity")
+                    .module(),
+            ) {
+                result.native_types.insert(*id, native_type.clone());
+            }
+        }
+        for (id, structure) in &self.structures {
+            cancel.check()?;
+            if !reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped struct identity")
+                    .module(),
+            ) {
+                continue;
+            }
+            for (index, field) in structure.fields.iter().enumerate() {
+                cancel.check()?;
+                result.fields.insert(field.id, (*id, index));
+            }
+            result.structures.insert(*id, structure.clone());
+        }
+        for (id, enumeration) in &self.enumerations {
+            cancel.check()?;
+            if !reachable.contains(
+                definitions
+                    .resolve(*id)
+                    .expect("scoped enum identity")
+                    .module(),
+            ) {
+                continue;
+            }
+            for (index, variant) in enumeration.variants.iter().enumerate() {
+                cancel.check()?;
+                result.variants.insert(variant.id, (*id, index));
+            }
+            result.enumerations.insert(*id, enumeration.clone());
+        }
+        Ok(result)
+    }
+
+    pub(crate) fn same_contracts(&self, other: &Self) -> bool {
+        self.same_trait_contracts(other)
+            && self.implementation_constants == other.implementation_constants
+            && self.implementations == other.implementations
+            && self.inherent_methods == other.inherent_methods
+            && self.enumerations.len() == other.enumerations.len()
+            && self.enumerations.iter().all(|(id, a)| {
+                other.enumeration(id).is_some_and(|b| {
+                    a.generic_params == b.generic_params
+                        && a.bounds == b.bounds
+                        && a.variants.len() == b.variants.len()
+                        && a.variants.iter().zip(&b.variants).all(|(a, b)| {
+                            a.id == b.id
+                                && a.slot == b.slot
+                                && a.name == b.name
+                                && a.payload == b.payload
+                        })
+                })
+            })
+            && self.structures.len() == other.structures.len()
+            && self.structures.iter().all(|(id, a)| {
+                other.structure(id).is_some_and(|b| {
+                    a.generic_params == b.generic_params
+                        && a.bounds == b.bounds
+                        && a.fields.len() == b.fields.len()
+                        && a.fields.iter().zip(&b.fields).all(|(a, b)| {
+                            a.id == b.id
+                                && a.slot == b.slot
+                                && a.name == b.name
+                                && a.visibility == b.visibility
+                                && a.writeability == b.writeability
+                                && a.ty == b.ty
+                        })
+                })
+            })
+    }
+}
+
+mod mapping;
+
+impl AggregateCatalog {
+    /// Borrows a registered native type contract by canonical definition identity.
+    pub fn native_type(&self, id: &DefinitionId) -> Option<&NativeTypeSignature> {
+        self.native_types.get(id).map(Arc::as_ref)
+    }
+
+    /// Finds an implementation constant override, falling back to the trait member's default initializer.
+    pub fn implementation_constant(
+        &self,
+        implementation: &DefinitionId,
+        member: &DefinitionId,
+    ) -> Option<&DefinitionId> {
+        self.implementation_constants
+            .get(implementation)
+            .and_then(|members| members.get(member))
+            .or_else(|| {
+                self.implementation_signature(implementation)
+                    .and_then(|implementation| self.trait_(&implementation.trait_type.declaration))
+                    .and_then(|contract| contract.associated_consts.get(member))
+                    .and_then(|member| member.initializer.as_ref())
+            })
+    }
+
+    /// Visits inherent method contracts in definition-key order.
+    pub fn inherent_methods(&self) -> impl Iterator<Item = &InherentMethodSignature> {
+        self.inherent_methods.values().map(AsRef::as_ref)
+    }
+
+    /// Visits enum contracts in definition-key order.
+    pub fn enumerations(&self) -> impl Iterator<Item = &EnumSignature> {
+        self.enumerations.values().map(AsRef::as_ref)
+    }
+
+    /// Borrows an enum contract, or `None` if the definition is not in this catalog.
+    pub fn enumeration(&self, id: &DefinitionId) -> Option<&EnumSignature> {
+        self.enumerations.get(id).map(AsRef::as_ref)
+    }
+
+    /// Finds a canonical variant through its owner/slot reverse index.
+    pub fn variant(&self, id: &DefinitionId) -> Option<&VariantSignature> {
+        let (owner, slot) = self.variants.get(id)?;
+        self.enumeration(owner)?.variants.get(*slot)
+    }
+
+    /// Visits struct contracts in definition-key order.
+    pub fn structures(&self) -> impl Iterator<Item = &StructSignature> {
+        self.structures.values().map(AsRef::as_ref)
+    }
+
+    /// Borrows a struct contract, or `None` if the definition is not in this catalog.
+    pub fn structure(&self, id: &DefinitionId) -> Option<&StructSignature> {
+        self.structures.get(id).map(AsRef::as_ref)
+    }
+
+    /// Finds a canonical field through its owner/slot reverse index.
+    pub fn field(&self, id: &DefinitionId) -> Option<&FieldSignature> {
+        let (owner, slot) = self.fields.get(id)?;
+        self.structure(owner)?.fields.get(*slot)
+    }
+}

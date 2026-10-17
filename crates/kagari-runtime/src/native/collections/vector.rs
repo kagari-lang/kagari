@@ -1,0 +1,285 @@
+mod edits;
+pub(crate) mod storage;
+use crate::{
+    error::RuntimeError,
+    frame::types::arguments::TypeArgument,
+    gc::{HeapObjectId, roots::RootedValue},
+    native::{
+        binding::NativeResult,
+        catalog::DeclarationCatalog,
+        conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        typed::NativeContext,
+        types::Type,
+    },
+    value::Value,
+};
+use kagari_types::{collection::CollectionAccess, ty::Ty};
+use std::marker::PhantomData;
+
+/// A retained view with the exact element scope and outer access capability.
+#[derive(Debug)]
+pub struct ScriptVec<T> {
+    root: RootedValue,
+    element: TypeArgument,
+    access: CollectionAccess,
+    mapping: PhantomData<fn() -> T>,
+}
+
+impl<T> Clone for ScriptVec<T> {
+    fn clone(&self) -> Self {
+        Self {
+            root: self.root.clone(),
+            element: self.element.clone(),
+            access: self.access,
+            mapping: PhantomData,
+        }
+    }
+}
+
+impl<T: KagariType> KagariType for ScriptVec<T> {
+    fn kagari_type(catalog: &DeclarationCatalog) -> NativeResult<Type> {
+        Vec::<T>::kagari_type(catalog)
+    }
+
+    fn check_type(cx: &ConversionContext<'_>, expected: &TypeArgument) -> NativeResult<()> {
+        Vec::<T>::check_type(cx, expected)
+    }
+}
+
+impl<T: KagariType> FromKagari for ScriptVec<T> {
+    const PRESERVES_IDENTITY: bool = true;
+
+    fn from_kagari(
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+        value: &Value,
+    ) -> NativeResult<Self> {
+        cx.check_type::<Self>(expected)?;
+        cx.check_value(expected, value)?;
+        let (Ty::NativeObject(_), Value::GcHandle(_)) = (expected.ty(), value) else {
+            return Err(RuntimeError::module_validation("ScriptVec conversion"));
+        };
+        let element = cx.parameter(expected, 0)?;
+        let root = cx
+            .runtime()
+            .root_value(*value)
+            .ok_or_else(|| RuntimeError::module_validation("Vec handle retention"))?;
+        Ok(Self {
+            root,
+            element,
+            access: CollectionAccess::Mutable,
+            mapping: PhantomData,
+        })
+    }
+}
+
+impl<T: KagariType> IntoKagari for ScriptVec<T> {
+    fn into_kagari(
+        self,
+        cx: &mut ConversionContext<'_>,
+        expected: &TypeArgument,
+    ) -> NativeResult<Value> {
+        cx.check_type::<Self>(expected)?;
+        let Ty::NativeObject(_) = expected.ty() else {
+            unreachable!("checked Vec type")
+        };
+        if self.access != CollectionAccess::Mutable {
+            return Err(RuntimeError::module_validation(
+                "read-only collection cannot become mutable",
+            ));
+        }
+        let value = self
+            .root
+            .value(cx.runtime().gc())
+            .ok_or_else(|| RuntimeError::module_validation("foreign or expired collection"))?;
+        cx.check_value(expected, &value)?;
+        Ok(value)
+    }
+}
+
+impl NativeContext<'_> {
+    pub fn create_vec<T: IntoKagari>(&mut self, values: Vec<T>) -> NativeResult<ScriptVec<T>> {
+        let element = self.conversion.type_for::<T>()?;
+        self.create_vec_with_type(element, values)
+    }
+
+    /// Explicit element scope supports dynamic object handles and old generic
+    /// applications without guessing a declaration from the first element.
+    pub fn create_vec_with_type<T: IntoKagari>(
+        &mut self,
+        element: TypeArgument,
+        values: Vec<T>,
+    ) -> NativeResult<ScriptVec<T>> {
+        self.conversion.check_type::<T>(&element)?;
+        self.conversion.check_elements(values.len())?;
+        let applied = self.runtime().vec_type(self.conversion.owner(), &element)?;
+        let root = self.conversion.argument_scope(|cx| {
+            let mut converted = Vec::new();
+            converted
+                .try_reserve_exact(values.len())
+                .map_err(|_| RuntimeError::resource_limit("Vec initializers"))?;
+            for value in values {
+                converted.push(cx.encode_prepared(&element, value)?);
+            }
+            let value = cx
+                .runtime()
+                .allocate_sequence(cx.owner(), &applied, converted)?;
+            let root = cx
+                .runtime()
+                .root_value(value)
+                .ok_or_else(|| RuntimeError::module_validation("Vec construction retention"))?;
+            cx.runtime().gc_safepoint()?;
+            Ok(root)
+        })?;
+        Ok(ScriptVec {
+            root,
+            element,
+            access: CollectionAccess::Mutable,
+            mapping: PhantomData,
+        })
+    }
+}
+
+impl<T> ScriptVec<T> {
+    pub fn is_mutable(&self) -> bool {
+        self.access == CollectionAccess::Mutable
+    }
+
+    pub fn read_only(&self) -> Self {
+        let mut view = self.clone();
+        view.access = CollectionAccess::ReadOnly;
+        view
+    }
+
+    fn id(&self, cx: &NativeContext<'_>, write: bool) -> NativeResult<HeapObjectId> {
+        cx.runtime().gc().ensure_no_native_borrow()?;
+        cx.runtime().resources().ensure_execution_allowed()?;
+        cx.poll()?;
+        if write && !self.is_mutable() {
+            return Err(RuntimeError::module_validation(
+                "collection view is read-only",
+            ));
+        }
+        match self.root.value(cx.runtime().gc()) {
+            Some(Value::GcHandle(id)) => Ok(id),
+            _ => Err(RuntimeError::module_validation(
+                "foreign or expired collection handle",
+            )),
+        }
+    }
+
+    pub fn len(&self, cx: &NativeContext<'_>) -> NativeResult<usize> {
+        cx.runtime()
+            .gc()
+            .sequence_len(self.id(cx, false)?)
+            .ok_or_else(|| RuntimeError::module_validation("Vec handle length"))
+    }
+
+    pub fn is_empty(&self, cx: &NativeContext<'_>) -> NativeResult<bool> {
+        Ok(self.len(cx)? == 0)
+    }
+
+    pub fn clear(&self, cx: &NativeContext<'_>) -> NativeResult<()> {
+        cx.runtime().gc().sequence_clear(self.id(cx, true)?)
+    }
+
+    pub fn truncate(&self, cx: &NativeContext<'_>, length: usize) -> NativeResult<()> {
+        cx.runtime()
+            .gc()
+            .sequence_truncate(self.id(cx, true)?, length)
+    }
+}
+
+impl<T: FromKagari> ScriptVec<T> {
+    pub fn get(&self, cx: &mut NativeContext<'_>, index: usize) -> NativeResult<Option<T>> {
+        let id = self.id(cx, false)?;
+        cx.poll()?;
+        cx.runtime()
+            .gc()
+            .sequence_element(id, index)?
+            .map(|value| cx.conversion.decode_prepared(&self.element, &value))
+            .transpose()
+    }
+
+    pub fn pop(&self, cx: &mut NativeContext<'_>) -> NativeResult<Option<T>> {
+        let value = cx.runtime().gc().sequence_pop(self.id(cx, true)?)?;
+        value
+            .map(|value| cx.conversion.decode_prepared(&self.element, &value))
+            .transpose()
+    }
+
+    pub fn remove(&self, cx: &mut NativeContext<'_>, index: usize) -> NativeResult<Option<T>> {
+        let value = cx
+            .runtime()
+            .gc()
+            .sequence_remove(self.id(cx, true)?, index)?;
+        value
+            .map(|value| cx.conversion.decode_prepared(&self.element, &value))
+            .transpose()
+    }
+
+    /// Each callback runs without a storage borrow. Structural edits commit,
+    /// then invalidate the traversal at its next read (including exhaustion).
+    pub fn for_each(
+        &self,
+        cx: &mut NativeContext<'_>,
+        mut visit: impl FnMut(&mut NativeContext<'_>, T) -> NativeResult<()>,
+    ) -> NativeResult<()> {
+        let id = self.id(cx, false)?;
+        let collection = Value::GcHandle(id);
+        let revision = cx
+            .runtime()
+            .gc()
+            .collection_revision(&collection)
+            .ok_or_else(|| RuntimeError::module_validation("collection revision"))?;
+        let count = self.len(cx)?;
+        cx.conversion.check_elements(count)?;
+        for index in 0..count {
+            cx.poll()?;
+            cx.runtime()
+                .gc()
+                .check_collection_revision(&collection, revision)?;
+            let value = self.get(cx, index)?.ok_or_else(|| {
+                RuntimeError::module_validation("collection changed during iteration")
+            })?;
+            visit(cx, value)?;
+            cx.poll()?;
+        }
+        cx.runtime()
+            .gc()
+            .check_collection_revision(&collection, revision)?;
+        Ok(())
+    }
+}
+
+impl<T: IntoKagari> ScriptVec<T> {
+    pub fn set(&self, cx: &mut NativeContext<'_>, index: usize, value: T) -> NativeResult<()> {
+        let id = self.id(cx, true)?;
+        cx.runtime().gc().check_sequence_replacement(id, index)?;
+        cx.conversion.argument_scope(|cx| {
+            let value = cx.encode_prepared(&self.element, value)?;
+            cx.runtime().gc().sequence_set(id, index, value)
+        })
+    }
+
+    pub fn push(&self, cx: &mut NativeContext<'_>, value: T) -> NativeResult<()> {
+        let id = self.id(cx, true)?;
+        cx.runtime().gc().ensure_structure_mutable(id)?;
+        cx.conversion.argument_scope(|cx| {
+            let value = cx.encode_prepared(&self.element, value)?;
+            cx.runtime().gc().sequence_push(id, value)
+        })
+    }
+
+    pub fn insert(&self, cx: &mut NativeContext<'_>, index: usize, value: T) -> NativeResult<()> {
+        let id = self.id(cx, true)?;
+        cx.runtime().gc().ensure_structure_mutable(id)?;
+        if index > self.len(cx)? {
+            return Err(RuntimeError::module_validation("Vec insert index"));
+        }
+        cx.conversion.argument_scope(|cx| {
+            let value = cx.encode_prepared(&self.element, value)?;
+            cx.runtime().gc().sequence_insert(id, index, value)
+        })
+    }
+}

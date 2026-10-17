@@ -1,0 +1,10 @@
+// CPU register wrapping is explicit through wider arithmetic and narrowing casts.
+fn main()->i32 {
+    val register=255u8;
+    val next=((register as u16)+1u16) as u8;
+    val address=0xff00u16;
+    val offset=-1i8;
+    val target=((address as i32)+(offset as i32)) as u16;
+    if next!=0u8 || target!=0xfeffu16 {return 0;}
+    42
+}

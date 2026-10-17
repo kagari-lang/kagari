@@ -1,0 +1,38 @@
+use std::string::String;
+use std::option::Option;
+use game::text;
+
+fn len_bytes_value() -> usize { String::len_bytes("") }
+fn len_chars_value() -> usize { String::len_chars("") }
+fn is_empty_value() -> bool { String::is_empty("") }
+fn is_ascii_value() -> bool { String::is_ascii("") }
+fn eq_ignore_ascii_case_value() -> bool { String::eq_ignore_ascii_case("", "") }
+fn concat_value() -> String { String::concat("", "") }
+fn contains_value() -> bool { String::contains("", "") }
+fn starts_with_value() -> bool { String::starts_with("", "") }
+fn ends_with_value() -> bool { String::ends_with("", "") }
+fn is_char_boundary_value() -> bool { String::is_char_boundary("", 0usize) }
+fn slice_value() -> Option<String> { String::slice("", 0usize, 0usize) }
+fn find_value() -> Option<usize> { String::find("", "") }
+fn rfind_value() -> Option<usize> { String::rfind("", "") }
+fn strip_prefix_value() -> Option<String> { String::strip_prefix("", "") }
+fn strip_suffix_value() -> Option<String> { String::strip_suffix("", "") }
+fn split_once_value() -> Option<(String, String)> { String::split_once("", "") }
+fn rsplit_once_value() -> Option<(String, String)> { String::rsplit_once("", "") }
+fn trim_value() -> String { String::trim("") }
+fn trim_start_value() -> String { String::trim_start("") }
+fn trim_end_value() -> String { String::trim_end("") }
+fn to_ascii_lowercase_value() -> String { String::to_ascii_lowercase("") }
+fn to_ascii_uppercase_value() -> String { String::to_ascii_uppercase("") }
+fn to_lowercase_value() -> String { String::to_lowercase("") }
+fn to_uppercase_value() -> String { String::to_uppercase("") }
+fn repeat_value() -> String { String::repeat("", 0usize) }
+fn replace_value() -> String { String::replace("", "", "") }
+fn replacen_value() -> String { String::replacen("", "", "", 0usize) }
+fn reverse_value() -> String { text::reverse("") }
+fn prefix_value() -> String { text::prefix("", "") }
+fn overfill_value() -> String { text::overfill("x") }
+fn cancel_value() -> String { text::cancel_after_reserve() }
+fn eager_value() -> String { text::record("aa").replacen(text::record("a"), text::record("é"), 1usize) }
+fn immutable_value() -> (String, String) { val original = "é😀"; (original.to_uppercase(), original) }
+fn chain_value() -> usize { "　straße　".trim().to_uppercase().len_chars() }

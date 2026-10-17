@@ -1,0 +1,15 @@
+[package]
+name = "kagari-lint"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-common.workspace = true
+kagari-source.workspace = true
+kagari-syntax.workspace = true
+kagari-hir.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+kagari-stdlib.workspace = true

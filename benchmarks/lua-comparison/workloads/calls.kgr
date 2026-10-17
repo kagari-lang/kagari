@@ -1,0 +1,17 @@
+fn mix(value: i32) -> i32 {
+    (value * 17 + 13) % 65521
+}
+
+fn run(n: i32) -> i32 {
+    var i = 0;
+    var sum = 0;
+    while i < n {
+        sum = sum + mix(i % 97);
+        i = i + 1;
+    }
+    sum
+}
+
+fn main() -> i32 {
+    run(__N__)
+}

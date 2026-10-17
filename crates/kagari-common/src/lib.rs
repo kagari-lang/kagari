@@ -1,7 +1,5 @@
-pub mod diagnostic;
-pub mod source;
+//! Shared identity, location and cancellation infrastructure.
+pub mod cancellation;
+pub mod decode_limits;
+pub mod identity;
 pub mod span;
-
-pub use diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
-pub use source::SourceFile;
-pub use span::Span;

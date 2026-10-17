@@ -1,3 +1,28 @@
+//! Source-oriented nodes stored by one lowering, before semantic resolution.
+//!
+//! Start at [`item::Module`] for declaration collections, [`body::Body`] for node
+//! storage and [`ids`] for lookup rules. These are owned Rust records, unlike the
+//! typed CST views in `kagari-syntax`. Child IDs address other records; they do not
+//! own subtrees. Name/type/call results live separately in [`crate::resolver::resolved::ResolvedNames`]
+//! and [`crate::typeck::table::TypeTable`].
+
+//! # Source-to-field reading order
+//!
+//! For `fn add(x: i32) -> i32 { val y = x + 1; y }`, start with
+//! item::function::Function: its example maps each signature/body field to source.
+//! Follow its body link to stmt::BlockData, its statement to stmt::StmtKind, and
+//! its initializer to expr::ExprKind. TypeRefId links enter ty::TypeKind rather
+//! than checked types. Assignment destinations use place::PlaceKind; match/for/
+//! binding-condition inputs use pattern::PatternKind.
+//!
+//! Each model documents source fragments and symbolic payloads, including empty
+//! buffers, omitted syntax, allocated identities and recovery. Symbolic IDs are
+//! illustrative, not promised numerical allocation order. Structs/enums/fields
+//! and variants are declaration models in item::adt; traits/impls, associated
+//! members and bounds are in item::behavior. Some retained fields/models are
+//! currently unpopulated, and lowering can preserve syntax rejected by checking.
+//! Examples distinguish those cases from implemented language behavior.
+
 pub mod body;
 pub mod expr;
 pub mod ids;
@@ -7,27 +32,3 @@ pub mod place;
 pub mod stmt;
 pub mod ty;
 pub mod writeability;
-
-pub use body::Body;
-pub use expr::{
-    BinaryOp, ExprBuffer, ExprData, ExprKind, FieldInit, FieldInitBuffer, Literal, LiteralKind,
-    MatchArm, MatchArmBuffer, PrefixOp,
-};
-pub use ids::{
-    BlockId, ConstId, EnumId, ExprId, FunctionId, ImplId, LocalId, MethodId, ModuleId, ParamId,
-    PatternId, PlaceId, StmtId, StructId, TraitId, TraitMethodId, TypeRefId,
-};
-pub use item::{
-    ConstBuffer, ConstItem, Enum, EnumBuffer, Export, ExportBuffer, ExportItem, Field, FieldBuffer,
-    Function, FunctionBuffer, FunctionKind, GenericParam, GenericParamBuffer, Impl, ImplBuffer,
-    ImplMethod, ImplMethodBuffer, Item, ItemBuffer, Method, MethodBuffer, MethodOwner, Module,
-    ModuleDecl, ModuleDeclBuffer, Param, ParamBuffer, ReceiverKind, StandardImport,
-    StandardImportBuffer, StandardImportTarget, Struct, StructBuffer, TraitBound, TraitBoundBuffer,
-    TraitBuffer, TraitDef, TraitMethod, TraitMethodBuffer, TraitRef, TraitRefBuffer, Variant,
-    VariantBuffer, Visibility,
-};
-pub use pattern::{PatternData, PatternKind};
-pub use place::{PlaceData, PlaceKind};
-pub use stmt::{BlockData, StmtBuffer, StmtData, StmtKind};
-pub use ty::{TypeBuffer, TypeData, TypeKind};
-pub use writeability::Writeability;

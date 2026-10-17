@@ -1,0 +1,422 @@
+use crate::{
+    bytecode::lower_program_to_bytecode,
+    native_input::{NativeInputError, verify_native_input},
+    source::program::lower_program_to_mir,
+    tests::common,
+};
+use bincode::{DefaultOptions, Options};
+use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
+use kagari_bytecode::{
+    artifact::{ArtifactBuildOptions, ArtifactValidationError, KbcArtifact, encode_program_facts},
+    instruction::ConstantOperand,
+    native_input::PortableMir,
+    program::verified::VerifiedBytecodeProgram,
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, map::DefinitionContext},
+};
+use kagari_mir::{
+    codec::{MIR_FORMAT_VERSION, MIR_MAGIC, MirCodecError, decode_program, encode_program},
+    function::MirModule,
+    instruction::{Constant, Instruction},
+    program::{VerifiedMirProgram, records::MirProgram, verify_program},
+    verify::MirVerificationErrorKind,
+};
+use std::sync::Arc;
+
+fn program(source: &str) -> VerifiedMirProgram {
+    common::mir_ok(source)
+}
+
+fn assert_same_bytecode(before: &VerifiedMirProgram, after: &VerifiedMirProgram) {
+    let before = lower_program_to_bytecode(before).unwrap();
+    let after = lower_program_to_bytecode(after).unwrap();
+    assert_eq!(
+        encode_program_facts(before.records(), before.definitions(), &Default::default()).unwrap(),
+        encode_program_facts(after.records(), after.definitions(), &Default::default()).unwrap()
+    );
+}
+
+#[test]
+fn portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering() {
+    for source in [
+        "fn main() -> i32 { if 1 + 2 == 3 { 42 } else { 0 } }",
+        "fn main() -> u64 { 18446744073709551615u64 }",
+        "fn main() -> f64 { -0.0 }",
+        "fn main() -> i32 { var x = 0; while x < 3 { x += 1; } x }",
+        "fn main() -> i32 { val a = [1, 2]; a[0] }",
+    ] {
+        let original = program(source);
+        let bytes = encode_program(&original, &Default::default()).unwrap();
+        let decoded = decode_program(&bytes, &Default::default()).unwrap();
+        assert_eq!(
+            bytes,
+            encode_program(&decoded, &Default::default()).unwrap()
+        );
+        assert_same_bytecode(&original, &decoded);
+        for (a, b) in original.modules().iter().zip(decoded.modules()) {
+            assert_eq!(a.definitions().id(), original.definitions().id());
+            assert_eq!(b.definitions().id(), decoded.definitions().id());
+            for function in &a.functions {
+                let recreated = &b.functions[function.id.index()];
+                assert_ne!(
+                    function.instance.declaration,
+                    recreated.instance.declaration
+                );
+                assert!(
+                    b.definitions()
+                        .resolve(function.instance.declaration)
+                        .is_err()
+                );
+                assert_eq!(
+                    a.definitions()
+                        .resolve(function.instance.declaration)
+                        .unwrap()
+                        .to_path(),
+                    b.definitions()
+                        .resolve(recreated.instance.declaration)
+                        .unwrap()
+                        .to_path(),
+                );
+                let facts = b.analysis(function.id).unwrap();
+                assert_eq!(facts.block(function.entry).unwrap().start_offset(), 0);
+                assert_eq!(
+                    function.debug.source,
+                    b.functions[function.id.index()].debug.source
+                );
+            }
+        }
+        let retained = decoded
+            .modules()
+            .iter()
+            .find(|module| !module.functions.is_empty())
+            .unwrap()
+            .clone();
+        let declaration = retained.functions[0].instance.declaration;
+        let expected = retained
+            .definitions()
+            .resolve(declaration)
+            .unwrap()
+            .to_path();
+        drop(decoded);
+        assert_eq!(
+            retained
+                .definitions()
+                .resolve(declaration)
+                .unwrap()
+                .to_path(),
+            expected
+        );
+        let cancelled = CancellationToken::default();
+        cancelled.cancel();
+        assert!(matches!(retained.to_unverified(&cancelled), Err(error)
+            if error.kind == MirVerificationErrorKind::Cancelled));
+    }
+}
+
+#[test]
+fn codec_retains_unicode_origins_without_retaining_source_objects() {
+    let checked = common::program_ok("fn main() -> i32 {\r\n val text = \"雪😀\"; 7\r\n }");
+    let weak = Arc::downgrade(&checked.root().lowered.source);
+    let original = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let bytes = encode_program(&original, &Default::default()).unwrap();
+    drop(checked);
+    assert!(weak.upgrade().is_none());
+    let decoded = decode_program(&bytes, &Default::default()).unwrap();
+    assert_same_bytecode(&original, &decoded);
+}
+
+#[test]
+fn codec_rejects_old_versions_trailing_data_truncation_and_cancelled_work() {
+    let context = DefinitionContext::new().unwrap();
+    // Exhaust every truncation offset of a small, source-free dependency graph.
+    // The compiled stdlib closure is exercised by the semantic roundtrip tests.
+    let root = ModuleIdentity::single_file("wire-root");
+    let dependency = ModuleIdentity::single_file("wire-dependency");
+    let empty = |identity, dependencies| MirModule {
+        native_targets: vec![],
+        identity,
+        dependencies,
+        interface_instances: vec![],
+        external_types: vec![],
+        structures: vec![],
+        enumerations: vec![],
+        source_name: String::new(),
+        module_slots: vec![],
+        abi: Default::default(),
+        functions: vec![],
+    };
+    let original = verify_program(
+        MirProgram {
+            root: root.clone(),
+            modules: vec![
+                empty(root, vec![dependency.clone()]),
+                empty(dependency, vec![]),
+            ],
+            exports: Default::default(),
+        },
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    let bytes = encode_program(&original, &Default::default()).unwrap();
+    let mut previous = bytes.clone();
+    previous[4..6].copy_from_slice(&0u16.to_le_bytes());
+    assert!(matches!(
+        decode_program(&previous, &Default::default()),
+        Err(MirCodecError::Version)
+    ));
+    for (runtime, helper) in [
+        ("obsolete-runtime", KAGARI_RUNTIME_HELPER_ABI_VERSION),
+        (KAGARI_RUNTIME_ABI_VERSION, "obsolete-helper"),
+    ] {
+        let header = DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+            .serialize(&(MIR_MAGIC, MIR_FORMAT_VERSION, runtime, helper))
+            .unwrap();
+        assert!(matches!(
+            decode_program(&header, &Default::default()),
+            Err(MirCodecError::Version)
+        ));
+    }
+    let mut trailing = bytes.clone();
+    trailing.push(0);
+    assert!(matches!(
+        decode_program(&trailing, &Default::default()),
+        Err(MirCodecError::Encoding(_))
+    ));
+    for length in 0..bytes.len() {
+        assert!(decode_program(&bytes[..length], &Default::default()).is_err());
+    }
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        decode_program(&bytes, &cancel),
+        Err(MirCodecError::Cancelled)
+    ));
+    assert!(matches!(
+        encode_program(&original, &cancel),
+        Err(MirCodecError::Cancelled)
+    ));
+}
+
+#[test]
+fn codec_rejects_impossible_module_counts_before_element_decoding() {
+    let root = ModuleIdentity::single_file("wire");
+    let mut prefix = DefaultOptions::new()
+        .with_fixint_encoding()
+        .with_little_endian()
+        .serialize(&(
+            MIR_MAGIC,
+            MIR_FORMAT_VERSION,
+            KAGARI_RUNTIME_ABI_VERSION,
+            KAGARI_RUNTIME_HELPER_ABI_VERSION,
+            root,
+        ))
+        .unwrap();
+    prefix.extend_from_slice(&u64::MAX.to_le_bytes());
+    let error = decode_program(&prefix, &Default::default()).unwrap_err();
+    assert!(
+        matches!(error, MirCodecError::Encoding(ref message) if message.contains("module count limit exceeded"))
+    );
+}
+
+#[test]
+fn native_preparation_requires_canonical_semantics_not_independent_valid_payloads() {
+    let context = DefinitionContext::new().unwrap();
+    let original = program("pub fn main() -> i32 { 42 }");
+    let other = program("pub fn main() -> i32 { 43 }");
+    let wire = encode_program(&original, &Default::default()).unwrap();
+    let bytecode = VerifiedBytecodeProgram::new(
+        lower_program_to_bytecode(&original)
+            .map(|metadata| common::adopt_bytecode(&context, metadata))
+            .unwrap(),
+        &context,
+    )
+    .unwrap();
+    let prepared = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
+    assert_same_bytecode(&original, &prepared);
+    let different_bytecode = VerifiedBytecodeProgram::new(
+        lower_program_to_bytecode(&other)
+            .map(|metadata| common::adopt_bytecode(&context, metadata))
+            .unwrap(),
+        &context,
+    )
+    .unwrap();
+    // Both programs are independently valid and have identical function signatures.
+    assert!(matches!(
+        verify_native_input(&wire, &different_bytecode, &Default::default()),
+        Err(NativeInputError::Mismatch)
+    ));
+    let mut changed_origin = common::adopt_bytecode(&context, bytecode.to_unverified());
+    changed_origin.modules[changed_origin.root.index()]
+        .source_name
+        .push_str("-changed");
+    let changed_origin = VerifiedBytecodeProgram::new(changed_origin, &context).unwrap();
+    assert!(matches!(
+        verify_native_input(&wire, &changed_origin, &Default::default()),
+        Err(NativeInputError::Mismatch)
+    ));
+    let mut changed_exports = common::adopt_bytecode(&context, bytecode.to_unverified());
+    let root = changed_exports.modules[changed_exports.root.index()]
+        .identity
+        .clone();
+    let names = &mut changed_exports
+        .exports
+        .namespaces
+        .get_mut(&root)
+        .unwrap()
+        .functions;
+    let declaration = names.remove("main").unwrap();
+    names.insert("renamed".into(), declaration);
+    let changed_exports = VerifiedBytecodeProgram::new(changed_exports, &context).unwrap();
+    // Identical bodies and declarations do not permit a different public-path contract.
+    assert!(matches!(
+        verify_native_input(&wire, &changed_exports, &Default::default()),
+        Err(NativeInputError::Mismatch)
+    ));
+    let mut forged = common::adopt_bytecode(&context, bytecode.to_unverified());
+    forged.modules[forged.root.index()].functions[0]
+        .instructions
+        .clear();
+    assert!(matches!(
+        VerifiedBytecodeProgram::new(forged, &context),
+        Err(ArtifactValidationError::Bytecode(_))
+    ));
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        verify_native_input(&wire, &bytecode, &cancel),
+        Err(NativeInputError::Cancelled)
+    ));
+}
+
+#[test]
+fn codec_preserves_float_bits_and_constant_pool_identity() {
+    let context = DefinitionContext::new().unwrap();
+    for (ty, pairs) in [
+        (
+            "f32",
+            [
+                (0x7fc04242, 0x7fc04243),
+                (0, 0x80000000),
+                (0x7fc04242, 0x7fc04242),
+            ],
+        ),
+        (
+            "f64",
+            [
+                (0x7ff8000000004242, 0x7ff8000000004243),
+                (0, 0x8000000000000000),
+                (0x7ff8000000004242, 0x7ff8000000004242),
+            ],
+        ),
+    ] {
+        for (first, second) in pairs {
+            let original = program(&format!(
+                "fn main() -> {ty} {{ val a: {ty} = 0.0; val b: {ty} = 1.0; a + b }}"
+            ));
+            let root = original.root().clone();
+            let mut modules = common::adopt(&context, original.into_unverified());
+            let mut bits = [first, second].into_iter();
+            let slot = modules
+                .modules
+                .iter()
+                .position(|module| module.identity == root)
+                .unwrap();
+            for instruction in &mut modules.modules[slot].functions[0].blocks[0].instructions {
+                match instruction {
+                    Instruction::LoadConst {
+                        constant: Constant::F32(value),
+                        ..
+                    } => {
+                        *value = f32::from_bits(bits.next().unwrap() as u32);
+                    }
+                    Instruction::LoadConst {
+                        constant: Constant::F64(value),
+                        ..
+                    } => {
+                        *value = f64::from_bits(bits.next().unwrap());
+                    }
+                    _ => {}
+                }
+            }
+            assert!(bits.next().is_none());
+            let original = verify_program(modules, &context, &Default::default()).unwrap();
+            let wire = encode_program(&original, &Default::default()).unwrap();
+            let bytecode = VerifiedBytecodeProgram::new(
+                lower_program_to_bytecode(&original)
+                    .map(|metadata| common::adopt_bytecode(&context, metadata))
+                    .unwrap(),
+                &context,
+            )
+            .unwrap();
+            assert_eq!(
+                bytecode.program().modules[bytecode.program().root.index()]
+                    .constants
+                    .len(),
+                if first == second { 1 } else { 2 }
+            );
+            let decoded = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
+            assert_same_bytecode(&original, &decoded);
+            let mut changed = common::adopt_bytecode(&context, bytecode.to_unverified());
+            let module = &mut changed.modules[changed.root.index()];
+            // Indexed instructions keep their identity while the authoritative
+            // pool changes, including NaN payloads and signed zero.
+            let operands = &mut module.constants;
+            for constant in operands {
+                match constant {
+                    ConstantOperand::F32(value) => *value = f32::from_bits(value.to_bits() ^ 1),
+                    ConstantOperand::F64(value) => *value = f64::from_bits(value.to_bits() ^ 1),
+                    constant => panic!("expected float constant, got {constant:?}"),
+                }
+            }
+            let changed = VerifiedBytecodeProgram::new(changed, &context).unwrap();
+            assert!(matches!(
+                verify_native_input(&wire, &changed, &Default::default()),
+                Err(NativeInputError::Mismatch)
+            ));
+        }
+    }
+}
+
+#[test]
+fn artifact_integrity_does_not_substitute_for_native_correspondence() {
+    let context = DefinitionContext::new().unwrap();
+
+    let first = program("fn main() -> i32 { 42 }");
+    let second = program("fn main() -> i32 { 43 }");
+    for (mir, matches) in [(&first, true), (&second, false)] {
+        let artifact = KbcArtifact::from_program(
+            lower_program_to_bytecode(&first)
+                .map(|metadata| common::adopt_bytecode(&context, metadata))
+                .unwrap(),
+            ArtifactBuildOptions {
+                portable_mir: Some(PortableMir {
+                    bytes: encode_program(mir, &Default::default()).unwrap(),
+                }),
+                ..Default::default()
+            },
+            &context,
+        )
+        .unwrap();
+        let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
+            .map(|metadata| common::adopt(&context, metadata))
+            .unwrap();
+        let decoded = decoded
+            .into_verified(&Default::default(), &context)
+            .unwrap();
+        let result = verify_native_input(
+            &decoded.portable_mir().unwrap().bytes,
+            decoded.bytecode(),
+            &Default::default(),
+        );
+        if matches {
+            assert_same_bytecode(&first, &result.unwrap());
+        } else {
+            assert!(matches!(result, Err(NativeInputError::Mismatch)));
+        }
+    }
+}

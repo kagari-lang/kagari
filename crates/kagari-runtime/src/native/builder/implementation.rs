@@ -1,0 +1,512 @@
+//! Scoped implementation groups bind existing Kagari members to Rust entries.
+use crate::{
+    error::RuntimeError,
+    native::{
+        adapter::NativeAdapter,
+        binding::{Codec, NativeBinding, NativeResult},
+        builder::{ModuleBuilder, inherent::InherentMethodsBuilder},
+        catalog::DeclarationCatalog,
+        types::{AppliedTrait, ParameterRef, Receiver, Type},
+    },
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionId},
+};
+use kagari_types::{
+    declaration::{
+        host::HostCallPolicy,
+        module::{ImplDecl, ModuleDecl},
+    },
+    reference::ReferenceAccess,
+    ty::{GenericParam, Ty, substitution::TypeSubstitution},
+};
+use std::{collections::BTreeMap, fmt};
+
+pub struct ImplementationBuilder<'module> {
+    module: &'module mut ModuleBuilder,
+    receiver: Type,
+    receiver_codec: Option<Codec>,
+    parameters: Vec<GenericParam>,
+    parameter_names: Vec<String>,
+}
+
+impl<'module> ImplementationBuilder<'module> {
+    pub fn inherent_impl<T>(
+        &mut self,
+        configure: impl FnOnce(&mut InherentMethodsBuilder) -> NativeResult<T>,
+    ) -> NativeResult<T> {
+        let owners = self
+            .module
+            .providers
+            .receiver_owners(Some(&self.module.declaration))?;
+        if !self
+            .module
+            .declaration
+            .owns_inherent_receiver(self.receiver.abi(), &|receiver| {
+                owners.owner(receiver, &self.module.providers.definitions())
+            })
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "inherent methods belong to the type's defining module",
+            ));
+        }
+        let owner = self.module.next_implementation_id()?;
+        let parameters: Vec<_> = self
+            .parameters
+            .iter()
+            .map(|parameter| GenericParam {
+                owner,
+                position: parameter.position,
+            })
+            .collect();
+        let arguments: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
+        let mut substitution = TypeSubstitution::default();
+        for (source, target) in self.parameters.iter().zip(&arguments) {
+            substitution.bind(&source.owner, source.position, target);
+        }
+        let cancel = CancellationToken::default();
+        let receiver = substitution
+            .apply(self.receiver.abi(), &cancel)
+            .map_err(|_| {
+                RuntimeError::metadata_conflict("invalid inherent receiver substitution")
+            })?;
+        let mut methods = InherentMethodsBuilder {
+            context: self.module.context().clone(),
+            catalog: self.module.providers.clone(),
+            owner,
+            receiver: self.receiver.clone(),
+            receiver_codec: self.receiver_codec.clone(),
+            documentation: BTreeMap::new(),
+            methods: BTreeMap::new(),
+            bindings: BTreeMap::new(),
+            method_parameters: BTreeMap::new(),
+            requirements: BTreeMap::new(),
+            concrete_results: BTreeMap::new(),
+        };
+        let result = configure(&mut methods)?;
+        let mut signatures = Vec::new();
+        for mut signature in methods.methods.into_values() {
+            let mut combined = parameters.clone();
+            combined.append(&mut signature.generic_params);
+            signature.generic_params = combined;
+            signature.bounds = substitution
+                .apply_bounds(
+                    &signature.bounds,
+                    &self.module.providers.definitions(),
+                    &cancel,
+                )
+                .map_err(|_| {
+                    RuntimeError::metadata_conflict("invalid inherent bounds substitution")
+                })?;
+            for parameter in &mut signature.params {
+                parameter.ty = substitution.apply(&parameter.ty, &cancel).map_err(|_| {
+                    RuntimeError::metadata_conflict("invalid inherent argument substitution")
+                })?;
+            }
+            signature.return_type = substitution
+                .apply(&signature.return_type, &cancel)
+                .map_err(|_| {
+                    RuntimeError::metadata_conflict("invalid inherent result substitution")
+                })?;
+            signatures.push(signature);
+        }
+        signatures.sort_by(|left, right| left.name.cmp(&right.name));
+        let concrete_results = methods
+            .concrete_results
+            .into_iter()
+            .map(|(id, ty)| {
+                substitution
+                    .apply(&ty, &cancel)
+                    .map(|ty| (id, ty))
+                    .map_err(|_| {
+                        RuntimeError::metadata_conflict(
+                            "invalid inherent concrete result substitution",
+                        )
+                    })
+            })
+            .collect::<NativeResult<BTreeMap<_, _>>>()?;
+        let requirements = methods
+            .requirements
+            .into_iter()
+            .map(|(id, requirements)| {
+                requirements
+                    .iter()
+                    .map(|requirement| requirement.apply(&substitution, &cancel))
+                    .collect::<Result<Vec<_>, _>>()
+                    .map(|requirements| (id, requirements))
+                    .map_err(|_| {
+                        RuntimeError::metadata_conflict("invalid inherent requirement substitution")
+                    })
+            })
+            .collect::<NativeResult<BTreeMap<_, _>>>()?;
+        self.module.declaration.implementations.push(ImplDecl {
+            generic_params: parameters,
+            bounds: vec![],
+            trait_type: None,
+            for_type: receiver,
+            methods: signatures,
+        });
+        self.module
+            .declaration
+            .documentation
+            .extend(methods.documentation);
+        self.module.bindings.extend(methods.bindings);
+        self.module
+            .function_parameters
+            .extend(methods.method_parameters);
+        self.module
+            .declaration
+            .concrete_results
+            .extend(concrete_results);
+        self.module
+            .declaration
+            .callable_requirements
+            .extend(requirements);
+        Ok(result)
+    }
+
+    pub(crate) fn new(
+        module: &'module mut ModuleBuilder,
+        receiver: Receiver,
+    ) -> NativeResult<Self> {
+        let owner = module.next_implementation_id()?;
+        let (receiver, parameters, parameter_names) = match receiver {
+            Receiver::Concrete(ty) => (
+                Type::from_semantic(ty.adopt(module.context())?, &module.providers.definitions())?,
+                vec![],
+                vec![],
+            ),
+            Receiver::Declaration(reference) => {
+                let reference = reference.adopt(module.context())?;
+                if module.providers.types.get_id(reference.id)
+                    != Some(reference.declaration.as_ref())
+                {
+                    return Err(RuntimeError::metadata_conflict(
+                        "native receiver declaration is not in the provider catalog",
+                    ));
+                }
+                let parameters: Vec<_> = (0..reference.parameter_names.len())
+                    .map(|position| GenericParam { owner, position })
+                    .collect();
+                let arguments = parameters
+                    .iter()
+                    .map(|parameter| {
+                        Type::from_semantic(parameter.as_type(), &module.providers.definitions())
+                    })
+                    .collect::<NativeResult<Vec<_>>>()?;
+                let ty = reference.apply(arguments)?;
+                (ty, parameters, reference.parameter_names)
+            }
+        };
+        Ok(Self {
+            module,
+            receiver,
+            receiver_codec: None,
+            parameters,
+            parameter_names,
+        })
+    }
+
+    pub fn receiver(&self) -> Type {
+        self.receiver.clone()
+    }
+
+    pub fn parameter(&self, name: &str) -> NativeResult<ParameterRef> {
+        let index = self
+            .parameter_names
+            .iter()
+            .position(|parameter| parameter == name)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown receiver parameter"))?;
+        Ok(ParameterRef {
+            ty: Type::from_semantic(
+                self.parameters[index].as_type(),
+                &self.module.providers.definitions(),
+            )?,
+        })
+    }
+
+    pub fn receiver_codec(&mut self, codec: Codec) -> NativeResult<()> {
+        let receiver = self.receiver.abi();
+        if !codec.accepts(
+            receiver,
+            &self.module.providers.definitions(),
+            &self.module.providers,
+        ) {
+            return Err(RuntimeError::metadata_conflict(
+                "receiver codec differs from the Kagari type",
+            ));
+        }
+        self.receiver_codec = Some(codec);
+        Ok(())
+    }
+
+    pub fn trait_impl<T>(
+        &mut self,
+        applied: AppliedTrait,
+        configure: impl FnOnce(&mut MethodsBuilder) -> NativeResult<T>,
+    ) -> NativeResult<T> {
+        let contract = applied.contract.adopt(self.module.context())?;
+        let Ty::Trait(ty) = applied.ty().adopt(self.module.context())? else {
+            unreachable!("trait input")
+        };
+        let applied = AppliedTrait {
+            contract,
+            ty,
+            definitions: self.module.providers.definitions(),
+        };
+        if self.module.providers.traits.get_id(applied.contract.id)
+            != Some(applied.contract.contract.as_ref())
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "trait contract is not in this module's provider catalog",
+            ));
+        }
+        let id = self.module.next_implementation_id()?;
+        let parameters: Vec<_> = self
+            .parameters
+            .iter()
+            .map(|parameter| GenericParam {
+                owner: id,
+                position: parameter.position,
+            })
+            .collect();
+        let arguments: Vec<_> = parameters.iter().map(GenericParam::as_type).collect();
+        let mut substitution = TypeSubstitution::default();
+        for (source, target) in self.parameters.iter().zip(&arguments) {
+            substitution.bind(&source.owner, source.position, target);
+        }
+        let cancel = CancellationToken::default();
+        let receiver = substitution
+            .apply(self.receiver.abi(), &cancel)
+            .map_err(|_| {
+                RuntimeError::metadata_conflict("invalid implementation receiver substitution")
+            })?;
+        let mut methods = MethodsBuilder {
+            applied,
+            catalog: self.module.providers.clone(),
+            id,
+            documentation: BTreeMap::new(),
+            receiver_codec: self.receiver_codec.clone(),
+            bindings: BTreeMap::new(),
+            receiver_access: BTreeMap::new(),
+            host_policies: BTreeMap::new(),
+        };
+        let result = configure(&mut methods)?;
+        // The authoring closure uses its group binder. Each emitted impl owns a
+        // fresh binder, including associated outputs configured in the closure.
+        let Ty::Trait(applied_type) = methods.applied.ty().adopt(self.module.context())? else {
+            unreachable!("trait input")
+        };
+        let applied_type = substitution
+            .apply_nominal(&applied_type, &cancel)
+            .map_err(|_| RuntimeError::metadata_conflict("invalid applied trait substitution"))?;
+        let identities: Vec<_> = methods
+            .bindings
+            .keys()
+            .map(|name| {
+                self.module
+                    .context()
+                    .intern_child(methods.id, DefinitionKind::Method, name, 0)
+                    .map(|id| (name.as_str(), id))
+                    .map_err(conflict)
+            })
+            .collect::<NativeResult<_>>()?;
+        let context = self.module.context().clone();
+        self.module
+            .declaration
+            .implement_trait(
+                methods.applied.contract.contract.as_ref(),
+                ImplDecl {
+                    generic_params: parameters,
+                    bounds: vec![],
+                    trait_type: Some(applied_type),
+                    for_type: receiver,
+                    methods: vec![],
+                },
+                &identities,
+                &context,
+            )
+            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        let implementation = self
+            .module
+            .declaration
+            .implementations
+            .last_mut()
+            .expect("implement_trait appends the checked implementation");
+        for method in &mut implementation.methods {
+            if let Some(access) = methods.receiver_access.get(&method.name) {
+                method.method_policy.receiver_access = Some(*access);
+            }
+            if let Some(policy) = methods.host_policies.get(&method.name) {
+                method.host_policy = Some(policy.clone());
+            }
+        }
+        for method in &methods.applied.contract.contract.methods {
+            let target = ModuleDecl::method_id(
+                methods.id,
+                &method.name,
+                &self.module.providers.definitions(),
+            )
+            .map_err(conflict)?;
+            let source = ModuleDecl::method_id(
+                methods.applied.contract.id,
+                &method.name,
+                &self.module.providers.definitions(),
+            )
+            .map_err(conflict)?;
+            if let Some(text) = methods
+                .documentation
+                .get(&method.name)
+                .or_else(|| self.module.providers.documentation.get(&source))
+            {
+                self.module
+                    .declaration
+                    .documentation
+                    .insert(target, text.clone());
+            }
+        }
+        for (name, binding) in methods.bindings {
+            self.module.bindings.insert(
+                ModuleDecl::method_id(methods.id, &name, &context.snapshot()).map_err(conflict)?,
+                binding,
+            );
+        }
+        Ok(result)
+    }
+}
+
+pub struct MethodsBuilder {
+    applied: AppliedTrait,
+    catalog: DeclarationCatalog,
+    id: DefinitionId,
+    receiver_codec: Option<Codec>,
+    documentation: BTreeMap<String, String>,
+    bindings: BTreeMap<String, NativeBinding>,
+    receiver_access: BTreeMap<String, ReferenceAccess>,
+    host_policies: BTreeMap<String, HostCallPolicy>,
+}
+
+impl MethodsBuilder {
+    /// Set an explicit native impl's external passing/effects before selecting
+    /// its callback. This does not change the Kagari trait's Self contract.
+    pub fn host_policy(&mut self, name: &str, policy: HostCallPolicy) -> NativeResult<()> {
+        let method = self
+            .applied
+            .contract
+            .contract
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?;
+        if self.bindings.contains_key(name)
+            || method
+                .host_policy
+                .as_ref()
+                .is_some_and(|declared| declared != &policy)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "incompatible implementation external policy",
+            ));
+        }
+        self.host_policies.insert(name.into(), policy);
+        Ok(())
+    }
+
+    /// Declare this Rust implementation's required receiver loan. The Kagari
+    /// trait's ordinary Self contract and other implementations remain independent.
+    /// Set this before binding; changing a selected callback's authority is rejected.
+    pub fn receiver_access(&mut self, name: &str, access: ReferenceAccess) -> NativeResult<()> {
+        let method = self
+            .applied
+            .contract
+            .contract
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?;
+        if !method.params.first().is_some_and(|p| p.name == "self")
+            || self.bindings.contains_key(name)
+            || method
+                .method_policy
+                .receiver_access
+                .is_some_and(|required| required != access)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "incompatible implementation receiver access",
+            ));
+        }
+        self.receiver_access.insert(name.into(), access);
+        Ok(())
+    }
+
+    /// Override the inherited trait member's Markdown on this implementation.
+    pub fn documentation(&mut self, name: &str, text: impl Into<String>) -> NativeResult<()> {
+        if !self
+            .applied
+            .contract
+            .contract
+            .methods
+            .iter()
+            .any(|method| method.name == name)
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "unknown implementation documentation target",
+            ));
+        }
+        self.documentation.insert(name.into(), text.into());
+        Ok(())
+    }
+
+    pub fn associated_type(&mut self, name: &str, ty: Type) -> NativeResult<()> {
+        self.applied = self.applied.clone().associated(name, ty)?;
+        Ok(())
+    }
+
+    pub fn bind<M, R>(&mut self, name: &str, entry: impl NativeAdapter<M, R>) -> NativeResult<()> {
+        let mut method = self
+            .applied
+            .contract
+            .contract
+            .methods
+            .iter()
+            .find(|method| method.name == name)
+            .ok_or_else(|| RuntimeError::metadata_conflict("unknown implementation member"))?
+            .clone();
+        if let Some(access) = self.receiver_access.get(name) {
+            method.method_policy.receiver_access = Some(*access);
+        }
+        if let Some(policy) = self.host_policies.get(name) {
+            method.host_policy = Some(policy.clone());
+        }
+        let binding = entry.prepare(&method, &self.catalog)?;
+        binding.check_policies(&method)?;
+        let receiver = method
+            .params
+            .first()
+            .is_some_and(|parameter| parameter.name == "self");
+        if receiver
+            && self.receiver_codec.as_ref().is_some_and(|codec| {
+                binding
+                    .arguments
+                    .first()
+                    .is_none_or(|method| !codec.receiver_shape_matches(method))
+            })
+        {
+            return Err(RuntimeError::metadata_conflict(
+                "binding receiver differs from the configured receiver codec",
+            ));
+        }
+        if self.bindings.contains_key(name) {
+            return Err(RuntimeError::metadata_conflict(
+                "duplicate implementation member binding",
+            ));
+        }
+        self.bindings.insert(name.into(), binding);
+        Ok(())
+    }
+}
+
+fn conflict(message: impl fmt::Display) -> RuntimeError {
+    RuntimeError::metadata_conflict(message.to_string())
+}

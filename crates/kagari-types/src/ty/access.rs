@@ -1,0 +1,160 @@
+//! Outer storage/view capabilities and value-copy checks over semantic types.
+use crate::ty::{
+    NominalTy, Ty,
+    substitution::{MAX_TYPE_NODES, TypeSubstitution},
+};
+
+use crate::{collection::CollectionAccess, reference::ReferenceAccess};
+use kagari_common::cancellation::CancellationToken;
+use std::collections::HashSet;
+
+impl Ty {
+    pub fn collection_access(&self) -> Option<CollectionAccess> {
+        match self {
+            Self::Set(_, access) | Self::Map { access, .. } => Some(*access),
+            _ => None,
+        }
+    }
+
+    /// Weaken only the outer host/storage descriptor; element types remain invariant.
+    /// Ordinary trait relationships are independent of this concrete-family rule.
+    pub fn read_only_view(&self) -> Option<Self> {
+        Some(match self {
+            Self::Reference { target, .. } => Self::Reference {
+                target: target.clone(),
+                access: ReferenceAccess::Shared,
+            },
+            Self::Set(item, _) => Self::Set(item.clone(), CollectionAccess::ReadOnly),
+            Self::Map { key, value, .. } => Self::Map {
+                key: key.clone(),
+                value: value.clone(),
+                access: CollectionAccess::ReadOnly,
+            },
+            _ => return None,
+        })
+    }
+
+    pub fn can_weaken_to(&self, target: &Self) -> bool {
+        if let (
+            Self::Reference {
+                target: source,
+                access: ReferenceAccess::Mutable,
+            },
+            Self::Reference {
+                target,
+                access: ReferenceAccess::Shared,
+            },
+        ) = (self, target)
+        {
+            return source == target;
+        }
+        if self.collection_access() != Some(CollectionAccess::Mutable)
+            || target.collection_access() != Some(CollectionAccess::ReadOnly)
+        {
+            return false;
+        }
+        match (self, target) {
+            (Self::Set(a, _), Self::Set(b, _)) => a == b,
+            (
+                Self::Map {
+                    key: ak, value: av, ..
+                },
+                Self::Map {
+                    key: bk, value: bv, ..
+                },
+            ) => ak == bk && av == bv,
+            _ => false,
+        }
+    }
+}
+
+/// Repetition copies value-like elements but never duplicates a shared object.
+/// The caller supplies the checked payloads of each applied enum.
+pub fn supports_array_repetition(
+    ty: &Ty,
+    mut enum_payload: impl FnMut(&NominalTy) -> Option<Vec<Ty>>,
+    cancel: &CancellationToken,
+) -> bool {
+    let copier = TypeSubstitution::default();
+    let Ok(root) = copier.apply(ty, cancel) else {
+        return false;
+    };
+    let mut pending = vec![root];
+    let mut seen = HashSet::new();
+    let mut remaining = MAX_TYPE_NODES;
+    while let Some(ty) = pending.pop() {
+        if cancel.check().is_err() || remaining == 0 {
+            return false;
+        }
+        remaining -= 1;
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        match ty {
+            Ty::Builtin(_) | Ty::Range(_, _) => {}
+            Ty::Tuple(items) => pending.extend(items),
+            Ty::Enum(instance) => {
+                let Some(payload) = enum_payload(&instance) else {
+                    return false;
+                };
+                if payload.len() > remaining {
+                    return false;
+                }
+                for ty in payload {
+                    let Ok(ty) = copier.apply(&ty, cancel) else {
+                        return false;
+                    };
+                    pending.push(ty);
+                }
+            }
+            _ => return false,
+        }
+        if pending.len() > remaining {
+            return false;
+        }
+    }
+    true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scalar::BuiltinType;
+
+    #[test]
+    fn weakening_is_outer_only_and_does_not_change_storage_families() {
+        let item: Ty = Ty::Builtin(BuiltinType::I32);
+        let mutable = Ty::Set(Box::new(item.clone()), CollectionAccess::Mutable);
+        let readonly = mutable.read_only_view().unwrap();
+        assert!(mutable.can_weaken_to(&readonly));
+        assert!(!readonly.can_weaken_to(&mutable));
+        assert!(!mutable.can_weaken_to(&Ty::Array(Box::new(item))));
+        assert!(
+            Ty::Array(Box::new(mutable.clone()))
+                .read_only_view()
+                .is_none()
+        );
+        let nested_mutable = Ty::Array(Box::new(mutable));
+        let nested_readonly = Ty::Array(Box::new(readonly));
+        assert!(!nested_mutable.can_weaken_to(&nested_readonly));
+    }
+
+    #[test]
+    fn repetition_rejects_shared_payloads_and_checks_cancellation() {
+        let scalar = Ty::Builtin(BuiltinType::I32);
+        let shared = Ty::Array(Box::new(scalar.clone()));
+        let cancel = CancellationToken::default();
+        assert!(supports_array_repetition(
+            &Ty::Tuple(vec![scalar.clone()]),
+            |_| None,
+            &cancel
+        ));
+        assert!(!supports_array_repetition(
+            &Ty::Tuple(vec![shared]),
+            |_| None,
+            &cancel
+        ));
+        cancel.cancel();
+        assert!(!supports_array_repetition(&scalar, |_| None, &cancel));
+    }
+}

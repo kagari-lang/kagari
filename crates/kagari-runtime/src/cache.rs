@@ -1,30 +1,30 @@
+use kagari_bytecode::{
+    artifact::{
+        ArtifactFingerprint, DependencyFingerprint, KbcArtifact, PathDescriptorFingerprint,
+        PublicAbiFingerprint,
+    },
+    module::BytecodeModule,
+    program::BytecodeProgram,
+};
+use kagari_common::identity::{
+    ModuleIdentity, mapping::DefinitionMappingError, table::DefinitionTable,
+};
 use std::{cell::RefCell, collections::HashMap};
 
-use kagari_ir::bytecode::{
-    ArtifactFingerprint, BytecodeModule, DependencyFingerprint, FunctionRef,
-    KAGARI_RUNTIME_HELPER_ABI_VERSION, KbcArtifact, PathDescriptorFingerprint,
-    PublicAbiFingerprint,
-};
+use {kagari_abi::version::KAGARI_RUNTIME_HELPER_ABI_VERSION, kagari_contract::ids::FunctionRef};
 
 use crate::{
-    backend::ExecutableFunctionArtifact,
     module::{ModuleId, ModuleKey},
     reload::{path_fingerprints_for_module, public_abi_fingerprints_for_module},
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct ExecutionArtifactId(u64);
+pub struct InterpreterCacheId(u64);
 
-impl ExecutionArtifactId {
+impl InterpreterCacheId {
     pub fn index(self) -> u64 {
         self.0
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ExecutionArtifactKind {
-    InterpreterCache,
-    Jit,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,153 +33,138 @@ pub struct ReloadDependencySnapshot {
     pub public_abi_fingerprints: Vec<PublicAbiFingerprint>,
     pub typed_path_fingerprints: Vec<PathDescriptorFingerprint>,
     pub dependency_fingerprints: Vec<DependencyFingerprint>,
-    pub host_registry_fingerprint: ArtifactFingerprint,
     pub runtime_helper_abi_version: String,
 }
 
 impl ReloadDependencySnapshot {
-    pub fn from_bytecode(module: &BytecodeModule) -> Self {
-        Self {
-            module_fingerprint: ArtifactFingerprint::of_debug(module),
-            public_abi_fingerprints: public_abi_fingerprints_for_module(module),
-            typed_path_fingerprints: path_fingerprints_for_module(module),
-            dependency_fingerprints: Vec::new(),
-            host_registry_fingerprint: ArtifactFingerprint::empty(),
-            runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
-        }
+    pub fn from_program(
+        program: &BytecodeProgram,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        let mut snapshot =
+            Self::from_bytecode(&program.modules[program.root.index()], definitions)?;
+        snapshot.module_fingerprint = ArtifactFingerprint::of_program(program, definitions)?;
+        snapshot.dependency_fingerprints = program.dependency_fingerprints(definitions)?;
+        Ok(snapshot)
     }
 
-    pub fn from_artifact(artifact: &KbcArtifact) -> Self {
-        Self {
-            module_fingerprint: artifact.header.content_hash,
-            public_abi_fingerprints: artifact.verification.public_abi_fingerprints.clone(),
-            typed_path_fingerprints: artifact.verification.typed_path_fingerprints.clone(),
-            dependency_fingerprints: artifact.verification.dependency_fingerprints.clone(),
-            host_registry_fingerprint: artifact.verification.host_registry_fingerprint,
-            runtime_helper_abi_version: artifact.header.runtime_helper_abi_version.clone(),
-        }
+    pub fn from_bytecode(
+        module: &BytecodeModule,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        Ok(Self {
+            module_fingerprint: ArtifactFingerprint::of_module(module, definitions)?,
+            public_abi_fingerprints: public_abi_fingerprints_for_module(module, definitions)?,
+            typed_path_fingerprints: path_fingerprints_for_module(module),
+            dependency_fingerprints: Vec::new(),
+            runtime_helper_abi_version: KAGARI_RUNTIME_HELPER_ABI_VERSION.to_owned(),
+        })
+    }
+
+    pub fn from_artifact(
+        artifact: &KbcArtifact,
+        definitions: &DefinitionTable,
+    ) -> Result<Self, DefinitionMappingError> {
+        Self::from_program(&artifact.program, definitions)
     }
 }
 
+/// Runtime-local interpreter cache metadata. Records neither own native code nor
+/// retain module epochs; callers must check reachability before using cached data.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExecutionArtifactRecord {
-    pub id: ExecutionArtifactId,
-    pub kind: ExecutionArtifactKind,
+pub struct InterpreterCacheRecord {
+    pub id: InterpreterCacheId,
     pub module: ModuleKey,
     pub function: Option<FunctionRef>,
     pub dependencies: ReloadDependencySnapshot,
-    pub executable: Option<ExecutableFunctionArtifact>,
-    pub valid: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReloadInvalidation {
     pub module_name: String,
+    pub module_identity: ModuleIdentity,
+    pub module_fingerprint: ArtifactFingerprint,
     pub module_id: ModuleId,
     pub published: ModuleKey,
     pub dependencies: ReloadDependencySnapshot,
 }
 
+/// Invalidation bookkeeping for interpreter caches. Native products are owned by
+/// prepared programs and runtime installations retain their exact pinned versions.
 #[derive(Debug, Default)]
-pub struct ExecutionArtifactRegistry {
-    inner: RefCell<ExecutionArtifactRegistryInner>,
+pub struct InterpreterCacheRegistry {
+    inner: RefCell<InterpreterCacheRegistryInner>,
 }
 
 #[derive(Debug, Default)]
-struct ExecutionArtifactRegistryInner {
+struct InterpreterCacheRegistryInner {
     next_id: u64,
-    artifacts: HashMap<ExecutionArtifactId, ExecutionArtifactRecord>,
+    entries: HashMap<InterpreterCacheId, InterpreterCacheRecord>,
 }
 
-impl ExecutionArtifactRegistry {
+impl InterpreterCacheRegistry {
     pub fn register(
         &self,
-        kind: ExecutionArtifactKind,
         module: ModuleKey,
         function: Option<FunctionRef>,
         dependencies: ReloadDependencySnapshot,
-    ) -> ExecutionArtifactId {
+    ) -> InterpreterCacheId {
         let mut inner = self.inner.borrow_mut();
-        let id = ExecutionArtifactId(inner.next_id);
+        let id = InterpreterCacheId(inner.next_id);
         inner.next_id += 1;
-        inner.artifacts.insert(
+        inner.entries.insert(
             id,
-            ExecutionArtifactRecord {
+            InterpreterCacheRecord {
                 id,
-                kind,
                 module,
                 function,
                 dependencies,
-                executable: None,
-                valid: true,
             },
         );
         id
     }
 
-    pub fn register_executable_function(
-        &self,
-        module: ModuleKey,
-        dependencies: ReloadDependencySnapshot,
-        executable: ExecutableFunctionArtifact,
-    ) -> ExecutionArtifactId {
-        let mut inner = self.inner.borrow_mut();
-        let id = ExecutionArtifactId(inner.next_id);
-        inner.next_id += 1;
-        let function = Some(executable.function);
-        inner.artifacts.insert(
-            id,
-            ExecutionArtifactRecord {
-                id,
-                kind: ExecutionArtifactKind::Jit,
-                module,
-                function,
-                dependencies,
-                executable: Some(executable),
-                valid: true,
-            },
-        );
-        id
-    }
-
-    pub fn get(&self, id: ExecutionArtifactId) -> Option<ExecutionArtifactRecord> {
-        self.inner.borrow().artifacts.get(&id).cloned()
+    pub fn get(&self, id: InterpreterCacheId) -> Option<InterpreterCacheRecord> {
+        self.inner.borrow().entries.get(&id).cloned()
     }
 
     pub fn invalidate_for_reload(
         &self,
         invalidation: &ReloadInvalidation,
-    ) -> Vec<ExecutionArtifactRecord> {
+    ) -> Vec<InterpreterCacheRecord> {
         let mut inner = self.inner.borrow_mut();
-        let mut invalidated = Vec::new();
-        for artifact in inner.artifacts.values_mut() {
-            if !artifact.valid || !artifact_invalidated_by_reload(artifact, invalidation) {
-                continue;
-            }
-            artifact.valid = false;
-            invalidated.push(artifact.clone());
-        }
+        let mut invalidated = inner
+            .entries
+            .iter()
+            .filter_map(|(id, cache)| {
+                cache_invalidated_by_reload(cache, invalidation).then_some(*id)
+            })
+            .collect::<Vec<_>>();
+        invalidated.sort_by_key(|id| id.index());
         invalidated
+            .into_iter()
+            .filter_map(|id| inner.entries.remove(&id))
+            .collect()
     }
 }
 
-fn artifact_invalidated_by_reload(
-    artifact: &ExecutionArtifactRecord,
+fn cache_invalidated_by_reload(
+    cache: &InterpreterCacheRecord,
     invalidation: &ReloadInvalidation,
 ) -> bool {
-    if artifact.module.id == invalidation.module_id {
-        if artifact.module.epoch == invalidation.published.epoch {
+    if cache.module.id == invalidation.module_id {
+        if cache.module.epoch == invalidation.published.epoch {
             return false;
         }
         return true;
     }
 
-    artifact
+    cache
         .dependencies
         .dependency_fingerprints
         .iter()
         .any(|dependency| {
-            dependency.module_id == invalidation.module_name
-                && dependency.fingerprint != invalidation.dependencies.module_fingerprint
+            dependency.module_id == invalidation.module_identity
+                && dependency.fingerprint != invalidation.module_fingerprint
         })
 }

@@ -1,0 +1,378 @@
+use super::tests::{analyze, insert};
+use crate::{tests::test_analysis, types::TypeId};
+use kagari_source::{
+    diagnostic::DiagnosticKind,
+    source_database::{SourceDatabase, SourceLayer},
+};
+use kagari_types::scalar::BuiltinType;
+use std::sync::Arc;
+
+#[test]
+fn module_facade_bindings_share_source_type_call_and_navigation_targets() {
+    let mut db = SourceDatabase::default();
+    let library = insert(
+        &mut db,
+        "library",
+        "pub struct Data { pub val value: i32 } pub fn answer() -> i32 { 7 } pub fn Data() -> i32 { 3 }",
+    );
+    insert(
+        &mut db,
+        "facade",
+        "pub use pkg::library as api; pub use pkg::library::*; pub use alloc::vec::Vec::new; pub use alloc::vec;",
+    );
+    let text = "use pkg::facade::{api as lib, Data as Item}; use pkg::facade; fn main() -> lib::Data { val lib = 0; val Option = 1; val option: Option<i32> = None; Item { value: { val a: Vec<i32> = facade::new(); val b: Vec<i32> = facade::vec::Vec::new(); lib::answer() + Item() + lib } } }";
+    let root = insert(&mut db, "root", text);
+    let snapshot = analyze(&db);
+    for offset in [text.find("Data as").unwrap(), text.find("Item").unwrap()] {
+        let targets = snapshot.source_targets_at(root, offset);
+        assert_eq!(targets.len(), 2, "{targets:?}");
+        assert_ne!(targets[0].namespace, targets[1].namespace);
+        assert_ne!(targets[0].target, targets[1].target);
+        assert!(snapshot.source_target_at(root, offset).is_none());
+        assert!(snapshot.definition_at(root, offset).is_none());
+    }
+    let type_target = snapshot
+        .definition_at(root, text.find("lib::Data").unwrap() + 5)
+        .unwrap();
+    let value_target = snapshot
+        .definition_at(root, text.find("Item()").unwrap())
+        .unwrap();
+    assert_ne!(type_target.id, value_target.id);
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    snapshot.check_program(root, &Default::default()).unwrap();
+    for spelling in ["lib::Data", "lib::answer()"] {
+        let target = snapshot
+            .definition_at(
+                root,
+                text.find(spelling).unwrap()
+                    + if spelling.starts_with("lib::") {
+                        "lib::".len()
+                    } else {
+                        0
+                    },
+            )
+            .unwrap();
+        assert_eq!(target.location.file, library);
+    }
+    assert_eq!(
+        file.source_function_at(text.find("lib::answer()").unwrap() + "lib::".len())
+            .unwrap()
+            .id
+            .unit
+            .file,
+        library
+    );
+}
+
+#[test]
+fn imported_annotations_preserve_nominal_identity_and_definition_locations() {
+    let mut db = SourceDatabase::default();
+    let types = insert(
+        &mut db,
+        "types",
+        "pub struct Data { val value: i32 } pub enum Choice { First } pub trait View { fn read(self) -> i32; }",
+    );
+    let text = "use pkg::types as lib; use pkg::types::Data as D; use pkg::types::Choice; use pkg::types::View; struct Holder { val items: [D] } fn pass(x: D) -> lib::Data { val y: lib::Data = x; y } fn choice(x: Choice) -> Choice { x } fn view(x: View) -> View { x }";
+    let root = insert(&mut db, "root", text);
+    let snapshot = analyze(&db);
+    assert!(
+        snapshot
+            .file(types)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let signature = file
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "pass")
+        .unwrap();
+    assert_eq!(signature.params[0].ty, signature.return_type);
+    assert!(
+        matches!(&signature.return_type, TypeId::Struct(id) if file.definitions().resolve(id.declaration).unwrap().to_path().module.path == ["types"])
+    );
+    for needle in [
+        "[D]",
+        "D)",
+        "lib::Data {",
+        "lib::Data =",
+        "Choice)",
+        "View)",
+    ] {
+        let offset = text.find(needle).unwrap()
+            + match needle {
+                "[D]" => 1,
+                "lib::Data {" | "lib::Data =" => "lib::".len(),
+                _ => 0,
+            };
+        let declaration = snapshot.definition_at(root, offset).unwrap();
+        assert_eq!(declaration.location.file, types);
+        assert!(db.snapshot().contains(declaration.location));
+    }
+}
+
+#[test]
+fn exported_signatures_use_imported_types_before_callers_are_checked() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "models", "pub struct Data { val value: i32 }");
+    let api = insert(
+        &mut db,
+        "api",
+        "use pkg::models::Data; pub fn pass(x: Data) -> Data { x }",
+    );
+    let text = "use pkg::api::pass; use pkg::models::Data; fn forward(x: Data) -> Data { pass(x) }";
+    let root = insert(&mut db, "root", text);
+    let snapshot = analyze(&db);
+    for (_, node) in snapshot.module_graph().modules() {
+        let diagnostics = snapshot.file(node.file).unwrap().result().diagnostics();
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    }
+    let file = snapshot.file(root).unwrap();
+    let imported = file
+        .source_function_at(text.find("pass(x)").unwrap())
+        .unwrap();
+    assert_eq!(imported.id.unit.file, api);
+    let local = file
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "forward")
+        .unwrap();
+    assert_eq!(local.return_type, imported.signature.return_type);
+    assert_eq!(local.params[0].ty, imported.signature.params[0].ty);
+}
+
+#[test]
+fn shared_facade_resolution_rejects_stale_targets_and_terminates_cycles() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    let text = "use pkg::types::Data;";
+    let root = insert(&mut db, "root", text);
+    let first = analyze(&db);
+    let target = first
+        .source_target_at(root, text.find("pkg::types").unwrap())
+        .unwrap();
+    let ctx = crate::imports::catalog::LookupContext {
+        importer: first.file(root).unwrap().source().module_identity(),
+        observations: None,
+        avoid: None,
+    };
+    assert!(!matches!(
+        first
+            .module_graph()
+            .catalog
+            .namespace_of(&ctx, &target.target, &Default::default())
+            .unwrap(),
+        crate::imports::catalog::NamespaceResult::StaleSource
+    ));
+    db.set(
+        "mem://types",
+        "pub struct Data { val value: bool }".into(),
+        SourceLayer::Overlay,
+    )
+    .unwrap();
+    let second = analyze(&db);
+    assert_eq!(
+        second
+            .module_graph()
+            .catalog
+            .namespace_of(&ctx, &target.target, &Default::default())
+            .unwrap(),
+        crate::imports::catalog::NamespaceResult::StaleSource
+    );
+    let cancel = kagari_common::cancellation::CancellationToken::default();
+    cancel.cancel();
+    assert!(
+        first
+            .module_graph()
+            .catalog
+            .namespace_of(&ctx, &target.target, &cancel)
+            .is_err()
+    );
+    let a = insert(&mut db, "a", "pub use pkg::b::Alias;");
+    insert(&mut db, "b", "pub use pkg::a::Alias;");
+    let cycle = analyze(&db);
+    assert!(cycle.source_target_at(a, "pub use ".len()).is_none());
+    assert!(!cycle.file(a).unwrap().result().diagnostics().is_empty());
+}
+
+#[test]
+fn type_facades_resolve_before_signatures_including_module_aliases() {
+    let mut db = SourceDatabase::default();
+    let types = insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    insert(
+        &mut db,
+        "facade",
+        "pub use pkg::types::Data as Renamed; pub use pkg::types as models;",
+    );
+    let text = "use pkg::facade::Renamed as D; use pkg::facade::models as m; fn pass(x: D) -> m::Data { x }";
+    let root = insert(&mut db, "root", text);
+    let snapshot = analyze(&db);
+    let file = snapshot.file(root).unwrap();
+    assert!(
+        file.result().diagnostics().is_empty(),
+        "{:?}",
+        file.result().diagnostics()
+    );
+    let declaration = snapshot
+        .definition_at(root, text.find("m::Data").unwrap() + "m::".len())
+        .unwrap();
+    assert_eq!(declaration.location.file, types);
+    assert_eq!(declaration.name, "Data");
+    let signature = file
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "pass")
+        .unwrap();
+    assert_eq!(signature.params[0].ty, signature.return_type);
+}
+
+#[test]
+fn transitive_type_visibility_changes_invalidate_signatures_and_old_targets_remain() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    let facade = insert(&mut db, "facade", "pub use pkg::types::Data;");
+    let text = "use pkg::facade::Data; fn pass(x: Data) -> Data { x } fn good() -> i32 { 42 }";
+    let root = insert(&mut db, "root", text);
+    let mut analysis = test_analysis();
+    let first = analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap();
+    let location = text.find("Data)").unwrap();
+    let old = first.definition_at(root, location).unwrap().clone();
+    db.set(
+        "mem://types",
+        "struct Data { val value: i32 }".into(),
+        SourceLayer::Overlay,
+    )
+    .unwrap();
+    let second = analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap();
+    assert_eq!(
+        first.file(facade).unwrap().source().revision(),
+        second.file(facade).unwrap().source().revision()
+    );
+    assert!(!Arc::ptr_eq(
+        first.file(root).unwrap().signatures(),
+        second.file(root).unwrap().signatures()
+    ));
+    assert!(second.definition_at(root, location).is_none());
+    assert_eq!(first.definition_at(root, location), Some(&old));
+    let file = second.file(root).unwrap();
+    assert!(
+        file.result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::UnknownType { .. }))
+    );
+    assert_eq!(
+        file.type_at(text.find("42").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+}
+
+#[test]
+fn body_edit_cannot_reuse_signatures_after_transitive_type_change() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    insert(&mut db, "facade", "pub use pkg::types::Data;");
+    let text = "use pkg::facade::Data; fn pass(x: Data) -> Data { x } fn good() -> i32 { 42 }";
+    let root = insert(&mut db, "root", text);
+    let mut analysis = test_analysis();
+    analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap();
+    db.set("mem://root", text.replace("42", "43"), SourceLayer::Overlay)
+        .unwrap();
+    let edited = analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap();
+    assert!(edited.file(root).unwrap().signatures_reused());
+    db.set(
+        "mem://types",
+        "struct Data { val value: i32 }".into(),
+        SourceLayer::Overlay,
+    )
+    .unwrap();
+    db.set("mem://root", text.replace("42", "44"), SourceLayer::Overlay)
+        .unwrap();
+    let changed = analysis
+        .snapshot(db.snapshot(), &Default::default())
+        .unwrap();
+    let file = changed.file(root).unwrap();
+    assert!(!file.signatures_reused());
+    let fresh = analyze(&db);
+    file.signatures().as_ref().facts().assert_same_source_facts(
+        file.definitions(),
+        fresh.file(root).unwrap().signatures().as_ref().facts(),
+        fresh.file(root).unwrap().definitions(),
+        file.result().facts().lowered.module.body.arena(),
+        fresh
+            .file(root)
+            .unwrap()
+            .result()
+            .facts()
+            .lowered
+            .module
+            .body
+            .arena(),
+    );
+    assert_eq!(
+        file.result().diagnostics(),
+        fresh.file(root).unwrap().result().diagnostics()
+    );
+    assert!(
+        file.signatures()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::UnknownType { .. }))
+    );
+}
+
+#[test]
+fn generic_parameters_shadow_type_imports_and_missing_annotations_keep_other_facts() {
+    let mut db = SourceDatabase::default();
+    insert(&mut db, "types", "pub struct Data { val value: i32 }");
+    let text = "use pkg::types::Data as T; fn keep<T>(x: T) -> T { x } fn number() -> i32 { keep(42) } fn broken(x: Absent, y: T) -> T { y }";
+    let root = insert(&mut db, "root", text);
+    let snapshot = analyze(&db);
+    let file = snapshot.file(root).unwrap();
+    assert_eq!(
+        file.result().diagnostics().len(),
+        1,
+        "{:?}",
+        file.result().diagnostics()
+    );
+    assert_eq!(
+        file.type_at(text.find("keep(42)").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    let broken = file
+        .signatures()
+        .facts()
+        .functions()
+        .iter()
+        .find(|f| f.name == "broken")
+        .unwrap();
+    assert_eq!(broken.params[0].ty, TypeId::Error);
+    assert!(matches!(broken.params[1].ty, TypeId::Struct(_)));
+    assert_eq!(broken.params[1].ty, broken.return_type);
+}

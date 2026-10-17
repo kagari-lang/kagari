@@ -1,0 +1,392 @@
+use crate::{
+    declarations::DeclarationId,
+    native::{NativeBinding, render::declaration_source},
+    tests::{native::function_module, test_analysis},
+    typeck::FunctionImplementation,
+};
+use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_source::source_database::{SourceDatabase, SourceLayer, normalize_source_name};
+use kagari_stdlib::{catalog as foundation_catalog, catalog};
+use kagari_types::{language as standard_traits, language::Protocol, scalar::BuiltinType, ty::Ty};
+use std::collections::HashSet;
+
+#[test]
+fn installed_declaration_inventory_preserves_every_named_source_site() {
+    let sources = SourceDatabase::default();
+    let mut database = test_analysis();
+    let snapshot = database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let installed_modules = catalog::shared().unwrap();
+    let independent = test_analysis()
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    drop(database);
+    assert_eq!(snapshot.files().count(), installed_modules.len());
+    let mut identities = HashSet::new();
+    let mut count = 0;
+    for installed in &installed_modules {
+        let generated =
+            declaration_source(installed, &foundation_catalog::shared().unwrap()).unwrap();
+        let file = snapshot
+            .files()
+            .find(|file| file.source().name() == generated.uri)
+            .unwrap();
+        let module_doc = snapshot
+            .module_documentation(&installed.records().identity)
+            .unwrap();
+        assert_eq!(module_doc.location.file, file.source().id());
+        assert_eq!(
+            module_doc.documentation,
+            installed.records().module_documentation
+        );
+        for (id, site) in &generated.sites {
+            let range = site.name_span;
+            // Impl header spans name a receiver type, not a named declaration.
+            if range.start == range.end
+                || generated
+                    .definitions
+                    .resolve(*id)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.kind == kagari_common::identity::DefinitionKind::Impl)
+            {
+                continue;
+            }
+            // Generated sites belong to the installed provider scope. Resolve the
+            // exact external query separately in each independent snapshot.
+            let query = generated.definitions.resolve(*id).unwrap().to_path();
+            let scoped = file.declarations().definitions().lookup(&query).unwrap();
+            let declaration = snapshot
+                .declaration(&DeclarationId::Definition(scoped))
+                .unwrap_or_else(|| panic!("missing generated declaration: {id:?}"));
+            assert_eq!(file.source().local_range(declaration.location), Some(range));
+            assert_eq!(&generated.text[range.start..range.end], declaration.name);
+            assert!(identities.insert(declaration.id.clone()));
+            let metadata = snapshot.documentation(&declaration.id).unwrap();
+            assert_eq!(metadata.declaration, *declaration);
+            assert_eq!(declaration.location.file, file.source().id());
+            assert_eq!(
+                metadata.documentation,
+                installed
+                    .records()
+                    .documentation
+                    .get(id)
+                    .cloned()
+                    .unwrap_or_default()
+            );
+            assert!(metadata.written_signature.contains(&declaration.name));
+            assert!(independent.documentation(&declaration.id).is_none());
+            let other_file = independent
+                .files()
+                .find(|file| file.source().name() == generated.uri)
+                .unwrap();
+            let other_id = other_file
+                .declarations()
+                .definitions()
+                .lookup(&query)
+                .unwrap();
+            let other = independent
+                .documentation(&DeclarationId::Definition(other_id))
+                .unwrap();
+            assert_ne!(other.declaration.id, declaration.id);
+            assert_eq!(other.declaration.name, declaration.name);
+            assert_eq!(other.declaration.location.range, declaration.location.range);
+            assert_eq!(other.documentation, metadata.documentation);
+            assert_eq!(other.written_signature, metadata.written_signature);
+            assert_eq!(file.source().span(range), Some(declaration.location));
+            count += 1;
+        }
+    }
+    assert!(count > 0);
+    for kind in Protocol::ALL {
+        assert!(
+            identities.contains(&DeclarationId::Definition(
+                snapshot
+                    .files()
+                    .find(|file| *file.source().module_identity()
+                        == standard_traits::identity(kind).module)
+                    .unwrap()
+                    .declarations()
+                    .definitions()
+                    .lookup(&standard_traits::identity(kind))
+                    .unwrap()
+            ))
+        );
+    }
+}
+
+#[test]
+fn associated_type_declarations_keep_owner_identity_and_written_documentation() {
+    let text = r#"
+trait Items {
+    /// Contract item.
+    type Item;
+}
+struct Values {}
+impl Items for Values {
+    /// Implementation item.
+    type Item = i32;
+}
+"#;
+    let mut sources = SourceDatabase::default();
+    let id = sources
+        .set("items.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = test_analysis()
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let file = snapshot.file(id).unwrap();
+    let mut identities = HashSet::new();
+    for (needle, documentation, owner) in [
+        (
+            "Item;",
+            "Contract item.",
+            kagari_common::identity::DefinitionKind::Trait,
+        ),
+        (
+            "Item =",
+            "Implementation item.",
+            kagari_common::identity::DefinitionKind::Impl,
+        ),
+    ] {
+        let declaration = file.member_at(text.find(needle).unwrap()).unwrap();
+        let DeclarationId::Definition(identity) = &declaration.id else {
+            panic!("associated declaration identity")
+        };
+        let path = file
+            .declarations()
+            .definitions()
+            .resolve(*identity)
+            .unwrap()
+            .to_path();
+        assert_eq!(path.path[0].kind, owner);
+        assert_eq!(
+            path.path[1].kind,
+            kagari_common::identity::DefinitionKind::AssociatedType
+        );
+        assert!(identities.insert(*identity));
+        assert_eq!(file.declarations().get(&declaration.id), Some(declaration));
+        let metadata = snapshot.documentation(&declaration.id).unwrap();
+        assert_eq!(metadata.documentation, documentation);
+        assert!(metadata.written_signature.contains(needle));
+    }
+}
+
+#[test]
+fn documentation_uses_declaration_identity_and_survives_edits() {
+    let original = "/// Original 文本.\r\n///\r\n/// ```kgr\r\n/// value()\r\n/// ```\r\nfn value() -> Missing { unresolved }\r\n";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("docs.kgr", original.into(), SourceLayer::Base)
+        .unwrap();
+    let mut database = test_analysis();
+    let first = database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let declaration = first
+        .file(file)
+        .unwrap()
+        .declarations()
+        .iter()
+        .find(|declaration| declaration.name == "value")
+        .unwrap();
+    let id = declaration.id.clone();
+    let old = first.documentation(&id).unwrap();
+    assert_eq!(old.declaration, *declaration);
+    assert_eq!(old.documentation, "Original 文本.\n\n```kgr\nvalue()\n```");
+    assert_eq!(
+        old.written_signature,
+        "fn value() -> Missing { unresolved }"
+    );
+    assert!(first.file(file).unwrap().diagnostics().is_empty());
+    sources
+        .set(
+            "docs.kgr",
+            original.replace("Original 文本.", "Updated docs."),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let second = database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    drop(database);
+    assert_eq!(first.documentation(&id).unwrap(), old);
+    let updated = second.documentation(&id).unwrap();
+    assert!(updated.documentation.starts_with("Updated docs."));
+    assert_ne!(
+        updated.declaration.location.revision,
+        old.declaration.location.revision
+    );
+}
+
+#[test]
+fn same_named_declarations_and_inline_modules_keep_their_own_documentation() {
+    let text = "/// Outer.\nfn same() {}\nmod nested {\n/// Inner.\nfn same() {}\n}\n";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("nested.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = test_analysis()
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    let mut docs = snapshot
+        .files
+        .values()
+        .flat_map(|file| file.declarations().iter())
+        .filter(|declaration| declaration.name == "same")
+        .map(|declaration| snapshot.documentation(&declaration.id).unwrap())
+        .collect::<Vec<_>>();
+    docs.sort_by_key(|doc| doc.declaration.location.range.start);
+    assert_eq!(docs.len(), 2);
+    assert_eq!(docs[0].documentation, "Outer.");
+    assert_eq!(docs[1].documentation, "Inner.");
+    assert_ne!(docs[0].declaration.id, docs[1].declaration.id);
+    assert!(docs.iter().all(|doc| doc.declaration.location.file == file));
+}
+
+#[test]
+fn installed_native_docs_are_owned_by_the_snapshot() {
+    let mut sources = SourceDatabase::default();
+    let user = sources
+        .set(
+            "user.kgr",
+            "/// User Option.\nstruct Option {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let mut database = test_analysis();
+    let snapshot = database
+        .declarations(sources.snapshot(), &Default::default())
+        .unwrap();
+    drop(database);
+    for name in ["Vec", "Option", "Iterator"] {
+        let file = snapshot
+            .files()
+            .find(|file| {
+                file.source().module_identity()
+                    == &if name == "Iterator" {
+                        standard_traits::identity(Protocol::Iterator).module
+                    } else {
+                        kagari_stdlib::namespaces::type_owner(name)
+                    }
+            })
+            .unwrap();
+        let declaration = file
+            .declarations()
+            .iter()
+            .find(|declaration| {
+                declaration.name == name && matches!(declaration.id, DeclarationId::Definition(_))
+            })
+            .unwrap();
+        let docs = snapshot.documentation(&declaration.id).unwrap();
+        assert_eq!(docs.declaration, *declaration);
+        assert!(
+            !docs.documentation.is_empty(),
+            "missing docs for {name}: {docs:?}"
+        );
+        assert!(docs.written_signature.contains(name));
+        assert_eq!(
+            snapshot
+                .source(declaration.location.file)
+                .unwrap()
+                .span(declaration.location.range),
+            Some(docs.declaration.location)
+        );
+    }
+    let declaration = snapshot
+        .file(user)
+        .unwrap()
+        .declarations()
+        .iter()
+        .find(|declaration| declaration.name == "Option")
+        .unwrap();
+    assert_eq!(
+        snapshot
+            .documentation(&declaration.id)
+            .unwrap()
+            .documentation,
+        "User Option."
+    );
+}
+
+#[test]
+fn native_view_locations_are_snapshot_owned_and_do_not_select_binding_identity() {
+    let identity = ModuleIdentity {
+        package: PackageId("demo".into()),
+        path: vec![],
+    };
+    let module = function_module(
+        identity.clone(),
+        "echo",
+        vec![("value", Ty::Builtin(BuiltinType::I32))],
+        Ty::Builtin(BuiltinType::I32),
+    );
+    let mut providers = catalog::shared().unwrap();
+    providers.push(module);
+    let original = providers
+        .iter()
+        .map(|module| declaration_source(module, &providers).unwrap())
+        .collect::<Vec<_>>();
+    let mut sources = SourceDatabase::default();
+    let text = "use demo::echo; fn main() -> i32 { echo(1) }";
+    let root = sources
+        .set("native-location.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let offset = text.rfind("echo(1)").unwrap();
+    let mut database = test_analysis();
+    let uris = [
+        "file:///not-installed/provider.kgr",
+        "kagari://std/math.kgr",
+    ];
+    let mut retained = Vec::new();
+    for uri in uris {
+        let mut views = original.clone();
+        views.last_mut().unwrap().uri = uri.into();
+        database
+            .set_native_sources(providers.clone(), views)
+            .unwrap();
+        let snapshot = database
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let file = snapshot.file(root).unwrap();
+        assert!(
+            file.result().diagnostics().is_empty(),
+            "{:?}",
+            file.result().diagnostics()
+        );
+        snapshot.check_program(root, &Default::default()).unwrap();
+        let target = file.source_function_at(offset).unwrap();
+        let FunctionImplementation::Native(NativeBinding::Entry(binding)) =
+            target.signature.implementation
+        else {
+            panic!("registered native entry")
+        };
+        assert_eq!(binding, target.declaration);
+        assert_eq!(
+            file.definitions().resolve(binding).unwrap().module(),
+            &identity
+        );
+        let docs = snapshot.documentation_at(root, offset).unwrap();
+        assert_eq!(
+            snapshot
+                .source(docs.declaration.location.file)
+                .unwrap()
+                .name(),
+            normalize_source_name(uri).unwrap()
+        );
+        assert!(docs.written_signature.contains("echo"));
+        retained.push((snapshot, docs));
+    }
+    drop(database);
+    for ((snapshot, docs), uri) in retained.iter().zip(uris) {
+        assert_eq!(
+            snapshot
+                .source(docs.declaration.location.file)
+                .unwrap()
+                .name(),
+            normalize_source_name(uri).unwrap()
+        );
+        assert_eq!(snapshot.documentation_at(root, offset), Some(docs.clone()));
+    }
+}

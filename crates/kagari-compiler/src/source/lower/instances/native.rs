@@ -1,0 +1,146 @@
+//! Materialize native method contracts while the checked source catalog is available.
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use kagari_common::{identity::table::DefinitionId, span::Span};
+use kagari_contract::{
+    callable::generic::GenericBody, native_import::NativeImport, types::ConcreteFunctionIdentity,
+};
+use kagari_hir::types::{TypeId, semantic::raise_type};
+use kagari_types::{
+    callable::{CallableImplementation, Signature},
+    ty::{GenericParam, substitution::TypeSubstitution},
+};
+
+impl InstancePlanner<'_> {
+    pub(crate) fn prepare_native_target(
+        &mut self,
+        declaration: &DefinitionId,
+        arguments: &[TypeId],
+        span: Span,
+    ) -> Result<bool, MirLoweringError> {
+        let Some(declared) = self.registered_native_declaration(declaration).cloned() else {
+            return self.prepare_default_target(declaration, arguments, span);
+        };
+        let invalid = || MirLoweringError::MissingBinding("checked native method instance");
+        // All declared parameters must be supplied, either concretely or by a
+        // shared entry's explicitly scoped method binders.
+        if declared.function.generic_params.len() != arguments.len() {
+            return Ok(false);
+        }
+        let mut import = self.native_target_import(declaration, arguments, span)?;
+        let instance = import.instance.clone();
+        let parent = self
+            .definitions()
+            .parent(*declaration)
+            .ok()
+            .flatten()
+            .ok_or_else(invalid)?;
+        if let Some(implementation) = self.catalog.implementation_signature(&parent) {
+            let count = implementation.generic_params.len();
+            if arguments.len() < count {
+                return Err(invalid());
+            }
+            self.record_interface(&parent, &arguments[..count], span)?;
+        }
+        if self
+            .native_targets
+            .iter()
+            .any(|target| target.instance == instance)
+        {
+            return Ok(true);
+        }
+        if !arguments.is_empty() {
+            self.charge_layout_instance(span)?;
+        }
+        import.callables = self.native_callables(&mut import, span)?;
+        if !import.structurally_valid(&self.definitions()) {
+            return Err(invalid());
+        }
+        self.native_targets.push(import);
+        Ok(true)
+    }
+
+    pub(super) fn native_target_import(
+        &self,
+        declaration: &DefinitionId,
+        arguments: &[TypeId],
+        span: Span,
+    ) -> Result<NativeImport, MirLoweringError> {
+        let declared = self.registered_native_declaration(declaration).ok_or(
+            MirLoweringError::MissingBinding("registered native template"),
+        )?;
+        if declared.function.generic_params.len() != arguments.len() {
+            return Err(MirLoweringError::MissingBinding(
+                "native template arguments",
+            ));
+        }
+        let invalid = || MirLoweringError::MissingBinding("checked native template application");
+        let CallableImplementation::Native(binding) = &declared.function.implementation else {
+            return Err(invalid());
+        };
+        let arguments = self.arguments(arguments, &Default::default(), span)?;
+        let instance = ConcreteFunctionIdentity {
+            declaration: *declaration,
+            arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
+        };
+        let parameters: Vec<_> = arguments
+            .iter()
+            .filter_map(|argument| {
+                let TypeId::Generic(parameter) = argument else {
+                    return None;
+                };
+                Some(GenericParam {
+                    owner: parameter.owner,
+                    position: parameter.position,
+                })
+            })
+            .collect();
+        let mut substitution = TypeSubstitution::default();
+        for (param, argument) in declared
+            .function
+            .generic_params
+            .iter()
+            .zip(&instance.arguments)
+        {
+            substitution.bind(&param.owner, param.position, argument);
+        }
+        let normalize = |ty| {
+            let ty = substitution
+                .apply(ty, &self.options.cancel)
+                .map_err(|_| invalid())?;
+            Ok(self.encode_type(
+                &self
+                    .catalog
+                    .normalize_type(&self.definitions(), &raise_type(&ty)),
+            ))
+        };
+        let requirements = substitution
+            .apply_bounds(
+                &declared.function.bounds,
+                &self.definitions(),
+                &self.options.cancel,
+            )
+            .map_err(|_| invalid())?;
+        let import = NativeImport {
+            receiver_access: declared.function.method_policy.receiver_access,
+            result_adapter: None,
+            generic: (!parameters.is_empty()).then(|| GenericBody {
+                parameters,
+                bounds: requirements.clone(),
+            }),
+            signature: Signature {
+                params: declared
+                    .function
+                    .params
+                    .iter()
+                    .map(|param| normalize(&param.ty))
+                    .collect::<Result<_, MirLoweringError>>()?,
+                result: normalize(&declared.function.return_type)?,
+            },
+            requirements,
+            instance,
+            binding: *binding,
+            callables: vec![],
+        };
+        Ok(import)
+    }
+}

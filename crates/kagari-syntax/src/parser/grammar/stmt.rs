@@ -1,12 +1,26 @@
-use kagari_common::{Diagnostic, DiagnosticKind};
-use rowan::Checkpoint;
+//! Block contents and statement-versus-tail classification.
+//!
+//! A block retains statements and an optional direct tail expression. Assignment
+//! and expression statements wrap an already-parsed expression using a checkpoint;
+//! a tail is left unwrapped. Bare blocks/ifs before another statement can omit `;`.
+//! Missing tokens produce diagnostics; explicit error-token consumption ensures
+//! progress through unexpected block contents. See [`crate::ast::stmt`] and
+//! [`crate::ast::expr::BlockExpr`] for the trees consumers inspect.
 
-use crate::{kind::SyntaxKind, token::TokenKind};
-
-use crate::parser::Parser;
+use crate::{
+    kind::SyntaxKind,
+    parser::core::{Checkpoint, Parser},
+    token::TokenKind,
+};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 impl<'a> Parser<'a> {
+    /// Enters a guarded block parse, preserving braces and statement/tail distinctions.
     pub(crate) fn parse_block(&mut self) {
+        self.with_nesting(Self::parse_block_nested);
+    }
+
+    fn parse_block_nested(&mut self) {
         self.start_node(SyntaxKind::BlockExpr);
         if !self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedFunctionBodyStart) {
             self.finish_node();
@@ -20,11 +34,9 @@ impl<'a> Parser<'a> {
                 Some(TokenKind::ReturnKw) => self.parse_return_stmt(),
                 Some(TokenKind::WhileKw) => self.parse_while_stmt(),
                 Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
+                Some(TokenKind::ForKw) => self.parse_for_stmt(),
                 Some(TokenKind::BreakKw) => self.parse_break_stmt(),
                 Some(TokenKind::ContinueKw) => self.parse_continue_stmt(),
-                Some(TokenKind::Ident) if self.expr_followed_by_assignment() => {
-                    self.parse_assign_stmt()
-                }
                 Some(_) if self.expr_starts() => {
                     if self.parse_expr_stmt_or_tail() {
                         break;
@@ -96,20 +108,42 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    pub(crate) fn parse_assign_stmt(&mut self) {
-        self.start_node(SyntaxKind::AssignStmt);
-        self.parse_place_expr();
-        self.expect(TokenKind::Eq, DiagnosticKind::ExpectedAssignmentOperator);
+    /// Wraps the expression since `checkpoint` as an assignment if an assignment token follows.
+    /// Returns false without wrapping when no such operator is present.
+    pub(crate) fn finish_assignment(&mut self, checkpoint: Checkpoint) -> bool {
+        if !self.at_any(&[
+            TokenKind::Eq,
+            TokenKind::PlusEq,
+            TokenKind::MinusEq,
+            TokenKind::StarEq,
+            TokenKind::SlashEq,
+            TokenKind::PercentEq,
+            TokenKind::AmpEq,
+            TokenKind::PipeEq,
+            TokenKind::CaretEq,
+        ]) && !matches!(
+            self.joint_shift(),
+            Some(SyntaxKind::ShlEq | SyntaxKind::ShrEq)
+        ) {
+            return false;
+        }
+        self.start_node_at(checkpoint, SyntaxKind::AssignStmt);
+        if self.joint_shift().is_some() {
+            self.bump_joint_shift();
+        } else {
+            self.bump();
+        }
         self.parse_expr();
         self.bump_trivia();
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
         self.finish_node();
+        true
     }
 
     pub(crate) fn parse_while_stmt(&mut self) {
         self.start_node(SyntaxKind::WhileStmt);
         self.expect(TokenKind::WhileKw, DiagnosticKind::ExpectedWhileKeyword);
-        self.parse_condition_expr();
+        self.parse_condition();
         self.bump_trivia();
         self.parse_block();
         self.finish_node();
@@ -123,10 +157,27 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    fn parse_for_stmt(&mut self) {
+        self.start_node(SyntaxKind::ForStmt);
+        self.expect(TokenKind::ForKw, DiagnosticKind::UnexpectedToken);
+        self.bump_trivia();
+        self.parse_match_pattern();
+        self.bump_trivia();
+        self.expect(TokenKind::InKw, DiagnosticKind::UnexpectedToken);
+        self.parse_condition_expr();
+        self.bump_trivia();
+        self.parse_block();
+        self.finish_node();
+    }
+
     fn parse_break_stmt(&mut self) {
         self.start_node(SyntaxKind::BreakStmt);
         self.expect(TokenKind::BreakKw, DiagnosticKind::ExpectedBreakKeyword);
         self.bump_trivia();
+        if !self.at(TokenKind::Semi) {
+            self.parse_expr();
+            self.bump_trivia();
+        }
         self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
         self.finish_node();
     }
@@ -142,10 +193,16 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Returns true when a direct tail expression ends block-content parsing.
     fn parse_expr_stmt_or_tail(&mut self) -> bool {
         let checkpoint = self.checkpoint();
+        let bare_block_statement = self.at_any(&[TokenKind::LBrace, TokenKind::IfKw]);
         self.parse_expr();
         self.bump_trivia();
+
+        if self.finish_assignment(checkpoint) {
+            return false;
+        }
 
         if self.at(TokenKind::Semi) {
             self.finish_expr_stmt(checkpoint);
@@ -154,6 +211,12 @@ impl<'a> Parser<'a> {
 
         if self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             return true;
+        }
+
+        if bare_block_statement {
+            self.start_node_at(checkpoint, SyntaxKind::ExprStmt);
+            self.finish_node();
+            return false;
         }
 
         self.error_here(DiagnosticKind::ExpectedStatementTerminator);

@@ -1,0 +1,512 @@
+use crate::{module::CallableTarget, program::ModuleRef};
+use kagari_abi::representation::ValueType;
+use kagari_contract::{
+    callable::{interface::InterfaceCallContract, shared::SharedCall},
+    ids::FunctionRef,
+    numeric::{NumericConversion, NumericOperation},
+    operations::IterOp,
+    standard::RuntimePrimitive,
+};
+use kagari_types::{
+    reference::ReferenceAccess,
+    ty::{NominalTy, Ty},
+};
+use serde::{Deserialize, Serialize};
+use std::{
+    hash::{Hash, Hasher},
+    mem,
+};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Register(u16);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct EnumId(u32);
+
+impl EnumId {
+    pub fn new(index: usize) -> Self {
+        Self(u32::try_from(index).expect("enum slot overflow"))
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct InterfaceTableRef(u32);
+
+impl InterfaceTableRef {
+    pub fn new(index: usize) -> Self {
+        Self(u32::try_from(index).expect("interface table slot overflow"))
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+impl Register {
+    pub fn new(index: usize) -> Self {
+        Self(index as u16)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct LocalSlot(u16);
+
+impl LocalSlot {
+    pub fn new(index: usize) -> Self {
+        Self(index as u16)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ModuleSlot(u16);
+
+impl ModuleSlot {
+    pub fn new(index: usize) -> Self {
+        Self(index as u16)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct JumpTarget(u32);
+
+impl JumpTarget {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct StructId(u32);
+
+impl StructId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct FieldRef {
+    pub structure: StructId,
+    pub arguments: Vec<Ty>,
+    pub slot: u32,
+    pub reference: Option<ReferenceAccess>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct PathId(u32);
+
+impl PathId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/// Index of a concrete engine binding resolved when the module is linked.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct NativeImportId(u32);
+
+impl NativeImportId {
+    pub fn new(index: usize) -> Self {
+        Self(index as u32)
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+/// An index into the owning module's portable constant table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ConstantId(u32);
+
+impl ConstantId {
+    pub fn new(index: usize) -> Self {
+        Self(u32::try_from(index).expect("constant table index overflow"))
+    }
+
+    pub fn index(self) -> usize {
+        self.0 as usize
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ConstantOperand {
+    Unit,
+    Bool(bool),
+    I32(i32),
+    I64(i64),
+    U64(u64),
+    F32(f32),
+    F64(f64),
+    Str(String),
+}
+
+// Constant-table identity is representation equality, not script equality:
+// retain NaN payloads and distinguish signed zero during pooling and validation.
+impl PartialEq for ConstantOperand {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Unit, Self::Unit) => true,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            (Self::I32(a), Self::I32(b)) => a == b,
+            (Self::I64(a), Self::I64(b)) => a == b,
+            (Self::U64(a), Self::U64(b)) => a == b,
+            (Self::F32(a), Self::F32(b)) => a.to_bits() == b.to_bits(),
+            (Self::F64(a), Self::F64(b)) => a.to_bits() == b.to_bits(),
+            (Self::Str(a), Self::Str(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ConstantOperand {}
+
+impl Hash for ConstantOperand {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        mem::discriminant(self).hash(state);
+        match self {
+            Self::Unit => {}
+            Self::Bool(value) => value.hash(state),
+            Self::I32(value) => value.hash(state),
+            Self::I64(value) => value.hash(state),
+            Self::U64(value) => value.hash(state),
+            Self::F32(value) => value.to_bits().hash(state),
+            Self::F64(value) => value.to_bits().hash(state),
+            Self::Str(value) => value.hash(state),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CallTarget {
+    Shared {
+        module: ModuleRef,
+        target: CallableTarget,
+        contract: Box<SharedCall>,
+    },
+    ModuleFunction {
+        module: ModuleRef,
+        function: FunctionRef,
+    },
+    Function(FunctionRef),
+    InterfaceMethod {
+        module: ModuleRef,
+        contract: Box<InterfaceCallContract>,
+    },
+    Native(NativeImportId),
+    Register(Register),
+    ClosureRegister {
+        register: Register,
+        params: Vec<ValueType>,
+        return_type: ValueType,
+    },
+    RuntimePrimitive(RuntimePrimitive),
+    RuntimeHelper(RuntimeHelper),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RuntimeHelper {
+    ReflectTypeOf,
+    ReflectGetField(String),
+    ReflectSetField(String),
+    ReflectSetIndex,
+    DynamicCall,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UnaryOp {
+    Neg,
+    Not,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BinaryOp {
+    Numeric(NumericOperation),
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    Eq,
+    NotEq,
+    IdentityEq,
+    IdentityNotEq,
+    Lt,
+    Gt,
+    Le,
+    Ge,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BytecodeInstruction {
+    Await {
+        dst: Register,
+        value: Register,
+        future: Ty,
+    },
+    Convert {
+        dst: Register,
+        src: Register,
+        conversion: NumericConversion,
+    },
+    Numeric {
+        dst: Register,
+        operation: NumericOperation,
+        lhs: Register,
+        rhs: Option<Register>,
+    },
+    Iter {
+        dst: Register,
+        value: Option<Register>,
+        ty: Ty,
+        op: IterOp,
+    },
+    LoadConst {
+        dst: Register,
+        constant: ConstantId,
+    },
+    LoadLocal {
+        dst: Register,
+        local: LocalSlot,
+    },
+    LoadModule {
+        dst: Register,
+        slot: ModuleSlot,
+    },
+    StoreLocal {
+        local: LocalSlot,
+        src: Register,
+    },
+    StoreModule {
+        slot: ModuleSlot,
+        src: Register,
+    },
+    Move {
+        dst: Register,
+        src: Register,
+    },
+    Unary {
+        dst: Register,
+        op: UnaryOp,
+        operand: Register,
+    },
+    Binary {
+        dst: Register,
+        op: BinaryOp,
+        lhs: Register,
+        rhs: Register,
+    },
+    Call {
+        dst: Option<Register>,
+        callee: CallTarget,
+        args: Vec<Register>,
+    },
+    MakeTuple {
+        dst: Register,
+        elements: Vec<Register>,
+    },
+    RangeBound {
+        dst: Register,
+        value: Register,
+        range: Ty,
+        bound: Ty,
+        upper: bool,
+    },
+    MakeRange {
+        dst: Register,
+        start: Option<Register>,
+        end: Option<Register>,
+        ty: Ty,
+    },
+    RepeatArray {
+        element: Ty,
+        dst: Register,
+        value: Register,
+        count: Register,
+    },
+    MakeArray {
+        element: Ty,
+        dst: Register,
+        elements: Vec<Register>,
+    },
+    /// Capture every resume parameter without entering its body.
+    MakeFuture {
+        dst: Register,
+        function: FunctionRef,
+        arguments: Vec<Register>,
+        future: Ty,
+    },
+    MakeClosure {
+        dst: Register,
+        function: FunctionRef,
+        captures: Vec<Register>,
+    },
+    MakeCell {
+        dst: Register,
+        value: Register,
+    },
+    ReadCell {
+        dst: Register,
+        cell: Register,
+    },
+    WriteCell {
+        cell: Register,
+        value: Register,
+    },
+    UpcastInterface {
+        dst: Register,
+        value: Register,
+        source: NominalTy,
+        target: NominalTy,
+    },
+    MakeInterface {
+        dst: Register,
+        value: Register,
+        module: ModuleRef,
+        implementation: InterfaceTableRef,
+        arguments: Vec<Ty>,
+    },
+    MakeStruct {
+        dst: Register,
+        structure: StructId,
+        arguments: Vec<Ty>,
+        fields: Vec<Register>,
+    },
+    MakeEnum {
+        dst: Register,
+        enumeration: EnumId,
+        arguments: Vec<Ty>,
+        variant: u32,
+        fields: Vec<Register>,
+    },
+    TestEnumVariant {
+        dst: Register,
+        value: Register,
+        enumeration: EnumId,
+        arguments: Vec<Ty>,
+        variant: u32,
+    },
+    ReadEnumPayload {
+        dst: Register,
+        value: Register,
+        enumeration: EnumId,
+        arguments: Vec<Ty>,
+        variant: u32,
+        index: u32,
+    },
+    ReadAggregateField {
+        dst: Register,
+        base: Register,
+        field: FieldRef,
+    },
+    WriteAggregateField {
+        base: Register,
+        field: FieldRef,
+        value: Register,
+    },
+    ReadAggregateIndex {
+        dst: Register,
+        base: Register,
+        index: Register,
+    },
+    WriteAggregateIndex {
+        base: Register,
+        index: Register,
+        value: Register,
+    },
+    ReadPath {
+        dst: Register,
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
+    },
+    SetPath {
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
+        value: Register,
+    },
+    ModifyPath {
+        dst: Option<Register>,
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
+        op: BinaryOp,
+        value: Register,
+    },
+    MakePathView {
+        dst: Register,
+        root_or_view: Register,
+        path: PathId,
+        dynamic_args: Vec<Register>,
+    },
+    Jump {
+        target: JumpTarget,
+    },
+    Branch {
+        cond: Register,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+    },
+    Return(Option<Register>),
+    Unreachable,
+}
+
+impl BytecodeInstruction {
+    pub(crate) fn layout_arguments(&self) -> Option<&[Ty]> {
+        match self {
+            Self::MakeStruct { arguments, .. }
+            | Self::MakeEnum { arguments, .. }
+            | Self::TestEnumVariant { arguments, .. }
+            | Self::ReadEnumPayload { arguments, .. } => Some(arguments),
+            Self::ReadAggregateField { field, .. } | Self::WriteAggregateField { field, .. } => {
+                Some(&field.arguments)
+            }
+            _ => None,
+        }
+    }
+
+    pub(crate) fn operand_vector_len(&self) -> usize {
+        match self {
+            Self::Call { args, .. } => args.len(),
+            Self::MakeTuple { elements, .. } | Self::MakeArray { elements, .. } => elements.len(),
+            Self::MakeStruct { fields, .. } | Self::MakeEnum { fields, .. } => fields.len(),
+            Self::ReadPath { dynamic_args, .. }
+            | Self::SetPath { dynamic_args, .. }
+            | Self::ModifyPath { dynamic_args, .. }
+            | Self::MakePathView { dynamic_args, .. } => dynamic_args.len(),
+            _ => 0,
+        }
+    }
+}
+
+mod mapping;
+mod operands;

@@ -1,0 +1,9 @@
+// Guards see pattern bindings and a false guard tries the next arm.
+fn main() -> i32 {
+    var checks = 0;
+    match 42 {
+        x if { checks += 1; x < 0 } => 0,
+        x if { checks += 1; x == 42 } => if checks == 2 { x } else { 0 },
+        _ => 0,
+    }
+}

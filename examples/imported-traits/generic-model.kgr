@@ -1,0 +1,19 @@
+use pkg::api::Echo;
+
+pub struct Holder<T> {
+    val value: T,
+}
+
+impl<T> Echo<i32> for Holder<T> {
+    fn get(self) -> i32 {
+        9
+    }
+}
+
+pub fn make() -> Holder<bool> {
+    Holder { value: true }
+}
+
+pub fn make_number() -> Holder<i32> {
+    Holder { value: 1 }
+}

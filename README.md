@@ -6,7 +6,7 @@ The current goal of the project is to build a language system suitable for embed
 
 ## Project Status
 
-Kagari is still an early language, but the repository now contains an end-to-end implementation slice. The implemented pipeline includes parsing, semantic analysis, IR lowering, bytecode lowering and verification, `.kbc` artifact construction and validation, VM execution, hot-reload validation metadata, host registration boundaries, runtime security profiles, debugger hooks, and an optional baseline Cranelift JIT backend.
+Kagari is still an early language, but the repository now contains an end-to-end implementation slice. The implemented pipeline includes parsing, semantic analysis, IR lowering, bytecode lowering and verification, `.kbc` artifact construction and validation, VM execution, hot-reload validation metadata, host registration boundaries, cooperative cancellation, debugger hooks, and an optional baseline Cranelift JIT backend.
 
 This currently means:
 
@@ -18,17 +18,20 @@ This currently means:
 
 ## Documentation
 
+- [Agent and engineering guidelines](AGENTS.md)
+- [Documentation index](docs/README.md)
 - [Project goal](docs/project_goal.md)
 - [Architecture](docs/architecture.md)
 - [Implementation roadmap](docs/implementation-roadmap.md)
-- [Codex goal guide](docs/codex-goal-guide.md)
+- [Performance measurements](docs/performance-baseline.md)
+- [Runnable language examples](examples/README.md)
 - [Syntax grammar](docs/kagari.ebnf)
 - [Embedding API specification](docs/spec/embedding-api.md)
 - [Module loading specification](docs/spec/module-loading.md)
+- [Native declarations and explicit registration API](docs/spec/standard-declarations.md)
 - [Builtins and standard library specification](docs/spec/builtins.md)
 - [Bytecode artifact specification](docs/spec/artifacts.md)
 - [Debugger specification](docs/spec/debugger.md)
-- [Debugger adapter boundary](docs/debugger-adapter.md)
 - [Baseline JIT specification](docs/spec/jit.md)
 
 ## Design Direction
@@ -59,15 +62,24 @@ The aim is to keep the scripting model ergonomic without giving up the host appl
 
 The repository is organized as a Rust workspace so that major responsibilities are separated:
 
-- `kagari-common`: shared foundational types such as source files, spans, and diagnostics
-- `kagari-syntax`: lexer, parser, and AST
-- `kagari-hir`: HIR lowering, name resolution, builtin types, semantic analysis, and type checking
-- `kagari-ir`: lowering from typed semantics into IR and bytecode-oriented forms
-- `kagari-runtime`: runtime values, GC boundaries, host ABI boundaries, security policy, backend interfaces, and hot-reload metadata
-- `kagari-vm`: bytecode interpreter, debugger hooks, and debugger adapter boundary
-- `kagari-jit-cranelift`: optional baseline Cranelift backend
-- `kagari-embed`: Rust embedding facade for compile, artifact, load, execute, reload, and backend execution flows
-- `kagari-cli`: command-line driver for parsing, checking, artifact emission, source execution, and artifact execution
+The [architecture](docs/architecture.md) describes the fifteen active crates;
+the [roadmap](docs/implementation-roadmap.md) records pending work.
+
+- `kagari-common`: portable identities, numeric semantics, limits and host schemas
+- `kagari-source`: source documents, revisions, diagnostics, literals and navigation provenance
+- `kagari-syntax`: lexer, parser, CST and AST views
+- `kagari-hir`: recoverable semantic analysis, resolution, typing and tool queries
+- `kagari-abi`: physical representations, helper calls and native code ownership
+- `kagari-contract`: semantic declarations, checked calls/layouts and portable verification
+- `kagari-mir`: concrete CFGs, verification, analyses, passes and portable encoding
+- `kagari-compiler`: checked source-to-MIR and MIR-to-bytecode lowering, native links
+- `kagari-bytecode`: interpreter model, validation, codec and `.kbc` envelope
+- `kagari-codegen`: verified MIR compilation interface
+- `kagari-codegen-cranelift`: optional scalar native compiler and code-memory ownership
+- `kagari-runtime`: values, GC, host state, sessions, native calls, security and reload
+- `kagari-vm`: bytecode frame driver, debugger and prepared native selection
+- `kagari`: host SDK with independent `source` and `native` features
+- `kagari-cli`: the `kg` executable, arguments, filesystem IO and presentation
 
 This structure prevents syntax, semantics, runtime logic, and execution backends from becoming tightly coupled as the project grows.
 
@@ -76,53 +88,53 @@ This structure prevents syntax, semantics, runtime logic, and execution backends
 The project currently uses the following naming conventions:
 
 - Source file extension: `.kgr`
-- Package manager name: `kg`
+- Rust SDK package and import: `kagari`
+- CLI executable: `kg` (Cargo package `kagari-cli`)
 - Bytecode artifact extension: `.kbc`
 
 These names are intended to serve as the baseline vocabulary for the future toolchain, module system, and build outputs.
 
 ## CLI
 
-The CLI uses the same embedding pipeline as hosts.
+The `kg` CLI uses the same embedding pipeline as hosts. Build it with
+`cargo build -p kagari-cli --bin kg`, or run it through Cargo:
 
 ```sh
 cargo run -p kagari-cli -- parse path/to/main.kgr
+cargo run -p kagari-cli -- fmt path/to/main.kgr --check
 cargo run -p kagari-cli -- check path/to/main.kgr
+cargo run -p kagari-cli -- lint path/to/main.kgr -D warnings
 cargo run -p kagari-cli -- emit -o path/to/main.kbc path/to/main.kgr
 cargo run -p kagari-cli -- run path/to/main.kgr
 cargo run -p kagari-cli -- run-artifact path/to/main.kbc
 ```
 
+Omit the file to select project members; `--workspace` selects the workspace.
+`fmt` changes layout, `check` enforces language rules, and `lint` adds six optional
+rules. See [source tools](docs/spec/toolchain-tools.md) for configuration, JSON,
+suppressions, source acquisition and writeback guarantees.
+
 An implicit path selects `run-artifact` for `.kbc` files and `run` for other paths.
-Profiles are selected with `--profile restricted`, `--profile dev`, or `--profile tooling`.
+Installed interfaces determine available APIs; execution supports cancellation and a runtime call-depth limit.
 `--jit` requests JIT execution when the binary is built with the `jit` feature; `--no-jit` forces interpreter execution.
 
 ## Standard Library
 
-Kagari's core standard library is a typed intrinsic surface defined in [docs/spec/builtins.md](docs/spec/builtins.md).
-The compiler resolves these modules and methods to stable intrinsic identifiers, bytecode validation checks their signatures, and the VM executes them through runtime helpers.
-Core container storage remains runtime-native and participates in GC tracing, resource accounting, reflection metadata, reload validation, and JIT fallback behavior.
+Language-owned protocols and the default `Vec`, `HashMap` and `HashSet`
+are declared by the compiler. Hash storage uses Rust's standard collections and
+has no insertion-order guarantee; custom keys implement Kagari `Eq` and `Hash`.
+Container storage participates in GC tracing, checked calls and hot reload.
 
-The core standard modules are:
+Libraries and application native functions use the same explicit Rust
+registration API. List and MutableList provide sorting, reversal and filtering
+methods; `std::collections` provides lazy `map`. These are always available. Generated `.kgr`
+views support completion and navigation without becoming executable dependencies.
+Other container implementations and algorithm families remain deferred.
 
-- `std::array`
-- `std::map`
-- `std::set`
-- `std::string`
-- `std::option`
-- `std::result`
-- `std::iter`
-- `std::math`
-- `std::debug`
-
-`Map<K, V>` and `Set<T>` are deterministic insertion-ordered collections backed by `indexmap`.
-Their initial production key/member surface accepts only standard hash-key values: `bool`, integer types, and `String`.
-Floating-point, aggregate, host, and interface keys remain rejected until their equality and hashing semantics are specified.
-
-Host-sensitive capabilities such as file systems, networking, timers, process control, persistence, service registries, and logging sinks are not core standard modules.
-Hosts expose those capabilities explicitly through the host registry and security policy.
-
-See [examples/standard-library.kgr](examples/standard-library.kgr) for a small program using arrays, maps, sets, strings, math, and debug assertions.
+See [native declarations](docs/spec/standard-declarations.md) for registration,
+[language contracts](docs/spec/builtins.md) for foundational behavior, and
+[the library example](examples/standard-library.kgr) for sorting and iteration.
+Host-sensitive capabilities such as I/O remain explicit embedding interfaces.
 
 ## Engineering Priorities
 
@@ -141,12 +153,12 @@ The current codebase includes:
 - A runnable workspace structure
 - Source, span, and structured diagnostic types with stable diagnostic codes
 - Lexer, parser, AST, HIR lowering, name resolution, builtin metadata, and semantic checks
-- Lowering from analyzed modules to typed IR and verified bytecode
+- Bounded lowering from checked source to concrete verified MIR, sealed analyses and bytecode
 - A complete typed core standard library surface for arrays, maps, sets, strings, options, results, iterables, math, and debug helpers
 - `.kbc` artifact metadata, validation, and current Rust serialization helpers
-- Runtime values, host function/type registration, capability checks, resource policy, module epochs, and reload validation
+- Runtime values, host function/type registration, declared access checks, cancellation, module epochs, and reload validation
 - A bytecode VM with debugger hooks, breakpoint resolution, stepping state, watch evaluation, and adapter-boundary request/event types
-- An optional Cranelift backend isolated behind `CodegenBackend`
+- An optional verified-MIR Cranelift compiler behind `CodegenBackend`, with runtime-owned invocation
 - A CLI and embedding facade that share compile, artifact, load, execute, and reload boundaries
 
 ## Expected Areas of Growth

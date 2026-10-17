@@ -1,0 +1,200 @@
+//! Portable identities of language protocols. Complete declarations live in the shared catalog.
+//! Recognition uses nominal identity; an application trait with the same name
+//! never acquires syntax or implicit-value semantics.
+use kagari_common::identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment};
+use kagari_common::identity::{
+    ModuleIdentity, PackageId,
+    table::{DefinitionId, DefinitionTable},
+};
+
+pub mod adapter;
+pub mod binding;
+pub mod role;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Protocol {
+    Iterator,
+    Iterable,
+    PartialEq,
+    Eq,
+    Hash,
+    PartialOrd,
+    Ord,
+    Add,
+    Sub,
+    Mul,
+    Div,
+    Rem,
+    BitAnd,
+    BitOr,
+    BitXor,
+    Shl,
+    Shr,
+    Neg,
+    Not,
+    Index,
+    Fn,
+    Debug,
+    Display,
+    /// Infallible conversion with identity and lossless scalar implementations.
+    From,
+    Try,
+    FromResidual,
+}
+
+pub fn identity(protocol: Protocol) -> DefinitionPath {
+    DefinitionPath {
+        module: protocol.module(),
+        path: vec![DefinitionPathSegment {
+            kind: DefinitionKind::Trait,
+            name: protocol.name().into(),
+            occurrence: 0,
+        }],
+    }
+}
+
+impl Protocol {
+    /// Canonical owning module, independent of the scope that supplies its identity.
+    pub fn module(self) -> ModuleIdentity {
+        ModuleIdentity {
+            package: PackageId("kagari-core".into()),
+            path: vec![
+                match self {
+                    Protocol::Iterator | Protocol::Iterable => "iter",
+                    Protocol::PartialEq | Protocol::Eq | Protocol::PartialOrd | Protocol::Ord => {
+                        "cmp"
+                    }
+                    Protocol::Hash => "hash",
+                    Protocol::Debug | Protocol::Display => "fmt",
+                    Protocol::From => "convert",
+                    _ => "ops",
+                }
+                .into(),
+            ],
+        }
+    }
+
+    /// Looks up an existing exact protocol identity without registering a declaration.
+    /// Presence does not prove a valid installed language role or trait contract.
+    pub fn definition(self, definitions: &DefinitionTable) -> Option<DefinitionId> {
+        let root = definitions.lookup_root(&self.module())?;
+        definitions.lookup_child(root, DefinitionKind::Trait, self.name(), 0)
+    }
+
+    pub const ALL: [Self; 26] = [
+        Self::Iterator,
+        Self::Iterable,
+        Self::PartialEq,
+        Self::Eq,
+        Self::Hash,
+        Self::PartialOrd,
+        Self::Ord,
+        Self::Add,
+        Self::Sub,
+        Self::Mul,
+        Self::Div,
+        Self::Rem,
+        Self::BitAnd,
+        Self::BitOr,
+        Self::BitXor,
+        Self::Shl,
+        Self::Shr,
+        Self::Neg,
+        Self::Not,
+        Self::Index,
+        Self::Fn,
+        Self::Debug,
+        Self::Display,
+        Self::From,
+        Self::Try,
+        Self::FromResidual,
+    ];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Iterator => "Iterator",
+            Self::Iterable => "Iterable",
+            Self::PartialEq => "PartialEq",
+            Self::Eq => "Eq",
+            Self::Hash => "Hash",
+            Self::PartialOrd => "PartialOrd",
+            Self::Ord => "Ord",
+            Self::Add => "Add",
+            Self::Sub => "Sub",
+            Self::Mul => "Mul",
+            Self::Div => "Div",
+            Self::Rem => "Rem",
+            Self::BitAnd => "BitAnd",
+            Self::BitOr => "BitOr",
+            Self::BitXor => "BitXor",
+            Self::Shl => "Shl",
+            Self::Shr => "Shr",
+            Self::Neg => "Neg",
+            Self::Not => "Not",
+            Self::Index => "Index",
+            Self::Fn => "Fn",
+            Self::Debug => "Debug",
+            Self::Display => "Display",
+            Self::From => "From",
+            Self::Try => "Try",
+            Self::FromResidual => "FromResidual",
+        }
+    }
+
+    /// Recognize a protocol only when its exact declaration resolves in this scope.
+    pub fn from_definition(id: &DefinitionId, table: &DefinitionTable) -> Option<Self> {
+        let view = table.resolve(*id).ok()?;
+        if view.segments().count() != 1 {
+            return None;
+        }
+        let part = view.last()?;
+        if part.kind != DefinitionKind::Trait || part.occurrence != 0 {
+            return None;
+        }
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.name() == part.name && view.module() == &kind.module())
+    }
+
+    pub fn iteration(self) -> bool {
+        matches!(self, Self::Iterator | Self::Iterable)
+    }
+
+    pub fn binary_operator(self) -> bool {
+        matches!(
+            self,
+            Self::Add
+                | Self::Sub
+                | Self::Mul
+                | Self::Div
+                | Self::Rem
+                | Self::BitAnd
+                | Self::BitOr
+                | Self::BitXor
+                | Self::Shl
+                | Self::Shr
+        )
+    }
+
+    pub fn operator(self) -> bool {
+        self.binary_operator() || matches!(self, Self::Neg | Self::Not | Self::Index | Self::Fn)
+    }
+
+    pub fn host_implementable(self) -> bool {
+        matches!(self, Self::Debug | Self::Display)
+    }
+
+    pub fn equality_protocol(self) -> bool {
+        matches!(self, Self::PartialEq | Self::Eq | Self::Hash)
+    }
+}
+
+/// Only canonical reserved-role owners can provide language foundation source.
+pub fn is_language_module(module: &ModuleIdentity) -> bool {
+    Protocol::ALL
+        .into_iter()
+        .any(|kind| identity(kind).module == *module)
+}
+
+#[cfg(test)]
+mod identity_tests;

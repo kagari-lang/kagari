@@ -1,0 +1,366 @@
+"""Regression coverage for strict source audits, including common false positives."""
+
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+from tree_sitter import Parser
+
+from structure_check.rust import LANGUAGE, check_sources, effective_loc
+
+
+MANIFEST = b'[package]\nname = "fixture"\nversion = "0.1.0"\n'
+SCRIPT = Path(__file__).resolve().parents[1] / "check_structure.py"
+
+
+def audit(sources, manifests=None):
+    return check_sources({p: s.encode() for p, s in sources.items()}, manifests)["findings"]
+
+
+def rules(text, path="src/worker.rs"):
+    return [f["rule"] for f in audit({path: text})]
+
+
+class SourceRulesTests(unittest.TestCase):
+    def test_explicit_imports_short_qualifiers_and_associated_calls(self):
+        self.assertEqual(rules('''
+use std::{fmt, sync::Arc};
+use crate::error::Error;
+fn f(x: Arc<Error>) -> fmt::Result { Type::method(); Ok(()) }
+'''), [])
+
+    def test_production_globs_include_groups_and_local_variants(self):
+        result = rules('''
+use crate::{a::{Thing, *}, b::Other};
+fn f() { use Color::*; }
+pub use crate::api::*;
+''', "src/lib.rs")
+        self.assertEqual(result, ["wildcard-import"] * 2 + ["reexport-whitelist", "wildcard-import"])
+
+    def test_deep_parent_paths_include_grouped_and_commented_imports(self):
+        for text in ["use super::super::Thing;", "use super::{super::Thing};",
+                     "use super::{super::*};", "use super::{super::Thing as T};",
+                     "use super /* note */ :: super::Thing;",
+                     "fn f() { super::super::run(); }"]:
+            with self.subTest(text=text):
+                self.assertIn("parent-traversal", rules(text))
+        self.assertEqual(rules("use super::Thing; fn f() { super::run(); }"), [])
+
+    def test_long_paths_in_signatures_bodies_and_type_arguments(self):
+        result = rules('''
+fn f(x: std::sync::Arc<crate::error::Error>) {
+    crate::run();
+    some::nested::run();
+    let x = Vec::<crate::error::Error>::new();
+}
+''')
+        self.assertEqual(result, ["qualified-path"] * 5)
+
+    def test_dependency_names_and_leading_absolute_paths(self):
+        manifest = MANIFEST + b'[dependencies]\nrenamed-api = "1"\n'
+        result = audit({"src/lib.rs": "fn f() { renamed_api::run(); ::local::run(); }"},
+                       {"Cargo.toml": manifest})
+        self.assertEqual([f["rule"] for f in result], ["qualified-path"] * 2)
+
+    def test_ufcs_attributes_macros_and_literals(self):
+        self.assertEqual(rules('''
+#[derive(thiserror::Error)]
+struct E;
+
+fn f() {
+    <crate::model::Thing as crate::api::Trait>::call();
+    let text = r###"use super::super::*; std::x::y();"###;
+    println!("use bad::*;");
+}
+macro_rules! make { () => { $crate::private::run(); }; }
+'''), [])
+
+    def test_restricted_visibility_names_ancestors_without_imports(self):
+        for visibility in ["pub(in crate::owner)", "pub(in super::super)"]:
+            with self.subTest(visibility=visibility):
+                self.assertEqual(rules(f"{visibility} struct Record;"), [])
+                # The visibility exclusion must not hide field/signature paths
+                # or waive the enclosing re-export's separate approval rule.
+                self.assertEqual(rules(f"{visibility} struct Record {{ value: crate::owner::Type }}"),
+                                 ["qualified-path"])
+                self.assertEqual(rules(f"{visibility} use crate::owner::Type;"),
+                                 ["reexport-whitelist"])
+
+    def test_reexports_require_whitelist_in_every_file_and_scope(self):
+        text = "pub use crate::a::A; pub(crate) use crate::b::B;"
+        for path in ["src/lib.rs", "src/feature/mod.rs", "src/worker.rs", "tests/api.rs"]:
+            self.assertEqual(rules(text, path), ["reexport-whitelist"] * 2)
+        manifest = MANIFEST + b'[lib]\npath = "entry.rs"\n'
+        result = audit({"entry.rs": text}, {"Cargo.toml": manifest})
+        self.assertEqual([f["rule"] for f in result], ["reexport-whitelist"] * 2)
+        for visibility in ["pub", "pub(crate)", "pub(super)", "pub(in crate::api)"]:
+            with self.subTest(visibility=visibility):
+                source = f"#[cfg(test)] mod tests {{ {visibility} use crate::a::A; }}"
+                self.assertEqual(rules(source, "src/lib.rs"), ["reexport-whitelist"])
+
+    def test_comment_markers_in_literals_and_nested_comments(self):
+        text = '''// Only a comment.
+/// Documentation.
+/* Outer
+   /* Nested */
+*/
+fn f() { // Mixed.
+    let text = r#"
+// String content.
+/* Still string content. */
+"#;
+    let url = "https://example.test";
+    let slash = '/'; /* Trailing comment. */
+}
+'''.replace("\n", "\r\n").encode()
+        self.assertEqual(effective_loc(text, Parser(LANGUAGE).parse(text).root_node), 8)
+        self.assertEqual(audit({"src/worker.rs": text.decode()}), [])
+
+    def test_effective_loc_boundary_includes_tests(self):
+        text = "const _: () = ();\n" * 1200
+        self.assertEqual(rules("// comment\n\n" + text), [])
+        self.assertEqual(rules(text + "const _: () = ();"), ["effective-loc"])
+        result = audit({"tests/large.rs": text + "const _: () = ();"},
+                       {"Cargo.toml": MANIFEST})
+        self.assertEqual([f["rule"] for f in result], ["effective-loc"])
+
+    def test_malformed_syntax_including_missing_unnamed_tokens(self):
+        for text in ["fn broken( {", "fn f() { let x = 1 }", "mod {", "use ;", "pub use;"]:
+            self.assertIn("parse-error", rules(text))
+
+    def test_locations_ignore_multiline_string_fixtures(self):
+        result = audit({"src/worker.rs": 'const S: &str = r#"\nuse bad::*;\n"#;\nuse real::*;\n'})
+        self.assertEqual(len(result), 1)
+        self.assertEqual((result[0]["line"], result[0]["column"]), (4, 1))
+
+
+class FunctionSpacingTests(unittest.TestCase):
+    def test_adjacent_functions_in_each_item_scope(self):
+        for source in [
+            "fn a() {} fn b() {}",
+            "fn a() {}\nfn b() {}",
+            "impl Thing { fn a() {}\nfn b() {} }",
+            "trait Thing { fn a();\nfn b() {} }",
+            'extern "C" { fn a();\nfn b(); }',
+            "fn outer() { fn a() {}\nfn b() {} }",
+            "#[cfg(test)] mod tests { #[test] fn a() {}\n#[test] fn b() {} }",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(rules(source), ["function-spacing"])
+
+    def test_blank_lines_and_intervening_items(self):
+        for newline in ["\n", "\r\n"]:
+            for source in [
+                "fn a() {}\n\nfn b() {}",
+                "impl Thing { fn a() {}\n \t\n/// Description.\n#[inline]\nfn b() {} }",
+                "fn a() {}\nconst VALUE: u8 = 0;\nfn b() {}",
+            ]:
+                with self.subTest(source=source, newline=newline):
+                    self.assertEqual(rules(source.replace("\n", newline)), [])
+
+    def test_comments_and_attributes_belong_to_the_following_function(self):
+        for trivia in [
+            "/// Description.\n#[inline]\n",
+            "// Description.\n",
+            "/** Description.\n\n More documentation. */\n",
+            "#[cfg(any(\n\n test, unix))]\n",
+        ]:
+            with self.subTest(trivia=trivia):
+                source = "fn a() {}\n" + trivia + "fn b() {}"
+                finding, = audit({"src/worker.rs": source})
+                self.assertEqual((finding["rule"], finding["line"]), ("function-spacing", 2))
+
+    def test_trailing_comments_do_not_supply_a_blank_line(self):
+        for comment in ["// Trailing.", "/* Trailing. */", "/* Trailing.\n\n More. */"]:
+            with self.subTest(comment=comment):
+                self.assertEqual(rules(f"fn a() {{}} {comment}\nfn b() {{}}"),
+                                 ["function-spacing"])
+                self.assertEqual(rules(f"fn a() {{}} {comment}\n\nfn b() {{}}"), [])
+
+    def test_literals_and_macro_token_trees_are_not_function_items(self):
+        self.assertEqual(rules('''
+const TEXT: &str = r#"fn a() {}
+fn b() {}"#;
+macro_rules! functions { () => { fn a() {} fn b() {} }; }
+fn real() { println!("fn a() {} fn b() {}"); }
+'''), [])
+
+
+class ItemSpacingTests(unittest.TestCase):
+    def test_type_and_implementation_pairs(self):
+        for source in [
+            "struct Thing {}\nimpl Thing {}",
+            "struct Thing;\nimpl Thing {}",
+            "struct Thing(u8);\nimpl Thing {}",
+            "enum Thing { A }\nimpl Thing {}",
+            "union Thing { value: u8 }\nimpl Thing {}",
+            "trait Thing {}\nimpl Thing for Other {}",
+            "impl Thing {}\nimpl Other {}",
+            "fn f() {}\nstruct Thing;",
+            "struct Thing;\nfn f() {}",
+            "mod nested {}\nfn f() {}",
+            'extern "C" { fn a(); }\nfn f() {}',
+            "struct Thing; impl Thing {}",
+        ]:
+            with self.subTest(source=source):
+                self.assertEqual(rules(source), ["item-spacing"])
+
+    def test_reported_import_layout_and_attached_trivia(self):
+        source = "struct Unit {}\nimpl Unit {}\n#[derive(Clone)]\nenum Item { A }\nimpl Item {}"
+        findings = audit({"src/imports.rs": source})
+        self.assertEqual([(f["rule"], f["line"]) for f in findings],
+                         [("item-spacing", line) for line in [2, 3, 5]])
+        for trivia in ["/// Description.\n", "/** Description.\n\n More. */\n",
+                       "#[cfg(any(\n\n test, unix))]\n"]:
+            with self.subTest(trivia=trivia):
+                finding, = audit({"src/types.rs": "impl Thing {}\n" + trivia + "struct Other;"})
+                self.assertEqual((finding["rule"], finding["line"]), ("item-spacing", 2))
+
+    def test_blank_lines_trailing_comments_and_nested_scopes(self):
+        for newline in ["\n", "\r\n"]:
+            for comment in ["// Trailing.", "/* Trailing. */", "/* Trailing.\n\n More. */"]:
+                for scope in ["mod nested", "#[cfg(test)] mod tests", "fn outer()"]:
+                    with self.subTest(newline=newline, comment=comment, scope=scope):
+                        source = f"{scope} {{\nstruct Thing; {comment}\n#[derive(Clone)]\nstruct Other;\n}}"
+                        self.assertEqual(rules(source.replace("\n", newline)), ["item-spacing"])
+                        spaced = source.replace("\n#[derive", "\n \t\n#[derive")
+                        self.assertEqual(rules(spaced.replace("\n", newline)), [])
+
+    def test_compact_declaration_groups_and_opaque_tokens(self):
+        self.assertEqual(rules('''
+use std::fmt;
+use std::io;
+mod first;
+mod second;
+type First = u8;
+type Second = u16;
+const FIRST: u8 = 0;
+const SECOND: u8 = 1;
+const TEXT: &str = r#"struct Thing;
+impl Thing {}"#;
+macro_rules! types { () => { struct Thing; impl Thing {} }; }
+'''), [])
+
+
+class TestScopeTests(unittest.TestCase):
+    def test_inline_cfg_scopes_do_not_exempt_neighboring_code(self):
+        result = rules('''
+#[cfg(test)] mod tests { use super::*; mod nested { use super::*; } }
+use real::*;
+''')
+        self.assertEqual(result, ["wildcard-import"])
+
+    def test_cfg_boolean_expressions_and_comments(self):
+        for cfg in ['test', 'all(test, feature = "extra")', 'not(not(test))',
+                    'all(feature = "test", /* explanation */ test)']:
+            with self.subTest(cfg=cfg):
+                self.assertEqual(rules(f"#[cfg({cfg})] mod t {{ use super::*; }}"), [])
+        for cfg in ['any(test, feature = "extra")', 'not(test)', 'feature = "test"']:
+            with self.subTest(cfg=cfg):
+                self.assertEqual(rules(f"#[cfg({cfg})] mod t {{ use super::*; }}"),
+                                 ["wildcard-import"])
+
+    def test_inner_cfg_and_cfg_attr(self):
+        self.assertEqual(rules("#![cfg(test)]\nuse super::*;"), [])
+        self.assertEqual(rules("#[cfg_attr(test, allow(unused))] use other::*;"),
+                         ["wildcard-import"])
+
+    def test_out_of_line_test_module_with_arbitrary_name(self):
+        sources = {
+            "src/lib.rs": "#[cfg(test)] mod checks; mod worker;",
+            "src/checks.rs": "use super::*; mod nested;",
+            "src/checks/nested.rs": "use super::*;",
+            "src/worker.rs": "use external::*;",
+        }
+        result = audit(sources, {"Cargo.toml": MANIFEST})
+        self.assertEqual([(f["path"], f["rule"]) for f in result],
+                         [("src/worker.rs", "wildcard-import")])
+
+    def test_path_attribute_and_production_shared_test_source(self):
+        sources = {
+            "src/lib.rs": '#[cfg(test)] #[path = "../support/checks.rs"] mod checks;',
+            "support/checks.rs": "use shared::*;",
+        }
+        self.assertEqual(audit(sources, {"Cargo.toml": MANIFEST}), [])
+        sources["src/lib.rs"] += '\n#[path = "../support/checks.rs"] mod production;'
+        self.assertEqual(len(audit(sources, {"Cargo.toml": MANIFEST})), 1)
+
+    def test_integration_targets_are_tests_but_examples_and_benches_are_not(self):
+        sources = {"tests/check.rs": "use api::*;", "examples/demo.rs": "use api::*;",
+                   "benches/speed.rs": "use api::*;", "custom/check.rs": "use api::*;"}
+        manifest = MANIFEST + b'[[test]]\nname = "custom"\npath = "custom/check.rs"\n'
+        result = audit(sources, {"Cargo.toml": manifest})
+        self.assertEqual([f["path"] for f in result], ["benches/speed.rs", "examples/demo.rs"])
+
+    def test_inline_parent_resolves_out_of_line_test_descendant(self):
+        self.assertEqual(audit({
+            "src/lib.rs": "mod feature { #[cfg(test)] mod checks; }",
+            "src/feature/checks.rs": "use super::*;",
+        }), [])
+
+    def test_custom_crate_root_resolves_modules_from_its_directory(self):
+        manifest = MANIFEST + b'[lib]\npath = "entry.rs"\n'
+        self.assertEqual(audit({
+            "entry.rs": "#[cfg(test)] mod checks;",
+            "checks.rs": "use super::*;",
+        }, {"Cargo.toml": manifest}), [])
+
+    def test_integration_root_and_disabled_auto_targets(self):
+        sources = {"tests/check.rs": "mod support;", "tests/support/mod.rs": "use super::*;"}
+        self.assertEqual(audit(sources, {"Cargo.toml": MANIFEST}), [])
+        manifest = MANIFEST + b'autotests = false\n'
+        self.assertEqual(len(audit(sources, {"Cargo.toml": manifest})), 1)
+
+
+class CommandLineTests(unittest.TestCase):
+    def test_strict_exit_status_json_and_git_file_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--quiet", directory], check=True)
+            (root / ".gitignore").write_text("ignored/\n", encoding="utf-8")
+            (root / "ignored").mkdir()
+            (root / "ignored" / "bad.rs").write_text("use bad::*;", encoding="utf-8")
+            source = root / "worker.rs"
+            source.write_text("fn f() {}", encoding="utf-8")
+
+            def run():
+                return subprocess.run([sys.executable, str(SCRIPT), "--root", directory, "--json"],
+                                      capture_output=True, text=True, encoding="utf-8")
+
+            result = run()
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout),
+                             {"files": 1, "findings": [], "exceptions": []})
+            subprocess.run(["git", "-C", directory, "add", "worker.rs"], check=True)
+            source.write_text("use bad::*;", encoding="utf-8")
+            result = run()
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["findings"][0]["rule"], "wildcard-import")
+            source.unlink()
+            self.assertEqual(json.loads(run().stdout)["files"], 0)
+
+    def test_missing_repository_exits_as_tool_error(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = subprocess.run([sys.executable, str(SCRIPT), "--root", directory],
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, 2)
+
+    def test_utf8_paths_and_invalid_manifests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            subprocess.run(["git", "init", "--quiet", directory], check=True)
+            filename = "\u4e2d\u6587-\U0001f680.rs"
+            (root / filename).write_text("use bad::*;", encoding="utf-8")
+
+            def run():
+                return subprocess.run([sys.executable, str(SCRIPT), "--root", directory, "--json"],
+                                      capture_output=True, text=True, encoding="utf-8")
+
+            result = run()
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertEqual(json.loads(result.stdout)["findings"][0]["path"], filename)
+            (root / "Cargo.toml").write_text("[invalid", encoding="utf-8")
+            self.assertEqual(run().returncode, 2)

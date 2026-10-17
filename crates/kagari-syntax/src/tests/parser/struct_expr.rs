@@ -1,4 +1,47 @@
-use crate::{ast::Expr, tests::common};
+use crate::{ast::expr::Expr, tests::common};
+
+#[test]
+fn explicit_enum_path_preserves_arguments_and_variant_name() {
+    use crate::ast::traits::AstNode;
+    let text = "fn main() { model::Token<Map<i32, [bool]>>::Empty }";
+    let module = common::parse_ok(text);
+    assert_eq!(module.syntax().to_string(), text);
+    let Expr::PathExpr(path) = common::first_function(&module)
+        .body()
+        .unwrap()
+        .tail_expr()
+        .unwrap()
+    else {
+        panic!("enum path");
+    };
+    assert_eq!(path.name_text().as_deref(), Some("model::Token::Empty"));
+    assert_eq!(path.generic_args().unwrap().args().count(), 1);
+}
+
+#[test]
+fn explicit_constructor_arguments_preserve_nested_types_and_comparisons() {
+    use crate::ast::traits::AstNode;
+    let text = "fn main() { model::Marker<Map<i32, [bool]>> { value: 7 } }";
+    let module = common::parse_ok(text);
+    assert_eq!(module.syntax().to_string(), text);
+    let Expr::StructExpr(expr) = common::first_function(&module)
+        .body()
+        .unwrap()
+        .tail_expr()
+        .unwrap()
+    else {
+        panic!("constructor");
+    };
+    assert_eq!(expr.generic_args().unwrap().args().count(), 1);
+    let comparison = common::parse_ok("fn main() { a < b }");
+    assert!(matches!(
+        common::first_function(&comparison)
+            .body()
+            .unwrap()
+            .tail_expr(),
+        Some(Expr::BinaryExpr(_))
+    ));
+}
 
 #[test]
 fn parses_struct_literal_expression() {

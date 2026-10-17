@@ -1,4 +1,4 @@
-use crate::{ast::Expr, tests::common};
+use crate::{ast::expr::Expr, tests::common};
 
 #[test]
 fn parses_match_expression_with_simple_patterns() {

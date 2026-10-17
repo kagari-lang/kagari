@@ -1,5 +1,5 @@
 use crate::{
-    ast::{Expr, Stmt},
+    ast::{expr::Expr, stmt::Stmt},
     tests::common,
 };
 

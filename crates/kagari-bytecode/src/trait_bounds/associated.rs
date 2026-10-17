@@ -1,0 +1,193 @@
+use crate::{module::BytecodeModule, trait_bounds::contract};
+use kagari_common::cancellation::CancellationToken;
+use kagari_contract::types::{InterfaceTable, proofs::ProofCatalog, type_contract};
+use kagari_types::{
+    declaration::TypeDefKind,
+    declaration::{TraitDef, applications::ApplicationValidator},
+    ty::{
+        GenericBound, GenericParam, NominalTy, Ty,
+        substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+    },
+};
+
+/// Discharge family parameter bounds after validating the carried applications.
+fn projection_bounds_valid(
+    ty: &Ty,
+    assumptions: &[GenericBound],
+    catalog: &ProofCatalog<'_>,
+    closure: &[&BytecodeModule],
+    cancel: &CancellationToken,
+) -> Result<bool, TypeTransformError> {
+    ApplicationValidator::new(
+        cancel,
+        |id| contract(id, closure, catalog.definitions()),
+        |id| {
+            closure.iter().find_map(|owner| {
+                type_contract(
+                    &owner.identity,
+                    &owner.public_items,
+                    id,
+                    catalog.definitions(),
+                )
+                .map(|record| (record.kind, record.generic_params.len()))
+                .or_else(|| {
+                    owner
+                        .enumerations
+                        .iter()
+                        .find(|layout| &layout.declaration == id)
+                        .map(|layout| (TypeDefKind::Enum, layout.arguments.len()))
+                })
+                .or_else(|| {
+                    owner
+                        .structures
+                        .iter()
+                        .find(|layout| &layout.declaration == id)
+                        .map(|layout| (TypeDefKind::Struct, layout.arguments.len()))
+                })
+            })
+        },
+    )
+    .validate_type(ty)?;
+    let mut pending = vec![ty];
+    let mut remaining = 8192usize;
+    while let Some(ty) = pending.pop() {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        if remaining == 0 {
+            return Err(TypeTransformError::LimitExceeded);
+        }
+        remaining -= 1;
+        match ty {
+            Ty::Projection {
+                receiver,
+                interface,
+                member,
+                arguments,
+            } => {
+                let Some(record) = contract(&interface.declaration, closure, catalog.definitions())
+                else {
+                    return Ok(false);
+                };
+                let Some(definition) = record
+                    .associated_types
+                    .iter()
+                    .find(|definition| &definition.declaration == member)
+                else {
+                    return Ok(false);
+                };
+                let mut substitution = TypeSubstitution::default();
+                for (parameter, actual) in record
+                    .generic_params
+                    .iter()
+                    .zip(&interface.arguments)
+                    .chain(definition.generic_params.iter().zip(arguments))
+                {
+                    substitution.bind(&parameter.owner, parameter.position, actual);
+                }
+                substitution.bind_receiver(&interface.declaration, receiver);
+                for bound in substitution.apply_bounds(
+                    &definition.parameter_bounds,
+                    catalog.definitions(),
+                    cancel,
+                )? {
+                    let actual = catalog.normalize(&bound.ty, cancel)?;
+                    if !catalog.constraints_hold(
+                        &actual,
+                        &bound.constraints,
+                        assumptions,
+                        cancel,
+                    )? {
+                        return Ok(false);
+                    }
+                }
+                pending.push(receiver);
+                pending.extend(&interface.arguments);
+                pending.extend(interface.associated_types.values());
+                pending.extend(arguments);
+            }
+            Ty::NativeObject(n) | Ty::Struct(n) | Ty::Enum(n) | Ty::Trait(n) => {
+                pending.extend(&n.arguments);
+                pending.extend(n.associated_types.values());
+            }
+            Ty::Tuple(items) => pending.extend(items),
+            Ty::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
+            Ty::Array(item) | Ty::Set(item, _) | Ty::Iter(item) | Ty::Range(item, _) => {
+                pending.push(item)
+            }
+            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            _ => {}
+        }
+    }
+    Ok(true)
+}
+
+pub(super) fn associated_bounds_match(
+    table: &InterfaceTable,
+    interface: &NominalTy,
+    record: &TraitDef,
+    catalog: &ProofCatalog<'_>,
+    closure: &[&BytecodeModule],
+    cancel: &CancellationToken,
+) -> Result<bool, TypeTransformError> {
+    for member in &record.associated_types {
+        let mut substitution = TypeSubstitution::default();
+        for (parameter, actual) in record.generic_params.iter().zip(&interface.arguments) {
+            substitution.bind(&parameter.owner, parameter.position, actual);
+        }
+        let mut available = table.bounds.clone();
+        let family_inputs;
+        let actual = if member.generic_params.is_empty() {
+            let Some(actual) = interface.associated_types.get(&member.declaration) else {
+                return Ok(false);
+            };
+            actual.clone()
+        } else {
+            let Some(family) = table
+                .associated_type_families
+                .iter()
+                .find(|family| family.declaration == member.declaration)
+            else {
+                return Ok(false);
+            };
+            family_inputs = family
+                .generic_params
+                .iter()
+                .map(GenericParam::as_type)
+                .collect::<Vec<_>>();
+            for (parameter, actual) in member.generic_params.iter().zip(&family_inputs) {
+                substitution.bind(&parameter.owner, parameter.position, actual);
+            }
+            available.extend(family.bounds.clone());
+            available.extend(substitution.apply_bounds(
+                &member.parameter_bounds,
+                catalog.definitions(),
+                cancel,
+            )?);
+            available = catalog.expand_bounds(&available, cancel)?;
+            if !projection_bounds_valid(&family.value, &available, catalog, closure, cancel)? {
+                return Ok(false);
+            }
+            catalog.normalize(&family.value, cancel)?
+        };
+        substitution.bind_receiver(&interface.declaration, &table.for_type);
+        let constraints = member
+            .bounds
+            .iter()
+            .map(|required| {
+                let ty = substitution.apply(&Ty::Trait(required.clone()), cancel)?;
+                let Ty::Trait(required) =
+                    resolve_associated_outputs(&ty, interface, &table.for_type, cancel)?
+                else {
+                    return Err(TypeTransformError::InvalidContract);
+                };
+                Ok(required)
+            })
+            .collect::<Result<Vec<_>, TypeTransformError>>()?;
+        if !catalog.constraints_hold(&actual, &constraints, &available, cancel)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}

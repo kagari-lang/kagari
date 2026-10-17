@@ -1,0 +1,21 @@
+mod abi_contracts;
+mod analysis;
+mod async_mir;
+mod bytecode;
+mod codec;
+pub(crate) mod common;
+mod interface_signatures;
+mod lower;
+mod never;
+mod numeric;
+mod origins;
+mod passes;
+mod program_points;
+mod verify;
+mod visibility;
+
+mod language_foundation;
+
+mod package_exports;
+
+mod source_programs;

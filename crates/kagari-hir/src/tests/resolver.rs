@@ -1,10 +1,43 @@
-use kagari_common::DiagnosticKind;
+use kagari_common::identity::map::DefinitionContext;
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
+use kagari_stdlib::catalog as foundation_catalog;
+use kagari_types::declaration::names::NameNamespace;
 
 use crate::{
-    hir::{ExprKind, PatternKind, StmtKind},
-    resolver::{ResolvedName, resolve_names},
+    analyze_source,
+    hir::{expr::ExprKind, pattern::PatternKind, stmt::StmtKind},
+    resolver::{collect::resolve_names, resolved::ResolvedName, table::NameResolution},
     tests::common,
+    typeck::table::CallTarget,
 };
+
+#[test]
+fn standard_item_spellings_require_installed_declarations() {
+    let context = DefinitionContext::new().unwrap();
+    for name in [
+        "core",
+        "std::collections",
+        "Eq",
+        "Some",
+        "None",
+        "Option::Some",
+        "Vec::new",
+        "demo::native::choose",
+    ] {
+        let lowered = common::lower_ok(&format!("fn main() {{ {name}; }}"));
+        let resolved = resolve_names(&lowered).unwrap();
+        let function = &lowered.module.functions[0];
+        let statement = lowered.module.block(function.body.unwrap()).statements[0];
+        let StmtKind::Expr(expression) = lowered.module.stmt(statement).kind else {
+            panic!("name expression statement");
+        };
+        assert_eq!(resolved.facts().expr_resolution(expression), None, "{name}");
+        let checked = common::check_module(&context, &lowered, resolved.facts(), None);
+        assert!(checked.diagnostics().iter().any(|diagnostic| {
+            matches!(&diagnostic.kind, DiagnosticKind::UnknownName { name: missing } if missing == name)
+        }), "{name}: {:?}", checked.diagnostics());
+    }
+}
 
 #[test]
 fn reports_duplicate_function_names() {
@@ -15,28 +48,34 @@ fn foo() {}
 "#,
     );
 
-    let diagnostics = resolve_names(&lowered).expect_err("resolver should reject duplicates");
+    let diagnostics = resolve_names(&lowered)
+        .unwrap()
+        .into_checked()
+        .expect_err("resolver should reject duplicates");
 
     assert_eq!(diagnostics.len(), 1);
     assert_eq!(
         diagnostics[0].kind,
-        DiagnosticKind::DuplicateFunction {
+        DiagnosticKind::DuplicateDeclaration {
             name: "foo".to_string(),
         }
     );
     assert_eq!(
         diagnostics[0].to_string(),
-        "Error: duplicate function `foo` at 13..24"
+        "Error: ambiguous declaration `foo` at 13..24"
     );
 }
 
 #[test]
 fn resolves_params_and_locals_in_function_body() {
     let lowered = common::lower_ok("fn main(value: i32) -> i32 { val next: i32 = value; next }");
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .unwrap()
+        .into_checked()
+        .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
 
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let let_stmt = lowered.module.stmt(block.statements[0]);
     let (let_local, init_expr) = match &let_stmt.kind {
         StmtKind::Binding {
@@ -60,9 +99,12 @@ fn resolves_params_and_locals_in_function_body() {
 #[test]
 fn resolves_named_match_pattern_bindings_inside_arm() {
     let lowered = common::lower_ok("fn main(value: i32) -> i32 { match value { bound => bound } }");
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .unwrap()
+        .into_checked()
+        .expect("resolver should succeed");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     let (pattern_local, arm_expr) = match &lowered.module.expr(tail_expr).kind {
@@ -92,14 +134,17 @@ const VERSION: i32 = 1;
 fn main() -> i32 { VERSION }
 "#,
     );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let resolved = resolve_names(&lowered)
+        .unwrap()
+        .into_checked()
+        .expect("resolver should succeed");
     let function = lowered
         .module
         .functions
         .iter()
         .find(|function| function.name == "main")
         .expect("expected main function");
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let tail_expr = block.tail_expr.expect("tail expr");
 
     assert_eq!(
@@ -131,64 +176,65 @@ impl Display for Player {
 fn main() -> i32 { 1 }
 "#,
     );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
+    let result = resolve_names(&lowered).unwrap();
+    assert!(
+        result
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::UnknownName { .. }))
+    );
+    let resolved = result.facts();
 
-    assert!(resolved.items.contains_module("gameplay"));
-    assert!(resolved.items.contains_trait("Display"));
-    assert!(resolved.items.contains_struct("Player"));
-    assert!(resolved.items.contains_function("main"));
+    assert_eq!(
+        resolved.items.lookup("gameplay", NameNamespace::Type),
+        Some(NameResolution::Unresolved),
+        "a missing module keeps its blocking name without inventing a namespace",
+    );
+    assert!(
+        resolved
+            .items
+            .lookup("Display", NameNamespace::Type)
+            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Trait(_))))
+    );
+    assert!(
+        resolved
+            .items
+            .lookup("Player", NameNamespace::Type)
+            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Struct(_))))
+    );
+    assert!(
+        resolved
+            .items
+            .lookup("main", NameNamespace::Value)
+            .is_some_and(|r| matches!(r.target(), Some(ResolvedName::Function(_))))
+    );
     assert_eq!(resolved.items.impl_count(), 1);
 }
 
 #[test]
-fn keeps_top_level_initialization_bindings_out_of_item_namespace() {
-    let lowered = common::lower_ok(
-        r#"
-val boot = 1;
-boot
-"#,
+fn same_named_user_functions_are_not_reflection_helpers() {
+    let module = SourceFile::new(
+        "profile.kgr",
+        "fn type_of(value: i32) -> i32 { value + 1 } fn main() -> i32 { type_of(41) }",
     );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
-    let module_init = lowered
+    let checked = analyze_source(&module, foundation_catalog::shared().unwrap())
+        .expect("installed declaration analysis")
+        .into_codegen()
+        .expect("resolved user function does not need reflection permission");
+    let main = &checked.lowered.module.functions[1];
+    let call = checked
+        .lowered
         .module
-        .module_init
-        .expect("expected module init function");
-    let init_function = lowered
-        .module
-        .functions
-        .iter()
-        .find(|function| function.id == module_init)
-        .expect("expected module init function");
-    let block = lowered.module.block(init_function.body);
-    let binding_stmt = lowered.module.stmt(block.statements[0]);
-    let binding_local = match &binding_stmt.kind {
-        StmtKind::Binding { local, .. } => *local,
-        other => panic!("unexpected stmt kind: {other:?}"),
-    };
-    let tail_expr = block.tail_expr.expect("expected module init tail expr");
-
+        .block(main.body.unwrap())
+        .tail_expr
+        .unwrap();
     assert_eq!(
-        resolved.expr_resolution(tail_expr),
-        Some(ResolvedName::Local(binding_local))
+        checked
+            .typed
+            .type_table
+            .call_resolution(call)
+            .unwrap()
+            .target,
+        CallTarget::Function(checked.lowered.module.functions[0].id)
     );
-    assert!(!resolved.items.contains_const("boot"));
-    assert!(!resolved.items.contains_function("boot"));
-
-    let lowered = common::lower_ok(
-        r#"
-val boot = 1;
-fn main() -> i32 { boot }
-"#,
-    );
-    let resolved = resolve_names(&lowered).expect("resolver should succeed");
-    let function = lowered
-        .module
-        .functions
-        .iter()
-        .find(|function| function.name == "main")
-        .expect("expected main function");
-    let block = lowered.module.block(function.body);
-    let tail_expr = block.tail_expr.expect("expected tail expr");
-
-    assert_eq!(resolved.expr_resolution(tail_expr), None);
 }

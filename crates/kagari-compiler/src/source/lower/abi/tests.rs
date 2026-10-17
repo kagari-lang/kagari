@@ -1,0 +1,374 @@
+use super::{collect_module_abi, const_abi_value};
+use crate::source::lower::support::lower_scalar;
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
+use kagari_contract::{
+    types as abi,
+    types::{PublicItem, inherent::native_signatures_match, verify},
+};
+use kagari_hir::{
+    aggregates::traits::MethodDefault, analysis::AnalysisDatabase,
+    native::NativeBinding as HirNativeBinding, typeck::scalar::ScalarValue,
+};
+use kagari_mir::instruction::Constant;
+use kagari_source::source_database::{SourceDatabase, SourceLayer};
+use kagari_stdlib::catalog as foundation_catalog;
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{
+        TypeDefKind,
+        native::{NativeStorageLayout, NativeTypeConstructor},
+        verify::validate_native_declarations,
+    },
+    language::Protocol,
+    scalar::IntegerType,
+    ty::{NominalTy, Ty, inheritance::trait_closure},
+};
+use std::{collections::BTreeMap, slice};
+
+#[test]
+fn unified_integers_preserve_constant_encoding_and_physical_lowering() {
+    let definitions = DefinitionContext::new().unwrap().snapshot();
+    for (ty, value, encoded, constant) in [
+        (
+            IntegerType::I8,
+            -128,
+            "const-v2:i8:-128",
+            Constant::I32(-128),
+        ),
+        (
+            IntegerType::I16,
+            -32768,
+            "const-v2:i16:-32768",
+            Constant::I32(-32768),
+        ),
+        (IntegerType::I32, 42, "const-v1:i32:42", Constant::I32(42)),
+        (
+            IntegerType::I64,
+            i128::from(i64::MIN),
+            "const-v2:i64:-9223372036854775808",
+            Constant::I64(i64::MIN),
+        ),
+        (
+            IntegerType::ISize,
+            i128::from(i64::MAX),
+            "const-v2:isize:9223372036854775807",
+            Constant::I64(i64::MAX),
+        ),
+        (IntegerType::U8, 255, "const-v2:u8:255", Constant::I64(255)),
+        (
+            IntegerType::U16,
+            65535,
+            "const-v2:u16:65535",
+            Constant::I64(65535),
+        ),
+        (
+            IntegerType::U32,
+            i128::from(u32::MAX),
+            "const-v2:u32:4294967295",
+            Constant::I64(i64::from(u32::MAX)),
+        ),
+        (
+            IntegerType::U64,
+            i128::from(u64::MAX),
+            "const-v2:u64:18446744073709551615",
+            Constant::U64(u64::MAX),
+        ),
+        (
+            IntegerType::USize,
+            i128::from(u64::MAX),
+            "const-v2:usize:18446744073709551615",
+            Constant::U64(u64::MAX),
+        ),
+    ] {
+        let scalar = ScalarValue::integer(value, ty).unwrap();
+        assert_eq!(const_abi_value(&scalar, &definitions), encoded);
+        assert_eq!(lower_scalar(scalar), constant);
+    }
+}
+
+#[test]
+fn installed_native_declarations_keep_public_representation_and_payload_contracts() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .set("native-abi.kgr", "fn main() {}".into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analysis_database()
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let mut count = 0;
+    let mut seen_map = false;
+    let mut seen_vec = false;
+    let mut seen_result = false;
+    let mut seen_spawn_error = false;
+    for declared in snapshot.declaration_snapshot().files() {
+        if !matches!(
+            declared.source().module_identity().package.0.as_str(),
+            "kagari-core" | "kagari-alloc" | "std"
+        ) {
+            continue;
+        }
+        let analyzed = snapshot.file(declared.source().id()).unwrap();
+        assert!(
+            analyzed.result().diagnostics().is_empty(),
+            "{}: {:?}",
+            declared.source().name(),
+            analyzed.result().diagnostics()
+        );
+        let abi = collect_module_abi(
+            analyzed
+                .to_unverified(&Default::default())
+                .unwrap()
+                .records()
+                .facts(),
+        );
+        let native: Vec<_> = abi.public_items.into_iter().filter(|item| {
+            matches!(item, PublicItem::Type(ty) if matches!(ty.kind, TypeDefKind::Native(_) | TypeDefKind::Enum | TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { .. })))
+        }).collect();
+        verify::validate(
+            &native,
+            declared.source().module_identity(),
+            &Default::default(),
+            analyzed.definitions(),
+        )
+        .unwrap();
+        for item in &native {
+            let PublicItem::Type(ty) = item else {
+                unreachable!()
+            };
+            assert!(ty.fields.is_empty());
+            match ty.kind {
+                TypeDefKind::NativeStorage(NativeStorageLayout::Sequence { element }) => {
+                    assert_eq!(ty.name, "Vec");
+                    assert_eq!(ty.generic_params.len(), 1);
+                    assert_eq!(element, 0);
+                    seen_vec = true;
+                }
+                TypeDefKind::Native(NativeTypeConstructor::Map) => {
+                    assert_eq!(ty.name, "HashMap");
+                    assert_eq!(ty.generic_params.len(), 2);
+                    seen_map = true;
+                }
+                TypeDefKind::Enum if ty.name == "Result" => {
+                    assert_eq!(ty.name, "Result");
+                    assert_eq!(
+                        ty.variants
+                            .iter()
+                            .map(|variant| variant.name.as_str())
+                            .collect::<Vec<_>>(),
+                        ["Ok", "Err"]
+                    );
+                    assert_eq!(ty.variants[0].payload, [ty.generic_params[0].as_type()]);
+                    assert_eq!(ty.variants[1].payload, [ty.generic_params[1].as_type()]);
+                    seen_result = true;
+                }
+                TypeDefKind::Enum if ty.name == "SpawnError" => {
+                    assert!(ty.generic_params.is_empty());
+                    assert_eq!(
+                        ty.variants
+                            .iter()
+                            .map(|variant| variant.name.as_str())
+                            .collect::<Vec<_>>(),
+                        ["ScopeClosed", "CapacityExceeded", "DispatchUnavailable"]
+                    );
+                    assert!(ty.variants.iter().all(|variant| variant.payload.is_empty()));
+                    seen_spawn_error = true;
+                }
+                _ => {}
+            }
+            count += 1;
+        }
+    }
+    assert_eq!(count, 20);
+    assert!(seen_vec && seen_map && seen_result && seen_spawn_error);
+}
+
+#[test]
+fn installed_trait_contracts_and_defaults_lower_from_checked_source() {
+    let mut sources = SourceDatabase::default();
+    let root = sources
+        .set("trait-abi.kgr", "fn main() {}".into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analysis_database()
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let root = snapshot
+        .file(root)
+        .unwrap()
+        .to_unverified(&Default::default())
+        .unwrap();
+    let mut contracts = BTreeMap::new();
+    for declared in snapshot.declaration_snapshot().files() {
+        if declared.source().module_identity().package.0 != "kagari-core" {
+            continue;
+        }
+        let analyzed = snapshot.file(declared.source().id()).unwrap();
+        assert!(
+            analyzed.result().diagnostics().is_empty(),
+            "{}: {:?}",
+            declared.source().name(),
+            analyzed.result().diagnostics()
+        );
+        let module = collect_module_abi(
+            analyzed
+                .to_unverified(&Default::default())
+                .unwrap()
+                .records()
+                .facts(),
+        );
+        for kind in Protocol::ALL {
+            let id = kind.definition(analyzed.definitions()).unwrap();
+            let definitions = analyzed.definitions();
+            let owner = definitions.resolve(id).unwrap().module();
+            if owner != declared.source().module_identity() {
+                continue;
+            }
+            let record = abi::trait_contract(
+                owner,
+                &module.public_items,
+                &module.trait_contracts,
+                &id,
+                definitions,
+            )
+            .expect("lowered source trait");
+            let source = root.records().facts().aggregates.trait_(&id).unwrap();
+            assert_eq!(record.generic_params.len(), source.generic_params.len());
+            assert_eq!(record.methods.len(), source.methods.len());
+            for (slot, method) in source.methods.iter().enumerate() {
+                assert_eq!(record.methods[slot].name, method.name);
+                let expected = match &method.default {
+                    None => CallableImplementation::Required,
+                    Some(MethodDefault::Script) => CallableImplementation::Script,
+                    Some(MethodDefault::Native(HirNativeBinding::Entry(binding))) => {
+                        CallableImplementation::Native(*binding)
+                    }
+                    Some(MethodDefault::Native(HirNativeBinding::Default(application))) => {
+                        CallableImplementation::NativeDefault(application.clone())
+                    }
+                };
+                assert_eq!(record.methods[slot].implementation, expected);
+                assert_eq!(record.methods[slot].method_policy, method.policy);
+            }
+            assert!(contracts.insert(id, record.clone()).is_none());
+        }
+    }
+    assert_eq!(contracts.len(), Protocol::ALL.len());
+    for (id, record) in &contracts {
+        let interface = NominalTy {
+            declaration: *id,
+            arguments: record
+                .generic_params
+                .iter()
+                .map(|parameter| parameter.as_type())
+                .collect(),
+            associated_types: BTreeMap::new(),
+        };
+        assert!(
+            trait_closure(&interface, &Ty::SelfType(*id), &Default::default(), &|id| {
+                contracts.get(id)
+            })
+            .is_ok(),
+            "{}",
+            record.name
+        );
+    }
+    let add = Protocol::Add.definition(root.definitions()).unwrap();
+    let method = &contracts[&add].methods[0];
+    assert_eq!(method.params[0].ty, Ty::SelfType(add));
+    let Ty::Projection {
+        receiver,
+        interface,
+        member,
+        arguments,
+    } = &method.return_type
+    else {
+        panic!("source-owned operator output projection");
+    };
+    assert_eq!(**receiver, Ty::SelfType(add));
+    assert_eq!(interface.declaration, add);
+    assert_eq!(
+        *member,
+        root.definitions()
+            .lookup_child(add, DefinitionKind::AssociatedType, "Output", 0)
+            .unwrap()
+    );
+    assert!(arguments.is_empty());
+}
+
+#[test]
+fn every_installed_callable_and_public_contract_passes_portable_validation() {
+    let mut sources = SourceDatabase::default();
+    sources
+        .set(
+            "native-contracts.kgr",
+            "fn main() {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let snapshot = analysis_database()
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    for declared in snapshot.declaration_snapshot().files() {
+        let analyzed = snapshot.file(declared.source().id()).unwrap();
+        let abi = collect_module_abi(
+            analyzed
+                .to_unverified(&Default::default())
+                .unwrap()
+                .records()
+                .facts(),
+        );
+        let identity = declared.source().module_identity();
+        for declaration in &abi.native_declarations {
+            assert!(
+                validate_native_declarations(
+                    slice::from_ref(declaration),
+                    identity,
+                    analyzed.definitions(),
+                    &Default::default()
+                )
+                .is_ok(),
+                "invalid native declaration {declaration:#?}"
+            );
+        }
+        for item in &abi.public_items {
+            // Inherent receiver ownership requires the native constructor's
+            // declaration from this same module.
+            let mut context = vec![item.clone()];
+            if matches!(item, PublicItem::InherentTable(_)) {
+                context.extend(
+                    abi.public_items
+                        .iter()
+                        .filter(|item| matches!(item, PublicItem::Type(_)))
+                        .cloned(),
+                );
+            }
+            assert!(
+                verify::validate(
+                    &context,
+                    identity,
+                    &Default::default(),
+                    analyzed.definitions()
+                )
+                .is_ok(),
+                "invalid public declaration {identity}: {item:#?}"
+            );
+        }
+        verify::validate(
+            &abi.public_items,
+            identity,
+            &Default::default(),
+            analyzed.definitions(),
+        )
+        .unwrap();
+        assert!(native_signatures_match(
+            &abi.public_items,
+            &abi.native_declarations,
+            analyzed.definitions()
+        ));
+    }
+}
+
+fn analysis_database() -> AnalysisDatabase {
+    let mut database = AnalysisDatabase::default();
+    database.set_native_modules(foundation_catalog::shared().unwrap());
+    database
+}

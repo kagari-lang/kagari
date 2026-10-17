@@ -1,0 +1,14 @@
+// This example intentionally returns Err: the CLI prints its origin and exits 1.
+fn read_settings() -> Result<i32, String> {
+    Err("settings are missing")
+}
+
+fn load_settings() -> Result<i32, String> {
+    val value = read_settings()?;
+    Ok(value)
+}
+
+fn main() -> Result<i32, String> {
+    // A mapped message retains the read_settings origin and original callers.
+    load_settings().map_err(|message| "configuration: ".concat(message))
+}

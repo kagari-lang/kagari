@@ -9,6 +9,12 @@ The syntax follows these design constraints:
 - No direct reproduction of Rust's lifetime or borrow system
 - a compact grammar that can be extended without changing established source forms
 
+Rust is the default reference for punctuation and grouping where Kagari has the
+same source construct. Deliberate differences include `val`/`var` bindings,
+fixed-length `[T]` arrays whose runtime length is not part of the type, and the absence of Rust borrow
+and lifetime syntax. Rust spelling alone does not add an unsupported Kagari type
+or runtime behavior.
+
 Rules outside the stated scope are defined by the companion specifications for the relevant language subsystem.
 
 ## Scope
@@ -25,7 +31,7 @@ This document does not define:
 - full pattern matching semantics
 - trait system and trait impls
 - macro systems
-- async or coroutine syntax
+- async scheduling and coroutine runtime behavior
 - full generic constraints
 - module resolution semantics
 - the final const evaluation rules
@@ -37,6 +43,14 @@ Host interop rules are defined separately in [host-interop.md](host-interop.md).
 Runtime model rules are defined separately in [runtime.md](runtime.md).
 Execution model rules are defined separately in [execution.md](execution.md).
 Module execution rules are defined separately in [modules.md](modules.md).
+
+The executable subset currently includes field shorthand, remainder, inherent
+method calls, tuple/struct/enum destructuring, `for` over built-in iterable
+collections and strings, and `loop` expressions with `break` values.
+Structural modification through aliases invalidates existing collection cursors;
+the next source read traps. Closures use lexical capture; `var` captures share a GC-managed
+cell, and `val` captures copy the value under the ordinary value model.
+Function types use `fn(T, ...) -> R`.
 
 ## Grammar Notation
 
@@ -77,17 +91,22 @@ The comment token forms are defined in the comments section below.
 ### Identifiers
 
 ```ebnf
-IDENT ::= XID_START XID_CONTINUE* ;
+IDENT ::= IDENT_START IDENT_CONTINUE* ;
 ```
 
-The portable identifier subset is ASCII letters, digits, and `_`.
-Implementations may accept broader Unicode identifiers only when they preserve the same token boundaries.
+`IDENT_START` is an ASCII letter or `_`; `IDENT_CONTINUE` additionally accepts
+ASCII digits. Unicode identifiers are not part of the current source grammar.
+An unsupported Unicode scalar is one unknown token spanning all of its UTF-8
+bytes. The lossless CST keeps the token and analysis reports a diagnostic; the
+parser must never slice through a code point during recovery.
 
 ### Keywords
 
 The following keywords are reserved:
 
 - `as`
+- `async`
+- `await`
 - `break`
 - `const`
 - `continue`
@@ -113,6 +132,7 @@ The following keywords are reserved:
 - `use`
 - `val`
 - `var`
+- `type`
 - `where`
 - `while`
 
@@ -134,6 +154,16 @@ Integer literals include:
 - hexadecimal integers, such as `0xff`
 - `_` as a visual separator between digits
 
+Integer suffixes select an existing primitive integer type: `i8`, `i16`, `i32`,
+`i64`, `isize`, `u8`, `u16`, `u32`, `u64`, or `usize`. Examples include `1u8`,
+`255_u8`, and `0xffu8`. Unsuffixed integers use the surrounding body constraints
+and fall back to `i32` only after inference stabilizes. Suffixes do not authorize
+implicit conversions. Values outside the selected type's range are compile errors.
+Unary negative literals are checked as signed values, so `-128i8` is valid but
+`128i8` and `-129i8` are not. Unsigned types do not support unary negation.
+The current execution ABI uses 64-bit `isize` and `usize`; `u64` and `usize`
+retain the full unsigned 64-bit range.
+
 #### Floating-Point Literals
 
 Floating-point literals include:
@@ -145,6 +175,11 @@ Floating-point literals include:
 
 Underscore separators are allowed in the digit sequences.
 
+The `f32` and `f64` suffixes select precision explicitly, including forms such as
+`1f64` and `1.25_f32`. Unsuffixed floating-point literals use contextual precision
+and otherwise default to `f64`. Parsing rounds the original decimal text directly
+to the selected precision. A literal outside that type's finite range is rejected.
+
 #### String Literals
 
 String literals are double-quoted.
@@ -155,9 +190,7 @@ Strings support the usual single-character escapes and Unicode escapes of the fo
 The language reserves the following comment forms:
 
 - line comments beginning with `//`
-- block comments delimited by `/*` and `*/`
-
-Block comments do not nest.
+- block comments delimited by `/*` and `*/`; nested block comments are allowed
 
 ### Operators and Delimiters
 
@@ -165,12 +198,12 @@ The following token families are part of the source syntax:
 
 - arithmetic operators: `+`, `-`, `*`, `/`, `%`
 - logical operators: `!`, `&&`, `||`
-- comparison operators: `==`, `!=`, `<`, `<=`, `>`, `>=`
+- comparison operators: `==`, `!=`, `===`, `!==`, `<`, `<=`, `>`, `>=`
 - assignment operators: `=`, `+=`, `-=`, `*=`, `/=`
 - range operators: `..`, `..=`
 - path and member operators: `::`, `.`
 - function and match arrows: `->`, `=>`
-- attribute introducer: `@`
+- outer attributes: `#[...]`
 - delimiters: `(`, `)`, `{`, `}`, `[`, `]`, `,`, `:`, `;`, `|`
 
 ## Grammar
@@ -201,16 +234,7 @@ enum_item       ::= visibility? enum_decl ;
 
 visibility      ::= "pub" ;
 
-attribute       ::= reflect_attribute
-                  | security_attribute
-                  | "@" path attribute_args? ;
-
-reflect_attribute
-                ::= "@reflect" attribute_args? ;
-
-security_attribute
-                ::= "@requires" attribute_args?
-                  | "@profile" attribute_args? ;
+attribute       ::= "#" "[" path (attribute_args | "=" attribute_value)? "]" ;
 
 attribute_args  ::= "(" attribute_arg_list? ")" ;
 
@@ -228,17 +252,30 @@ attribute_value ::= literal
 Notes:
 
 - `const` is the syntax for compile-time immutable values.
-- attributes provide the extensibility point for features such as reflection and security annotations
-- examples of intended uses include `@reflect`, `@requires(...)`, and `@profile(...)`
-- `pub` is the only explicit visibility marker in the source syntax
+- attributes provide the extensibility point for features such as reflection and tooling annotations
+- `#[lang = "role"]` binds a reserved language role only in the installed core
+  trait source. HIR rejects unknown, duplicate, missing, malformed or unauthorized
+  bindings and checks the declaration's visibility, binders, parents and members.
+- Only outer `#[...]` attributes are supported. The legacy `@...` form and
+  inner `#![...]` attributes are rejected. This syntax does not introduce macros.
+- an intended future use is `#[reflect]`
+- `#[meta(...)]` and names under `#[tool::...]` are preserved as structured,
+  source-positioned analysis metadata. They do not change runtime behavior.
+  The [linter](toolchain-tools.md#configuration-and-precedence) interprets
+  `tool::allow`, `tool::warn` and `tool::deny`; ordinary checking preserves these
+  opaquely. Invalid lint policy never suppresses required language diagnostics.
+  `#[reflect]` is reserved and diagnosed until its behavior is implemented.
+  Legacy `#[requires]` and `#[profile]` remain rejected; they do not establish
+  runtime permissions. Other unqualified names are diagnosed as unknown.
+- `pub`, `pub(super)` and `pub(crate)` are the explicit visibility markers in the source syntax
 - unmarked declarations are private in their containing scope
 - public top-level items form the module's public interface
-- Rust-style scoped visibility forms such as `pub(crate)` and `pub(super)` are not part of the source syntax
+- `pub(super)` makes an item available to the parent module tree; `pub(crate)` makes it available throughout the current package. `pub(in path)` remains unsupported
 
 ### Functions
 
 ```ebnf
-function_decl   ::= "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
+function_decl   ::= ("async")? "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
 
 generic_param_clause
                 ::= "<" generic_param ("," generic_param)* (",")? ">" ;
@@ -261,7 +298,7 @@ Notes:
 - `x: T` is an ordinary parameter.
 - parameters are local bindings and cannot be rebound.
 - functions may declare generic parameters and a trailing `where` clause.
-- trait bounds may use parameterized trait references such as `Into<String>`
+- trait bounds may use parameterized trait references such as `From<String>`
 
 ### Modules and Imports
 
@@ -289,6 +326,29 @@ Notes:
 - `mod name;` declares a module through external loading rules defined elsewhere.
 - `mod name { ... }` declares an inline module body.
 - `use` supports aliasing, globs, and grouped import trees.
+- Installed `core`, `alloc`, and `std` modules can be accessed by full paths
+  without a `use` declaration, such as `std::vec::Vec<i32>` or
+  `core::hash::Hash`. A local package root or explicit namespace alias takes
+  precedence. The implicit prelude comes from the installed declaration package.
+  The explicit `std::prelude` inventory is defined in [builtins](builtins.md#namespaces-and-prelude).
+  Standard modules, native functions, traits and enum variants follow ordinary
+  resolution, visibility and shadowing in independent Type and Value spaces. A local
+  binding or explicit import takes precedence over an implicit name in its own
+  space; ambiguous explicit imports remain errors. Named imports bind both available
+  categories. Path prefixes select Type; terminals use their syntactic category.
+  See [modules](modules.md) for the category table and conflict rules.
+  Declaration parsing and installed native attributes do not grant user source
+  code engine binding authority; see [standard declarations](standard-declarations.md).
+- An inline body creates a child module under the declaring module identity.
+  Its public declarations can be reached through qualified paths; child source
+  ranges retain their position in the physical file.
+- A wildcard import expands the target module's public members, including
+  members exposed by `pub use`. Local declarations and explicit imports take
+  precedence. Conflicting wildcard members are diagnosed. A wildcard target
+  must be a module, with the specified installed `Ordering` variant namespace
+  also supporting `use std::cmp::Ordering::*` (including an imported type alias).
+  Relative import roots `self`, `super`, and `crate` resolve
+  against the containing module.
 
 ### Structs and Enums
 
@@ -317,16 +377,19 @@ type_list       ::= type ("," type)* (",")? ;
 ```ebnf
 trait_item      ::= visibility? trait_decl ;
 
-trait_decl      ::= "trait" IDENT generic_param_clause? "{" trait_member* "}" ;
+trait_decl      ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
 
-trait_member    ::= attribute* method_sig ";" ;
+supertrait_clause ::= ":" type_bound_list ;
 
-method_sig      ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
+trait_member    ::= attribute* method_sig (";" | block) | associated_type_decl ;
+associated_type_decl ::= "type" IDENT (":" type_bound_list)? ";" ;
+
+method_sig      ::= ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
 
 Notes:
 
-- trait members are methods
+- trait members are methods and ordinary associated types
 - attributes on trait members are the intended hook for future reflection or security-related metadata
 
 ### Binding and Field Writeability
@@ -358,21 +421,156 @@ Rules:
 
 ### Types
 
+Type applications resolve their base name using the same bindings as named type
+annotations in the Type space. A generic parameter, explicit Type declaration, or
+Type import shadows an
+unqualified standard type constructor (`Map`, `Set`, `Option`, or `Result`). An
+ambiguous or unresolved explicit binding does not fall back to a standard type.
+Explicit empty argument lists are invalid and are preserved during recovery;
+`T<>` is never interpreted as `T`. Failed applications retain any known base and
+argument declarations for tools, without making the application executable.
+Navigation within an unknown argument does not select the enclosing base type.
+
+A local binding annotation supplies type arguments to a Struct initializer with
+the same declaration identity, including parameters absent from its fields.
+For example, `val marker: Marker<bool> = Marker { value: 42 };` fixes `T = bool`
+for `struct Marker<T> { val value: i32 }`. Known field types propagate this context
+to nested Struct initializers. Field types and generic bounds are still checked;
+an unrelated annotated type cannot supply constructor arguments. Function return
+annotations also supply context to tail expressions and explicit return operands.
+Context propagates through blocks, if/match branches, Tuple members and Array
+elements. Enum constructors also consume matching nominal context, including
+unit variants without parentheses. Known payload types propagate context
+to nested constructors; arity, payload types and generic bounds remain checked.
+Concrete parameter types of resolved local and imported functions supply argument
+context, including through source facades. Extra arguments are still checked.
+Trait methods use the same argument-context rules after substituting the receiver
+for `Self`. A function body collects structural type constraints from expected results,
+arguments and later local uses. Deferred obligations are revisited until those
+constraints stabilize; later arguments can supply context to earlier constructors
+and closures. A shape-unique declared implementation constrains both its receiver
+and trait arguments; its instantiated bounds propagate constraints to dependent
+implementations. An expected concrete generic return type can constrain a callback
+result, including an application or library native function. Applicability and all bounds remain checked
+after inference; ambiguous candidates cannot supply guessed types.
+This does not change source-order, exactly-once runtime evaluation. Caller-owned generic binders are valid context,
+including after trait `Self` substitution; unresolved callee binders are not.
+Binder ownership, rather than parameter spelling, controls this distinction.
+Uninferred binders leave unknown positions in an argument's context without
+removing its independently known members. For example, a parameter
+`(Token<i32>, T)` supplies `Token<i32>` to the first member of
+`(Token::Empty, true)` while inferring `T` from the second member. Unknown
+positions must be resolved before a generic call or constructor is accepted;
+merely carrying an unknown position through a container does not infer it.
+For tooling, failed inference preserves known members and nominal identities;
+only unresolved positions become error types after the diagnostic. Such results
+remain unavailable to code generation.
+
+Local annotations may contain `_`, including nested forms such as `List<_>`
+and `fn(_) -> _`. Each hole is a distinct body-local variable and must resolve
+before code generation. Declaration signatures, fields and associated type
+definitions remain explicit and do not accept inference holes.
+
+Calls accept positional type arguments after `::`, for example
+`identity::<i32>(42)`, `Ok::<i32, String>(42)` and
+`values.iter().collect::<Vec<i32>>()`. A method lists its own type parameters;
+parameters fixed by its receiver are not repeated. All parameters must be listed
+when the list is present; `_` requests inference for an individual position.
+Explicit arguments are constraints, not conversions: incompatible arguments or
+expected results are rejected. Empty lists, wrong arity, unknown types and type
+arguments on nongeneric callables are errors. Associated type equality bindings
+are accepted inside a type argument, but not as named call arguments.
+
+Expected result types also constrain intermediate iterator values and callback
+results through declared trait implementations. For example,
+`val values: Result<Vec<i32>, String> = [Ok(42)].iter().collect();`
+determines the error type of `Ok`. An unambiguous implementation can supply
+structural equalities; multiple candidates remain deferred until more information
+is available. Associated projections are normalized through their selected
+implementation or declared bounds, never assumed to be injective.
+Constructor field and payload checks use the same finalized recovery types as
+result queries; unresolved positions do not hide conflicts in known siblings.
+Member lookup likewise uses a known nominal declaration even if some of its type
+arguments are erroneous: absent fields still diagnose, and existing fields retain
+their declaration identities and substituted types. Only a wholly unknown or
+error receiver suppresses dependent missing-member diagnostics.
+Similarly, a partially erroneous Tuple remains a known noninteger index and
+produces an invalid-index diagnostic in addition to its member error. An index
+whose entire type is unknown or erroneous suppresses that dependent diagnostic.
+Comparison and logical expressions retain their bool result type for tooling even
+when operands contain errors. Known operand conflicts and equality-capability
+failures remain diagnostic; unknown positions alone do not create duplicate
+operator errors. Recovery types do not authorize code generation.
+Binary expressions check the left operand first and pass its type as RHS context
+for arithmetic and comparisons. Logical operators provide bool context instead.
+This allows `Token<i32>::Empty == Token::Empty` and contextual generic calls;
+explicit RHS type arguments remain authoritative and are checked for conflicts.
+Runtime evaluation remains left-to-right and short-circuit behavior is unchanged.
+When enclosing context is absent, earlier Array element types supply context to
+later elements. An if branch that can complete normally supplies context to its
+else branch; prior reachable, normally completing match arms supply context to
+later reachable arms. Returning branches do not determine the result type, and
+explicit conflicting types still diagnose. This propagation is forward only.
+Array element-type merging includes only sequentially reachable, normally
+completing elements. If an element always returns, it and the following elements
+do not contribute to the array's element join. Following expressions still receive
+independent semantic diagnostics even though they will not execute.
+An if/while condition must produce bool on paths that complete normally. A
+condition that always returns produces no condition value and does not receive
+a bool mismatch diagnostic, but its internal expressions remain checked.
+If such a condition belongs to an if expression, neither branch contributes a
+result type or supplies context to the other branch. Branches still receive
+independent semantic diagnostics. Cancellation during condition checking remains
+distinct from a condition that cannot complete normally.
+The operand of `return` is compared with the function return type only on paths
+where that operand completes normally. A nested return has already exited the
+function and does not produce an additional outer return value. Its own return
+type is still checked; a bare `return` continues to require a Unit return type.
+Assignment RHS expressions receive the checked target type as context, including
+local, field and index targets. This does not change target writeability checks.
+An initializer or assignment RHS is compared against its destination type only
+when it can complete normally. A terminating RHS supplies no value for an
+ordinary or compound assignment, so no assignment operation type check or final
+write occurs. Inner expression diagnostics and invalid-target diagnostics remain;
+annotated local types remain available to semantic queries.
+Empty Array literals and the resolved standard Map/Set constructors consume the
+same expected-type context in every expression position. Constructor arity and
+container kind must still match; context does not coerce incompatible elements.
+Local container annotations enforce the same `Eq + Hash` requirements as function
+signatures, including nested containers and forwarded generic constraints.
+Struct fields and enum payloads participate in the same body constraints: an earlier
+member can supply context to a later nested constructor. A member whose type is
+already known does not wait for unrelated generic parameters to be inferred.
+This also applies within composite members: a field or enum payload declared
+`(Token<i32>, T)` preserves the first tuple element's context while inferring
+`T` from the second element.
+
 ```ebnf
 type            ::= path generic_args?
+                  | "!"
                   | array_type
-                  | tuple_type ;
+                  | tuple_type
+                  | function_type
+                  | parenthesized_type
+                  | qualified_type ;
 
-array_type      ::= "[" type "]"
-                  | "[" type ";" INTEGER "]" ;
+function_type   ::= "fn" "(" type_list? ")" "->" type ;
 
-tuple_type      ::= "(" type_list? ")" ;
+array_type      ::= "[" type "]" ;
 
-generic_args    ::= "<" type ("," type)* (",")? ">" ;
+tuple_type      ::= "(" ")"
+                  | "(" type "," (type ("," type)* (",")?)? ")" ;
+
+parenthesized_type ::= "(" type ")" ;
+
+generic_args    ::= "<" generic_arg ("," generic_arg)* (",")? ">" ;
+generic_arg     ::= type | associated_type_binding ;
+associated_type_binding ::= IDENT "=" type ;
+qualified_type  ::= "<" type "as" trait_ref ">" "::" IDENT ;
 
 where_clause    ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
-where_predicate ::= path_segment ":" type_bound_list ;
+where_predicate ::= type ":" type_bound_list ;
 
 trait_ref       ::= path generic_args? ;
 
@@ -391,8 +589,16 @@ Trait names may be used directly as interface types.
 Kagari does not expose Rust-style `dyn` trait-object, boxed trait-object, or borrow-dependent trait-object syntax.
 
 The empty tuple type `()` is Kagari's unit type.
-It represents the absence of a meaningful value and is the default result type for functions or module initialization paths that do not produce a value.
+As in Rust, `(T)` groups a type and `(T,)` is a one-element tuple type.
+It represents the absence of a meaningful value and is the default result type for functions that do not produce a value.
 Source code does not need to spell a trailing `()` expression; a block with no tail expression produces `()`.
+
+Ordinary associated types use `type Item;` in traits and `type Item = T;`
+in trait implementations. Trait arguments can bind outputs (`Reader<Item = i32>`),
+and types can project them (`Self::Item`, `R::Item`, `<R as Reader>::Item`).
+A `where` target may be a generic parameter or its associated projection.
+See [traits.md](traits.md#ordinary-associated-types) for the authoritative rules;
+[the EBNF](../kagari.ebnf) defines their complete grammar.
 
 ### Impl Blocks and Methods
 
@@ -402,11 +608,13 @@ impl_block      ::= inherent_impl
 
 inherent_impl   ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
 
-trait_impl      ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" impl_item* "}" ;
+trait_impl      ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" trait_impl_item* "}" ;
+trait_impl_item ::= attribute* method_decl | associated_type_def ;
+associated_type_def ::= "type" IDENT "=" type ";" ;
 
-impl_item       ::= attribute* visibility? method_decl ;
+impl_item       ::= attribute* method_decl ;
 
-method_decl     ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl     ::= visibility? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
 
 method_param_list
                 ::= receiver_param ("," param_list)? (",")?
@@ -459,7 +667,9 @@ expr_stmt       ::= expr ";" ;
 
 return_stmt     ::= "return" expr? ";" ;
 
-if_stmt         ::= "if" condition block ("else" (if_stmt | block))? ;
+if_stmt         ::= if_expr ;
+
+if_expr         ::= "if" condition block ("else" (if_expr | block))? ;
 
 while_stmt      ::= "while" condition block ;
 
@@ -487,21 +697,126 @@ Kagari keeps Rust-like blocks and control-flow shape while using Kotlin-like `va
 - writeability of fields, host paths, and host APIs is controlled by `val`/`var`, type rules, and host policy.
 - `for` syntax is Rust-like and iterates over values accepted by the language iterable protocol.
 
+Function return checking distinguishes normal completion from explicit `return`.
+The tail expression (or Unit when absent) must match the declared result only when
+control can reach the end. Each explicit return operand is checked independently.
+When a call argument or aggregate member returns from the enclosing function,
+later arguments/members and the enclosing call/construction are not executed.
+If the callee expression itself exits, explicit arguments are likewise skipped.
+HIR records this termination explicitly rather than inventing a callable target;
+argument source still receives independent diagnostics, and a normally produced
+non-callable value remains invalid.
+Those unreachable generic calls do not create concrete instances.
+For script functions, a terminating argument supplies neither a parameter value
+nor a generic inference constraint. Such calls do not require missing generic
+arguments to be inferred, but arity checks and independent argument diagnostics
+still apply. An argument with a normally completing path must match the parameter
+type on that path.
+Script function, trait method and standard-library parameter type comparisons
+share this completion rule. This includes concrete standard parameters such as
+the bool condition and String message of debug assertions; arity remains checked
+even when argument evaluation will exit the enclosing function.
+Math min/max/clamp and abs constrain only operands that can produce values;
+debug assert_eq likewise compares only produced operand types. Other operands
+still receive their own constraint diagnostics. A call terminated while evaluating
+its operands requires no concrete result layout, since no result is produced.
+Enum payload arguments use the same parameter comparison rule. A constructor
+terminated by a payload does not require otherwise missing generic arguments or
+a concrete enum layout. Explicit type arguments, payload arity and independently
+invalid normally completing payload values remain checked.
+Struct field initializers follow the same value-production rule: terminating
+fields supply no generic inference constraint or assigned value. A construction
+that exits during field evaluation requires no missing generic arguments or
+result layout. Missing, duplicate and unknown fields, and independently invalid
+normally completing field values, still receive diagnostics.
+Unary negation and logical not constrain their operands only on normally
+completing paths. Inner errors remain visible. Negation with no produced operand
+has no inferred numeric result. IR registers expression result layouts through a
+single normal-completion boundary, including nested tuples and arrays.
+Binary operands likewise contribute type constraints only when they produce a
+value. Known invalid counterpart types remain errors even when the operation
+cannot execute. A terminating left operand does not supply RHS inference context.
+Logical operators retain bool results on short-circuit paths; ordinary arithmetic
+with an absent operand has no inferred numeric result.
+The same termination rule applies to operators and runtime helper arguments.
+A short-circuit operator can still complete along the path that skips its right
+operand. A return during a while condition or assignment RHS exits the function
+before the loop branch or assignment commit.
+If evaluation of an assignment target's receiver or index returns, no target
+location is produced. Remaining indexes, the RHS and the final write are skipped
+for both ordinary and compound assignment.
+An index expression must produce an integer only on normally completing paths.
+When index evaluation always exits, an Array retains its known element type;
+a Tuple has no selected member type. Invalid receiver kinds and Tuple binding
+writeability remain checked, including reflection index writes.
+A field read whose receiver cannot complete has no produced receiver or member
+value. It does not resolve a field target or result layout. Missing member names
+and receiver expression errors still diagnose; normally completing receivers
+retain the usual member existence and type checks.
+Index reads likewise require a normally produced receiver before applying
+receiver/index compatibility rules. An index expression still receives its
+independent semantic diagnostics when the receiver always exits, but it does
+not execute and the read has no inferred element value.
+A match scrutinee that cannot complete normally supplies no value to compare
+against patterns, and no arm contributes to the match result type. Arm source
+still receives independent diagnostics. When the scrutinee has a completing
+path, pattern compatibility and arm result joins remain checked.
+Match arms are considered in source order. A wildcard or binding pattern matches
+every remaining value, so subsequent arms cannot contribute result types or
+completion paths and do not generate concrete generic instances. Their source
+still receives independent name and expression diagnostics.
+Branches that return or otherwise cannot complete do not contribute a value type
+to an if/match join. Unreachable source still receives semantic diagnostics.
+An unconditional loop completes only through a reachable break in that loop;
+breaks in nested loops do not exit it. While-loop completion conservatively
+includes the zero-iteration path, without constant-condition evaluation.
+
+### Never type
+
+The type `!` has no values. It is permitted in every type position, including
+function results, parameters, generic arguments and associated types. It differs
+from `()`, which has one value and indicates normal completion without a payload.
+A user function declared `-> !` must have no normal
+return or fallthrough path. Calls use their checked result contracts, including
+generic substitution and callable/trait dispatch, to determine normal completion.
+
+An expression that cannot complete normally has type `!`. This includes blocks
+that return/break/continue, unconditional loops without a reachable break, and
+expressions whose required operands cannot complete. Short-circuit operands keep
+their conditional evaluation. A divergent expression can be used at any expected
+expression type, without producing or converting a runtime value. Divergent arms
+do not constrain the result of a branch join. An inferred closure with neither a
+normal body result nor an explicit returning value has result `!`.
+An otherwise unconstrained inference variable supplied only by divergence falls
+back to `!` after ordinary constraints and numeric defaults. This fallback cannot
+override a type learned from another argument or an expected callable result.
+
+This expression coercion does not recurse into type arguments: `Vec<!>` and
+`Vec<i32>` remain distinct, as do `fn() -> !` and `fn() -> i32`. A closure
+literal can still receive its result type from its expected callable signature.
+`Result<T, !>` can contain `Ok(T)` but cannot contain an `Err` value. Empty matches
+can eliminate a value of an uninhabited type. User-defined zero-variant enums
+remain distinct types. No arbitrary trait obligations
+are waived because a value or expression is uninhabited.
+
+Loops and recursive calls returning Never retain cooperative cancellation,
+call-depth limits, roots and cleanup. It does not change trap
+categories or roll back side effects completed before a trap.
+
 ### Expressions
 
 ```ebnf
 expr            ::= range_expr ;
 
-range_expr      ::= logic_or_expr (range_op logic_or_expr)? ;
-
-range_op        ::= ".."
-                  | "..=" ;
+range_expr      ::= logic_or_expr? ".." logic_or_expr?
+                  | logic_or_expr? "..=" logic_or_expr
+                  | logic_or_expr ;
 
 logic_or_expr   ::= logic_and_expr ("||" logic_and_expr)* ;
 
 logic_and_expr  ::= equality_expr ("&&" equality_expr)* ;
 
-equality_expr   ::= compare_expr (("==" | "!=") compare_expr)* ;
+equality_expr   ::= compare_expr (("==" | "!=" | "===" | "!==") compare_expr)* ;
 
 compare_expr    ::= additive_expr (("<" | "<=" | ">" | ">=") additive_expr)* ;
 
@@ -517,9 +832,11 @@ postfix_expr    ::= primary_expr postfix_op* ;
 
 postfix_op      ::= call_suffix
                   | field_suffix
-                  | index_suffix ;
+                  | index_suffix
+                  | propagation_suffix
+                  | await_suffix ;
 
-call_suffix     ::= "(" arg_list? ")" ;
+call_suffix     ::= ("::" generic_args)? "(" arg_list? ")" ;
 
 arg_list        ::= arg ("," arg)* (",")? ;
 
@@ -529,15 +846,24 @@ field_suffix    ::= "." IDENT ;
 
 index_suffix    ::= "[" expr "]" ;
 
+propagation_suffix ::= "?" ;
+
+await_suffix    ::= "." "await" ;
+
 primary_expr    ::= literal
                   | path
+                  | explicit_enum_path
+                  | if_expr
                   | parenthesized_expr
                   | tuple_expr
                   | array_expr
                   | struct_expr
                   | closure_expr
+                  | loop_expr
                   | match_expr
                   | block ;
+
+loop_expr       ::= "loop" block ;
 
 parenthesized_expr
                 ::= "(" expr ")" ;
@@ -546,16 +872,18 @@ tuple_expr      ::= "(" expr "," expr_list? ")" ;
 
 expr_list       ::= expr ("," expr)* (",")? ;
 
-array_expr      ::= "[" expr_list? "]" ;
+array_expr      ::= "[" (expr_list | expr ";" expr)? "]" ;
 
 struct_expr     ::= path generic_args? "{" field_init_list? "}" ;
+
+explicit_enum_path ::= path generic_args "::" IDENT ;
 
 field_init_list ::= field_init ("," field_init)* (",")? ;
 
 field_init      ::= IDENT
                   | IDENT ":" expr ;
 
-closure_expr    ::= "|" closure_param_list? "|" closure_body ;
+closure_expr    ::= ("async")? "|" closure_param_list? "|" closure_body ;
 
 closure_param_list
                 ::= closure_param ("," closure_param)* (",")? ;
@@ -585,24 +913,94 @@ literal         ::= INTEGER
 
 ### Expression Notes
 
-- `range_expr` models the common `a..b` and `a..=b` forms.
-- half-open forms such as `..b`, `a..`, and `..` are outside the current grammar.
+- `[e1, e2]` and `[value; count]` construct builtin `[T]` arrays, independently
+  of installed library declarations. `[T]` context supplies the invariant element
+  type, including empty arrays. An empty array needs an element type from context
+  or later constraints.
+  Array elements are writable; length cannot change. `var` permits rebinding to a
+  different array without redirecting aliases of the old object. Use explicit
+  `Vec::from(array)` or `HashSet::from(array)` for growable library storage.
+
+- A `match` guard is evaluated after its pattern binds names. It must be `bool`;
+  a false guard continues to the next arm, even for an otherwise irrefutable
+  pattern. Guards are evaluated only for matching patterns.
+- `if val pattern = expr` and `while val pattern = expr` evaluate `expr` once
+  per condition check. On a match, names are visible only in the then branch or
+  loop body. A failed match selects `else` or exits the loop.
+- `|` pattern alternatives share one binding scope. Each alternative must bind
+  the same names with the same types. Integer range patterns accept `i32`
+  literal or local scalar `const` bounds; `..` excludes the upper bound and
+  `..=` includes it.
+- Range expressions describe bounds without materializing an array. The forms
+  `a..b`, `a..=b`, `a..`, `..b`, `..=b` and `..` produce `Range<T>`,
+  `RangeInclusive<T>`, `RangeFrom<T>`, `RangeTo<T>`, `RangeToInclusive<T>` and
+  `RangeFull`. Inclusive forms require an end expression.
+- Present bounds evaluate once, left to right, and have the same builtin integer
+  type. Context supplies an endpoint type, otherwise normal integer inference
+  applies. `RangeFull` has no type parameter. Bounds are immutable value data.
+- Ranges with a start implement `Iterable`: each `iter()` or `for` creates a fresh
+  lazy ascending cursor. `..` excludes the end and `..=` includes it. Reversed
+  finite bounds iterate zero times. Inclusive iteration through the integer maximum
+  terminates normally. Open-ended iteration traps when the next value would exceed
+  its integer type. Iteration retains cooperative cancellation points.
+- Collect explicitly when storage is needed, for example
+  `(0..4).iter().collect::<Vec<i32>>()`. Ranges without a start are bounds
+  descriptions, not iterable sequences. All six forms implement `RangeBounds<T>`
+  for array interval operations; `RangeFull` implements it for any `T`.
+- Array length is fixed at construction; there are no type-level lengths or
+  borrowed slice views. Array indexing accepts a single integer, not a range. Range values expose
+  `Iterable` and `RangeBounds`; range equality, ordering and hashing are not yet
+  standard protocols.
 - closure syntax is included at the surface level; capture behavior is specified in the non-grammatical constraints section.
 - struct literals permit field shorthand such as `Point { x, y }`.
+- Enum constructors accept `Token<i32>::Empty` and
+  `Token<i32>::Data(7)`. The explicit arguments belong to the enum declaration,
+  use normal annotation resolution and bound checks, and supply payload context.
+  Qualified and imported enum paths use the same declaration identity. Explicit
+  arguments override contextual inference; incompatible enclosing types reject.
+- Struct literals accept explicit type arguments, such as `Marker<i32> { value: 7 }`.
+  These arguments use annotation name resolution, arity and bound checks, and
+  supply the field context even when an enclosing expression expects another type;
+  incompatible enclosing types are diagnosed. The parser recognizes constructor
+  arguments only when the closing `>` is followed by `{`, preserving comparisons.
+
+Unknown annotation members retain error types without suppressing independent
+constraints on known members. For example, `Map<f32, Missing>` reports the invalid
+Eq + Hash as well as the unknown type. An unknown key by itself does not establish
+an Eq + Hash violation; nested known key and element applications are still checked.
+User-type bounds follow the same rule when the outer type determines the result:
+`[Missing]` satisfies identity-based Eq + Hash and Iterable, but not numeric
+bounds. Recovery holes do not disprove a structural protocol; known siblings
+still enforce their requirements. General trait implementation lookup waits for
+the member types it needs to resolve.
+Standard bounds use the same rules in function calls and user-type applications.
+For example, a caller's `T: PartialEq` also satisfies PartialEq for `(T, i32)`;
+an unconstrained `T` does not establish that recursive requirement.
 
 ### Patterns
 
-The core `match` grammar uses a deliberately small pattern language.
+Patterns use the same grouped, tuple, alternative and range punctuation as Rust,
+within Kagari's supported pattern kinds.
 
 ```ebnf
-pattern         ::= "_"
-                  | literal
-                  | path
-                  | tuple_struct_pattern
-                  | struct_pattern
-                  | tuple_pattern ;
+pattern         ::= or_pattern ;
 
-tuple_pattern   ::= "(" pattern_list? ")" ;
+or_pattern      ::= range_pattern ("|" range_pattern)* ;
+
+range_pattern   ::= primary_pattern range_pattern_tail? ;
+
+range_pattern_tail ::= ".." range_bound
+                     | "..=" range_bound ;
+
+range_bound     ::= literal | path ;
+
+primary_pattern ::= "_" | literal | path | tuple_struct_pattern
+                  | struct_pattern | tuple_pattern | parenthesized_pattern ;
+
+parenthesized_pattern ::= "(" pattern ")" ;
+
+tuple_pattern   ::= "(" ")"
+                  | "(" pattern "," (pattern ("," pattern)* (",")?)? ")" ;
 
 pattern_list    ::= pattern ("," pattern)* (",")? ;
 
@@ -618,8 +1016,8 @@ field_pattern   ::= IDENT
                   | IDENT ":" pattern ;
 ```
 
-This keeps `match`, binding conditions, and destructuring usable without adopting Rust's full pattern grammar.
-More advanced pattern forms are language extensions.
+`(p)` groups a pattern; `(p,)` is a one-element tuple pattern. Kagari does not
+currently accept all of Rust's reference, slice and rest patterns.
 
 ### Place Expressions
 
@@ -628,6 +1026,7 @@ For example, an assignment target must name a storage location rather than a tem
 
 ```ebnf
 place_expr      ::= path place_suffix*
+                  | postfix_expr place_suffix+
                   | parenthesized_place_expr ;
 
 parenthesized_place_expr
@@ -647,6 +1046,8 @@ The following rules are part of the language design, but cannot be fully express
 
 - closures use lexical scope
 - closures may implicitly capture outer local bindings
+- a closure parameter may omit its type only when a contextual `fn(...) -> ...`
+  type supplies that parameter type
 - captured `var` bindings that may be assigned by the closure are represented through a shared environment slot
 - captured bindings that are only read may be captured by value or by handle according to the runtime value model
 - object-like values follow the ordinary value model when captured; if the value is a shared object handle, the closure and outer scope observe the same underlying object
@@ -684,24 +1085,161 @@ Ordinary parameters use the language's ordinary value model:
 
 The exact runtime meaning of object values is specified outside this syntax document.
 
+Associated constant and type-family syntax and constraints are specified in
+[traits.md](traits.md#generic-associated-types); the authoritative grammar is
+[the EBNF](../kagari.ebnf).
+
 ## Future Language Extensions
 
 The following areas are outside this syntax specification:
 
-- visibility and module public-interface semantics
-- associated items beyond methods
+- package visibility and `pub(in path)`
+- lifetime/const-parameterized associated types and associated type defaults
 - extended pattern grammar
-- closure capture semantics
-- extended generic constraints and `where` predicates
+- higher-kinded parameters and advanced trait solving
 - host-exposed type syntax
 
 ## Parser Guidance
 
 This document is the language-facing syntax specification.
 The parser implementation does not have to mirror these rules one-for-one.
+The [syntax coverage audit](../syntax-coverage.md) records which EBNF forms
+have parser witnesses, known implementation gaps, or no focused test yet.
 
 When parser implementation begins:
 
 - the parser grammar may be normalized for the chosen parsing strategy
 - precedence handling may be encoded structurally rather than textually
 - additional recovery-oriented productions may be introduced without changing the source-language syntax
+
+## Parser diagnostic budget
+
+Parsing accepts a per-file `ParseLimits::max_diagnostics` (default 256). This is
+an ordinary-diagnostic budget: exactly that many diagnostics are allowed; the
+next diagnostic produces one additional `KG_COMPILE_LIMIT_EXCEEDED` error at
+its source location and stops grammar recovery. Zero accepts valid source and
+stops at the first error. The unparsed suffix is retained verbatim in a CST error
+node, including trivia and line endings; later declarations have no semantic
+facts. Previously parsed declarations remain available to tools. Cancellation
+still returns cancellation rather than a successful partial parse.
+
+`AnalysisDatabase::set_parse_limits` and `KagariEngine::set_parse_limits` apply
+this policy to subsequent queries and compilation. Changing the policy invalidates
+cached declarations, signatures and bodies even when source revisions are equal;
+existing snapshots remain immutable. Any limit error prevents code generation.
+This diagnostic budget does not bound lexing, source size, syntax depth, or diagnostics
+generated by name resolution and type checking; those require separate limits.
+
+`ParseLimits::max_nesting` separately limits simultaneously active recursive
+entries for expressions, prefix expressions, types, modules, import trees, blocks,
+if expressions and match patterns (default 64). Fixed precedence helpers do not
+consume additional entries; entries are released when they return, so sibling
+expressions do not accumulate depth. Zero rejects any such entry. Exceeding the
+budget reports `KG_COMPILE_LIMIT_EXCEEDED` for `parser nesting` at the next token,
+then preserves the unparsed suffix using the same stop mechanism. This resource
+error is additional to the ordinary diagnostic budget. Changing either parser
+limit invalidates dependent queries. Hosts should choose conservative limits for
+their thread stack size; raising this limit does not make parsing stackless.
+
+`ParseLimits::max_tree_depth` bounds completed CST node depth (default 128).
+Tokens do not count; leaf nodes have depth one. The parser tracks subtree depths
+as it builds nodes, including checkpoint wrappers used by iterative binary and
+postfix parsing. The first completed node deeper than the budget reports
+`KG_COMPILE_LIMIT_EXCEEDED` for `syntax tree depth` and stops further grammar
+work. Remaining tokens are retained verbatim. Already open ancestors still close,
+so an error-bearing CST can exceed the budget by those enclosing nodes; it is
+never accepted for code generation. Wide sibling lists do not accumulate depth.
+This check complements the recursive-entry budget, which stops recursive descent
+before nodes finish. Both are required; downstream traversals over externally
+constructed HIR and generic expansion retain their own resource obligations.
+
+Body type checking limits recursive expression inference to 32 active entries
+and constraint solving to 128 rounds. Exceeding either limit reports a structured
+compile-limit diagnostic; it never publishes unchecked code. Analysis cancellation
+is checked during constraint collection and solving.
+
+## Propagation
+
+`expr?` is a postfix operator, at the same parsing level as calls, member access
+and indexing. It unwraps success or returns failure from the nearest function or
+closure. It checks the operand's installed Try protocol and the return type's
+FromResidual bound. Option, Result, ControlFlow and eligible source/native custom
+carriers use the same operator; see [propagation protocols](builtins.md#propagation-protocols)
+for associated output/residual types and error conversion rules. There is no exception-handler syntax.
+
+## Interpolated strings
+
+`f"..."` constructs a String from literal text and expression holes. Ordinary
+`"..."` strings do not interpolate. `{expr}` uses the canonical standard Display
+protocol; `{expr:?}` uses Debug. Missing implementations or generic bounds are
+compile-time diagnostics. Inherent methods named `display` or `debug` and local
+bindings named `std` or `Display` do not redirect interpolation.
+
+```kgr
+val name = "Kagari";
+val score = 40;
+val message = f"Hello {name}, score={score + 2}";
+val diagnostic = f"name={name:?}";
+val braces = f"{{{name}}}";
+```
+
+Literal `{{` and `}}` produce single braces. Text uses ordinary string escape
+rules, including `\u{...}`; those escape braces do not open holes. Unescaped
+single braces, empty holes, invalid escapes and unsupported format suffixes are
+diagnostics. Width, precision and alternate numeric formats are not supported.
+Physical line breaks are not allowed in text segments, matching ordinary string
+literals. Expression holes follow ordinary expression whitespace/comment rules
+and may contain blocks, closures, strings or nested interpolated strings.
+
+Each expression is evaluated once and immediately formatted, from left to right.
+The next expression runs only after the previous formatting call returns. `?`,
+return, trap, cancellation and call-depth failure keep their ordinary behavior;
+when evaluation exits, later holes do not run. Completed effects are not rolled
+back. Display/Debug implementations may themselves contain interpolation.
+
+Interpolation is a runtime expression and is outside the scalar const-safe subset.
+Standard formatting traits remain static protocols; this feature adds no dynamic
+standard-trait interface type. Literal and formatted pieces are collected and
+joined into a buffer reserved from their combined byte length, avoiding repeated
+copying of an accumulated prefix. Result text is not a locale-sensitive or stable
+serialization format. Parser depth, diagnostics and cancellation limits apply.
+
+
+Repeat arrays `[value; count]` evaluate the value once and require its type to
+contain no shared mutable objects, including recursively inside Tuple or enum
+members. Use `Vec::from_fn(count, |index| expression)` for per-element
+object initialization. See [the value contract](value-semantics.md#repeat-arrays-and-bulk-replacement).
+
+## Async syntax
+
+Parsing, type checking, cold script Future factories and interpreted `.await` are
+implemented, including ordinary for-body awaits and generic Fn calls. The
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
+
+Reserved `async fn`, explicit `async |args| body` / `async || body` and postfix
+`.await` are explicit source forms. Async calls return cold Future values; ordinary closures
+never infer async. Await is allowed in an async body, including ordinary for-loop
+bodies, but not in a nested ordinary closure. No async block or async iterator
+syntax is introduced.
+
+`.await` accepts the installed `Future<T>` and `Task<T>` storage roles and returns
+`T`. Future is single-drive; Task observes an independently scheduled execution
+and permits repeated and multiple awaits of its cached outcome. Expected types
+constrain the completed output without forcing the operand to be a Future.
+Aliases retain their declared role; a similarly named user type is not awaitable.
+
+The written result of `async fn f(...) -> T` is the completed body result; its
+ordinary callable signature returns the installed `Future<T>`. An explicit async
+closure follows the same rule and implements ordinary `Fn(A) -> Future<T>`. Return
+and `?` check the nearest callable body's completed result, with no automatic
+flattening of a Future-valued result. `.await` shares postfix precedence with
+calls, fields, indexing and `?`; `read().await?` propagates the awaited result.
+General async trait methods remain unsupported even though parser recovery retains
+the modifier. An inherent async method is an ordinary Future-producing callable.
+
+Async parameters are retained in the cold Future, even when the body has no await.
+Known scoped host parameter types are rejected at the parameter declaration,
+including annotated/contextually typed async closure parameters. Executable checks
+and runtime graph validation remain responsible for concrete generic applications
+and mutable values whose reachable state cannot be proved safe statically.

@@ -38,16 +38,156 @@ The lowering pipeline is:
 1. source
 2. syntax
 3. HIR
-4. construction IR
+4. verified concrete MIR
 5. bytecode
 6. VM execution
 
 Optional backend paths include:
 
-- construction IR -> SSA IR -> optimized backend
-- construction IR -> JIT backend
+- verified MIR -> bounded MIR passes -> reverified MIR -> backend
+- verified MIR + ABI/link descriptions -> JIT backend
 
 Bytecode remains a first-class execution format when those backend paths are present.
+
+## Verified MIR Boundary
+
+Checked analysis can contain valid source imports. The snapshot-owned CheckedProgram
+checks every reachable module, and `lower_program_to_mir` produces a VerifiedMirProgram
+with preserved module boundaries and declaration-to-module/function bindings.
+IR verification checks every imported signature against its bound target and rejects
+missing dependencies, unrelated modules, unresolved calls, signature
+mismatches and conflicting layouts for the same nominal struct declaration.
+Editing any module invalidates the program's verification and link bindings.
+
+`lower_program_to_bytecode` consumes VerifiedMirProgram and emits BytecodeProgram:
+one root ModuleRef and a stable vector of BytecodeModule members. Each
+member stores its dependency ModuleRefs. Module identities are unique; all members
+must be reachable from the root. Calls to dependencies use
+`ModuleFunction { module: ModuleRef, function: FunctionRef }`, scoped to that program.
+Verification checks dependency reachability, target signatures, shared nominal layouts
+and consistent host contracts. Unused imports remain linked but execute no code.
+The unit-only `lower_to_bytecode` rejects source dependencies with UnlinkedSourceModules;
+it cannot discard dependencies to form a standalone artifact.
+
+`lower_to_mir(checked, options)` returns an immutable `VerifiedMirModule`.
+`lower_to_bytecode` accepts only that handle. An optimizer or inspection tool can
+consume it with `into_unverified()`, modify the resulting `MirModule`, and call
+`verify_mir(module, cancellation_token)` to obtain a new verified handle. There is
+no unchecked bytecode-lowering entry point.
+
+Verification checks instance identity and uniqueness, direct-call targets and
+signatures, parameter/local layout, operand annotations, operation representations,
+return and branch types, block targets and terminators, debug-table alignment,
+read-only paths, and conservative instruction effects. Standard calls and numeric
+operations share representation contracts with the bytecode verifier; intrinsic
+arity comes from the standard declaration table. IR rejects unsupported indirect
+calls. The declared entry block is emitted first, even when its arena index is
+nonzero; branches use offsets computed in that same emission order.
+
+Every bytecode function ends in an explicit `Return`, `Jump`, `Branch`, or
+`Unreachable`. An empty function or a final ordinary operation cannot implicitly
+return `Unit`; the verifier rejects fallthrough before artifact construction or
+runtime loading. If a verified execution ever reaches the end without a terminator,
+the runtime treats that as an engine invariant failure.
+
+IR struct construction names a nominal declaration and provides each field slot
+exactly once. Ordinary field operands contain a declaring struct identity and a
+slot, with no field-name fallback. The module carries checked layouts with field
+identities, concrete ABI types and writeability. Operand representations are derived
+from those types. Verification rejects duplicate or
+malformed layouts, absent owners, invalid slots, missing/duplicate initializer
+slots, mismatched operand representations and writes to read-only fields.
+Initializer expressions retain source evaluation order; bytecode emission arranges
+their already-computed values in declaration order. Run the `layouts` example in
+`kagari-compiler` to inspect this boundary without runtime registration.
+
+Bytecode carries the same verified `StructLayout` records. `StructId` indexes
+this version's layout table; a field operand is `FieldRef { structure, slot }`.
+`MakeStruct` carries a layout ID and positional register operands, with exactly
+one value per layout slot. The old field table, field-name operands and named
+initializer records are removed. Artifact verification independently checks the
+layout identities, field count, slots, representations and write permissions.
+Executable aggregate identities use one top-level declaration segment with occurrence
+zero. Field and variant identities append one member segment, also with occurrence
+zero. Extra parent segments and recovery-only duplicate identities are rejected by
+both IR and bytecode layout verification. HIR retains duplicate identities for
+diagnostic recovery, but they cannot reach execution.
+
+Interface allocation uses an explicit `MakeInterface dst, value, module,
+implementation` instruction. Typed IR names the implementation declaration and ordered type arguments;
+bytecode carries a dependency-program module slot and an `InterfaceTableRef`
+into that member's verified table. Program verification requires the target
+member to be reachable from the caller's dependency graph.
+Verification requires a concrete table instance, a heap destination and the
+receiver representation declared by the table. The runtime checks the full
+receiver ABI, allocates a generation-checked interface object and retains its
+linked execution version. For example, a verified `i32` receiver can be boxed
+through its `Tag for i32` table; a bool receiver or out-of-range table slot is
+rejected before execution. Source-level conversion emits this instruction when
+the checked semantic result selects a unique implementation template and its
+arguments. Generic instances compile all interface methods ahead of execution
+and reuse one table per declaration/argument key; a generic template record is
+not itself an executable table.
+
+Interface calls use a dedicated `CallTarget::InterfaceMethod` containing the
+trait owner's module slot, applied interface identity and declared method
+ordinal. IR and bytecode verification check the trait signature, physical
+argument/result types and dependency reachability. The runtime checks the
+object's exact interface identity and full nominal method ABI, then enters the
+implementation's retained version on the same explicit frame stack.
+Executable method slots carry `CallableTarget::Script(FunctionRef)` or
+`CallableTarget::Native(NativeImportId)`, scoped to the implementation module.
+Verification checks the exact implementation identity, concrete arguments, binding
+and normalized method signature. Native targets enter a rooted callable frame and
+use the same bounded continuation/callback driver as direct native imports.
+They do not require a fabricated script body. The frame pins the implementation
+generation until return and obeys call-depth limits and cooperative cancellation.
+
+MIR records each concrete native interface target with its complete native import
+contract. Bytecode lowering consumes these verified applications; it does not
+rebuild a native method signature or choose its callback dependencies.
+
+Native imports may carry ordered, statically selected trait-member dependencies.
+The declaration owns each receiver/interface/member requirement; its concrete
+application records target identity, type arguments, implementation kind and full
+signature. Program verification reproduces the selection from checked portable
+implementation facts and requires a matching executable target in the dependency
+closure. Native code requests a slot with the complete argument list. The shared
+driver checks arguments and results and pins the selected implementation version.
+
+Public struct templates are checked against each executable instance after generic
+substitution: field count/order, names, permissions and concrete types must agree.
+Program verification also checks imported instances against the declaring module,
+including templates with no local executable instance. A standalone module cannot
+prove correspondence to an absent dependency; the complete program check is required.
+The VM checks the actual receiver's retained layout before slot access. Reflection
+resolves names explicitly from this metadata and shares the checked write path.
+
+Locals and temporaries must be initialized on every reachable predecessor before
+use. This is a fixed-point analysis for non-SSA IR, including loops and merge
+temporaries written in separate branches. Structural and type checks include
+unreachable blocks, while definite initialization concerns reachable execution.
+Only parameter locals begin initialized. A loop backedge cannot initialize a
+value for its first iteration.
+
+Counts are checked before conversion to bytecode ID widths. Verification observes
+analysis cancellation, including public-template indexing and each layout/member
+comparison, and caps its block/value dataflow matrix at 64 MiB. Failures
+carry `KG_IR_*` codes, function/block/instruction positions and available source
+spans. During source compilation, encoding or verification-state limits become
+`KG_COMPILE_LIMIT_EXCEEDED` diagnostics.
+
+This boundary validates declared layouts but does not yet prove the exact nominal
+type of every heap-valued operand. Runtime host calls validate nominal object types
+against their linked declarations; ordinary script call operands still carry representation contracts.
+Struct fields carry complete nested types. Allocation and replacement validate
+nominal layouts and nested tuple/container values before committing; operand
+verification still checks physical representations rather than proving nominal flow.
+Untyped host container mutations do not maintain a permanent element-type invariant.
+The artifact loader runs bytecode verification independently. The MIR seal is
+neither serialized nor a substitute for artifact validation. MIR supplies logical
+root/liveness facts; native physical maps remain a backend responsibility, and
+unsupported GC-bearing native functions use interpreter fallback.
 
 ## Execution Model
 
@@ -115,7 +255,6 @@ The current in-memory Rust shape is:
 
 ```text
 BytecodeModule {
-  module_init: Option<FunctionRef>,
   module_slots: [BytecodeModuleSlot],
   functions: [BytecodeFunction]
 }
@@ -148,7 +287,7 @@ The operand model includes:
 - `ConstId` or inline `ConstantOperand`
 - `CallTarget`
 - `FunctionRef`
-- `HostFunctionId`
+- `NativeImportId`
 - `RuntimeHelperId`
 - `TypeId`
 - `PathId`
@@ -220,6 +359,10 @@ Ordinary aggregate instructions:
 ```text
 MakeTuple dst, elements
 MakeArray dst, elements
+MakeClosure dst, function_ref, captures
+MakeCell dst, initial_value
+ReadCell dst, cell
+WriteCell cell, value
 MakeStruct dst, type_id, field_values
 ReadField dst, base, field_id
 WriteField base, field_id, value
@@ -229,6 +372,14 @@ WriteIndex base, index, value
 
 These instructions apply to script-owned values or runtime-managed aggregates.
 They must not silently become reflection over host-owned Rust state.
+
+`MakeClosure` binds ordered capture values to a verified function slot. Indirect
+closure calls carry a physical parameter and result contract; the runtime checks
+the stored function against that contract before entering its frame. Capture
+cells preserve writes to lexically captured `var` bindings and are traced by the
+same non-moving GC as other script objects. A closure retains its linked program
+version, including the dependency set used by subsequent calls. Invalid slots,
+capture counts and register types are rejected during bytecode verification.
 
 If a field or index chain is resolved as host-backed, it lowers to the typed path instruction family.
 
@@ -251,7 +402,7 @@ The semantic properties are:
 - `path_id` identifies a typed path descriptor, not a string path
 - `dynamic_args` contain runtime index values such as `item_id`
 - the path descriptor records root type, result type, access policy, and schema or ABI fingerprint
-- path operations can call host code, trap, check capabilities, validate epochs, and mark dirty state
+- path operations can call host code, trap, validate declared access, validate epochs, and mark dirty state
 
 Example source:
 
@@ -324,8 +475,8 @@ Calls distinguish:
 - indirect register-based calls
 - host function calls
 - runtime helper calls
-- builtin method calls
-- interface dispatch helper calls
+- standard intrinsic calls with verified argument and result representations
+- verified interface method calls
 
 The `CallTarget` model records this distinction.
 
@@ -333,7 +484,7 @@ Host calls and runtime helpers remain explicit because they can:
 
 - trap
 - allocate
-- trigger capability checks
+- trigger declared interface checks
 - become safepoints
 - enter frame-scoped host borrow guards
 - interact with hot reload metadata
@@ -350,7 +501,6 @@ Effect flags include:
 - `may_allocate`
 - `may_trap`
 - `may_call_host`
-- `may_check_capability`
 - `may_access_reflection`
 - `may_mutate_script_heap`
 - `may_mutate_host_state`
@@ -364,10 +514,10 @@ Effect classification:
 LoadLocal       no observable effect
 Binary          may_trap for checked arithmetic or invalid operands
 MakeArray       may_allocate, is_safepoint
-Call host       may_call_host, may_trap, may_check_capability, is_safepoint
-ReadPath        may_call_host, may_trap, may_check_capability
-SetPath         may_call_host, may_trap, may_check_capability, may_mutate_host_state, may_mark_dirty
-ModifyPath      may_call_host, may_trap, may_check_capability, may_mutate_host_state, may_mark_dirty
+Call host       may_call_host, may_trap, is_safepoint
+ReadPath        may_call_host, may_trap
+SetPath         may_call_host, may_trap, may_mutate_host_state, may_mark_dirty
+ModifyPath      may_call_host, may_trap, may_mutate_host_state, may_mark_dirty
 ```
 
 This metadata supports:
@@ -388,15 +538,33 @@ The bytecode verifier checks:
 - jump targets point to valid instruction boundaries
 - functions return values compatible with their declared return type
 - instruction operands match the expected type layout when type metadata is retained
+- runtime reflection helpers have the same verified arity and representation
+  contract in IR and bytecode: field/index receivers are heap values, indexes
+  are integers, reflective writes cannot store host handles, and result
+  registers match the helper's static result where known
 - local and field writes respect `val` / `var` writeability
 - `PathId` operands exist in the path table
 - path dynamic argument counts match the descriptor
 - path result values are used with compatible types
 - write operations target writable paths
 - public function signatures are concrete and ABI-supported
+- private trait contracts have local canonical identities and do not duplicate
+  public trait ABI records; host trait tables match the defining public or
+  private method contract before publication
+- local interface implementation tables match the defining public or private
+  trait method roster and substituted signatures before their method slots can
+  be used as executable bound evidence
+- concrete host trait arguments satisfy every applied trait bound through
+  exactly one matching script interface table or host trait table in the
+  executable dependency closure. Matching uses declaration identity, ordered
+  type arguments, generic substitution and recursive implementation bounds.
+  Artifact verification caps the implementation catalog, candidate checks and
+  proof depth; exhausting any limit rejects the product before execution
+- modules in one dependency closure agree on each host type identity, symbol
+  and executable declaration before runtime binding
 
 Verification rejects malformed bytecode before execution.
-Runtime checks are still required for host object liveness, dynamic index validity, capability state, and host-side invariants.
+Runtime checks are still required for host object liveness, dynamic index validity, declared access, and host-side invariants.
 
 ## Hot Reload Metadata
 
@@ -420,9 +588,15 @@ New calls use the latest successfully published epoch.
 
 ## GC and Safepoint Metadata
 
-Bytecode preserves enough value-liveness information for precise GC.
+KBC format 38 retains the verified, function-wide conservative root layout
+introduced in format 34.
+Every local and register with `HeapObject` representation appears exactly once,
+in ascending slot order. Scalar, string and host-handle slots do not appear.
+Omitting a heap slot or adding another slot rejects the artifact before
+execution. The interpreter currently roots its whole frame, which remains safe;
+the layout is an explicit contract for future narrower frame roots.
 
-GC and safepoint metadata includes:
+Additional GC and safepoint metadata planned for later backends includes:
 
 - which registers and locals contain GC-managed values at safepoints
 - which registers and locals contain host handles or path views
@@ -475,17 +649,35 @@ The logical separation is reflected in the in-memory model so the artifact forma
 
 The current code shape lives in:
 
-- [bytecode/mod.rs](../../crates/kagari-ir/src/bytecode/mod.rs)
-- [bytecode/module.rs](../../crates/kagari-ir/src/bytecode/module.rs)
-- [bytecode/instruction.rs](../../crates/kagari-ir/src/bytecode/instruction.rs)
-- [bytecode/lower.rs](../../crates/kagari-ir/src/bytecode/lower.rs)
+- [bytecode/lib.rs](../../crates/kagari-bytecode/src/lib.rs)
+- [bytecode/module.rs](../../crates/kagari-bytecode/src/module.rs)
+- [bytecode/instruction.rs](../../crates/kagari-bytecode/src/instruction.rs)
+- [compiler/bytecode](../../crates/kagari-compiler/src/bytecode.rs)
 
 The current implementation defines the execution-layer boundary and wraps bytecode in versioned `.kbc` artifact metadata.
 Artifact serialization is implemented separately from bytecode semantics so the binary exchange format can evolve without changing VM behavior.
 
+The `.kbc` section directory is derived from the program, debug payload and
+signature payload in one fixed order. Loader validation rebuilds that directory
+and rejects mismatched section identifiers, record counts, fingerprints and
+source/debug name tables even when the outer content hash is consistent.
+
+The decoder rejects inputs above 64 MiB. Before verification or publication,
+artifact construction, decoding, encoding and in-memory loading also reject more
+than 1,024 modules, 65,536 functions, 1,000,000 instructions, or 1,000,000
+records in a module table or metadata table. Section-declared counts have the
+same bound independently of payload size. These are format resource limits;
+compiler instance and diagnostic budgets are separate.
+Directly nested layout fields, enum variants and payloads, host type members and
+parameters, host path segments, and public ABI declaration members each have a
+4,096-record vector limit; their combined count across the program is limited
+to 1,000,000. ABI types use flat preorder nodes with limits of 4,096 nodes and
+depth 64. Encoded input size, executable operands, identity paths and metadata
+vectors have corresponding preflight limits in the artifact format.
+
 ## Relationship to IR
 
-Bytecode is lower than construction IR and more execution-oriented.
+Bytecode is the flattened interpreter target of verified MIR.
 
 IR is responsible for:
 
@@ -519,15 +711,19 @@ The `JumpTarget` representation used by the VM is instruction-stream based, not 
 
 ## Constant Handling
 
-The current `ConstantOperand` model is small and inline.
+`LoadConst` carries a `ConstantId`, indexing the owning module's portable
+`ConstantOperand` table. Lowering deduplicates constants by tag and exact payload;
+float payloads use bit equality, preserving signed zero and NaN payloads. The
+verifier rejects out-of-range indices, duplicate pool entries and destination
+representation mismatches. Semantic integer-range analysis reads the indexed
+operand. Artifacts serialize indices and portable constants, never runtime handles.
 
-For the current language model, `LoadConst` is primarily aimed at small scalar operands.
-
-Future Work: string-heavy or other large inline operands can move into a constant pool when:
-
-- serialized artifact size matters
-- deduplication becomes worthwhile
-- VM loading cost needs to be reduced
+Runtime preparation embeds scalar payload bits in physical scalar operations.
+Strings are materialized lazily in a runtime-local cache owned by the loaded
+module version; subsequent loads copy its compact Value. The GC traces these
+cache entries with the program graph. Escaped rooted strings remain valid when
+an obsolete cache is reclaimed. Independently loaded runtimes share immutable
+verified code but have separate constant storage. Dynamic interning is not required.
 
 This does not mean that `const` items produce heap-backed frozen objects.
 Aggregate runtime values are built through explicit construction instructions.
@@ -536,6 +732,7 @@ Aggregate runtime values are built through explicit construction instructions.
 
 The examples below show the execution shape.
 Opcode spelling is implementation-defined when the semantic behavior is unchanged.
+Literal operands shown on `LoadConst` are shorthand for constant-table indices.
 
 ### Example: Simple Arithmetic
 
@@ -668,7 +865,8 @@ The architecture is:
 - IR remains the place where CFG is explicit
 - bytecode remains the interpreter-facing flattened format
 - SSA and optimizing JIT work branches off from typed IR or SSA IR
-- baseline JIT backends can consume bytecode or a bytecode-like lowered form if they preserve the same helper and metadata contracts
+- native backends consume verified MIR, sealed analyses and explicit ABI/link descriptions
+- bytecode is never used to reconstruct native semantic input
 
 ## Future Work
 
@@ -679,10 +877,79 @@ The following artifact and implementation details are not fixed by this document
 - exact `CallTarget` encoding
 - exact `PathId` and dynamic path operand encoding
 - exact effect flag representation
-- exact safepoint and root-map metadata representation
+- exact per-program-point root liveness beyond the function-wide conservative layout
 - final module, type, host function, and path table layouts
 - bytecode verification rules
 - `.kbc` binary artifact encoding
 - debug metadata and source mapping for bytecode instructions
 
 These details are finalized as the typed IR, host path metadata, VM frame model, and module reload model stabilize.
+
+Host calls use `CallTarget::Native(NativeImportId)` and the same ordinary native
+import/declaration contract as standard and application callbacks. Verification
+checks exact declaration identity, concrete arguments, callable requirements,
+receiver access and semantic/physical signatures. External `TypeDeclaration`
+schemas and explicit path requirements accompany the module. Loading checks them
+against installed common modules and pins the selected entries to the loaded
+version; diagnostic labels never select callbacks. Invocation retains effect,
+cancellation, roots, scoped borrow and result validation.
+
+`VerifiedProgram` checks a complete bytecode dependency closure before splitting
+its modules into shared immutable code handles. Separate runtimes can link the
+same handle without copying functions or layouts, while host bindings and module
+instances remain runtime-owned. `Runtime::load_program` constructs the verified
+handle for one runtime; `Runtime::load_verified_program` accepts a shared handle.
+Direct loading and reload preflight enforce the artifact's in-memory count and
+encoded-size limits before fingerprint computation.
+LoadedModule is an immutable Arc-backed handle constructed by Runtime loading.
+Clone and module queries share executable data. Public raw ModuleStore loading
+and mutation of loaded bytecode are unavailable. Handles and linked host slots
+carry registry ownership and reject another runtime, even when numeric module
+keys or slots coincide. Complete dependency pinning and state reclamation still
+belong to the remaining R10/R14 work.
+
+Source nominal host types use `ValueType::HostHandle`, separate from `HeapObject`.
+Opaque host call operands/results must match that representation; general equality
+is invalid for it. Host identity remains in `Ty::Host` and the required host
+declaration table, never in a display-string fallback. Signature-only references
+and member reference closure participate in mandatory linking. This representation
+does not enable storing host handles in default script-owned heap payloads.
+Path table roots and `MakePathView` destinations also require `HostHandle`; path
+tables carrying the former heap-object representation are rejected before execution.
+
+
+## Native iteration instructions
+
+Iter New accepts a concrete Array, Map, Set or String ABI and returns a GC iterator.
+Iter Next accepts a concrete Iter<Item> ABI and returns Option<Item>. The verifier checks each ABI,
+operand and result register before linking/execution. Iter is a concrete ABI
+type whose children participate in generic substitution, validation and layout
+traversal. Runtime operations check handle ownership, generation, source revision
+and item ABI; creation retains the source, captures and code version without
+materializing a snapshot of the source items.
+For loops use ordinary rooted cursor values and calls, without iteration scope
+instructions. Structural writes invalidate the cursor; its next source read traps.
+Custom Iterator/Iterable methods are ordinary static calls. The existing JIT
+uses its normal interpreter fallback for unsupported iterator/control-flow bodies.
+The semantic contract is in [builtins](builtins.md#iteration-protocols).
+
+## Async execution contract
+
+Future factories, Future/Task await and generic script spawn are implemented. The
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
+
+Portable metadata identifies the checked Future and Task roles, native producers, factory
+and private resume-body signatures, output type and suspension capability. Await
+encodes operand and typed destination; the following PC resumes only after output
+initialization. Independent verification derives initialized live slots, rejects
+direct resume-body calls and non-suspendable resources, and permits rooted cursors. Runtime also checks actual reachable mutable/host state.
+
+MakeFuture records a local private resume target, all captured arguments and the
+nominal Future type. Verification requires exact physical/semantic capture types,
+the completed output and a suspendable target, with initialized capture registers.
+It allocates cold state without invoking the target. A Task role is valid for Await
+but never MakeFuture. Both awaitable roles require exactly one output parameter,
+exact operand and destination semantic types, and a suspendable caller. The same
+checked liveness and resource facts apply to both; accepting Task cannot bypass
+scoped-host or mutation-guard checks.

@@ -1,93 +1,1159 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BuiltinType {
-    Unit,
-    Bool,
-    I8,
-    I16,
-    I32,
-    I64,
-    ISize,
-    U8,
-    U16,
-    U32,
-    U64,
-    USize,
-    F32,
-    F64,
-    String,
+//! Semantic type values, generic identity and substitution; source type IDs live in `hir::ids`.
+
+mod display;
+pub mod semantic;
+
+use crate::typeck::{GenericBounds, associated};
+use kagari_common::identity::table::DefinitionId;
+use kagari_types::{
+    collection::{
+        CollectionAccess,
+        CollectionAccess::{Mutable, ReadOnly},
+    },
+    range::RangeKind,
+    reference::ReferenceAccess,
+    scalar::BuiltinType,
+    surface as standard_surface,
+};
+use std::{
+    collections::{BTreeMap, HashMap, HashSet},
+    hash::{Hash, Hasher},
+    ops::{Deref, DerefMut},
+};
+
+/// Generic binder and owner-specific `Self` substitutions.
+///
+/// `parameters` maps `(owner, position)` binders to semantic types. `receivers`
+/// maps declaring owners to their `Self` replacement. Dereferencing exposes only
+/// the parameter map; receiver entries use explicit accessors. This is not a map
+/// from source names, so shadowed binders with the same spelling remain distinct.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TypeSubstitution {
+    /// Generic binder to instantiated semantic type.
+    parameters: HashMap<GenericParameterType, TypeId>,
+    /// Declaring owner to its `Self` replacement.
+    receivers: HashMap<DefinitionId, TypeId>,
 }
 
+impl Deref for TypeSubstitution {
+    type Target = HashMap<GenericParameterType, TypeId>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.parameters
+    }
+}
+
+impl DerefMut for TypeSubstitution {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.parameters
+    }
+}
+
+impl FromIterator<(GenericParameterType, TypeId)> for TypeSubstitution {
+    fn from_iter<T: IntoIterator<Item = (GenericParameterType, TypeId)>>(iter: T) -> Self {
+        Self {
+            parameters: iter.into_iter().collect(),
+            receivers: Default::default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod nominal_tests;
+
+/// Names are diagnostic metadata; owner and position determine equality.
+#[derive(Debug, Clone)]
+pub struct GenericParameterType {
+    /// Definition that declares the binder; part of equality and hashing.
+    pub owner: DefinitionId,
+    /// Zero-based binder position within its owner; part of equality and hashing.
+    pub position: usize,
+    /// Diagnostic spelling only; renaming does not determine binder equality.
+    pub name: String,
+}
+
+/// Member-level generic binders and their checked requirements.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedTypeParameters {
+    /// Associated family binders in declaration order.
+    pub parameters: Vec<GenericParameterType>,
+    /// Checked constraints on family inputs.
+    pub bounds: GenericBounds,
+}
+
+/// An associated type definition parameterized by member-level inputs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssociatedTypeFamily {
+    /// Family binders and bounds, separate from enclosing implementation binders.
+    pub inputs: AssociatedTypeParameters,
+    /// Output type before applying enclosing/member substitutions.
+    pub value: TypeId,
+}
+
+impl PartialEq for GenericParameterType {
+    fn eq(&self, other: &Self) -> bool {
+        self.owner == other.owner && self.position == other.position
+    }
+}
+
+impl Eq for GenericParameterType {}
+
+impl Hash for GenericParameterType {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.owner.hash(state);
+        self.position.hash(state);
+    }
+}
+
+/// An application of a declared nominal type or trait.
+///
+/// ```text
+/// Box<i32> -> NominalType { declaration: box_definition,
+///                          arguments: [Builtin(I32)], associated_types: {} }
+/// Trait<Output = i32> -> associated_types[output_definition] = Builtin(I32)
+/// ```
+///
+/// Definition identity, ordered arguments and associated constraints participate in
+/// equality. Semantic identities are resolved through the owning analysis snapshot.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct NominalType {
+    /// Canonical nominal definition, not its local/imported spelling.
+    pub declaration: DefinitionId,
+    /// Positional arguments in declaring-binder order.
+    pub arguments: Vec<TypeId>,
+    /// Associated member definition to constrained output type.
+    pub associated_types: BTreeMap<DefinitionId, TypeId>,
+}
+
+/// A semantic type value, despite the `Id` suffix; not an arena index.
+///
+/// [`crate::hir::ids::TypeRefId`] addresses source type syntax. This enum represents
+/// its meaning and is stored in [`crate::typeck::table::TypeTable`], signatures and
+/// constraints. Composite types own child type values through vectors/boxes.
+///
+/// ```text
+/// source "(i32, T)" -> TypeRefId -> Body.types -> TypeKind::Tuple([a, b])
+/// resolution       -> TypeId::Tuple([Builtin(I32), Generic { owner, position, ... }])
+/// ```
+///
+/// `Inference` is solver-local temporary state. `Unknown` and `Error` support
+/// incomplete/recovered analysis and never authorize executable lowering. Generic
+/// binders and projections can be valid in checked generic signatures even though
+/// they are not yet concrete monomorphized types.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeId {
+    /// A scoped host location; target schema does not grant a Rust layout by itself.
+    Reference {
+        target: Box<TypeId>,
+        access: ReferenceAccess,
+    },
+    /// A body-local constraint variable. Never valid in a checked signature or IR.
+    Inference(u32),
+    /// An unresolved type requiring inference or a diagnostic.
+    Unknown,
+    /// A failed type retained for recovery and suppression of dependent diagnostics.
+    Error,
+    /// An intrinsic scalar/unit/never/String type tag.
     Builtin(BuiltinType),
+    /// An ordered tuple of semantic types.
     Tuple(Vec<TypeId>),
+    /// A callable value type, separate from a named function declaration.
+    Function {
+        /// Parameter types in call order.
+        params: Vec<TypeId>,
+        /// Semantic result type.
+        result: Box<TypeId>,
+    },
+    /// Iterator representation carrying its element type.
+    Iter(Box<TypeId>),
+    /// Range element type and open/inclusive/exclusive shape.
+    Range(Box<TypeId>, RangeKind),
+    /// Builtin fixed-length array element type; length belongs to the object.
     Array(Box<TypeId>),
+    /// Map storage with key/value types and access policy.
     Map {
+        /// Semantic key type.
         key: Box<TypeId>,
+        /// Semantic mapped-value type.
         value: Box<TypeId>,
+        /// Mutable or readonly collection access; part of type identity.
+        access: CollectionAccess,
     },
-    Set(Box<TypeId>),
-    Struct(String),
-    Enum(String),
-    Trait(String),
-    Generic(String),
-    StandardEnum {
-        name: String,
-        args: Vec<TypeId>,
+    /// Set storage element type and collection access.
+    Set(Box<TypeId>, CollectionAccess),
+    /// A registered native-backed nominal object application.
+    NativeObject(NominalType),
+    /// A source nominal struct application.
+    Struct(NominalType),
+    /// A nominal enum application.
+    Enum(NominalType),
+    /// A trait/interface value type with applied arguments/constraints.
+    Trait(NominalType),
+    /// An installed host type definition identity.
+    Host(DefinitionId),
+    /// A generic binder identified by declaring owner and position.
+    Generic(GenericParameterType),
+    /// An applied associated type that may still depend on a receiver/trait implementation.
+    Projection {
+        /// Arguments of the associated type family.
+        arguments: Vec<TypeId>,
+        /// Type whose implementation supplies the associated member.
+        receiver: Box<TypeId>,
+        /// Applied trait qualification, including associated constraints.
+        interface: Box<NominalType>,
+        /// Canonical associated member definition identity.
+        member: DefinitionId,
     },
+    /// Owner-qualified `Self` before receiver substitution.
+    SelfType(DefinitionId),
 }
 
 impl TypeId {
-    pub fn from_name(name: &str) -> Option<Self> {
-        crate::builtin::surface::builtin_type(name).map(Self::Builtin)
+    /// Resolve known outputs and retain the applied interface for other projections.
+    /// A bound's sibling output constraints are part of the context supplied to
+    /// inherited members, even when the requested output remains abstract.
+    pub fn with_associated_types(&self, interface: &NominalType, owner: &TypeId) -> Self {
+        associated::normalize(self, &|projected, receiver, member, arguments| {
+            if !arguments.is_empty()
+                || projected.declaration != interface.declaration
+                || receiver != owner
+            {
+                return None;
+            }
+            if let Some(output) = interface.associated_types.get(member) {
+                return (output
+                    != &Self::Projection {
+                        receiver: Box::new(receiver.clone()),
+                        interface: Box::new(projected.clone()),
+                        member: *member,
+                        arguments: vec![],
+                    })
+                    .then(|| output.clone());
+            }
+            (projected != interface).then(|| Self::Projection {
+                receiver: Box::new(receiver.clone()),
+                interface: Box::new(interface.clone()),
+                member: *member,
+                arguments: vec![],
+            })
+        })
+    }
+}
+
+/// Repetition is permitted only when the type proves that no mutable identity is shared.
+/// Nominal payloads come from checked source declarations or verified concrete layouts.
+pub fn supports_array_repetition(
+    ty: &TypeId,
+    mut enum_payload: impl FnMut(&NominalType) -> Option<Vec<TypeId>>,
+) -> bool {
+    let mut pending = vec![ty.clone()];
+    let mut seen = HashSet::new();
+    let mut work = 0;
+    while let Some(ty) = pending.pop() {
+        work += 1;
+        if work > 4096 {
+            return false;
+        }
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        match ty {
+            TypeId::Builtin(_) | TypeId::Range(_, _) => {}
+            TypeId::Tuple(items) => pending.extend(items),
+            TypeId::Enum(instance) => {
+                let Some(payload) = enum_payload(&instance) else {
+                    return false;
+                };
+                pending.extend(payload);
+            }
+            _ => return false,
+        }
+    }
+    true
+}
+
+mod mapping;
+
+mod shape;
+
+impl TypeSubstitution {
+    /// Records/replaces the `Self` type for a declaring owner.
+    pub fn insert_receiver(&mut self, owner: DefinitionId, receiver: TypeId) {
+        self.receivers.insert(owner, receiver);
     }
 
-    pub fn display_name(&self) -> String {
-        match self {
-            Self::Builtin(ty) => crate::builtin::surface::builtin_type_spec(*ty)
-                .map(|spec| spec.name.to_owned())
-                .unwrap_or("<builtin>".to_owned()),
-            Self::Tuple(elements) => {
-                let inner = elements
-                    .iter()
-                    .map(TypeId::display_name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("({inner})")
-            }
-            Self::Array(element) => format!("[{}]", element.display_name()),
-            Self::Map { key, value } => {
-                format!("Map<{}, {}>", key.display_name(), value.display_name())
-            }
-            Self::Set(element) => format!("Set<{}>", element.display_name()),
-            Self::Struct(name) | Self::Enum(name) | Self::Trait(name) | Self::Generic(name) => {
-                name.clone()
-            }
-            Self::StandardEnum { name, args } => {
-                let inner = args
-                    .iter()
-                    .map(TypeId::display_name)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{name}<{inner}>")
-            }
+    /// Borrows the owner's recorded `Self` replacement, if any.
+    pub fn receiver(&self, owner: &DefinitionId) -> Option<&TypeId> {
+        self.receivers.get(owner)
+    }
+}
+
+impl AssociatedTypeFamily {
+    /// Applies outer and member substitutions; returns `None` on arity mismatch and does not itself validate bounds.
+    pub fn apply(&self, outer: &TypeSubstitution, arguments: &[TypeId]) -> Option<TypeId> {
+        if arguments.len() != self.inputs.parameters.len() {
+            return None;
+        }
+        let mut substitution = outer.clone();
+        substitution.extend(
+            self.inputs
+                .parameters
+                .iter()
+                .cloned()
+                .zip(arguments.iter().cloned()),
+        );
+        Some(self.value.instantiate(&substitution))
+    }
+}
+
+impl NominalType {
+    /// Checks equal declaration/arguments and all required associated constraints; permits extra known constraints.
+    pub fn satisfies(&self, required: &Self) -> bool {
+        self.declaration == required.declaration
+            && self.arguments == required.arguments
+            && required
+                .associated_types
+                .iter()
+                .all(|(member, ty)| self.associated_types.get(member) == Some(ty))
+    }
+
+    /// Tests a bound on `receiver`, including reflexive associated projections.
+    ///
+    /// `T: Trait` implies `T: Trait<Item = <T as Trait>::Item>` without a
+    /// concrete implementation. The projection must use the same receiver,
+    /// member and an interface whose constraints this bound already proves.
+    pub(crate) fn satisfies_for(&self, required: &Self, receiver: &TypeId) -> bool {
+        self.declaration == required.declaration
+            && self.arguments == required.arguments
+            && required.associated_types.iter().all(|(member, ty)| {
+                self.associated_types.get(member) == Some(ty)
+                    || matches!(ty, TypeId::Projection {
+                        receiver: projected, interface, member: projected_member, arguments,
+                    } if projected.as_ref() == receiver && projected_member == member
+                        && arguments.is_empty() && self.satisfies(interface))
+            })
+    }
+
+    /// Substitutes generic/Self occurrences in arguments and associated outputs.
+    pub fn instantiate(&self, substitution: &TypeSubstitution) -> Self {
+        Self {
+            declaration: self.declaration,
+            associated_types: self
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (*id, ty.instantiate(substitution)))
+                .collect(),
+            arguments: self
+                .arguments
+                .iter()
+                .map(|argument| argument.instantiate(substitution))
+                .collect(),
         }
     }
 
-    pub fn is_heap_backed(&self) -> bool {
-        match self {
-            Self::Builtin(ty) => {
-                crate::builtin::surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
-            }
-            Self::Tuple(_)
-            | Self::Array(_)
-            | Self::Map { .. }
-            | Self::Set(_)
-            | Self::Struct(_)
-            | Self::Enum(_)
-            | Self::Trait(_)
-            | Self::Generic(_)
-            | Self::StandardEnum { .. } => true,
+    fn map_arguments(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
+        Self {
+            declaration: self.declaration,
+            associated_types: self
+                .associated_types
+                .iter()
+                .map(|(id, ty)| (*id, map(ty)))
+                .collect(),
+            arguments: self.arguments.iter().map(&mut map).collect(),
         }
     }
 }
+
+impl TypeId {
+    /// Returns whether this is the intrinsic diverging `never` type.
+    pub fn is_never(&self) -> bool {
+        matches!(self, Self::Builtin(BuiltinType::Never))
+    }
+
+    /// Concrete host Map/Set access is part of type identity, not object state.
+    /// Ordinary interface types have no access descriptor.
+    pub fn collection_access(&self) -> Option<CollectionAccess> {
+        match self {
+            Self::Set(_, access) | Self::Map { access, .. } => Some(*access),
+            _ => None,
+        }
+    }
+
+    /// Weaken outer storage/view access while retaining invariant target arguments.
+    pub fn read_only_view(&self) -> Option<Self> {
+        Some(match self {
+            Self::Reference { target, .. } => Self::Reference {
+                target: target.clone(),
+                access: ReferenceAccess::Shared,
+            },
+            Self::Set(item, _) => Self::Set(item.clone(), ReadOnly),
+            Self::Map { key, value, .. } => Self::Map {
+                key: key.clone(),
+                value: value.clone(),
+                access: ReadOnly,
+            },
+            _ => return None,
+        })
+    }
+
+    /// Check outer capability weakening without changing the target type.
+    pub fn can_weaken_to(&self, target: &Self) -> bool {
+        if let (
+            Self::Reference {
+                access: ReferenceAccess::Mutable,
+                ..
+            },
+            Self::Reference {
+                access: ReferenceAccess::Shared,
+                ..
+            },
+        ) = (self, target)
+        {
+            return self
+                .read_only_view()
+                .is_some_and(|view| !view.conflicts_with(target));
+        }
+        self.collection_access() == Some(Mutable)
+            && target.collection_access() == Some(ReadOnly)
+            && self
+                .read_only_view()
+                .is_some_and(|view| !view.conflicts_with(target))
+    }
+
+    /// Reports whether this type tree contains an associated-type projection.
+    pub fn contains_projection(&self) -> bool {
+        self.contains_type(|ty| matches!(ty, Self::Projection { .. }))
+    }
+
+    pub(crate) fn contains_interface(&self) -> bool {
+        self.contains_type(|ty| matches!(ty, Self::Trait(_)))
+    }
+
+    /// Reports a reference anywhere in a signature, including callable components.
+    pub fn contains_reference(&self) -> bool {
+        self.contains_type(|ty| matches!(ty, Self::Reference { .. }))
+    }
+
+    /// Check the shared portable target/position rule once inference has resolved.
+    pub fn reference_position_valid(&self) -> bool {
+        !self.contains_reference()
+            || self.is_unresolved()
+            || semantic::lower_type(self).reference_position_valid()
+    }
+
+    /// References in callable signatures are inputs, not captured host locations.
+    pub fn contains_stored_reference(&self) -> bool {
+        if !self.contains_reference() {
+            false
+        } else if self.is_unresolved() {
+            self.contains_reference()
+        } else {
+            semantic::lower_type(self).contains_stored_reference()
+        }
+    }
+
+    fn contains_type(&self, predicate: impl Fn(&Self) -> bool) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            if predicate(ty) {
+                return true;
+            }
+            match ty {
+                Self::Projection {
+                    receiver,
+                    interface,
+                    arguments,
+                    ..
+                } => {
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                    pending.extend(arguments);
+                }
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values());
+                }
+                Self::Reference { target, .. } => pending.push(target),
+                Self::Tuple(types) => pending.extend(types),
+                Self::Array(ty) | Self::Set(ty, _) | Self::Iter(ty) | Self::Range(ty, _) => {
+                    pending.push(ty)
+                }
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Checks represented value components for host types; callable parameter/result types are not stored host values.
+    pub fn contains_host_value(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Host(_) | Self::Reference { .. } => return true,
+                Self::Tuple(items) => pending.extend(items),
+                Self::Function { .. } => {}
+                Self::Array(item)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values())
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Reports whether this type contains an owner-qualified `Self` occurrence.
+    pub fn contains_self_type(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Projection {
+                    receiver,
+                    interface,
+                    arguments,
+                    ..
+                } => {
+                    pending.extend(arguments);
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
+                Self::SelfType(_) => return true,
+                Self::Reference { target, .. } => pending.push(target),
+                Self::Tuple(items) => pending.extend(items),
+                Self::Array(item)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values())
+                }
+                Self::Inference(_)
+                | Self::Unknown
+                | Self::Error
+                | Self::Builtin(_)
+                | Self::Host(_)
+                | Self::Generic(_) => {}
+            }
+        }
+        false
+    }
+
+    /// Substitute one binder layer; replacements can contain the caller's parameters.
+    pub fn instantiate(&self, substitution: &TypeSubstitution) -> TypeId {
+        self.substitute_once(|ty| match ty {
+            Self::Generic(parameter) => substitution.get(parameter),
+            Self::SelfType(owner) => substitution.receiver(owner),
+            _ => None,
+        })
+    }
+
+    /// Visit direct type children. Projection normalization uses a separately
+    /// bounded walk; ordinary substitution remains iterative.
+    pub fn map_children(&self, mut map: impl FnMut(&TypeId) -> TypeId) -> Self {
+        match self {
+            Self::Reference { target, access } => Self::Reference {
+                target: Box::new(map(target)),
+                access: *access,
+            },
+            Self::Tuple(items) => Self::Tuple(items.iter().map(map).collect()),
+            Self::Iter(ty) => Self::Iter(Box::new(map(ty))),
+            Self::Range(ty, kind) => Self::Range(Box::new(map(ty)), *kind),
+            Self::Array(ty) => Self::Array(Box::new(map(ty))),
+            Self::Set(ty, access) => Self::Set(Box::new(map(ty)), *access),
+            Self::Map { key, value, access } => Self::Map {
+                key: Box::new(map(key)),
+                value: Box::new(map(value)),
+                access: *access,
+            },
+            Self::Function { params, result } => Self::Function {
+                params: params.iter().map(&mut map).collect(),
+                result: Box::new(map(result)),
+            },
+            Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(map)),
+            Self::Struct(ty) => Self::Struct(ty.map_arguments(map)),
+            Self::Enum(ty) => Self::Enum(ty.map_arguments(map)),
+            Self::Trait(ty) => Self::Trait(ty.map_arguments(map)),
+
+            Self::Projection {
+                receiver,
+                interface,
+                member,
+                arguments,
+            } => Self::Projection {
+                arguments: arguments.iter().map(&mut map).collect(),
+                receiver: Box::new(map(receiver)),
+                interface: Box::new(interface.map_arguments(map)),
+                member: *member,
+            },
+            _ => self.clone(),
+        }
+    }
+
+    /// Preserve known argument context without exposing uninferred callee binders.
+    pub(crate) fn argument_context(
+        &self,
+        substitution: &TypeSubstitution,
+        parameters: &[GenericParameterType],
+    ) -> Self {
+        self.substitute_once(|ty| match ty {
+            Self::Generic(parameter) => substitution
+                .get(parameter)
+                .or_else(|| parameters.contains(parameter).then_some(&Self::Unknown)),
+            _ => None,
+        })
+    }
+
+    /// Rebuild one binding layer, copying inserted types without revisiting them
+    /// as substitution targets. Both generic binders and trait Self use this walk.
+    pub(crate) fn substitute_once<'a>(
+        &'a self,
+        mut replacement: impl FnMut(&Self) -> Option<&'a Self>,
+    ) -> Self {
+        let mut result = Self::Unknown;
+        let mut pending = vec![(self, &mut result, true)];
+        while let Some((source, target, substitute)) = pending.pop() {
+            if substitute && let Some(inserted) = replacement(source) {
+                pending.push((inserted, target, false));
+                continue;
+            }
+            *target = match source {
+                Self::Reference { access, .. } => Self::Reference {
+                    target: Box::new(Self::Unknown),
+                    access: *access,
+                },
+                Self::NativeObject(ty) => Self::NativeObject(ty.map_arguments(|_| Self::Unknown)),
+                Self::Struct(ty) => Self::Struct(ty.map_arguments(|_| Self::Unknown)),
+                Self::Enum(ty) => Self::Enum(ty.map_arguments(|_| Self::Unknown)),
+                Self::Trait(ty) => Self::Trait(ty.map_arguments(|_| Self::Unknown)),
+                Self::Tuple(items) => Self::Tuple(vec![Self::Unknown; items.len()]),
+
+                Self::Iter(_) => Self::Iter(Box::new(Self::Unknown)),
+                Self::Range(_, kind) => Self::Range(Box::new(Self::Unknown), *kind),
+                Self::Array(_) => Self::Array(Box::new(Self::Unknown)),
+                Self::Set(_, access) => Self::Set(Box::new(Self::Unknown), *access),
+                Self::Map { access, .. } => Self::Map {
+                    key: Box::new(Self::Unknown),
+                    value: Box::new(Self::Unknown),
+                    access: *access,
+                },
+                Self::Function { params, .. } => Self::Function {
+                    params: vec![Self::Unknown; params.len()],
+                    result: Box::new(Self::Unknown),
+                },
+                Self::Projection {
+                    interface,
+                    member,
+                    arguments,
+                    ..
+                } => Self::Projection {
+                    arguments: vec![Self::Unknown; arguments.len()],
+                    receiver: Box::new(Self::Unknown),
+                    interface: Box::new(interface.map_arguments(|_| Self::Unknown)),
+                    member: *member,
+                },
+                _ => source.clone(),
+            };
+            match (source, target) {
+                (Self::Reference { target: source, .. }, Self::Reference { target, .. }) => {
+                    pending.push((source, target, substitute));
+                }
+                (Self::NativeObject(source), Self::NativeObject(target))
+                | (Self::Struct(source), Self::Struct(target))
+                | (Self::Enum(source), Self::Enum(target))
+                | (Self::Trait(source), Self::Trait(target)) => {
+                    pending.extend(
+                        source
+                            .associated_types
+                            .values()
+                            .zip(target.associated_types.values_mut())
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.extend(
+                        source
+                            .arguments
+                            .iter()
+                            .zip(&mut target.arguments)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (
+                    Self::Projection {
+                        receiver: sr,
+                        interface: si,
+                        arguments: sa,
+                        ..
+                    },
+                    Self::Projection {
+                        receiver: tr,
+                        interface: ti,
+                        arguments: ta,
+                        ..
+                    },
+                ) => {
+                    pending.extend(
+                        sa.iter()
+                            .zip(ta)
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.push((sr, tr, substitute));
+                    pending.extend(
+                        si.arguments
+                            .iter()
+                            .zip(&mut ti.arguments)
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                    pending.extend(
+                        si.associated_types
+                            .values()
+                            .zip(ti.associated_types.values_mut())
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (Self::Tuple(source), Self::Tuple(target)) => {
+                    pending.extend(
+                        source
+                            .iter()
+                            .zip(target)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                (Self::Range(source, _), Self::Range(target, _))
+                | (Self::Iter(source), Self::Iter(target))
+                | (Self::Array(source), Self::Array(target))
+                | (Self::Set(source, _), Self::Set(target, _)) => {
+                    pending.push((source, target, substitute));
+                }
+                (
+                    Self::Map {
+                        key: source_key,
+                        value: source_value,
+                        ..
+                    },
+                    Self::Map {
+                        key: target_key,
+                        value: target_value,
+                        ..
+                    },
+                ) => {
+                    pending.push((source_value, target_value, substitute));
+                    pending.push((source_key, target_key, substitute));
+                }
+                (
+                    Self::Function {
+                        params: source_params,
+                        result: source_result,
+                    },
+                    Self::Function {
+                        params: target_params,
+                        result: target_result,
+                    },
+                ) => {
+                    pending.push((source_result, target_result, substitute));
+                    pending.extend(
+                        source_params
+                            .iter()
+                            .zip(target_params)
+                            .rev()
+                            .map(|(source, target)| (source, target, substitute)),
+                    );
+                }
+                _ => {}
+            }
+        }
+        result
+    }
+
+    /// Checks that no unresolved state, generic binder, `Self` or projection remains in the type tree.
+    pub fn is_concrete(&self) -> bool {
+        self.is_resolved_in(&[])
+    }
+
+    /// A caller-owned binder is known context even before monomorphization.
+    pub(crate) fn is_resolved_in(&self, parameters: &[GenericParameterType]) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values());
+                }
+                Self::Reference { target, .. } => pending.push(target),
+                Self::Tuple(items) => {
+                    pending.extend(items);
+                }
+                Self::Array(item)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                Self::Generic(parameter) if parameters.contains(parameter) => {}
+                Self::Projection {
+                    receiver,
+                    arguments,
+                    interface,
+                    ..
+                } if receiver.is_resolved_in(parameters) && !parameters.is_empty() => {
+                    pending.extend(arguments);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
+                Self::Projection { .. }
+                | Self::Generic(_)
+                | Self::Inference(_)
+                | Self::Unknown
+                | Self::Error
+                | Self::SelfType(_) => return false,
+                Self::Builtin(_) | Self::Host(_) => {}
+            }
+        }
+        true
+    }
+
+    /// Replaces `Self` occurrences belonging to the specified owner, leaving other owners unchanged.
+    pub fn with_self(&self, owner: &DefinitionId, replacement: &TypeId) -> TypeId {
+        self.substitute_once(|ty| match ty {
+            Self::SelfType(id) if id == owner => Some(replacement),
+            _ => None,
+        })
+    }
+
+    /// Returns whether this is one of the intrinsic signed/unsigned integer types.
+    pub fn is_integer(&self) -> bool {
+        matches!(
+            self,
+            Self::Builtin(
+                BuiltinType::I8
+                    | BuiltinType::I16
+                    | BuiltinType::I32
+                    | BuiltinType::I64
+                    | BuiltinType::ISize
+                    | BuiltinType::U8
+                    | BuiltinType::U16
+                    | BuiltinType::U32
+                    | BuiltinType::U64
+                    | BuiltinType::USize
+            )
+        )
+    }
+
+    /// Recovery types suppress dependent diagnostics but never authorize codegen.
+    pub fn is_unresolved(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::NativeObject(nominal)
+                | Self::Struct(nominal)
+                | Self::Enum(nominal)
+                | Self::Trait(nominal) => {
+                    pending.extend(&nominal.arguments);
+                    pending.extend(nominal.associated_types.values());
+                }
+                Self::Reference { target, .. } => pending.push(target),
+                Self::Tuple(items) => {
+                    pending.extend(items);
+                }
+                Self::Array(item)
+                | Self::Set(item, _)
+                | Self::Iter(item)
+                | Self::Range(item, _) => pending.push(item),
+                Self::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                Self::Projection {
+                    receiver,
+                    interface,
+                    arguments,
+                    ..
+                } => {
+                    pending.extend(arguments);
+                    pending.push(receiver);
+                    pending.extend(&interface.arguments);
+                    pending.extend(interface.associated_types.values());
+                }
+                Self::Inference(_) | Self::Unknown | Self::Error => return true,
+                Self::Builtin(_) | Self::Host(_) | Self::Generic(_) | Self::SelfType(_) => {}
+            }
+        }
+        false
+    }
+
+    /// Seal failed inference without discarding independently known members.
+    pub(crate) fn diagnose_unknowns(&self) -> Self {
+        self.substitute_once(|ty| {
+            matches!(ty, Self::Unknown | Self::Inference(_)).then_some(&Self::Error)
+        })
+    }
+
+    /// Unknown inference holes still need a diagnostic; Error already has one.
+    pub(crate) fn contains_unknown(&self) -> bool {
+        let mut pending = vec![self];
+        while let Some(ty) = pending.pop() {
+            match ty {
+                Self::Inference(_) | Self::Unknown => return true,
+                Self::Reference { target, .. } => pending.push(target),
+                Self::Tuple(items) => pending.extend(items),
+                Self::NativeObject(ty) | Self::Struct(ty) | Self::Enum(ty) | Self::Trait(ty) => {
+                    pending.extend(&ty.arguments);
+                    pending.extend(ty.associated_types.values())
+                }
+                Self::Array(element)
+                | Self::Set(element, _)
+                | Self::Iter(element)
+                | Self::Range(element, _) => pending.push(element),
+                Self::Map { key, value, .. } => {
+                    pending.push(key);
+                    pending.push(value);
+                }
+                Self::Function { params, result } => {
+                    pending.extend(params);
+                    pending.push(result);
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Fill recovery holes from another checked expression, preserving known facts.
+    pub(crate) fn recover_from(&mut self, other: &Self) {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            if matches!(right, Self::Unknown | Self::Error) {
+                continue;
+            }
+            match (left, right) {
+                (left @ (Self::Unknown | Self::Error), right) => *left = right.clone(),
+                (
+                    Self::Reference {
+                        target: left,
+                        access: la,
+                    },
+                    Self::Reference {
+                        target: right,
+                        access: ra,
+                    },
+                ) if la == ra => {
+                    pending.push((left, right));
+                }
+                (Self::Tuple(left), Self::Tuple(right)) if left.len() == right.len() => {
+                    pending.extend(left.iter_mut().zip(right).rev());
+                }
+                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
+                    pending.push((left, right));
+                }
+                (Self::Iter(left), Self::Iter(right))
+                | (Self::Array(left), Self::Array(right))
+                | (Self::Set(left, _), Self::Set(right, _)) => {
+                    pending.push((left, right));
+                }
+                (
+                    Self::Map {
+                        key: lk, value: lv, ..
+                    },
+                    Self::Map {
+                        key: rk, value: rv, ..
+                    },
+                ) => {
+                    pending.push((lv, rv));
+                    pending.push((lk, rk));
+                }
+                (
+                    Self::Function {
+                        params: left_params,
+                        result: left_result,
+                    },
+                    Self::Function {
+                        params: right_params,
+                        result: right_result,
+                    },
+                ) if left_params.len() == right_params.len() => {
+                    pending.push((left_result, right_result));
+                    pending.extend(left_params.iter_mut().zip(right_params).rev());
+                }
+                (Self::NativeObject(left), Self::NativeObject(right))
+                | (Self::Struct(left), Self::Struct(right))
+                | (Self::Enum(left), Self::Enum(right))
+                | (Self::Trait(left), Self::Trait(right))
+                    if left.declaration == right.declaration
+                        && left.arguments.len() == right.arguments.len() =>
+                {
+                    if left
+                        .associated_types
+                        .keys()
+                        .eq(right.associated_types.keys())
+                    {
+                        pending.extend(
+                            left.associated_types
+                                .values_mut()
+                                .zip(right.associated_types.values()),
+                        );
+                    }
+                    pending.extend(left.arguments.iter_mut().zip(&right.arguments).rev());
+                }
+
+                _ => {}
+            }
+        }
+    }
+
+    /// Compares known structure/access while treating inference, unknown and error nodes as recovery-compatible.
+    pub fn conflicts_with(&self, other: &Self) -> bool {
+        let mut pending = vec![(self, other)];
+        while let Some((left, right)) = pending.pop() {
+            match (left, right) {
+                (Self::Inference(_) | Self::Unknown | Self::Error, _)
+                | (_, Self::Inference(_) | Self::Unknown | Self::Error) => {}
+                (left, right)
+                    if left.collection_access().is_some()
+                        && right.collection_access().is_some()
+                        && left.collection_access() != right.collection_access() =>
+                {
+                    return true;
+                }
+                (
+                    Self::Reference {
+                        target: left,
+                        access: la,
+                    },
+                    Self::Reference {
+                        target: right,
+                        access: ra,
+                    },
+                ) if la == ra => {
+                    pending.push((left, right));
+                }
+                (Self::Tuple(left), Self::Tuple(right)) => {
+                    if left.len() != right.len() {
+                        return true;
+                    }
+                    pending.extend(left.iter().zip(right).rev());
+                }
+                (Self::Range(left, a), Self::Range(right, b)) if a == b => {
+                    pending.push((left, right));
+                }
+                (Self::Iter(left), Self::Iter(right))
+                | (Self::Array(left), Self::Array(right))
+                | (Self::Set(left, _), Self::Set(right, _)) => {
+                    pending.push((left, right));
+                }
+                (
+                    Self::Map {
+                        key: lk, value: lv, ..
+                    },
+                    Self::Map {
+                        key: rk, value: rv, ..
+                    },
+                ) => {
+                    pending.push((lv, rv));
+                    pending.push((lk, rk));
+                }
+                (
+                    Self::Function {
+                        params: left_params,
+                        result: left_result,
+                    },
+                    Self::Function {
+                        params: right_params,
+                        result: right_result,
+                    },
+                ) => {
+                    if left_params.len() != right_params.len() {
+                        return true;
+                    }
+                    pending.push((left_result, right_result));
+                    pending.extend(left_params.iter().zip(right_params).rev());
+                }
+                (Self::NativeObject(left), Self::NativeObject(right))
+                | (Self::Struct(left), Self::Struct(right))
+                | (Self::Enum(left), Self::Enum(right))
+                | (Self::Trait(left), Self::Trait(right)) => {
+                    if left.declaration != right.declaration
+                        || left.arguments.len() != right.arguments.len()
+                        || !left
+                            .associated_types
+                            .keys()
+                            .eq(right.associated_types.keys())
+                    {
+                        return true;
+                    }
+                    pending.extend(
+                        left.associated_types
+                            .values()
+                            .zip(right.associated_types.values()),
+                    );
+                    pending.extend(left.arguments.iter().zip(&right.arguments).rev());
+                }
+
+                _ if left != right => return true,
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Recognizes an intrinsic type spelling; nominal/imported names require declaration lookup.
+    pub fn from_name(name: &str) -> Option<Self> {
+        standard_surface::builtin_type(name).map(Self::Builtin)
+    }
+
+    /// Classifies representation conservatively; unresolved states return false and generic/aggregate shapes true.
+    pub fn is_heap_backed(&self) -> bool {
+        match self {
+            Self::Inference(_) | Self::Unknown | Self::Error => false,
+            Self::Builtin(ty) => {
+                standard_surface::builtin_type_spec(*ty).is_some_and(|spec| spec.heap_backed)
+            }
+            Self::Tuple(_)
+            | Self::Reference { .. }
+            | Self::Function { .. }
+            | Self::Iter(_)
+            | Self::Range(_, _)
+            | Self::Array(_)
+            | Self::Map { .. }
+            | Self::Set(_, _)
+            | Self::NativeObject(_)
+            | Self::Struct(_)
+            | Self::Enum(_)
+            | Self::Trait(_)
+            | Self::Host(_)
+            | Self::Generic(_)
+            | Self::SelfType(_)
+            | Self::Projection { .. } => true,
+        }
+    }
+}
+
+#[cfg(test)]
+mod identity_display;

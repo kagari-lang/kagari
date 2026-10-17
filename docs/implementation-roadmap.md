@@ -1,936 +1,558 @@
 # Kagari Implementation Roadmap
 
-This roadmap is the execution document for bringing Kagari from the current repository snapshot to the production architecture described in `docs/architecture.md`.
-
-Implementation work must follow the specifications, not legacy behavior in the current code.
-If current code conflicts with the specs, change the code structurally.
-Do not preserve compatibility with incorrect implementation behavior.
-
-Each step is complete only when its scoped work is verified and committed with the step's required conventional commit message.
-Each milestone is complete when all of its steps are committed and the milestone acceptance criteria pass.
-
-## Global Execution Rules
-
-- Use `docs/spec/` and `docs/kagari.ebnf` as the source of truth.
-- Keep code structure clear and structural; do not patch around legacy forms.
-- Remove incompatible legacy behavior instead of supporting both old and new models.
-- Keep public Rust APIs narrow and named around Kagari concepts, not temporary implementation details.
-- Add focused tests for accepted programs, rejected programs, lowering, runtime behavior, and reload behavior.
-- Before committing a step, run the relevant package tests from that milestone plus `git diff --check`.
-- Run the milestone verification commands when the final step in a milestone is complete.
-- Commit every completed step immediately.
-- Include the step's `Roadmap-Step: Mx.y` trailer in each step commit body.
-- Keep the working tree small; do not accumulate a whole milestone before committing.
-
-## Milestone 1: Spec-Aligned Syntax and AST
-
-Intent:
-
-- Make source parsing match `docs/spec/syntax.md` and `docs/kagari.ebnf`.
-- Remove old surface syntax from lexer, parser, AST, and parser tests.
-
-Required code areas:
-
-- `crates/kagari-syntax`
-- syntax tests
-- parser diagnostics
-- README examples if they depend on old syntax
-
-Spec references:
-
-- `docs/spec/syntax.md`
-- `docs/kagari.ebnf`
-- `docs/spec/modules.md`
-- `docs/spec/module-loading.md`
-- `docs/spec/traits.md`
-
-Implementation tasks:
-
-- Add `val` and `var` tokens and binding AST nodes.
-- Remove source-language `let`, `let mut`, `ref` parameters, `mut self`, `ref self`, script `static`, and script `dyn Trait`.
-- Require struct fields to use `val` or `var`.
-- Parse unit type/value as `()`.
-- Parse trait names as ordinary type paths.
-- Keep top-level `val` and `var` as module initialization statements, not public items.
-- Update syntax tests to use spec-valid programs only.
-- Add rejection tests for removed legacy forms.
-
-Execution steps:
-
-- M1.1 Add `val` / `var` lexer tokens, keyword classification, and token tests.
-  Commit: `feat(syntax): add val var tokens`
-  Trailer: `Roadmap-Step: M1.1`
-- M1.2 Implement parser and AST support for `val` / `var` local bindings, top-level bindings, and struct fields.
-  Commit: `feat(syntax): parse val var bindings`
-  Trailer: `Roadmap-Step: M1.2`
-- M1.3 Remove legacy parser support for source `let`, `let mut`, `ref` parameters, receiver modifiers, script `static`, and script `dyn Trait`.
-  Commit: `fix(syntax): reject legacy source forms`
-  Trailer: `Roadmap-Step: M1.3`
-- M1.4 Implement source file, module path, package-root, and import-resolution syntax hooks required by module loading.
-  Commit: `feat(syntax): add module loading hooks`
-  Trailer: `Roadmap-Step: M1.4`
-- M1.5 Update syntax fixtures, parser diagnostics, and conformance tests for spec-valid grammar.
-  Commit: `test(syntax): cover spec grammar conformance`
-  Trailer: `Roadmap-Step: M1.5`
-
-Forbidden shortcuts:
-
-- Do not parse old forms and lower them into new forms.
-- Do not keep `static` grammar as hidden compatibility.
-- Do not treat `dyn Trait` as a synonym for interface types.
-
-Acceptance criteria:
-
-- Valid examples from syntax, modules, traits, and typed path specs parse.
-- Old `let mut`, `static mut`, `ref` parameter, `mut self`, and `dyn Trait` source forms are rejected.
-- AST naming reflects `val` / `var` and field writeability.
-- Parser diagnostics explain the supported syntax.
-
-Verification:
-
-```sh
-cargo test -p kagari-syntax
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M1 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 2: HIR, Resolver, and Type System Alignment
-
-Intent:
-
-- Make semantic analysis match the source language and type-system specs.
-- Remove semantic concepts that only exist for legacy syntax.
-
-Required code areas:
-
-- `crates/kagari-hir`
-- resolver and type checker tests
-- builtin type definitions
-- semantic diagnostics
-
-Spec references:
-
-- `docs/spec/syntax.md`
-- `docs/spec/builtins.md`
-- `docs/spec/traits.md`
-- `docs/spec/modules.md`
-- `docs/spec/reflection.md`
-
-Implementation tasks:
-
-- Represent local bindings and fields with `val` / `var` writeability.
-- Treat function parameters as non-rebindable ordinary bindings.
-- Remove HIR static item support from the script language surface.
-- Preserve `const` as compile-time value items.
-- Implement field assignment checks: `val` fields reject assignment, `var` fields allow assignment subject to type and policy.
-- Implement trait declarations, impls, bounds, and interface type use without script-level `dyn`.
-- Implement interface compatibility validation for callable trait methods.
-- Preserve concrete type identity for `is<T>` and `downcast<T>` planning.
-- Update diagnostics and tests to reflect spec terms.
-
-Execution steps:
-
-- M2.1 Replace semantic binding and field mutability structures with `val` / `var` writeability.
-  Commit: `feat(hir): model val var writeability`
-  Trailer: `Roadmap-Step: M2.1`
-- M2.2 Align resolver namespaces for locals, fields, consts, functions, traits, impls, modules, and top-level initialization bindings.
-  Commit: `feat(hir): align resolver namespaces`
-  Trailer: `Roadmap-Step: M2.2`
-- M2.3 Enforce parameter, local, field, and const writeability rules in type checking.
-  Commit: `feat(typeck): enforce writeability rules`
-  Trailer: `Roadmap-Step: M2.3`
-- M2.4 Implement builtin type, standard enum, collection, numeric, string, and iterable protocol metadata.
-  Commit: `feat(typeck): add builtin standard surface`
-  Trailer: `Roadmap-Step: M2.4`
-- M2.5 Implement trait, impl, bound, interface-type, and interface-compatibility validation without script-level `dyn`.
-  Commit: `feat(typeck): add trait interface validation`
-  Trailer: `Roadmap-Step: M2.5`
-- M2.6 Update semantic diagnostics and negative tests for removed legacy constructs and invalid assignments.
-  Commit: `test(hir): cover semantic conformance`
-  Trailer: `Roadmap-Step: M2.6`
-
-Forbidden shortcuts:
-
-- Do not keep separate Rust-like mutability and Kagari writeability models.
-- Do not allow function parameter rebinding.
-- Do not type reflective field mutation as the ordinary assignment path.
-
-Acceptance criteria:
-
-- HIR contains no source-language `let mut`, script `static`, or script `dyn` concepts.
-- Resolver correctly separates locals, fields, consts, functions, traits, impls, and modules.
-- Type checker enforces binding, field, function, trait, interface, and const rules.
-- Negative tests cover removed legacy constructs and invalid assignments.
-
-Verification:
-
-```sh
-cargo test -p kagari-hir
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M2 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 3: Typed IR and Bytecode Rebuild
-
-Intent:
-
-- Rebuild executable intermediate forms around spec-level operations.
-- Make bytecode a register/local semantic contract for the interpreter and JIT.
-
-Required code areas:
-
-- `crates/kagari-ir`
-- IR and bytecode tests
-- lowering from analyzed HIR
-
-Spec references:
-
-- `docs/spec/bytecode.md`
-- `docs/spec/artifacts.md`
-- `docs/spec/debugger.md`
-- `docs/spec/typed-path-mutation.md`
-- `docs/spec/codegen-backend.md`
-- `docs/spec/jit.md`
-
-Implementation tasks:
-
-- Normalize typed IR around explicit control flow, typed values, and effect metadata.
-- Keep bytecode register/local based.
-- Add or finalize bytecode tables for constants, types, functions, public items, paths, and metadata.
-- Lower ordinary script aggregate access separately from host-backed typed path access.
-- Add typed path instructions or strongly typed helper calls for path read, set, modify, and view.
-- Remove ordinary assignment lowering through reflection helpers.
-- Add verification for local/field writeability, type consistency, path descriptors, helper calls, and control-flow targets.
-- Preserve debug spans, source mapping, safe debug points, frame layouts, and local live ranges.
-
-Execution steps:
-
-- M3.1 Normalize typed IR around explicit control flow, typed operands, values, locals, and effect metadata.
-  Commit: `feat(ir): normalize typed control flow`
-  Trailer: `Roadmap-Step: M3.1`
-- M3.2 Add bytecode tables, metadata records, and verifier checks for register/local bytecode.
-  Commit: `feat(bytecode): add verified metadata tables`
-  Trailer: `Roadmap-Step: M3.2`
-- M3.3 Separate ordinary aggregate field/index access from host-backed typed path access in IR and bytecode.
-  Commit: `feat(ir): separate aggregate and path access`
-  Trailer: `Roadmap-Step: M3.3`
-- M3.4 Add `.kbc` artifact logical sections, version metadata, dependency fingerprints, and loader-facing validation metadata.
-  Commit: `feat(bytecode): define kbc artifact metadata`
-  Trailer: `Roadmap-Step: M3.4`
-- M3.5 Remove ordinary assignment lowering through reflection helpers.
-  Commit: `fix(ir): remove reflection assignment lowering`
-  Trailer: `Roadmap-Step: M3.5`
-- M3.6 Add debugger metadata for source spans, line tables, safe debug points, local live ranges, captured bindings, and frame layouts.
-  Commit: `feat(bytecode): add debugger metadata`
-  Trailer: `Roadmap-Step: M3.6`
-- M3.7 Add verifier, lowering, source-span, artifact, debugger, and effect metadata tests.
-  Commit: `test(ir): cover bytecode verifier contracts`
-  Trailer: `Roadmap-Step: M3.7`
-
-Forbidden shortcuts:
-
-- Do not use runtime string field lookup for ordinary compiled field access.
-- Do not treat typed path mutation as reflection.
-- Do not encode Cranelift-specific objects in Kagari IR.
-
-Acceptance criteria:
-
-- IR and bytecode can represent all accepted milestone 1-2 syntax.
-- Bytecode verifier rejects malformed control flow, type mismatches, invalid writes, and unresolved paths.
-- Typed path descriptors are resolved before execution.
-- Interpreter and optional JIT have enough metadata for effects, safepoints, and reload validation.
-
-Verification:
-
-```sh
-cargo test -p kagari-ir
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M3 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 4: Runtime, Value Model, and GC Foundation
-
-Intent:
-
-- Establish the production runtime substrate shared by the interpreter and JIT.
-
-Required code areas:
-
-- `crates/kagari-runtime`
-- runtime-facing value APIs
-- runtime tests
-
-Spec references:
-
-- `docs/spec/runtime.md`
-- `docs/spec/reflection.md`
-- `docs/spec/modules.md`
-- `docs/spec/security.md`
-
-Implementation tasks:
-
-- Define storable values, ephemeral values, host handles, interface values, path views, and unit.
-- Implement explicit roots for host-retained Kagari values.
-- Implement GC object identity and root scanning boundaries.
-- Add module store with module id, epoch, module instances, and initialization result state.
-- Add runtime metadata registries for types, fields, methods, interfaces, and public ABI fingerprints.
-- Add resource accounting and runtime error categories.
-- Ensure Rust host objects are never traced as Kagari heap objects.
-
-Execution steps:
-
-- M4.1 Define production runtime value categories: storable values, ephemeral values, host handles, interface values, path views, and `()`.
-  Commit: `feat(runtime): define production value categories`
-  Trailer: `Roadmap-Step: M4.1`
-- M4.2 Implement explicit roots, GC object identity, and root scanning boundaries.
-  Commit: `feat(runtime): add explicit gc roots`
-  Trailer: `Roadmap-Step: M4.2`
-- M4.3 Add module store structures for module ids, epochs, instances, initialization state, and initialization results.
-  Commit: `feat(runtime): model module epochs`
-  Trailer: `Roadmap-Step: M4.3`
-- M4.4 Add runtime metadata registries, resource accounting, and runtime error categories.
-  Commit: `feat(runtime): add metadata and resource state`
-  Trailer: `Roadmap-Step: M4.4`
-- M4.5 Add runtime tests for value categories, roots, module epochs, metadata, and host-object GC boundaries.
-  Commit: `test(runtime): cover runtime substrate`
-  Trailer: `Roadmap-Step: M4.5`
-
-Forbidden shortcuts:
-
-- Do not let host references become ordinary storable GC values.
-- Do not make `const` heap-backed frozen objects.
-- Do not couple runtime values to AST nodes.
-
-Acceptance criteria:
-
-- Runtime value categories match the specs.
-- GC roots are explicit and testable.
-- Module epochs and initialization state are represented independently from parser/HIR structures.
-- Runtime metadata can serve reflection, reload validation, typed path validation, and JIT metadata.
-
-Verification:
-
-```sh
-cargo test -p kagari-runtime
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M4 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 5: Host Interop and Typed Path Mutation
-
-Intent:
-
-- Implement safe Rust host integration and ergonomic typed path mutation.
-
-Required code areas:
-
-- `crates/kagari-runtime`
-- `crates/kagari-ir`
-- `crates/kagari-vm`
-- host interop tests
-
-Spec references:
-
-- `docs/spec/host-interop.md`
-- `docs/spec/embedding-api.md`
-- `docs/spec/typed-path-mutation.md`
-- `docs/spec/security.md`
-- `docs/spec/reflection.md`
-
-Implementation tasks:
-
-- Implement host type and function registration metadata.
-- Implement frame-scoped host borrow tokens for temporary `&T` and `&mut T` host calls.
-- Enforce no-escape rules for host borrows.
-- Implement typed host roots, typed path descriptors, host path views, and dynamic path arguments.
-- Implement path read, set, modify, and view operations.
-- Add host-side validation, dirty tracking hooks, and failure classification.
-- Make typed path mutation reload-aware through descriptor fingerprints.
-- Keep reflection separate from ordinary host-backed mutation.
-
-Execution steps:
-
-- M5.1 Implement host type and function registration metadata.
-  Commit: `feat(host): add host registration metadata`
-  Trailer: `Roadmap-Step: M5.1`
-- M5.2 Implement frame-scoped host borrow tokens and no-escape validation.
-  Commit: `feat(host): enforce frame scoped borrows`
-  Trailer: `Roadmap-Step: M5.2`
-- M5.3 Implement embedding API entry points for compile, load, execute, reload, execution context, and structured errors.
-  Commit: `feat(embed): add host embedding entrypoints`
-  Trailer: `Roadmap-Step: M5.3`
-- M5.4 Implement typed host roots, typed path descriptors, host path views, and dynamic path arguments.
-  Commit: `feat(host): add typed path views`
-  Trailer: `Roadmap-Step: M5.4`
-- M5.5 Execute path read, set, modify, and view operations with validation, dirty hooks, and failure classification.
-  Commit: `feat(host): execute typed path mutations`
-  Trailer: `Roadmap-Step: M5.5`
-- M5.6 Add host interop and embedding API tests for path policy, stale roots, dynamic indexes, denied capabilities, structured errors, and reload fingerprints.
-  Commit: `test(host): cover path policy and reload guards`
-  Trailer: `Roadmap-Step: M5.6`
-
-Forbidden shortcuts:
-
-- Do not store Rust `&mut` references in script values.
-- Do not model local nested host values as detached Rust references.
-- Do not let reflective writes bypass typed path policy.
-
-Acceptance criteria:
-
-- Scripts can use field/index syntax over host-backed roots through typed path operations.
-- Multiple local nested views can coexist without Rust borrow-checker semantics leaking into scripts.
-- Host borrow tokens cannot escape calls or suspension boundaries.
-- Dirty tracking and validation hooks run in the defined order.
-- Invalid roots, stale epochs, invalid dynamic indexes, and denied capabilities produce runtime errors.
-
-Verification:
-
-```sh
-cargo test -p kagari-runtime
-cargo test -p kagari-vm
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M5 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 6: Production Interpreter
-
-Intent:
-
-- Make the bytecode VM a production semantic baseline.
-
-Required code areas:
-
-- `crates/kagari-vm`
-- `crates/kagari-runtime`
-- integration tests
-
-Spec references:
-
-- `docs/spec/execution.md`
-- `docs/spec/bytecode.md`
-- `docs/spec/debugger.md`
-- `docs/spec/runtime.md`
-- `docs/spec/modules.md`
-
-Implementation tasks:
-
-- Execute verified bytecode only.
-- Implement deterministic call frames, local/register storage, control flow, returns, traps, and helper calls.
-- Enforce resource accounting and security context at runtime boundaries.
-- Execute module initialization once per epoch and cache success or failure according to spec.
-- Preserve stack/root metadata for GC.
-- Add interpreter debugger hooks for safe debug points, breakpoints, stepping, stack inspection, and value inspection.
-- Add interpreter tests for functions, modules, loops, match, arrays, structs, interface calls, path mutation, errors, and reload boundaries.
-
-Execution steps:
-
-- M6.1 Require verified bytecode before VM execution and reject unsupported bytecode.
-  Commit: `feat(vm): require verified bytecode`
-  Trailer: `Roadmap-Step: M6.1`
-- M6.2 Implement deterministic frames, local/register storage, control flow, calls, returns, and traps.
-  Commit: `feat(vm): implement deterministic frames`
-  Trailer: `Roadmap-Step: M6.2`
-- M6.3 Enforce runtime helper, resource accounting, security, host, reflection, and path boundaries.
-  Commit: `feat(vm): enforce runtime boundaries`
-  Trailer: `Roadmap-Step: M6.3`
-- M6.4 Execute builtin standard modules and iterable protocol behavior through VM/runtime helpers.
-  Commit: `feat(vm): execute builtin standard surface`
-  Trailer: `Roadmap-Step: M6.4`
-- M6.5 Implement module initialization and epoch-visible execution behavior.
-  Commit: `feat(vm): execute module epochs`
-  Trailer: `Roadmap-Step: M6.5`
-- M6.6 Implement interpreter debugger hooks, debug sessions, breakpoint resolution, stepping, frame inspection, and read-only watch evaluation.
-  Commit: `feat(debugger): add interpreter debug hooks`
-  Trailer: `Roadmap-Step: M6.6`
-- M6.7 Add interpreter integration tests for successful execution, classified failure paths, breakpoints, stepping, stack inspection, value inspection, and watch expressions.
-  Commit: `test(vm): cover interpreter conformance`
-  Trailer: `Roadmap-Step: M6.7`
-
-Forbidden shortcuts:
-
-- Do not execute unverified bytecode.
-- Do not special-case source-level constructs in the VM.
-- Do not ignore resource or capability checks for tests.
-
-Acceptance criteria:
-
-- VM executes the full spec-aligned bytecode subset.
-- Runtime errors are stable and classified.
-- Module initialization and reload-visible behavior match module specs.
-- Interpreter tests cover success and failure paths.
-
-Verification:
-
-```sh
-cargo test -p kagari-vm
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M6 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 7: Hot Reload Production Pass
-
-Intent:
-
-- Make reload validation and publication safe enough for long-running host applications.
-
-Required code areas:
-
-- `crates/kagari-runtime`
-- `crates/kagari-ir`
-- `crates/kagari-vm`
-- reload tests
-
-Spec references:
-
-- `docs/spec/modules.md`
-- `docs/spec/module-loading.md`
-- `docs/spec/runtime.md`
-- `docs/spec/bytecode.md`
-- `docs/spec/artifacts.md`
-- `docs/spec/typed-path-mutation.md`
-- `docs/spec/jit.md`
-
-Implementation tasks:
-
-- Add ABI fingerprints for public functions, consts, types, traits, interface tables, and typed path descriptors.
-- Validate new module epochs before publication.
-- Preserve active module on validation failure.
-- Keep old metadata reachable while old values, calls, or compiled artifacts need it.
-- Make new calls use the latest successfully published epoch.
-- Invalidate interpreter caches and JIT artifacts when dependency fingerprints change.
-- Add tests for compatible reloads, incompatible reloads, active-call stability, path descriptor changes, and failure rollback.
-
-Execution steps:
-
-- M7.1 Add ABI fingerprints for public functions, consts, types, traits, interface tables, and typed path descriptors.
-  Commit: `feat(reload): add abi fingerprints`
-  Trailer: `Roadmap-Step: M7.1`
-- M7.2 Validate new module epochs before publication and preserve the active module on failure.
-  Commit: `feat(reload): validate module publication`
-  Trailer: `Roadmap-Step: M7.2`
-- M7.3 Integrate module loader and `.kbc` artifact compatibility checks into reload validation.
-  Commit: `feat(reload): validate loader artifacts`
-  Trailer: `Roadmap-Step: M7.3`
-- M7.4 Preserve old epochs and metadata while old values, calls, or compiled artifacts need them.
-  Commit: `feat(reload): preserve reachable epochs`
-  Trailer: `Roadmap-Step: M7.4`
-- M7.5 Invalidate interpreter caches and JIT artifacts when reload dependencies change.
-  Commit: `feat(reload): invalidate stale artifacts`
-  Trailer: `Roadmap-Step: M7.5`
-- M7.6 Add reload tests for compatible reloads, incompatible reloads, active-call stability, artifact changes, path descriptor changes, and failure rollback.
-  Commit: `test(reload): cover safe reload behavior`
-  Trailer: `Roadmap-Step: M7.6`
-
-Forbidden shortcuts:
-
-- Do not silently migrate script-visible module storage.
-- Do not publish partially validated modules.
-- Do not let stale compiled artifacts run after invalidation.
-
-Acceptance criteria:
-
-- Reload success and failure behavior is deterministic.
-- ABI incompatibilities are diagnosed.
-- Existing calls and values remain tied to valid old epochs.
-- Failed reload cannot corrupt active runtime state.
-
-Verification:
-
-```sh
-cargo test --workspace reload
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M7 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 8: Security Profiles and Reflection Gates
-
-Intent:
-
-- Enforce security policy as a layered runtime and compile-time system.
-
-Required code areas:
-
-- `crates/kagari-runtime`
-- `crates/kagari-hir`
-- `crates/kagari-vm`
-- CLI profile plumbing if needed
-
-Spec references:
-
-- `docs/spec/security.md`
-- `docs/spec/reflection.md`
-- `docs/spec/debugger.md`
-- `docs/spec/host-interop.md`
-- `docs/spec/traits.md`
-
-Implementation tasks:
-
-- Implement language profiles for feature availability.
-- Implement runtime capabilities for reflection, host calls, path mutation, module loading, and JIT.
-- Enforce host API exposure policy.
-- Gate reflection metadata reads, reflective reads, reflective writes, dynamic invocation, and downcasts separately.
-- Gate debugger attachment, breakpoints, pause/resume, stack inspection, value inspection, watch evaluation, and side-effecting evaluation separately.
-- Add resource limits for instruction count, call depth, allocation, host calls, and reflection operations.
-- Ensure runtime checks remain active even when frontend checks reject obvious violations.
-
-Execution steps:
-
-- M8.1 Implement language profiles and runtime capabilities for reflection, host calls, path mutation, module loading, and JIT.
-  Commit: `feat(security): add profiles and capabilities`
-  Trailer: `Roadmap-Step: M8.1`
-- M8.2 Enforce host API exposure policy at runtime entry points.
-  Commit: `feat(security): enforce host exposure policy`
-  Trailer: `Roadmap-Step: M8.2`
-- M8.3 Gate reflection metadata reads, reflective reads, reflective writes, dynamic invocation, and downcasts separately.
-  Commit: `feat(security): gate reflection operations`
-  Trailer: `Roadmap-Step: M8.3`
-- M8.4 Enforce runtime resource limits for instruction count, call depth, allocation, host calls, and reflection operations.
-  Commit: `feat(security): enforce runtime resource limits`
-  Trailer: `Roadmap-Step: M8.4`
-- M8.5 Enforce debugger capabilities and host/debug visibility policy.
-  Commit: `feat(security): gate debugger operations`
-  Trailer: `Roadmap-Step: M8.5`
-- M8.6 Add tests for restricted profiles, denied operations, reflection gates, debugger gates, and resource limit failures.
-  Commit: `test(security): cover denied operations`
-  Trailer: `Roadmap-Step: M8.6`
-
-Forbidden shortcuts:
-
-- Do not let embeddings redefine core grammar.
-- Do not make reflection a backdoor around host exposure or typed path policy.
-- Do not rely only on compile-time checks for runtime capabilities.
-
-Acceptance criteria:
-
-- Restricted profiles can disable reflection, host calls, path mutation, module loading, or JIT independently.
-- Denied operations fail with classified runtime errors.
-- Reflection metadata access and reflective mutation are separately gated.
-- Resource limits are enforced in interpreter execution.
-
-Verification:
-
-```sh
-cargo test --workspace security
-cargo test --workspace reflection
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M8 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 9: Baseline Cranelift JIT
-
-Intent:
-
-- Add an optional baseline Cranelift backend that preserves interpreter semantics.
-
-Required code areas:
-
-- new backend crate or module for Cranelift integration
-- `crates/kagari-ir`
-- `crates/kagari-runtime`
-- `crates/kagari-vm` dispatch integration
-- JIT tests
-
-Spec references:
-
-- `docs/spec/jit.md`
-- `docs/spec/debugger.md`
-- `docs/spec/codegen-backend.md`
-- `docs/spec/execution.md`
-- `docs/spec/bytecode.md`
-
-Implementation tasks:
-
-- Add backend boundary trait for executable function artifacts.
-- Add optional Cranelift dependency behind a feature or backend crate.
-- Compile eligible functions from typed IR or verified bytecode-like IR.
-- Call shared runtime helpers for allocation, host interop, path mutation, reflection, traps, security, and safepoints.
-- Emit or derive stack maps and safepoint metadata.
-- Fall back to interpreter for unsupported functions.
-- Fall back to interpreter for debugged functions when JIT debug metadata or safe debug points are insufficient.
-- Invalidate compiled artifacts on module epoch, ABI fingerprint, path descriptor, type layout, helper ABI, or policy changes.
-- Add equivalence tests comparing interpreter and JIT results.
-
-Execution steps:
-
-- M9.1 Add the backend boundary trait and executable artifact registry without Cranelift-specific types in core IR.
-  Commit: `feat(jit): add backend artifact boundary`
-  Trailer: `Roadmap-Step: M9.1`
-- M9.2 Add optional Cranelift integration behind a feature or backend crate.
-  Commit: `feat(jit): wire optional cranelift backend`
-  Trailer: `Roadmap-Step: M9.2`
-- M9.3 Compile eligible baseline functions from typed IR or verified bytecode-like IR and call shared runtime helpers.
-  Commit: `feat(jit): compile baseline functions`
-  Trailer: `Roadmap-Step: M9.3`
-- M9.4 Add safepoint metadata, stack-map handling, interpreter fallback, and unsupported-function diagnostics.
-  Commit: `feat(jit): add safepoints and fallback`
-  Trailer: `Roadmap-Step: M9.4`
-- M9.5 Enforce debugger/JIT policy: safe debug points, debug metadata checks, and interpreter fallback for debugged functions.
-  Commit: `feat(jit): enforce debugger execution policy`
-  Trailer: `Roadmap-Step: M9.5`
-- M9.6 Add JIT equivalence, policy disablement, debugger fallback, and reload invalidation tests.
-  Commit: `test(jit): cover equivalence and invalidation`
-  Trailer: `Roadmap-Step: M9.6`
-
-Forbidden shortcuts:
-
-- Do not make Cranelift types part of Kagari IR.
-- Do not bypass runtime helpers for host or security operations.
-- Do not require deoptimization or optimizing-tier machinery.
-
-Acceptance criteria:
-
-- JIT can be enabled or disabled by runtime policy.
-- Eligible functions run through compiled code and match interpreter results.
-- Unsupported functions fall back transparently.
-- Reload invalidation prevents stale machine code from running.
-- GC safepoint/root metadata is tested.
-
-Verification:
-
-```sh
-cargo test --workspace --features jit
-cargo test --workspace
-git diff --check
-```
-
-Milestone completion:
-
-- All M9 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 10: Production Hardening
-
-Intent:
-
-- Finish production-readiness work across tooling, tests, diagnostics, and documentation.
-
-Required code areas:
-
-- all crates
-- README and docs
-- test harnesses
-- CLI
-
-Spec references:
-
-- all files under `docs/spec/`
-- `docs/architecture.md`
-- this roadmap
-
-Implementation tasks:
-
-- Add conformance tests organized by language feature and spec section.
-- Add negative tests for removed legacy behavior.
-- Add integration tests for host interop, reload, security, reflection, and JIT policy.
-- Add debugger conformance tests and IDE adapter boundary tests.
-- Add fuzz or property tests for lexer/parser and bytecode verifier where practical.
-- Improve diagnostics for parse, resolution, type, bytecode verification, runtime, host, reload, and security errors.
-- Update CLI commands for parse, check, emit `.kbc`, run source, run artifacts, profile selection, and optional JIT execution.
-- Update README and docs to match final behavior.
-- Remove dead compatibility code and obsolete tests.
-
-Execution steps:
-
-- M10.1 Add conformance and negative tests organized by language feature and spec section.
-  Commit: `test: add language conformance suite`
-  Trailer: `Roadmap-Step: M10.1`
-- M10.2 Add module loading, artifact, builtin, and embedding API conformance coverage.
-  Commit: `test: cover loader artifact builtin embed surfaces`
-  Trailer: `Roadmap-Step: M10.2`
-- M10.3 Improve parse, resolution, type, bytecode verification, runtime, host, reload, and security diagnostics.
-  Commit: `feat(diagnostics): improve compiler runtime errors`
-  Trailer: `Roadmap-Step: M10.3`
-- M10.4 Update CLI commands for parse, check, emit `.kbc`, run source, run artifacts, profile selection, and optional JIT execution.
-  Commit: `feat(cli): polish language pipeline commands`
-  Trailer: `Roadmap-Step: M10.4`
-- M10.5 Add debugger protocol or DAP adapter boundary, session smoke tests, and user-facing debugger documentation.
-  Commit: `feat(debugger): add adapter protocol boundary`
-  Trailer: `Roadmap-Step: M10.5`
-- M10.6 Update README, architecture, roadmap, goal guide, and specs to match implemented behavior.
-  Commit: `docs: align documentation with implementation`
-  Trailer: `Roadmap-Step: M10.6`
-- M10.7 Remove dead compatibility code, obsolete tests, and non-spec examples.
-  Commit: `chore: remove legacy compatibility code`
-  Trailer: `Roadmap-Step: M10.7`
-
-Forbidden shortcuts:
-
-- Do not leave old behavior documented as deprecated compatibility.
-- Do not hide failing edge cases behind ignored tests.
-- Do not ship examples that use non-spec syntax.
-
-Acceptance criteria:
-
-- `cargo test --workspace` passes.
-- Feature-gated JIT tests pass when enabled.
-- README examples use only spec-valid Kagari.
-- Specs, architecture, and implementation roadmap agree with the code.
-- Public APIs are documented enough for host embedding examples.
-- No known legacy syntax remains accepted unless explicitly present in the specs.
-
-Current M10 implementation notes:
-
-- M10.1 through M10.5 are present as roadmap-step commits.
-- The CLI implements `parse`, `check`, `emit`, `run`, `run-artifact`, implicit path execution, profile selection, and feature-gated `--jit`.
-- The VM exposes a debugger adapter boundary with request, response, event, and event-sink types.
-- M10.7 removes legacy-named parser diagnostics and stale cleanup wording while preserving negative coverage for non-spec source forms.
-
-Verification:
-
-```sh
-cargo test --workspace
-cargo test --workspace --features jit
-git diff --check
-rg -n 'let mut|static mut|dyn Trait|ref self|mut self|HostBorrowHandle' crates README.md docs/spec docs/kagari.ebnf
-```
-
-Milestone completion:
-
-- All M10 step commits are present.
-- The milestone verification commands pass on a clean working tree.
-
-## Milestone 11: Complete Standard Library Surface
-
-Intent:
-
-- Turn the current builtin surface into the complete production standard library.
-- Keep core containers runtime-native and deterministic.
-- Add ordered `Map<K, V>` and `Set<T>` with `indexmap` backing.
-- Resolve standard modules through typed intrinsic metadata, not reflection, host-string dispatch, or source-level container reimplementations.
-
-Required code areas:
-
-- `crates/kagari-hir/src/builtin`
-- `crates/kagari-hir/src/typeck`
-- `crates/kagari-ir`
-- `crates/kagari-runtime/src/builtin`
-- `crates/kagari-runtime/src/value.rs`
-- `crates/kagari-vm`
-- module resolution and standard module tests
-- standard library conformance tests
-- `Cargo.toml` dependency wiring for `indexmap`
-
-Spec references:
-
-- `docs/spec/builtins.md`
-- `docs/spec/runtime.md`
-- `docs/spec/bytecode.md`
-- `docs/spec/security.md`
-- `docs/spec/reflection.md`
-- `docs/spec/module-loading.md`
-
-Implementation tasks:
-
-- Add `Map<K, V>` and `Set<T>` type identities, type display, heap-backed classification, metadata, and reflection records.
-- Add standard hash-key eligibility rules for map and set keys.
-- Use `indexmap` as the runtime backing for deterministic insertion-ordered maps and sets.
-- Implement complete `std::array`, `std::map`, `std::set`, `std::string`, `std::option`, `std::result`, `std::iter`, `std::math`, and `std::debug` typed metadata.
-- Resolve standard module imports and standard module function calls to stable intrinsic identifiers.
-- Lower standard library calls to IR and bytecode builtin method/runtime intrinsic calls.
-- Execute standard intrinsics through VM/runtime helpers with resource accounting, GC tracing, deterministic errors, and profile/security checks where required.
-- Add `.kg` facade support only for pure helpers that compose native intrinsics.
-- Add conformance coverage for successful standard library programs and rejected invalid key, arity, type, capability, and resource-limit cases.
-
-Execution steps:
-
-- M11.1 Add standard library type, module, function, method, and intrinsic metadata for arrays, maps, sets, strings, options, results, iterators, math, and debug.
-  Commit: `feat(stdlib): add standard surface metadata`
-  Trailer: `Roadmap-Step: M11.1`
-- M11.2 Add runtime-native `Map` and `Set` values backed by `indexmap`, including GC tracing, cloning, display/debug classification, and resource accounting.
-  Commit: `feat(runtime): add ordered map set values`
-  Trailer: `Roadmap-Step: M11.2`
-- M11.3 Implement runtime builtin helpers for the complete array, map, set, string, option, result, iterator, math, and debug surfaces.
-  Commit: `feat(runtime): implement standard library helpers`
-  Trailer: `Roadmap-Step: M11.3`
-- M11.4 Resolve and type-check standard module imports, standard hash-key constraints, generic standard calls, and facade exports.
-  Commit: `feat(typeck): resolve standard library modules`
-  Trailer: `Roadmap-Step: M11.4`
-- M11.5 Lower standard library calls to stable IR and bytecode intrinsic identifiers and verify intrinsic signatures during artifact validation.
-  Commit: `feat(ir): lower standard library intrinsics`
-  Trailer: `Roadmap-Step: M11.5`
-- M11.6 Execute standard intrinsics in the VM with deterministic behavior across interpreter and JIT fallback paths.
-  Commit: `feat(vm): execute standard library intrinsics`
-  Trailer: `Roadmap-Step: M11.6`
-- M11.7 Add standard library conformance, negative, resource-limit, reload, reflection metadata, and embedding API tests.
-  Commit: `test(stdlib): cover complete standard library`
-  Trailer: `Roadmap-Step: M11.7`
-- M11.8 Update README, architecture, builtins spec, and examples to describe the complete standard library surface.
-  Commit: `docs(stdlib): document complete standard library`
-  Trailer: `Roadmap-Step: M11.8`
-
-Forbidden shortcuts:
-
-- Do not implement `Array`, `Map`, `Set`, or `String` storage as Kagari source-level data structures.
-- Do not route standard library calls through script-visible reflection.
-- Do not expose file system, networking, timers, persistence, process control, service registry, or arbitrary logging sinks as core `std` modules.
-- Do not use unordered hash maps for script-visible `Map` or `Set` behavior.
-- Do not accept float, aggregate, host, or interface keys until their hash/equality semantics are specified.
-- Do not key bytecode or artifacts by unstable source spelling when an intrinsic identifier exists.
-
-Acceptance criteria:
-
-- `Map<K, V>` and `Set<T>` are deterministic insertion-ordered runtime-native values.
-- Standard hash-key constraints are enforced in type checking and bytecode validation.
-- The complete standard modules listed in `docs/spec/builtins.md` are available through typed resolution.
-- Standard library calls lower to stable intrinsic IDs.
-- VM/runtime execution covers all standard helpers with resource accounting.
-- `for` loops and iterable helpers work for arrays, maps, sets, strings, and allowed host iterables.
-- Reflection metadata describes standard values without making reflection a backdoor for ordinary stdlib behavior.
-- Host-sensitive APIs remain outside the core standard library.
-
-Verification:
-
-```sh
-cargo test -p kagari-hir stdlib
-cargo test -p kagari-ir stdlib
-cargo test -p kagari-runtime builtin
-cargo test -p kagari-vm helpers
-cargo test --workspace
-cargo test --workspace --features jit
-git diff --check
-```
-
-Milestone completion:
-
-- All M11 step commits are present.
-- The milestone verification commands pass on a clean working tree.
+This is the queue for unfinished work and open acceptance. Detailed execution
+plans own their finite implementation contracts; current behavior belongs in
+[architecture](architecture.md) and [specifications](README.md#language-and-execution-specifications).
+Completed phases and command logs belong in Git history, not this queue.
+
+## Current baseline
+
+The checked source-to-MIR/bytecode pipeline, source-free loading, explicit native
+registration, nominal enums/propagation, runtime-owned roots, pinned reload,
+typed host access and host-driven async execution are implemented. Builtin `[T]`
+arrays have construction-time fixed length; Vec is distinct. Iterable defaults
+provide lazy adapters, terminal operations and explicit FromIterator collection.
+Collection cursors check structural revisions on reads; retaining or parking a
+cursor does not block source edits.
+The interpreter uses compact values and prepared execution/call/layout contracts.
+Semantic processing uses scoped DefinitionId records from registration and HIR
+through specialization, portable codecs and runtime adoption. Exact paths and
+file-local references stay at their explicit boundaries; verification, retained
+snapshots and generation-pinned execution remain separate contracts. See
+[definition identity ownership](architecture.md#definition-identity-ownership).
+These capabilities are foundations to reuse, not migrations to replay.
+
+## Package acceptance and follow-ups
+
+[Source packages and workspaces](spec/packages.md) define the implemented local and
+immutable-host source model, one-root/multiple-export Programs, whole-workspace
+locking and host-coordinated rebuild/reload. [Architecture](architecture.md#source-package-inputs)
+owns the acquisition/analysis/executable boundaries. The runnable
+[workspace and embedding examples](../examples/package-workspace/README.md) show
+current entrypoints; package `kagari-cli` provides the `kg` executable.
+
+The complete workspace/backend/feature/platform CI matrix remains unrun locally.
+Focused Windows coverage includes junction escape/alias checks; Unix symlink
+coverage and the exhaustive feature matrix remain CI responsibilities. Source-free
+production dependency guards live in `scripts/check_features.py`. These are CI
+acceptance items, not authorization to run a local full-workspace sweep.
+
+GitHub CI acceptance remains pending for the Native/AOT setup and historical
+contract-test repairs identified in runs 38568738772 through
+[38697567439](https://github.com/kagari-lang/kagari/actions/runs/38697567439).
+The current [applied-contract validation boundary](architecture.md#library-identities-and-representation-boundaries)
+and [standalone AOT host contract](spec/aot.md) own the lasting behavior. Recheck
+the complete CI matrix after publication of the repair commits; focused local
+validation does not establish that matrix passed.
+
+Remote registry/Git acquisition and publication, simultaneous revisions of one
+family within a Program, and explicit dependency-update CLI spelling remain queued.
+Independent package binaries and multiple executable targets are outside the
+current source-distribution model. Future persistent compilation caches must prove
+compiler revision/options and provider/source validity before skipping work; current
+shared output storage always checks and compiles inputs.
+
+## Cranelift AOT deployment
+
+[Scalar AOT deployment](spec/aot.md) is implemented for x86_64 Windows MSVC.
+JIT and object emission share lowering and invocation context. Build hosts emit
+an immutable bytecode/DLL/manifest bundle; compiler-free hosts load and install it
+through existing runtime version and lifetime checks. Wider native coverage and
+the call-stack decision remain deferred independently.
+
+Focused local deployment, ABI, JIT preparation, VM and CLI checks passed, including
+an independent loader process with no source/MIR/compiler/Cranelift dependencies.
+The Windows AOT CI job and exhaustive workspace/feature/platform matrix remain
+pending CI execution; focused local checks are not complete CI acceptance.
+
+Linux AOT, cross-compilation, LLVM and wider native language coverage remain queued.
+Before registry publication of an AOT-enabled Rust SDK, replace its conservative
+workspace-source build fingerprint inputs with an explicit packaged build contract;
+deployed host binaries already need no source checkout. Publication and that
+packaging change are not activated by scalar deployment support.
+
+## Cranelift synchronous execution
+
+[The Cranelift expansion plan](cranelift-expansion-plan.md) owns J01-J06:
+general native ABI, scalar/control-flow coverage, verified calls, rooted objects,
+closures/interfaces and installed host/library operations. The execution plan is
+recorded; implementation and the call-stack decision are deferred until the
+interpreter is stable. Current behavior remains the narrow
+scalar baseline in [JIT](spec/jit.md).
+
+Native acceptance requires actual compiled script bodies and separately identified
+runtime helpers/mixed callees, with source-free artifacts, GC/reentry, cancellation
+and pinned reload evidence. Async suspension, native debugging, automatic hotness,
+LLVM, AOT and machine-code persistence are outside J01-J06; the separate
+[AOT contract](spec/aot.md) describes the implemented scalar deployment route. NC remains an independent
+migration; reuse implemented host registration contracts without expanding scope.
+
+## Toolchain distribution and modes
+
+The current workspace product names are:
+
+| Role | Package / command |
+| --- | --- |
+| Embedding SDK | Rust package `kagari`, imported as `kagari` |
+| Installable toolchain | Rust package `kagari-cli`, executable `kg` |
+| Internal components | Existing responsibility-based `kagari-*` crates |
+
+The SDK package and directory are `kagari`, imported as `kagari`; the CLI package
+remains `kagari-cli` and provides only the `kg` binary. Consumers, feature checks,
+examples and current documentation use these names. No forwarding SDK package or
+compatibility command is retained. The [Host API plan](host-api-refactor.md) owns
+API evolution independently; naming changes do not activate that refactor.
+
+Focused rename validation passed: SDK typed-call and Cranelift preparation cases,
+CLI parsing/artifact execution, and the standalone source-free async consumer
+(nine selected tests). These cover renamed dependency, feature and binary boundaries.
+The `kg` binary also ran source with and without JIT; benchmark compilation,
+production dependency guards, CLI-scoped Clippy, structure, formatting and diff
+checks passed. External dependency versions are unchanged. Complete workspace,
+SDK feature and backend/platform acceptance remains CI work.
+
+Dependency-free `kagari` and `kagari-cli` reservation packages at `0.0.0-reserved`
+were published on 2026-10-12 under separate authorization. The reservation SDK has
+no API and its `kg` executable rejects script commands. They are not functional
+releases. Before functional publication, verify component name ownership, add
+registry versions alongside workspace paths and publish the required dependency
+closure; omit unrelated implementation tools. Release automation, version policy
+and functional publication require their own activation. No package publication
+is authorized by the completed source-package implementation.
+
+The first-release [formatter, checker and six-rule linter](spec/toolchain-tools.md)
+are implemented. CLI owns arguments and IO; formatting uses lossless syntax without
+dependency resolution, and check/lint share HIR analysis and strict language checks.
+Required diagnostics cannot be disabled through optional-rule policy.
+
+Deferred source-tool work: range/on-type formatting, comment reflow, import sorting,
+skip regions, check/lint stdin overlays, watch/daemon/LSP, per-path configuration,
+custom rules, autofix and persistent caches. Further lint candidates include unused
+imports, dead declarations, ignored Results, unreachable code, dead stores,
+expression simplification and measured performance advice. Each requires its own
+semantic justification for exports, trait lookup, traps and side effects; none is
+part of the six-rule release.
+
+The [script testing design](script-testing-design.md) proposes `kg test` with
+source-owned private `#[test]` functions, limited `#[cfg(test)]` selection,
+verified test entries and per-case runtime isolation. Ordinary tests use the
+default CLI environment; hosts orchestrate custom-service fixtures through shared
+testing capabilities. Design is authorized; implementation is unstarted and
+separate from TT01-TT05. Test-mode check/lint options belong to that later work.
+
+`kg repl` remains a separate unimplemented mode. Explicit public-function selection
+and argument forwarding, standalone dependency/host declaration policy and
+file-versus-project discovery for the remaining execution modes
+need concrete mode contracts before implementation. Current private `main` handling
+remains the separate verified entry capability.
+
+A proposed REPL keeps analysis/runtime state and explicit GC-owned bindings/results:
+`val x = 10;` followed by `x + 2` displays `12`. Invalid syntax/types must not commit
+input. Traps retain completed side effects; persistence is not transactional rollback.
+Multiline input, expression results, declaration lifetime and reset behavior need
+acceptance criteria. Rejecting duplicate declarations with `:reset` is the initial
+proposal; redefinition/reload policy remains open. Reuse ordinary analysis, execution,
+cancellation, roots and pinned generations, without a second interpreter or new
+standalone top-level-statement rule. [Debugger tooling](debugger-design.md) owns its
+separately proposed debug/DAP modes.
+
+## Runtime storage redesign
+
+RS01-RS06 are locally complete as of 2026-10-16. Receiver-independent interface
+descriptions are shared, compact directory entries locate typed stores, and script
+struct fields occupy a packed arena with direct scalar-bank transfers. General
+Value transport, scalar frame banks, numeric buffers and full checked identities
+remain in place. The implementation uses safe Rust; owner elision is deferred
+because the measured node workload offers only a projected 0.49% benefit.
+
+[Architecture](architecture.md#runtime-model) and the [runtime specification](spec/runtime.md)
+own current contracts. [Matched measurements](performance-baseline.md#runtime-storage-2026-10-16)
+record all frozen local memory/latency gates passing, including uncertainty near
+GC thresholds. Focused tests and required local checks pass. The exhaustive
+workspace and feature/backend/platform matrix remains pending CI; local results do
+not establish that acceptance. Git history owns the completed execution ledger.
+
+This completion does not activate downcast, NC migration or the proposed call-lifecycle
+review. Universal 8-byte Value, new GC algorithms, state migration and native-backend
+expansion were outside scope; interpreter/Lua throughput goals remain independent.
+
+## Object storage overhead
+
+The [object storage overhead execution plan](object-storage-overhead-plan.md)
+records OM01-OM05; implementation is unstarted. It follows the completed local
+RS storage work. The required next change attributes total storage and moves native
+mutation revisions out of the common identity directory. Layout-grouped structs
+and interface-record consolidation are conditional on additional measured savings,
+sparse-layout capacity, unchanged semantics and non-compounding latency gates.
+Value and full owner/slot/generation handles remain unchanged.
+
+This is a recorded follow-up, not activation of implementation or a new dependency
+that blocks DC/NC. Before activating another storage-dependent track, refresh its
+inventory against whichever OM checkpoints have actually been accepted. OM owns
+its decisions and ledger; downcast, collection-library migration and call-lifecycle
+optimization remain separate scopes.
+
+## Library-owned native collections
+
+[NC01-NC06](native-collections-plan.md) are queued and unstarted.
+Their [runtime storage predecessor](#runtime-storage-redesign) is locally complete;
+reuse the resulting heap/descriptor contracts and refresh NC01's API/code inventory
+against the current scoped identity APIs.
+Baseline 9cd90557 includes the completed Iterable APIs, retained selected-call slots
+and Vec/HashMap/HashSet FromIterator implementations.
+
+Libraries should own concrete storage and algorithms; runtime should supply checked
+dynamic access, accounting, GC, short operation protection, revision checks and pinned calls. NC01 identifies
+missing public storage and constructor/host evidence capabilities before migration.
+The plan covers Vec/HashMap/HashSet, their base cursors, host adapters and source-free
+consumers, with an external collection proof. Builtin Array remains separate; reuse the
+implemented host registration and scoped borrowing contracts.
+
+## Test execution cost
+
+[The test preparation task](test-preparation-plan.md) has implemented reusable
+native preparation, isolated source sessions and three SDK pilot migrations.
+TP04 consolidates six more ordinary scalar SDK runners and removes invariant
+preparation from ABI, cancellation and documentation loops; 19 focused tests and
+the affected structural checks passed.
+Final matched timing and retained-memory acceptance are deferred until after the
+optimization work; concurrent CPU load does not block focused correctness work.
+[A subsequent reduced-load sample](performance-baseline.md#focused-preparation-recheck-2026-10-11)
+passed nine selected tests twice and confirmed cheaper runtime creation; it does
+not establish whole-suite speedup or retained-memory reduction.
+[The testing guide](testing.md) defines the reusable runner and case ownership. The
+[test-cost audit](performance-baseline.md#workspace-test-cost-audit-2026-10-11)
+is historical evidence at 35de1818; this task measures a fresh focused baseline.
+Preserve fresh mutable state, source-free/backend/GC boundaries and assertions.
+
+[TP05-TP09 source ownership](test-preparation-plan.md#in-source-test-organization-tp05-tp09)
+is implemented: integration targets fell from 97 to five, with ordinary cases
+under source owners and six stdlib/runtime composition suites under stdlib to
+preserve Rust crate identity. Focused local checks and external consumers pass;
+the complete workspace/feature/platform matrix remains CI-owned.
+The [matched pilot and lifetime control](performance-baseline.md#source-owned-test-pilot-2026-10-15)
+observed a 124.23 s to 82.36 s median for 43 cases, with process peak rising from
+956.7 to 1425.6 MiB under imperfectly isolated load. Repeated same-name sessions
+stabilize the shared identity table; distinct names remain retained. Controlled
+compile/link costs, broader retained-memory behavior and the earlier preparation
+comparison remain in the existing plan. No whole-suite performance acceptance
+is claimed.
+
+## Interpreter performance follow-up
+
+The finite compact-value, execution-architecture and IP01-IP07 interpreter work
+have completed local acceptance. The [current matched evaluation](performance-baseline.md#interpreter-call-lifecycle-2026-10-17)
+uses runtime f070a092 against IP01 60bfaacb and passes all 61 execution/lifecycle
+gates. Calls, recursion, interface and shared-generic time fall approximately
+23.0%, 22.6%, 23.2% and 24.9%. Selected correctness, allocation/teardown and required
+local code-quality checks pass. Complete workspace and feature/backend/platform
+validation remain pending CI; local acceptance does not establish that result.
+
+The retained architecture has explicit reusable window identities, one prepared
+call/argument/return lifecycle, shared checked operand decoding and live program
+lease registrations. The [architecture](architecture.md#runtime-model) owns these
+contracts and the [benchmark guide](../benchmarks/lua-comparison/README.md#beforeafter-workflow)
+owns the fixed before/after procedure. The completed phase ledger is in Git history.
+Setup and Lua times are diagnostics, with no independent calibration or report
+extension. Historical failures are not reclassified as passes.
+
+Interpreter/Lua parity remains unmet: the 16 matched workloads take 2.66-43.68
+times Lua time. Acceptance still requires <=1.0 for every unchanged matched
+workload on one machine, with uncertainty analysis near parity. Entry, host adapters,
+unmatched native rows and JIT cannot replace that gate. Further implementation
+requires a concrete architecture review, not another list of benchmark exceptions.
+The bounded remaining questions are:
+
+- **Session lifecycle:** IP04 defers segmentation. Non-tail retirement still moves
+  another session's banks, but storage release accounts for only 14.02% of random
+  completion samples, below the proposed 15% total improvement. The separate
+  abandoned-owner scan accounts for 28.64-36.94% across four cases. Review terminal
+  retirement versus abandoned-owner discovery before choosing notification/storage
+  ownership; retain prompt cleanup, suspended/reentrant roots, generation checks
+  and bounded capacity. Do not substitute an index/cache for that ownership decision.
+- **Instruction representation:** IP05 defers five i32 fast variants and fusion.
+  Numeric kernels account for 7.58-9.33% of the two sampled scalar workloads;
+  roughly 81% is directly in the broader loop, without isolating dispatch cost.
+  Compare uniform prepared encoding, operand transport and polling with Rust MIR,
+  JVM typed instructions and mature register interpreters. Reuse Kagari's checked
+  numeric owner across domains. Fusion additionally needs explicit interior logical
+  PCs, resumption, observations and intermediate roots before any prototype.
+- **Library effects:** IP06 retains exact installed StringByteLength, VecIndex and
+  VecSet/VecSetFluent bodies, sharing existing semantic/storage owners. Vec push
+  and Map lookup remain ordinary native transitions: growth can make GC due;
+  selected hash/equality can reenter script and Option construction allocates.
+  Any future change must define effect/PC/root transitions and preserve scoped
+  borrows, mutation commits and cancellation. Do not add method-name recognition,
+  duplicate collection algorithms or special Option representation.
+- **Projection/publication code generation:** the reviewed shared decoder and
+  consuming window insertion retain localized inline hints. Rust Option/Vec
+  ownership patterns support those boundaries; Kagari's assembly evidence supports
+  the current hints, not spreading them to handlers. Revisit ownership and product
+  footprint if a later compiler/change reintroduces transfer costs.
+
+The [measurement record](performance-baseline.md#conditional-decisions-and-remaining-attribution)
+contains the reference versions, concrete evidence and limitations for those
+decisions. Future work starts with the affected mature implementation, explains
+Kagari's GC/host/reload differences and validates the shared model before tuning.
+These are deferred questions, not automatically activated migrations.
+
+The [OM plan](object-storage-overhead-plan.md) remains the sole owner of object
+storage changes and remains queued. IP preserved the accepted RS layout and its
+memory savings. NC collection migration, enum unboxing, a new collector and native
+backend expansion were outside IP scope.
+
+Shared generic Add failed MIR lowering with
+`MissingBinding("checked callable requirement")` at the measured revision. Its
+[reproduction](performance-baseline.md#correctness-and-reproduction) remains an
+open compiler follow-up; shared-identity benchmarks do not prove that capability.
+
+## Host registration and interop delivery
+
+Unified registration, Rust DTO/Serde conversion, runtime-owned Opaque and scoped
+Ref/RefMut are implemented. Common NativeModule declarations, explicit bind and
+atomic installation serve stdlib, application and live-host consumers. The former
+host aggregate/format and parallel registration/invocation APIs are removed.
+The HR01-HR03, RI00-RI05 and RF01-RF06 plans are retired; Git history retains their
+phase decisions and validation ledgers.
+
+Current contracts live in [host interop](spec/host-interop.md),
+[the embedding guide](spec/embedding-api.md#typed-native-registration),
+[runtime ownership](spec/runtime.md), [traits](spec/traits.md),
+[artifacts](spec/artifacts.md) and [reload](spec/module-activation.md).
+The [scoped SDK example](../crates/kagari/examples/scoped_host.rs) registers one
+method set for Opaque, Ref and RefMut and demonstrates read/edit/take with old
+alias invalidation. [DTO/Opaque](../crates/kagari/examples/value_interop.rs),
+[optional Serde](../crates/kagari/examples/serde_interop.rs) and
+[cold source-free registration](../crates/kagari-runtime/examples/offline_host.rs)
+provide the other runnable boundary cases. No implicit Rust trait exposure or GC
+object reinterpretation supplies host references.
+
+Focused local declaration/proof/codec/installation, VM and SDK contract checks,
+production lifetime compile-pass/compile-fail evidence and actual generated-field
+Miri passed. The final Miri selection used nightly-2026-07-27 on
+aarch64-apple-darwin with MIRIFLAGS unset and default target/profile/parallelism.
+Full workspace, feature/backend/platform and broader Miri acceptance remains
+CI-owned and unrun locally; focused checks are not complete CI acceptance.
+Focused interop review coverage includes cross-generation scoped native calls,
+borrow cleanup/ownership, source reflection diagnostics and applied reference
+signatures, with ordinary reflection and propagation as adjacent regression cases.
+No known selected local integration or safety failure remains.
+
+Remaining scope stays separate: general view trait forwarding, borrowed returns,
+reflective access to scoped views, retaining references across suspension,
+packed/union/variant/index projections,
+unrestricted editing/extraction of managed script-edge payloads and wider native
+reference execution are not implemented. Current unsupported native reference
+bodies select the interpreter before entry. Automatic derive/Serde supports the
+finite subset documented in the embedding guide. [Call preparation costs](review.md#call-boundary-cost-follow-up)
+remain a bounded follow-up with no speedup claim; NC and the Host API facade
+remain independently queued.
+
+## Other queued designs
+
+These are proposals, not active execution plans. Activation and exact sequencing
+require a concrete task; implemented foundations are not prerequisites to replay.
+
+| Track | Scope and dependencies |
+| --- | --- |
+| [Host API](host-api-refactor.md) | Preparation/load/reload facade and logical entry policy; reuse typed calls/roots. Freeze affected package/update contracts before dependent phases. |
+| [Update model](update-model-design.md) | Compatible publication versus explicit state replacement; depends on the affected identity, value and host facade contracts. |
+| [Interactive debugger](debugger-design.md) | Confirmed synchronous waiting at safe debug points, preserving the executing host thread's Rust call chain. Pause control, inspection lifecycle and SDK/DAP integration are queued and unstarted; no whole-execution continuation migration or automatic process-wide freeze. Lifecycle defaults and CLI spellings remain proposals. |
+
+## Open review and documentation work
+
+[The consolidated review](review.md) owns unresolved SA and R findings. SA entries
+include inline AST reuse, compact module handles, HIR model cleanup, local
+functions, patterns, generic interface construction and host-registration unification. Resolved definition-identity,
+namespace/import/default-body/Array work is described by the current architecture,
+specifications and reading guides, not retained as review tasks.
+
+[Architecture findings](review.md#architecture-findings)
+R1/R2/R5/R7/R8 remain supported by source inspection at `b71e0cdd`: raw-kind
+safety, prepared-JIT policy, trait-search cancellation/limits, repeated
+specialization and conservative semantic invalidation. Behavioral reproduction
+and performance measurement remain task-specific follow-ups. Native expansion
+requires checked call/root/effect contracts and actual-native conformance; LLVM
+remains a separate choice.
+
+Earlier identity measurements predate removal of semantic path projections.
+Re-measure retained-prefix table-index copying and normalized metadata copying
+across independent runtimes before optimization; compact IDs alone do not
+establish whole-module sharing or universal speedups.
+
+HIR model documentation is complete within its scope. The whole-crate
+`cargo rustdoc -p kagari-hir --lib -- --document-private-items -D missing_docs`
+audit had unsuppressed gaps in imports/namespace/solver APIs, including
+`PerNamespace`, `LookupOutcome` variants and work/limit records. Complete those
+docs at their owning documentation checkpoint; model examples do not establish
+whole-crate missing-docs acceptance.
+
+## Trait interfaces and comparison
+
+The trait/interface comparison implementation is complete as of 2026-10-13.
+Specifications own [supplied conversion contexts](spec/traits.md#accepted-interface-conversion-context),
+[whole-trait dynamic eligibility](spec/traits.md#interface-compatibility-rules) and
+[static comparison/identity rules](spec/value-semantics.md#accepted-comparison-design).
+Architecture records their [proof and execution owners](architecture.md#library-identities-and-representation-boundaries).
+
+Focused local checks cover branch contexts, dynamic admission, conditional and
+explicit comparison, rejected interface identity, malformed portable contracts,
+callback effects/cleanup, pinned reload and source-free loading. Full workspace
+and exhaustive feature/backend acceptance remain unrun locally and belong to CI.
+The completed plan and resolved findings are retained in Git history.
+
+[SA22 generic construction witnesses](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses),
+source interface impl targets, blanket impls, derive additions and NC
+migration remain outside this work; their completion is not implied. Host
+registration/interop is implemented separately as described above.
+
+## Interface type tests and downcast
+
+The [interface downcast execution plan](interface-downcast-plan.md) records the
+accepted `is::<T>() -> bool` and `downcast::<T>() -> Option<T>` direction and owns
+DC01-DC04. Implementation has not started. Reuse concrete interface metadata,
+checked type environments, roots and pinned versions; no Any trait is added.
+The [runtime storage predecessor](#runtime-storage-redesign) is locally complete.
+Refresh DC01's implementation inventory against its shared descriptions before activation.
+Ordinary read-only interfaces may explicitly recover their concrete storage,
+while host access restrictions and scoped-reference exclusion remain intact.
+
+DC01 closes intrinsic/member resolution, target eligibility and cross-version
+recovery/call provenance before implementation. Later phases own source-independent
+contracts/runtime execution, source/tooling integration and focused boundary
+acceptance. Arbitrary trait queries, SA22 construction witnesses, NC, broader
+reload redesign and native interface expansion remain separate. Recording this
+plan does not activate those tracks or imply executable downcast support.
+
+## Standard trait bounds
+
+SA24's implementation is complete within its bounded scope as of 2026-10-17.
+[Operation-specific bounds](spec/traits.md#operation-specific-bounds) and
+[native declarations](spec/standard-declarations.md#explicit-registration) own the
+language/registration contracts; [architecture](architecture.md#library-identities-and-representation-boundaries)
+owns nominal bound storage and checked adapter identities. Special standard
+constraints and their wire wrappers are removed without compatibility aliases.
+
+Focused local evidence covers ordinary/custom and shared primitive operations,
+bound/unbound associated outputs, malformed proofs/callables, canonical portable
+records, native declaration installation, recovery, checked numeric traps/effects,
+root cleanup, pinned reload and six-operator artifact execution in a build without
+the source feature. Representative existing arithmetic tests require actual native
+execution, not fallback. Full workspace tests and the complete feature/backend/
+platform matrix remain unrun locally and CI-owned.
+
+SA22 construction witnesses, SA23 scalar cleanup, SA25 method authoring, native
+collection storage and broader native-backend work remain separate. No performance
+improvement or completion of those tracks is implied.
+
+## Review follow-up order
+
+The following is the proposed default order for the unresolved [SA review](review.md)
+work, chosen to reduce replacement of newly implemented models. It does not
+activate implementation, settle open language/API choices or merge these findings
+into one migration. Each activated task retains a finite scope and focused gates.
+SA21 registration/interop is implemented as described above; the other entries
+remain queued until separately selected.
+
+Ordinary collection-interface ownership is implemented. Current contracts live in
+[collection semantics](spec/collection-access.md), [value semantics](spec/value-semantics.md)
+and [architecture](architecture.md#library-identities-and-representation-boundaries).
+Trait markers and receiver comparison forwarding are removed. Explicit stdlib
+content protocols/helpers and pinned interface methods are validated by focused
+source, artifact and reload tests.
+Exhaustive workspace and feature/backend validation remain CI-owned; local focused
+results do not claim those unrun checks. The queued items below are not activated
+by completion of the collection-interface work.
+
+The existing bound-to-interface erasure limitation is recorded as
+[SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses).
+It has no assigned position in this queue and does not expand the collection or
+host-registration scope.
+
+| Order | Review scope | Reason for placement |
+| --- | --- | --- |
+| 1 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
+| 2 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
+| 3 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
+| 4 | [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-): explicit struct-pattern omission | Establish the rest marker and field-completeness checking once, for existing patterns and subsequent declarations. |
+| 5 | [SA17](review.md#sa17-ordinary-valvar-declarations-should-support-destructuring-patterns): pattern-based declarations | Replace simple bindings with the unified pattern model using SA16 rules; establish local visibility, writeability and checked extraction before local functions consume the binding/capture model. |
+| 6 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 7 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+
+Important ordering constraints and limits:
+
+- SA16 rules must be established before SA17 struct destructuring is accepted.
+  SA14's declaration ownership/allocation design must be settled before SA11
+  changes function identity storage; the proposed default completes SA14 first.
+- SA15 -> SA9 -> SA1 is a preferred sequence for overlapping import/graph/lowering
+  code, not a semantic requirement. These tasks can be implemented independently
+  if their owner interfaces remain suitable. Module handles do not replace written
+  import segments or physical source identities.
+- SA21 consumes ordinary trait declarations and checked interface operations.
+  Collection readonly views and Rust host borrow capabilities remain distinct
+  contracts; the removed trait marker must not be recreated by host adaptation.
+- Frontend pattern/local-function work need not wait for the complete host track.
+  Host-read destructuring must preserve the implemented checked access contract
+  and consume prepared field facts rather than resolving/extracting patterns again.
+- [Native collections](native-collections-plan.md) remain a separate NC01-NC06
+  task. NC01 reuses the implemented content protocols/helpers and ordinary interface
+  contracts while replacing concrete storage. Reconcile the shared
+  NativeStorage/access API contract before NC changes to it. Reuse implemented
+  host registration; do not require persistent borrowed returns for NC or expand
+  its scope into host facade or call-cost work.
+- SA21 typed Rust `&T`/`&mut T` inputs and generated field projections have an
+  [execution contract](spec/host-interop.md#borrowed-host-values) for scoped
+  handles and disjoint mutable fields. It also owns the passing matrix and explicit
+  host method/trait registration. The bounded root/typed-call cost follow-up remains
+  queued at [SA21](review.md#call-boundary-cost-follow-up). Persistent borrowed
+  returns remain a separate extension.
+- [Focused validation policy](../AGENTS.md#verification-and-tooling) applies
+  throughout: reuse already implemented preparation. Coordinate any further
+  preparation changes with the existing [test preparation task](test-preparation-plan.md),
+  not a second implementation.
+  Measure its finite changed scope after the relevant owners stabilize; do not
+  postpone acceptance until every queued review feature is implemented or promise
+  unmeasured speedups.
+
+## Dependency maintenance
+
+The 2026-10-13 refresh selects Cranelift 0.136.2, Rowan 0.17.0, mlua 0.12.2,
+SmallVec 1.16.3 and Serde 1.0.229, with their resolved transitive updates.
+Cranelift emission supplies the module target configuration at finalization, uses
+`MemFlagsData` with the same empty flags, and explicitly sign-extends comparison
+immediates to preserve checked i32 bounds. No runtime ABI or artifact version changes.
+The benchmark retains `lua54,vendored`; historical performance results retain their
+original dependencies and do not establish performance of the refreshed toolchain.
+
+Bincode stays at 1.3.3 by user instruction. Evaluate its replacement separately at
+the artifact/MIR/type codec owners, preserving bounded decoding and source-free
+validation. The structure checker updates the Rust grammar to 0.24.2 but retains
+Python binding 0.25.2: 0.26.0 crashes the full scan on Windows. The
+[checker guide](structure-checks.md#dependency-upgrade-constraint) records the
+reproduction and the conditions for retrying that upgrade.
+
+Local validation selects backend execution/overflow/lifetime tests, SDK artifact
+and native preparation contracts, parser interpolation/recovery/limits, and the
+Lua benchmark's empty/single-element cases. These cover the changed dependency
+boundaries without running the full workspace or performance matrix. All 36 selected
+Rust tests and 43 checker regressions passed; the full structural scan reported
+zero findings. Backend-scoped Clippy (`--lib --no-deps -- -D warnings`), workspace
+formatting and diff checks also passed. A user-requested workspace/all-targets
+Clippy follow-up removed 44 redundant DefinitionId clones in HIR tests and test
+helpers, with field shorthand cleanup. `cargo clippy --workspace --all-targets --
+-D warnings` now passes; test assertions and production behavior are unchanged.
+Exhaustive feature/backend/platform acceptance remains pending CI; no performance
+improvement is claimed.
+
+## Verification and open CI acceptance
+
+Completed implementations have recorded local acceptance with no carried local
+integration failures. Complete GitHub CI feature/backend acceptance remains
+unverified; local validation does not establish that matrix passed.
+
+[AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
+select affected contracts and a small dependent regression set; full workspace
+and feature/backend matrices belong to CI. Documentation-only changes need
+content/link/diff checks. Performance reports retain revision, workload, machine,
+toolchain, profile/features, parallelism and cache state, separating compilation,
+preparation and execution.

@@ -1,0 +1,52 @@
+format = 1
+
+[[packages]]
+
+[packages.selection]
+version = "1.0.0"
+revision = "Local"
+
+[packages.selection.family]
+namespace = "examples/game"
+directory = "gameplay"
+name = "gameplay"
+
+[packages.dependencies.rules.package]
+version = "1.0.0"
+revision = "Local"
+
+[packages.dependencies.rules.package.family]
+namespace = "examples/game"
+directory = "rules"
+name = "combat-rules"
+
+[[packages]]
+
+[packages.selection]
+version = "1.0.0"
+revision = "Local"
+
+[packages.selection.family]
+namespace = "examples/game"
+directory = "rules"
+name = "combat-rules"
+
+[packages.dependencies]
+
+[members.gameplay]
+version = "1.0.0"
+revision = "Local"
+
+[members.gameplay.family]
+namespace = "examples/game"
+directory = "gameplay"
+name = "gameplay"
+
+[members.rules]
+version = "1.0.0"
+revision = "Local"
+
+[members.rules.family]
+namespace = "examples/game"
+directory = "rules"
+name = "combat-rules"

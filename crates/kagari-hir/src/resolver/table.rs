@@ -1,98 +1,182 @@
-use std::collections::HashMap;
+//! Tiered module bindings; lexical bindings remain in body scopes.
+use crate::{
+    hir::ids::ImplId,
+    imports::{
+        BindingCandidate, BindingOrigin, LocalName, NameEntry, SourceUnit,
+        bindings::{LookupOutcome, PerNamespace},
+        catalog::{LookupHit, LookupResult},
+    },
+    resolver::resolved::ResolvedName,
+};
+use kagari_types::declaration::names::NameNamespace;
+use std::collections::BTreeMap;
 
-use crate::builtin::surface;
-use crate::hir::{ConstId, EnumId, FunctionId, ImplId, ModuleId, StructId, TraitId};
+/// Compact module-binding outcome used by the body resolver.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NameResolution {
+    /// One selected resolver target.
+    Unique(ResolvedName),
+    /// Conflicting candidates at the selected precedence tier.
+    Ambiguous,
+    /// A spelling exists but does not have a unique resolved destination.
+    Unresolved,
+}
 
-#[derive(Debug, Clone, Default)]
+impl NameResolution {
+    /// Extracts only a unique target; ambiguous and unresolved results return `None`.
+    pub fn target(self) -> Option<ResolvedName> {
+        if let Self::Unique(target) = self {
+            Some(target)
+        } else {
+            None
+        }
+    }
+}
+
+/// One module/namespace's tiered bindings, keyed by unqualified local name.
+///
+/// ```text
+/// entries: BTreeMap<LocalName, PerNamespace<NameEntry>>
+/// "sum" -> strong: [Declaration(SourceDeclRef { unit: this, item: Function(f) })]
+/// "add" -> strong: [NamedImport(d) -> SourceDeclRef { unit: math, item: Function(g) }]
+/// "x"   -> globs:  [GlobImport(d1) -> target, GlobImport(d2) -> target]
+/// ```
+///
+/// Payloads are abbreviated. Local scope location does not imply local target
+/// ownership. `unit` identifies the source owner when present; synthetic namespace
+/// tables can have none. Function parameters and locals live in separate lexical
+/// scopes in [`crate::resolver::resolved::ResolvedNames`].
+///
+/// [`NameEntry`] explains precedence; [`Self::lookup`] is a local-name operation,
+/// not qualified-path traversal or importer-relative visibility filtering.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct NameTable {
-    pub(crate) functions: HashMap<String, FunctionId>,
-    pub(crate) consts: HashMap<String, ConstId>,
-    pub(crate) modules: HashMap<String, ModuleId>,
-    pub(crate) standard_modules: HashMap<String, surface::StandardModule>,
-    pub(crate) standard_functions: HashMap<String, surface::StandardIntrinsic>,
-    pub(crate) structs: HashMap<String, StructId>,
-    pub(crate) enums: HashMap<String, EnumId>,
-    pub(crate) traits: HashMap<String, TraitId>,
-    pub(crate) impls: Vec<ImplId>,
+    /// Source owner for localizing targets; absent for synthetic namespace tables.
+    pub(crate) unit: Option<SourceUnit>,
+    /// Ordered local spellings and all tiered binding candidates.
+    pub(crate) entries: BTreeMap<LocalName, PerNamespace<NameEntry>>,
+    /// Local implementation handles retained for surface/cache comparison.
+    impls: Vec<ImplId>,
+    /// Unsettled glob membership; draft-only barriers to weaker selection.
+    pub(crate) pending_globs: Vec<BindingCandidate>,
 }
 
 impl NameTable {
-    pub(crate) fn insert_function(&mut self, name: String, id: FunctionId) -> Option<FunctionId> {
-        self.functions.insert(name, id)
+    pub(crate) fn for_unit(unit: SourceUnit) -> Self {
+        Self {
+            unit: Some(unit),
+            ..Default::default()
+        }
     }
 
-    pub(crate) fn insert_const(&mut self, name: String, id: ConstId) -> Option<ConstId> {
-        self.consts.insert(name, id)
-    }
-
-    pub(crate) fn insert_module(&mut self, name: String, id: ModuleId) -> Option<ModuleId> {
-        self.modules.insert(name, id)
-    }
-
-    pub(crate) fn insert_standard_module(
+    /// Appends a candidate to its origin-defined tier without choosing a winner.
+    pub(crate) fn add(
         &mut self,
-        name: String,
-        module: surface::StandardModule,
-    ) -> Option<surface::StandardModule> {
-        self.standard_modules.insert(name, module)
+        namespace: NameNamespace,
+        name: LocalName,
+        candidate: BindingCandidate,
+    ) {
+        let entry = &mut self.entries.entry(name).or_default()[namespace];
+        match candidate.origin {
+            BindingOrigin::GlobImport(_) => entry.globs.push(candidate),
+            BindingOrigin::Package(_) | BindingOrigin::Prelude(_) => entry.implicit.push(candidate),
+            _ => entry.strong.push(candidate),
+        }
     }
 
-    pub(crate) fn insert_standard_function(
-        &mut self,
-        name: String,
-        intrinsic: surface::StandardIntrinsic,
-    ) -> Option<surface::StandardIntrinsic> {
-        self.standard_functions.insert(name, intrinsic)
+    /// Returns the first nonempty precedence tier and whether it is strong.
+    pub(crate) fn candidates(
+        &self,
+        name: &str,
+        namespace: NameNamespace,
+    ) -> Option<(&[BindingCandidate], bool)> {
+        let entry = &self.entries.get(&LocalName::new(name)?)?[namespace];
+        if !entry.strong.is_empty() {
+            Some((&entry.strong, true))
+        } else if !entry.globs.is_empty() {
+            Some((&entry.globs, false))
+        } else if !entry.implicit.is_empty() {
+            Some((&entry.implicit, false))
+        } else {
+            None
+        }
     }
 
-    pub(crate) fn insert_struct(&mut self, name: String, id: StructId) -> Option<StructId> {
-        self.structs.insert(name, id)
+    /// Selects a unique canonical target while retaining equal-target weak origins; duplicate strong entries are ambiguous.
+    pub(crate) fn select(candidates: &[BindingCandidate], strong: bool) -> LookupResult {
+        if candidates.is_empty() {
+            return LookupResult::Missing;
+        }
+        if strong
+            && candidates.len() > 1
+            && candidates
+                .iter()
+                .any(|candidate| candidate.resolution == LookupOutcome::Pending)
+        {
+            return LookupResult::Unresolved;
+        }
+        if strong && candidates.len() > 1 {
+            return LookupResult::Ambiguous(candidates.to_vec());
+        }
+        for candidate in candidates {
+            match candidate.resolution {
+                LookupOutcome::Pending => return LookupResult::Unresolved,
+                LookupOutcome::Ambiguous => return LookupResult::Ambiguous(candidates.to_vec()),
+                LookupOutcome::Inaccessible => {
+                    return LookupResult::Inaccessible(candidates.to_vec());
+                }
+                LookupOutcome::NotNamespace => return LookupResult::NotNamespace,
+                LookupOutcome::StaleSource => return LookupResult::StaleSource,
+                LookupOutcome::Absent => return LookupResult::Missing,
+                LookupOutcome::Resolved(_) => {}
+            }
+        }
+        let target = candidates[0].resolution.target().expect("resolved tier");
+        if candidates
+            .iter()
+            .any(|c| c.resolution.target() != Some(target))
+        {
+            return LookupResult::Ambiguous(candidates.to_vec());
+        }
+        LookupResult::Found(LookupHit {
+            support: candidates
+                .iter()
+                .min_by_key(|candidate| candidate.support.len())
+                .expect("nonempty tier")
+                .support
+                .clone(),
+            namespace: target.namespace(),
+            target: target.clone(),
+            via: candidates.iter().map(|c| c.origin.clone()).collect(),
+        })
     }
 
-    pub(crate) fn insert_enum(&mut self, name: String, id: EnumId) -> Option<EnumId> {
-        self.enums.insert(name, id)
+    pub(crate) fn hit(&self, name: &str, namespace: NameNamespace) -> LookupResult {
+        self.candidates(name, namespace)
+            .map_or(LookupResult::Missing, |(c, strong)| Self::select(c, strong))
     }
 
-    pub(crate) fn insert_trait(&mut self, name: String, id: TraitId) -> Option<TraitId> {
-        self.traits.insert(name, id)
+    /// Looks up one local spelling and converts a selected target for this table's unit.
+    ///
+    /// Returns `None` when the spelling is absent/invalid, distinct from
+    /// `Some(Unresolved)` when a binding exists without a target. This does not walk
+    /// `::` suffixes or filter visibility for a foreign importer.
+    pub fn lookup(&self, name: &str, namespace: NameNamespace) -> Option<NameResolution> {
+        self.candidates(name, namespace)
+            .map(|(c, strong)| match Self::select(c, strong) {
+                LookupResult::Found(hit) => {
+                    NameResolution::Unique(hit.target.resolved(self.unit.as_ref()))
+                }
+                LookupResult::Ambiguous(_) => NameResolution::Ambiguous,
+                _ => NameResolution::Unresolved,
+            })
     }
 
     pub(crate) fn insert_impl(&mut self, id: ImplId) {
         self.impls.push(id);
     }
 
-    pub fn contains_function(&self, name: &str) -> bool {
-        self.functions.contains_key(name)
-    }
-
-    pub fn contains_const(&self, name: &str) -> bool {
-        self.consts.contains_key(name)
-    }
-
-    pub fn contains_module(&self, name: &str) -> bool {
-        self.modules.contains_key(name)
-    }
-
-    pub fn contains_standard_module(&self, name: &str) -> bool {
-        self.standard_modules.contains_key(name)
-    }
-
-    pub fn contains_standard_function(&self, name: &str) -> bool {
-        self.standard_functions.contains_key(name)
-    }
-
-    pub fn contains_struct(&self, name: &str) -> bool {
-        self.structs.contains_key(name)
-    }
-
-    pub fn contains_enum(&self, name: &str) -> bool {
-        self.enums.contains_key(name)
-    }
-
-    pub fn contains_trait(&self, name: &str) -> bool {
-        self.traits.contains_key(name)
-    }
-
+    /// Returns the number of local implementation handles retained by this table.
     pub fn impl_count(&self) -> usize {
         self.impls.len()
     }

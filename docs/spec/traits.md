@@ -5,6 +5,15 @@ This document defines Kagari traits and their use as interface value types.
 The main goal is to preserve useful abstraction mechanisms from Rust-like languages while keeping the script-facing model closer to Kotlin interfaces than Rust trait objects.
 
 Reflection rules are defined separately in [reflection.md](reflection.md).
+The 26 language traits are explicit standard-library registrations under core's
+ops, cmp, hash, fmt, iter and convert modules; see the
+[registration declarations](../../crates/kagari-stdlib/src/catalog/roles.rs).
+Their generated KGR views are analyzed as ordinary traits. Reserved
+`#[lang = "role"]` attributes identify declarations for syntax and implicit value
+rules; an application trait with the same name does not acquire that role.
+Native libraries register their declarations and Rust implementations together.
+Source-free hosts consume these records directly; no separate declaration binary
+is required. User-program artifacts carry the checked executable records they need.
 Security rules are defined separately in [security.md](security.md).
 Host interop rules are defined separately in [host-interop.md](host-interop.md).
 Runtime model rules are defined separately in [runtime.md](runtime.md).
@@ -21,20 +30,188 @@ Runtime model rules are defined separately in [runtime.md](runtime.md).
 ## Scope Exclusions
 
 Kagari traits do not reproduce all of Rust's trait features.
-The initial trait scope excludes:
+The current trait scope excludes:
 
 - script-level `dyn` trait-object syntax
 - Rust-style trait object syntax such as borrowed or boxed `dyn` trait objects
 - lifetime-parameterized traits
-- generalized associated types
-- associated types
-- associated consts
+- lifetime- or const-parameterized associated types
 - specialization
 - negative impls
 - auto traits
 - full Rust-style coherence and orphan behavior
 - higher-rank bounds
-- projection-heavy associated type constraints
+- higher-kinded type parameters and projection-heavy solving beyond the bounded associated type normalizer
+
+## Current interface conversion boundary
+
+[Comparison eligibility](value-semantics.md#accepted-comparison-design) requires
+interface-level PartialEq for interface `==` and rejects `===`/`!==` whenever either
+operand is an interface. Value receivers remain allowed under checked conversion
+rules. Boxing grants neither comparison capability nor identity.
+
+Intrinsic implementations follow the same conversion rule: for example,
+`val view: Debug = 42`, `val text: Display = 42` and `val key: Hash = 42`
+retain the operations used by static calls. Tuple protocols and default nominal
+Debug also remain available through compatible interfaces; boxing adds no protocol.
+
+Concrete applied implementations can become interface values, including generic
+receiver shapes such as `Vec<T>` becoming `List<T>`. Existing interface values
+upcast through declared parents. Their arguments remain invariant, and their
+checked associated outputs and receiver generations are preserved. Shared generic
+methods and ordinary trait-bound calls do not require a universal Object type.
+Identity operators require statically known concrete object operands, as specified
+in [value semantics](value-semantics.md#operators-and-defaults).
+
+A bare type parameter's bound does not currently supply an interface-construction
+witness. For example `fn erase<T: Child>(value: T) -> Child { value }` is rejected,
+while invoking a declared Child method through T remains supported. This is an
+existing generic-erasure limitation, independent of collection interfaces and
+ordinary-interface identity. The [follow-up finding](../review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses)
+records its owner and required validation. It does not permit unchecked boxing,
+Any, downcasts or value identity.
+
+Source-authored impl targets remain concrete receiver types; installed native
+implementations may also define protocols on nominal interface values. Their
+signatures, type-owned protocol ownership and executable targets are checked by
+the same declaration/proof owners. The standard library uses this registration
+path for Iterator's Iterable adapter and collection-interface Debug.
+No collection name grants the implementation or its methods.
+
+## Accepted interface conversion context
+
+An implicit interface conversion checks a target supplied by the program's type
+context; it does not choose a target by searching for a common implemented trait.
+A variable annotation, existing assignment destination, declared function
+parameter/return type or declared field type can supply that target. An enclosing
+interface context flows into each completing `if`/`match` branch. Each conversion
+must satisfy the target's dynamic compatibility, implementation, argument and
+associated-output requirements. A type annotation or signature is sufficient;
+this decision adds neither a mandatory cast at every branch nor `dyn` syntax.
+
+Without a supplied target, `if` and `match` do not enumerate common traits or
+choose a shared parent interface. They also do not use an interface-typed branch
+as a conversion target for another branch, in either operand order. Reject
+incompatible branch types with a diagnostic asking for an explicit target type.
+Branches already having the same interface type can merge without an annotation:
+no interface conversion is needed. Identical concrete types, ordinary literal
+and constructor inference (such as integer literals and `None`/`Some`), existing
+non-interface readonly adaptation and non-completing branch handling remain
+unchanged. Restrict interface conversion, not ordinary type inference.
+
+The following behavior sketch assumes A and B implement Read:
+
+```text
+val inferred = if flag { A {} } else { B {} };          // Rejected.
+val selected: Read = if flag { A {} } else { B {} };    // Allowed.
+val matched: Read = match tag { 0 => A {}, _ => B {} }; // Allowed.
+
+val view: Read = A {};
+val mixed = if flag { view } else { B {} };             // Rejected.
+val explicit: Read = if flag { view } else { B {} };    // Allowed.
+val other: Read = B {};
+val existing = if flag { view } else { other };         // Allowed.
+
+fn choose(flag: bool) -> Read {
+    if flag { A {} } else { B {} } // The return type supplies the target.
+}
+
+fn consume(value: Read) { /* ... */ }
+consume(if flag { A {} } else { B {} }); // The parameter supplies the target.
+```
+
+Choosing an interface target makes type erasure deliberate; it is not an
+allocation-free guarantee. The current runtime prepares interface metadata and
+allocates a wrapper when constructing an interface. Copying an existing interface
+value is not another construction, and a dynamic method call does not inherently
+rebox its receiver. A generic trait bound alone does not construct an interface.
+Keep representation and performance claims separate from the type syntax.
+
+The existing bound-to-interface construction limitation in SA22 is not removed
+by supplying an explicit target. This decision changes target selection only;
+it does not add missing generic construction witnesses or weaken conversion
+validation. [Collection conversions](collection-access.md#conversion-and-dispatch)
+use the same supplied-target rule.
+
+## Associated Constants
+
+Traits may declare scalar associated constants, with an optional default:
+
+```kagari
+trait Limit { const VALUE: i32 = 21; }
+struct Number {}
+impl Limit for Number { const VALUE: i32 = 42; }
+fn limit<T: Limit>(value: T) -> i32 { T::VALUE }
+fn main() -> i32 { <Number as Limit>::VALUE }
+```
+
+The annotation is mandatory. Supported types and initializers use the same v1
+const-safe rules as module constants: `()`, `bool`, and primitive numeric types,
+scalar operations and references to module constants. Initializers are checked
+even when unused, using the existing evaluation budget and overflow traps.
+Generic-dependent values, String/object values, script calls and host calls are excluded.
+Required constants must be defined in the impl; an explicit definition overrides
+the default and must have the declared type. Unknown or duplicate definitions
+are errors. Associated constants are not module-scope names or exports.
+
+`T::VALUE`, `Self::VALUE`, and concrete type paths resolve from satisfied trait
+bounds or implementations, including supertraits. Multiple same-named members
+are ambiguous; `<T as Trait>::VALUE` selects the owning trait explicitly. The
+compiler specializes each access into its checked scalar value.
+
+A trait declaring associated constants, and every trait inheriting it, supports
+only static dispatch: it cannot be used as an interface value type. The same
+rule is enforced when verifying artifacts. Native host method tables cannot
+supply associated constants; script impls on host types may supply them.
+
+
+## Generic Associated Types
+
+Traits may declare a type constructor whose inputs are type parameters:
+
+```kagari
+trait Family {
+    type Item<T: PartialEq>: PartialEq;
+    fn make<T: PartialEq>(self, value: T) -> Self::Item<T>;
+}
+struct Identity {}
+impl Family for Identity {
+    type Item<U> = U where U: PartialEq;
+    fn make<V: PartialEq>(self, value: V) -> V { value }
+}
+fn make<F: Family>(family: F) -> F::Item<i32> { family.make(42) }
+fn main() -> i32 {
+    val value: <Identity as Family>::Item<i32> = make(Identity {});
+    value
+}
+```
+
+Each constructor binder is identified by its owning associated declaration and
+position, separately from trait, impl and method parameters. Renaming a binder
+does not change a contract. Every impl must define each constructor with the
+same arity. Trait input bounds apply even when omitted from the impl; an impl
+may restate them but cannot add requirements. Inline input bounds and trailing
+`where` predicates are supported. Each definition is checked under those input
+assumptions, including its declared output bounds, even when unused.
+
+`T::Item<U>`, `Self::Item<U>` and `<T as Family>::Item<U>` retain both the applied
+trait inputs and member inputs in checked signatures. Inherited families use
+the declaring parent trait, preserving its applied arguments. Static calls and
+default methods normalize projections in the shared bounded normalizer during
+compilation. Concrete executable layouts and calls contain no runtime family
+lookup or generic specialization. Unknown members, wrong arity, invalid inputs,
+stronger impl bounds, recursive definitions and invalid output bounds are
+compile errors; loading checks their portable metadata before execution.
+
+A trait declaring a family, and every trait inheriting it, is static-only.
+Binding a family as an ordinary equality output (`Family<Item = i32>`) is not
+supported. Native host method tables cannot supply families; script impls on
+host types can. Lifetime and const parameters, associated type defaults,
+first-class type constructors, higher-kinded parameters and unrestricted
+projection solving remain excluded.
+
+See [generic-associated-types.kgr](../../examples/syntax/generic-associated-types.kgr)
+for a runnable example returning `42`.
 
 ## Core Model
 
@@ -82,6 +259,166 @@ The important properties are:
 - no runtime interface object is required in the common static generic case
 - no downcast is involved
 
+Bounds resolve in their declaring generic scope. A `where` predicate must name
+a generic parameter or an associated projection rooted in a generic parameter;
+an unknown name or an unrelated concrete type is an invalid target.
+Methods inherit their impl's inline and `where` constraints. A method's own
+constraints apply only within that method. If a method declares a parameter with
+the same name as an inherited parameter, its uses and bounds refer to the method
+parameter; the outer parameter's constraints are not combined with it.
+An implicit receiver can still contain the outer parameter and retains its bounds.
+Parameter equality uses the declaring owner and position, so same-spelled inner
+and outer parameters cannot exchange values merely because their names match.
+Implicit `Self` is identified by its trait; substitution in impl signatures and
+trait calls replaces only that trait's `Self` throughout composite types.
+
+All bounds resolve to ordinary nominal trait applications in HIR and portable
+contracts, retaining declaration identity, ordered type arguments and associated
+output bindings. Invalid bounds retain navigation and inherited invalid references
+are reported once. Applied bounds such as `Show<i32>` use the same representation
+for standard-library and application traits. Local impl
+headers may apply a generic trait to concrete types or impl parameters; the
+checked method contract substitutes those arguments, validates declared
+trait-parameter bounds and retains them in the
+interface-table ABI. Private generic
+functions now infer argument types and compile reachable concrete instances,
+including calls through existing concrete trait implementations. Instances are
+deduplicated by declaration and arguments, with configurable growth limits.
+Public functions require concrete signatures. Generic impl methods specialize
+at reachable concrete receivers. Dynamic interface tables likewise specialize
+reachable impl templates by declaration and concrete type arguments.
+Static trait-method calls infer method-local generic arguments from their
+arguments and expected result, check those arguments against the method's
+bounds, and specialize reachable local or dependency-defined implementations.
+The method's arguments follow the implementation's type arguments in the
+concrete instance key. Interface calls retain method arguments separately and
+use the shared generic entry specified below.
+
+### Operation-specific bounds
+
+Generic functions declare the operations their bodies require, including operand
+and associated result types. For example:
+
+```text
+use std::ops::{Add, Neg};
+fn negative<T: Neg<Output = T>>(value: T) -> T { -value }
+fn add<T: Add<T, Output = T>>(left: T, right: T) -> T { left + right }
+fn negate_to_output<T: Neg>(value: T) -> T::Output { -value }
+```
+
+These bounds admit user-defined implementations, not just primitive numbers.
+Comparison requires PartialOrd, or Ord when a total order is required; hashing
+requires Eq + Hash, and equality requires PartialEq. No broad numeric bound
+implicitly grants unrelated arithmetic or comparison operations. SignedNumber and
+OrderedNumber have no special meaning: without a declaration they are unknown
+traits, and user declarations with those names are ordinary traits. Operators
+still select validated core language-role identities, not same-spelled traits.
+
+Shared generic calls carry checked operations for these requirements, including
+primitive Neg/Add/Sub/Mul/Div/Rem adapters. Binding Output and leaving it as a
+projection are both supported; neither permits a mismatched executable result.
+Primitive execution retains [checked numeric and failure semantics](failure-semantics.md),
+including source-width overflow checks and once-only ordered evaluation. A user
+implementation executes its own checked body. Shared dispatch does not search for
+traits at runtime or require constructing an interface value for a bound receiver.
+
+### Generic aggregates
+
+Struct and enum declarations retain generic binders and inline bounds in checked
+signatures. Type applications such as `Cell<i32>` resolve those binders, check
+arity, and preserve declaration identity through imports and facades. Independent
+signature queries check applied bounds in parameters, returns, fields and payloads
+after constructing the shared aggregate catalog. Body analysis consumes those
+signatures and checks local annotations and constructors.
+Constructors infer arguments from field or variant payload values. Field access
+substitutes the receiver's concrete arguments. For example:
+
+```kagari
+struct Cell<T> { var value: T }
+enum Packet<T> { Data(T) }
+fn read<T>(cell: Cell<T>) -> T { cell.value }
+fn main() -> Packet<i32> { Packet::Data(read(Cell { value: 7 })) }
+```
+
+Reachable aggregate instances use layouts keyed by declaration plus arguments.
+They share the configurable instantiation budget with function instances, including
+across module boundaries. Recursive growth is rejected before execution. Explicit
+constructor arguments and contextual inference can supply parameters absent from
+fields/payloads; arguments that remain unknown produce a diagnostic. Public generic
+type templates and public inherent method templates are permitted. Inherent
+methods, including static associated functions, instantiate from checked calls
+within the compiled source graph. A host can bind a generic member only when the
+installed product contains executable evidence for that exact application;
+public metadata alone does not create an executable specialization. Public script
+free-function entries still require concrete signatures.
+
+## Ordinary Associated Types
+
+An associated type is an output of a trait implementation. It is identified by
+its owning trait declaration and member, separately from the trait's input type
+arguments. Two implementations with the same receiver and trait inputs cannot be
+distinguished by assigning different associated outputs.
+
+```kagari
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+struct Number { val value: i32 }
+impl Reader for Number {
+    type Item = i32;
+    fn read(self) -> Self::Item { self.value }
+}
+
+fn read<R: Reader>(reader: R) -> R::Item { reader.read() }
+fn read_integer<R: Reader<Item = i32>>(reader: R) -> i32 { reader.read() }
+fn read_qualified<R: Reader>(reader: R) -> <R as Reader>::Item { reader.read() }
+fn read_interface(reader: Reader<Item = i32>) -> i32 { reader.read() }
+```
+
+`Self::Item` refers to the current trait's associated member. `R::Item` requires
+one applicable trait bound declaring that name. If multiple bounds declare it,
+use `<R as Reader>::Item`. A qualified projection must be justified by the
+receiver's bounds or a valid concrete implementation; spelling a binding in the
+qualified trait does not create a new equality proof.
+
+Trait references accept associated equality bindings after positional arguments,
+for example `Reader<i32, Item = String>`. Unknown, duplicate, or out-of-order
+bindings are errors. A bound may leave outputs unspecified. A trait used as a
+value type must bind every associated type; its method parameters and results
+are checked after replacing those projections. Different output bindings denote
+different interface types and cannot be exchanged implicitly.
+
+Declarations can constrain outputs, as in `type Item: Display;`. Generic functions
+can add projection constraints, as in `where R::Item: Display`. These constraints
+are checked against implementation definitions and concrete call arguments, and
+are available for static method lookup on the projected value. Generic impls may
+define outputs in terms of their own type parameters.
+
+Implementation checking substitutes the concrete receiver for the declaring
+trait's `Self` in output bounds. For `Reader { type Item: Describe<Self>; }`, an
+`impl Reader for Counter { type Item = Other; }` requires `Other: Describe<Counter>`;
+an implementation for another receiver does not satisfy that requirement. Sibling
+associated projections use the same substitution. Nested trait value types retain
+their own receiver context and the ordinary restrictions on erased `Self`.
+
+Projection templates remain in checked signatures and canonical ABI metadata.
+Reachable static calls normalize them to concrete types during monomorphization;
+no runtime generic specialization or runtime projection lookup is introduced.
+Cross-module analysis and artifact loading use declaration identity, including
+for same-spelled members on unrelated traits. Loading rechecks associated schemas,
+method contracts and output bounds before execution.
+
+Every trait impl must define each declared output exactly once. Defaults,
+recursive definitions and associated types in inherent impls are rejected.
+Type-parameterized families and scalar constants are defined below. Host implementations declare their ordinary
+associated outputs in the same offline interface used for runtime registration;
+see [Host Associated Outputs and Interfaces](#host-associated-outputs-and-interfaces).
+
+See [associated-types.kgr](../../examples/syntax/associated-types.kgr) for a
+runnable example returning `42`.
+
 ## Interface Value Types
 
 A trait name used as a value type denotes an interface value.
@@ -120,8 +457,9 @@ The runtime layout is implementation-defined, but the semantic model preserves:
 
 - dynamic method dispatch
 - concrete runtime type identity
-- safe `is<T>` checks
-- safe `downcast<T>` checks
+- retained identity for future `is<T>` and `downcast<T>` checks
+
+These script-level runtime type tests are planned; they are not executable yet.
 
 This representation is internal.
 This representation does not introduce script-visible `dyn` syntax, lifetime parameters, `Sized` rules, or Rust object-safety terminology.
@@ -141,18 +479,21 @@ Grammar shape:
 ```ebnf
 trait_item       ::= visibility? trait_decl ;
 
-trait_decl       ::= "trait" IDENT generic_param_clause? "{" trait_member* "}" ;
+trait_decl       ::= "trait" IDENT generic_param_clause? supertrait_clause? "{" trait_member* "}" ;
+supertrait_clause ::= ":" type_bound_list ;
 
-trait_member     ::= method_sig ";" ;
+trait_member     ::= attribute* trait_method | associated_type_decl ;
+trait_method     ::= method_sig (";" | block) ;
+associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list)? where_clause? ";" ;
 
 method_sig       ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 ```
 
 Trait members are limited to:
 
-- methods only
-- no associated consts
-- no associated types
+- methods, optionally with checked default bodies that supply omitted script impl methods
+- ordinary associated types, optionally constrained by trait or standard bounds
+- scalar associated constants and type-parameterized associated types for static dispatch
 
 ## Trait Implementation
 
@@ -221,36 +562,119 @@ Bounds are simple trait references:
 where T: Display + Clone
 ```
 
-The initial trait-bound scope excludes:
-
-- higher-rank bounds
-- equality constraints
-- associated type projections
-- implicit type-level computation
+Ordinary associated projections and associated equality bindings are supported.
+Higher-rank bounds, arbitrary type equalities and implicit type-level computation
+remain outside the implemented scope.
 
 ## Interface Compatibility Rules
 
-Not every trait method shape is suitable for interface dispatch.
-The language describes this as interface compatibility rather than Rust object safety.
+An applied trait can be used as a dynamic interface only if erasing the concrete
+receiver still leaves every member's complete call contract expressible and
+checkable by the caller. Apply trait arguments and associated bindings before
+checking the interface and all its parents. Eligibility is structural, with the
+same rules for standard, user and registered native traits.
 
-Interface-callable methods must:
+One incompatible member or parent rejects the entire trait application as an
+interface. The declaration itself remains legal for concrete calls and generic
+bounds. Do not silently omit members, erase their signatures into different
+types, or add a static-only-member escape marker. Authors can separate a dynamic
+base trait from a static extension trait when both surfaces are needed.
 
-- not return `Self`
-- not require method-level generic instantiation at the call site
-- not mention unconstrained generic method parameters
-- have parameter and return types representable in the runtime value model
+| Surface | Dynamic compatibility rule |
+| --- | --- |
+| Receiver | Methods must have `self`; its concrete type may be erased. |
+| Other parameters and return type | No unresolved `Self`, including nested occurrences such as `Option<Self>`, tuples or function signatures. All types must be representable by the runtime value model. |
+| Ordinary associated types | Bind every output to a caller-known type; normalize projections and check its declared bounds for hidden `Self` dependencies. |
+| Trait type parameters | Resolve through the applied interface type and check their bounds. |
+| Method type parameters | Allowed through the existing checked shared-generic call contract; each call supplies arguments and bound evidence. |
+| Method bounds | Must be checkable from the interface contract, method arguments and available evidence; no additional dependency on the hidden concrete receiver type. |
+| Parents | Every applied parent recursively satisfies these rules with consistent arguments and associated outputs. |
+| Associated functions without `self` | Static-only; their presence prevents the trait from becoming an interface. |
+| Associated constants | Static-only in the current language scope, including inherited constants. |
+| Generic associated types (GATs) | Static-only in the current language scope, including inherited families. |
+| Default methods | Same signature and bound checks as required methods; a body does not exempt a member. |
 
-Traits may still contain methods that are useful for static generic bounds but are not callable through an interface value.
-The compiler rejects use of a trait as an interface type when the trait contains methods that cannot be dispatched dynamically.
+Fixed associated outputs may contain type parameters already known in the
+enclosing generic context. They need not all be closed types such as i32.
+Bindings may come from annotations, applied parents or valid contextual
+inference; missing outputs cannot be invented or implicitly erased. For example:
+
+```text
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+Reader<Item = i32> // Eligible: the result is i32.
+Reader<Item = T>   // Eligible when T is known in the enclosing checked context.
+Reader            // Rejected if Item cannot be determined from context.
+
+trait CloneLike {
+    fn copy(self) -> Self;
+}
+// CloneLike remains a valid static trait, but cannot be an interface type.
+
+trait Mapper {
+    fn map<T: Display>(self, value: T) -> String;
+}
+// Method generics do not prevent interface use.
+
+trait Related<T> {}
+trait Processor {
+    fn process<T: Related<Self>>(self, value: T);
+}
+// Processor cannot be an interface: its call bound needs the hidden Self.
+
+trait Source {
+    type Item: Related<Self>;
+    fn read(self) -> Self::Item;
+}
+// Binding Item does not remove Related<Self>; Source remains static-only.
+```
+
+The implicit receiver implementation of its own declared trait is not a forbidden
+extra Self requirement. What must not escape is an unresolved concrete-receiver
+dependency that the caller needs to construct arguments or verify a call. Self
+inside an implementation/default body is checked normally; its presence in a
+body alone does not make the public interface incompatible.
+
+Kagari's PartialEq is incompatible because `eq` takes `other: Self`; Eq is
+incompatible through that parent. Debug, Display and Hash are checked by their
+actual signatures, not rejected by reserved identity. Iterator, Iterable and
+Index must satisfy the same applied-output and parent checks, without a name
+exemption. GAT/constant exclusions are explicit support limits, not consequences
+of the rule about Self. This design retains Kagari's generic interface methods;
+it does not import Rust's blanket restriction on method type parameters.
+
+Diagnostics should identify the offending member/parent and the reason, such as
+`CloneLike cannot be used as an interface: method copy returns erased Self`.
+Local/imported declarations and independent executable validation must enforce
+the same structural contract, including unused parameter/result types, fields and
+nested value types. An impl header or trait bound names a static contract and does
+not by itself request a dynamic value. Lowering and execution consume checked interface
+facts rather than applying separate eligibility heuristics. The
+[explicit conversion context](#accepted-interface-conversion-context) determines
+which interface the user requests; compatibility determines whether it is legal.
 
 ## Generic Methods
 
 Trait methods and inherent methods may have generic parameters in the syntax.
 
-Generic methods are primarily a static dispatch feature.
-They are not callable through an interface value unless the runtime provides an explicit specialization or adapter mechanism.
+Generic methods are callable through both statically known receivers and interface
+values. Each call supplies its method type arguments and proves their constraints.
+Interface dispatch selects the concrete implementation's override or inherited
+default; holding an object through an interface must not bypass that selection.
 
-This keeps interface dispatch simple and avoids hidden runtime monomorphization.
+Static calls may specialize the implementation. Dynamic calls use checked shared
+entries with explicit type/constraint arguments and may select a precompiled
+specialization when available. Shared script bodies and native bindings obey the
+same signature and constraint rules. Runtime execution does not infer source types
+or require call-time monomorphization. An enclosing generic function may forward
+its checked generic environment, including through retained closures.
+
+This contract supports both script and native shared generic implementations;
+[collection methods](collection-access.md#foundation-algorithms) are consumers of
+the same general interface mechanism.
 
 ## Receiver Model
 
@@ -267,20 +691,18 @@ Receiver semantics:
 
 This is intentionally not Rust borrowing.
 
-## Downcast
+## Planned Downcast
 
-Downcast is defined in terms of concrete runtime type identity, not generic trait reasoning.
+The following syntax and behavior are a design target, not current executable
+features. Downcast is defined in terms of concrete runtime type identity, not generic trait reasoning.
+The [execution plan](../interface-downcast-plan.md) owns the accepted return
+contracts, scope, access/reload decisions, remaining design gates and DC01-DC04.
 
-Example:
+Proposed call shapes, using the existing generic-call syntax:
 
-```kagari
-if val p = x.downcast<Player>() {
-    ...
-}
-
-if x.is<Player>() {
-    ...
-}
+```text
+x.is::<Player>()       -> bool
+x.downcast::<Player>() -> Option<Player>
 ```
 
 Downcast model:
@@ -342,44 +764,343 @@ A host object may:
 - participate in `is<T>` and `downcast<T>` if the runtime assigns it a stable concrete type identity
 
 Host borrowing rules do not leak into the script trait model.
-If a host-backed value is exposed through an interface, method calls must still respect host registration, capability, path mutation, and call-boundary rules.
+If a host-backed value is exposed through an interface, method calls must still respect host registration, declared access, path mutation and call-boundary rules.
+Concrete host types with a checked applied trait table satisfy matching static
+trait bounds. Ordered arguments distinguish `Readable<i32>` from
+`Readable<bool>` on the same host type. A specialized bound call selects the
+mapped host method by declaration identity and uses the normal host call
+contract. Native declaration arguments and associated outputs use the common `Ty`
+model and explicit nominal identities.
+Durable host root handles can also be converted to concrete interface values.
 
-## Initial Feature Set
+## Implemented Feature Set
 
-The initial trait system includes:
+The current trait system includes:
 
 - trait declarations with methods
-- trait impls for concrete types
+- concrete and generic trait impls, specialized at compile time
 - generic trait bounds through `where`
 - static method lookup through bounds
 - trait names usable directly as interface value types
 - interface dispatch through runtime vtables
-- `is<T>`
-- `downcast<T>`
+- ordinary associated types, equality bindings and qualified projections
+- concrete interface instances from generic implementations, including dependencies
 
-## Initial Scope Exclusions
+## Remaining Scope
 
-The initial trait system excludes:
+The current trait system excludes:
 
 - script-level `dyn` trait-object syntax
-- associated types
 - associated consts
-- trait inheritance with complex conflict rules
-- trait upcasting
 - specialization
-- default trait methods
 - interface dispatch for non-interface-compatible methods
 
-## Implementation Phases
+## Checked and Executable Contracts
 
-The implementation can be staged in this order:
+### Checked method contracts
 
-1. trait declarations
-2. trait impls for concrete script types
-3. generic bounds and static resolution
-4. inherent impl and trait impl disambiguation
-5. runtime interface value representation
-6. interface dispatch through vtables
-7. `is<T>` and `downcast<T>`
+Semantic analysis stores trait and method declarations in the shared nominal
+catalog. A method contract contains its owning declaration, ordered parameters,
+generic parameter identities and bounds, return type, and source declaration.
+Function signatures own the checked constraint map, keyed by the parameter's
+declaring owner and position. Signature validation, function-body environments,
+call checking and the method catalog consume that map. Inline, `where`, and
+inherited impl bounds are assembled once during signature analysis, before any
+function body runs; method shadowing does not change the receiver's outer binder.
+Semantic nominal types pair their declaration identity with ordered type
+arguments; the type kind also participates in identity. Substitution retains the
+declaration and recursively replaces arguments by their parameter owner/position.
+Local impl headers and bounds resolve applied trait types with checked argument
+arity. Executable interface values consume these same checked contracts.
+An imported trait can be used in a bound or implemented locally. Its method
+identities come from the defining module; after shared signatures are available,
+the local implementation is checked against that module's trait contract.
+Whole-program loading also checks the imported interface table against the
+dependency's public ABI before execution.
+Trait methods compare local generic binders by position after substituting
+trait arguments and `Self`; binder spelling does not affect impl matching.
+The same substitution applies to method bounds in the public interface table,
+including type arguments nested inside applied trait constraints.
+Semantic checking applies it to private trait implementations as well, before
+any executable interface table is generated.
+An applied generic trait can be an interface type when its methods meet the
+interface rules; the trait's own type parameters do not count as method-local
+generic parameters. Method-local arguments are checked at each interface call.
+Local and imported interface annotations use these same contracts for argument
+checking, Self substitution, and definition queries. Invalid parameter types retain
+Error facts without discarding later parameters or unrelated declarations.
 
-This order keeps static trait checking independent from runtime interface machinery until interface value representation is implemented.
+Two distinct bounds offering the same method name make an unqualified call
+ambiguous (`KG_TYPE_AMBIGUOUS_METHOD`); bound order never selects a winner.
+Repeating the same bound does not create another candidate. Duplicate method
+declarations within a trait or impl produce `KG_RESOLVE_DUPLICATE_METHOD`.
+Ambiguous calls have no selected method target and cannot enter code generation.
+
+The runtime represents script-backed interface values as generation-checked
+GC objects. Construction requires a verified implementation table and resolved
+method slots; the object retains its concrete payload and the linked dependency
+version until collection. Forged, stale or foreign handles are rejected. The
+method bindings follow trait declaration order regardless of implementation
+source order, and ordinal lookup checks the exact applied interface identity.
+Source calls on interface values use a verified trait method slot and enter the
+receiver's pinned implementation version through the explicit frame stack.
+The construction entry accepts verified concrete implementation tables,
+including generic impl instances and explicitly registered native impls. Native
+impls use the same declaration and method-slot validation as script impls;
+they do not introduce a second implementation-proof catalog or host bridge.
+
+Verified bytecode can now allocate the same interface object with
+`MakeInterface`, using an implementation table slot resolved from the typed IR
+declaration identity and a pinned module slot. The source compiler emits this
+instruction when a concrete expression is used where an interface is expected
+and a unique implementation template is available. HIR records the selected
+declaration and inferred arguments; IR lowering specializes that selection rather
+than repeating name or implementation lookup. Whole-program verification
+resolves imported implementations through the dependency graph.
+
+An embedding path that already has a linked implementation can create and
+retain such a value explicitly:
+
+```rust,ignore
+let value = vm.runtime().make_interface(&loaded_impl, table_index, concrete_value)?;
+let rooted = vm.runtime().root_value(value).expect("valid runtime-owned value");
+let value = rooted.value(vm.runtime().gc()).expect("owning runtime");
+let result = vm.invoke_interface_method(&value, &method_id, &[])?;
+```
+
+The root must remain alive while the host retains the value. The table index
+belongs to `loaded_impl`; another runtime cannot use that linked module.
+The invocation boundary checks concrete parameter and result ABI types,
+including nominal script identity, before accepting an embedding call.
+
+Concrete implementations defined in a dependency are visible to bound-call
+resolution through the checked implementation catalog. Their methods link by
+declaration identity and signature to the defining module. Multiple matching
+concrete implementations reject the whole reachable closure during signature
+checking, including when unused. Generic templates use the same conservative
+overlap rule across modules as within one module; distinct concrete trait
+applications stay independent. Reachable methods in generic dependency
+implementations are specialized for the receiver's concrete type arguments and
+linked to the defining module by instance identity. Further trait extensions are
+tracked in the [implementation roadmap](../implementation-roadmap.md).
+
+### Generic Implementation Interface Instances
+
+A conversion from an applied script type can select a generic impl template,
+including inside a generic function whose receiver shape identifies that template:
+
+```kagari
+trait Reader { type Item; fn read(self) -> Self::Item; }
+struct Holder<T> { val value: T }
+impl<T> Reader for Holder<T> {
+    type Item = T;
+    fn read(self) -> Self::Item { self.value }
+}
+fn boxed<T>(value: Holder<T>) -> Reader<Item = T> { value }
+fn main() -> i32 { boxed(Holder { value: 42 }).read() }
+```
+
+The caller's bounds must justify the selected impl's constraints. Concrete
+instantiation rechecks those constraints; an unconstrained type parameter does
+not prove a required bound. Method-local generics remain incompatible with
+interface values.
+
+The instance key is the impl declaration plus its ordered concrete arguments.
+Repeated conversions reuse one table. Conversion makes all its interface methods
+reachable, even if a particular caller only uses one method. Dependency-defined
+instances and their method slots are emitted in the impl's owning module. Table
+instances share the configurable generic-instantiation budget with functions and
+aggregate layouts; there is no runtime method specialization.
+
+Artifact metadata retains the generic template and the concrete arguments of each
+linked table. Verification rejects duplicate instances, invalid arguments or
+bounds, missing methods and slots pointing at another instance. Generic template
+records with no arguments cannot be used as executable table slots. Runtime
+construction checks the concrete receiver contract and pins the implementation
+version using the existing interface object ownership model.
+
+See [generic-interfaces.kgr](../../examples/syntax/generic-interfaces.kgr), which
+returns `42` from both numeric and string interface instances.
+
+### Host Associated Outputs and Interfaces
+
+An offline common `ImplDecl` contains the trait application, ordered concrete
+inputs, associated type bindings and the method mapping. Each output is keyed by
+its trait-owned member identity and has a portable `Ty`. Every declared output must appear
+exactly once, even when no method is called. Signature analysis and artifact
+verification check output bounds and substitute outputs, trait inputs and `Self`
+into the full method contract. Host projections normalize at compile time.
+
+A host receiver can satisfy a static generic bound or be converted to a fully
+bound interface such as `Reader<Item = i32>`. The compiler emits a concrete
+interface table and ordinary IR forwarding functions. Each forwarding function
+calls the mapped host method through the normal verified host boundary; there is
+no separate runtime dispatcher or runtime generic specialization. Loading checks
+the mapping and forwarding code before execution. Host effects, installed bindings,
+cancellation and call-scoped receiver borrowing remain enforced.
+
+The interface payload may retain a registered durable `HostRoot`, whose registry
+ownership, concrete type and schema are checked. Borrow tokens and path views
+cannot be retained in an interface. Boxing does not transfer ownership of the
+underlying host object to the script GC. An embedding must explicitly root the
+interface while retaining it. Interface objects and their calls pin the linked
+execution version, including across synchronous host reentry and hot reload.
+Tuple method parameters and results validate any nested host roots as well.
+
+See [host-interfaces.kgr](../../examples/host-interfaces.kgr) and run
+`cargo run -p kagari --example host_interfaces` for offline compilation
+followed by runtime binding and static/dynamic calls returning `42`.
+
+### Remaining Execution Work
+
+Runtime downcasting remains separate work. Scalar associated constants and
+type-parameterized GAT are implemented below.
+
+### Trait Inheritance and Upcasting
+
+`trait Child<T>: Parent<T> + Other` declares required parent contracts. Implementing
+`Child` requires a separate implementation of each parent under the implementation's
+bounds. It does not generate parent implementations or merge their declarations.
+The import graph and the inheritance graph remain separate; cycles in inheritance
+are rejected even when no method is called. Traversal is cancellable and bounded
+to 64 declaration levels and 4,096 applied nodes.
+
+Child bounds expose transitive parent methods and associated projections.
+For example, `trait Child: Reader<Item = i32>` permits `T::Item` and
+`<T as Reader>::Item` under `T: Child`, and permits `Self::Item` in child methods.
+The same applied parent reached through a diamond is deduplicated by declaration
+and arguments. Distinct declarations with the same member name remain ambiguous.
+An implementation defines only its own trait's associated outputs and methods.
+
+A dynamic child interface must satisfy the interface compatibility rules for
+every parent, including complete associated output bindings. Parent arguments
+cannot depend on erased `Self`. A child whose parent has an unbound output can
+still be used as a static bound; it cannot be used as an interface value.
+Inherited output equality bindings currently belong in the parent clause;
+binding an inherited output directly on a child type is not yet supported.
+
+An expected parent type converts a child interface to a parent view. Calls to
+inherited parent methods use that same view. Both views retain the same concrete
+payload and original execution family. Parent method tables, including generic
+instances and explicitly registered native impls, are compiled and verified before execution. There
+is no runtime generic specialization. GC, rooted host retention, declared host access
+and old-version calls use the existing interface ownership contracts.
+
+See [trait-inheritance.kgr](../../examples/syntax/trait-inheritance.kgr), which
+returns `42` through static calls, inherited projections and dynamic parent views.
+
+### Default Methods
+
+A trait method with a body supplies a default implementation for script impls
+that omit that method. An explicit implementation takes precedence. Every
+default body is checked in the trait's own declaration context, including when
+no implementation uses it. Required methods without bodies remain mandatory.
+
+`self.method()` in a default body selects the concrete receiver's implementation,
+including explicit overrides and parent implementations. Static calls,
+concrete method calls and dynamic interface slots use the same selected body.
+Static calls specialize generic impls and method-local generic defaults at compile
+time. Dynamic calls use checked shared entries with type and constraint arguments.
+Erased `Self` in results remains incompatible with interfaces.
+Ordinary associated outputs and lexical closures follow the usual type and
+ownership rules.
+
+The compiler reads the trait module's checked body and emits a concrete method
+instance in the implementation module. Calls to private helpers keep their
+original declaration identity; an identically named helper in the implementation
+module does not change the default body. Debug locations and breakpoints retain
+the original source module and span. No runtime default-method search, name
+resolution or generic specialization is performed.
+
+Offline host trait tables continue to map every declared method explicitly;
+omitted host mappings do not invoke script defaults in this checkpoint.
+
+Registered native defaults appear in generated traits as forwarding bodies to
+private typed native helpers. These bodies obey the same declaration-context
+checking rule, even when unused. Only a checked single call that forwards each
+parameter once, in order, and agrees with the registered generic application may
+lower directly to the native helper. This adds no script call frame and preserves
+native cancellation, traps and cleanup. Required methods still have no body;
+explicit implementations override defaults when their declaration permits it.
+
+See [default-methods.kgr](../../examples/syntax/default-methods.kgr), which returns
+`42` through default and overridden static/dynamic calls.
+
+## Standard protocol identities
+
+The language protocols, including value/operator traits, Try/FromResidual for propagation and From for implicit identity/lossless conversion,
+Iterator/Iterable and the six collection interfaces, are listed in
+[builtins](builtins.md). They use ordinary declaration identities, bounds and
+static method resolution. Intrinsic implementations are compiler/runtime owned;
+user definitions named Eq or Debug do not gain intrinsic behavior. Script Structs
+and enums may explicitly implement PartialEq/Eq/Hash in their defining module.
+Eq requires PartialEq, and custom Hash requires both. Generic impl bounds must
+establish those requirements. There are no identity defaults or implicit user-enum
+comparison. The [equality and hashing contract](value-semantics.md#equality-and-hashing)
+defines conditional library implementations, member composition, custom key
+callbacks and key stability.
+Explicit equality, hashing and nominal formatting methods are checked,
+specialized and linked through the ordinary static implementation path.
+Operator and ordering impls are also restricted to script Structs/enums in the
+type's defining module. Native host tables may implement Debug/Display, but not
+these operator, ordering or equality protocols. Applied operator inputs and
+associated Output identities are checked before static specialization and again
+when loading portable implementation metadata.
+The [structural rules](#interface-compatibility-rules) govern every applied trait.
+PartialEq is incompatible because of `other: Self`, and Eq inherits that restriction.
+Debug, Display and Hash can become dynamic interfaces. Collection interfaces and
+their Index/Iterable parents use the same applied argument/output rules. No
+reserved-role exclusion or name exemption changes eligibility. See
+[collection interfaces](collection-access.md) for access and storage contracts.
+Try and FromResidual use static dispatch for source and registered native carriers;
+see [propagation protocols](builtins.md#propagation-protocols).
+Clone, writable indexing, compound-assignment overrides and Error context are later
+extensions over this shared identity and bound infrastructure.
+
+## Unified callable protocol
+
+`core::ops::Fn<Args>` is a prelude trait with an associated `Output` and
+`fn call(self, args: Args) -> Self::Output`. Values of type `fn(...) -> R`, including closures, automatically
+implement it for their parameter tuple and result. User types may implement it
+with the ordinary `impl Fn<(T,)> for Receiver` syntax.
+
+In a trait reference, `Fn(A, B) -> R` abbreviates
+`Fn<(A, B), Output = R>`. Zero arguments use `()`, a single argument uses `(A,)`,
+and an omitted arrow means `Output = ()`. The shorthand resolves the standard
+trait identity, including qualified paths and import aliases. It does not add a
+new function-value type: stored callbacks still use `fn(A, B) -> R`.
+
+```kgr
+fn apply<T, R, F: Fn(T) -> R>(value: T, f: F) -> R { f(value) }
+fn main() -> i32 { apply(21, |x| x * 2) }
+```
+
+The bound supplies contextual closure parameter types and participates in result
+inference. A callable generic parameter or object supports `f(arguments)`; an
+explicit `f.call((arguments,))` uses the same protocol. The receiver is evaluated
+once before the arguments, which are also evaluated once from left to right.
+Ambiguous callable implementations require an explicit trait method selection.
+
+A compatible callable object can be passed, assigned, or returned where a
+`fn(...) -> R` value is expected. The compiler captures the receiver in an ordinary
+closure adapter; it does not copy the object. Captured objects remain GC roots as
+long as the callback is reachable. Existing standard-library callback parameters
+therefore accept these objects as well as functions and closures.
+
+`Fn` allows mutation through shared references, including stateful captured
+variables. It does not imply purity, reentrancy, cross-thread safety, consumption,
+or a promise about the number of calls. There are no `FnMut` or `FnOnce` protocols.
+Calling or adapting a callable retains ordinary trap, cancellation and resource-cleanup
+behavior. Generic callable constraints reuse specialization; function values retain
+indirect closure dispatch. No inlining guarantee is part of this contract.
+
+## Async callable contract
+
+Implemented for functions and explicit async closures. The
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
+
+Async callables expose synchronous `Fn(A) -> Future<T>` factory behavior.
+Invocation allocates a fresh cold Future; the private resume body produces T.
+Existing generic Fn selection is reused without AsyncFn, FnOnce or automatic
+flattening. Synchronous predicates/comparators do not accept Future-valued results.

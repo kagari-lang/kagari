@@ -1,0 +1,112 @@
+# Language conformance entry
+
+The shared observable suite is
+`cargo test -p kagari --lib runtime::language_contract::language_contract_routes_preserve_values_diagnostics_and_effects`.
+Its complete backend/load matrix runs in GitHub CI; local iterations select the
+directly affected contract tests under [the repository policy](../../AGENTS.md#verification-and-tooling).
+Fixtures live in `crates/kagari/src/runtime/language_contract.rs` and contain:
+
+- root source, optional named dependency sources, and an expected value, diagnostic
+  code or runtime failure category;
+- the ordered host calls and their argument values;
+- committed host mutation records and expected host state;
+- optional deterministic host rejection/cancellation and repeated entry invocation;
+- optional rooted array input and its expected contents after success or failure.
+
+Every executable fixture uses four fresh runtimes: source/interpreter,
+artifact/interpreter, source/JIT and artifact/JIT. Both artifact routes serialize,
+decode and validate the artifact before runtime loading. Both JIT routes permit
+the existing interpreter fallback; they do not imply every fixture is native code. Diagnostic
+fixtures must fail the checked-analysis boundary before any backend runs.
+
+Selected scalar overflow fixtures require a recorded native invocation on both
+source/JIT and artifact/JIT routes. They
+cover add/subtract/multiply/negate and intermediate overflow. Division uses the existing interpreter fallback. Runtime
+failures retain their structured category across the native ABI; they never
+trigger a second execution through fallback. Path arithmetic has focused tests
+for unchanged target state, zero write callbacks and zero dirty records on failure.
+
+The recording host exposes `host.log`, as used by the source `print` builtin.
+A call is recorded before its configured outcome. A successful append records
+the target, previous length, and appended value. A rejected append produces no
+mutation record. Calls after a trap must not occur, while earlier committed
+appends remain. These records describe the test host, not a script-heap write
+barrier or a transaction/replay facility.
+
+The authority for expected behavior remains [value semantics](value-semantics.md),
+[failure semantics](failure-semantics.md), and [module activation](module-activation.md).
+Extend an existing fixture only when a distinct core semantic rule is uncovered;
+feature iterations and historical bugs do not each create a permanent regression
+case. Keep subsystem checks only when they establish another core boundary.
+Assignment fixtures check target/index/RHS call order, reading RHS-updated values,
+rejected removed locations, captured root identity, and tuple value updates. These
+use the existing JIT fallback for local and aggregate operations. The optional array observer declares `observe.array` offline and binds it to an
+explicit rooted handle in each runtime. Calls are recorded alongside ordinary host
+calls. After execution the fixture checks that only the observer root remains,
+collects garbage and compares the retained array contents. This covers completed
+writes surviving overflow/index traps, host rejection, cancellation and instruction
+cancellation, removed targets staying removed, and compound
+assignment reading a value changed by its RHS. It exercises JIT fallback for these
+container operations. Heap mutation event records and observers for other object
+kinds remain pending; final contents do not establish a full write-event trace.
+
+For example, `.array(&[2147483647, 0], &[2147483647, 42])` supplies the initial
+array and expects the first element unchanged after overflow while an earlier
+write of `42` to the second element survives. This is an explicit test-host input,
+not inspection of private bytecode registers or a raw unrooted `Value`.
+Unimplemented contract cases are tracked in the foundation roadmap; no ignored
+test is evidence of conformance.
+
+Cancellation fixtures install an explicit execution session and request cancellation
+from a committed host log callback. Rejection is a distinct outcome: it records the
+call without committing its log append. Loop-cancellation fixtures finish their initial heap
+and host writes, then request cancellation in the compound assignment's
+RHS. In all three cases no final assignment is committed, and call-depth/root
+cleanup is checked before post-execution collection and observation. Cancellation
+and host-rejection positions count the full host-call sequence, including the array
+provider call. The enclosing cancellation session is released before collection.
+
+Iteration fixtures receive a rooted Vec and create a cursor in script. They
+verify that push, insert, pop, remove and clear commit, including subsequent host
+effects, before a stale next call traps. Element replacement remains valid.
+Source and artifact routes check the resulting heap contents and error category;
+the full backend matrix belongs to CI.
+
+All fixtures compile through one SourceDatabase, immutable analysis snapshot and
+checked-program boundary. `.modules(&[("dependency", "pub fn answer() -> i32 { 42 }")])`
+adds `contract::dependency`; root source is `contract::root`. The complete program
+is serialized on artifact routes rather than extracting just its root module.
+Module fixtures cover a diamond dependency closure and a cyclic import graph with
+nonrecursive calls. Imports alone produce no host calls or mutations; effects
+occur only in explicitly invoked functions.
+
+This suite establishes a common format and execution matrix. It does not replace
+focused subsystem checks for publication isolation, stale candidates or retained
+old-version dependency closures. The shared publication fixture now complements these focused checks with source-based
+publication, stale-candidate rejection and pinned old dependency calls.
+
+`published_reload` supplies a compatible source/dependency fixture with the expected
+new result. The harness prepares a second candidate against the
+same baseline, publishes the chosen version, calls the old root while its session
+remains pinned, then calls the new entry. Publishing the now-stale candidate must
+return `ModuleNotActive`, release its module resources, and leave the new entry
+unchanged. The fixture changes a dependency result from 42 to 99, so observing 42
+inside the old session proves that cross-module dispatch retained its old closure.
+Both entry versions use the selected interpreter/JIT route.
+
+R02 acceptance evidence (run the shared command above):
+
+| Required observation | Fixture evidence |
+| --- | --- |
+| Source and expected value/diagnostic | `Case`, `compile`, `assert_outcome`; invalid programs stop before code generation |
+| Host calls and modification records | `RecordingHost`, ordered arguments, commits and final log; rejection has no commit |
+| Value/expression contract | Scalar/tuple/enum values, mutable identity and aliases, shallow copies, evaluation order, overflow and compound assignment |
+| Failure contract | Rooted post-trap array contents, rejected writes, cancellation and call-depth termination and cleanup |
+| Module contract | Diamond and cyclic imports link without executing code at load time |
+| Activation contract | Successful publication, stale candidate rejection, pinned old dependency closure |
+| Backend/load equivalence | Fresh source/artifact × interpreter/JIT runtimes; selected scalar fixtures require native invocation |
+
+This accepts the R02 test entry and its initial contract cases. It does not mark the
+remaining unchecked foundation implementation and audit requirements complete. In particular,
+source function values/callback execution, observers for other heap shapes and a
+general heap write-event trace are not established by these tests.

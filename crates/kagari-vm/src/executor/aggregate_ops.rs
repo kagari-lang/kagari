@@ -1,168 +1,111 @@
-use kagari_ir::bytecode::{Register, StructFieldInit};
-use kagari_runtime::value::{StructValueField, Value};
-
-use crate::error::VmError;
-use crate::executor::Executor;
+use crate::{error::VmError, executor::Executor};
+use kagari_bytecode::instruction::Register;
+use kagari_runtime::value::{EnumTag, Value};
+use kagari_types::ty::Ty;
 
 impl Executor<'_> {
+    pub(crate) fn test_enum_variant(&self, value: Register) -> Result<Value, VmError> {
+        let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
+            return Err(VmError::TypeMismatch("enum pattern expects enum value"));
+        };
+        let view = self
+            .runtime
+            .gc()
+            .enum_view(handle)
+            .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
+        let expected = self.current_frame()?.enum_variant(self.runtime)?;
+        Ok(Value::Bool(matches!(
+            &view.tag,
+            EnumTag::Declared(actual) if actual.matches_layout(&expected)
+        )))
+    }
+
+    pub(crate) fn read_enum_payload(&self, value: Register, index: u32) -> Result<Value, VmError> {
+        let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
+            return Err(VmError::TypeMismatch("enum pattern expects enum value"));
+        };
+        let view = self
+            .runtime
+            .gc()
+            .enum_view(handle)
+            .ok_or(VmError::TypeMismatch("invalid enum handle"))?;
+        let expected = self.current_frame()?.enum_variant(self.runtime)?;
+        if !matches!(&view.tag, EnumTag::Declared(actual) if actual.matches_layout(&expected)) {
+            return Err(VmError::TypeMismatch("enum pattern variant mismatch"));
+        }
+        view.fields
+            .get(index as usize)
+            .copied()
+            .ok_or(VmError::TypeMismatch("invalid enum payload index"))
+    }
+
+    pub(crate) fn make_enum(&self, fields: &[Register]) -> Result<Value, VmError> {
+        let fields = fields
+            .iter()
+            .map(|register| {
+                Ok::<_, VmError>(
+                    self.current_frame()?
+                        .read_register(self.runtime, *register)?,
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let layout = self.current_frame()?.enum_variant(self.runtime)?;
+        self.runtime
+            .alloc_enum(EnumTag::Declared(layout), fields)
+            .map(Value::Enum)
+            .map_err(VmError::RuntimeError)
+    }
+
     pub(crate) fn make_tuple(&self, elements: &[Register]) -> Result<Value, VmError> {
         elements
             .iter()
-            .map(|element| self.current_frame()?.read_register(*element))
+            .map(|element| {
+                Ok::<_, VmError>(
+                    self.current_frame()?
+                        .read_register(self.runtime, *element)?,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()
-            .map(Value::Tuple)
+            .and_then(|values| self.runtime.gc().alloc_tuple(values).map_err(VmError::from))
     }
 
-    pub(crate) fn make_array(&self, elements: &[Register]) -> Result<Value, VmError> {
+    pub(crate) fn make_array(&self, element: &Ty, elements: &[Register]) -> Result<Value, VmError> {
         let elements = elements
             .iter()
-            .map(|element| self.current_frame()?.read_register(*element))
+            .map(|element| {
+                Ok::<_, VmError>(
+                    self.current_frame()?
+                        .read_register(self.runtime, *element)?,
+                )
+            })
             .collect::<Result<Vec<_>, _>>()?;
-        if !elements.iter().all(Value::is_default_heap_payload) {
+        if !elements
+            .iter()
+            .all(|value| value.is_default_heap_payload(self.runtime.gc()))
+        {
             return Err(VmError::TypeMismatch(
                 "make_array expects default-storable elements",
             ));
         }
         let handle = self
-            .runtime
-            .alloc_array(elements)
+            .current_frame()?
+            .alloc_array(self.runtime, element, elements)
             .map_err(VmError::RuntimeError)?;
         Ok(Value::Array(handle))
     }
 
-    pub(crate) fn make_struct(
-        &self,
-        name: String,
-        fields: &[StructFieldInit],
-    ) -> Result<Value, VmError> {
+    pub(crate) fn make_struct(&self, fields: &[Register]) -> Result<Value, VmError> {
         let fields = fields
             .iter()
             .map(|field| {
-                Ok(StructValueField {
-                    name: field.name.clone(),
-                    value: self.current_frame()?.read_register(field.value)?,
-                })
+                Ok::<_, VmError>(self.current_frame()?.read_register(self.runtime, *field)?)
             })
             .collect::<Result<Vec<_>, VmError>>()?;
-        if !fields
-            .iter()
-            .all(|field| field.value.is_default_heap_payload())
-        {
-            return Err(VmError::TypeMismatch(
-                "make_struct expects default-storable fields",
-            ));
-        }
+        let layout = self.current_frame()?.struct_layout(self.runtime)?;
         let handle = self
             .runtime
-            .alloc_struct(name, fields)
+            .alloc_struct(layout, fields)
             .map_err(VmError::RuntimeError)?;
         Ok(Value::Struct(handle))
-    }
-
-    pub(crate) fn read_field(&self, base: Register, name: &str) -> Result<Value, VmError> {
-        match self.current_frame()?.read_register(base)? {
-            Value::Struct(handle) => self
-                .runtime
-                .gc()
-                .struct_get_field(handle, name)
-                .ok_or_else(|| VmError::MissingField(name.to_owned())),
-            _ => Err(VmError::TypeMismatch("read_field expects struct value")),
-        }
-    }
-
-    pub(crate) fn read_index(&self, base: Register, index: Register) -> Result<Value, VmError> {
-        let base = self.current_frame()?.read_register(base)?;
-        let index = self.current_frame()?.read_register(index)?;
-        let index = match index {
-            Value::I32(index) if index >= 0 => index as usize,
-            Value::I64(index) if index >= 0 => index as usize,
-            _ => {
-                return Err(VmError::TypeMismatch(
-                    "read_index expects non-negative integer index",
-                ));
-            }
-        };
-
-        match base {
-            Value::Array(handle) => self
-                .runtime
-                .gc()
-                .array_get(handle, index)
-                .ok_or(VmError::InvalidIndex(index)),
-            Value::Tuple(elements) => elements
-                .get(index)
-                .cloned()
-                .ok_or(VmError::InvalidIndex(index)),
-            _ => Err(VmError::TypeMismatch(
-                "read_index expects array or tuple value",
-            )),
-        }
-    }
-
-    pub(crate) fn write_field(
-        &self,
-        base: Register,
-        name: &str,
-        value: Register,
-    ) -> Result<(), VmError> {
-        let value = self.current_frame()?.read_register(value)?;
-        if !value.is_default_heap_payload() {
-            return Err(VmError::TypeMismatch(
-                "write_field expects default-storable value",
-            ));
-        }
-        match self.current_frame()?.read_register(base)? {
-            Value::Struct(handle) => self
-                .runtime
-                .gc()
-                .struct_set_field(handle, name, value)
-                .ok_or_else(|| VmError::MissingField(name.to_owned())),
-            _ => Err(VmError::TypeMismatch("write_field expects struct value")),
-        }
-    }
-
-    pub(crate) fn write_index(
-        &mut self,
-        base: Register,
-        index: Register,
-        value: Register,
-    ) -> Result<(), VmError> {
-        let base_value = self.current_frame()?.read_register(base)?;
-        let index_value = self.current_frame()?.read_register(index)?;
-        let value = self.current_frame()?.read_register(value)?;
-        let index = match index_value {
-            Value::I32(index) if index >= 0 => index as usize,
-            Value::I64(index) if index >= 0 => index as usize,
-            _ => {
-                return Err(VmError::TypeMismatch(
-                    "write_index expects non-negative integer index",
-                ));
-            }
-        };
-
-        match base_value {
-            Value::Array(handle) => {
-                if !value.is_default_heap_payload() {
-                    return Err(VmError::TypeMismatch(
-                        "write_index expects default-storable value",
-                    ));
-                }
-                self.runtime
-                    .gc()
-                    .array_set(handle, index, value)
-                    .ok_or(VmError::InvalidIndex(index))
-            }
-            Value::Tuple(mut elements) => {
-                let Some(slot) = elements.get_mut(index) else {
-                    return Err(VmError::InvalidIndex(index));
-                };
-                *slot = value;
-                self.current_frame_mut()?
-                    .write_register(base, Value::Tuple(elements))
-            }
-            _ => Err(VmError::TypeMismatch(
-                "write_index expects array or tuple value",
-            )),
-        }
     }
 }

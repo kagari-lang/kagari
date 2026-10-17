@@ -1,0 +1,249 @@
+//! Diagnostic snapshots contain no script values, roots or execution-version handles.
+pub mod asynchronous;
+
+use crate::{
+    Runtime, error::RuntimeError, error_trace::asynchronous::AsyncBoundary, frame::ExecutionFrame,
+    module::LoadedModule, resource::ResourceState, session::store::SessionId, value::Value,
+    value_semantics,
+};
+use kagari_bytecode::{artifact::ArtifactFingerprint, module::CallableTarget, program::ModuleRef};
+use kagari_common::span::Span;
+use std::{
+    fmt,
+    fmt::{Display, Formatter},
+    sync::Arc,
+};
+
+pub const MAX_ERROR_FRAMES: usize = 128;
+const MAX_LABEL_BYTES: usize = 4096;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ErrorFrame {
+    pub epoch: u64,
+    pub code_fingerprint: ArtifactFingerprint,
+    /// Module slot in the fingerprinted program; target indices are module-local.
+    pub module: ModuleRef,
+    pub target: CallableTarget,
+    pub function_name: String,
+    pub source_uri: String,
+    pub instruction_offset: usize,
+    pub source_span: Option<Span>,
+    /// One-based line and UTF-8 byte column, independent of the current disk source.
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ErrorTrace {
+    /// Innermost frame first: the first frame is the failure's origin.
+    pub frames: Vec<ErrorFrame>,
+    pub omitted_frames: usize,
+    pub incomplete: bool,
+    /// Detached causal boundaries, from the original failure toward its observers.
+    pub async_boundaries: Vec<AsyncBoundary>,
+    pub omitted_async_boundaries: usize,
+}
+
+impl ErrorTrace {
+    pub(crate) fn capture(resources: &ResourceState) -> Arc<Self> {
+        let Some(session) = resources.active_session() else {
+            return Arc::new(Self {
+                incomplete: true,
+                ..Self::default()
+            });
+        };
+        Self::capture_session(resources, session.id)
+    }
+
+    pub(crate) fn capture_session(resources: &ResourceState, id: SessionId) -> Arc<Self> {
+        let Some(frames) = resources.sessions.frames(id) else {
+            return Arc::new(Self {
+                incomplete: true,
+                ..Self::default()
+            });
+        };
+        Self::from_frames(&frames)
+    }
+
+    fn from_frames(frames: &[ExecutionFrame]) -> Arc<Self> {
+        let count = frames.len().min(MAX_ERROR_FRAMES);
+        let mut trace = Self {
+            omitted_frames: frames.len() - count,
+            incomplete: frames.is_empty(),
+            ..Self::default()
+        };
+        if trace.frames.try_reserve(count).is_err() {
+            trace.omitted_frames = frames.len();
+            trace.incomplete = true;
+            return Arc::new(trace);
+        }
+        for frame in frames.iter().rev().take(count) {
+            let Some(function) = frame.function() else {
+                let CallableTarget::Native(import) = frame.target() else {
+                    unreachable!("native frame target");
+                };
+                let contract = &frame.loaded().bytecode.native_imports[import.index()];
+                let name = frame
+                    .loaded()
+                    .definition_name(contract.instance.declaration)
+                    .unwrap_or("<native>");
+                let Some(function_name) = label(name, &mut trace.incomplete) else {
+                    break;
+                };
+                let Some(source_uri) = label(&frame.loaded().name, &mut trace.incomplete) else {
+                    break;
+                };
+                trace.frames.push(ErrorFrame {
+                    epoch: frame.loaded().epoch.0,
+                    code_fingerprint: frame.loaded().program_fingerprint(),
+                    module: frame.loaded().slot(),
+                    target: frame.target(),
+                    function_name,
+                    source_uri,
+                    instruction_offset: 0,
+                    source_span: None,
+                    line: None,
+                    column: None,
+                });
+                continue;
+            };
+            let offset = frame.instruction_offset();
+            let debug = &function.metadata.debug;
+            let line = debug
+                .line_table
+                .iter()
+                .find(|entry| entry.instruction_offset == offset);
+            let source_span = debug
+                .source_spans
+                .iter()
+                .find(|entry| entry.instruction_offset == offset)
+                .map(|entry| entry.span);
+            let origin = debug
+                .source_module
+                .and_then(|slot| frame.loaded().member(slot));
+            let loaded = origin.as_ref().unwrap_or(frame.loaded());
+            let Some(function_name) = label(&function.name, &mut trace.incomplete) else {
+                trace.incomplete = true;
+                break;
+            };
+            let Some(source_uri) = label(
+                debug.source_uri.as_deref().unwrap_or(&loaded.name),
+                &mut trace.incomplete,
+            ) else {
+                trace.incomplete = true;
+                break;
+            };
+            trace.frames.push(ErrorFrame {
+                epoch: loaded.epoch.0,
+                code_fingerprint: loaded.program_fingerprint(),
+                module: frame.loaded().slot(),
+                target: frame.target(),
+                function_name,
+                source_uri,
+                instruction_offset: offset,
+                source_span,
+                line: line.and_then(|l| l.line),
+                column: line.and_then(|l| l.column),
+            });
+        }
+        trace.omitted_frames = frames.len() - trace.frames.len();
+        Arc::new(trace)
+    }
+}
+
+fn label(value: &str, incomplete: &mut bool) -> Option<String> {
+    let mut end = value.len().min(MAX_LABEL_BYTES);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    *incomplete |= end < value.len();
+    let mut result = String::new();
+    result.try_reserve(end).ok()?;
+    result.push_str(&value[..end]);
+    Some(result)
+}
+
+impl Display for ErrorTrace {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        for frame in &self.frames {
+            write!(f, "\n  at {} ({}", frame.function_name, frame.source_uri)?;
+            if let (Some(line), Some(column)) = (frame.line, frame.column) {
+                write!(f, ":{line}:{column}")?;
+            } else if let Some(span) = frame.source_span {
+                write!(f, ":byte {}", span.start)?;
+            }
+            write!(f, "; epoch {})", frame.epoch)?;
+        }
+        if self.omitted_frames > 0 {
+            write!(f, "\n  ... {} frames omitted", self.omitted_frames)?;
+        }
+        for boundary in &self.async_boundaries {
+            write!(f, "\n  {boundary}")?;
+        }
+        if self.omitted_async_boundaries > 0 {
+            write!(
+                f,
+                "\n  ... {} async boundaries omitted",
+                self.omitted_async_boundaries
+            )?;
+        }
+        if self.incomplete {
+            write!(f, "\n  [error trace incomplete or unavailable]")?;
+        }
+        Ok(())
+    }
+}
+
+impl Runtime {
+    pub fn capture_error_trace(&self) -> Arc<ErrorTrace> {
+        ErrorTrace::capture(self.resources())
+    }
+}
+
+/// A detached diagnostic preview, not a script value and not an execution failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResultFailure {
+    pub message: String,
+    pub trace: Arc<ErrorTrace>,
+}
+
+impl Display for ResultFailure {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}{}", self.message, self.trace)
+    }
+}
+
+impl Runtime {
+    pub fn result_failure(&self, value: &Value) -> Option<ResultFailure> {
+        let trace = self.gc.result_error_trace(value)?;
+        let Value::Enum(id) = value else {
+            return None;
+        };
+        let snapshot = self.gc.enum_view(*id)?;
+        let payload = snapshot.fields.first()?;
+        let preview =
+            value_semantics::format_value(&self.gc, payload, !matches!(payload, Value::Str(_)))
+                .unwrap_or_else(|_| "<error payload unavailable>".into());
+        let mut clipped = false;
+        let message =
+            label(&preview, &mut clipped).unwrap_or_else(|| "<error payload unavailable>".into());
+        let message = if clipped {
+            format!("{message} [truncated]")
+        } else {
+            message
+        };
+        Some(ResultFailure { message, trace })
+    }
+
+    pub fn forward_enum_origin(
+        &self,
+        owner: &LoadedModule,
+        original: &Value,
+        value: &Value,
+    ) -> Result<Value, RuntimeError> {
+        self.validate_loaded_module(owner)?;
+        self.gc
+            .forward_enum_origin(original, value)
+            .map(Value::Enum)
+    }
+}

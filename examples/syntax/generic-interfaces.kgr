@@ -1,0 +1,22 @@
+trait Reader {
+    type Item;
+    fn read(self) -> Self::Item;
+}
+
+struct Holder<T> {
+    val value: T
+}
+
+impl<T> Reader for Holder<T> {
+    type Item = T;
+    fn read(self) -> Self::Item { self.value }
+}
+
+fn boxed<T>(value: Holder<T>) -> Reader<Item = T> { value }
+
+fn main() -> i32 {
+    val first: Reader<Item = i32> = Holder { value: 20 };
+    val second: Reader<Item = String> = Holder { value: "text" };
+    val third = boxed(Holder { value: 22 });
+    if second.read() == "text" { first.read() + third.read() } else { 0 }
+}

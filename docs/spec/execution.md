@@ -27,16 +27,38 @@ Module execution rules are defined in [modules.md](modules.md).
 
 The execution strategy is:
 
-1. parse source
-2. perform semantic analysis and typing
-3. lower to a typed IR
-4. lower to bytecode
-5. execute bytecode in a VM
+1. parse source and prepare the installed standard declaration package
+2. resolve and check ordinary HIR declarations and callable applications
+3. lower checked facts to concrete, verified MIR
+4. lower verified MIR to bytecode and portable executable contracts
+5. validate and link the complete program, then execute bytecode in a VM
 
 This makes the bytecode VM the main semantic backend.
 
-The important point is that bytecode is not just a cache format.
-It is the first real execution target and the place where language behavior is made concrete.
+Bytecode is a verified, distributable execution target, with observable behavior
+defined by the common executable contract below.
+
+## Native standard calls
+
+Engine and host native calls retain distinct provider contracts. Each engine import
+carries its selected declaration, concrete signature, substitutions, bounds and
+protocol witnesses; validation and execution need no source-analysis dependency.
+Required methods select a checked script/native/host implementation before execution.
+No public standard algorithm is expanded into a second compiler implementation.
+
+Direct native calls share existing Rust helpers. Resumable calls retain explicit
+roots and continuations on the active execution frames, release dynamic borrows
+before callbacks, and preserve each original logical operation's charge. Native,
+script and nested native callbacks share cancellation, call-depth and allocation
+limits. Iterator captures retain the checked import and defining dependency versions.
+Core iterator/range operations use the same typed primitives as native entrypoints.
+
+Storage mutations preserve their commit point: preparation failures publish no
+partial update; an already committed update remains visible if a later charge,
+callback or return-value publication fails. Unit-returning required mutations charge
+storage work and Unit publication separately. Cleanup releases only the current
+session/frame suffix and its guards, leaving completed side effects intact. JIT
+unsupported decisions fall back before entry and never restart partially executed code.
 
 ## Why Bytecode-First Fits Kagari
 
@@ -46,7 +68,7 @@ The language model emphasizes:
 - embeddability
 - host interop
 - reflection
-- security capabilities
+- cancellation and execution phase
 - hot reload
 
 These features all benefit from a stable runtime and VM layer.
@@ -57,11 +79,11 @@ Native AOT and JIT are backend layers; they do not define language semantics.
 
 The repository contains bytecode-first implementation components:
 
-- `crates/kagari-ir/src/bytecode/mod.rs`
-- `crates/kagari-ir/src/module/mod.rs`
+- `crates/kagari-bytecode/src/lib.rs`
+- `crates/kagari-mir/src/lib.rs`
 - `crates/kagari-vm/src/lib.rs`
 - `crates/kagari-runtime/src/backend.rs`
-- `crates/kagari-jit-cranelift/src/lib.rs`
+- `crates/kagari-codegen-cranelift/src/lib.rs`
 
 These components are part of the bytecode-first execution model.
 The Cranelift backend is optional and must preserve interpreter-visible behavior through the `CodegenBackend` boundary.
@@ -79,7 +101,7 @@ Responsibilities:
 - define the concrete semantics of bytecode
 - provide the first correct implementation of call frames
 - integrate host interop and borrow guards
-- integrate capability checks
+- integrate declared interface checks
 - integrate reflection and type metadata
 - integrate hot reload and module epochs
 
@@ -91,7 +113,7 @@ The first JIT tier is a baseline function compiler.
 
 Responsibilities:
 
-- compile hot functions from typed IR or bytecode into machine code
+- compile eligible functions from verified MIR and explicit ABI/link descriptions
 - preserve interpreter semantics
 - reduce interpreter dispatch overhead
 - continue using shared runtime helpers for complex operations
@@ -112,17 +134,20 @@ Responsibilities:
 
 This tier is optional.
 
-## Bytecode as the Main Semantic Contract
+## Common executable contract
 
-Bytecode is the primary execution contract between the frontend and runtime.
+Verified MIR and carried ABI facts define the shared executable contract. Bytecode
+is the interpreter target; portable MIR is independently reverified for native
+preparation and must reproduce the same complete bytecode program canonically.
 
 This means:
 
-- interpreter behavior is defined against bytecode semantics
-- JIT compilation preserves bytecode-visible behavior
-- runtime metadata attaches to modules, functions, and instructions
+- interpreter behavior follows the verified bytecode operations and metadata
+- JIT compilation preserves the same effects, charges, traps and value contracts
+- runtime metadata attaches to modules, functions, and program points
+- source analysis is absent from artifact loading and native preparation
 
-Bytecode is not a disposable intermediate artifact.
+Bytecode remains a distributable, verified execution product.
 
 ## Bytecode Artifact Format
 
@@ -205,7 +230,7 @@ Examples:
 - GC write barriers
 - host calls
 - typed host path access and mutation
-- capability checks
+- declared interface checks
 - reflection access
 - downcast checks
 - interface dispatch helpers when needed
@@ -236,7 +261,7 @@ Effect flags:
 - may allocate
 - may trap
 - may call host
-- may trigger capability checks
+- may trigger declared interface checks
 - may suspend
 - may become a safepoint
 
@@ -253,21 +278,17 @@ The first JIT step is:
 
 - function-level baseline JIT
 
-Workflow:
-
-1. interpret bytecode normally
-2. count function executions or hotness
-3. identify hot functions
-4. compile hot functions to machine code
-5. redirect future calls through a function entry table
-
-This keeps the design understandable and avoids tracing complexity.
+The implemented workflow explicitly prepares eligible functions through the SDK,
+installs native products into a runtime and executes a prepared entry. The interpreter
+handles unsupported cases before native entry. Execution counts/hotness, automatic
+first-call preparation and entry-table tier switching are future scheduling work;
+the current API does not implement those policies automatically.
 
 ## JIT Backend Style
 
 A baseline JIT has these properties:
 
-- direct lowering from typed IR or bytecode IR
+- direct lowering from verified MIR and explicit ABI/link descriptions
 - minimal speculation
 - no mandatory deoptimization support in the baseline tier
 - heavy reuse of runtime helpers
@@ -308,7 +329,7 @@ In particular, JIT code must still respect:
 - frame-scoped host borrows
 - host call guards
 - borrow kind checks
-- capability checks
+- declared interface checks
 - no-escape invariants
 
 JIT code calls shared runtime helpers at these boundaries unless a specialization is proven to preserve the same safety checks.
@@ -357,8 +378,8 @@ Future execution extensions include:
 
 - richer bytecode metadata
 - interpreter profiling counters
-- function-level code cache
-- baseline JIT backend
+- broader native coverage and scheduling over the existing function cache
+- physical GC maps and observer callbacks for additional native functions
 
 Later backend experiments include:
 
@@ -379,3 +400,88 @@ The incremental implementation order is:
 7. add baseline JIT as an optional backend
 
 This order keeps the interpreter as the semantic foundation while preserving JIT as an optional backend path.
+
+## Owned interpreter driving
+
+The VM exposes `start` and `drive` for verified script entries, including native-wait
+resume bodies. Start validates and retains arguments without executing script. An `OwnedExecution` token contains
+a checked session identity and retirement/cancellation notification state, not a
+Runtime borrow. `drive` borrows the runtime for one exclusive activation and returns
+`Runnable`, `Waiting` or `Complete(Result<RootedValue, VmError>)`. Its nonzero
+instruction slice is a scheduling interval; native calls remain cooperative and a slice may overrun
+until all transient resources have left. Synchronous execute/reentry uses the same
+frame store and interpreter without host-visible slice exits.
+
+Independent roots retain their own frames, cancellation, code pins and call-depth
+state. Runtime current call depth is restored for the selected root and is zero
+between activations; changing slices cannot bypass its limit. Runtime-owned operand
+windows reuse retired identities with generation checks. Out-of-order frame cleanup
+compacts their banks while preserving live window identities and roots.
+
+Live cursors stay rooted in parked frames, preserving progress. Structural writes
+commit while parked and invalidate the cursor before its next source read. Mutation guards, live scoped host values, native
+borrows and synchronous reentry prevent a slice exit. Drop requests retirement;
+`drain_retired_executions`, the next owned start/drive or runtime destruction releases
+the frames and roots. Host control wakers can be registered on the owner token.
+Independent-root entry/drive during an activation is rejected; ordinary checked
+synchronous reentry remains available and shares the active root.
+
+Native and script Future waits use this same driver. Source `async`/`.await` is
+implemented through checked cold factories and resume bodies. Host Task scopes
+and shared waits use the same driver. Script `scope.spawn(factory)` and `task.cancel()`
+are ordinary registered methods using transactional admission and cooperative cancellation.
+
+## Owned async execution
+
+Source async callables, Future/Task waits, script spawn and host scope driving are implemented
+below. Lifecycle, reload, cancellation and diagnostic integration have focused
+local acceptance; full GitHub CI status is recorded separately in the roadmap. The
+[async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
+
+Runtime-owned execution records survive short driver activations. The driver
+returns Runnable, Waiting or Complete, and completion endpoints only publish
+readiness. Direct Future await drives once in the current execution;
+Task await waits for a scope-owned execution. Live cursor values remain in parked frames,
+so ordinary for bodies can await without retaining collection borrows.
+Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
+
+### Owned readiness and cancellation notifications
+
+Owned execution readiness is a durable coalescing bit. Host wakers only request
+scheduling; registering a waker rechecks existing readiness. Activation claims the
+bit, a runnable slice republishes it, and terminal retirement/runtime destruction
+invalidates it. The common cancellation token supports scoped weak wake
+subscriptions. Owned execution registers such a subscription, so cancelling the
+original host-supplied token wakes the control path as well as cancellation through
+the owner handle. Registrations do not keep completed execution owners alive.
+
+A bytecode Await stores the continuation destination in the session and advances
+the PC once. A pending poll parks without republishing runnable readiness; an
+already racing completion/cancellation wake remains durable. Subsequent driver
+activations poll the existing operation, never claim the Future or submit again.
+Successful conversion writes the checked destination and resumes at the saved PC.
+Cancellation is checked before accepting or publishing the result.
+
+Portable Await requires a Future or Task storage role, matching semantic input/output
+slots and `EffectSet::may_suspend`. This flag marks a resume body, not a suspension
+safety proof: the runtime also checks the complete active resource chain before
+starting any await, including immediately completing operations. Ordinary calls
+and ordinary closure construction cannot select a resume body; synchronous frame
+entry and native backend installation reject it before entering its body. Owned
+entry can drive it. MIR Await is lowered and encoded with the same type contract.
+Both verifiers check definite initialization and live slots, including debug-visible
+locals; cursor retention uses the same ordinary liveness and rooting rules.
+Return/trap still unwinds owned leases. Live host capabilities cannot cross an
+await; owned iteration resources can. The bytecode verifier derives bounded,
+non-serializable await liveness. Runtime preparation maps it through physical slot
+reuse, preserving a location if any logical alias is live. Dead managed slots are
+discarded before the runtime resource check so unused values cannot falsely prevent
+suspension or retain heap objects. The foundation publishes `core::future::Future<T>`
+and `core::task::Task<T>`/`TaskScope`,
+and the SDK exposes this driver with or without source/native features. Each owned
+execution has its own cancellation token. Cancelling the owner terminates only that
+execution; the host-supplied context token forwards cancellation to all executions
+started with it, without receiving local cancellation requests back.
+These transitions do not add polling loops, thread preemption or cancellation of
+another execution merely because it is being observed.

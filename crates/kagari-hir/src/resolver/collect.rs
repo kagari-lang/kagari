@@ -1,100 +1,209 @@
-use kagari_common::{Diagnostic, DiagnosticKind};
+//! Declaration conflict collection and selected-body resolution over shared import facts.
+
+use crate::{
+    AnalysisResult,
+    analysis::error::AnalysisError,
+    hir::{ids::BodySelection, item::function::FunctionKind},
+    imports::{
+        BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
+    },
+    lower::LoweredModule,
+    resolver::{
+        resolve::BodyResolver,
+        resolved::{DeclarationNames, ResolvedNames},
+    },
+};
 use smallvec::SmallVec;
+use std::{collections::HashSet, sync::Arc};
+use {
+    kagari_common::{cancellation::CancellationToken, span::Span},
+    kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
+};
 
-use crate::BoxedDiagnosticBuffer;
-use crate::hir::{FunctionKind, StandardImportTarget};
-use crate::lower::LoweredModule;
-use crate::resolver::ResolvedNames;
-use crate::resolver::resolve::BodyResolver;
-use crate::resolver::table::NameTable;
+/// Resolves all bodies of one lowering without installed native providers.
+///
+/// This convenience entrypoint builds a single-module import graph and retains
+/// declaration/import diagnostics. It neither installs foundation modules nor
+/// performs type checking; use analysis snapshots for a complete source input set.
+pub fn resolve_names(
+    lowered: &LoweredModule,
+) -> Result<AnalysisResult<ResolvedNames>, AnalysisError> {
+    let graph = ModuleGraph::build([lowered], &Default::default())?;
+    let imports = graph.imports_for(&SourceUnit::of(lowered)).unwrap().clone();
+    let declarations =
+        collect_declarations(lowered, imports, graph.catalog.clone(), &Default::default());
+    Ok(AnalysisResult {
+        facts: resolve_bodies(
+            lowered,
+            &declarations.facts,
+            BodySelection::All,
+            &Default::default(),
+        ),
+        diagnostics: declarations.diagnostics,
+    })
+}
 
-pub fn resolve_names(lowered: &LoweredModule) -> Result<ResolvedNames, BoxedDiagnosticBuffer> {
-    let mut names = NameTable::default();
+/// Shares the graph's exact scope table and adds declaration conflicts without traversing bodies.
+pub(crate) fn collect_declarations(
+    lowered: &LoweredModule,
+    imports: Arc<ModuleImportFacts>,
+    catalog: Arc<NamespaceCatalog>,
+    cancel: &CancellationToken,
+) -> AnalysisResult<DeclarationNames> {
+    let names = imports.scope.clone();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
     for function in &lowered.module.functions {
-        if function.kind != FunctionKind::User {
-            continue;
+        if cancel.check().is_err() {
+            break;
         }
-        if function.name.is_empty() {
+        if function.kind == FunctionKind::User && function.name.is_empty() {
             diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
-            continue;
         }
-        if names
-            .insert_function(function.name.clone(), function.id)
-            .is_some()
+    }
+    // Declaration conflicts belong to declaration diagnostics, not graph import failure.
+    for (name, entry) in names
+        .entries
+        .iter()
+        .flat_map(|(name, slots)| slots.iter().map(move |(_, entry)| (name, entry)))
+    {
+        if cancel.check().is_err() {
+            break;
+        }
+        if entry.strong.len() > 1
+            && !entry
+                .strong
+                .iter()
+                .any(|candidate| matches!(candidate.origin, BindingOrigin::NamedImport(_)))
         {
             diagnostics.push(
-                Diagnostic::error(DiagnosticKind::DuplicateFunction {
-                    name: function.name.clone(),
+                Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
+                    name: name.as_str().into(),
                 })
-                .with_span(lowered.source_map.function_span(function.id)),
+                .with_span(
+                    entry
+                        .strong
+                        .last()
+                        .and_then(|candidate| candidate.location)
+                        .map_or(Span::default(), |span| span.range),
+                ),
             );
         }
     }
-
-    for struct_def in &lowered.module.structs {
-        if !struct_def.name.is_empty() {
-            names.insert_struct(struct_def.name.clone(), struct_def.id);
-        }
-    }
-
-    for module_decl in &lowered.module.modules {
-        if !module_decl.name.is_empty() {
-            names.insert_module(module_decl.name.clone(), module_decl.id);
-        }
-    }
-
-    for import in &lowered.module.standard_imports {
-        match import.target {
-            StandardImportTarget::Module(module) => {
-                names.insert_standard_module(import.alias.clone(), module);
-            }
-            StandardImportTarget::Function(intrinsic) => {
-                names.insert_standard_function(import.alias.clone(), intrinsic);
-            }
-        }
-    }
-
-    for const_item in &lowered.module.consts {
-        if !const_item.name.is_empty() {
-            names.insert_const(const_item.name.clone(), const_item.id);
-        }
-    }
-
+    diagnostics.extend(imports.diagnostics.iter().cloned());
     for enum_def in &lowered.module.enums {
-        if !enum_def.name.is_empty() {
-            names.insert_enum(enum_def.name.clone(), enum_def.id);
+        if cancel.check().is_err() {
+            break;
+        }
+        let mut seen = HashSet::new();
+        for variant in &enum_def.variants {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !variant.name.is_empty() && !seen.insert(&variant.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateVariant {
+                        enum_name: enum_def.name.clone(),
+                        name: variant.name.clone(),
+                    })
+                    .with_span(lowered.source_map.variant_span(variant.id)),
+                );
+            }
         }
     }
 
-    for trait_def in &lowered.module.traits {
-        if !trait_def.name.is_empty() {
-            names.insert_trait(trait_def.name.clone(), trait_def.id);
+    for item in &lowered.module.traits {
+        if cancel.check().is_err() {
+            break;
+        }
+        let mut seen = HashSet::new();
+        for method in &item.methods {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !method.name.is_empty() && !seen.insert(&method.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateMethod {
+                        owner: item.name.clone(),
+                        name: method.name.clone(),
+                    })
+                    .with_span(lowered.source_map.function_span(method.function)),
+                );
+            }
         }
     }
-
     for impl_block in &lowered.module.impls {
-        names.insert_impl(impl_block.id);
+        if cancel.check().is_err() {
+            break;
+        }
+
+        let mut seen = HashSet::new();
+        for method in &impl_block.methods {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !method.name.is_empty() && !seen.insert(&method.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateMethod {
+                        owner: "impl".into(),
+                        name: method.name.clone(),
+                    })
+                    .with_span(lowered.source_map.function_span(method.function)),
+                );
+            }
+        }
     }
 
-    if !diagnostics.is_empty() {
-        return Err(Box::new(diagnostics));
+    AnalysisResult {
+        facts: DeclarationNames {
+            items: names,
+            catalog,
+            imports,
+        },
+        diagnostics,
     }
+}
 
-    let mut resolver = BodyResolver::new(&names, &lowered.module);
+/// Resolves selected function bodies and constant initializers against the prepared declaration environment.
+pub(crate) fn resolve_bodies(
+    lowered: &LoweredModule,
+    names: &DeclarationNames,
+    selection: BodySelection,
+    cancel: &CancellationToken,
+) -> ResolvedNames {
+    let mut resolver = BodyResolver::new(
+        &names.items,
+        &lowered.module,
+        &lowered.source_map,
+        names.imports.clone(),
+        names.catalog.clone(),
+        cancel.clone(),
+    );
     for const_item in &lowered.module.consts {
-        resolver.resolve_top_level_expr(const_item.initializer);
+        if cancel.check().is_err() {
+            break;
+        }
+        resolver.resolve_top_level_expr(const_item.id, const_item.initializer);
     }
     for function in &lowered.module.functions {
+        if cancel.check().is_err() {
+            break;
+        }
+        if !selection.includes(function.id) {
+            continue;
+        }
+        let Some(body) = function.body else {
+            continue;
+        };
         resolver.resolve_function(
+            function.id,
             function
                 .params
                 .iter()
                 .map(|param| (param.name.as_str(), param.id)),
-            function.body,
+            body,
         );
     }
 
-    Ok(resolver.finish())
+    resolver.finish()
 }

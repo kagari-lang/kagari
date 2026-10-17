@@ -1,0 +1,129 @@
+use std::collections::{MutableList};
+use std::num::{TryFromIntError};
+fn main() -> i32 { 42 }
+
+use external::enums;
+pub fn native_enum_values() -> i32 {
+    val nested = enums::make(enums::make(Vec::from([38]), 2), 2);
+    match enums::roundtrip(nested) {
+        enums::Event::Data(inner, outer) => match inner {
+            enums::Event::Data(value, sequence) => value[0usize] + sequence + outer,
+            enums::Event::Closed => 0
+        },
+        enums::Event::Closed => 0
+    }
+}
+
+pub fn required_methods() -> i32 {
+    val text = "  β,a  ";
+    val fields = text.trim().split(",").sorted_by_key(|field| field);
+    if fields.len() != 2usize || fields[0] != "a" || fields[1].len() != 2usize
+        || fields[1].slice(0usize, 2usize) != "β" || text.is_empty()
+        || !text.contains("β") || !text.starts_with("  ") || !text.ends_with("  ")
+        || text.find("β") != Some(2usize) || text.trim_start() != "β,a  "
+        || text.trim_end() != "  β,a" || "β".replace("", "-") != "-β-" { return 0; }
+    val values = Vec::from([20, 22]);
+    if !values.map(|item| item).any(|item| item == 20) { return 0; }
+    change(values);
+    val indexed: std::collections::HashMap<usize, i32> = [20, 22]
+        .filter_map(|item| Some(item)).zip([1, 1])
+        .map(|pair| pair[0] * pair[1]).enumerate().collect();
+    if indexed.get(0usize) != Some(20) || indexed.get(1usize) != Some(22) { return 0; }
+    val copied=Vec<i32>::from_iter(values);
+    val total=i32::sum(copied);
+    val parsed=i32::from_str("42");
+    val narrow:Result<i8,TryFromIntError> = total.try_into();
+    match parsed {Ok(n)=>match narrow {Ok(k)=>if i32::from(k)==n {n}else{0},Err(_)=>0},Err(_)=>0}
+}
+
+fn change<C: MutableList<i32>>(values: C) {
+    values.set(0usize, 19);
+    values.insert(1usize, 1);
+    values.remove(2usize);
+    values.push(22);
+    values.set(0usize, 20);
+    values.remove(1usize);
+}
+
+
+
+use external::fixture::hold;
+
+pub fn library_and_object() -> i32 {
+    val values = Vec::from([20, 1, 19]); values.sort();
+    values.sort_by(|a, b| b.cmp(a));
+    val offset = Vec::from([2]);
+    val handler = hold(values, |items| { items[0] += offset[0]; items });
+    val shared = handler.apply();
+    var sum = 0;
+    for item in shared.map( |value| value) { sum += item; }
+    sum
+}
+
+use external::try_carrier::Carrier;
+use core::ops::ControlFlow;
+struct FeaturePayload { val values: Vec<i32> }
+fn carry<T>(value: Carrier<T>) -> Carrier<T> { Carrier::Data(value?) }
+fn stop_carrier(value: Carrier<i32>) -> Carrier<String> { value?; Carrier::Data("unreachable") }
+pub fn native_propagation_values() -> i32 {
+    val value = FeaturePayload { values: Vec::from([42]) };
+    val passed = carry(Carrier::Data(value));
+    match stop_carrier(Carrier::Stop) {
+        Carrier::Stop => match passed { Carrier::Data(item) => item.values[0usize], Carrier::Stop => 0 },
+        Carrier::Data(_) => 0
+    }
+}
+fn convert_residual(value: Result<i32, i32>) -> Result<String, i64> { value?; Ok("unreachable") }
+fn flow_residual(value: ControlFlow<i32, i32>) -> ControlFlow<i32, String> { value?; ControlFlow::Continue("unreachable") }
+fn option_residual(value: Option<i32>) -> Option<String> { value?; Some("unreachable") }
+pub fn standard_residual_values() -> i32 {
+    match convert_residual(Err(42)) {
+        Err(error) => match flow_residual(ControlFlow::Break(42)) {
+            ControlFlow::Break(value) => match option_residual(None) {
+                None => if error == 42i64 { value } else { 0 },
+                Some(_) => 0
+            },
+            ControlFlow::Continue(_) => 0
+        },
+        Ok(_) => 0
+    }
+}
+
+fn origin_residual() -> Result<i32, i32> { Err(42) }
+pub fn converted_error_origin() -> Result<String, i64> { convert_residual(origin_residual()) }
+
+
+pub fn fixed_array_construction() -> i32 {
+    var data: [i32] = [20, 22];
+    val alias = data;
+    val vector = Vec::from(data);
+    val unique = std::collections::HashSet::from([20, 20, 22]);
+    alias[0] = 19;
+    data = [0];
+    vector.push(1);
+    if alias.len() != 2usize || data.len() != 1usize || vector.len() != 3usize || unique.len() != 2usize { return 0; }
+    vector[0] + alias[1]
+}
+
+use std::ops::{Neg, Add, Sub, Mul, Div, Rem};
+trait SharedArithmetic {
+    fn negate<T: Neg<Output = T>>(self, value: T) -> T { -value }
+    fn add<T: Add<T, Output = T>>(self, left: T, right: T) -> T { left + right }
+    fn subtract<T: Sub<T, Output = T>>(self, left: T, right: T) -> T { left - right }
+    fn multiply<T: Mul<T, Output = T>>(self, left: T, right: T) -> T { left * right }
+    fn divide<T: Div<T, Output = T>>(self, left: T, right: T) -> T { left / right }
+    fn remainder<T: Rem<T, Output = T>>(self, left: T, right: T) -> T { left % right }
+}
+struct ArithmeticSource {}
+impl SharedArithmetic for ArithmeticSource {}
+
+pub fn shared_operator_values() -> i32 {
+    val arithmetic: SharedArithmetic = ArithmeticSource {};
+    if arithmetic.negate(-42) != 42 { return 0; }
+    if arithmetic.add(20, 22) != 42 { return 0; }
+    if arithmetic.subtract(65, 23) != 42 { return 0; }
+    if arithmetic.multiply(6, 7) != 42 { return 0; }
+    if arithmetic.divide(126, 3) != 42 { return 0; }
+    if arithmetic.remainder(127, 85) != 42 { return 0; }
+    42
+}

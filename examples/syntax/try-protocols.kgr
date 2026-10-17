@@ -1,0 +1,41 @@
+use core::ops::{Try, FromResidual, ControlFlow};
+use core::convert::Infallible;
+
+// The residual has a distinct nominal identity and no successful payload.
+enum Outcome<T> { Value(T), Stopped }
+impl<T> FromResidual<Outcome<Infallible>> for Outcome<T> {
+    fn from_residual(value: Outcome<Infallible>) -> Self {
+        match value {
+            Outcome::Stopped => Outcome::Stopped,
+            Outcome::Value(never) => match never {},
+        }
+    }
+}
+impl<T> Try for Outcome<T> {
+    type Output = T;
+    type Residual = Outcome<Infallible>;
+    fn from_output(value: T) -> Self { Outcome::Value(value) }
+    fn branch(self) -> ControlFlow<Self::Residual, T> {
+        match self {
+            Outcome::Value(value) => ControlFlow::Continue(value),
+            Outcome::Stopped => ControlFlow::Break(Outcome::Stopped),
+        }
+    }
+}
+
+fn forward<A: Try, R: FromResidual<A::Residual>>(value: A, wrap: fn(A::Output) -> R) -> R {
+    wrap(value?)
+}
+fn control(value: ControlFlow<String, i32>) -> ControlFlow<String, i32> {
+    ControlFlow::Continue(value? + 2)
+}
+fn main() -> i32 {
+    val outcome: Outcome<i32> = forward(Outcome::Value(40), |value| Outcome::Value(value));
+    match outcome {
+        Outcome::Value(value) => match control(ControlFlow::Continue(value)) {
+            ControlFlow::Continue(value) => value,
+            ControlFlow::Break(_) => 0,
+        },
+        Outcome::Stopped => 0,
+    }
+}

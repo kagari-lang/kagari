@@ -1,10 +1,19 @@
-use kagari_common::DiagnosticKind;
+//! Source/module declarations, attributes, imports and shared name/signature syntax.
+//!
+//! Attributes and visibility are retained inside their owning declaration node.
+//! Function parentheses and struct/enum/use-group braces belong to the owner, not
+//! its list child. Trait/impl members are direct children without a body-list node.
+//! Lookahead selects attributed declarations and trait versus inherent impls without
+//! consuming their source. Unknown top-level input advances inside an error node;
+//! nested handlers preserve balanced construction when limits stop grammar work.
+//! See [`crate::ast::item`] and [`crate::ast::misc`] for the resulting layouts.
 
-use crate::{kind::SyntaxKind, token::TokenKind};
+use kagari_source::diagnostic::DiagnosticKind;
 
-use crate::parser::Parser;
+use crate::{kind::SyntaxKind, parser::core::Parser, token::TokenKind};
 
 impl<'a> Parser<'a> {
+    /// Opens one source-file root, parses declarations and retains EOF or the unparsed suffix.
     pub(crate) fn parse_root(&mut self) {
         self.start_node(SyntaxKind::SourceFile);
         self.bump_trivia();
@@ -16,41 +25,23 @@ impl<'a> Parser<'a> {
             self.bump_trivia();
         }
 
-        if self.at(TokenKind::Eof) {
-            self.bump();
-        }
-
+        self.finish_remaining_tokens();
         self.finish_node();
     }
 
     fn parse_top_level(&mut self) -> bool {
         match self.current_kind() {
+            Some(TokenKind::Hash) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
-            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
             Some(TokenKind::TraitKw) => self.parse_trait(),
             Some(TokenKind::ImplKw) => self.parse_impl(),
-            Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
-            Some(TokenKind::WhileKw) => self.parse_while_stmt(),
-            Some(TokenKind::LoopKw) => self.parse_loop_stmt(),
-            Some(TokenKind::ReturnKw | TokenKind::BreakKw | TokenKind::ContinueKw) => {
-                self.error_here(DiagnosticKind::TopLevelControlFlowNotAllowed);
-                self.start_node(SyntaxKind::Error);
-                self.bump();
-                self.bump_trivia();
-                if self.at(TokenKind::Semi) {
-                    self.bump();
-                }
-                self.finish_node();
-            }
-            Some(TokenKind::Ident) if self.expr_followed_by_assignment() => {
-                self.parse_assign_stmt()
-            }
-            Some(_) if self.expr_starts() => return self.parse_top_level_expr_stmt_or_tail(),
             Some(TokenKind::Unknown) => {
                 self.error_here(DiagnosticKind::UnexpectedToken);
                 self.bump_as_error();
@@ -66,10 +57,16 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_public_item(&mut self) {
-        match self.nth_nontrivia_kind(1) {
+        let offset = if self.nth_nontrivia_kind(1) == Some(TokenKind::LParen) {
+            4
+        } else {
+            1
+        };
+        match self.nth_nontrivia_kind(offset) {
+            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
-            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
@@ -83,10 +80,11 @@ impl<'a> Parser<'a> {
 
     fn parse_module_item(&mut self) {
         match self.current_kind() {
+            Some(TokenKind::Hash) => self.parse_attributed_item(),
             Some(TokenKind::PubKw) => self.parse_public_item(),
             Some(TokenKind::ModKw) => self.parse_module(),
             Some(TokenKind::UseKw) => self.parse_use(),
-            Some(TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
             Some(TokenKind::ConstKw) => self.parse_const(),
             Some(TokenKind::StructKw) => self.parse_struct(),
             Some(TokenKind::EnumKw) => self.parse_enum(),
@@ -104,12 +102,206 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_module(&mut self) {
-        self.start_node(SyntaxKind::ModuleDef);
-        self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
+    fn parse_attributed_item(&mut self) {
+        match self.attributed_item_kind() {
+            Some(TokenKind::TypeKw) if self.declarations => self.parse_associated_type(),
+            Some(TokenKind::ModKw) => self.parse_module(),
+            Some(TokenKind::UseKw) => self.parse_use(),
+            Some(TokenKind::AsyncKw | TokenKind::FnKw) => self.parse_function(),
+            Some(TokenKind::ConstKw) => self.parse_const(),
+            Some(TokenKind::StructKw) => self.parse_struct(),
+            Some(TokenKind::EnumKw) => self.parse_enum(),
+            Some(TokenKind::TraitKw) => self.parse_trait(),
+            Some(TokenKind::ImplKw) => self.parse_impl(),
+            _ => {
+                self.error_here(DiagnosticKind::ExpectedTopLevelItem);
+                self.bump_as_error();
+            }
         }
+    }
+
+    fn attributed_item_kind(&self) -> Option<TokenKind> {
+        let mut cursor = self.cursor();
+        let mut kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+        while kind == TokenKind::Hash {
+            if self.nth_nontrivia_kind_from(&mut cursor)? != TokenKind::LBracket {
+                return None;
+            }
+            kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            if !matches!(
+                kind,
+                TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw
+            ) {
+                return None;
+            }
+            kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            while kind == TokenKind::ColonColon {
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                if !matches!(
+                    kind,
+                    TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw
+                ) {
+                    return None;
+                }
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            }
+            if kind == TokenKind::Eq {
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                while kind != TokenKind::RBracket {
+                    if kind == TokenKind::Eof {
+                        return None;
+                    }
+                    kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                }
+            } else if kind == TokenKind::LParen {
+                let mut depth = 1usize;
+                while depth > 0 {
+                    kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+                    match kind {
+                        TokenKind::LParen => depth += 1,
+                        TokenKind::RParen => depth -= 1,
+                        TokenKind::Eof => return None,
+                        _ => {}
+                    }
+                }
+                kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+            }
+            if kind != TokenKind::RBracket {
+                return None;
+            }
+            kind = self.nth_nontrivia_kind_from(&mut cursor)?;
+        }
+        if kind == TokenKind::PubKw {
+            let next = self.nth_nontrivia_kind_from(&mut cursor)?;
+            if next == TokenKind::LParen {
+                self.nth_nontrivia_kind_from(&mut cursor)?;
+                self.nth_nontrivia_kind_from(&mut cursor)?;
+                self.nth_nontrivia_kind_from(&mut cursor)
+            } else {
+                Some(next)
+            }
+        } else {
+            Some(kind)
+        }
+    }
+
+    fn parse_attributes(&mut self) {
+        self.bump_trivia();
+        while self.at(TokenKind::Hash) {
+            self.parse_attribute();
+            self.bump_trivia();
+        }
+    }
+
+    fn parse_attribute(&mut self) {
+        self.start_node(SyntaxKind::Attribute);
+        self.bump();
+        self.expect(TokenKind::LBracket, DiagnosticKind::UnexpectedToken);
+        self.bump_trivia();
+        self.parse_path();
+        self.bump_trivia();
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.bump_trivia();
+            self.parse_attribute_value();
+        } else if self.at(TokenKind::LParen) {
+            self.start_node(SyntaxKind::AttributeArgs);
+            self.bump();
+            self.bump_trivia();
+            if !self.at(TokenKind::RParen) {
+                self.parse_attribute_arg_list(TokenKind::RParen);
+            }
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+            self.finish_node();
+        }
+        self.expect(TokenKind::RBracket, DiagnosticKind::ExpectedClosingBracket);
+        self.finish_node();
+    }
+
+    fn parse_attribute_arg_list(&mut self, end: TokenKind) {
+        self.start_node(SyntaxKind::AttributeArgList);
+        while !self.at_any(&[end.clone(), TokenKind::Eof]) {
+            self.start_node(SyntaxKind::AttributeArg);
+            self.bump_trivia();
+            if self.at(TokenKind::Ident) && self.nth_nontrivia_kind(1) == Some(TokenKind::Eq) {
+                self.parse_name();
+                self.expect(TokenKind::Eq, DiagnosticKind::UnexpectedToken);
+            }
+            self.parse_attribute_value();
+            self.finish_node();
+            self.bump_trivia();
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+            } else {
+                break;
+            }
+        }
+        self.finish_node();
+    }
+
+    fn parse_attribute_value(&mut self) {
+        self.with_nesting(|parser| {
+            parser.start_node(SyntaxKind::AttributeValue);
+            parser.bump_trivia();
+            match parser.current_kind() {
+                Some(
+                    TokenKind::Number
+                    | TokenKind::Float
+                    | TokenKind::String
+                    | TokenKind::TrueKw
+                    | TokenKind::FalseKw,
+                ) => {
+                    parser.start_node(SyntaxKind::Literal);
+                    parser.bump();
+                    parser.finish_node();
+                }
+                Some(TokenKind::LBracket) => {
+                    parser.bump();
+                    parser.bump_trivia();
+                    if !parser.at(TokenKind::RBracket) {
+                        parser.parse_attribute_arg_list(TokenKind::RBracket);
+                    }
+                    parser.expect(TokenKind::RBracket, DiagnosticKind::ExpectedClosingBracket);
+                }
+                Some(
+                    TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
+                ) => parser.parse_path(),
+                _ => parser.error_here(DiagnosticKind::ExpectedExpression),
+            }
+            parser.finish_node();
+        });
+    }
+
+    fn parse_module(&mut self) {
+        self.with_nesting(Self::parse_module_nested);
+    }
+
+    fn parse_visibility(&mut self) {
+        self.bump_trivia();
+        if !self.at(TokenKind::PubKw) {
+            return;
+        }
+        self.bump();
+        self.bump_trivia();
+        if self.at(TokenKind::LParen) {
+            self.bump();
+            self.bump_trivia();
+            if self.at_any(&[TokenKind::SuperKw, TokenKind::CrateKw]) {
+                self.bump();
+            } else {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+        }
+        self.bump_trivia();
+    }
+
+    fn parse_module_nested(&mut self) {
+        self.start_node(SyntaxKind::ModuleDef);
+        self.parse_attributes();
+        self.bump_trivia();
+        self.parse_visibility();
         self.expect(TokenKind::ModKw, DiagnosticKind::ExpectedModuleKeyword);
         self.parse_module_name();
         self.bump_trivia();
@@ -141,10 +333,9 @@ impl<'a> Parser<'a> {
 
     fn parse_use(&mut self) {
         self.start_node(SyntaxKind::UseDecl);
+        self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::UseKw, DiagnosticKind::ExpectedUseKeyword);
         self.parse_use_tree();
         self.bump_trivia();
@@ -152,7 +343,12 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Guards recursive use groups; each branch retains only its own path prefix.
     fn parse_use_tree(&mut self) {
+        self.with_nesting(Self::parse_use_tree_nested);
+    }
+
+    fn parse_use_tree_nested(&mut self) {
         self.start_node(SyntaxKind::UseTree);
         self.bump_trivia();
 
@@ -208,8 +404,10 @@ impl<'a> Parser<'a> {
 
     fn parse_function(&mut self) {
         self.start_node(SyntaxKind::FnDef);
+        self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
+        self.parse_visibility();
+        if self.at(TokenKind::AsyncKw) {
             self.bump();
         }
         self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
@@ -239,16 +437,19 @@ impl<'a> Parser<'a> {
             self.parse_where_clause();
         }
         self.bump_trivia();
-        self.parse_block();
+        if self.declarations && self.at(TokenKind::Semi) {
+            self.bump();
+        } else {
+            self.parse_block();
+        }
         self.finish_node();
     }
 
     fn parse_const(&mut self) {
         self.start_node(SyntaxKind::ConstDef);
+        self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::ConstKw, DiagnosticKind::ExpectedConstKeyword);
         self.parse_const_name();
         self.bump_trivia();
@@ -265,10 +466,9 @@ impl<'a> Parser<'a> {
 
     fn parse_struct(&mut self) {
         self.start_node(SyntaxKind::StructDef);
+        self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::StructKw, DiagnosticKind::ExpectedStructKeyword);
         self.parse_struct_name();
         self.bump_trivia();
@@ -283,11 +483,9 @@ impl<'a> Parser<'a> {
 
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::Field);
+            self.parse_attributes();
             self.bump_trivia();
-            if self.at(TokenKind::PubKw) {
-                self.bump();
-                self.bump_trivia();
-            }
+            self.parse_visibility();
             if self.at_any(&[TokenKind::ValKw, TokenKind::VarKw]) {
                 self.bump();
             } else {
@@ -315,10 +513,9 @@ impl<'a> Parser<'a> {
 
     fn parse_enum(&mut self) {
         self.start_node(SyntaxKind::EnumDef);
+        self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::EnumKw, DiagnosticKind::ExpectedEnumKeyword);
         self.parse_enum_name();
         self.bump_trivia();
@@ -358,10 +555,9 @@ impl<'a> Parser<'a> {
 
     fn parse_trait(&mut self) {
         self.start_node(SyntaxKind::TraitDef);
+        self.parse_attributes();
         self.bump_trivia();
-        if self.at(TokenKind::PubKw) {
-            self.bump();
-        }
+        self.parse_visibility();
         self.expect(TokenKind::TraitKw, DiagnosticKind::ExpectedTraitKeyword);
         self.parse_trait_name();
         self.bump_trivia();
@@ -378,7 +574,13 @@ impl<'a> Parser<'a> {
 
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            self.parse_method(false);
+            if self.attributed_item_kind() == Some(TokenKind::TypeKw) {
+                self.parse_associated_type();
+            } else if self.attributed_item_kind() == Some(TokenKind::ConstKw) {
+                self.parse_associated_const();
+            } else {
+                self.parse_method(false);
+            }
             self.bump_trivia();
         }
 
@@ -388,6 +590,7 @@ impl<'a> Parser<'a> {
 
     fn parse_impl(&mut self) {
         self.start_node(SyntaxKind::ImplBlock);
+        self.parse_attributes();
         self.bump_trivia();
         self.expect(TokenKind::ImplKw, DiagnosticKind::ExpectedImplKeyword);
         self.bump_trivia();
@@ -414,7 +617,13 @@ impl<'a> Parser<'a> {
 
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            self.parse_method(true);
+            if self.attributed_item_kind() == Some(TokenKind::TypeKw) {
+                self.parse_associated_type();
+            } else if self.attributed_item_kind() == Some(TokenKind::ConstKw) {
+                self.parse_associated_const();
+            } else {
+                self.parse_method(true);
+            }
             self.bump_trivia();
         }
 
@@ -509,7 +718,7 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_trait_bound_list(&mut self) {
+    pub(crate) fn parse_trait_bound_list(&mut self) {
         self.start_node(SyntaxKind::TraitBoundList);
         self.parse_trait_ref();
         self.bump_trivia();
@@ -523,13 +732,74 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_trait_ref(&mut self) {
+    pub(crate) fn parse_trait_ref(&mut self) {
         self.start_node(SyntaxKind::TraitRef);
         self.parse_path();
         self.bump_trivia();
         if self.at(TokenKind::Lt) {
             self.parse_generic_arg_list();
+        } else if self.at(TokenKind::LParen) {
+            self.bump();
+            self.parse_type_list();
+            self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
+            self.bump_trivia();
+            if self.at(TokenKind::Arrow) {
+                self.bump();
+                self.parse_type_ref();
+            }
         }
+        self.finish_node();
+    }
+
+    fn parse_associated_type(&mut self) {
+        self.start_node(SyntaxKind::AssociatedType);
+        self.parse_attributes();
+        self.bump_trivia();
+        if self.declarations {
+            self.parse_visibility();
+        }
+        self.expect(TokenKind::TypeKw, DiagnosticKind::ExpectedType);
+        self.bump_trivia();
+        self.parse_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Lt) {
+            self.parse_generic_param_list();
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::Colon) {
+            self.bump();
+            self.parse_trait_bound_list();
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.parse_type_ref();
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::WhereKw) {
+            self.parse_where_clause();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
+        self.finish_node();
+    }
+
+    fn parse_associated_const(&mut self) {
+        self.start_node(SyntaxKind::ConstDef);
+        self.parse_attributes();
+        self.bump_trivia();
+        self.expect(TokenKind::ConstKw, DiagnosticKind::ExpectedConstKeyword);
+        self.parse_const_name();
+        self.bump_trivia();
+        self.expect(TokenKind::Colon, DiagnosticKind::ExpectedType);
+        self.parse_type_ref();
+        self.bump_trivia();
+        if self.at(TokenKind::Eq) {
+            self.bump();
+            self.parse_expr();
+        }
+        self.bump_trivia();
+        self.expect(TokenKind::Semi, DiagnosticKind::ExpectedStatementTerminator);
         self.finish_node();
     }
 
@@ -540,12 +810,7 @@ impl<'a> Parser<'a> {
 
         while !self.at_any(&[TokenKind::LBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::WherePredicate);
-            self.start_node(SyntaxKind::Name);
-            self.expect(
-                TokenKind::Ident,
-                DiagnosticKind::ExpectedGenericParameterName,
-            );
-            self.finish_node();
+            self.parse_type_ref();
             self.expect(
                 TokenKind::Colon,
                 DiagnosticKind::ExpectedWherePredicateSeparator,
@@ -572,6 +837,7 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// Consumes `Name (:: Name)*`, leaving a following `::*`, `::{` or `::<` to its owner.
     pub(crate) fn parse_path(&mut self) {
         self.start_node(SyntaxKind::Path);
         self.parse_path_segment();
@@ -632,7 +898,9 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn skip_angle_group(&self, cursor: &mut usize) -> bool {
+    /// Scans balanced angles after an already-consumed `<` using an independent cursor.
+    /// Returns false on EOF/cancellation/exhaustion without mutating parser output.
+    pub(crate) fn skip_angle_group(&self, cursor: &mut usize) -> bool {
         let mut depth = 1;
         while let Some(kind) = self.nth_nontrivia_kind_from(cursor) {
             match kind {
@@ -676,10 +944,13 @@ impl<'a> Parser<'a> {
 
     fn parse_method(&mut self, allow_visibility: bool) {
         self.start_node(SyntaxKind::MethodDef);
+        self.parse_attributes();
         self.bump_trivia();
-        if allow_visibility && self.at(TokenKind::PubKw) {
+        if allow_visibility {
+            self.parse_visibility();
+        }
+        if self.at(TokenKind::AsyncKw) {
             self.bump();
-            self.bump_trivia();
         }
         self.expect(TokenKind::FnKw, DiagnosticKind::ExpectedFunctionKeyword);
         self.parse_name();
@@ -773,23 +1044,5 @@ impl<'a> Parser<'a> {
         );
         self.parse_type_ref();
         self.finish_node();
-    }
-
-    fn parse_top_level_expr_stmt_or_tail(&mut self) -> bool {
-        let checkpoint = self.checkpoint();
-        self.parse_expr();
-        self.bump_trivia();
-
-        if self.at(TokenKind::Semi) {
-            self.finish_expr_stmt(checkpoint);
-            return false;
-        }
-
-        if self.at(TokenKind::Eof) {
-            return true;
-        }
-
-        self.error_here(DiagnosticKind::ExpectedStatementTerminator);
-        false
     }
 }

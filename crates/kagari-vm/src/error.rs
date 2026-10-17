@@ -1,27 +1,25 @@
-use kagari_ir::bytecode::{
-    BytecodeVerificationError, CallTarget, FunctionRef, JumpTarget, LocalSlot, ModuleSlot, Register,
-};
+use kagari_bytecode::{instruction::CallTarget, verifier::BytecodeVerificationError};
+use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
-    BackendDiagnostic, BackendInvocationError, ModuleKey, RuntimeError, builtin::BuiltinError,
-    host::HostError, reflection::ReflectionError,
+    backend::BackendInvocationError,
+    builtin::BuiltinError,
+    error::{RuntimeError, RuntimeErrorKind},
+    error_trace::ErrorTrace,
+    frame::cursor::kernel::RegionError,
+    host::HostError,
+    reflection::ReflectionError,
 };
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum VmError {
+    Traced {
+        error: Box<VmError>,
+        trace: Arc<ErrorTrace>,
+    },
     MissingFunction(String),
     MissingField(String),
     InvalidFunctionRef(FunctionRef),
-    InvalidFrameArity {
-        function: FunctionRef,
-        expected: usize,
-        found: usize,
-    },
-    InvalidJumpTarget(JumpTarget),
-    InvalidRegister(Register),
-    InvalidLocal(LocalSlot),
-    InvalidModuleSlot(ModuleSlot),
-    ImmutableModuleSlot(ModuleSlot),
-    ModuleInitializing(ModuleKey),
     InvalidIndex(usize),
     InvalidBranchCondition,
     HostError(HostError),
@@ -29,10 +27,80 @@ pub enum VmError {
     ReflectionError(ReflectionError),
     RuntimeError(RuntimeError),
     BytecodeVerification(BytecodeVerificationError),
-    JitBackend(Vec<BackendDiagnostic>),
     JitInvocation(BackendInvocationError),
     Trap(&'static str),
     TypeMismatch(&'static str),
-    UnsupportedCallTarget(CallTarget),
+    UnsupportedCallTarget(Box<CallTarget>),
     UnsupportedInstruction(&'static str),
+}
+
+impl From<BuiltinError> for VmError {
+    fn from(error: BuiltinError) -> Self {
+        if error.kind() == RuntimeErrorKind::ScriptTrap {
+            Self::BuiltinError(error)
+        } else {
+            Self::RuntimeError(error.into_runtime_error())
+        }
+    }
+}
+
+impl From<RegionError> for VmError {
+    fn from(error: RegionError) -> Self {
+        match error {
+            RegionError::Runtime(error) => Self::RuntimeError(*error),
+            RegionError::TypeMismatch(reason) => Self::TypeMismatch(reason),
+            RegionError::InvalidIndex(index) => Self::InvalidIndex(index),
+        }
+    }
+}
+
+impl From<RuntimeError> for VmError {
+    fn from(error: RuntimeError) -> Self {
+        Self::RuntimeError(error)
+    }
+}
+
+impl VmError {
+    pub fn cause(&self) -> &Self {
+        match self {
+            Self::Traced { error, .. } => error.cause(),
+            _ => self,
+        }
+    }
+
+    pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
+        match self {
+            Self::Traced { trace, .. } => Some(trace),
+            Self::RuntimeError(error) => error.trace(),
+            Self::HostError(error) => error.trace(),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn with_trace(self, trace: Arc<ErrorTrace>) -> Self {
+        if self
+            .trace()
+            .is_some_and(|previous| !previous.frames.is_empty())
+        {
+            return self;
+        }
+        match self {
+            Self::RuntimeError(error) => Self::RuntimeError(error.with_trace(trace)),
+            Self::Traced { error, .. } => error.with_trace(trace),
+            error => Self::Traced {
+                error: Box::new(error),
+                trace,
+            },
+        }
+    }
+
+    pub(crate) fn invariant_reason(&self) -> Option<&'static str> {
+        match self {
+            Self::InvalidFunctionRef(_) => Some("verified function reference is missing"),
+            Self::InvalidBranchCondition => Some("verified branch condition is not bool"),
+            Self::UnsupportedCallTarget(_) => Some("verified call target is unsupported"),
+            Self::UnsupportedInstruction(reason) => Some(reason),
+            _ => None,
+        }
+    }
 }

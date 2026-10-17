@@ -1,32 +1,23 @@
+use crate::{
+    debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
+    error::VmError,
+    tests::{
+        common::{compile_test_bytecode, load_test_module, round_trip_bytecode, standard_runtime},
+        native_fixtures,
+    },
+    vm::Vm,
+};
+use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ResourcePolicy, Runtime, RuntimeConfig,
-    RuntimeErrorKind, SecurityContext, value::StructValueField, value::Value,
+    Runtime, RuntimeConfig,
+    error::RuntimeErrorKind,
+    module::entry::ProgramEntry,
+    resource::RuntimeLimits,
+    value::{StructValueField, Value},
 };
 
-use crate::tests::common::{compile_test_bytecode, load_test_module};
-use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
-
-fn debug_runtime(module_name: &str) -> Runtime {
-    Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                debug_attach: true,
-                debug_breakpoints: true,
-                debug_pause: true,
-                debug_stack_inspection: true,
-                debug_value_inspection: true,
-                debug_watch_evaluation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec![module_name.to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
+fn debug_runtime(_module_name: &str) -> Runtime {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
@@ -51,20 +42,106 @@ fn main() -> i32 {
 }
 "#,
     );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let vm = Vm::new(runtime);
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(13));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(13)
+    );
+}
+
+#[test]
+fn missing_entry_is_rejected_before_execution() {
+    let bytecode = compile_test_bytecode("fn main() -> i32 { 42 }");
+    for encoded in [false, true] {
+        let program = bytecode.clone();
+        let program = if encoded {
+            round_trip_bytecode(program)
+        } else {
+            program
+        };
+        let mut runtime = standard_runtime(Default::default());
+        let loaded = runtime.load_program("missing-entry.kgr", program).unwrap();
+        let vm = Vm::new(runtime);
+        for jit in [false, true] {
+            let error = if jit {
+                let prepared = native_fixtures::unsupported();
+                vm.execute_prepared(&loaded, "missing", &prepared)
+                    .unwrap_err()
+            } else {
+                vm.execute(&loaded, "missing").unwrap_err()
+            };
+            assert!(
+                matches!(error, VmError::MissingFunction(ref name) if name == "missing"),
+                "{encoded}/{jit}: {error:?}"
+            );
+
+            assert_eq!(vm.runtime().gc().active_roots(), 0);
+        }
+    }
+}
+
+#[test]
+fn public_entries_use_verified_identity_despite_duplicate_display_names() {
+    let (definitions, mut bytecode) =
+        compile_test_bytecode("pub fn first() -> i32 { 1 } pub fn second() -> i32 { 2 }")
+            .into_parts();
+    let second = bytecode.modules[bytecode.root.index()]
+        .functions
+        .iter()
+        .position(|function| function.name == "second")
+        .unwrap();
+    bytecode.modules[bytecode.root.index()].functions[second].name = "first".into();
+    bytecode.modules[bytecode.root.index()].function_table[second].name = "first".into();
+    let bytecode = DefinitionMetadata::checked(definitions, bytecode, &Default::default()).unwrap();
+    for encoded in [false, true] {
+        let program = bytecode.clone();
+        let program = if encoded {
+            round_trip_bytecode(program)
+        } else {
+            program
+        };
+        let mut runtime = standard_runtime(Default::default());
+        let loaded = runtime
+            .load_program("ambiguous-entry.kgr", program)
+            .unwrap();
+        let vm = Vm::new(runtime);
+        for jit in [false, true] {
+            for (path, expected) in [("first", 1), ("second", 2)] {
+                let report = if jit {
+                    let prepared = native_fixtures::unsupported();
+                    vm.execute_prepared(&loaded, path, &prepared).unwrap()
+                } else {
+                    vm.execute(&loaded, path).unwrap()
+                };
+                assert_eq!(
+                    report.return_value.value(vm.runtime().gc()),
+                    Some(Value::I32(expected)),
+                    "{encoded}/{jit}/{path}"
+                );
+                drop(report);
+                assert_eq!(vm.runtime().gc().active_roots(), 0);
+            }
+        }
+    }
 }
 
 #[test]
 fn interpreter_conformance_classifies_failure_paths() {
     let (runtime, loaded) = load_test_module("fn main() -> i32 { val values = [1]; values[3] }");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect_err("out of bounds index should trap");
-    assert!(matches!(error, VmError::InvalidIndex(3)));
+    assert!(
+        matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds)
+    );
 
     let missing = vm
         .execute(&loaded, "missing")
@@ -72,19 +149,18 @@ fn interpreter_conformance_classifies_failure_paths() {
     assert!(matches!(missing, VmError::MissingFunction(ref name) if name == "missing"));
 
     let bytecode = compile_test_bytecode("fn main() -> i32 { 1 + 2 }");
-    let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
-            max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
+    let mut runtime = standard_runtime(RuntimeConfig {
+        limits: RuntimeLimits {
+            max_call_depth: Some(0),
         },
         ..RuntimeConfig::default()
     });
     let loaded = runtime
-        .load_module("resource_limit.kgr", bytecode)
+        .load_program("resource_limit.kgr", bytecode)
         .expect("module should load");
-    let mut vm = Vm::new(runtime);
+    let vm = Vm::new(runtime);
     let error = vm
-        .execute(&loaded, "main")
+        .execute(&loaded, ProgramEntry::Main)
         .expect_err("resource limit should be classified");
     assert!(matches!(
         error,
@@ -112,7 +188,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("debug_conformance.kgr");
     let loaded = runtime
-        .load_module("debug_conformance.kgr", compile_test_bytecode(source))
+        .load_program("debug_conformance.kgr", compile_test_bytecode(source))
         .expect("module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let breakpoint = session
@@ -127,12 +203,21 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-    assert_eq!(report.return_value, Value::I32(12));
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(12)
+    );
 
-    let pause = vm
+    let debug = vm
         .debug_session()
-        .expect("debug session should be attached")
+        .expect("debug session should be attached");
+    let pause = debug
         .pauses()
         .iter()
         .find(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint))
@@ -168,15 +253,13 @@ fn main() -> i32 {
         .iter()
         .find(|binding| binding.name == "numbers")
         .expect("numbers binding should be inspectable")
-        .value
-        .clone();
+        .value;
     let point = callee
         .bindings
         .iter()
         .find(|binding| binding.name == "point")
         .expect("point binding should be inspectable")
-        .value
-        .clone();
+        .value;
     let Value::Array(numbers) = numbers else {
         panic!("expected array binding");
     };
@@ -220,7 +303,7 @@ fn main() -> i32 {
 "#;
     let mut runtime = debug_runtime("debug_steps.kgr");
     let loaded = runtime
-        .load_module("debug_steps.kgr", compile_test_bytecode(source))
+        .load_program("debug_steps.kgr", compile_test_bytecode(source))
         .expect("module should load");
     let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
     let cursor = session
@@ -236,9 +319,17 @@ fn main() -> i32 {
     let mut vm = Vm::new(runtime);
     vm.attach_debug_session(session)
         .expect("debug attach should be allowed");
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
+    let report = vm
+        .execute(&loaded, ProgramEntry::Main)
+        .expect("vm should execute");
 
-    assert_eq!(report.return_value, Value::I32(3));
+    assert_eq!(
+        report
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(3)
+    );
     let debug = vm
         .debug_session()
         .expect("debug session should be attached");

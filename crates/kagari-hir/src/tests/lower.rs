@@ -1,10 +1,71 @@
 use crate::{
     hir::{
-        ExprKind, FunctionKind, Item, PatternKind, PlaceKind, StmtKind, TypeKind, Visibility,
-        Writeability,
+        expr::ExprKind,
+        item::{Item, function::FunctionKind},
+        pattern::PatternKind,
+        place::PlaceKind,
+        stmt::StmtKind,
+        ty::TypeKind,
+        writeability::Writeability,
     },
     tests::common,
 };
+use kagari_source::source::SourceFile;
+use kagari_syntax::parser;
+use kagari_types::visibility::Visibility;
+use std::sync::Arc;
+
+#[test]
+fn declaration_only_functions_do_not_acquire_script_bodies() {
+    let source = Arc::new(SourceFile::new(
+        "declarations.kgr",
+        "pub fn native() -> i32; trait Example { fn required(self) -> i32; fn script(self) {} }",
+    ));
+    let cancel = Default::default();
+    let parsed = parser::parse_declarations(&source, Default::default(), &cancel).unwrap();
+    assert!(parsed.diagnostics().is_empty());
+    let lowered = crate::lower::lower_module_controlled(source, &parsed.syntax(), &cancel);
+    let [native, required, script] = lowered.module.functions.as_slice() else {
+        panic!("three declarations expected");
+    };
+    assert_eq!(native.body, None);
+    assert_eq!(required.body, None);
+    let script_body = lowered.module.block(script.body.unwrap());
+    assert!(script_body.statements.is_empty());
+    assert_eq!(script_body.tail_expr, None);
+    let methods = &lowered.module.traits[0].methods;
+    assert!(!methods[0].has_default);
+    assert!(methods[1].has_default);
+}
+
+#[test]
+fn attributes_preserve_structured_metadata_and_target_ranges() {
+    let source =
+        "#[meta(name = \"answer\", tags = [1, true, sample::tag])] fn main() -> i32 { 42 }";
+    let lowered = common::lower_ok(source);
+    let [attribute] = lowered.attributes.as_slice() else {
+        panic!("one attribute fact expected");
+    };
+    assert_eq!(attribute.name, "meta");
+    assert_eq!(
+        &source[attribute.span.start..attribute.span.end],
+        "#[meta(name = \"answer\", tags = [1, true, sample::tag])]"
+    );
+    assert_eq!(
+        &source[attribute.target_span.start..attribute.target_span.end],
+        source
+    );
+    let args = attribute.arguments.as_ref().unwrap();
+    assert_eq!(args[0].name.as_deref(), Some("name"));
+    assert_eq!(
+        args[0].value,
+        crate::lower::AttributeValue::Literal("\"answer\"".into())
+    );
+    assert_eq!(args[1].name.as_deref(), Some("tags"));
+    assert!(
+        matches!(&args[1].value, crate::lower::AttributeValue::List(values) if values.len() == 3)
+    );
+}
 
 #[test]
 fn lowers_items_into_hir_module() {
@@ -80,9 +141,12 @@ impl Display for Player {
     assert_eq!(trait_function.params[0].name, "self");
 
     assert_eq!(lowered.module.impls.len(), 1);
-    assert_eq!(
-        lowered.module.impls[0].trait_ref.as_deref(),
-        Some("Display")
+    let reference = lowered.module.impls[0]
+        .trait_ref
+        .as_ref()
+        .expect("impl trait reference");
+    assert!(
+        matches!(&lowered.module.type_ref(reference.ty).kind, TypeKind::Named(name) if name == "Display")
     );
     let for_type = lowered.module.impls[0]
         .for_type
@@ -122,7 +186,7 @@ fn lowers_function_body_expressions_and_statements() {
         TypeKind::Named(name) if name == "i32"
     ));
 
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let stmt = lowered.module.stmt(block.statements[0]);
     match &stmt.kind {
         StmtKind::Binding {
@@ -159,7 +223,9 @@ fn lowers_function_body_expressions_and_statements() {
     }
 
     let assign = common::lower_ok("fn main(value: i32) -> i32 { value = 1; value }");
-    let assign_block = assign.module.block(assign.module.functions[0].body);
+    let assign_block = assign
+        .module
+        .block(assign.module.functions[0].body.unwrap());
     match &assign.module.stmt(assign_block.statements[0]).kind {
         StmtKind::Assign { target, .. } => {
             assert!(matches!(
@@ -181,7 +247,9 @@ fn main() {
 }
 "#,
     );
-    let block = nested.module.block(nested.module.functions[0].body);
+    let block = nested
+        .module
+        .block(nested.module.functions[0].body.unwrap());
     match &nested.module.stmt(block.statements[1]).kind {
         StmtKind::Assign { target, .. } => {
             assert!(matches!(
@@ -197,7 +265,7 @@ fn main() {
 fn lowers_var_binding() {
     let lowered = common::lower_ok("fn main() { var value = 1; value = 2; }");
     let function = &lowered.module.functions[0];
-    let block = lowered.module.block(function.body);
+    let block = lowered.module.block(function.body.unwrap());
     let stmt = lowered.module.stmt(block.statements[0]);
 
     match &stmt.kind {
@@ -212,68 +280,7 @@ fn lowers_var_binding() {
 }
 
 #[test]
-fn lowers_top_level_statements_into_module_init_function() {
-    let lowered = common::lower_ok(
-        r#"
-val boot = 1;
-
-fn main() -> i32 { 1 }
-"#,
-    );
-
-    let module_init = lowered
-        .module
-        .module_init
-        .expect("expected implicit module init function");
-    let function = lowered
-        .module
-        .functions
-        .iter()
-        .find(|function| function.id == module_init)
-        .expect("expected module init function in function list");
-
-    assert_eq!(function.name, "__module_init__");
-    assert!(matches!(function.kind, FunctionKind::ModuleInit));
-
-    let block = lowered.module.block(function.body);
-    assert_eq!(block.statements.len(), 1);
-    assert!(matches!(
-        lowered.module.stmt(block.statements[0]).kind,
-        StmtKind::Binding { .. }
-    ));
-}
-
-#[test]
-fn lowers_top_level_tail_expression_into_module_init_result() {
-    let lowered = common::lower_ok(
-        r#"
-val boot = 1;
-
-boot + 1
-"#,
-    );
-
-    let module_init = lowered
-        .module
-        .module_init
-        .expect("expected implicit module init function");
-    let function = lowered
-        .module
-        .functions
-        .iter()
-        .find(|function| function.id == module_init)
-        .expect("expected module init function in function list");
-
-    let block = lowered.module.block(function.body);
-    let tail_expr = block.tail_expr.expect("expected module init tail expr");
-    assert!(matches!(
-        lowered.module.expr(tail_expr).kind,
-        ExprKind::Binary { .. }
-    ));
-}
-
-#[test]
-fn lowers_const_items_and_exports() {
+fn lowers_public_const_items() {
     let lowered = common::lower_ok(
         r#"
 pub const VERSION: i32 = 1;
@@ -281,7 +288,6 @@ pub const VERSION: i32 = 1;
     );
 
     assert_eq!(lowered.module.items.len(), 1);
-    assert_eq!(lowered.module.exports.len(), 1);
 
     let const_item = &lowered.module.consts[0];
     assert_eq!(const_item.name, "VERSION");

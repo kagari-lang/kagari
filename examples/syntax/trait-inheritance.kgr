@@ -1,0 +1,23 @@
+// The same applied parent reached through a diamond is one contract.
+trait Reader { type Item; fn read(self) -> Self::Item; }
+trait Left: Reader<Item = i32> {}
+trait Right: Reader<Item = i32> {}
+trait NumberReader: Left + Right { fn extra(self) -> Self::Item; }
+
+struct Number { val value: i32 }
+impl Reader for Number {
+    type Item = i32;
+    fn read(self) -> Self::Item { self.value }
+}
+impl Left for Number {}
+impl Right for Number {}
+impl NumberReader for Number { fn extra(self) -> Self::Item { 0 } }
+
+fn static_read<T: NumberReader>(value: T) -> T::Item { value.read() }
+fn parent_view(value: NumberReader) -> Reader<Item = i32> { value }
+
+fn main() -> i32 {
+    val child: NumberReader = Number { value: 14 };
+    val parent: Reader<Item = i32> = child;
+    static_read(Number { value: 14 }) + parent.read() + parent_view(child).read() + child.extra()
+}

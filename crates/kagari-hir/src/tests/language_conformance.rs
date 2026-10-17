@@ -1,6 +1,10 @@
-use kagari_common::DiagnosticKind;
+use kagari_common::identity::map::DefinitionContext;
+use kagari_source::diagnostic::DiagnosticKind;
 
-use crate::{resolver::resolve_names, tests::common, typeck::check_module};
+use crate::{
+    resolver::collect::resolve_names,
+    tests::common::{self, check_module},
+};
 
 struct SemanticCase {
     spec_section: &'static str,
@@ -11,6 +15,7 @@ struct SemanticCase {
 
 #[test]
 fn semantic_spec_accepts_var_storage_mutation_without_rebinding_val_slots() {
+    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 struct Point {
@@ -28,13 +33,19 @@ fn main() -> i32 {
 }
 "#,
     );
-    let names = resolve_names(&lowered).expect("resolver should succeed");
+    let names = resolve_names(&lowered)
+        .unwrap()
+        .into_checked()
+        .expect("resolver should succeed");
 
-    check_module(&lowered, &names).expect("spec-valid var field and index mutation should typeck");
+    check_module(&context, &lowered, &names, None)
+        .into_checked()
+        .expect("spec-valid var field and index mutation should typeck");
 }
 
 #[test]
 fn semantic_spec_rejects_non_var_rebinding_and_val_field_assignment() {
+    let context = DefinitionContext::new().unwrap();
     let cases = [
         SemanticCase {
             spec_section: "docs/spec/syntax.md#binding-and-field-writeability",
@@ -86,9 +97,13 @@ fn main() -> i32 {
 
     for case in cases {
         let lowered = common::lower_ok(case.source);
-        let names = resolve_names(&lowered).expect("resolver should succeed");
-        let diagnostics =
-            check_module(&lowered, &names).expect_err("type checker should reject source");
+        let names = resolve_names(&lowered)
+            .unwrap()
+            .into_checked()
+            .expect("resolver should succeed");
+        let diagnostics = check_module(&context, &lowered, &names, None)
+            .into_checked()
+            .expect_err("type checker should reject source");
 
         assert!(
             diagnostics

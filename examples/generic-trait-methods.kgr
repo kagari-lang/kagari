@@ -1,0 +1,23 @@
+trait Echo {
+    fn echo<U>(self, value: U) -> U;
+}
+
+struct Holder {}
+
+impl Echo for Holder {
+    fn echo<V>(self, value: V) -> V {
+        value
+    }
+}
+
+fn call<T: Echo>(value: T) -> i32 {
+    if value.echo(true) {
+        value.echo(42)
+    } else {
+        0
+    }
+}
+
+fn main() -> i32 {
+    call(Holder {})
+}

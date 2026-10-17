@@ -1,0 +1,7 @@
+use alloc::vec as algorithms;
+fn main()->i32 {
+    val values=algorithms::Vec::from([22,20]);
+    var total=0;
+    for value in values.map(|value|value) { total+=value; }
+    total
+}

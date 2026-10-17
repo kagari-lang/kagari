@@ -1,0 +1,439 @@
+//! Closed type arguments retain the lexical scope that supplied their layouts.
+use kagari_common::identity::{
+    mapping::DefinitionMappingError, scoped::DefinitionReferences, table::DefinitionTable,
+};
+#[cfg(test)]
+mod identity_tests;
+mod nominal;
+pub(crate) mod variants;
+use crate::{
+    Runtime,
+    error::RuntimeError,
+    frame::types::{
+        arguments::variants::PreparedEnumMember,
+        bindings::TypeBindings,
+        compatibility::{TypeIdentity, TypeView},
+    },
+    gc::GcHeap,
+    module::{EnumVariantRef, LoadedModule, layout_admission::NominalAdmission},
+    value::Value,
+    value_check,
+};
+use kagari_types::{declaration::verify::types_in_scope, ty::Ty};
+use std::{
+    slice,
+    sync::{Arc, OnceLock},
+};
+
+#[derive(Debug, Clone)]
+pub struct TypeArgument {
+    data: Arc<TypeArgumentData>,
+}
+
+#[derive(Debug)]
+struct TypeArgumentData {
+    ty: Ty,
+    definitions: DefinitionTable,
+    origin: Option<Arc<TypeOrigin>>,
+    parameters: OnceLock<Result<Vec<TypeArgument>, RuntimeError>>,
+    variants: OnceLock<Result<Vec<PreparedEnumMember>, RuntimeError>>,
+    identity: OnceLock<Option<Arc<TypeIdentity>>>,
+    admission: OnceLock<Box<NominalAdmission>>,
+}
+
+#[derive(Debug)]
+struct TypeOrigin {
+    expression: Ty,
+    scope: Arc<TypeScope>,
+}
+
+#[derive(Debug)]
+struct TypeScope {
+    owner: LoadedModule,
+    environment: Option<Arc<TypeBindings>>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ScopedSignature {
+    pub(crate) params: Vec<TypeArgument>,
+    pub(crate) result: TypeArgument,
+}
+
+impl TypeArgument {
+    pub(crate) fn view<'a>(&'a self, owner: &'a LoadedModule) -> TypeView<'a> {
+        match &self.data.origin {
+            Some(origin) => TypeView::prepared(
+                &origin.expression,
+                &self.data.ty,
+                &origin.scope.owner,
+                origin.scope.environment.as_deref(),
+            ),
+            None => TypeView::prepared(&self.data.ty, &self.data.ty, owner, None),
+        }
+    }
+
+    /// Exact immutable type/provenance identity, prepared once per supplied argument.
+    pub(crate) fn identity(&self, fallback: &LoadedModule) -> Option<Arc<TypeIdentity>> {
+        // Arguments without origins contain no nominal layouts, so their identity
+        // is independent of the fallback. Nominal arguments retain their own scope.
+        self.data
+            .identity
+            .get_or_init(|| self.view(fallback).identity().map(Arc::new))
+            .clone()
+    }
+
+    pub(crate) fn matches_heap(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> bool {
+        if let Some(matches) = self.matches_admitted(heap, value, owner) {
+            return matches;
+        }
+        value_check::matches_view(heap, value, self.view(owner))
+    }
+
+    pub(crate) fn derive(
+        &self,
+        runtime: &Runtime,
+        fallback: &LoadedModule,
+        derive: impl FnOnce(&Ty) -> Option<Ty>,
+    ) -> Result<Self, RuntimeError> {
+        let (expression, owner, environment) = match &self.data.origin {
+            Some(origin) => (
+                &origin.expression,
+                &origin.scope.owner,
+                origin.scope.environment.clone(),
+            ),
+            None => (&self.data.ty, fallback, None),
+        };
+        let ty = derive(expression)
+            .ok_or_else(|| RuntimeError::module_validation("derived type expression"))?;
+        runtime
+            .type_arguments(owner, environment, slice::from_ref(&ty))?
+            .pop()
+            .ok_or_else(|| RuntimeError::module_validation("derived type scope"))
+    }
+
+    pub(crate) fn parameter(
+        &self,
+        runtime: &Runtime,
+        fallback: &LoadedModule,
+        index: usize,
+    ) -> Result<Self, RuntimeError> {
+        self.validate(runtime)?;
+        self.data
+            .parameters
+            .get_or_init(|| {
+                (0..)
+                    .map_while(|position| type_parameter(self.ty(), position).map(|_| position))
+                    .map(|position| {
+                        self.derive(runtime, fallback, |ty| {
+                            type_parameter(ty, position).cloned()
+                        })
+                    })
+                    .collect()
+            })
+            .as_ref()
+            .map_err(Clone::clone)?
+            .get(index)
+            .cloned()
+            .ok_or_else(|| RuntimeError::module_validation("derived type parameter"))
+    }
+
+    pub(crate) fn prepared_variants(
+        &self,
+        prepare: impl FnOnce() -> Result<Vec<EnumVariantRef>, RuntimeError>,
+    ) -> Result<&[PreparedEnumMember], RuntimeError> {
+        let variants = self
+            .data
+            .variants
+            .get_or_init(|| {
+                prepare()?
+                    .into_iter()
+                    .map(PreparedEnumMember::new)
+                    .collect()
+            })
+            .as_deref()
+            .map_err(Clone::clone)?;
+        if self.data.admission.get().is_none()
+            && let Some(admission) = variants
+                .first()
+                .and_then(|member| NominalAdmission::enumeration(member.layout()))
+        {
+            let _ = self.data.admission.set(Box::new(admission));
+        }
+        Ok(variants)
+    }
+
+    pub fn ty(&self) -> &Ty {
+        &self.data.ty
+    }
+
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.data.definitions
+    }
+
+    pub(crate) fn has_origin(&self) -> bool {
+        self.data.origin.is_some()
+    }
+
+    pub(crate) fn validate(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
+        let table = runtime.definition_context().snapshot();
+        if let Some(origin) = &self.data.origin
+            && !origin.scope.owner.belongs_to(runtime.host.owner())
+        {
+            return Err(RuntimeError::module_validation(
+                "foreign type argument scope",
+            ));
+        }
+        // Construction validates immutable type facts. The append-only runtime
+        // scope can reuse that evidence; foreign scopes still check every ID.
+        if table.id() != self.data.definitions.id() {
+            self.data
+                .ty
+                .visit_definition_ids(
+                    &mut |id| {
+                        self.data.definitions.resolve(*id)?;
+                        table.resolve(*id)?;
+                        Ok(())
+                    },
+                    &Default::default(),
+                )
+                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn matches_admitted(&self, heap: &GcHeap, value: &Value, owner: &LoadedModule) -> Option<bool> {
+        let admission = self.data.admission.get()?;
+        Some(match value {
+            Value::Struct(id) => heap
+                .struct_layout(*id)
+                .is_some_and(|actual| admission.matches_struct(&actual, self.view(owner))),
+            Value::Enum(id) => heap
+                .enum_layout(*id)
+                .is_some_and(|actual| admission.matches_enum(&actual, self.view(owner))),
+            _ => false,
+        })
+    }
+
+    pub(crate) fn matches(&self, runtime: &Runtime, value: &Value, owner: &LoadedModule) -> bool {
+        if let Some(matches) = self.matches_admitted(&runtime.gc, value, owner) {
+            return matches;
+        }
+        runtime.matches_type_view(value, self.view(owner))
+    }
+}
+
+pub(crate) fn type_parameter(ty: &Ty, index: usize) -> Option<&Ty> {
+    match ty {
+        Ty::Struct(nominal)
+        | Ty::Enum(nominal)
+        | Ty::NativeObject(nominal)
+        | Ty::Trait(nominal) => nominal.arguments.get(index),
+        Ty::Tuple(items) => items.get(index),
+        Ty::Array(item)
+        | Ty::Set(item, _)
+        | Ty::Iter(item)
+        | Ty::Range(item, _)
+        | Ty::Reference { target: item, .. }
+            if index == 0 =>
+        {
+            Some(item)
+        }
+        Ty::Map { key, value, .. } => match index {
+            0 => Some(key),
+            1 => Some(value),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn contains_nominal_layout(ty: &Ty) -> bool {
+    let mut pending = vec![ty];
+    while let Some(ty) = pending.pop() {
+        match ty {
+            Ty::Struct(_) | Ty::Enum(_) => return true,
+            Ty::Tuple(types) => pending.extend(types),
+            Ty::Function { params, result } => {
+                pending.extend(params);
+                pending.push(result);
+            }
+            Ty::NativeObject(ty) | Ty::Trait(ty) => {
+                pending.extend(&ty.arguments);
+                pending.extend(ty.associated_types.values());
+            }
+            Ty::Array(ty) | Ty::Iter(ty) | Ty::Range(ty, _) | Ty::Set(ty, _) => pending.push(ty),
+            Ty::Reference { target, .. } => pending.push(target),
+            Ty::Map { key, value, .. } => pending.extend([key.as_ref(), value.as_ref()]),
+            _ => {}
+        }
+    }
+    false
+}
+
+impl Runtime {
+    pub(crate) fn matches_capture_type(
+        &self,
+        value: &Value,
+        ty: &Ty,
+        owner: &LoadedModule,
+        environment: &TypeBindings,
+    ) -> bool {
+        // A mutable capture carries a cell handle; its semantic type describes
+        // the contained variable rather than that internal storage handle.
+        match value {
+            Value::Cell(id) => self
+                .gc
+                .captured_cell_value(*id)
+                .is_some_and(|value| self.matches_type_in(&value, ty, owner, Some(environment))),
+            _ => self.matches_type_in(value, ty, owner, Some(environment)),
+        }
+    }
+
+    /// Prepare concrete scoped arguments against a specific loaded generation.
+    /// Every identity must belong to the loaded module's retained definition prefix;
+    /// this does not import foreign metadata or admit later definitions retroactively.
+    pub fn resolve_type_arguments(
+        &self,
+        owner: &LoadedModule,
+        types: &[Ty],
+    ) -> Result<Vec<TypeArgument>, RuntimeError> {
+        let cancel = Default::default();
+        for ty in types {
+            ty.visit_definition_ids(
+                &mut |id| {
+                    owner
+                        .definitions()
+                        .resolve(*id)
+                        .map(|_| ())
+                        .map_err(DefinitionMappingError::from)
+                },
+                &cancel,
+            )
+            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
+        }
+        self.type_arguments(owner, None, types)
+    }
+
+    pub(crate) fn type_arguments(
+        &self,
+        owner: &LoadedModule,
+        environment: Option<Arc<TypeBindings>>,
+        types: &[Ty],
+    ) -> Result<Vec<TypeArgument>, RuntimeError> {
+        let invalid = || RuntimeError::module_validation("type argument scope");
+        // Reified types own immutable metadata, not executable module instances.
+        if !owner.belongs_to(self.host.owner()) {
+            return Err(invalid());
+        }
+        let mut scope = None;
+        let definitions = self.definition_context().snapshot();
+        let mut arguments = Vec::with_capacity(types.len());
+        for expression in types {
+            if let Ty::Parameter { owner, position } = expression {
+                let argument = environment
+                    .as_ref()
+                    .and_then(|environment| environment.argument(owner, *position))
+                    .ok_or_else(invalid)?;
+                argument.validate(self)?;
+                arguments.push(argument.clone());
+                continue;
+            }
+            let ty = match &environment {
+                Some(environment) => environment.resolve(expression)?,
+                None => expression.clone(),
+            };
+            if !ty.is_concrete() || !types_in_scope([&ty], &[], &Default::default(), &definitions) {
+                return Err(invalid());
+            }
+            let origin = if contains_nominal_layout(&ty) {
+                let scope = match &scope {
+                    Some(scope) => Arc::clone(scope),
+                    None => {
+                        let prepared = Arc::new(TypeScope {
+                            owner: owner.clone(),
+                            environment: environment.clone(),
+                        });
+                        scope = Some(prepared.clone());
+                        prepared
+                    }
+                };
+                Some(Arc::new(TypeOrigin {
+                    expression: expression.clone(),
+                    scope,
+                }))
+            } else {
+                None
+            };
+            let argument = TypeArgument {
+                data: Arc::new(TypeArgumentData {
+                    ty,
+                    definitions: definitions.clone(),
+                    origin,
+                    parameters: OnceLock::new(),
+                    variants: OnceLock::new(),
+                    identity: OnceLock::new(),
+                    admission: OnceLock::new(),
+                }),
+            };
+            // Prepare immutable nominal meaning at type application, before a
+            // value matcher or a closed native kernel consumes this argument.
+            argument.prepare_admission(self, owner);
+            arguments.push(argument);
+        }
+        Ok(arguments)
+    }
+
+    pub(crate) fn matches_type_in(
+        &self,
+        value: &Value,
+        ty: &Ty,
+        owner: &LoadedModule,
+        environment: Option<&TypeBindings>,
+    ) -> bool {
+        self.matches_type_view(value, TypeView::new(ty, owner, environment))
+    }
+
+    pub(crate) fn matches_type_view(&self, value: &Value, view: TypeView<'_>) -> bool {
+        if !self.gc.validate_value(value) {
+            return false;
+        }
+        if let Ty::Parameter {
+            owner: binder,
+            position,
+        } = view.ty
+        {
+            return view
+                .environment
+                .and_then(|environment| environment.argument(binder, *position))
+                .is_some_and(|argument| argument.matches(self, value, view.owner));
+        }
+        let Some(view) = view.normalized() else {
+            return false;
+        };
+        if let Ty::Reference { access, .. } = view.ty {
+            return self.scoped_view(value).ok().is_some_and(|actual| {
+                view.reference_target().is_some_and(|target| {
+                    self.host_borrows
+                        .scoped_matches_view(actual, target, *access)
+                })
+            });
+        }
+        if let (Value::Tuple(id), Ty::Tuple(types)) = (value, view.ty) {
+            let Some(values) = self.gc.tuple(*id) else {
+                return false;
+            };
+            return values.len() == types.len()
+                && values.iter().enumerate().all(|(index, value)| {
+                    view.parameter(index)
+                        .is_some_and(|view| self.matches_type_view(value, view))
+                });
+        }
+        if let Ty::Host(id) = view.ty {
+            return view
+                .owner
+                .host_type(*id)
+                .is_some_and(|expected| self.matches_host_identity(value, expected));
+        }
+        value_check::matches_view(&self.gc, value, view)
+    }
+}

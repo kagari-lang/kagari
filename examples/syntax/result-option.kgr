@@ -1,0 +1,12 @@
+// `?` returns from the nearest function; failures remain ordinary values.
+fn lookup(present:bool)->Option<i32>{if present{Some(20)}else{None}}
+fn compute(present:bool)->Result<i32,String>{
+    val first=match lookup(present){Some(value)=>value,None=>{return Err("missing");}};
+    val second:Result<i32,String> = Ok(22);Ok(first+second?)
+}
+fn optional(present:bool)->Option<i32>{Some(lookup(present)?+22)}
+fn main()->i32{
+    if optional(false)!=None {return 0;}
+    if val Ok(_) = compute(false) {return 0;}
+    match compute(true){Ok(value)=>value,Err(_)=>0}
+}

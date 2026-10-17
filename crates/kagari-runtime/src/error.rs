@@ -1,8 +1,16 @@
-use std::fmt;
+use crate::{
+    error_trace::{ErrorTrace, asynchronous::AsyncBoundary},
+    task::TaskFailureOrigin,
+};
+use std::{fmt, sync::Arc};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RuntimeErrorKind {
-    CapabilityDenied,
+    Cancelled,
+    EngineFault,
+    ScriptTrap,
+    IndexOutOfBounds,
+    ExecutionPhaseViolation,
     InvalidReflectiveRead,
     InvalidReflectiveWrite,
     ExpiredHostBorrow,
@@ -19,7 +27,11 @@ pub enum RuntimeErrorKind {
 impl RuntimeErrorKind {
     pub fn code(self) -> &'static str {
         match self {
-            Self::CapabilityDenied => "KG_RUNTIME_CAPABILITY_DENIED",
+            Self::Cancelled => "KG_RUNTIME_CANCELLED",
+            Self::EngineFault => "KG_RUNTIME_ENGINE_FAULT",
+            Self::ScriptTrap => "KG_RUNTIME_SCRIPT_TRAP",
+            Self::IndexOutOfBounds => "KG_RUNTIME_INDEX_OUT_OF_BOUNDS",
+            Self::ExecutionPhaseViolation => "KG_RUNTIME_EXECUTION_PHASE_VIOLATION",
             Self::InvalidReflectiveRead => "KG_RUNTIME_INVALID_REFLECTIVE_READ",
             Self::InvalidReflectiveWrite => "KG_RUNTIME_INVALID_REFLECTIVE_WRITE",
             Self::ExpiredHostBorrow => "KG_RUNTIME_EXPIRED_HOST_BORROW",
@@ -35,10 +47,13 @@ impl RuntimeErrorKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{message}")]
 pub struct RuntimeError {
     kind: RuntimeErrorKind,
     message: String,
+    trace: Option<Arc<ErrorTrace>>,
+    task_origin: Option<TaskFailureOrigin>,
 }
 
 impl RuntimeError {
@@ -46,13 +61,15 @@ impl RuntimeError {
         Self {
             kind,
             message: message.into(),
+            trace: None,
+            task_origin: None,
         }
     }
 
-    pub fn capability_denied(capability: impl Into<String>) -> Self {
+    pub fn execution_phase_violation(operation: impl Into<String>) -> Self {
         Self::new(
-            RuntimeErrorKind::CapabilityDenied,
-            format!("capability denied: {}", capability.into()),
+            RuntimeErrorKind::ExecutionPhaseViolation,
+            format!("execution phase forbids: {}", operation.into()),
         )
     }
 
@@ -126,6 +143,53 @@ impl RuntimeError {
         )
     }
 
+    pub(crate) fn at_conversion(mut self, location: impl fmt::Display) -> Self {
+        self.message = format!("{location}: {}", self.message);
+        self
+    }
+
+    pub fn trace(&self) -> Option<&Arc<ErrorTrace>> {
+        self.trace.as_ref()
+    }
+
+    pub fn task_origin(&self) -> Option<TaskFailureOrigin> {
+        self.task_origin
+    }
+
+    pub(crate) fn with_task_origin(mut self, origin: TaskFailureOrigin) -> Self {
+        self.task_origin.get_or_insert(origin);
+        self
+    }
+
+    pub(crate) fn with_async_boundary(mut self, boundary: AsyncBoundary) -> Self {
+        let trace = self
+            .trace
+            .get_or_insert_with(|| Arc::new(ErrorTrace::default()));
+        Arc::make_mut(trace).append_async(boundary);
+        self
+    }
+
+    pub fn with_trace(mut self, trace: Arc<ErrorTrace>) -> Self {
+        if let Some(previous) = &mut self.trace
+            && previous.frames.is_empty()
+            && !previous.async_boundaries.is_empty()
+        {
+            let previous = Arc::make_mut(previous);
+            previous.frames = trace.frames.clone();
+            previous.omitted_frames = trace.omitted_frames;
+            previous.incomplete |= trace.incomplete;
+            return self;
+        }
+        if self
+            .trace
+            .as_ref()
+            .is_none_or(|previous| previous.frames.is_empty())
+        {
+            self.trace = Some(trace);
+        }
+        self
+    }
+
     pub fn kind(&self) -> RuntimeErrorKind {
         self.kind
     }
@@ -139,27 +203,23 @@ impl RuntimeError {
     }
 }
 
-impl fmt::Display for RuntimeError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for RuntimeError {}
-
 #[cfg(test)]
 mod tests {
     use super::{RuntimeError, RuntimeErrorKind};
 
     #[test]
     fn runtime_errors_expose_stable_codes() {
-        let error = RuntimeError::capability_denied("host_calls");
+        let error = RuntimeError::execution_phase_violation("external candidate access");
 
         assert_eq!(
-            RuntimeErrorKind::CapabilityDenied.code(),
-            "KG_RUNTIME_CAPABILITY_DENIED"
+            RuntimeErrorKind::ExecutionPhaseViolation.code(),
+            "KG_RUNTIME_EXECUTION_PHASE_VIOLATION"
         );
-        assert_eq!(error.code(), "KG_RUNTIME_CAPABILITY_DENIED");
-        assert_eq!(error.kind(), RuntimeErrorKind::CapabilityDenied);
+        assert_eq!(error.code(), "KG_RUNTIME_EXECUTION_PHASE_VIOLATION");
+        assert_eq!(error.kind(), RuntimeErrorKind::ExecutionPhaseViolation);
+        assert_eq!(
+            RuntimeErrorKind::IndexOutOfBounds.code(),
+            "KG_RUNTIME_INDEX_OUT_OF_BOUNDS"
+        );
     }
 }

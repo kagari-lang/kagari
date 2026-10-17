@@ -1,0 +1,113 @@
+use crate::tests::common::logging_module;
+use crate::tests::common::round_trip_bytecode;
+use crate::{
+    debug::{DebugPauseReason, DebugSession, SourceBreakpoint},
+    reentry::reenter,
+    tests::{
+        common::{compile_logging_test_bytecode, standard_runtime},
+        native_fixtures,
+    },
+    vm::Vm,
+};
+use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget};
+use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{RuntimeConfig, value::Value};
+use kagari_types::declaration::logging;
+
+#[test]
+fn nested_breakpoints_and_traps_include_the_suspended_host_caller() {
+    for encoded in [false, true] {
+        for jit in [false, true] {
+            let source = "fn main() -> i32 { val kept = [42]; print(\"enter\"); kept[0] } fn nested(n: i32) -> i32 { val doubled = n + n; doubled + 2147483647 }";
+            let module = compile_logging_test_bytecode(source);
+            let nested = module.records().modules[module.records().root.index()]
+                .functions
+                .iter()
+                .find(|f| f.name == "nested")
+                .unwrap()
+                .id;
+            let caller_offset = module.records().modules[module.records().root.index()]
+                .functions
+                .iter()
+                .find(|f| f.name == "main")
+                .unwrap()
+                .instructions
+                .iter()
+                .position(|i| {
+                    matches!(
+                        i,
+                        BytecodeInstruction::Call {
+                            callee: CallTarget::Native(id),
+                            ..
+                        } if module.definitions().resolve(
+                            module.records().modules[module.records().root.index()].native_imports[id.index()].binding
+                        ).unwrap().module() == &logging::declaration().unwrap().records().identity
+                    )
+                })
+                .unwrap();
+            let mut program = module;
+            if encoded {
+                program = round_trip_bytecode(program);
+            }
+            let mut runtime = standard_runtime(RuntimeConfig {
+                ..Default::default()
+            });
+            logging_module(move |context, _| {
+                let root = context.runtime().execution_root().unwrap();
+                assert!(reenter(context, &root, nested, &[Value::I32(2)]).is_err());
+                context.runtime().collect_garbage().unwrap();
+                Ok(Value::Unit)
+            })
+            .install(&mut runtime)
+            .unwrap();
+            let loaded = runtime.load_program("debug-reentry.kgr", program).unwrap();
+            let mut debug = DebugSession::new(&runtime).unwrap();
+            let breakpoint = debug
+                .add_breakpoint(SourceBreakpoint::at_source_offset(
+                    "debug-reentry.kgr",
+                    source.find("doubled +").unwrap(),
+                ))
+                .unwrap();
+            let mut vm = Vm::new(runtime);
+            vm.attach_debug_session(debug).unwrap();
+            let prepared = native_fixtures::unsupported();
+            let report = if jit {
+                vm.execute_prepared(&loaded, ProgramEntry::Main, &prepared)
+            } else {
+                vm.execute(&loaded, ProgramEntry::Main)
+            }
+            .unwrap();
+            assert_eq!(
+                report
+                    .return_value
+                    .value(vm.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
+            let debug = vm.debug_session().unwrap();
+            for reason in [
+                DebugPauseReason::Breakpoint(breakpoint),
+                DebugPauseReason::Trap,
+            ] {
+                let pause = debug
+                    .pauses()
+                    .iter()
+                    .find(|p| p.reason == reason)
+                    .expect("nested pause");
+                assert_eq!(pause.frames.len(), 2);
+                assert_eq!(pause.frames[0].function_name, "main");
+                assert_eq!(pause.frames[0].instruction_offset, caller_offset);
+                assert_eq!(pause.frames[1].function_name, "nested");
+                assert!(
+                    pause.frames[1]
+                        .bindings
+                        .iter()
+                        .any(|binding| binding.name == "doubled" && binding.value == Value::I32(4))
+                );
+                assert_eq!(pause.frames[1].epoch, loaded.epoch.0);
+            }
+            assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+            assert!(vm.runtime().execution_root().is_none());
+        }
+    }
+}

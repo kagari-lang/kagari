@@ -1,24 +1,13 @@
-fn main() -> (usize, bool, usize, bool, usize, bool, i32) {
-    val values = [1, 2];
-    values.push(3);
-
-    val scores: Map<String, i32> = std::map::new();
-    scores.insert("alice", 10);
-    scores.insert("bob", 12);
-
-    val names: Set<String> = std::set::new();
-    names.insert("alice");
-    names.insert("bob");
-
-    std::debug::assert(scores.contains_key("alice"), "score must exist");
-
-    (
-        values.len(),
-        std::string::contains("kagari", "gar"),
-        scores.keys().len(),
-        names.contains("bob"),
-        names.to_array().len(),
-        scores.get("alice").is_some(),
-        std::math::max(10, 12)
-    )
+use std::collections::{HashMap, HashSet};
+// Default containers and algorithms are always available as ordinary native bindings.
+use std::collections;
+fn main()->i32 {
+    val values=Vec::from([22,20]);
+    values.sort();
+    val mapped=values.map(|value|value);
+    var sum=0;for value in mapped{sum+=value;}
+    val map=HashMap::new();map.insert("answer",sum);
+    val set=HashSet::new();set.insert(sum);
+    if !set.contains(42){return 0;}
+    match map.get("answer"){Some(answer)=>answer,None=>0}
 }

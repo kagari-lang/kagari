@@ -1,8 +1,17 @@
-use kagari_common::DiagnosticKind;
+//! Expression precedence, postfix chains, control-flow expressions and patterns.
+//!
+//! Precedence descends through range, logical-or/and, equality, comparison, bitwise
+//! or/xor/and, shift, additive, multiplicative, cast, prefix and postfix parsing.
+//! Repeated binary/postfix operations wrap a checkpoint iteratively, preserving
+//! grouping without recursion proportional to a flat operator chain. Recursion
+//! for nested expressions/patterns passes through the parser's nesting guard.
+//! Conditions suppress bare struct literals so `{` can start the following body.
+//! See [`crate::ast::expr`] for the concrete output shapes, especially paths,
+//! qualified members, binding conditions and the multiple forms of patterns.
 
-use crate::{kind::SyntaxKind, token::TokenKind};
+use kagari_source::diagnostic::DiagnosticKind;
 
-use crate::parser::Parser;
+use crate::{kind::SyntaxKind, parser::core::Parser, token::TokenKind};
 
 impl<'a> Parser<'a> {
     pub(crate) fn expr_starts(&self) -> bool {
@@ -10,127 +19,86 @@ impl<'a> Parser<'a> {
             self.current_kind(),
             Some(
                 TokenKind::Ident
+                    | TokenKind::Lt
                     | TokenKind::CrateKw
                     | TokenKind::SelfKw
                     | TokenKind::SuperKw
                     | TokenKind::Number
                     | TokenKind::Float
                     | TokenKind::String
+                    | TokenKind::FormatStart
                     | TokenKind::TrueKw
                     | TokenKind::FalseKw
                     | TokenKind::IfKw
                     | TokenKind::MatchKw
+                    | TokenKind::LoopKw
                     | TokenKind::LParen
                     | TokenKind::LBracket
                     | TokenKind::Minus
                     | TokenKind::Bang
+                    | TokenKind::Pipe
+                    | TokenKind::PipePipe
+                    | TokenKind::AsyncKw
+                    | TokenKind::DotDot
+                    | TokenKind::DotDotEq
+                    | TokenKind::LBrace
             )
         )
     }
 
-    pub(crate) fn expr_followed_by_assignment(&self) -> bool {
-        let mut cursor = self.cursor();
-        if !matches!(
-            self.nth_nontrivia_kind_from(&mut cursor),
-            Some(TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw)
-        ) {
-            return false;
-        }
-
-        loop {
-            match self.nth_nontrivia_kind_from(&mut cursor) {
-                Some(TokenKind::Eq) => return true,
-                Some(TokenKind::ColonColon) => {
-                    if !matches!(
-                        self.nth_nontrivia_kind_from(&mut cursor),
-                        Some(
-                            TokenKind::Ident
-                                | TokenKind::CrateKw
-                                | TokenKind::SelfKw
-                                | TokenKind::SuperKw
-                        )
-                    ) {
-                        return false;
-                    }
-                }
-                Some(TokenKind::Dot) => {
-                    if !matches!(
-                        self.nth_nontrivia_kind_from(&mut cursor),
-                        Some(TokenKind::Ident | TokenKind::SelfKw)
-                    ) {
-                        return false;
-                    }
-                }
-                Some(TokenKind::LBracket) => {
-                    if !self.skip_balanced_delimiters(&mut cursor, TokenKind::LBracket) {
-                        return false;
-                    }
-                }
-                _ => return false,
-            }
-        }
-    }
-
+    /// Enters a guarded expression parse, beginning at the lowest precedence.
     pub(crate) fn parse_expr(&mut self) {
-        self.bump_trivia();
-        self.parse_logical_or_expr();
+        self.with_nesting(Self::parse_expr_nested);
     }
 
+    fn parse_expr_nested(&mut self) {
+        self.bump_trivia();
+        self.parse_range_expr();
+    }
+
+    /// Wraps optional endpoints around one range token; endpoints use logical-or precedence.
+    fn parse_range_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        if !self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            self.parse_logical_or_expr();
+            self.bump_trivia();
+        }
+        if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            let inclusive = self.at(TokenKind::DotDotEq);
+            self.bump();
+            self.bump_trivia();
+            // In a for/if condition the following brace belongs to the body.
+            if inclusive
+                || self.expr_starts()
+                    && (!self.at(TokenKind::LBrace) || self.allow_struct_literals())
+            {
+                self.parse_logical_or_expr();
+            }
+            self.start_node_at(checkpoint, SyntaxKind::RangeExpr);
+            self.finish_node();
+        }
+    }
+
+    /// Parses while reserving the following bare brace for the control-flow body.
     pub(crate) fn parse_condition_expr(&mut self) {
         self.with_struct_literals_allowed(false, |parser| parser.parse_expr());
     }
 
-    pub(crate) fn parse_place_expr(&mut self) {
-        let checkpoint = self.checkpoint();
-        self.parse_path_expr();
-
-        loop {
+    /// Emits either an ordinary expression or a `BindingCondition` containing pattern/value.
+    pub(crate) fn parse_condition(&mut self) {
+        self.bump_trivia();
+        if self.at(TokenKind::ValKw) {
+            self.start_node(SyntaxKind::BindingCondition);
+            self.bump();
             self.bump_trivia();
-            match self.current_kind() {
-                Some(TokenKind::Dot) => {
-                    self.parse_field_suffix();
-                    self.start_node_at(checkpoint, SyntaxKind::FieldExpr);
-                    self.finish_node();
-                }
-                Some(TokenKind::LBracket) => {
-                    self.parse_index_suffix();
-                    self.start_node_at(checkpoint, SyntaxKind::IndexExpr);
-                    self.finish_node();
-                }
-                _ => break,
-            }
+            self.parse_match_pattern();
+            self.bump_trivia();
+            self.expect(TokenKind::Eq, DiagnosticKind::UnexpectedToken);
+            self.parse_condition_expr();
+            self.finish_node();
+        } else {
+            self.parse_condition_expr();
         }
-    }
-
-    fn skip_balanced_delimiters(&self, cursor: &mut usize, opening: TokenKind) -> bool {
-        let mut stack = vec![opening];
-        while let Some(kind) = self.nth_nontrivia_kind_from(cursor) {
-            match kind {
-                TokenKind::LParen | TokenKind::LBracket | TokenKind::LBrace => stack.push(kind),
-                TokenKind::RParen => {
-                    if !matches!(stack.pop(), Some(TokenKind::LParen)) {
-                        return false;
-                    }
-                }
-                TokenKind::RBracket => {
-                    if !matches!(stack.pop(), Some(TokenKind::LBracket)) {
-                        return false;
-                    }
-                    if stack.is_empty() {
-                        return true;
-                    }
-                }
-                TokenKind::RBrace => {
-                    if !matches!(stack.pop(), Some(TokenKind::LBrace)) {
-                        return false;
-                    }
-                }
-                TokenKind::Eof => return false,
-                _ => {}
-            }
-        }
-
-        false
     }
 
     fn parse_logical_or_expr(&mut self) {
@@ -171,7 +139,12 @@ impl<'a> Parser<'a> {
 
         loop {
             self.bump_trivia();
-            if !self.at_any(&[TokenKind::EqEq, TokenKind::NotEq]) {
+            if !self.at_any(&[
+                TokenKind::EqEq,
+                TokenKind::NotEq,
+                TokenKind::IdentityEq,
+                TokenKind::IdentityNotEq,
+            ]) {
                 break;
             }
             self.bump();
@@ -183,14 +156,76 @@ impl<'a> Parser<'a> {
 
     fn parse_comparison_expr(&mut self) {
         let checkpoint = self.checkpoint();
-        self.parse_additive_expr();
+        self.parse_bit_or_expr();
 
         loop {
             self.bump_trivia();
-            if !self.at_any(&[TokenKind::Lt, TokenKind::Gt, TokenKind::Le, TokenKind::Ge]) {
+            if self.joint_shift().is_some()
+                || !self.at_any(&[TokenKind::Lt, TokenKind::Gt, TokenKind::Le, TokenKind::Ge])
+            {
                 break;
             }
             self.bump();
+            self.parse_bit_or_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_bit_or_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_bit_xor_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::Pipe) {
+                break;
+            }
+            self.bump();
+            self.parse_bit_xor_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_bit_xor_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_bit_and_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::Caret) {
+                break;
+            }
+            self.bump();
+            self.parse_bit_and_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_bit_and_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_shift_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::Amp) {
+                break;
+            }
+            self.bump();
+            self.parse_shift_expr();
+            self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
+            self.finish_node();
+        }
+    }
+
+    fn parse_shift_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_additive_expr();
+        loop {
+            self.bump_trivia();
+            if !matches!(self.joint_shift(), Some(SyntaxKind::Shl | SyntaxKind::Shr)) {
+                break;
+            }
+            self.bump_joint_shift();
             self.parse_additive_expr();
             self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
             self.finish_node();
@@ -215,21 +250,40 @@ impl<'a> Parser<'a> {
 
     fn parse_multiplicative_expr(&mut self) {
         let checkpoint = self.checkpoint();
-        self.parse_prefix_expr();
+        self.parse_cast_expr();
 
         loop {
             self.bump_trivia();
-            if !self.at_any(&[TokenKind::Star, TokenKind::Slash]) {
+            if !self.at_any(&[TokenKind::Star, TokenKind::Slash, TokenKind::Percent]) {
                 break;
             }
             self.bump();
-            self.parse_prefix_expr();
+            self.parse_cast_expr();
             self.start_node_at(checkpoint, SyntaxKind::BinaryExpr);
             self.finish_node();
         }
     }
 
+    fn parse_cast_expr(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_prefix_expr();
+        loop {
+            self.bump_trivia();
+            if !self.at(TokenKind::AsKw) {
+                break;
+            }
+            self.bump();
+            self.parse_type_ref();
+            self.start_node_at(checkpoint, SyntaxKind::CastExpr);
+            self.finish_node();
+        }
+    }
+
     fn parse_prefix_expr(&mut self) {
+        self.with_nesting(Self::parse_prefix_expr_nested);
+    }
+
+    fn parse_prefix_expr_nested(&mut self) {
         self.bump_trivia();
         if self.at_any(&[TokenKind::Minus, TokenKind::Bang]) {
             let checkpoint = self.checkpoint();
@@ -250,14 +304,56 @@ impl<'a> Parser<'a> {
         loop {
             self.bump_trivia();
             match self.current_kind() {
+                Some(TokenKind::ColonColon)
+                    if self.nth_nontrivia_kind(1) == Some(TokenKind::Lt) =>
+                {
+                    self.bump();
+                    self.bump_trivia();
+                    let mut cursor = self.cursor();
+                    let mut depth = 0usize;
+                    while let Some(kind) = self.nth_nontrivia_kind_from(&mut cursor) {
+                        match kind {
+                            TokenKind::Lt => depth += 1,
+                            TokenKind::Gt => {
+                                depth = depth.saturating_sub(1);
+                                if depth == 0 {
+                                    break;
+                                }
+                            }
+                            TokenKind::Eq if depth == 1 => {
+                                self.error_here(DiagnosticKind::ExpectedType);
+                                break;
+                            }
+                            TokenKind::Eof => break,
+                            _ => {}
+                        }
+                    }
+                    self.parse_generic_arg_list();
+                    self.bump_trivia();
+                    self.parse_call_suffix();
+                    self.start_node_at(checkpoint, SyntaxKind::CallExpr);
+                    self.finish_node();
+                }
                 Some(TokenKind::LParen) => {
                     self.parse_call_suffix();
                     self.start_node_at(checkpoint, SyntaxKind::CallExpr);
                     self.finish_node();
                 }
+                Some(TokenKind::Dot) if self.nth_nontrivia_kind(1) == Some(TokenKind::AwaitKw) => {
+                    self.bump();
+                    self.bump_trivia();
+                    self.bump();
+                    self.start_node_at(checkpoint, SyntaxKind::AwaitExpr);
+                    self.finish_node();
+                }
                 Some(TokenKind::Dot) => {
                     self.parse_field_suffix();
                     self.start_node_at(checkpoint, SyntaxKind::FieldExpr);
+                    self.finish_node();
+                }
+                Some(TokenKind::Question) => {
+                    self.bump();
+                    self.start_node_at(checkpoint, SyntaxKind::PropagateExpr);
                     self.finish_node();
                 }
                 Some(TokenKind::LBracket) => {
@@ -273,6 +369,12 @@ impl<'a> Parser<'a> {
     fn parse_atom(&mut self) {
         self.bump_trivia();
         match self.current_kind() {
+            Some(TokenKind::FormatStart) => self.parse_interpolated_string(),
+            Some(TokenKind::Lt) => {
+                self.start_node(SyntaxKind::PathExpr);
+                self.parse_type_ref();
+                self.finish_node();
+            }
             Some(
                 TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
             ) => self.parse_path_or_struct_expr(),
@@ -285,16 +387,104 @@ impl<'a> Parser<'a> {
             ) => self.parse_literal(),
             Some(TokenKind::IfKw) => self.parse_if_expr(),
             Some(TokenKind::MatchKw) => self.parse_match_expr(),
+            Some(TokenKind::LoopKw) => self.parse_loop_expr(),
             Some(TokenKind::LParen) => self.parse_paren_or_tuple_expr(),
             Some(TokenKind::LBracket) => self.parse_array_expr(),
+            Some(TokenKind::LBrace) => self.parse_block(),
+            Some(TokenKind::AsyncKw | TokenKind::Pipe | TokenKind::PipePipe) => {
+                self.parse_closure_expr();
+            }
             _ => self.error_here(DiagnosticKind::ExpectedExpression),
         }
+    }
+
+    fn parse_interpolated_string(&mut self) {
+        self.start_node(SyntaxKind::InterpolatedString);
+        self.bump();
+        while !self.at_any(&[TokenKind::FormatEnd, TokenKind::Eof]) {
+            if self.at(TokenKind::FormatText) {
+                self.bump();
+            } else if self.at(TokenKind::FormatOpen) {
+                self.start_node(SyntaxKind::Interpolation);
+                self.bump();
+                self.parse_expr();
+                self.bump_trivia();
+                if self.at(TokenKind::Colon) {
+                    self.bump();
+                    self.expect(TokenKind::Question, DiagnosticKind::UnexpectedToken);
+                }
+                self.expect(TokenKind::FormatClose, DiagnosticKind::ExpectedBlockEnd);
+                self.finish_node();
+            } else {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+                self.bump_as_error();
+            }
+        }
+        self.expect(TokenKind::FormatEnd, DiagnosticKind::UnexpectedToken);
+        self.finish_node();
+    }
+
+    fn parse_closure_expr(&mut self) {
+        self.start_node(SyntaxKind::ClosureExpr);
+        if self.at(TokenKind::AsyncKw) {
+            self.bump();
+            self.bump_trivia();
+            if !self.at_any(&[TokenKind::Pipe, TokenKind::PipePipe]) {
+                self.error_here(DiagnosticKind::ExpectedExpression);
+                self.finish_node();
+                return;
+            }
+        }
+        if self.at(TokenKind::PipePipe) {
+            self.bump();
+        } else {
+            self.expect(TokenKind::Pipe, DiagnosticKind::ExpectedExpression);
+            self.start_node(SyntaxKind::ClosureParamList);
+            self.bump_trivia();
+            while !self.at_any(&[TokenKind::Pipe, TokenKind::Eof]) {
+                self.start_node(SyntaxKind::ClosureParam);
+                self.parse_name();
+                self.bump_trivia();
+                if self.at(TokenKind::Colon) {
+                    self.bump();
+                    self.parse_type_ref();
+                }
+                self.finish_node();
+                self.bump_trivia();
+                if self.at(TokenKind::Comma) {
+                    self.bump();
+                    self.bump_trivia();
+                } else {
+                    break;
+                }
+            }
+            self.finish_node();
+            self.expect(TokenKind::Pipe, DiagnosticKind::ExpectedExpression);
+        }
+        self.bump_trivia();
+        if self.at(TokenKind::LBrace) {
+            self.parse_block();
+        } else {
+            self.parse_expr();
+        }
+        self.finish_node();
     }
 
     fn parse_path_or_struct_expr(&mut self) {
         let checkpoint = self.checkpoint();
         self.parse_path_expr();
         self.bump_trivia();
+
+        if self.allow_struct_literals() && self.at(TokenKind::Lt) {
+            let mut cursor = self.cursor();
+            self.nth_nontrivia_kind_from(&mut cursor);
+            if self.skip_angle_group(&mut cursor)
+                && self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::LBrace)
+            {
+                self.parse_generic_arg_list();
+                self.bump_trivia();
+            }
+        }
 
         if self.allow_struct_literals() && self.at(TokenKind::LBrace) {
             self.parse_struct_literal_body();
@@ -303,9 +493,23 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Retains a path, optionally adding generic receiver arguments and a member name.
+    /// Fully qualified `<T as Trait>::member` expressions enter through `parse_atom`.
     fn parse_path_expr(&mut self) {
         self.start_node(SyntaxKind::PathExpr);
         self.parse_path();
+        let mut cursor = self.cursor();
+        if self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::Lt)
+            && self.skip_angle_group(&mut cursor)
+            && self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::ColonColon)
+        {
+            self.bump_trivia();
+            self.parse_generic_arg_list();
+            self.bump_trivia();
+            self.expect(TokenKind::ColonColon, DiagnosticKind::ExpectedPath);
+            self.bump_trivia();
+            self.parse_variant_name();
+        }
         self.finish_node();
     }
 
@@ -365,14 +569,23 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::LBracket, DiagnosticKind::ExpectedClosingBracket);
         self.bump_trivia();
 
-        while !self.at_any(&[TokenKind::RBracket, TokenKind::Eof]) {
+        if !self.at_any(&[TokenKind::RBracket, TokenKind::Eof]) {
             self.parse_expr();
             self.bump_trivia();
-            if self.at(TokenKind::Comma) {
+            if self.at(TokenKind::Semi) {
                 self.bump();
+                self.parse_expr();
                 self.bump_trivia();
             } else {
-                break;
+                while self.at(TokenKind::Comma) {
+                    self.bump();
+                    self.bump_trivia();
+                    if self.at_any(&[TokenKind::RBracket, TokenKind::Eof]) {
+                        break;
+                    }
+                    self.parse_expr();
+                    self.bump_trivia();
+                }
             }
         }
 
@@ -415,9 +628,13 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_if_expr(&mut self) {
+        self.with_nesting(Self::parse_if_expr_nested);
+    }
+
+    fn parse_if_expr_nested(&mut self) {
         self.start_node(SyntaxKind::IfExpr);
         self.expect(TokenKind::IfKw, DiagnosticKind::ExpectedIfKeyword);
-        self.parse_condition_expr();
+        self.parse_condition();
         self.bump_trivia();
         self.parse_block();
         self.bump_trivia();
@@ -449,6 +666,11 @@ impl<'a> Parser<'a> {
             self.start_node(SyntaxKind::MatchArm);
             self.parse_match_pattern();
             self.bump_trivia();
+            if self.at(TokenKind::IfKw) {
+                self.bump();
+                self.parse_expr();
+                self.bump_trivia();
+            }
             self.expect(TokenKind::FatArrow, DiagnosticKind::ExpectedMatchArmArrow);
             self.parse_expr();
             self.finish_node();
@@ -467,12 +689,41 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    fn parse_match_pattern(&mut self) {
+    /// Enters guarded pattern parsing; alternatives wrap nested `Pattern` children.
+    pub(crate) fn parse_match_pattern(&mut self) {
+        self.with_nesting(Self::parse_match_pattern_nested);
+    }
+
+    fn parse_match_pattern_nested(&mut self) {
+        let checkpoint = self.checkpoint();
+        self.parse_single_pattern();
+        self.bump_trivia();
+        if self.at(TokenKind::Pipe) {
+            while self.at(TokenKind::Pipe) {
+                self.bump();
+                self.bump_trivia();
+                self.parse_single_pattern();
+                self.bump_trivia();
+            }
+            self.start_node_at(checkpoint, SyntaxKind::Pattern);
+            self.finish_node();
+        }
+    }
+
+    fn parse_single_pattern(&mut self) {
         self.start_node(SyntaxKind::Pattern);
         match self.current_kind() {
             Some(
                 TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
-            ) => self.parse_path_expr(),
+            ) => {
+                self.parse_path_expr();
+                self.bump_trivia();
+                if self.at(TokenKind::LParen) {
+                    self.parse_tuple_pattern();
+                } else if self.at(TokenKind::LBrace) {
+                    self.parse_struct_pattern();
+                }
+            }
             Some(
                 TokenKind::Number
                 | TokenKind::Float
@@ -482,6 +733,24 @@ impl<'a> Parser<'a> {
             ) => self.parse_literal(),
             Some(TokenKind::LParen) => self.parse_tuple_pattern(),
             _ => self.error_here(DiagnosticKind::ExpectedMatchPattern),
+        }
+        self.bump_trivia();
+        if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            self.bump();
+            self.bump_trivia();
+            match self.current_kind() {
+                Some(
+                    TokenKind::Number
+                    | TokenKind::Float
+                    | TokenKind::String
+                    | TokenKind::TrueKw
+                    | TokenKind::FalseKw,
+                ) => self.parse_literal(),
+                Some(
+                    TokenKind::Ident | TokenKind::CrateKw | TokenKind::SelfKw | TokenKind::SuperKw,
+                ) => self.parse_path_expr(),
+                _ => self.error_here(DiagnosticKind::ExpectedMatchPattern),
+            }
         }
         self.finish_node();
     }
@@ -504,6 +773,38 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::RParen, DiagnosticKind::ExpectedClosingParen);
     }
 
+    fn parse_loop_expr(&mut self) {
+        self.start_node(SyntaxKind::LoopExpr);
+        self.expect(TokenKind::LoopKw, DiagnosticKind::ExpectedLoopKeyword);
+        self.bump_trivia();
+        self.parse_block();
+        self.finish_node();
+    }
+
+    fn parse_struct_pattern(&mut self) {
+        self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedBlockEnd);
+        self.bump_trivia();
+        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
+            self.start_node(SyntaxKind::PatternField);
+            self.parse_field_name();
+            self.bump_trivia();
+            if self.at(TokenKind::Colon) {
+                self.bump();
+                self.bump_trivia();
+                self.parse_match_pattern();
+            }
+            self.finish_node();
+            self.bump_trivia();
+            if self.at(TokenKind::Comma) {
+                self.bump();
+                self.bump_trivia();
+            } else {
+                break;
+            }
+        }
+        self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
+    }
+
     fn parse_struct_literal_body(&mut self) {
         self.expect(
             TokenKind::LBrace,
@@ -515,8 +816,11 @@ impl<'a> Parser<'a> {
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             self.start_node(SyntaxKind::FieldInit);
             self.parse_field_name();
-            self.expect(TokenKind::Colon, DiagnosticKind::ExpectedFieldTypeSeparator);
-            self.parse_expr();
+            self.bump_trivia();
+            if self.at(TokenKind::Colon) {
+                self.bump();
+                self.parse_expr();
+            }
             self.finish_node();
 
             self.bump_trivia();

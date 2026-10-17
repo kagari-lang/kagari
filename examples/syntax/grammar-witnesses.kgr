@@ -1,0 +1,24 @@
+// Parser witnesses for grammar branches whose module semantics are still separate.
+mod nested {
+    fn answer() -> i32 { 42 }
+}
+
+mod external;
+
+use pkg::model::*;
+use {pkg::api, pkg::model};
+
+struct Boxed { val value: i32 }
+impl Boxed {
+    fn static_value(value: i32) -> i32 { value }
+}
+
+fn paths() {
+    crate::item;
+    self::item;
+    super::item;
+}
+
+fn empty_tuple_pattern(value: ()) -> i32 {
+    match value { () => 42 }
+}

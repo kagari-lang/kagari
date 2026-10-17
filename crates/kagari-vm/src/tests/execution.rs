@@ -1,22 +1,43 @@
-use std::sync::{Arc, Mutex};
-
-use kagari_common::Span;
-use kagari_ir::bytecode::{
-    BytecodeFunction, BytecodeInstruction, BytecodeModule, BytecodeModuleSlot, CallTarget,
-    ConstantOperand, DebugPointId, FunctionMetadata, FunctionRecord, FunctionRef,
-    InstructionSourceSpan, ModuleSlot, Register, RuntimeHelper, SafeDebugPoint, SafeDebugPointKind,
+use crate::{
+    debug::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint},
+    error::VmError,
+    tests::common::{compile_test_bytecode, load_test_module, standard_runtime},
+    vm::Vm,
 };
-use kagari_ir::module::ValueType;
-use kagari_runtime::host::{HostFunction, HostFunctionMetadata};
-use kagari_runtime::value::{StructValueField, Value};
+use kagari_abi::representation::ValueType;
+use kagari_bytecode::{
+    instruction::{
+        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, InterfaceTableRef,
+        ModuleSlot, Register, RuntimeHelper,
+    },
+    module::{
+        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
+        InstructionSourceSpan, InterfaceTableRecord, RootSlotLayout, SafeDebugPoint,
+        SafeDebugPointKind,
+    },
+    program::ModuleRef,
+};
+use kagari_common::{
+    identity::{
+        DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    },
+    span::Span,
+};
+use kagari_contract::{
+    ids::{DebugPointId, FunctionRef},
+    types::{InterfaceTable, PublicItem},
+};
 use kagari_runtime::{
-    CapabilitySet, DebugVisibilityPolicy, LanguageProfile, ModuleEpochRetention,
-    ModuleInitializationState, ResourcePolicy, Runtime, RuntimeConfig, RuntimeErrorKind,
-    SecurityContext,
+    Runtime, RuntimeConfig,
+    module::ModuleEpochRetention,
+    resource::RuntimeLimits,
+    value::{StructValueField, Value},
 };
-
-use crate::tests::common::{compile_test_bytecode, load_test_module};
-use crate::{DebugPauseReason, DebugSession, DebugWatch, SourceBreakpoint, Vm, VmError};
+use kagari_types::{
+    declaration::TraitDef,
+    scalar::BuiltinType,
+    ty::{NominalTy, Ty},
+};
 
 fn test_function(
     id: usize,
@@ -27,11 +48,13 @@ fn test_function(
 ) -> BytecodeFunction {
     let metadata = FunctionMetadata {
         return_type,
+        roots: RootSlotLayout::from_types(&[], &registers),
         registers,
         ..FunctionMetadata::default()
     };
     BytecodeFunction {
         id: FunctionRef::new(id),
+        identity: None,
         name: name.to_owned(),
         parameter_count: 0,
         register_count: metadata.registers.len() as u16,
@@ -42,22 +65,9 @@ fn test_function(
 }
 
 fn verified_module(
-    module_init: Option<FunctionRef>,
     functions: Vec<BytecodeFunction>,
+    constants: Vec<ConstantOperand>,
 ) -> BytecodeModule {
-    let constants = functions
-        .iter()
-        .flat_map(|function| &function.instructions)
-        .filter_map(|instruction| match instruction {
-            BytecodeInstruction::LoadConst { constant, .. } => Some(constant.clone()),
-            _ => None,
-        })
-        .fold(Vec::new(), |mut constants, constant| {
-            if !constants.contains(&constant) {
-                constants.push(constant);
-            }
-            constants
-        });
     let mut types = vec![ValueType::Unit];
     for function in &functions {
         for ty in std::iter::once(function.metadata.return_type)
@@ -74,6 +84,7 @@ fn verified_module(
         .iter()
         .map(|function| FunctionRecord {
             id: function.id,
+            identity: function.identity.clone(),
             name: function.name.clone(),
             params: function.metadata.params.clone(),
             return_type: function.metadata.return_type,
@@ -81,7 +92,6 @@ fn verified_module(
         })
         .collect();
     BytecodeModule {
-        module_init,
         constants,
         types,
         function_table,
@@ -90,17 +100,16 @@ fn verified_module(
     }
 }
 
-fn module_with_private_init_slot(value: i32) -> BytecodeModule {
+fn module_with_mutable_slot(value: i32) -> BytecodeModule {
     let mut module = verified_module(
-        Some(FunctionRef::new(0)),
         vec![
             test_function(
                 0,
-                "__module_init__",
+                "init",
                 vec![
                     BytecodeInstruction::LoadConst {
                         dst: Register::new(0),
-                        constant: ConstantOperand::I32(value),
+                        constant: ConstantId::new(0),
                     },
                     BytecodeInstruction::StoreModule {
                         slot: ModuleSlot::new(0),
@@ -125,1324 +134,117 @@ fn module_with_private_init_slot(value: i32) -> BytecodeModule {
                 vec![ValueType::I32],
             ),
         ],
+        vec![ConstantOperand::I32(value)],
     );
     module.module_slots = vec![BytecodeModuleSlot {
         name: "private".to_owned(),
         ty: ValueType::I32,
-        mutable: false,
+        mutable: true,
     }];
     module
 }
 
 fn reloadable_value_module(value: i32) -> BytecodeModule {
     verified_module(
-        None,
         vec![test_function(
             0,
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(0),
-                    constant: ConstantOperand::I32(value),
+                    constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Return(Some(Register::new(0))),
             ],
             ValueType::I32,
             vec![ValueType::I32],
         )],
+        vec![ConstantOperand::I32(value)],
     )
 }
 
 fn host_call_runtime() -> Runtime {
-    Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
-                allow_host_calls: true,
-                ..kagari_runtime::LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
-        host_exposure: kagari_runtime::HostExposurePolicy {
-            allow_host_functions: true,
-            ..kagari_runtime::HostExposurePolicy::default()
-        },
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
 
-fn debug_runtime(module_name: &str) -> Runtime {
-    Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities: debug_capabilities(),
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec![module_name.to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
+fn debug_runtime(_module_name: &str) -> Runtime {
+    standard_runtime(RuntimeConfig {
         ..RuntimeConfig::default()
     })
 }
 
-fn debug_capabilities() -> CapabilitySet {
-    CapabilitySet {
-        debug_attach: true,
-        debug_breakpoints: true,
-        debug_pause: true,
-        debug_stack_inspection: true,
-        debug_value_inspection: true,
-        debug_watch_evaluation: true,
-        ..CapabilitySet::default()
-    }
-}
-
-#[test]
-fn executes_simple_arithmetic_function() {
-    let (runtime, loaded) = load_test_module("fn main() -> i32 { val value = 1 + 2; value }");
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I32(3));
-    assert_eq!(
-        vm.runtime()
-            .modules()
-            .retention_counts(loaded.key())
-            .active_calls,
-        0
-    );
-}
-
-#[test]
-fn reports_runtime_instruction_step_limit() {
-    let bytecode = compile_test_bytecode("fn main() -> i32 { 1 }");
-    let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
-            max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_module("limited.kgr", bytecode)
-        .expect("limited module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("execution should hit instruction step limit");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
-    ));
-}
-
-#[test]
-fn reports_runtime_allocation_unit_limit() {
-    let bytecode = compile_test_bytecode("fn main() -> i32 { val values = [1, 2]; 0 }");
-    let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
-            max_allocation_units: Some(2),
-            ..ResourcePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_module("allocation_limited.kgr", bytecode)
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("array allocation should exceed allocation unit limit");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
-                && err.message().contains("allocation units")
-    ));
-    assert_eq!(vm.runtime().resources().counters().allocation_units, 0);
-}
-
-#[test]
-fn rejects_unverified_bytecode_before_publication() {
-    let mut bytecode = verified_module(
-        None,
+fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
+    let identity = ModuleIdentity::single_file("interface-instruction.kgr");
+    let context = DefinitionContext::new().unwrap();
+    let root = context.intern_root(&identity).unwrap();
+    let declaration = |kind, name: &str| context.intern_child(root, kind, name, 0).unwrap();
+    let trait_id = declaration(DefinitionKind::Trait, "Tag");
+    let impl_id = declaration(DefinitionKind::Impl, "");
+    let mut module = verified_module(
         vec![test_function(
             0,
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
                     dst: Register::new(0),
-                    constant: ConstantOperand::I32(1),
+                    constant: ConstantId::new(0),
                 },
-                BytecodeInstruction::Return(Some(Register::new(0))),
+                BytecodeInstruction::MakeInterface {
+                    dst: Register::new(1),
+                    value: Register::new(0),
+                    module: ModuleRef::new(0),
+                    implementation: InterfaceTableRef::new(0),
+                    arguments: vec![],
+                },
+                BytecodeInstruction::Return(Some(Register::new(1))),
             ],
-            ValueType::I32,
-            vec![ValueType::I32],
+            ValueType::HeapObject,
+            vec![ValueType::I32, ValueType::HeapObject],
         )],
+        vec![ConstantOperand::I32(7)],
     );
-    bytecode.function_table.clear();
-    let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
-            max_instruction_steps: Some(0),
-            ..ResourcePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let error = runtime
-        .load_module("unverified.kbc", bytecode)
-        .expect_err("runtime must reject unverified bytecode before publication");
-
-    assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
-    assert!(error.message().contains("FunctionTableLengthMismatch"));
-    assert_eq!(runtime.modules().loaded_count(), 0);
-}
-
-#[test]
-fn rejects_unsupported_bytecode_before_execution() {
-    let register_call = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
-                    constant: ConstantOperand::I32(1),
-                },
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::Register(Register::new(0)),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![ValueType::I32],
-        )],
-    );
-    let dynamic_call = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![],
-        )],
-    );
-    let mut runtime = Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
-                allow_reflection: true,
-                ..kagari_runtime::LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                dynamic_invocation: true,
-                ..CapabilitySet::default()
-            },
-        },
-        ..RuntimeConfig::default()
-    });
-    let register_loaded = runtime
-        .load_module("register_call.kbc", register_call)
-        .expect("runtime can store bytecode before VM support validation");
-    let dynamic_loaded = runtime
-        .load_module("dynamic_call.kbc", dynamic_call)
-        .expect("runtime can store bytecode before VM support validation");
-    let mut vm = Vm::new(runtime);
-
-    assert!(matches!(
-        vm.execute(&register_loaded, "main").unwrap_err(),
-        VmError::UnsupportedCallTarget(CallTarget::Register(_))
-    ));
-    assert!(matches!(
-        vm.execute(&dynamic_loaded, "main").unwrap_err(),
-        VmError::UnsupportedInstruction("runtime_helper_dynamic_call")
-    ));
-}
-
-#[test]
-fn dynamic_invocation_requires_separate_runtime_capability() {
-    let dynamic_call = verified_module(
-        None,
-        vec![test_function(
-            0,
-            "main",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![],
-        )],
-    );
-    let mut runtime = Runtime::default();
-    let loaded = runtime
-        .load_module("dynamic_call_denied.kbc", dynamic_call)
-        .expect("runtime can store bytecode before VM support validation");
-    let mut vm = Vm::new(runtime);
-    let error = vm.execute(&loaded, "main").unwrap_err();
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("dynamic_invocation")
-    ));
-}
-
-#[test]
-fn executes_if_control_flow() {
-    let (runtime, loaded) = load_test_module("fn main() -> i32 { if true { 1 } else { 2 } }");
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I32(1));
-}
-
-#[test]
-fn executes_direct_function_calls() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-fn callee() -> i32 { 7 }
-fn main() -> i32 { callee() }
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I32(7));
-}
-
-#[test]
-fn deterministic_frames_keep_caller_and_callee_storage_isolated() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-fn callee(input: i32) -> i32 {
-    val local = input + 1;
-    local
-}
-
-fn main() -> i32 {
-    val local = 10;
-    val returned = callee(1);
-    local + returned
-}
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I32(12));
-    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
-}
-
-#[test]
-fn deterministic_frames_account_call_depth_and_unwind_on_failure() {
-    let bytecode = compile_test_bytecode(
-        r#"
-fn leaf() -> i32 { 1 }
-fn middle() -> i32 { leaf() }
-fn main() -> i32 { middle() }
-"#,
-    );
-    let mut runtime = Runtime::new(RuntimeConfig {
-        resources: ResourcePolicy {
-            max_call_depth: Some(2),
-            ..ResourcePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_module("call_depth.kgr", bytecode)
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("third frame should exceed call depth");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::ResourceLimitExceeded
-    ));
-    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
-    assert_eq!(vm.runtime().resources().counters().peak_call_depth, 2);
-}
-
-#[test]
-fn unreachable_instruction_is_a_script_trap() {
-    let mut runtime = host_call_runtime();
-    let loaded = runtime
-        .load_module(
-            "trap.kbc",
-            verified_module(
-                None,
-                vec![test_function(
-                    0,
-                    "main",
-                    vec![BytecodeInstruction::Unreachable],
-                    ValueType::Unit,
-                    vec![],
-                )],
-            ),
-        )
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("unreachable should trap");
-
-    assert!(matches!(error, VmError::Trap("unreachable")));
-    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
-}
-
-#[test]
-fn executes_array_index_access() {
-    let (runtime, loaded) =
-        load_test_module("fn main() -> i32 { val values = [1, 2, 3]; values[1] }");
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I32(2));
-}
-
-#[test]
-fn executes_struct_field_access() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-struct Point { var x: i32, var y: i32 }
-
-fn main() -> i32 {
-    val point = Point { x: 1, y: 2 };
-    point.y
-}
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(report.return_value, Value::I32(2));
-}
-
-#[test]
-fn executes_tuple_literal_return() {
-    let (runtime, loaded) = load_test_module("fn main() -> (bool, bool) { (true, false) }");
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    assert_eq!(
-        report.return_value,
-        Value::Tuple(vec![Value::Bool(true), Value::Bool(false)])
-    );
-}
-
-#[test]
-fn debug_session_resolves_breakpoints_and_inspects_live_locals() {
-    let source = r#"
-fn main() -> i32 {
-    val value = 3;
-    value + 4
-}
-"#;
-    let mut runtime = debug_runtime("debug.kgr");
-    let loaded = runtime
-        .load_module("debug.kgr", compile_test_bytecode(source))
-        .expect("debug module should load");
-    let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
-    let breakpoint_id = session
-        .add_breakpoint(SourceBreakpoint::at_source_offset(
-            "debug.kgr",
-            source
-                .find("value +")
-                .expect("source should contain tail expr"),
-        ))
-        .expect("breakpoint should be allowed");
-
-    let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session)
-        .expect("debug attach should be allowed");
-    let report = vm
-        .execute(&loaded, "main")
-        .expect("debugged function should execute");
-
-    assert_eq!(report.return_value, Value::I32(7));
-    let debug = vm
-        .debug_session()
-        .expect("debug session should be attached");
-    assert!(
-        debug
-            .resolved_breakpoints()
-            .iter()
-            .any(|breakpoint| breakpoint.breakpoint_id == breakpoint_id)
-    );
-    let pause = debug
-        .pauses()
-        .iter()
-        .find(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint_id))
-        .expect("breakpoint should pause execution");
-    let frame = pause.top_frame().expect("pause should expose a frame");
-    assert_eq!(frame.function_name, "main");
-    assert_eq!(
-        pause
-            .evaluate_watch(
-                vm.runtime(),
-                frame.id,
-                &DebugWatch::Binding("value".to_owned()),
-            )
-            .expect("watch should read live local"),
-        Value::I32(3)
-    );
-}
-
-#[test]
-fn debug_session_supports_step_into_and_trap_pause_events() {
-    let mut runtime = debug_runtime("debug_trap.kbc");
-    let mut main = test_function(
-        0,
-        "main",
-        vec![
-            BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
-                constant: ConstantOperand::I32(1),
-            },
-            BytecodeInstruction::Unreachable,
-        ],
-        ValueType::I32,
-        vec![ValueType::I32],
-    );
-    main.metadata.debug.source_spans = vec![
-        InstructionSourceSpan {
-            instruction_offset: 0,
-            span: Span::new(1, 2),
-        },
-        InstructionSourceSpan {
-            instruction_offset: 1,
-            span: Span::new(3, 4),
-        },
+    module.identity = identity;
+    module.public_items = vec![
+        PublicItem::Trait(TraitDef {
+            conversion_adapter: None,
+            associated_consts: Vec::new(),
+            supertraits: Vec::new(),
+            associated_types: Vec::new(),
+            name: "Tag".into(),
+            generic_params: vec![],
+            bounds: vec![],
+            methods: vec![],
+        }),
+        PublicItem::InterfaceTable(Box::new(InterfaceTable {
+            associated_type_families: Vec::new(),
+            associated_consts: Vec::new(),
+            bridge: None,
+            declaration: impl_id,
+            name: String::new(),
+            generic_params: vec![],
+            bounds: vec![],
+            trait_type: Ty::Trait(NominalTy {
+                associated_types: Default::default(),
+                declaration: trait_id,
+                arguments: vec![],
+            }),
+            for_type: Ty::Builtin(BuiltinType::I32),
+            methods: vec![],
+        })),
     ];
-    main.metadata.debug.safe_debug_points = vec![
-        SafeDebugPoint {
-            id: DebugPointId::new(0),
-            instruction_offset: 0,
-            span: Span::new(1, 2),
-            kind: SafeDebugPointKind::FunctionEntry,
-        },
-        SafeDebugPoint {
-            id: DebugPointId::new(1),
-            instruction_offset: 1,
-            span: Span::new(3, 4),
-            kind: SafeDebugPointKind::Trap,
-        },
-    ];
-    let loaded = runtime
-        .load_module("debug_trap.kbc", verified_module(None, vec![main]))
-        .expect("trap module should load");
-    let mut session = DebugSession::new(&runtime).expect("debug session should be allowed");
-    session.step_into().expect("step should be allowed");
-
-    let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session)
-        .expect("debug attach should be allowed");
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("unreachable should trap");
-
-    assert!(matches!(error, VmError::Trap("unreachable")));
-    let pauses = vm
-        .debug_session()
-        .expect("debug session should be attached")
-        .pauses();
-    assert!(
-        pauses
-            .iter()
-            .any(|pause| pause.reason == DebugPauseReason::Step)
-    );
-    assert!(
-        pauses
-            .iter()
-            .any(|pause| pause.reason == DebugPauseReason::Trap)
-    );
+    module.interface_tables = vec![InterfaceTableRecord {
+        parents: vec![],
+        view: None,
+        arguments: Vec::new(),
+        declaration: impl_id,
+        methods: vec![],
+    }];
+    DefinitionMetadata::checked(context.snapshot(), module, &Default::default()).unwrap()
 }
 
-#[test]
-fn debugger_attachment_requires_runtime_capability() {
-    let runtime = Runtime::default();
-    let error = DebugSession::new(&runtime).expect_err("default profile denies debugger attach");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("debug_attach")
-    ));
-}
-
-#[test]
-fn debugger_breakpoints_require_capability_and_visible_module() {
-    let mut capabilities = debug_capabilities();
-    capabilities.debug_breakpoints = false;
-    let runtime_without_breakpoints = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities,
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["debug.kgr".to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let mut session =
-        DebugSession::new(&runtime_without_breakpoints).expect("attach should be allowed");
-    let error = session
-        .add_breakpoint(SourceBreakpoint::at_source_offset("debug.kgr", 0))
-        .expect_err("breakpoints should require debugger capability");
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("debug_breakpoints")
-    ));
-
-    let runtime_with_hidden_module = debug_runtime("visible.kgr");
-    let mut session =
-        DebugSession::new(&runtime_with_hidden_module).expect("attach should be allowed");
-    let error = session
-        .add_breakpoint(SourceBreakpoint::at_source_offset("hidden.kgr", 0))
-        .expect_err("hidden modules should not accept breakpoints");
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("debug module `hidden.kgr`")
-    ));
-}
-
-#[test]
-fn debugger_pause_control_is_separate_from_breakpoint_capability() {
-    let mut capabilities = debug_capabilities();
-    capabilities.debug_breakpoints = false;
-    let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities,
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["debug_step_only.kgr".to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_module(
-            "debug_step_only.kgr",
-            compile_test_bytecode("fn main() -> i32 { val value = 1; value }"),
-        )
-        .expect("debug module should load");
-    let mut session = DebugSession::new(&runtime).expect("attach should be allowed");
-    session
-        .step_into()
-        .expect("pause control should be allowed");
-
-    let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session)
-        .expect("debug attach should be allowed");
-    let report = vm
-        .execute(&loaded, "main")
-        .expect("step-only debugger should execute without breakpoint capability");
-
-    assert_eq!(report.return_value, Value::I32(1));
-    assert!(
-        vm.debug_session()
-            .expect("debug session should be attached")
-            .pauses()
-            .iter()
-            .any(|pause| pause.reason == DebugPauseReason::Step)
-    );
-}
-
-#[test]
-fn debugger_watch_evaluation_requires_separate_capability() {
-    let source = r#"
-fn main() -> i32 {
-    val value = 3;
-    value + 4
-}
-"#;
-    let mut capabilities = debug_capabilities();
-    capabilities.debug_watch_evaluation = false;
-    let mut runtime = Runtime::new(RuntimeConfig {
-        security: SecurityContext {
-            profile: LanguageProfile {
-                allow_debugger: true,
-                ..LanguageProfile::default()
-            },
-            capabilities,
-        },
-        debug_visibility: DebugVisibilityPolicy {
-            visible_modules: vec!["debug_watch.kgr".to_owned()],
-            ..DebugVisibilityPolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    let loaded = runtime
-        .load_module("debug_watch.kgr", compile_test_bytecode(source))
-        .expect("debug module should load");
-    let mut session = DebugSession::new(&runtime).expect("debug attach should be allowed");
-    let breakpoint = session
-        .add_breakpoint(SourceBreakpoint::at_source_offset(
-            "debug_watch.kgr",
-            source
-                .find("value +")
-                .expect("source should contain tail expr"),
-        ))
-        .expect("breakpoints should be allowed");
-    let mut vm = Vm::new(runtime);
-    vm.attach_debug_session(session)
-        .expect("debug attach should be allowed");
-    vm.execute(&loaded, "main")
-        .expect("debugged function should execute");
-
-    let pause = vm
-        .debug_session()
-        .expect("debug session should be attached")
-        .pauses()
-        .iter()
-        .find(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint))
-        .expect("breakpoint should pause")
-        .clone();
-    let frame = pause.top_frame().expect("pause should expose a frame");
-    let error = pause
-        .evaluate_watch(
-            vm.runtime(),
-            frame.id,
-            &DebugWatch::Binding("value".to_owned()),
-        )
-        .expect_err("watch evaluation should require its own capability");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("debug_watch_evaluation")
-    ));
-}
-
-#[test]
-fn executes_struct_literal_return() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-struct Point { var x: i32, var y: i32 }
-
-fn main() -> Point {
-    Point { x: 1, y: 2 }
-}
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let report = vm.execute(&loaded, "main").expect("vm should execute");
-
-    let Value::Struct(handle) = report.return_value else {
-        panic!("expected struct return value");
-    };
-    assert_eq!(
-        vm.runtime().gc().struct_snapshot(handle),
-        Some((
-            "Point".to_owned(),
-            vec![
-                StructValueField {
-                    name: "x".to_owned(),
-                    value: Value::I32(1),
-                },
-                StructValueField {
-                    name: "y".to_owned(),
-                    value: Value::I32(2),
-                },
-            ],
-        ))
-    );
-}
-
-#[test]
-fn executes_top_level_tail_expression_as_module_result() {
-    let (runtime, loaded) = load_test_module(
-        r#"
-val value = 1;
-
-value + 2
-"#,
-    );
-    let mut vm = Vm::new(runtime);
-    let result = vm
-        .execute_module(&loaded)
-        .expect("module init should execute");
-
-    assert_eq!(result, Value::I32(3));
-}
-
-#[test]
-fn rejects_reentrant_module_result_access_while_initializing() {
-    let mut runtime = host_call_runtime();
-    let loaded = runtime
-        .load_module("initializing.kgr", module_with_private_init_slot(1))
-        .expect("module should load");
-    {
-        let mut instance = runtime
-            .module_instance_mut(&loaded)
-            .expect("module instance should exist");
-        instance.begin_initialization();
-    }
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute_module(&loaded)
-        .expect_err("in-progress module result should not be synthesized");
-
-    assert!(matches!(error, VmError::ModuleInitializing(key) if key == loaded.key()));
-    assert_eq!(
-        vm.runtime()
-            .module_instance_snapshot(&loaded)
-            .expect("module instance should exist")
-            .state,
-        ModuleInitializationState::Initializing
-    );
-}
-
-#[test]
-fn host_runtime_helpers_enforce_capability_requirements_before_invocation() {
-    let calls = Arc::new(Mutex::new(0usize));
-    let calls_for_host = Arc::clone(&calls);
-    let mut metadata = HostFunctionMetadata::new("host.secure", vec![], "i32");
-    metadata.capability_requirements = CapabilitySet {
-        fs_read: true,
-        ..CapabilitySet::default()
-    };
-
-    let mut runtime = host_call_runtime();
-    runtime
-        .register_host_function(HostFunction::with_metadata(metadata, move |_| {
-            *calls_for_host
-                .lock()
-                .expect("host call counter should lock") += 1;
-            Ok(Value::I32(1))
-        }))
-        .expect("host function should register");
-    let loaded = runtime
-        .load_module(
-            "host_capability.kbc",
-            verified_module(
-                None,
-                vec![test_function(
-                    0,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.secure".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32],
-                )],
-            ),
-        )
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("host helper should be denied");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::CapabilityDenied
-                && error.message().contains("fs_read")
-    ));
-    assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
-}
-
-#[test]
-fn host_runtime_helpers_charge_resource_cost_before_invocation() {
-    let calls = Arc::new(Mutex::new(0usize));
-    let calls_for_host = Arc::clone(&calls);
-    let mut metadata = HostFunctionMetadata::new("host.costly", vec![], "i32");
-    metadata.resource_cost_hint = Some(2);
-
-    let mut runtime = Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
-                allow_host_calls: true,
-                ..kagari_runtime::LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
-        resources: ResourcePolicy {
-            max_instruction_steps: Some(2),
-            ..ResourcePolicy::default()
-        },
-        host_exposure: kagari_runtime::HostExposurePolicy {
-            allowed_host_functions: vec!["host.costly".to_owned()],
-            ..kagari_runtime::HostExposurePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    runtime
-        .register_host_function(HostFunction::with_metadata(metadata, move |_| {
-            *calls_for_host
-                .lock()
-                .expect("host call counter should lock") += 1;
-            Ok(Value::I32(1))
-        }))
-        .expect("host function should register");
-    let loaded = runtime
-        .load_module(
-            "host_cost.kbc",
-            verified_module(
-                None,
-                vec![test_function(
-                    0,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.costly".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32],
-                )],
-            ),
-        )
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("host helper should hit cost limit");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
-    ));
-    assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
-}
-
-#[test]
-fn host_runtime_helpers_enforce_host_call_resource_limit_before_invocation() {
-    let calls = Arc::new(Mutex::new(0usize));
-    let calls_for_host = Arc::clone(&calls);
-
-    let mut runtime = Runtime::new(RuntimeConfig {
-        security: kagari_runtime::SecurityContext {
-            profile: kagari_runtime::LanguageProfile {
-                allow_host_calls: true,
-                ..kagari_runtime::LanguageProfile::default()
-            },
-            capabilities: CapabilitySet {
-                host_calls: true,
-                ..CapabilitySet::default()
-            },
-        },
-        resources: ResourcePolicy {
-            max_host_calls: Some(0),
-            ..ResourcePolicy::default()
-        },
-        host_exposure: kagari_runtime::HostExposurePolicy {
-            allowed_host_functions: vec!["host.limited".to_owned()],
-            ..kagari_runtime::HostExposurePolicy::default()
-        },
-        ..RuntimeConfig::default()
-    });
-    runtime
-        .register_host_function(HostFunction::new(
-            "host.limited",
-            vec![],
-            "i32",
-            move |_| {
-                *calls_for_host
-                    .lock()
-                    .expect("host call counter should lock") += 1;
-                Ok(Value::I32(1))
-            },
-        ))
-        .expect("host function should register");
-    let loaded = runtime
-        .load_module(
-            "host_call_limit.kbc",
-            verified_module(
-                None,
-                vec![test_function(
-                    0,
-                    "main",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: Some(Register::new(0)),
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.limited".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(Some(Register::new(0))),
-                    ],
-                    ValueType::I32,
-                    vec![ValueType::I32],
-                )],
-            ),
-        )
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let error = vm
-        .execute(&loaded, "main")
-        .expect_err("host helper should hit host call limit");
-
-    assert!(matches!(
-        error,
-        VmError::RuntimeError(ref error)
-            if error.kind() == RuntimeErrorKind::ResourceLimitExceeded
-                && error.message().contains("host calls")
-    ));
-    assert_eq!(*calls.lock().expect("host call counter should lock"), 0);
-    assert_eq!(vm.runtime().resources().counters().host_calls, 0);
-}
-
-#[test]
-fn executes_module_init_before_entry_only_once_per_module_epoch() {
-    let init_count = Arc::new(Mutex::new(0usize));
-    let counter = Arc::clone(&init_count);
-
-    let mut runtime = host_call_runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            "host.bump_init",
-            vec![],
-            "()",
-            move |_| {
-                let mut count = counter.lock().expect("counter lock should succeed");
-                *count += 1;
-                Ok(Value::Unit)
-            },
-        ))
-        .expect("host function should register");
-
-    let loaded = runtime
-        .load_module(
-            "module_init_once.kgr",
-            verified_module(
-                Some(FunctionRef::new(0)),
-                vec![
-                    test_function(
-                        0,
-                        "__module_init__",
-                        vec![
-                            BytecodeInstruction::Call {
-                                dst: None,
-                                callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                    "host.bump_init".to_owned(),
-                                )),
-                                args: vec![],
-                            },
-                            BytecodeInstruction::Return(None),
-                        ],
-                        ValueType::Unit,
-                        vec![],
-                    ),
-                    test_function(
-                        1,
-                        "main",
-                        vec![
-                            BytecodeInstruction::LoadConst {
-                                dst: Register::new(0),
-                                constant: ConstantOperand::I32(7),
-                            },
-                            BytecodeInstruction::Return(Some(Register::new(0))),
-                        ],
-                        ValueType::I32,
-                        vec![ValueType::I32],
-                    ),
-                ],
-            ),
-        )
-        .expect("module should load");
-
-    let mut vm = Vm::new(runtime);
-    let first = vm
-        .execute(&loaded, "main")
-        .expect("first execution should work");
-    let second = vm
-        .execute(&loaded, "main")
-        .expect("second execution should work");
-
-    assert_eq!(first.return_value, Value::I32(7));
-    assert_eq!(second.return_value, Value::I32(7));
-    assert_eq!(*init_count.lock().expect("counter lock should succeed"), 1);
-}
-
-#[test]
-fn reruns_module_init_for_new_module_epoch() {
-    let init_count = Arc::new(Mutex::new(0usize));
-    let counter = Arc::clone(&init_count);
-
-    let mut runtime = host_call_runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            "host.bump_init",
-            vec![],
-            "()",
-            move |_| {
-                let mut count = counter.lock().expect("counter lock should succeed");
-                *count += 1;
-                Ok(Value::Unit)
-            },
-        ))
-        .expect("host function should register");
-
-    let bytecode = verified_module(
-        Some(FunctionRef::new(0)),
-        vec![test_function(
-            0,
-            "__module_init__",
-            vec![
-                BytecodeInstruction::Call {
-                    dst: None,
-                    callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                        "host.bump_init".to_owned(),
-                    )),
-                    args: vec![],
-                },
-                BytecodeInstruction::Return(None),
-            ],
-            ValueType::Unit,
-            vec![],
-        )],
-    );
-    let first_loaded = runtime
-        .load_module("reloadable.kgr", bytecode.clone())
-        .expect("first module epoch should load");
-    let second_loaded = runtime
-        .load_module("reloadable.kgr", bytecode)
-        .expect("second module epoch should load");
-
-    let mut vm = Vm::new(runtime);
-    vm.execute_module(&first_loaded)
-        .expect("first module epoch should initialize");
-    vm.execute_module(&second_loaded)
-        .expect("second module epoch should initialize");
-
-    assert_eq!(*init_count.lock().expect("counter lock should succeed"), 2);
-}
-
-#[test]
-fn module_epochs_keep_independent_init_results_and_private_slots() {
-    let mut runtime = host_call_runtime();
-    let first_loaded = runtime
-        .load_module("epoch_visible.kgr", module_with_private_init_slot(1))
-        .expect("first module epoch should load");
-    let second_loaded = runtime
-        .load_module("epoch_visible.kgr", module_with_private_init_slot(2))
-        .expect("second module epoch should load");
-
-    let mut vm = Vm::new(runtime);
-    assert_eq!(
-        vm.execute_module(&first_loaded)
-            .expect("first epoch should initialize"),
-        Value::I32(1)
-    );
-    assert_eq!(
-        vm.execute_module(&second_loaded)
-            .expect("second epoch should initialize"),
-        Value::I32(2)
-    );
-
-    let first_report = vm
-        .execute(&first_loaded, "main")
-        .expect("old epoch should remain executable");
-    let latest = vm
-        .runtime()
-        .modules()
-        .latest("epoch_visible.kgr")
-        .expect("latest module epoch should be visible");
-    let latest_report = vm
-        .execute(&latest, "main")
-        .expect("latest epoch should execute");
-
-    assert_eq!(first_report.epoch, first_loaded.epoch.0);
-    assert_eq!(first_report.return_value, Value::I32(1));
-    assert_eq!(latest.epoch, second_loaded.epoch);
-    assert_eq!(latest_report.epoch, second_loaded.epoch.0);
-    assert_eq!(latest_report.return_value, Value::I32(2));
-    assert_eq!(
-        vm.runtime()
-            .module_instance_snapshot(&first_loaded)
-            .expect("first epoch instance should exist")
-            .init_result,
-        Some(Value::I32(1))
-    );
-    assert_eq!(
-        vm.runtime()
-            .module_instance_snapshot(&second_loaded)
-            .expect("second epoch instance should exist")
-            .init_result,
-        Some(Value::I32(2))
-    );
-}
-
-#[test]
-fn reload_preserves_active_old_epoch_while_new_calls_use_latest_epoch() {
-    let mut runtime = Runtime::default();
-    let first_loaded = runtime
-        .load_module("hot_reload.kgr", reloadable_value_module(1))
-        .expect("first module epoch should load");
-    assert!(
-        runtime
-            .modules()
-            .retain_epoch(first_loaded.key(), ModuleEpochRetention::ActiveCall)
-    );
-
-    let second_loaded = runtime
-        .reload_module(&first_loaded, "hot_reload.kgr", reloadable_value_module(2))
-        .expect("compatible reload should publish a new epoch");
-
-    assert_eq!(
-        runtime.modules().collect_unreachable_epochs(),
-        Vec::new(),
-        "old active-call epoch must remain reachable after reload"
-    );
-
-    let mut vm = Vm::new(runtime);
-    let old_report = vm
-        .execute(&first_loaded, "main")
-        .expect("old active epoch should remain executable");
-    let latest = vm
-        .runtime()
-        .modules()
-        .latest("hot_reload.kgr")
-        .expect("latest module epoch should be visible");
-    let latest_report = vm
-        .execute(&latest, "main")
-        .expect("new call should use latest epoch");
-
-    assert_eq!(second_loaded.epoch, latest.epoch);
-    assert_eq!(old_report.epoch, first_loaded.epoch.0);
-    assert_eq!(old_report.return_value, Value::I32(1));
-    assert_eq!(latest_report.epoch, second_loaded.epoch.0);
-    assert_eq!(latest_report.return_value, Value::I32(2));
-
-    assert!(
-        vm.runtime()
-            .modules()
-            .release_epoch(first_loaded.key(), ModuleEpochRetention::ActiveCall)
-    );
-    assert_eq!(
-        vm.runtime().modules().collect_unreachable_epochs(),
-        vec![first_loaded.key()]
-    );
-}
-
-#[test]
-fn caches_failed_module_init_without_retrying() {
-    let init_count = Arc::new(Mutex::new(0usize));
-    let counter = Arc::clone(&init_count);
-
-    let mut runtime = host_call_runtime();
-    runtime
-        .register_host_function(HostFunction::new(
-            "host.fail_init",
-            vec![],
-            "()",
-            move |_| {
-                let mut count = counter.lock().expect("counter lock should succeed");
-                *count += 1;
-                Err(kagari_runtime::host::HostError::new("boom"))
-            },
-        ))
-        .expect("host function should register");
-
-    let loaded = runtime
-        .load_module(
-            "module_init_failed.kgr",
-            verified_module(
-                Some(FunctionRef::new(0)),
-                vec![test_function(
-                    0,
-                    "__module_init__",
-                    vec![
-                        BytecodeInstruction::Call {
-                            dst: None,
-                            callee: CallTarget::RuntimeHelper(RuntimeHelper::HostFunction(
-                                "host.fail_init".to_owned(),
-                            )),
-                            args: vec![],
-                        },
-                        BytecodeInstruction::Return(None),
-                    ],
-                    ValueType::Unit,
-                    vec![],
-                )],
-            ),
-        )
-        .expect("failed-init module should load");
-
-    let mut vm = Vm::new(runtime);
-    let first = vm
-        .execute_module(&loaded)
-        .expect_err("module init should fail");
-    let second = vm
-        .execute_module(&loaded)
-        .expect_err("failed module should stay failed");
-
-    assert!(matches!(
-        first,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::HostCallFailure && err.message().contains("boom")
-    ));
-    assert!(matches!(
-        second,
-        VmError::RuntimeError(ref err)
-            if err.kind() == RuntimeErrorKind::HostCallFailure && err.message().contains("boom")
-    ));
-    assert_eq!(*init_count.lock().expect("counter lock should succeed"), 1);
-}
+mod debugger;
+mod frames;
+mod host_effects;
+mod interfaces;

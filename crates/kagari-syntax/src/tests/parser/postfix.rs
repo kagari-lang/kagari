@@ -1,4 +1,4 @@
-use crate::{ast::Expr, kind::SyntaxKind, tests::common};
+use crate::{ast::expr::Expr, kind::SyntaxKind, tests::common};
 
 #[test]
 fn parses_call_field_and_index_chain() {

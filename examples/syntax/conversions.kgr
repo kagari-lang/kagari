@@ -1,0 +1,8 @@
+// The language uses From to convert a Result error at `?`.
+struct Count {val value:i32}
+impl From<i32> for Count {fn from(value:i32)->Self{Count{value}}}
+fn forward<S,D:From<S>>(value:Result<i32,S>)->Result<i32,D>{Ok(value?)}
+fn main()->i32 {
+    val result:Result<i32,Count> = forward(Err(42));
+    match result {Err(count)=>count.value,Ok(_)=>0}
+}

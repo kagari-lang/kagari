@@ -8,6 +8,25 @@ permissions:
   contents: read
 
 jobs:
+  structure:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.9"
+          python-version: "3.12"
+
+      - name: Test structure checker
+        run: uv run --locked scripts/check_structure.py --self-test
+
+      - name: Check all Rust source structure
+        run: uv run --locked scripts/check_structure.py
+
   rust:
     runs-on: ubuntu-latest
 
@@ -20,6 +39,12 @@ jobs:
         with:
           components: rustfmt, clippy
 
+      - name: Install uv for feature consumers
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.9"
+          python-version: "3.12"
+
       - name: Cache Rust artifacts
         uses: Swatinem/rust-cache@v2
 
@@ -30,4 +55,63 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Run tests
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
+
+      - name: Run complete formatter grammar inventory
+        run: cargo test --locked -p kagari-format --lib complete_grammar_fixture_inventory -- --ignored
+
+      - name: Run host-driven async example
+        run: cargo run --locked -p kagari --no-default-features --features source --example async_tasks
+
+      - name: Check standalone SDK feature consumers
+        run: uv run python scripts/check_features.py
+
+      - name: Test CLI native feature
+        run: cargo test -p kagari-cli --features jit
+
+  windows-aot:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: "0.12.9"
+          python-version: "3.12"
+
+      - name: Locate platform linker
+        shell: pwsh
+        run: |
+          $aotLinker = 'C:\Program Files\LLVM\bin\lld-link.exe'
+          if (-not (Test-Path -LiteralPath $aotLinker)) { throw 'lld-link is required for AOT acceptance' }
+          "KAGARI_AOT_LINKER=$aotLinker" >> $env:GITHUB_ENV
+
+      - name: Cache Rust artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Test native deployment contracts
+        run: cargo test --locked -p kagari --features aot-build --lib aot::tests --no-fail-fast
+
+      - name: Enable symbolic links for formatter contracts
+        shell: pwsh
+        run: |
+          New-Item -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Force | Out-Null
+          New-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock' -Name AllowDevelopmentWithoutDevLicense -PropertyType DWord -Value 1 -Force | Out-Null
+
+      - name: Test Windows formatter replacement and link contracts
+        run: 'cargo test --locked -p kagari-cli --bin kg formatting:: --no-fail-fast'
+
+      - name: Test Windows toolchain command contracts
+        run: cargo test --locked -p kagari-cli --test toolchain --no-fail-fast
+
+      - name: Test CLI AOT and JIT arguments
+        run: cargo test --locked -p kagari-cli --features aot,jit tests::parses
+
+      - name: Prove independent compiler-free deployment
+        run: uv run python scripts/check_aot.py

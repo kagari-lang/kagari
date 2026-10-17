@@ -1,0 +1,27 @@
+[package]
+name = "kagari-codegen-cranelift"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-codegen.workspace = true
+kagari-mir.workspace = true
+kagari-abi.workspace = true
+kagari-contract.workspace = true
+kagari-common.workspace = true
+thiserror.workspace = true
+cranelift-codegen.workspace = true
+cranelift-frontend.workspace = true
+cranelift-jit.workspace = true
+cranelift-module.workspace = true
+cranelift-native.workspace = true
+cranelift-object.workspace = true
+
+[dev-dependencies]
+kagari-stdlib.workspace = true
+kagari-source.workspace = true
+kagari-bytecode.workspace = true
+kagari-compiler = { workspace = true, features = ["source"] }
+kagari = { workspace = true, features = ["source"] }
+kagari-runtime.workspace = true

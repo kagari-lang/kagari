@@ -1,0 +1,7 @@
+[workspace]
+namespace = "examples/game"
+members = ["gameplay", "rules"]
+default-members = ["gameplay"]
+
+[workspace.dependencies]
+rules = { package = "combat-rules", path = "rules", version = "1" }

@@ -1,0 +1,351 @@
+# Object storage overhead execution plan
+
+Status: proposed execution plan recorded on 2026-10-16; implementation has not
+started. The [roadmap](implementation-roadmap.md#object-storage-overhead) owns
+activation and ordering. This plan owns OM01-OM05, conditional decisions,
+acceptance and the progress ledger. Writing it does not activate implementation.
+
+## Outcome and finite scope
+
+Reduce per-object management cost on top of the completed RS01-RS06 storage
+redesign. Preserve the [runtime model](architecture.md#runtime-model),
+[runtime specification](spec/runtime.md) and [project priorities](project_goal.md).
+
+The required change is to move native mutation revisions out of the common object
+directory, with complete consumer migration and measured total-storage benefit.
+Layout-grouped struct storage and interface-record consolidation are conditional
+follow-ups: evaluate them in order and retain an implementation only when its
+ownership model and measured benefits pass this plan's gates. Explicit deferral
+is an accepted outcome for each conditional phase; directory migration is not
+optional and cannot be marked complete merely because a benchmark is difficult.
+
+Keep 16-byte Value transport, full owner/slot/generation handles, direct scalar-bank
+field transfers, exact scalar widths, shared interface descriptions and typed
+native storage. Do not change language value/alias semantics, introduce inline
+value-type collections, compress owners, replace the GC algorithm, expand native
+backends, implement downcast or perform the NC collection-library migration.
+General arithmetic and call-lifecycle optimization belong to the separate
+[interpreter follow-up](implementation-roadmap.md#interpreter-performance-follow-up).
+IP01-IP07 completed local acceptance without activating OM. Future interpreter work
+must reuse the accepted storage ownership and measurements rather than duplicate
+this ledger or require conditional storage changes to be implemented.
+
+## Evidence and cost ownership
+
+Baseline implementation is 35077323; documentation handoff is 312e6b46. The
+[retained measurements](performance-baseline.md#runtime-storage-2026-10-16) record
+seven matched process pairs on Apple M1 Max, arm64 macOS 26.6.2, rustc 1.98.1,
+workspace release profile. They are evidence for selecting work, not fresh OM
+measurements or comparisons with another language's whole process.
+
+| Current item | Evidence | Implication |
+| --- | --- | --- |
+| Common directory entry | 24 bytes on the measured target | Every kind pays for a u64 revision, generation and locator. |
+| Struct record plus its directory back-reference | About 24 bytes by current 64-bit layout | Every instance repeats a description reference and byte offset. Verify sizes in OM01. |
+| Point fields | Two i32 fields occupy eight bytes | Field payload compression is not the main remaining opportunity. |
+| 512 Points | 58,084 live / 40,508 empty / 66,692 reused requested-byte increments | Approximately 113 bytes per Point is a workload average, not object size. |
+| 512 Pair<i32> values | 58,860 live / 40,548 empty / 67,052 reused | Generic layout provenance must survive any grouping. |
+| Narrow / wide / generic interfaces | 128,616 / 129,840 / 129,992 live increments | Description sharing already works; remaining instance records need separate attribution. |
+| Cyclic nodes | 414,428 live increment; release GC +9.4% against pre-RS baseline | Reference-heavy retention and collection latency are sensitive controls. |
+
+The common directory and per-store record have different responsibilities:
+the directory owns stable identity/generation; each dense store's back-reference
+allows relocation to update that directory. These indices are not automatically
+redundant. Native revisions protect mutation observations; struct layout metadata
+supplies field encoding and nominal provenance. Classify each byte by responsibility
+before removing or moving it.
+
+OM01 must reconcile requested-byte totals into live field bytes, occupied records,
+unused directory/store capacity, container element storage, shared descriptions and
+keys, roots/free lists, and other metadata. Distinguish requested allocator bytes
+from logical GC units, allocator size classes, committed pages and RSS. Do not
+double-count a shared description once per object or count retained capacity as
+live payload. Explain any unattributed remainder rather than presenting an exact
+per-object saving from shallow sizes alone.
+
+## Ownership changes
+
+Before selecting an ownership change, follow the
+[architecture-first repository policy](../AGENTS.md#architecture-before-optimization-and-feature-changes).
+OM01 must compare relevant Java/OpenJDK, Go or other established storage/GC
+mechanisms with Kagari's checked handles, exact nominal layouts, host state and
+pinned reload roots. Record source/version, applicable mechanism and reasons for
+adoption or rejection here. Distinguish JVM specification contracts from concrete
+collector/object-layout implementations. This is part of OM01's existing diagnosis,
+not authorization to replace the collector or activate OM ahead of the roadmap.
+
+### Common identity directory and native mutation state
+
+Current owners are [ObjectStorage](../crates/kagari-runtime/src/gc/directory.rs),
+[allocation](../crates/kagari-runtime/src/gc.rs),
+[native access](../crates/kagari-runtime/src/gc/native.rs),
+[managed native edits](../crates/kagari-runtime/src/gc/native/managed.rs),
+[collection commits](../crates/kagari-runtime/src/gc/mutations.rs),
+[sequence leases](../crates/kagari-runtime/src/gc/sequence_edit.rs) and
+[iterator revision checks](../crates/kagari-runtime/src/gc/iter.rs).
+
+Keep generation and kind/location in the common directory. Move revision state to
+the runtime-owned native storage record, adjacent to the native payload, rather
+than into a general per-object HashMap or a library-controlled Rust payload. All
+native objects use this owner, including custom managed objects; the migration
+must not assume that only Vec/Map/Set need revisions. Select the concrete record
+shape after OM01 measures padding and access costs. Do not narrow or wrap the
+existing revision counter to meet a size target.
+
+Audit every revision read, increment, reset and restoration, including buffers,
+map/set edits, native mutable views, callback-driven commits and native extraction.
+The new owner must preserve:
+
+- New identity initialization and revision exhaustion errors; relocation preserves
+  the revision, whereas slot reuse creates a fresh identity and initial state.
+- Existing structural versus element-replacement rules. Keep each operation's
+  current revision commit point, including errors or callbacks that leave effects.
+- Sequence lease restoration on success, traps and cancellation; temporarily
+  detached storage must remain inaccessible through ordinary traversal.
+- Candidate initialization isolation, scoped native borrow checks, synchronous
+  reentry and operation protection before mutation or extraction.
+- Native payload replacement without accidentally resetting the receiver's revision;
+  moved/extracted identities remain inert and cannot alias a later allocation.
+
+For example, an iterator observes revision r; a callback structurally edits its
+source; the next read must reject the stale traversal after preserving the
+callback's completed effects. Moving r from the directory to native storage must
+not move that check, add another semantic implementation or retain a heap borrow
+across the callback. Generation validation and mutation revision serve different
+purposes and must not be substituted for each other.
+
+### Conditional layout-grouped struct storage
+
+Today [struct records](../crates/kagari-runtime/src/gc/directory.rs) each own an
+Arc description and byte offset; all rows occupy one packed byte arena. The
+[closed layout](../crates/kagari-runtime/src/module/layout_storage.rs) and
+[field codec](../crates/kagari-runtime/src/gc/fields.rs) already own field semantics.
+
+Evaluate blocks owned by one exact closed layout. A block can share its description
+and derive a row's byte position from stride and row index. For 512 Points, this
+could replace 512 description references and offsets with block-level metadata
+and smaller row bookkeeping. This is a candidate design, not a promised size or
+speedup; directory locators and relocation back-references still have a job.
+
+Before implementation, close the following decisions in OM03:
+
+- Group identity includes registry/module-generation and canonical layout identity,
+  or the complete detached structural/provenance key. Equal stride or a compatible
+  field shape does not authorize merging distinct nominal generations.
+- One owner defines directory-to-group/row lookup, survivor relocation and reverse
+  mapping. Do not retain the old per-row descriptor/offset alongside a new index
+  indefinitely. Retain the existing codec and scalar transfer path as the only
+  semantic implementation.
+- Growth, sparse deletion, reuse and release policies bound slack for one instance
+  per layout as well as large homogeneous populations. Empty groups release their
+  descriptions; unused group metadata must not become an executable or data root.
+- Zero-byte rows remain distinct identities. Mixed scalar/reference rows preserve
+  initialization, NaN bits, signed zero, nominal checks and alias-visible mutation.
+- Reserve all required storage before publication. No row view survives allocation,
+  collection, reentry or suspension. Partial preparation never exposes an object.
+
+Prefer safe byte storage and ordinary Rust ownership. Avoid a new fallback engine
+for sparsely populated layouts; a single group owner may use bounded growth sizes.
+If group overhead or collection costs outweigh savings, remove the prototype and
+retain the current packed arena with an explicit measured deferral.
+
+### Conditional interface-record consolidation
+
+The current path is a Value's checked heap identity, directory locator, typed
+interface payload containing InterfaceSnapshotId, and a separately checked
+[interface snapshot store](../crates/kagari-runtime/src/execution_metadata/interfaces.rs).
+The [snapshot](../crates/kagari-runtime/src/gc/interfaces.rs) owns the receiver,
+shared description and receiver-specific parent-view caches.
+
+Assess whether one record/identity owner can serve the actual consumers. Inventory
+heap values, metadata graph edges, parent-view caches and construction paths before
+choosing which identity survives. Two stores alone do not prove duplicated
+semantics: snapshots can participate in executable metadata reachability beyond
+an ordinary wrapper lookup. Do not remove a store until every such edge has a
+checked replacement and defined lifetime.
+
+A retained design must keep receiver data/private parent caches separate from
+shared method/type descriptions, trace each receiver and each shared description
+appropriately, and preserve applied generic witnesses and pinned executable
+dependencies. Parent-view creation must not create immortal cycles or share a
+receiver with another interface value. Preserve public identity/equality behavior,
+host restrictions, tracing failure handling and disposal outside borrowed stores.
+Old metadata identities must not resolve to reused records after GC or reload.
+
+If consolidation passes its gate, replace the obsolete wrapper/store paths and
+update all consumers in one coherent phase. Do not keep forwarding IDs, duplicate
+roots or a second snapshot implementation for hypothetical compatibility. This
+phase does not implement is<T>/downcast<T>; refresh that queued plan's inventory.
+
+## Phases and checkpoints
+
+### OM01 — Attribute costs and freeze measurements
+
+Extend diagnostics beside the existing
+[storage probe](../benchmarks/lua-comparison/examples/runtime_storage/main.rs) and
+[allocation probe](../benchmarks/lua-comparison/examples/runtime_storage/memory.rs).
+Keep the original script, counts and timing regions unchanged. New controls use
+separate programs so extra declarations do not silently alter the original setup.
+Diagnostic attribution must not add permanent counters or alter ordinary timing.
+
+Record actual sizes/capacities, ownership/consumer inventories, environment and
+the missing data for new controls. Freeze their exact sources, counts and gates
+before modifying production storage. Baseline is 35077323, with only equivalent
+probe/diagnostic additions if required; preserve the original pre-RS comparison.
+
+Acceptance: allocator totals are reconciled with documented limits; all revision
+consumers and interface identity roots are accounted for; fresh matched controls
+build and run. No implementation speedup is claimed by this phase.
+
+### OM02 — Relocate revisions and shrink the directory
+
+Implement the required directory/native-record ownership change and update every
+consumer, including leases, native replacement/extraction and collection cleanup.
+Remove the common revision field and obsolete access paths. Keep this checkpoint
+buildable; split growing storage responsibilities into ordinary modules if needed.
+
+Acceptance: native semantics and identity tests pass, the common directory is
+smaller, and Point/Pair total live and empty increments each fall at least 10%
+against the OM01 baseline. All regression gates below pass. Do not accept a nominal
+header saving that simply shifts more bytes into another general side table.
+
+### OM03 — Decide and conditionally implement layout grouping
+
+Using the OM02 result, record the complete proposed group/row ownership model,
+projected total saving and sparse-layout cost. Prototype only when the projection
+can materially improve the measured remaining cost. Compare against OM02 as well
+as OM01; retain grouping only with at least 10% further live-storage reduction for
+both Point and Pair and all regression gates passing. A reasoned deferral completes
+the decision phase without claiming that grouping was implemented.
+
+### OM04 — Decide and conditionally consolidate interface records
+
+Use the consumer/root inventory to close identity and tracing ownership before
+prototyping. Compare against the preceding accepted checkpoint and OM01. Retain
+consolidation only if narrow, wide and generic interface live increments each fall
+at least 15% further and all correctness/regression gates pass. Otherwise retain
+the existing store with measured/design evidence for deferral. Remove rejected
+prototype code and temporary bridges before closing the phase.
+
+### OM05 — Integrated validation and documentation handoff
+
+Run the focused composition selection and matched final measurements. Resolve all
+carried integration errors, review changed Rust structure, and report conditional
+phase dispositions separately from implementation. Move lasting contracts to
+architecture/specifications, measurements to their existing owner, queued CI/gaps
+to the roadmap, and update affected DC/NC inventories without activating them.
+Remove this completed plan; Git history owns its ledger. Complete local acceptance
+does not mean the unrun exhaustive CI matrix passed.
+
+## Workloads and acceptance
+
+Retain all original 26 latency cases, the one/512-object allocation controls,
+50,000-iteration scalar/field loops, numeric buffers, interface populations,
+reference cycles and sparse release. Add only these directly affected controls:
+
+- Directory/native revision: structural collection edits, iterator advancement,
+  native mutable access, callback edits and sequence lease restoration. Reuse
+  semantic fixtures; timed cases measure normal successful paths separately.
+- Layout grouping: homogeneous objects, many distinct closed layouts with one/few
+  live rows, mixed zero-byte/scalar/reference layouts, and overlapping old/new
+  nominal generations. Count groups, used bytes and reserved capacity separately.
+- Interface consolidation: repeated copies of one interface, distinct receivers,
+  parent views, generic applications and metadata-only reachability across reload.
+
+Each population follows setup, construction, live GC, sparse/released roots, empty
+GC, and at least three equal create/release/reuse cycles, then runtime teardown.
+Shared immutable program warmup is reported separately. Root and container costs
+are included equally. Existing numbers do not establish future plateau behavior;
+OM01 records it before judging a replacement.
+
+The following limits apply to **each accepted checkpoint and the final result**:
+
+- Unchanged execution/control medians may regress at most 5% against OM01.
+  Construction/live-GC/release-GC medians may regress at most 5% against OM01.
+  Original cases must also retain RS acceptance against a matched pre-RS baseline:
+  field loops at least 10% faster, other execution at most +5%, lifecycle at most
+  +10%. Do not compound allowances across phases or spend a fresh 10% per rewrite.
+- Non-target live/empty/reused and small/diverse-layout requested-byte increments
+  may grow at most 5% against OM01. Phase-specific target savings above apply in
+  addition. Loaded setup must not grow more than 5%, and its metadata attribution
+  must remain explicit. Compare complete native records, not directory size alone.
+  A zero-byte baseline requires zero retained bytes rather than a percentage ratio.
+- Warmed field-loop allocation requests/bytes must not increase. Total construction
+  and collection allocation counts/bytes are reported separately, including any
+  temporary batches; retained-byte wins cannot hide repeated preparation costs.
+- Repeated equal populations reach a bounded capacity plateau rather than retaining
+  additional per-cycle groups/metadata. Every warmed runtime teardown has zero net
+  requested bytes; generation tombstones remain valid until runtime destruction.
+- No correctness, trap ordering, cleanup, cancellation, host borrowing or pinned
+  reload regression is acceptable. A smaller size does not offset a lost check.
+
+Use the same machine, toolchain, release profile, features, target, default build
+parallelism and workload for each matched comparison. Separate compilation,
+preparation/linking, ordinary timing and allocation instrumentation. Run no build
+or test concurrently with timing. Use at least seven alternating baseline/current
+process pairs with the existing three warmups and eleven samples per case. Report
+all process medians/ranges, aggregate ratios and paired-ratio medians; both must
+pass. Near-gate noise is inconclusive: predeclare an expanded sample set and retain
+all results, rather than selecting a favorable run. Diagnose the ownership model
+before further tuning when a gate fails. Keep raw logs in ignored target/ and all
+necessary methods/results/limitations in this plan until handoff.
+
+## Correctness and verification
+
+Reuse [GC ownership](../crates/kagari-runtime/src/gc/tests/gc_ownership.rs),
+[struct layout contracts](../crates/kagari-runtime/src/module/tests/struct_layouts.rs),
+[native trace/drop failures](../crates/kagari-vm/src/tests/native_boundary/native_boundary_gc/payload_failures.rs),
+[interface identity](../crates/kagari/src/runtime/tests/language/interface_identity.rs),
+[host interfaces](../crates/kagari/src/runtime/tests/embedding/host_interfaces/mod.rs)
+and [generic reload](../crates/kagari/src/runtime/tests/embedding/generic_reload.rs).
+OM01 records exact focused filters after locating the current revision/iterator
+contract owners. Add cases only for uncovered boundaries, such as revision
+preservation through relocation/replacement or zero-byte rows in different groups.
+Include representative source-free layout/nominal rejection and suspended/reentry
+root coverage where changed; no production source-analysis dependency is permitted.
+
+Prefer safe Rust throughout. The existing bounded-unsafe policy in
+[architecture](architecture.md#runtime-model) still applies if a concrete layout
+requires it: private safe APIs, enforced provenance/bounds/initialization/aliasing
+invariants, measured benefit over the safe baseline for check elision, and focused
+Miri/sanitizer validation. Unsafe is not an acceptance objective and cannot replace
+owner/generation, borrow, artifact or reload validation.
+
+Implementation checkpoints remain buildable and use Conventional Commits with
+Plan-Phase: OMxx trailers. Record attempted focused commands, failures/skips, cause
+and owning repair in the ledger; never mark an unrun selection as passed. Preserve
+meaningful assertions and use coherent replacements rather than parallel models.
+Run the required local checks at implementation checkpoints:
+
+```text
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+Select a small affected test set per phase under [AGENTS.md](../AGENTS.md) and the
+[testing guide](testing.md). Full-workspace tests and the exhaustive feature/backend/
+platform matrix remain CI-only. Documentation-only planning needs content/link/diff
+checks, not workspace builds or tests.
+
+## Progress and decisions
+
+- [x] Planning: current owners, finite phases and numerical gates recorded.
+- [ ] OM01: cost attribution, consumer audit and frozen expanded baseline.
+- [ ] OM02: common-directory/native-revision migration and acceptance.
+- [ ] OM03: layout grouping decision; accepted implementation or explicit deferral.
+- [ ] OM04: interface record decision; accepted implementation or explicit deferral.
+- [ ] OM05: integrated local acceptance, CI scope and documentation handoff.
+
+Current decisions: keep Value and full checked handles; make directory slimming
+required; gate the two larger representation changes on additional total-storage
+savings. No Java/Go object-size parity or universal speedup is promised. Baseline
+revision state already protects native managed edits and sequence recovery, not
+only collection iterators. Planning has not established a new implementation
+failure or a new performance result. Prior exhaustive CI acceptance remains pending.
+
+Planning validation: phase/checklist and roadmap/index consistency, Markdown
+fences, 154 repository-relative links/anchors across the three changed documents,
+and whitespace checks pass. No production code changed; builds, tests and Clippy
+were not run for this documentation-only checkpoint.

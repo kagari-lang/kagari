@@ -1,0 +1,332 @@
+//! Reachable concrete layouts and declaration-scoped aggregate templates share the function instantiation budget.
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use kagari_contract::{
+    callable::witness::OperationWitness,
+    layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
+};
+use kagari_hir::{
+    AnalyzedModule,
+    types::{NominalType, TypeId, TypeSubstitution, semantic::raise_type},
+};
+use kagari_mir::function::MirFunction;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{declaration::verify::types_in_scope, ty::GenericParam};
+use std::{
+    collections::{HashSet, VecDeque},
+    mem, slice,
+};
+
+pub(super) struct Layouts {
+    pub structures: Vec<StructLayout>,
+    pub enumerations: Vec<EnumLayout>,
+}
+
+pub(super) fn collect(
+    module: &AnalyzedModule,
+    planner: &mut InstancePlanner<'_>,
+    functions: &[MirFunction],
+) -> Result<Layouts, MirLoweringError> {
+    let mut pending = VecDeque::new();
+    let definitions = planner.definitions();
+    // Catalog keys are context-local IDs. Seed the layout queue in exact
+    // definition order so snapshot history cannot change executable slots.
+    let mut structures: Vec<_> = module
+        .aggregates
+        .structures()
+        .filter(|s| s.generic_params.is_empty())
+        .collect();
+    structures.sort_by(|left, right| {
+        definitions
+            .compare(left.id, right.id)
+            .expect("checked structure identities")
+    });
+    for structure in structures {
+        pending.push_back((
+            TypeId::Struct(NominalType {
+                associated_types: Default::default(),
+                declaration: structure.id,
+                arguments: Vec::new(),
+            }),
+            structure.declaration.location.range,
+        ));
+    }
+    let mut enumerations: Vec<_> = module
+        .aggregates
+        .enumerations()
+        .filter(|s| s.generic_params.is_empty() || module.lowered.is_registered_native_api())
+        .collect();
+    enumerations.sort_by(|left, right| {
+        definitions
+            .compare(left.id, right.id)
+            .expect("checked enum identities")
+    });
+    for enumeration in enumerations {
+        pending.push_back((
+            TypeId::Enum(NominalType {
+                associated_types: Default::default(),
+                declaration: enumeration.id,
+                arguments: enumeration
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .map(TypeId::Generic)
+                    .collect(),
+            }),
+            enumeration.declaration.location.range,
+        ));
+    }
+    // Synthesized adapters and closure bodies have their own closed signature.
+    // Their source-context function is not their executable type contract.
+    for function in functions {
+        planner.check()?;
+        for ty in function
+            .semantic
+            .params
+            .values()
+            .chain(function.semantic.result.iter())
+        {
+            pending.push_back((raise_type(ty), function.debug.source_span));
+        }
+    }
+    // A shared native adapter can mention the caller's private nominal types
+    // only in its checked import signature or selected callable contracts.
+    // Carry their layouts here instead of requiring a reverse module dependency.
+    for import in &planner.native_targets {
+        pending.extend(
+            import
+                .instance
+                .arguments
+                .iter()
+                .chain(&import.signature.params)
+                .chain(slice::from_ref(&import.signature.result))
+                .map(|ty| (raise_type(ty), Default::default())),
+        );
+        for operation in import.callables.iter().flat_map(OperationWitness::walk) {
+            let required = operation.requirement();
+            pending.push_back((raise_type(&required.receiver), Default::default()));
+            pending.extend(
+                required
+                    .arguments
+                    .iter()
+                    .map(|ty| (raise_type(ty), Default::default())),
+            );
+            if let OperationWitness::Selected(call) = operation {
+                pending.extend(
+                    call.signature
+                        .params
+                        .iter()
+                        .chain(slice::from_ref(&call.signature.result))
+                        .map(|ty| (raise_type(ty), Default::default())),
+                );
+            }
+        }
+    }
+    for instance in &planner.interface_instances {
+        pending.extend(
+            instance
+                .arguments
+                .iter()
+                .filter(|ty| ty.is_concrete())
+                .map(|ty| (raise_type(ty), Default::default())),
+        );
+    }
+    // Expression roots are recorded only when lowering visits reachable code.
+    // Preserve visit order so layout slots and artifact bytes are stable.
+    pending.extend(mem::take(&mut planner.layout_roots));
+    let mut seen = HashSet::new();
+    let mut structures = Vec::new();
+    let mut enumerations = Vec::new();
+    let mut scope = functions
+        .iter()
+        .filter_map(|function| function.semantic.generic.as_ref())
+        .chain(
+            planner
+                .native_targets
+                .iter()
+                .filter_map(|import| import.generic.as_ref()),
+        )
+        .flat_map(|body| body.parameters.iter().cloned())
+        .collect::<Vec<_>>();
+    if module.lowered.is_registered_native_api() {
+        scope.extend(module.aggregates.enumerations().flat_map(|enumeration| {
+            enumeration
+                .generic_params
+                .iter()
+                .map(|parameter| GenericParam {
+                    owner: parameter.owner,
+                    position: parameter.position,
+                })
+        }));
+    }
+    while let Some((mut ty, span)) = pending.pop_front() {
+        planner.check()?;
+        if !ty.is_concrete()
+            && !types_in_scope(
+                [&planner.encode_type(&ty)],
+                &scope,
+                &planner.options.cancel,
+                &planner.definitions(),
+            )
+        {
+            return Err(MirLoweringError::diagnostic(
+                Diagnostic::error(DiagnosticKind::UnresolvedConcreteType {
+                    type_name: ty.display_name(&planner.definitions()),
+                })
+                .with_span(span),
+            ));
+        }
+        let parameters = match &ty {
+            TypeId::Struct(nominal) if !ty.is_concrete() => planner
+                .aggregate_catalog(&nominal.declaration)
+                .structure(&nominal.declaration)
+                .map(|template| template.generic_params.clone()),
+            TypeId::Enum(nominal) if !ty.is_concrete() => planner
+                .aggregate_catalog(&nominal.declaration)
+                .enumeration(&nominal.declaration)
+                .map(|template| template.generic_params.clone()),
+            _ => None,
+        };
+        if let Some(parameters) = parameters {
+            let (TypeId::Struct(nominal) | TypeId::Enum(nominal)) = &mut ty else {
+                unreachable!()
+            };
+            if parameters.len() != nominal.arguments.len() {
+                return Err(MirLoweringError::MissingBinding(
+                    "aggregate layout type arguments",
+                ));
+            }
+            pending.extend(
+                mem::take(&mut nominal.arguments)
+                    .into_iter()
+                    .map(|ty| (ty, span)),
+            );
+            for parameter in parameters {
+                scope.push(GenericParam {
+                    owner: parameter.owner,
+                    position: parameter.position,
+                });
+                nominal.arguments.push(TypeId::Generic(parameter));
+            }
+        }
+        if !seen.insert(ty.clone()) {
+            continue;
+        }
+        match ty {
+            TypeId::Host(id) => {
+                planner.host_types.insert(id);
+            }
+            TypeId::Struct(nominal) => {
+                let template = planner
+                    .aggregate_catalog(&nominal.declaration)
+                    .structure(&nominal.declaration)
+                    .ok_or(MirLoweringError::MissingBinding("struct layout template"))?;
+                if template.generic_params.len() != nominal.arguments.len() {
+                    return Err(MirLoweringError::MissingBinding(
+                        "struct layout type arguments",
+                    ));
+                }
+                if !nominal.arguments.is_empty() {
+                    planner.charge_layout_instance(span)?;
+                }
+                let substitution: TypeSubstitution = template
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(nominal.arguments.iter().cloned())
+                    .collect();
+                let mut fields = Vec::new();
+                for field in &template.fields {
+                    let ty = planner
+                        .arguments(slice::from_ref(&field.ty), &substitution, span)?
+                        .remove(0);
+                    planner.value_type(&ty, &substitution, span)?;
+                    fields.push(StructFieldLayout {
+                        visibility: field.visibility,
+                        declaration: field.id,
+                        name: field.name.clone(),
+                        ty: planner.encode_type(&ty),
+                        mutable: field.writeability.is_var(),
+                    });
+                    pending.push_back((ty, span));
+                }
+                let identity = planner.encode_nominal(&nominal);
+                structures.push(StructLayout {
+                    declaration: identity.declaration,
+                    arguments: identity.arguments,
+                    fields,
+                });
+                pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
+            }
+            TypeId::Enum(nominal) => {
+                let template = planner
+                    .aggregate_catalog(&nominal.declaration)
+                    .enumeration(&nominal.declaration)
+                    .ok_or(MirLoweringError::MissingBinding("enum layout template"))?;
+                if template.generic_params.len() != nominal.arguments.len() {
+                    return Err(MirLoweringError::MissingBinding(
+                        "enum layout type arguments",
+                    ));
+                }
+                if !nominal.arguments.is_empty() {
+                    planner.charge_layout_instance(span)?;
+                }
+                let substitution: TypeSubstitution = template
+                    .generic_params
+                    .iter()
+                    .cloned()
+                    .zip(nominal.arguments.iter().cloned())
+                    .collect();
+                let mut variants = Vec::new();
+                for variant in &template.variants {
+                    let types = planner.arguments(&variant.payload, &substitution, span)?;
+                    for ty in &types {
+                        planner.value_type(ty, &substitution, span)?;
+                    }
+                    let payload = types.iter().map(|ty| planner.encode_type(ty)).collect();
+                    variants.push(EnumVariantLayout {
+                        reports_failure: variant.reports_failure,
+                        declaration: variant.id,
+                        payload,
+                    });
+                    pending.extend(types.into_iter().map(|ty| (ty, span)));
+                }
+                let identity = planner.encode_nominal(&nominal);
+                enumerations.push(EnumLayout {
+                    declaration: identity.declaration,
+                    arguments: identity.arguments,
+                    variants,
+                });
+                pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
+            }
+            TypeId::Tuple(types) => pending.extend(types.into_iter().map(|ty| (ty, span))),
+            TypeId::Function { params, result } => {
+                pending.extend(params.into_iter().map(|ty| (ty, span)));
+                pending.push_back((*result, span));
+            }
+            TypeId::Array(ty)
+            | TypeId::Set(ty, _)
+            | TypeId::Iter(ty)
+            | TypeId::Range(ty, _)
+            | TypeId::Reference { target: ty, .. } => pending.push_back((*ty, span)),
+            TypeId::Map { key, value, .. } => {
+                pending.push_back((*key, span));
+                pending.push_back((*value, span));
+            }
+            TypeId::NativeObject(nominal) | TypeId::Trait(nominal) => {
+                pending.extend(nominal.arguments.into_iter().map(|ty| (ty, span)));
+                let mut associated: Vec<_> = nominal.associated_types.into_iter().collect();
+                associated.sort_by(|(left, _), (right, _)| {
+                    definitions
+                        .compare(*left, *right)
+                        .expect("checked associated identities")
+                });
+                pending.extend(associated.into_iter().map(|(_, ty)| (ty, span)));
+            }
+            _ => {}
+        }
+    }
+    Ok(Layouts {
+        structures,
+        enumerations,
+    })
+}

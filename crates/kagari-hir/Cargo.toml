@@ -5,7 +5,15 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+blake3 = "1"
+kagari-types.workspace = true
+kagari-source.workspace = true
 kagari-common.workspace = true
 kagari-syntax.workspace = true
 serde.workspace = true
 smallvec.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+kagari-stdlib.workspace = true
+kagari-contract.workspace = true

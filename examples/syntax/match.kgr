@@ -1,0 +1,48 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/match.kgr
+// Result: main returns 42.
+struct Point {
+    val x: i32,
+    val y: i32,
+}
+
+enum Answer {
+    Missing,
+    Value(i32),
+}
+
+fn main() -> i32 {
+    val selected = match 2 {
+        1 => 1,
+        2 => 40,
+        _ => 0,
+    };
+    val bound = match (1, (2, 3)) {
+        (0, _) => 0,
+        (1, (value, 4)) => 0,
+        (1, (value, 3)) => value,
+        _ => 0,
+    };
+    { val passed = selected + bound == 42; if !passed {val zero=0;1/zero;} };
+    val point = Point { x: 20, y: 22 };
+    val from_struct = match point {
+        Point { x, y: 21 } => 0,
+        Point { x, y: 22 } => x + 22,
+        _ => 0,
+    };
+    { val passed = from_struct == 42; if !passed {val zero=0;1/zero;} };
+    val answer = Answer::Value(42);
+    val from_enum = match answer {
+        Answer::Missing => 0,
+        Answer::Value(value) => value,
+    };
+    { val passed = from_enum == 42; if !passed {val zero=0;1/zero;} };
+    val from_group = match 42 {
+        (answer) => answer,
+    };
+    { val passed = from_group == 42; if !passed {val zero=0;1/zero;} };
+    val from_singleton = match (42,) {
+        (value,) => value,
+    };
+    { val passed = from_singleton == 42; if !passed {val zero=0;1/zero;} };
+    selected + bound
+}

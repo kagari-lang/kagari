@@ -1,0 +1,116 @@
+//! Compiler-independent fixtures for VM native-entry and fallback decisions.
+use std::sync::Arc;
+
+use kagari_bytecode::instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register};
+use kagari_runtime::{
+    Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_poll_execution,
+    module::LoadedModule,
+};
+use {
+    kagari_abi::{
+        native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
+        native_call::{JIT_STATUS_OK, JitCompiledFunction, JitValue, NativeInvocationContext},
+    },
+    kagari_contract::native::{
+        ExecutableDebugInfo, ExecutableDebugPoint, ExecutableFunctionArtifact,
+        NativeCompilationProduct,
+    },
+};
+
+use crate::vm::native::PreparedNativeEntry;
+
+pub(super) fn unsupported() -> PreparedNativeEntry {
+    PreparedNativeEntry::Unsupported {
+        backend: BackendId::new("test-unsupported-jit"),
+        diagnostics: vec!["test preparation cannot compile this function".into()],
+    }
+}
+
+#[derive(Debug)]
+struct StaticCode;
+
+impl NativeCodeOwner for StaticCode {}
+
+unsafe extern "C" fn constant_i32<const VALUE: i32>(
+    context: *const NativeInvocationContext,
+    result: *mut JitValue,
+) -> i32 {
+    for offset in 0..2 {
+        let status = unsafe { jit_poll_execution((*context).runtime.cast(), offset) };
+        if status != JIT_STATUS_OK {
+            return status;
+        }
+    }
+    unsafe {
+        result.write(JitValue::i32(VALUE));
+    }
+    JIT_STATUS_OK
+}
+
+pub(super) fn install_i32<const VALUE: i32>(
+    runtime: &Runtime,
+    module: &LoadedModule,
+    debug_metadata: bool,
+) -> InstalledNativeFunction {
+    let function = module
+        .bytecode
+        .functions
+        .iter()
+        .find(|f| f.name == "main")
+        .unwrap();
+    assert_eq!(module.bytecode.constants[0], ConstantOperand::I32(VALUE));
+    assert_eq!(
+        function.instructions,
+        [
+            BytecodeInstruction::LoadConst {
+                dst: Register::new(0),
+                constant: ConstantId::new(0)
+            },
+            BytecodeInstruction::Return(Some(Register::new(0))),
+        ],
+        "the static entry implements only this exact two-instruction function"
+    );
+    let mut artifact = ExecutableFunctionArtifact::new(
+        BackendId::new("test-native-jit"),
+        BackendTarget::new("host", usize::BITS as u8),
+        function.id,
+    );
+    let entry: JitCompiledFunction = constant_i32::<VALUE>;
+    artifact.code.entry = ExecutableEntryPoint::Native {
+        symbol: "constant_i32".into(),
+        address: entry as *const () as usize,
+    };
+    // Deliberately claim complete metadata to prove that flags alone cannot
+    // authorize native execution while the runtime has an attached observer.
+    if debug_metadata {
+        artifact.debug = ExecutableDebugInfo {
+            has_line_tables: true,
+            has_source_spans: true,
+            has_live_value_locations: true,
+            has_safe_debug_callbacks: true,
+            safe_debug_points: function
+                .metadata
+                .debug
+                .safe_debug_points
+                .iter()
+                .map(|point| ExecutableDebugPoint {
+                    instruction_offset: point.instruction_offset,
+                    debug_point: point.id,
+                })
+                .collect(),
+        };
+    }
+    // SAFETY: the assertion above binds this static C-ABI implementation to the
+    // exact bytecode. Each logical point uses the runtime helper for GC, cancellation,
+    // and traps; static code remains callable for the process life.
+    unsafe {
+        runtime.install_native_function(
+            module,
+            Arc::new(NativeCompilationProduct {
+                artifact,
+                owner: Arc::new(StaticCode),
+            }),
+        )
+    }
+    .unwrap()
+}

@@ -1,11 +1,15 @@
-use kagari_syntax::ast;
-use kagari_syntax::kind::SyntaxKind;
+//! Lexical literal preservation; numeric range/type validation belongs to type checking.
 
-use crate::hir::{Literal, LiteralKind};
-use crate::lower::context::Lowerer;
+use kagari_syntax::{ast::expr::Literal as AstLiteral, kind::SyntaxKind};
+
+use crate::{
+    hir::expr::literal::{Literal, LiteralKind},
+    lower::context::Lowerer,
+};
 
 impl Lowerer {
-    pub(crate) fn lower_literal(&self, literal: &ast::Literal) -> Literal {
+    /// Retains category and token text without parsing a scalar value; malformed/missing categories fall back to number syntax.
+    pub(crate) fn lower_literal(&self, literal: &AstLiteral) -> Literal {
         let text = literal.text().unwrap_or_default();
         let kind = match literal.kind() {
             Some(SyntaxKind::Float) => LiteralKind::Float,

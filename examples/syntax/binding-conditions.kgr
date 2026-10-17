@@ -1,0 +1,22 @@
+enum Step {
+    More(i32),
+    Done,
+}
+
+fn next(index: i32) -> Step {
+    if index < 3 { Step::More(index) } else { Step::Done }
+}
+
+fn main() -> i32 {
+    var index = 0;
+    var sum = 0;
+    while val Step::More(value) = next(index) {
+        sum += value;
+        index += 1;
+    }
+    val fallback = if val Step::More(value) = Step::Done { value } else { 42 };
+    if val Step::More(value) = Step::More(1) { value };
+    if val Step::More(value) = Step::More(39) {
+        if index == 3 && sum == 3 && fallback == 42 { value + 3 } else { 0 }
+    } else { 0 }
+}

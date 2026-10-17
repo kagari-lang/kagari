@@ -1,0 +1,416 @@
+//! Matched Lua/Kagari execution with setup separated and every checksum verified.
+#[cfg(feature = "diagnostics")]
+mod diagnostic_forms;
+#[cfg(feature = "diagnostics")]
+mod diagnostics;
+mod execution_controls;
+mod forms;
+mod numeric;
+mod profile;
+mod workloads;
+
+use std::{env, hint::black_box, time::Instant};
+
+use kagari::{
+    context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    runtime::KagariRuntime,
+};
+use kagari_codegen_cranelift::CraneliftBackend;
+use kagari_runtime::{
+    module::{LoadedModule, entry::ProgramEntry},
+    value::Value,
+};
+use kagari_source::source::SourceFile;
+use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
+use mlua::{Function, Lua};
+use workloads::{WORKLOADS, Workload};
+
+struct Options {
+    samples: usize,
+    warmups: usize,
+    reverse: bool,
+    interpreter_only: bool,
+    profile: Option<String>,
+    workload: Option<String>,
+    numeric_matrix: bool,
+    source_forms: bool,
+    diagnostics: bool,
+    execution_controls: bool,
+}
+
+impl Options {
+    fn parse() -> Self {
+        let mut options = Self {
+            samples: 11,
+            warmups: 3,
+            reverse: false,
+            interpreter_only: false,
+            profile: None,
+            workload: None,
+            numeric_matrix: false,
+            source_forms: false,
+            diagnostics: false,
+            execution_controls: false,
+        };
+        for argument in env::args().skip(1) {
+            match argument.as_str() {
+                "--check" => {
+                    options.samples = 1;
+                    options.warmups = 0;
+                }
+                "--reverse" => options.reverse = true,
+                "--interpreter-only" => options.interpreter_only = true,
+                "--numeric-matrix" => options.numeric_matrix = true,
+                "--source-forms" => options.source_forms = true,
+                "--execution-controls" => options.execution_controls = true,
+                "--diagnostics" => {
+                    #[cfg(not(feature = "diagnostics"))]
+                    panic!("build with --features diagnostics");
+                    #[cfg(feature = "diagnostics")]
+                    {
+                        options.diagnostics = true;
+                        options.interpreter_only = true;
+                    }
+                }
+                _ if argument.starts_with("--profile=") => {
+                    options.profile = Some(argument["--profile=".len()..].to_owned());
+                }
+                _ if argument.starts_with("--workload=") => {
+                    options.workload = Some(argument["--workload=".len()..].to_owned());
+                }
+                _ => panic!(
+                    "unknown argument: {argument}; supported: --check, --reverse, --interpreter-only, --numeric-matrix, --source-forms, --execution-controls, --diagnostics, --profile=WORKLOAD, --workload=WORKLOAD"
+                ),
+            }
+        }
+        assert!(
+            !cfg!(feature = "diagnostics") || options.diagnostics,
+            "diagnostic builds cannot measure throughput; use --diagnostics"
+        );
+        assert!(
+            !options.diagnostics || !options.numeric_matrix,
+            "numeric diagnostics are unsupported"
+        );
+        assert!(
+            !options.execution_controls
+                || (!options.source_forms
+                    && !options.numeric_matrix
+                    && options.workload.is_none()
+                    && options.profile.is_none()),
+            "execution controls require a separate run"
+        );
+        assert!(
+            options.workload.is_none()
+                || (!options.numeric_matrix && !options.source_forms && options.profile.is_none()),
+            "--workload selects the original suite and cannot be combined with a matrix or profile"
+        );
+        options
+    }
+}
+
+struct Record<'a> {
+    workload: &'a Workload,
+    sample: usize,
+}
+
+impl Record<'_> {
+    fn emit(&self, phase: &str, engine: &str, batch: usize, ns: u128, checksum: i64) {
+        println!(
+            "{phase},{},{engine},{},{batch},{},{ns},{checksum}",
+            self.workload.name, self.workload.size, self.sample,
+        );
+    }
+
+    fn setup<T>(&self, phase: &str, engine: &str, action: impl FnOnce() -> T) -> T {
+        let start = Instant::now();
+        let result = action();
+        let elapsed = start.elapsed().as_nanos();
+        self.emit(phase, engine, 1, elapsed, 0);
+        result
+    }
+
+    fn execution(&self, engine: &str, expected: i32, mut action: impl FnMut() -> i32) {
+        let mut checksum = 0_i64;
+        let start = Instant::now();
+        for _ in 0..self.workload.batch {
+            checksum += i64::from(black_box(action()));
+        }
+        let elapsed = start.elapsed().as_nanos();
+        assert_eq!(
+            checksum,
+            i64::from(expected) * self.workload.batch as i64,
+            "{} {engine}",
+            self.workload.name
+        );
+        self.emit("execute", engine, self.workload.batch, elapsed, checksum);
+    }
+}
+
+struct ExecutionRoutes {
+    runtime: KagariRuntime,
+    module: LoadedModule,
+    context: ExecutionContext,
+    lua_entry: Function,
+    native: Option<PreparedNativeEntry>,
+}
+
+impl ExecutionRoutes {
+    fn kagari(&mut self, native: bool) -> i32 {
+        let report = if native {
+            self.runtime.execute_prepared(
+                &self.module,
+                ProgramEntry::Main,
+                &[],
+                &self.context,
+                self.native.as_ref().expect("prepared native entry"),
+            )
+        } else {
+            self.runtime
+                .execute(&self.module, ProgramEntry::Main, &[], &self.context)
+        }
+        .expect("Kagari execution");
+        if native {
+            assert_eq!(
+                report.jit.expect("native report").status,
+                JitExecutionStatus::Native
+            );
+        }
+        let Value::I32(value) = report
+            .return_value
+            .value(self.runtime.runtime().gc())
+            .expect("retained execution result")
+        else {
+            panic!("expected i32 result")
+        };
+        value
+    }
+
+    fn lua(&self) -> i32 {
+        self.lua_entry.call::<i32>(()).expect("Lua execution")
+    }
+
+    fn measure(&mut self, workload: &Workload, options: &Options) {
+        let expected = (workload.reference)(workload.size);
+        #[cfg(feature = "diagnostics")]
+        if options.diagnostics {
+            println!("DIAGNOSTIC_WORKLOAD,{}", workload.name);
+            diagnostics::measure(
+                &self.runtime,
+                &self.module,
+                &self.context,
+                ProgramEntry::Main,
+                &[],
+                expected,
+            );
+            return;
+        }
+        if options.profile.is_some() {
+            profile::run(
+                &self.runtime,
+                &self.module,
+                &self.context,
+                ProgramEntry::Main,
+                workload.name,
+                expected,
+            );
+            return;
+        }
+        let mut engines = vec!["kagari_vm", "lua54"];
+        if matches!(self.native, Some(PreparedNativeEntry::Native(_))) {
+            engines.push("kagari_jit");
+        }
+        for _ in 0..options.warmups {
+            for engine in &engines {
+                let result = match *engine {
+                    "lua54" => self.lua(),
+                    "kagari_jit" => self.kagari(true),
+                    _ => self.kagari(false),
+                };
+                assert_eq!(result, expected, "warmup {} {engine}", workload.name);
+            }
+        }
+        for sample in 0..options.samples {
+            // Rotate engines each round; the driver selects the base order.
+            let offset = sample % engines.len();
+            for slot in 0..engines.len() {
+                let index = if options.reverse {
+                    engines.len() - 1 - slot
+                } else {
+                    slot
+                };
+                let engine = engines[(index + offset) % engines.len()];
+                let record = Record { workload, sample };
+                match engine {
+                    "lua54" => record.execution(engine, expected, || self.lua()),
+                    "kagari_jit" => record.execution(engine, expected, || self.kagari(true)),
+                    _ => record.execution(engine, expected, || self.kagari(false)),
+                }
+            }
+        }
+    }
+}
+
+fn run(workload: &Workload, options: &Options) {
+    let kagari_source = workload.kagari.replace("__N__", &workload.size.to_string());
+    let lua_source = workload.lua.replace("__N__", &workload.size.to_string());
+    let record = Record {
+        workload,
+        sample: 0,
+    };
+    let engine = record.setup("engine_init", "kagari_vm", KagariEngine::default);
+    let source = SourceFile::new(
+        format!("benchmark_{}.kgr", workload.name),
+        kagari_source.clone(),
+    );
+    let artifact = record.setup("source_to_artifact", "kagari_vm", || {
+        engine
+            .compile_to_artifact(source, Default::default())
+            .expect("Kagari compilation")
+    });
+    let program = record.setup("artifact_prepare", "kagari_vm", || {
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+            .expect("artifact verification")
+    });
+    let context = ExecutionContext::default();
+    let mut runtime = record.setup("runtime_init", "kagari_vm", || {
+        engine.runtime(context.clone())
+    });
+    let module = record.setup("program_link", "kagari_vm", || {
+        runtime
+            .load_program(&program, Default::default())
+            .expect("program link")
+    });
+    let lua = record.setup("engine_init", "lua54", Lua::new);
+    assert_eq!(lua.globals().get::<String>("_VERSION").unwrap(), "Lua 5.4");
+    let chunk = record.setup("source_to_chunk", "lua54", || {
+        lua.load(lua_source.as_str())
+            .set_name(workload.name)
+            .into_function()
+            .expect("Lua compilation")
+    });
+    let lua_entry = record.setup("module_init", "lua54", || {
+        chunk.call::<Function>(()).expect("Lua module setup")
+    });
+    let native = if options.interpreter_only {
+        None
+    } else {
+        let mut backend = record.setup("native_backend_init", "kagari_jit", || {
+            CraneliftBackend::for_host().unwrap()
+        });
+        let start = Instant::now();
+        let native = runtime
+            .prepare_native(
+                &program,
+                &module,
+                ProgramEntry::Main,
+                &mut backend,
+                &Default::default(),
+            )
+            .expect("native preparation");
+        let elapsed = start.elapsed().as_nanos();
+        let phase = match &native {
+            PreparedNativeEntry::Native(_) => "native_prepare",
+            PreparedNativeEntry::Unsupported { diagnostics, .. } => {
+                eprintln!(
+                    "JIT unsupported {}: {}",
+                    workload.name,
+                    diagnostics.join("; ")
+                );
+                "native_unsupported_probe"
+            }
+        };
+        record.emit(phase, "kagari_jit", 1, elapsed, 0);
+        Some(native)
+    };
+    if options.profile.is_some() && !options.diagnostics {
+        profile::count_lua(&lua, &lua_entry, (workload.reference)(workload.size));
+    }
+    ExecutionRoutes {
+        runtime,
+        module,
+        context,
+        lua_entry,
+        native,
+    }
+    .measure(workload, options);
+}
+
+fn main() {
+    let options = Options::parse();
+    println!("phase,workload,engine,size,batch,sample,ns,checksum");
+    if options.execution_controls {
+        execution_controls::run(&options);
+        return;
+    }
+    if options.source_forms {
+        forms::run(&options);
+        #[cfg(feature = "diagnostics")]
+        if options.diagnostics && options.profile.is_none() {
+            diagnostic_forms::run();
+        }
+        return;
+    }
+    if options.numeric_matrix {
+        numeric::run(&options);
+        return;
+    }
+    if let Some(name) = &options.profile {
+        let workload = WORKLOADS
+            .iter()
+            .find(|workload| workload.name == name)
+            .expect("unknown workload");
+        run(workload, &options);
+        return;
+    }
+    if let Some(name) = &options.workload {
+        let workload = WORKLOADS
+            .iter()
+            .find(|workload| workload.name == name)
+            .expect("unknown workload");
+        run(workload, &options);
+        return;
+    }
+    if options.reverse {
+        for workload in WORKLOADS.iter().rev() {
+            run(workload, &options);
+        }
+    } else {
+        for workload in WORKLOADS {
+            run(workload, &options);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn matched_scripts_handle_empty_and_single_element_inputs() {
+        let options = Options {
+            samples: 1,
+            warmups: 0,
+            reverse: false,
+            interpreter_only: false,
+            profile: None,
+            workload: None,
+            numeric_matrix: false,
+            source_forms: false,
+            diagnostics: false,
+            execution_controls: false,
+        };
+        for size in [0, 1] {
+            for workload in WORKLOADS {
+                let small = Workload {
+                    name: workload.name,
+                    size,
+                    batch: 1,
+                    kagari: workload.kagari,
+                    lua: workload.lua,
+                    reference: workload.reference,
+                };
+                run(&small, &options);
+            }
+        }
+    }
+}

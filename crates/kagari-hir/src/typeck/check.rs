@@ -1,38 +1,274 @@
-use kagari_common::{Diagnostic, DiagnosticKind, TypePosition};
+//! Signature/body phase orchestration. Signature checking resolves declaration types
+//! and constraints; body checking starts from those facts, evaluates constant
+//! prerequisites, then checks or restores selected functions into a new type table.
+
+use crate::{
+    AnalysisResult,
+    aggregates::{AggregateCatalog, traits::MethodSignature},
+    declarations::Declarations,
+    hir::{
+        ids::BodySelection,
+        item::{
+            Module,
+            function::{Function, FunctionKind},
+        },
+        writeability::Writeability,
+    },
+    language::semantics::intrinsic_holds,
+    lower::LoweredModule,
+    native::NativeBinding,
+    resolver::resolved::{ResolvedName, ResolvedNames},
+    typeck::{
+        BodyInputs, BodyTypeEnv, FunctionImplementation, FunctionTypeIndex, TopLevelTypeIndex,
+        TypeIndexes, TypedFunction, TypedFunctionBuffer, TypedModule, TypedParameter,
+        TypedParameterBuffer, applications, associated, associated_consts, asynchronous,
+        body::BodyChecker,
+        check::{
+            constants::{ConstValidationInputs, validate_const_initializers},
+            native_defaults::NativeDefaultCheck,
+            trait_surface::validate_trait_surface,
+        },
+        completion,
+        const_budget::ConstBudget,
+        const_eval, constraints,
+        reuse::BodyReuse,
+        table::TypeTable,
+        ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
+    },
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::table::{DefinitionId, DefinitionTable},
+    span::Span,
+};
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
+use kagari_types::{language::Protocol, scalar::BuiltinType};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
-use crate::{
-    BoxedDiagnosticBuffer,
-    builtin::surface::{self, StandardTypeConstraint},
-    hir::FunctionKind,
-    hir::{BinaryOp, ConstId, ConstItem, ExprId, ExprKind, PrefixOp},
-    lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
-    typeck::body::BodyChecker,
-    typeck::ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
-    typeck::{
-        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable, TypedFunction,
-        TypedFunctionBuffer, TypedModule, TypedParameter, TypedParameterBuffer,
-    },
-    types::{BuiltinType, TypeId},
-};
+mod constants;
+mod native_defaults;
+mod trait_surface;
 
-pub fn check_module(
+/// Resolves declaration types, generic bounds and associated members into reusable signature facts.
+pub(crate) fn check_signatures(
     lowered: &LoweredModule,
-    names: &ResolvedNames,
-) -> Result<TypedModule, BoxedDiagnosticBuffer> {
+    declarations: &Declarations,
+    cancel: &CancellationToken,
+) -> AnalysisResult<super::ModuleSignatures> {
+    // Declaration collection already diagnosed an unrepresentable source owner.
+    // Keep recovery facts empty instead of inventing IDs for its signatures.
+    if !lowered.source.module_identity().within_path_limit() {
+        return AnalysisResult {
+            facts: super::ModuleSignatures {
+                type_bounds: Default::default(),
+                functions: Default::default(),
+                type_table: Default::default(),
+            },
+            diagnostics: Default::default(),
+        };
+    }
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
     let mut functions: TypedFunctionBuffer = SmallVec::new();
-    let mut function_index = FunctionTypeIndex::default();
-    let mut top_level_index = TopLevelTypeIndex::default();
+    let mut type_table = TypeTable::default();
+    constraints::resolve_constraints(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
+    associated::prepare(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
+    associated_consts::prepare(
+        lowered,
+        declarations,
+        &mut type_table,
+        &mut diagnostics,
+        cancel,
+    );
+
+    let mut type_bounds = HashMap::new();
+    for (target, params) in lowered
+        .module
+        .structs
+        .iter()
+        .map(|s| (ResolvedName::Struct(s.id), &s.generic_params))
+        .chain(
+            lowered
+                .module
+                .enums
+                .iter()
+                .map(|e| (ResolvedName::Enum(e.id), &e.generic_params)),
+        )
+        .chain(
+            lowered
+                .module
+                .opaque_types
+                .iter()
+                .map(|item| (ResolvedName::OpaqueType(item.id), &item.generic_params)),
+        )
+    {
+        if cancel.check().is_err() {
+            break;
+        }
+        let id = *declarations.definition(target).expect("type declaration");
+        type_bounds.insert(
+            id,
+            constraints::parameter_bounds(params, declarations, &type_table),
+        );
+    }
+
+    for structure in &lowered.module.structs {
+        let mut field_names = HashSet::new();
+        for field in &structure.fields {
+            if cancel.check().is_err() {
+                break;
+            }
+            if !field_names.insert(&field.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateField {
+                        struct_name: structure.name.clone(),
+                        name: field.name.clone(),
+                    })
+                    .with_span(lowered.source_map.field_span(field.id)),
+                );
+            }
+            let ty = resolve_type_in(
+                &lowered.module,
+                field.ty,
+                TypeContext {
+                    declarations,
+                    generics: &structure.generic_params,
+                    self_type: None,
+                    implementation: None,
+                },
+                &mut type_table,
+                cancel,
+            );
+            if ty.is_unresolved() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                        type_name: display_type(&lowered.module, field.ty),
+                    })
+                    .with_span(lowered.source_map.type_span(field.ty)),
+                );
+            }
+            validate_reference_position(
+                &ty,
+                lowered.source_map.type_span(field.ty),
+                &mut diagnostics,
+            );
+            if ty.contains_stored_reference() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidReference {
+                        reason: "a scoped view cannot be stored in a struct field",
+                    })
+                    .with_span(lowered.source_map.type_span(field.ty)),
+                );
+            }
+            type_table.insert_field_type(field.id, ty);
+        }
+    }
+
+    for enumeration in &lowered.module.enums {
+        for variant in &enumeration.variants {
+            for payload in &variant.payload {
+                if cancel.check().is_err() {
+                    break;
+                }
+                match resolve_type_in(
+                    &lowered.module,
+                    *payload,
+                    TypeContext {
+                        declarations,
+                        generics: &enumeration.generic_params,
+                        self_type: None,
+                        implementation: None,
+                    },
+                    &mut type_table,
+                    cancel,
+                ) {
+                    ty if !ty.is_unresolved() => {
+                        if ty.contains_stored_reference() {
+                            diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::InvalidReference {
+                                    reason: "a scoped view cannot be stored in an enum payload",
+                                })
+                                .with_span(lowered.source_map.type_span(*payload)),
+                            );
+                        }
+                        validate_reference_position(
+                            &ty,
+                            lowered.source_map.type_span(*payload),
+                            &mut diagnostics,
+                        );
+                    }
+                    ty => {
+                        validate_reference_position(
+                            &ty,
+                            lowered.source_map.type_span(*payload),
+                            &mut diagnostics,
+                        );
+                        diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                                type_name: display_type(&lowered.module, *payload),
+                            })
+                            .with_span(lowered.source_map.type_span(*payload)),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    for implementation in &lowered.module.impls {
+        if let Some(ty) = implementation.for_type {
+            let resolved = resolve_type_in(
+                &lowered.module,
+                ty,
+                TypeContext {
+                    declarations,
+                    generics: &implementation.generic_params,
+                    self_type: None,
+                    implementation: None,
+                },
+                &mut type_table,
+                cancel,
+            );
+            if resolved.is_unresolved()
+                && implementation.trait_ref.is_none()
+                && cancel.check().is_ok()
+            {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnknownTypeAnnotation {
+                        type_name: display_type(&lowered.module, ty),
+                    })
+                    .with_span(lowered.source_map.type_span(ty)),
+                );
+            }
+        }
+    }
 
     for function in &lowered.module.functions {
-        let mut params: TypedParameterBuffer = SmallVec::new();
-        let generic_names = function_generic_names(function);
-        let context = TypeContext {
-            generics: &generic_names,
+        if cancel.check().is_err() {
+            break;
+        }
+        let implementation = match lowered.native_functions.get(&function.id) {
+            Some(binding) => FunctionImplementation::Native(binding.clone()),
+            None if function.body.is_some() => FunctionImplementation::Script,
+            None => FunctionImplementation::Required,
         };
+        let mut params: TypedParameterBuffer = SmallVec::new();
+        let context = function_type_context(&lowered.module, function, declarations);
+        let bounds =
+            constraints::function_bounds(&lowered.module, function, declarations, &type_table);
         let function_name = if function.name.is_empty() {
             "<missing>".to_string()
         } else {
@@ -47,114 +283,264 @@ pub fn check_module(
             };
             let param_ty_name = display_type(&lowered.module, param.ty);
 
-            match resolve_type_in(&lowered.module, param.ty, context) {
-                Some(ty) => {
-                    validate_standard_type_constraints(
-                        &ty,
-                        &function_bounds(function),
-                        lowered.source_map.type_span(param.ty),
-                        &mut diagnostics,
-                    );
-                    params.push(TypedParameter {
-                        id: param.id,
-                        writeability: param.writeability,
-                        name: param_name,
-                        ty,
-                    });
-                }
-                None => diagnostics.push(
+            // An implicit impl receiver reuses the impl header's type reference.
+            // Its generics belong to the impl, even if this method shadows a name.
+            let param_type = if function.kind == FunctionKind::ImplMethod && param.name == "self" {
+                type_table
+                    .type_ref(param.ty)
+                    .map(|resolved| resolved.ty.clone())
+                    .unwrap_or(TypeId::Error)
+            } else {
+                resolve_type_in(&lowered.module, param.ty, context, &mut type_table, cancel)
+            };
+            validate_reference_position(
+                &param_type,
+                lowered.source_map.type_span(param.ty),
+                &mut diagnostics,
+            );
+            if param_type.is_unresolved() {
+                diagnostics.push(
                     Diagnostic::error(DiagnosticKind::UnknownType {
                         type_name: param_ty_name,
                         function_name: function_name.clone(),
                         position: TypePosition::Parameter,
                     })
                     .with_span(lowered.source_map.type_span(param.ty)),
-                ),
+                );
             }
+            if function.is_async && param_type.contains_host_value() {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
+                        type_name: display_type_id(declarations.definitions(), &param_type),
+                    })
+                    .with_span(lowered.source_map.type_span(param.ty)),
+                );
+            }
+            params.push(TypedParameter {
+                id: param.id,
+                writeability: param.writeability,
+                name: param_name,
+                ty: param_type,
+            });
         }
 
         let return_type = match &function.return_type {
-            Some(ty_ref) => match resolve_type_in(&lowered.module, *ty_ref, context) {
-                Some(ty) => {
-                    validate_standard_type_constraints(
-                        &ty,
-                        &function_bounds(function),
-                        lowered.source_map.type_span(*ty_ref),
-                        &mut diagnostics,
+            Some(ty_ref) => {
+                let ty =
+                    resolve_type_in(&lowered.module, *ty_ref, context, &mut type_table, cancel);
+                if ty.contains_stored_reference() {
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidReference {
+                            reason: "a scoped view cannot be returned",
+                        })
+                        .with_span(lowered.source_map.type_span(*ty_ref)),
                     );
-                    ty
                 }
-                None => {
-                    let ty_name = display_type(&lowered.module, *ty_ref);
+                validate_reference_position(
+                    &ty,
+                    lowered.source_map.type_span(*ty_ref),
+                    &mut diagnostics,
+                );
+                if ty.is_unresolved() {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnknownType {
-                            type_name: ty_name,
+                            type_name: display_type(&lowered.module, *ty_ref),
                             function_name: function_name.clone(),
                             position: TypePosition::Return,
                         })
                         .with_span(lowered.source_map.type_span(*ty_ref)),
                     );
-                    TypeId::Builtin(BuiltinType::Unit)
                 }
-            },
+                ty
+            }
             None => TypeId::Builtin(BuiltinType::Unit),
         };
 
+        let return_type = if function.is_async {
+            if function.kind == FunctionKind::TraitMethod {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                        feature: "async trait methods",
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+            }
+            asynchronous::future_type(declarations, return_type).unwrap_or_else(|| {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                        feature: "async requires one installed Future storage declaration",
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+                TypeId::Error
+            })
+        } else {
+            return_type
+        };
         let typed_function = TypedFunction {
+            implementation,
+            bounds,
+            generic_params: function
+                .generic_params
+                .iter()
+                .filter_map(|parameter| declarations.generic_type(parameter.id))
+                .collect(),
             id: function.id,
             name: function_name,
             params,
             return_type,
         };
-        function_index
-            .by_id
-            .insert(function.id, typed_function.clone());
         functions.push(typed_function);
     }
 
-    if !diagnostics.is_empty() {
-        Err(Box::new(diagnostics))
+    validate_trait_surface(lowered, declarations, &mut type_table, &mut diagnostics);
+    AnalysisResult {
+        facts: super::ModuleSignatures {
+            type_bounds,
+            functions,
+            type_table,
+        },
+        diagnostics,
+    }
+}
+
+/// Checks constant prerequisites and selected function bodies using completed signature inputs.
+///
+/// Copies signature facts into the output table, restores compatible body facts where
+/// possible, and records fresh diagnostics/types for remaining bodies. Caller-owned
+/// cancellation and policy limits apply throughout; publication occurs above this layer.
+pub(crate) fn check_bodies_controlled(
+    lowered: &LoweredModule,
+    names: &ResolvedNames,
+    declarations: &Declarations,
+    inputs: BodyInputs<'_>,
+    reuse: Option<&BodyReuse<'_>>,
+    cancel: &CancellationToken,
+) -> AnalysisResult<TypedModule> {
+    if !lowered.source.module_identity().within_path_limit() {
+        return AnalysisResult {
+            facts: TypedModule {
+                valid_bodies: Default::default(),
+                checked_bodies: 0,
+                reused_bodies: 0,
+                functions: Default::default(),
+                consts: Default::default(),
+                const_values: Default::default(),
+                type_table: Default::default(),
+            },
+            diagnostics: Default::default(),
+        };
+    }
+    let BodyInputs {
+        const_limits,
+        selection,
+        signatures,
+        imported_functions,
+        aggregates,
+    } = inputs;
+    let reuse = reuse.filter(|reuse| reuse.environment_matches(lowered));
+    let mut valid_bodies = HashSet::new();
+    let mut checked_bodies = 0;
+    let mut reused_bodies = 0;
+    let mut diagnostics = if matches!(selection, BodySelection::All) {
+        signatures.diagnostics.clone()
     } else {
-        let mut type_table = TypeTable::default();
+        Default::default()
+    };
+    let mut functions = signatures.facts.functions.clone();
+    for function in &mut functions {
+        for param in &mut function.params {
+            param.ty = aggregates.normalize_type(declarations.definitions(), &param.ty);
+        }
+        function.return_type =
+            aggregates.normalize_type(declarations.definitions(), &function.return_type);
+    }
+    let function_index = FunctionTypeIndex {
+        by_id: functions.iter().map(|f| (f.id, f.clone())).collect(),
+    };
+    let mut top_level_index = TopLevelTypeIndex::default();
+    let mut type_table = signatures.facts.type_table.clone();
+    {
+        // Explicit constant declarations are visible throughout the module,
+        // independently of initializer evaluation order.
         for const_item in &lowered.module.consts {
-            let ty = match const_item.ty {
-                Some(ty_ref) => match resolve_type(&lowered.module, ty_ref) {
-                    Some(ty) => {
-                        validate_standard_type_constraints(
-                            &ty,
-                            &HashMap::new(),
-                            lowered.source_map.type_span(ty_ref),
-                            &mut diagnostics,
-                        );
-                        ty
-                    }
-                    None => {
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::UnknownConstType {
-                                const_name: const_item.name.clone(),
-                                type_name: display_type(&lowered.module, ty_ref),
-                            })
-                            .with_span(lowered.source_map.const_span(const_item.id)),
-                        );
-                        TypeId::Builtin(BuiltinType::Unit)
-                    }
-                },
-                None => {
-                    let mut env = BodyTypeEnv::default();
-                    let mut checker = BodyChecker::new(
-                        lowered,
-                        names,
-                        TypeIndexes {
-                            function_index: &function_index,
-                            top_level_index: &top_level_index,
-                        },
+            if cancel.check().is_err() {
+                break;
+            }
+            let Some(ty_ref) = const_item.ty else {
+                continue;
+            };
+            let ty = match resolve_type(
+                &lowered.module,
+                ty_ref,
+                declarations,
+                &mut type_table,
+                cancel,
+            ) {
+                ty if !ty.is_unresolved() => {
+                    validate_reference_position(
+                        &ty,
+                        lowered.source_map.type_span(ty_ref),
                         &mut diagnostics,
-                        &mut type_table,
-                        "<const>",
-                        TypeId::Builtin(BuiltinType::Unit),
                     );
-                    checker.infer_expr_type(const_item.initializer, &mut env)
+                    ty
                 }
+                ty => {
+                    validate_reference_position(
+                        &ty,
+                        lowered.source_map.type_span(ty_ref),
+                        &mut diagnostics,
+                    );
+                    diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnknownConstType {
+                            const_name: const_item.name.clone(),
+                            type_name: display_type(&lowered.module, ty_ref),
+                        })
+                        .with_span(lowered.source_map.const_span(const_item.id)),
+                    );
+                    ty
+                }
+            };
+            applications::validate(
+                applications::ApplicationContext {
+                    definitions: declarations.definitions(),
+                    catalog: aggregates,
+                    receiver: None,
+                },
+                &ty,
+                &HashMap::new(),
+                lowered.source_map.type_span(ty_ref),
+                &mut diagnostics,
+                cancel,
+            );
+            top_level_index.consts.insert(const_item.id, ty);
+        }
+        for const_item in &lowered.module.consts {
+            if cancel.check().is_err() {
+                break;
+            }
+            let ty = if let Some(ty) = top_level_index.consts.get(&const_item.id) {
+                ty.clone()
+            } else {
+                let mut env = BodyTypeEnv::default();
+                let mut checker = BodyChecker::new(
+                    lowered,
+                    names,
+                    TypeIndexes {
+                        aggregates,
+                        imported_functions,
+                        declarations,
+                        cancel,
+                        function_index: &function_index,
+                        top_level_index: &top_level_index,
+                        const_values: None,
+                    },
+                    &mut diagnostics,
+                    &mut type_table,
+                    "<const>",
+                    TypeId::Builtin(BuiltinType::Unit),
+                );
+                checker.infer_expr_type(const_item.initializer, &mut env)
             };
             if const_item.ty.is_some() {
                 let mut env = BodyTypeEnv::default();
@@ -162,796 +548,551 @@ pub fn check_module(
                     lowered,
                     names,
                     TypeIndexes {
+                        aggregates,
+                        imported_functions,
+                        declarations,
+                        cancel,
                         function_index: &function_index,
                         top_level_index: &top_level_index,
+                        const_values: None,
                     },
                     &mut diagnostics,
                     &mut type_table,
                     "<const>",
                     TypeId::Builtin(BuiltinType::Unit),
                 );
-                let _ = checker.infer_expr_type(const_item.initializer, &mut env);
+                let _ =
+                    checker.infer_expr_type_expected(const_item.initializer, &mut env, Some(&ty));
             }
             top_level_index.consts.insert(const_item.id, ty.clone());
         }
 
+        let mut const_budget = ConstBudget::new(const_limits);
         validate_const_initializers(
+            ConstValidationInputs {
+                definitions: declarations.definitions(),
+                lowered,
+                names,
+                top_level_index: &top_level_index,
+                type_table: &type_table,
+                cancel,
+            },
+            &mut diagnostics,
+            &mut const_budget,
+        );
+
+        let const_values = const_eval::evaluate_constants(
             lowered,
             names,
-            &top_level_index,
             &type_table,
+            cancel,
             &mut diagnostics,
+            &mut const_budget,
         );
-        validate_trait_surface(lowered, &function_index, &mut diagnostics);
 
+        let shared_valid = !diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error);
         for function in &lowered.module.functions {
-            if matches!(function.kind, FunctionKind::TraitMethod) {
+            if cancel.check().is_err() {
+                break;
+            }
+            let Some(body) = function.body else {
+                continue;
+            };
+            if matches!(function.kind, FunctionKind::TraitMethod)
+                && !lowered
+                    .module
+                    .traits
+                    .iter()
+                    .flat_map(|item| &item.methods)
+                    .any(|method| method.function == function.id && method.has_default)
+            {
                 continue;
             }
+            if !selection.includes(function.id) {
+                continue;
+            }
+            if reuse.is_some_and(|reuse| reuse.restore(lowered, function, &mut type_table)) {
+                if shared_valid {
+                    valid_bodies.insert(function.id);
+                }
+                reused_bodies += 1;
+                continue;
+            }
+            let diagnostic_start = diagnostics.len();
+            checked_bodies += 1;
             let mut env = BodyTypeEnv::default();
             if let Some(typed_function) = function_index.by_id.get(&function.id) {
-                env.generics = function_generic_names(function);
-                env.generic_bounds = function_bounds(function);
+                env.generics = function.generic_params.clone();
+                let context = function_type_context(&lowered.module, function, declarations);
+                env.self_type = if let Some(owner) = context.self_type {
+                    declarations
+                        .definition(ResolvedName::Trait(owner))
+                        .cloned()
+                        .map(TypeId::SelfType)
+                } else {
+                    context
+                        .implementation
+                        .and_then(|owner| lowered.module.impls.iter().find(|item| item.id == owner))
+                        .and_then(|item| item.for_type)
+                        .and_then(|ty| type_table.type_ref(ty))
+                        .map(|ty| ty.ty.clone())
+                };
+                env.generic_bounds = aggregates
+                    .expanded_bounds(&typed_function.bounds, cancel)
+                    .unwrap_or_else(|_| typed_function.bounds.clone());
+                if let Some(contract) = lowered
+                    .module
+                    .traits
+                    .iter()
+                    .find(|item| {
+                        item.methods
+                            .iter()
+                            .any(|method| method.function == function.id)
+                    })
+                    .and_then(|item| declarations.definition(ResolvedName::Trait(item.id)))
+                    .and_then(|id| aggregates.trait_(id))
+                {
+                    let receiver = TypeId::SelfType(contract.id);
+                    let applied = NominalType {
+                        declaration: contract.id,
+                        arguments: contract
+                            .generic_params
+                            .iter()
+                            .cloned()
+                            .map(TypeId::Generic)
+                            .collect(),
+                        associated_types: Default::default(),
+                    };
+                    if let Ok(parents) = aggregates.trait_closure(&applied, &receiver, cancel) {
+                        env.generic_bounds
+                            .entry(receiver)
+                            .or_default()
+                            .extend(parents);
+                    }
+                }
                 for param in &typed_function.params {
                     env.params.insert(param.id, param.ty.clone());
                 }
+                let body_output = if function.is_async {
+                    asynchronous::future_output(declarations, &typed_function.return_type)
+                        .cloned()
+                        .unwrap_or(TypeId::Error)
+                } else {
+                    typed_function.return_type.clone()
+                };
                 let mut checker = BodyChecker::new(
                     lowered,
                     names,
                     TypeIndexes {
+                        aggregates,
+                        imported_functions,
+                        declarations,
+                        cancel,
                         function_index: &function_index,
                         top_level_index: &top_level_index,
+                        const_values: Some(&const_values),
                     },
                     &mut diagnostics,
                     &mut type_table,
                     &typed_function.name,
-                    typed_function.return_type.clone(),
+                    body_output.clone(),
                 );
-                let body_ty = checker.infer_block_types(function.body, &mut env);
-                if matches!(function.kind, FunctionKind::ModuleInit) {
-                    if let Some(indexed) = function_index.by_id.get_mut(&function.id) {
-                        indexed.return_type = body_ty.clone();
-                    }
-                    for typed in &mut functions {
-                        if typed.id == function.id {
-                            typed.return_type = body_ty.clone();
-                            break;
-                        }
-                    }
-                    continue;
-                }
-                if body_ty != typed_function.return_type {
+                checker.set_async(function.is_async);
+                let body_ty = checker.solve_body(body, &mut env, Some(&body_output));
+                let Ok(completes) = completion::block_can_complete(
+                    &lowered.module,
+                    names,
+                    &type_table,
+                    body,
+                    cancel,
+                ) else {
+                    break;
+                };
+                if completes && body_ty.conflicts_with(&body_output) {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
                             function_name: typed_function.name.clone(),
-                            expected: display_type_id(&typed_function.return_type),
-                            found: display_type_id(&body_ty),
+                            expected: display_type_id(declarations.definitions(), &body_output),
+                            found: display_type_id(declarations.definitions(), &body_ty),
                         })
                         .with_span(lowered.source_map.function_span(function.id)),
                     );
                 }
+                if shared_valid
+                    && cancel.check().is_ok()
+                    && !diagnostics[diagnostic_start..]
+                        .iter()
+                        .any(|diagnostic| diagnostic.severity == Severity::Error)
+                {
+                    valid_bodies.insert(function.id);
+                }
             }
         }
 
-        if diagnostics.is_empty() {
-            Ok(TypedModule {
+        let defaults = NativeDefaultCheck {
+            lowered,
+            names,
+            declarations,
+            imports: imported_functions,
+            aggregates,
+        };
+        for function in &lowered.module.functions {
+            // Recovery facts never authorize direct native lowering. In particular,
+            // a matching call signature does not prove its generic obligations.
+            if diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.severity == Severity::Error)
+            {
+                break;
+            }
+            if !selection.includes(function.id) || cancel.check().is_err() {
+                continue;
+            }
+            let Some(NativeBinding::Default(application)) =
+                lowered.native_functions.get(&function.id)
+            else {
+                continue;
+            };
+            let Some(signature) = function_index.by_id.get(&function.id) else {
+                continue;
+            };
+            if let Some(site) =
+                defaults.forwarding_call(function, signature, application, &type_table)
+            {
+                type_table.native_default_calls.insert(function.id, site);
+            } else {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::InvalidNativeSignature {
+                        function: function.name.clone(),
+                        binding: "checked native default forwarding body".into(),
+                    })
+                    .with_span(lowered.source_map.function_span(function.id)),
+                );
+            }
+        }
+        AnalysisResult {
+            facts: TypedModule {
+                valid_bodies,
+                checked_bodies,
+                reused_bodies,
                 functions,
                 consts: top_level_index.consts,
+                const_values,
                 type_table,
-            })
-        } else {
-            Err(Box::new(diagnostics))
+            },
+            diagnostics,
         }
     }
 }
 
-fn function_generic_names(function: &crate::hir::Function) -> Vec<String> {
-    let mut names = function
-        .generic_params
-        .iter()
-        .map(|param| param.name.clone())
-        .collect::<Vec<_>>();
-    if matches!(function.kind, FunctionKind::TraitMethod) {
-        names.push("Self".to_string());
-    }
-    names
-}
-
-fn function_bounds(function: &crate::hir::Function) -> HashMap<String, Vec<String>> {
-    let mut bounds = HashMap::<String, Vec<String>>::new();
-    for param in &function.generic_params {
-        let entry = bounds.entry(param.name.clone()).or_default();
-        entry.extend(param.bounds.iter().map(|bound| bound.name.clone()));
-    }
-    for bound in &function.bounds {
-        let entry = bounds.entry(bound.target.clone()).or_default();
-        entry.extend(bound.traits.iter().map(|trait_ref| trait_ref.name.clone()));
-    }
-    bounds
-}
-
-fn validate_trait_surface(
-    lowered: &LoweredModule,
-    function_index: &FunctionTypeIndex,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    let trait_names = lowered
-        .module
-        .traits
-        .iter()
-        .map(|trait_def| trait_def.name.as_str())
-        .collect::<HashSet<_>>();
-
-    for function in &lowered.module.functions {
-        validate_trait_refs(
-            lowered,
-            &trait_names,
-            &function.generic_params,
-            &function.bounds,
-            lowered.source_map.function_span(function.id),
-            diagnostics,
-        );
-    }
-    for trait_def in &lowered.module.traits {
-        validate_trait_refs(
-            lowered,
-            &trait_names,
-            &trait_def.generic_params,
-            &[],
-            lowered.source_map.trait_span(trait_def.id),
-            diagnostics,
-        );
-    }
-
-    for function in &lowered.module.functions {
-        let Some(typed_function) = function_index.by_id.get(&function.id) else {
-            continue;
-        };
-        for ty in typed_function
-            .params
+pub(super) fn function_type_context<'a>(
+    module: &'a Module,
+    function: &'a Function,
+    declarations: &'a Declarations,
+) -> TypeContext<'a> {
+    TypeContext {
+        declarations,
+        generics: &function.generic_params,
+        implementation: module
+            .impls
             .iter()
-            .map(|param| &param.ty)
-            .chain(std::iter::once(&typed_function.return_type))
-        {
-            validate_interface_type(
-                lowered,
-                function_index,
-                ty,
-                lowered.source_map.function_span(function.id),
-                diagnostics,
-            );
-        }
-    }
-
-    let mut seen_impls = HashSet::<(String, String)>::new();
-    for impl_block in &lowered.module.impls {
-        validate_trait_refs(
-            lowered,
-            &trait_names,
-            &impl_block.generic_params,
-            &impl_block.bounds,
-            lowered.source_map.impl_span(impl_block.id),
-            diagnostics,
-        );
-
-        let Some(trait_name) = impl_block.trait_ref.as_deref() else {
-            continue;
-        };
-        let Some(trait_def) = lowered
-            .module
+            .find(|item| {
+                item.methods
+                    .iter()
+                    .any(|method| method.function == function.id)
+            })
+            .map(|item| item.id),
+        self_type: module
             .traits
             .iter()
-            .find(|trait_def| trait_def.name == trait_name)
-        else {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::UnknownTrait {
-                    trait_name: trait_name.to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
-            continue;
-        };
+            .find(|item| {
+                item.methods
+                    .iter()
+                    .any(|method| method.function == function.id)
+            })
+            .map(|item| item.id),
+    }
+}
 
-        let generic_names = impl_block
-            .generic_params
-            .iter()
-            .map(|param| param.name.clone())
-            .collect::<Vec<_>>();
-        let Some(for_ty) = impl_block.for_type.and_then(|ty| {
-            resolve_type_in(
-                &lowered.module,
-                ty,
-                TypeContext {
-                    generics: &generic_names,
-                },
-            )
-        }) else {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                    trait_name: trait_name.to_string(),
-                    type_name: "<missing>".to_string(),
-                    reason: "impl target type is unknown".to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
-            continue;
-        };
-        let type_name = display_type_id(&for_ty);
-        if matches!(for_ty, TypeId::Trait(_) | TypeId::Generic(_)) {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                    trait_name: trait_name.to_string(),
-                    type_name,
-                    reason: "impl target must be a concrete type".to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
-            continue;
+pub(crate) fn possibly_overlapping_impls(left: &TypeId, right: &TypeId) -> bool {
+    if left == right {
+        return true;
+    }
+    if left.is_concrete() && right.is_concrete() {
+        return false;
+    }
+    match (left, right) {
+        (TypeId::Struct(left), TypeId::Struct(right))
+        | (TypeId::Enum(left), TypeId::Enum(right)) => left.declaration == right.declaration,
+
+        (TypeId::Tuple(left), TypeId::Tuple(right)) => left.len() == right.len(),
+        (TypeId::Function { params: left, .. }, TypeId::Function { params: right, .. }) => {
+            left.len() == right.len()
         }
+        (TypeId::Range(_, left), TypeId::Range(_, right)) => left == right,
+        (TypeId::Set(_, left), TypeId::Set(_, right))
+        | (TypeId::Map { access: left, .. }, TypeId::Map { access: right, .. }) => left == right,
+        (TypeId::Iter(_), TypeId::Iter(_)) | (TypeId::Array(_), TypeId::Array(_)) => true,
+        _ => false,
+    }
+}
 
-        if !seen_impls.insert((trait_name.to_string(), type_name.clone())) {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidTraitImpl {
-                    trait_name: trait_name.to_string(),
-                    type_name: type_name.clone(),
-                    reason: "duplicate impl".to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
-        }
-
-        validate_impl_methods(
-            lowered,
-            function_index,
-            trait_def,
-            impl_block,
-            &for_ty,
-            diagnostics,
+pub(super) fn validate_reference_position(
+    ty: &TypeId,
+    span: Span,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    if !ty.reference_position_valid() {
+        diagnostics.push(
+            Diagnostic::error(DiagnosticKind::InvalidReference {
+                reason: "views require a nominal target and cannot be nested in owning values",
+            })
+            .with_span(span),
         );
     }
 }
 
-fn validate_trait_refs(
-    _lowered: &LoweredModule,
-    trait_names: &HashSet<&str>,
-    generic_params: &[crate::hir::GenericParam],
-    bounds: &[crate::hir::TraitBound],
-    span: kagari_common::Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    for param in generic_params {
-        for trait_ref in &param.bounds {
-            if surface::standard_constraint(&trait_ref.name).is_some() {
-                continue;
-            }
-            if !trait_names.contains(trait_ref.name.as_str()) {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownTrait {
-                        trait_name: trait_ref.name.clone(),
-                    })
-                    .with_span(span),
-                );
-            }
-        }
-    }
-    for bound in bounds {
-        for trait_ref in &bound.traits {
-            if surface::standard_constraint(&trait_ref.name).is_some() {
-                continue;
-            }
-            if !trait_names.contains(trait_ref.name.as_str()) {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::UnknownTrait {
-                        trait_name: trait_ref.name.clone(),
-                    })
-                    .with_span(span),
-                );
-            }
-        }
-    }
-}
-
-fn validate_standard_type_constraints(
+/// Validate collection admission through the ordinary Eq and Hash trait contracts.
+pub(super) fn validate_hash_key_type(
+    definitions: &DefinitionTable,
     ty: &TypeId,
-    generic_bounds: &HashMap<String, Vec<String>>,
-    span: kagari_common::Span,
+    generic_bounds: &super::GenericBounds,
+    span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+    catalog: &AggregateCatalog,
 ) {
-    match ty {
-        TypeId::Map { key, value } => {
-            validate_standard_constraint_type(
-                key,
-                StandardTypeConstraint::HashKey,
-                generic_bounds,
-                span,
-                diagnostics,
-            );
-            validate_standard_type_constraints(value, generic_bounds, span, diagnostics);
-        }
-        TypeId::Set(element) => {
-            validate_standard_constraint_type(
-                element,
-                StandardTypeConstraint::HashKey,
-                generic_bounds,
-                span,
-                diagnostics,
-            );
-        }
-        TypeId::Tuple(elements) => {
-            for element in elements {
-                validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
-            }
-        }
-        TypeId::Array(element) => {
-            validate_standard_type_constraints(element, generic_bounds, span, diagnostics);
-        }
-        TypeId::StandardEnum { args, .. } => {
-            for arg in args {
-                validate_standard_type_constraints(arg, generic_bounds, span, diagnostics);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn validate_standard_constraint_type(
-    ty: &TypeId,
-    constraint: StandardTypeConstraint,
-    generic_bounds: &HashMap<String, Vec<String>>,
-    span: kagari_common::Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    let ok = match ty {
-        TypeId::Generic(name) => generic_bounds.get(name).is_some_and(|bounds| {
-            bounds
-                .iter()
-                .any(|bound| surface::standard_constraint(bound) == Some(constraint))
-        }),
-        _ => match constraint {
-            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
-            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
-            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
-            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-            StandardTypeConstraint::Comparable => true,
-        },
-    };
-
-    if ok {
+    if [Protocol::Eq, Protocol::Hash]
+        .into_iter()
+        .all(|protocol| intrinsic_holds(definitions, protocol, ty, Some(catalog), generic_bounds))
+    {
         return;
     }
-
     diagnostics.push(
         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-            type_name: display_type_id(ty),
-            constraint: surface::standard_constraint_name(constraint).to_owned(),
-            reason: "standard collection keys must have specified hash semantics".to_owned(),
+            type_name: display_type_id(definitions, ty),
+            constraint: "Eq + Hash".into(),
+            reason: "key type must implement std::cmp::Eq + std::hash::Hash".into(),
         })
         .with_span(span),
     );
 }
 
-fn trait_method_interface_compatible(
-    lowered: &LoweredModule,
-    function_index: &FunctionTypeIndex,
-    function_id: crate::hir::FunctionId,
-) -> bool {
-    let Some(hir_function) = lowered
-        .module
-        .functions
+/// Shared read-only signature contract for comparing source and catalog methods.
+pub(super) trait MethodSignatureView {
+    fn generic_params(&self) -> &[GenericParameterType];
+
+    fn bounds(&self) -> &super::GenericBounds;
+
+    fn params_len(&self) -> usize;
+
+    fn param(&self, index: usize) -> (&str, Writeability, &TypeId);
+
+    fn return_type(&self) -> &TypeId;
+}
+
+impl MethodSignatureView for TypedFunction {
+    fn generic_params(&self) -> &[GenericParameterType] {
+        &self.generic_params
+    }
+
+    fn bounds(&self) -> &super::GenericBounds {
+        &self.bounds
+    }
+
+    fn params_len(&self) -> usize {
+        self.params.len()
+    }
+
+    fn param(&self, index: usize) -> (&str, Writeability, &TypeId) {
+        let param = &self.params[index];
+        (&param.name, param.writeability, &param.ty)
+    }
+
+    fn return_type(&self) -> &TypeId {
+        &self.return_type
+    }
+}
+
+impl MethodSignatureView for MethodSignature {
+    fn generic_params(&self) -> &[GenericParameterType] {
+        &self.generic_params
+    }
+
+    fn bounds(&self) -> &super::GenericBounds {
+        &self.bounds
+    }
+
+    fn params_len(&self) -> usize {
+        self.params.len()
+    }
+
+    fn param(&self, index: usize) -> (&str, Writeability, &TypeId) {
+        let param = &self.params[index];
+        (&param.name, param.writeability, &param.ty)
+    }
+
+    fn return_type(&self) -> &TypeId {
+        &self.return_type
+    }
+}
+
+/// Receiver, owner substitution and diagnostic site used to compare one implementation method.
+pub(super) struct MethodComparison<'a> {
+    pub definitions: &'a DefinitionTable,
+    pub trait_name: &'a str,
+    pub method_name: &'a str,
+    pub trait_generic_count: usize,
+    pub impl_generic_count: usize,
+    pub receiver: &'a TypeId,
+    pub trait_owner: &'a DefinitionId,
+    pub trait_arguments: &'a [TypeId],
+    pub catalog: &'a AggregateCatalog,
+    pub span: Span,
+}
+
+pub(super) fn compare_method_contract(
+    expected: &impl MethodSignatureView,
+    actual: &TypedFunction,
+    comparison: &MethodComparison<'_>,
+    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
+) {
+    let mismatch = |reason: String| {
+        Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
+            trait_name: comparison.trait_name.to_string(),
+            method_name: comparison.method_name.to_string(),
+            reason,
+        })
+        .with_span(comparison.span)
+    };
+    if expected.params_len() != actual.params.len() {
+        diagnostics.push(mismatch("parameter count differs".into()));
+        return;
+    }
+    let expected_method_params = expected
+        .generic_params()
         .iter()
-        .find(|function| function.id == function_id)
-    else {
-        return false;
+        .skip(comparison.trait_generic_count)
+        .collect::<Vec<_>>();
+    let actual_method_params = actual
+        .generic_params
+        .iter()
+        .skip(comparison.impl_generic_count)
+        .collect::<Vec<_>>();
+    if expected_method_params.len() != actual_method_params.len() {
+        diagnostics.push(mismatch("generic parameter count differs".into()));
+        return;
+    }
+    let mut substitution: TypeSubstitution = expected
+        .generic_params()
+        .iter()
+        .take(comparison.trait_generic_count)
+        .cloned()
+        .zip(comparison.trait_arguments.iter().cloned())
+        .chain(
+            expected_method_params
+                .into_iter()
+                .zip(actual_method_params)
+                .map(|(expected, actual)| (expected.clone(), TypeId::Generic(actual.clone()))),
+        )
+        .collect();
+    substitution.insert_receiver(*comparison.trait_owner, comparison.receiver.clone());
+    let normalize = |ty: TypeId| {
+        comparison
+            .catalog
+            .normalize_type(comparison.definitions, &ty)
     };
-    let Some(function) = function_index.by_id.get(&function_id) else {
-        return false;
-    };
-    hir_function.generic_params.is_empty()
-        && function.params.iter().any(|param| param.name == "self")
-        && !matches!(function.return_type, TypeId::Generic(ref name) if name == "Self")
-}
-
-fn validate_interface_type(
-    lowered: &LoweredModule,
-    function_index: &FunctionTypeIndex,
-    ty: &TypeId,
-    span: kagari_common::Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    match ty {
-        TypeId::Trait(trait_name) => {
-            if let Some(trait_def) = lowered
-                .module
-                .traits
+    for (expected_param, actual_param) in expected
+        .generic_params()
+        .iter()
+        .skip(comparison.trait_generic_count)
+        .zip(
+            actual
+                .generic_params
                 .iter()
-                .find(|trait_def| trait_def.name == *trait_name)
-            {
-                for method in &trait_def.methods {
-                    if !trait_method_interface_compatible(lowered, function_index, method.function)
-                    {
-                        diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::InvalidInterfaceType {
-                                trait_name: trait_def.name.clone(),
-                                reason: format!(
-                                    "method `{}` is not interface-compatible",
-                                    method.name
-                                ),
-                            })
-                            .with_span(span),
-                        );
-                    }
-                }
-            }
-        }
-        TypeId::Tuple(elements) => {
-            for element in elements {
-                validate_interface_type(lowered, function_index, element, span, diagnostics);
-            }
-        }
-        TypeId::Array(element) => {
-            validate_interface_type(lowered, function_index, element, span, diagnostics);
-        }
-        TypeId::Map { key, value } => {
-            validate_interface_type(lowered, function_index, key, span, diagnostics);
-            validate_interface_type(lowered, function_index, value, span, diagnostics);
-        }
-        TypeId::Set(element) => {
-            validate_interface_type(lowered, function_index, element, span, diagnostics);
-        }
-        TypeId::StandardEnum { args, .. } => {
-            for arg in args {
-                validate_interface_type(lowered, function_index, arg, span, diagnostics);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn validate_impl_methods(
-    lowered: &LoweredModule,
-    function_index: &FunctionTypeIndex,
-    trait_def: &crate::hir::TraitDef,
-    impl_block: &crate::hir::Impl,
-    for_ty: &TypeId,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    for trait_method in &trait_def.methods {
-        let Some(impl_method) = impl_block
-            .methods
+                .skip(comparison.impl_generic_count),
+        )
+    {
+        let required = expected
+            .bounds()
+            .get(&TypeId::Generic(expected_param.clone()))
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let provided = actual
+            .bounds
+            .get(&TypeId::Generic(actual_param.clone()))
+            .map(Vec::as_slice)
+            .unwrap_or_default();
+        let substituted = required
             .iter()
-            .find(|method| method.name == trait_method.name)
-        else {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                    trait_name: trait_def.name.clone(),
-                    method_name: trait_method.name.clone(),
-                    reason: "missing impl method".to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
-            continue;
-        };
-        compare_impl_method_signature(
-            function_index,
-            trait_def,
-            trait_method,
-            impl_method,
-            for_ty,
-            lowered.source_map.impl_span(impl_block.id),
-            diagnostics,
-        );
-    }
-    for impl_method in &impl_block.methods {
-        if !trait_def
-            .methods
-            .iter()
-            .any(|trait_method| trait_method.name == impl_method.name)
+            .map(|instance| instance.instantiate(&substitution))
+            .collect::<Vec<_>>();
+        if substituted.len() != provided.len()
+            || !substituted
+                .iter()
+                .all(|constraint| provided.contains(constraint))
         {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                    trait_name: trait_def.name.clone(),
-                    method_name: impl_method.name.clone(),
-                    reason: "method is not declared by trait".to_string(),
-                })
-                .with_span(lowered.source_map.impl_span(impl_block.id)),
-            );
+            diagnostics.push(mismatch("generic bound differs".into()));
+            return;
         }
     }
-}
-
-fn compare_impl_method_signature(
-    function_index: &FunctionTypeIndex,
-    trait_def: &crate::hir::TraitDef,
-    trait_method: &crate::hir::TraitMethod,
-    impl_method: &crate::hir::ImplMethod,
-    for_ty: &TypeId,
-    span: kagari_common::Span,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    let Some(trait_function) = function_index.by_id.get(&trait_method.function) else {
-        return;
-    };
-    let Some(impl_function) = function_index.by_id.get(&impl_method.function) else {
-        return;
-    };
-    if trait_function.params.len() != impl_function.params.len() {
-        diagnostics.push(
-            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                trait_name: trait_def.name.clone(),
-                method_name: trait_method.name.clone(),
-                reason: "parameter count differs".to_string(),
-            })
-            .with_span(span),
+    for (index, actual_param) in actual.params.iter().enumerate() {
+        let (name, writeability, ty) = expected.param(index);
+        if writeability != actual_param.writeability {
+            diagnostics.push(mismatch(format!("parameter `{name}` mutability differs")));
+        }
+        let expected_ty = normalize(
+            ty.with_self(comparison.trait_owner, comparison.receiver)
+                .instantiate(&substitution),
         );
-        return;
-    }
-    for (trait_param, impl_param) in trait_function.params.iter().zip(&impl_function.params) {
-        let expected = substitute_self_type(&trait_param.ty, for_ty);
-        if expected != impl_param.ty {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                    trait_name: trait_def.name.clone(),
-                    method_name: trait_method.name.clone(),
-                    reason: format!(
-                        "parameter `{}` expected `{}`, found `{}`",
-                        trait_param.name,
-                        display_type_id(&expected),
-                        display_type_id(&impl_param.ty)
-                    ),
-                })
-                .with_span(span),
-            );
+        if expected_ty != normalize(actual_param.ty.clone()) {
+            diagnostics.push(mismatch(format!(
+                "parameter `{name}` expected `{}`, found `{}`",
+                display_type_id(comparison.definitions, &expected_ty),
+                display_type_id(comparison.definitions, &actual_param.ty)
+            )));
         }
     }
-    let expected_return = substitute_self_type(&trait_function.return_type, for_ty);
-    if expected_return != impl_function.return_type {
-        diagnostics.push(
-            Diagnostic::error(DiagnosticKind::TraitMethodMismatch {
-                trait_name: trait_def.name.clone(),
-                method_name: trait_method.name.clone(),
-                reason: format!(
-                    "return type expected `{}`, found `{}`",
-                    display_type_id(&expected_return),
-                    display_type_id(&impl_function.return_type)
-                ),
-            })
-            .with_span(span),
-        );
-    }
-}
-
-fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
-    match ty {
-        TypeId::Generic(name) if name == "Self" => self_ty.clone(),
-        TypeId::Tuple(elements) => TypeId::Tuple(
-            elements
-                .iter()
-                .map(|element| substitute_self_type(element, self_ty))
-                .collect::<Vec<_>>(),
-        ),
-        TypeId::Array(element) => TypeId::Array(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::Map { key, value } => TypeId::Map {
-            key: Box::new(substitute_self_type(key, self_ty)),
-            value: Box::new(substitute_self_type(value, self_ty)),
-        },
-        TypeId::Set(element) => TypeId::Set(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::StandardEnum { name, args } => TypeId::StandardEnum {
-            name: name.clone(),
-            args: args
-                .iter()
-                .map(|arg| substitute_self_type(arg, self_ty))
-                .collect::<Vec<_>>(),
-        },
-        _ => ty.clone(),
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ConstVisitState {
-    Visiting,
-    Done,
-}
-
-fn validate_const_initializers(
-    lowered: &LoweredModule,
-    names: &ResolvedNames,
-    top_level_index: &TopLevelTypeIndex,
-    type_table: &TypeTable,
-    diagnostics: &mut SmallVec<[Diagnostic; 4]>,
-) {
-    struct ConstValidator<'a> {
-        lowered: &'a LoweredModule,
-        names: &'a ResolvedNames,
-        top_level_index: &'a TopLevelTypeIndex,
-        type_table: &'a TypeTable,
-        diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
-        states: HashMap<ConstId, ConstVisitState>,
-    }
-
-    impl ConstValidator<'_> {
-        fn validate_const(&mut self, const_id: ConstId) {
-            match self.states.get(&const_id) {
-                Some(ConstVisitState::Done) => return,
-                Some(ConstVisitState::Visiting) => {
-                    let const_item = self.const_item(const_id);
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ConstCycle {
-                            const_name: const_item.name.clone(),
-                        })
-                        .with_span(self.lowered.source_map.const_span(const_id)),
-                    );
-                    return;
-                }
-                None => {}
-            }
-
-            self.states.insert(const_id, ConstVisitState::Visiting);
-            let const_item = self.const_item(const_id);
-            if let Some(const_ty) = self.top_level_index.consts.get(&const_id)
-                && !supports_const_type(const_ty)
-            {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidConstInitializer {
-                        const_name: const_item.name.clone(),
-                        reason: format!(
-                            "const type `{}` is heap-backed; const supports value types only",
-                            display_type_id(const_ty)
-                        ),
-                    })
-                    .with_span(self.lowered.source_map.const_span(const_id)),
-                );
-                self.states.insert(const_id, ConstVisitState::Done);
-                return;
-            }
-
-            self.validate_const_expr(const_item.id, const_item.initializer);
-            self.states.insert(const_id, ConstVisitState::Done);
-        }
-
-        fn validate_const_expr(&mut self, owner: ConstId, expr_id: ExprId) {
-            let expr = self.lowered.module.expr(expr_id);
-            match &expr.kind {
-                ExprKind::Literal(_) => {}
-                ExprKind::Name(_) => {
-                    let Some(resolved) = self.names.expr_resolution(expr_id) else {
-                        self.emit_invalid_const(
-                            owner,
-                            expr_id,
-                            "const initializer must use literals or other consts",
-                        );
-                        return;
-                    };
-
-                    match resolved {
-                        ResolvedName::Const(id) => self.validate_const(id),
-                        _ => self.emit_invalid_const(
-                            owner,
-                            expr_id,
-                            "const initializer must use literals or other consts",
-                        ),
-                    }
-                }
-                ExprKind::Prefix { op, expr } => {
-                    self.validate_const_expr(owner, *expr);
-
-                    let Some(expr_ty) = self.type_table.expr_type(*expr) else {
-                        self.emit_invalid_const(
-                            owner,
-                            expr_id,
-                            "const initializer has unknown operand type",
-                        );
-                        return;
-                    };
-
-                    let supported = match op {
-                        PrefixOp::Neg => surface::supports_unary_negation(&expr_ty),
-                        PrefixOp::Not => expr_ty == TypeId::Builtin(BuiltinType::Bool),
-                    };
-                    if !supported {
-                        self.emit_invalid_const(
-                            owner,
-                            expr_id,
-                            "unsupported unary const expression",
-                        );
-                    }
-                }
-                ExprKind::Binary { lhs, op, rhs } => {
-                    self.validate_const_expr(owner, *lhs);
-                    self.validate_const_expr(owner, *rhs);
-
-                    let lhs_ty = self.type_table.expr_type(*lhs);
-                    let rhs_ty = self.type_table.expr_type(*rhs);
-                    if !supports_const_binary(op, lhs_ty.as_ref(), rhs_ty.as_ref()) {
-                        self.emit_invalid_const(
-                            owner,
-                            expr_id,
-                            "unsupported binary const expression",
-                        );
-                    }
-                }
-                ExprKind::Tuple(elements) | ExprKind::Array(elements) => {
-                    for element in elements {
-                        self.validate_const_expr(owner, *element);
-                    }
-                }
-                ExprKind::StructInit { fields, .. } => {
-                    for field in fields {
-                        self.validate_const_expr(owner, field.value);
-                    }
-                }
-                _ => self.emit_invalid_const(
-                    owner,
-                    expr_id,
-                    "unsupported const initializer expression",
-                ),
-            }
-
-            if let Some(resolved) = self.names.expr_resolution(expr_id)
-                && let ResolvedName::Const(id) = resolved
-                && !self.top_level_index.consts.contains_key(&id)
-            {
-                self.emit_invalid_const(
-                    owner,
-                    expr_id,
-                    "const initializer references an unresolved const type",
-                );
-            }
-        }
-
-        fn emit_invalid_const(&mut self, owner: ConstId, expr_id: ExprId, reason: &'static str) {
-            let const_item = self.const_item(owner);
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidConstInitializer {
-                    const_name: const_item.name.clone(),
-                    reason: reason.to_owned(),
-                })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
-            );
-        }
-
-        fn const_item(&self, const_id: ConstId) -> &ConstItem {
-            self.lowered
-                .module
-                .consts
-                .iter()
-                .find(|item| item.id == const_id)
-                .expect("const id should exist")
-        }
-    }
-
-    fn supports_const_binary(op: &BinaryOp, lhs: Option<&TypeId>, rhs: Option<&TypeId>) -> bool {
-        match (op, lhs, rhs) {
+    let projected_required = expected
+        .bounds()
+        .iter()
+        .filter(|(ty, _)| matches!(ty, TypeId::Projection { .. }))
+        .map(|(ty, constraints)| {
             (
-                BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div,
-                Some(lhs),
-                Some(rhs),
-            ) => surface::supports_arithmetic(lhs, rhs),
-            (BinaryOp::Eq | BinaryOp::NotEq, Some(lhs), Some(rhs)) => lhs == rhs,
-            (BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge, Some(lhs), Some(rhs)) => {
-                surface::supports_ordering(lhs, rhs)
-            }
-            (
-                BinaryOp::AndAnd | BinaryOp::OrOr,
-                Some(TypeId::Builtin(BuiltinType::Bool)),
-                Some(TypeId::Builtin(BuiltinType::Bool)),
-            ) => true,
-            _ => false,
-        }
+                normalize(
+                    ty.with_self(comparison.trait_owner, comparison.receiver)
+                        .instantiate(&substitution),
+                ),
+                constraints
+                    .iter()
+                    .map(|instance| instance.instantiate(&substitution))
+                    .collect::<Vec<_>>(),
+            )
+        })
+        .collect::<HashMap<_, _>>();
+    let projected_actual = actual
+        .bounds
+        .iter()
+        .filter(|(ty, _)| {
+            matches!(ty, TypeId::Projection { .. }) || projected_required.contains_key(*ty)
+        })
+        .map(|(ty, constraints)| (normalize(ty.clone()), constraints.clone()))
+        .collect::<HashMap<_, _>>();
+    if projected_required != projected_actual {
+        diagnostics.push(mismatch("associated type bound differs".into()));
     }
-
-    fn supports_const_type(ty: &TypeId) -> bool {
-        surface::supports_const_type(ty)
-    }
-
-    let mut validator = ConstValidator {
-        lowered,
-        names,
-        top_level_index,
-        type_table,
-        diagnostics,
-        states: HashMap::new(),
-    };
-    for const_item in &lowered.module.consts {
-        validator.validate_const(const_item.id);
+    let expected_return = normalize(
+        expected
+            .return_type()
+            .with_self(comparison.trait_owner, comparison.receiver)
+            .instantiate(&substitution),
+    );
+    if expected_return != normalize(actual.return_type.clone()) {
+        diagnostics.push(mismatch(format!(
+            "return type expected `{}`, found `{}`",
+            display_type_id(comparison.definitions, &expected_return),
+            display_type_id(comparison.definitions, &actual.return_type)
+        )));
     }
 }

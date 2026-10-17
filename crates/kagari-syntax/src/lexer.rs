@@ -1,24 +1,166 @@
-use kagari_common::Span;
+//! Tokenization preserving the original input's byte ranges and trivia.
+//!
+//! This layer recognizes spellings, not expression grouping. In particular, angle
+//! tokens remain separate so the parser can choose generic delimiters or combined
+//! shift operators. Invalid lexemes are retained as [`TokenKind::Unknown`]; the
+//! parser is responsible for reporting syntax diagnostics.
+
 use smallvec::SmallVec;
+use {
+    kagari_common::{
+        cancellation::{CancellationToken, Cancelled},
+        span::Span,
+    },
+    kagari_source::literal,
+};
 
-use crate::TokenBuffer;
-use crate::token::{Token, TokenKind};
+use crate::{
+    TokenBuffer,
+    token::{Token, TokenKind},
+};
 
+/// Tokenizes UTF-8 text, retaining trivia and appending an empty EOF token.
+///
+/// Token spans are half-open byte ranges into `input`; token objects do not own
+/// the spelling. Unrecognized/malformed input becomes `Unknown`, not a returned
+/// error. Numeric/string classification does not establish semantic type validity.
+/// Use [`lex_with_cancellation`] to abandon a long scan cooperatively.
+///
+/// # Examples
+///
+/// ```
+/// use kagari_syntax::{lexer::lex, token::TokenKind};
+/// let source = "val x = 42;";
+/// let tokens = lex(source);
+/// let number = tokens.iter().find(|token| token.kind == TokenKind::Number)
+///     .expect("the example contains an integer");
+/// assert_eq!(&source[number.span.start..number.span.end], "42");
+/// assert_eq!(tokens.last().map(|token| &token.kind), Some(&TokenKind::Eof));
+/// ```
 pub fn lex(input: &str) -> TokenBuffer {
-    let mut chars = input.char_indices().peekable();
+    lex_with_cancellation(input, &CancellationToken::default()).expect("fresh cancellation token")
+}
+
+/// Tokenizes as [`lex`], polling cancellation during scanning and before return.
+///
+/// # Errors
+///
+/// Returns [`Cancelled`] when cancellation is observed. The partial token buffer
+/// is discarded, so an error never publishes truncated input as a completed scan.
+pub fn lex_with_cancellation(
+    input: &str,
+    cancel: &CancellationToken,
+) -> Result<TokenBuffer, Cancelled> {
+    cancel.check()?;
+    let mut chars = input
+        .char_indices()
+        .take_while(|_| cancel.check().is_ok())
+        .peekable();
     let mut tokens = SmallVec::new();
+    // None means string text; Some(depth) means an expression hole with that many
+    // nested ordinary braces. Closing depth zero emits FormatClose; deeper braces
+    // remain block tokens. Nested f-strings push their own modes onto this stack.
+    let mut formats: Vec<Option<usize>> = Vec::new();
 
     while let Some((index, ch)) = chars.peek().copied() {
+        if formats.last() == Some(&None) {
+            let start = index;
+            let mut end = index;
+            let mut escaped = false;
+            while let Some((position, character)) = chars.peek().copied() {
+                if matches!(character, '\r' | '\n')
+                    || (!escaped && matches!(character, '"' | '{' | '}'))
+                {
+                    break;
+                }
+                chars.next();
+                end = position + character.len_utf8();
+                if escaped && character == 'u' && chars.peek().is_some_and(|(_, next)| *next == '{')
+                {
+                    // Unicode escape braces belong to the text, not to an expression hole.
+                    let (open, _) = chars.next().expect("peeked escape brace");
+                    end = open + 1;
+                    while let Some((position, character)) = chars.peek().copied() {
+                        if matches!(character, '"' | '\r' | '\n') {
+                            break;
+                        }
+                        chars.next();
+                        end = position + character.len_utf8();
+                        if character == '}' {
+                            break;
+                        }
+                    }
+                }
+                if escaped {
+                    escaped = false;
+                } else {
+                    escaped = character == '\\';
+                }
+            }
+            if end > start {
+                let text = format!("\"{}\"", &input[start..end]);
+                let kind = if literal::decode_string_literal(&text).is_ok() {
+                    TokenKind::FormatText
+                } else {
+                    TokenKind::Unknown
+                };
+                tokens.push(token(kind, start, end));
+                continue;
+            }
+            chars.next();
+            match ch {
+                '"' => {
+                    formats.pop();
+                    tokens.push(token(TokenKind::FormatEnd, index, index + 1));
+                }
+                '{' | '}' if chars.peek().is_some_and(|(_, next)| *next == ch) => {
+                    chars.next();
+                    tokens.push(token(TokenKind::FormatText, index, index + 2));
+                }
+                '{' => {
+                    formats.push(Some(0));
+                    tokens.push(token(TokenKind::FormatOpen, index, index + 1));
+                }
+                _ => {
+                    tokens.push(token(TokenKind::Unknown, index, index + ch.len_utf8()));
+                    if matches!(ch, '\r' | '\n') {
+                        formats.pop();
+                    }
+                }
+            }
+            continue;
+        }
+        if ch == 'f' && input[index..].starts_with("f\"") {
+            chars.next();
+            chars.next();
+            tokens.push(token(TokenKind::FormatStart, index, index + 2));
+            formats.push(None);
+            continue;
+        }
+        if let Some(Some(depth)) = formats.last_mut() {
+            if ch == '{' {
+                *depth += 1;
+            }
+            if ch == '}' {
+                if *depth == 0 {
+                    chars.next();
+                    formats.pop();
+                    tokens.push(token(TokenKind::FormatClose, index, index + 1));
+                    continue;
+                }
+                *depth -= 1;
+            }
+        }
         if ch.is_whitespace() {
             let mut end = index;
             while let Some((next_index, next)) = chars.peek().copied() {
                 if !next.is_whitespace() {
                     break;
                 }
-                end = next_index;
+                end = next_index + next.len_utf8();
                 chars.next();
             }
-            tokens.push(token(TokenKind::Whitespace, index, end + 1));
+            tokens.push(token(TokenKind::Whitespace, index, end));
             continue;
         }
 
@@ -64,20 +206,44 @@ pub fn lex(input: &str) -> TokenBuffer {
                 chars.next();
                 tokens.push(token(TokenKind::Semi, index, index + 1));
             }
+            '#' => {
+                chars.next();
+                tokens.push(token(TokenKind::Hash, index, index + 1));
+            }
             '.' => {
                 chars.next();
-                tokens.push(token(TokenKind::Dot, index, index + 1));
+                if let Some((dot, '.')) = chars.peek().copied() {
+                    chars.next();
+                    if let Some((equal, '=')) = chars.peek().copied() {
+                        chars.next();
+                        tokens.push(token(TokenKind::DotDotEq, index, equal + 1));
+                    } else {
+                        tokens.push(token(TokenKind::DotDot, index, dot + 1));
+                    }
+                } else {
+                    tokens.push(token(TokenKind::Dot, index, index + 1));
+                }
             }
             '+' => {
                 chars.next();
-                tokens.push(token(TokenKind::Plus, index, index + 1));
+                if let Some((end, '=')) = chars.peek().copied() {
+                    chars.next();
+                    tokens.push(token(TokenKind::PlusEq, index, end + 1));
+                } else {
+                    tokens.push(token(TokenKind::Plus, index, index + 1));
+                }
             }
             '=' => {
                 chars.next();
                 match chars.peek().copied() {
                     Some((end, '=')) => {
                         chars.next();
-                        tokens.push(token(TokenKind::EqEq, index, end + 1));
+                        if let Some((last, '=')) = chars.peek().copied() {
+                            chars.next();
+                            tokens.push(token(TokenKind::IdentityEq, index, last + 1));
+                        } else {
+                            tokens.push(token(TokenKind::EqEq, index, end + 1));
+                        }
                     }
                     Some((end, '>')) => {
                         chars.next();
@@ -94,22 +260,94 @@ pub fn lex(input: &str) -> TokenBuffer {
                     chars.next();
                     tokens.push(token(TokenKind::Arrow, index, end + 1));
                 } else {
-                    tokens.push(token(TokenKind::Minus, index, index + 1));
+                    if let Some((end, '=')) = chars.peek().copied() {
+                        chars.next();
+                        tokens.push(token(TokenKind::MinusEq, index, end + 1));
+                    } else {
+                        tokens.push(token(TokenKind::Minus, index, index + 1));
+                    }
                 }
             }
             '*' => {
                 chars.next();
-                tokens.push(token(TokenKind::Star, index, index + 1));
+                if let Some((end, '=')) = chars.peek().copied() {
+                    chars.next();
+                    tokens.push(token(TokenKind::StarEq, index, end + 1));
+                } else {
+                    tokens.push(token(TokenKind::Star, index, index + 1));
+                }
             }
             '/' => {
                 chars.next();
-                tokens.push(token(TokenKind::Slash, index, index + 1));
+                if chars.peek().is_some_and(|(_, ch)| *ch == '/') {
+                    let mut end = index + 1;
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if matches!(next, '\r' | '\n') {
+                            break;
+                        }
+                        end = next_index + next.len_utf8();
+                        chars.next();
+                    }
+                    tokens.push(token(TokenKind::LineComment, index, end));
+                    continue;
+                }
+                if chars.peek().is_some_and(|(_, ch)| *ch == '*') {
+                    let (star, _) = chars.next().expect("block comment opener");
+                    let mut end = star + 1;
+                    let mut depth = 1usize;
+                    while let Some((next_index, next)) = chars.next() {
+                        end = next_index + next.len_utf8();
+                        if next == '/' && chars.peek().is_some_and(|(_, ch)| *ch == '*') {
+                            let (star, _) = chars.next().expect("nested comment opener");
+                            end = star + 1;
+                            depth += 1;
+                        } else if next == '*' && chars.peek().is_some_and(|(_, ch)| *ch == '/') {
+                            let (slash, _) = chars.next().expect("block comment closer");
+                            end = slash + 1;
+                            depth -= 1;
+                            if depth == 0 {
+                                break;
+                            }
+                        }
+                    }
+                    let kind = if depth == 0 {
+                        TokenKind::BlockComment
+                    } else {
+                        TokenKind::Unknown
+                    };
+                    tokens.push(token(kind, index, end));
+                    continue;
+                }
+                if let Some((end, '=')) = chars.peek().copied() {
+                    chars.next();
+                    tokens.push(token(TokenKind::SlashEq, index, end + 1));
+                } else {
+                    tokens.push(token(TokenKind::Slash, index, index + 1));
+                }
+            }
+            '%' => {
+                chars.next();
+                if matches!(chars.peek(), Some((_, '='))) {
+                    chars.next();
+                    tokens.push(token(TokenKind::PercentEq, index, index + 2));
+                } else {
+                    tokens.push(token(TokenKind::Percent, index, index + 1));
+                }
+            }
+            '?' => {
+                tokens.push(token(TokenKind::Question, index, index + 1));
+                chars.next();
             }
             '!' => {
                 chars.next();
                 if let Some((end, '=')) = chars.peek().copied() {
                     chars.next();
-                    tokens.push(token(TokenKind::NotEq, index, end + 1));
+                    if let Some((last, '=')) = chars.peek().copied() {
+                        chars.next();
+                        tokens.push(token(TokenKind::IdentityNotEq, index, last + 1));
+                    } else {
+                        tokens.push(token(TokenKind::NotEq, index, end + 1));
+                    }
                 } else {
                     tokens.push(token(TokenKind::Bang, index, index + 1));
                 }
@@ -132,59 +370,148 @@ pub fn lex(input: &str) -> TokenBuffer {
                     tokens.push(token(TokenKind::Gt, index, index + 1));
                 }
             }
-            '&' => {
+            '&' | '|' | '^' => {
                 chars.next();
-                if let Some((end, '&')) = chars.peek().copied() {
+                let kind = if chars.peek().is_some_and(|(_, next)| *next == '=') {
                     chars.next();
-                    tokens.push(token(TokenKind::AmpAmp, index, end + 1));
-                } else {
-                    tokens.push(token(TokenKind::Unknown, index, index + 1));
-                }
-            }
-            '|' => {
-                chars.next();
-                if let Some((end, '|')) = chars.peek().copied() {
+                    match ch {
+                        '&' => TokenKind::AmpEq,
+                        '|' => TokenKind::PipeEq,
+                        _ => TokenKind::CaretEq,
+                    }
+                } else if ch != '^' && chars.peek().is_some_and(|(_, next)| *next == ch) {
                     chars.next();
-                    tokens.push(token(TokenKind::PipePipe, index, end + 1));
+                    if ch == '&' {
+                        TokenKind::AmpAmp
+                    } else {
+                        TokenKind::PipePipe
+                    }
                 } else {
-                    tokens.push(token(TokenKind::Unknown, index, index + 1));
-                }
+                    match ch {
+                        '&' => TokenKind::Amp,
+                        '|' => TokenKind::Pipe,
+                        _ => TokenKind::Caret,
+                    }
+                };
+                let end = chars.peek().map(|(i, _)| *i).unwrap_or(input.len());
+                tokens.push(token(kind, index, end));
             }
             '"' => {
                 chars.next();
-                let mut end = index;
+                let mut end = index + 1;
+                let mut escaped = false;
+                let mut closed = false;
                 while let Some((next_index, next)) = chars.peek().copied() {
-                    end = next_index;
+                    if matches!(next, '\r' | '\n') {
+                        break;
+                    }
                     chars.next();
+                    end = next_index + next.len_utf8();
+                    if escaped {
+                        escaped = false;
+                        continue;
+                    }
+                    if next == '\\' {
+                        escaped = true;
+                        continue;
+                    }
                     if next == '"' {
+                        closed = true;
                         break;
                     }
                 }
-                tokens.push(token(TokenKind::String, index, end + 1));
+                let kind = if closed && literal::decode_string_literal(&input[index..end]).is_ok() {
+                    TokenKind::String
+                } else {
+                    TokenKind::Unknown
+                };
+                tokens.push(token(kind, index, end));
             }
             '0'..='9' => {
-                let mut end = index;
-                let mut saw_dot = false;
-                while let Some((next_index, next)) = chars.peek().copied() {
-                    if next.is_ascii_digit() {
-                        end = next_index;
+                chars.next();
+                let mut end = index + 1;
+                if ch == '0'
+                    && chars
+                        .peek()
+                        .is_some_and(|(_, ch)| matches!(ch, 'b' | 'o' | 'x'))
+                {
+                    let (prefix, _) = chars.next().expect("integer base prefix");
+                    end = prefix + 1;
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if !(next.is_ascii_alphanumeric() || next == '_') {
+                            break;
+                        }
                         chars.next();
-                        continue;
+                        end = next_index + 1;
                     }
-                    if !saw_dot && next == '.' {
-                        saw_dot = true;
-                        end = next_index;
-                        chars.next();
-                        continue;
-                    }
-                    break;
+                    let kind = if literal::is_integer_literal(&input[index..end]) {
+                        TokenKind::Number
+                    } else {
+                        TokenKind::Unknown
+                    };
+                    tokens.push(token(kind, index, end));
+                    continue;
                 }
-                let kind = if saw_dot {
-                    TokenKind::Float
-                } else {
-                    TokenKind::Number
-                };
-                tokens.push(token(kind, index, end + 1));
+                while let Some((next_index, next)) = chars.peek().copied() {
+                    if !(next.is_ascii_digit() || next == '_') {
+                        break;
+                    }
+                    chars.next();
+                    end = next_index + 1;
+                }
+                let mut kind = TokenKind::Number;
+                if chars.peek().is_some_and(|(dot, next)| {
+                    *next == '.'
+                        && input
+                            .as_bytes()
+                            .get(dot + 1)
+                            .is_some_and(u8::is_ascii_digit)
+                }) {
+                    let (dot, _) = chars.next().expect("fraction dot");
+                    end = dot + 1;
+                    kind = TokenKind::Float;
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if !(next.is_ascii_digit() || next == '_') {
+                            break;
+                        }
+                        chars.next();
+                        end = next_index + 1;
+                    }
+                }
+                if chars.peek().is_some_and(|(_, ch)| matches!(ch, 'e' | 'E')) {
+                    let (exponent, _) = chars.next().expect("exponent marker");
+                    end = exponent + 1;
+                    kind = TokenKind::Float;
+                    if chars.peek().is_some_and(|(_, ch)| matches!(ch, '+' | '-')) {
+                        let (sign, _) = chars.next().expect("exponent sign");
+                        end = sign + 1;
+                    }
+                    if !chars.peek().is_some_and(|(_, ch)| ch.is_ascii_digit()) {
+                        kind = TokenKind::Unknown;
+                    }
+                    while let Some((next_index, next)) = chars.peek().copied() {
+                        if !(next.is_ascii_digit() || next == '_') {
+                            break;
+                        }
+                        chars.next();
+                        end = next_index + 1;
+                    }
+                }
+                while let Some((next_index, next)) = chars.peek().copied() {
+                    if !(next.is_ascii_alphanumeric() || next == '_') {
+                        break;
+                    }
+                    chars.next();
+                    end = next_index + next.len_utf8();
+                }
+                let (_, suffix) = literal::numeric_literal_parts(&input[index..end]);
+                if suffix.is_some_and(|suffix| suffix.starts_with('f')) {
+                    kind = TokenKind::Float;
+                }
+                if kind == TokenKind::Number && !literal::is_integer_literal(&input[index..end]) {
+                    kind = TokenKind::Unknown;
+                }
+                tokens.push(token(kind, index, end));
             }
             '_' | 'a'..='z' | 'A'..='Z' => {
                 let mut end = index;
@@ -202,6 +529,9 @@ pub fn lex(input: &str) -> TokenBuffer {
                     "as" => TokenKind::AsKw,
                     "crate" => TokenKind::CrateKw,
                     "for" => TokenKind::ForKw,
+                    "in" => TokenKind::InKw,
+                    "async" => TokenKind::AsyncKw,
+                    "await" => TokenKind::AwaitKw,
                     "fn" => TokenKind::FnKw,
                     "impl" => TokenKind::ImplKw,
                     "mod" => TokenKind::ModKw,
@@ -209,6 +539,7 @@ pub fn lex(input: &str) -> TokenBuffer {
                     "self" => TokenKind::SelfKw,
                     "super" => TokenKind::SuperKw,
                     "trait" => TokenKind::TraitKw,
+                    "type" => TokenKind::TypeKw,
                     "use" => TokenKind::UseKw,
                     "where" => TokenKind::WhereKw,
                     "const" => TokenKind::ConstKw,
@@ -232,16 +563,18 @@ pub fn lex(input: &str) -> TokenBuffer {
             }
             _ => {
                 chars.next();
-                tokens.push(token(TokenKind::Unknown, index, index + 1));
+                tokens.push(token(TokenKind::Unknown, index, index + ch.len_utf8()));
             }
         }
     }
 
     let eof = input.len();
     tokens.push(token(TokenKind::Eof, eof, eof));
-    tokens
+    cancel.check()?;
+    Ok(tokens)
 }
 
+/// Constructs a token range in the original input; no spelling is copied.
 fn token(kind: TokenKind, start: usize, end: usize) -> Token {
     Token {
         kind,

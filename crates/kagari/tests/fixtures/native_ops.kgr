@@ -1,0 +1,22 @@
+use game::shapes::{Edge, edges, closed_edges, tail, head, closed_head, full, identity, span_identity};
+struct Payload { val value: i32 }
+fn number(value: Edge<i32>) -> i32 {
+    match value { Edge::Included(value) => value, Edge::Excluded(value) => value, Edge::Unbounded => 0 }
+}
+fn exclusive_main() -> i32 { match edges(span_identity(1..41)) { (start, end) => number(start) + number(end) } }
+fn inclusive_main() -> i32 { match closed_edges(1..=41) { (start, end) => number(start) + number(end) } }
+fn tail_main() -> i32 { number(tail(42..)) }
+fn head_main() -> i32 { number(head(..42)) }
+fn closed_head_main() -> i32 { number(closed_head(..=42)) }
+fn full_main() -> bool { full(..) }
+fn heap_main() -> i32 {
+    val result = identity(Edge::Included(Payload { value: 42 }));
+    val scratch = Payload { value: 0 };
+    match result { Edge::Included(value) => value.value, Edge::Excluded(value) => value.value, Edge::Unbounded => 0 }
+}
+fn unbounded_main() -> i32 { number(identity(Edge::Unbounded)) }
+fn width_main() -> u64 {
+    match closed_edges(0u64..=18446744073709551615u64) {
+        (_, end) => match end { Edge::Included(value) => value, Edge::Excluded(value) => value, Edge::Unbounded => 0u64 }
+    }
+}

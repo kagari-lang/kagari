@@ -1,12 +1,25 @@
 [workspace]
 members = [
+    "benchmarks/lua-comparison",
+    "crates/kagari-codegen",
+    "crates/kagari-abi",
+    "crates/kagari-contract",
+    "crates/kagari-types",
+    "crates/kagari-stdlib",
     "crates/kagari-cli",
+    "crates/kagari-format",
+    "crates/kagari-lint",
     "crates/kagari-common",
-    "crates/kagari-embed",
+    "crates/kagari-source",
+    "crates/kagari-package",
+    "crates/kagari",
     "crates/kagari-hir",
-    "crates/kagari-ir",
-    "crates/kagari-jit-cranelift",
+    "crates/kagari-mir",
+    "crates/kagari-bytecode",
+    "crates/kagari-compiler",
+    "crates/kagari-codegen-cranelift",
     "crates/kagari-runtime",
+    "crates/kagari-derive",
     "crates/kagari-syntax",
     "crates/kagari-vm",
 ]
@@ -18,20 +31,36 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+kagari-format = { path = "crates/kagari-format" }
+kagari-lint = { path = "crates/kagari-lint" }
+kagari-codegen = { path = "crates/kagari-codegen" }
+kagari-abi = { path = "crates/kagari-abi" }
+kagari-contract = { path = "crates/kagari-contract" }
+kagari-types = { path = "crates/kagari-types" }
+kagari-stdlib = { path = "crates/kagari-stdlib" }
 kagari-common = { path = "crates/kagari-common" }
-kagari-embed = { path = "crates/kagari-embed" }
+kagari-source = { path = "crates/kagari-source" }
+kagari-package = { path = "crates/kagari-package" }
+kagari = { path = "crates/kagari", default-features = false }
 kagari-hir = { path = "crates/kagari-hir" }
-kagari-ir = { path = "crates/kagari-ir" }
-kagari-jit-cranelift = { path = "crates/kagari-jit-cranelift" }
+kagari-mir = { path = "crates/kagari-mir" }
+kagari-bytecode = { path = "crates/kagari-bytecode" }
+kagari-compiler = { path = "crates/kagari-compiler", default-features = false }
+kagari-codegen-cranelift = { path = "crates/kagari-codegen-cranelift" }
 kagari-runtime = { path = "crates/kagari-runtime" }
+kagari-derive = { path = "crates/kagari-derive" }
 kagari-syntax = { path = "crates/kagari-syntax" }
 kagari-vm = { path = "crates/kagari-vm" }
-cranelift-codegen = "0.132.0"
-cranelift-frontend = "0.132.0"
-cranelift-jit = "0.132.0"
-cranelift-module = "0.132.0"
-cranelift-native = "0.132.0"
-smallvec = "1.15.1"
+cranelift-codegen = "0.136.2"
+cranelift-frontend = "0.136.2"
+cranelift-jit = "0.136.2"
+cranelift-module = "0.136.2"
+cranelift-native = "0.136.2"
+cranelift-object = "0.136.2"
+smallvec = "1.16.3"
 serde = { version = "1.0", features = ["derive"] }
 bincode = "1.3"
-indexmap = "2.14.0"
+thiserror = "2"
+
+[profile.dev]
+opt-level = 1

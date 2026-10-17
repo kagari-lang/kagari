@@ -1,348 +1,191 @@
 # Kagari Codegen Backend
 
-This document specifies the backend abstraction model for Kagari.
+Native compilation consumes verified Kagari MIR and explicit ABI/link descriptions.
+Compilation, runtime installation and invocation are separate boundaries. The
+[architecture](../architecture.md) defines crate ownership; the
+[roadmap](../implementation-roadmap.md) owns pending integration work.
 
-The goal is to let Kagari adopt machine-code backends such as Cranelift without coupling the language, runtime, or typed IR directly to one backend implementation.
-
-## Design Goals
-
-- keep frontend and semantic analysis independent from backend choice
-- keep Kagari IR independent from backend-specific IR structures
-- isolate machine-code generation in replaceable backend implementations
-- share one runtime ABI across interpreter and codegen backends
-- make it feasible to add or swap backends later without rewriting the language stack
-
-## Core Principle
-
-Kagari treats code generation as a backend behind a stable internal interface.
-
-The stack is:
+## Ownership
 
 ```text
-source
--> AST
--> typed semantics
--> Kagari IR
--> backend abstraction
--> concrete backend
--> machine code or object code
+checked HIR --compiler source--> verified MIR --compiler core--> verified bytecode
+                                      |
+                               codegen interface
+                                      |
+                             Cranelift machine code
+                                      |
+                           runtime installation/invocation
 ```
 
-The important rule is:
+- `kagari-mir` owns concrete typed CFGs, verification, sealed analyses, portable
+  encoding and bounded public optimization passes. It does not depend on HIR.
+- `kagari-compiler` owns source lowering, reachable monomorphization, MIR-to-bytecode
+  emission, canonical artifact correspondence and native input correspondence.
+- `kagari-abi` owns physical representations, helper signatures, native calling
+  conventions, version constants, physical descriptors and executable page owners.
+- `kagari-contract` owns semantic types/layouts, checked call/operation contracts
+  and the native product's logical function, safepoint and debug metadata.
+- `kagari-codegen` owns the compilation interface and diagnostics. It consumes MIR
+  and ABI, without runtime, bytecode, frontend or concrete backend dependencies.
+- `kagari-codegen-cranelift` owns MIR-to-CLIF legalization, host ISA selection,
+  shared JIT/object lowering, target selection and executable page lifetime.
+- `kagari-runtime` owns installation, generation/authority checks, sessions, frames,
+  helper implementations and invocation. The VM consumes prepared native entries.
+- `kagari` orchestrates preparation, caching, linking and execution. Concrete
+  backends are supplied by hosts; they are not SDK production dependencies.
 
-- Kagari IR belongs to Kagari
-- backend IR belongs to the backend
+No backend receives source text, a HIR arena, `Runtime`, `LoadedModule`, a Rust
+`Value` or a `BytecodeFunction` to recover semantic facts. Cranelift IDs, builders,
+registers and calling-convention objects remain private to its implementation.
 
-This boundary is mandatory.
+## Verified Handoff
 
-## Architecture Layers
+`BackendFunctionInput::new` selects an `InstanceId` from a `VerifiedMirModule` and
+borrows a `NativeLinkDescription`. Its private fields prevent callers from pairing
+an unrelated function with the module's seal. Accessors expose the function,
+module, its `FunctionAnalysis` and the supplied links.
 
-The architecture is split into four layers:
+The verified handoff retains concrete executable identities, typed operations,
+module/function links, origins, effects, definite initialization, liveness,
+logical roots, safepoints and cancellation safepoints. Editing MIR requires consuming
+the seal and re-verifying before lowering or compilation. Physical registers,
+spills and backend stack-map locations remain backend responsibilities; the backend
+must reject support when it cannot implement the verified root contract.
 
-1. language frontend
-2. Kagari IR and metadata
-3. runtime ABI
-4. concrete codegen backend
+Portable MIR carries untrusted data, never serialized trust. A native-enabled SDK
+decodes and verifies it, lowers it through compiler core and compares the canonical
+bytecode program before installation. Missing native input permits an explicit
+unsupported decision. Invalid or inconsistent input is an error, not permission
+to execute either unvalidated representation.
 
-### Layer 1: Language Frontend
+## Compilation Interface and Trust
 
-This includes:
-
-- parsing
-- name resolution
-- type checking
-- trait analysis
-- reflection and security validation
-
-This layer must not know about Cranelift, LLVM, or any other backend library.
-
-## Layer 2: Kagari IR
-
-Kagari IR captures:
-
-- typed operations
-- function structure
-- module structure
-- effect information
-- type metadata references
-- helper-call boundaries
-
-It must not contain:
-
-- backend-specific SSA nodes
-- backend-specific register abstractions
-- backend-specific block builders
-- backend-specific calling-convention objects
-
-Backend-specific concepts are confined to backend implementations.
-
-## Layer 3: Runtime ABI
-
-The runtime ABI is the contract between generated code and the Kagari runtime.
-
-It defines:
-
-- how parameters are passed
-- how return values are represented
-- how locals and temporaries are lowered
-- how runtime helpers are called
-- how host calls are entered
-- how safepoints are represented
-- how errors or traps are surfaced
-
-This ABI is backend-independent.
-
-That means:
-
-- Cranelift code calls the same helpers the interpreter logically depends on
-- a future LLVM backend would target the same helper surface
-
-## Layer 4: Concrete Backend
-
-This is the only layer allowed to know about a specific codegen framework.
-
-Examples:
-
-- `CraneliftBackend`
-- `LlvmBackend`
-- experimental backend
-
-Each backend is responsible for lowering Kagari IR plus runtime ABI calls into its own internal representation.
-
-## Stable Kagari Concepts
-
-The following are Kagari-owned concepts:
-
-- `KagariIrModule`
-- `KagariIrFunction`
-- `FunctionId`
-- `ModuleId`
-- `ModuleEpoch`
-- `ValueRepr`
-- `RuntimeAbi`
-- `EffectFlags`
-- `SafepointKind`
-
-These are Kagari concepts, not Cranelift concepts.
-
-## Backend Interface
-
-The backend interface has this semantic shape:
+The current trait is defined in `crates/kagari-codegen/src/lib.rs`:
 
 ```text
-CodegenBackend {
-  compile_function(ir_fn, abi, target) -> CompiledFunction
-  compile_module(ir_mod, abi, target) -> CompiledModule
+unsafe trait CodegenBackend {
+    configuration() -> BackendConfiguration
+    compile_function(BackendFunctionInput) -> Result<NativeCompilationProduct, BackendCompileError>
 }
 ```
 
-Supporting concepts:
+There is no invocation method. `BackendConfiguration` includes the backend ID,
+target triple/pointer width/ISA features and every option affecting code generation.
+Equal configurations must permit reuse of compiled products. Unsupported input is
+distinct from compiler or link errors and must be reported before script effects.
+
+Implementing this trait is unsafe: successful products must implement the exact
+verified function's semantics, polling points, roots and host native ABI, retain
+all referenced code/links, and never unwind through C frames. Native code is trusted
+host code. Safe descriptor validation cannot prove arbitrary executable pointers
+or machine instructions correct.
+
+`NativeCompilationProduct` combines an `ExecutableFunctionArtifact` with an
+`Arc<dyn NativeCodeOwner>`. Its `artifact.code` is the ABI-owned `NativeArtifact`;
+function identities and logical stack/debug maps live in contract. Descriptors identify backend, target, function, entry
+address, runtime/helper versions, safepoints, traps and debug metadata. The owner
+keeps callable pages alive independently of backend destruction or later compilation.
+NativeCodeOwner requires Send + Sync: finalized products can be installed by
+independent runtimes on other threads, and final destruction can occur there.
+Cranelift keeps its Send-only JITModule bookkeeping behind a private mutex;
+compilation and final destruction use exclusive access, while invocation uses only
+the finalized entry address and takes no owner lock. Runtime ownership and entry
+checks still apply. Runtime transfer requires the callback, payload and observer
+Send bounds while execution remains exclusive; see
+[runtime ownership](../runtime-ownership-and-host-api-design.md#thread-transfer-contract).
+
+## Links and Runtime ABI
+
+`NativeLinkDescription::scalar` describes portable helper identities and physical
+signatures. Missing, duplicate or malformed requirements are compiler errors.
+Runtime constructs an invocation-local `NativeInvocationContext` with an opaque
+runtime pointer and immutable `NativeHelperTable`. Generated code loads helpers
+from this table; it never persists process addresses or inspects Rust Runtime
+layout. Context/table pointers remain valid through invocation and cannot escape.
+
+The current zero-argument scalar entry uses the C ABI:
 
 ```text
-BackendTarget
-CompiledFunction
-CompiledModule
-CodeBlob
-RelocationInfo
-TrapTable
-SafepointTable
+(context: *const NativeInvocationContext, result: *mut JitValue) -> i32 status
 ```
 
-Names are implementation details.
-The interface is framed in Kagari terms rather than in a backend library's native API.
-
-The current Rust interface lives in `crates/kagari-runtime/src/backend.rs`.
-It exposes `BackendId`, `BackendTarget`, `BackendFunctionInput`, `ExecutableFunctionArtifact`, safepoint and debug metadata, backend diagnostics, and `CodegenBackend`.
-The implemented trait compiles one function at a time and optionally invokes a compiled artifact:
-
-```text
-CodegenBackend {
-  backend_id() -> BackendId
-  target() -> BackendTarget
-  compile_function(input) -> ExecutableFunctionArtifact
-  invoke_function(artifact, runtime) -> Value
-}
-```
-
-Module-level compilation remains a valid future extension of the same boundary, not a requirement of the current trait.
-`kagari-jit-cranelift` implements this boundary for the optional baseline Cranelift backend.
-
-## Runtime ABI Surface
-
-The runtime ABI exposes helpers for operations that are:
-
-- effectful
-- security-sensitive
-- hard to inline safely
-- shared between interpreter and JIT
-
-Typical helpers include:
-
-- allocation
-- write barriers
-- host calls
-- capability checks
-- reflection access
-- downcast checks
-- dynamic dispatch support
-- error and trap construction
-
-This keeps codegen backends focused on lowering, not on reimplementing runtime semantics.
-
-## Value Representation Boundary
-
-Value representation is defined once by Kagari, then lowered by each backend.
-
-Examples of representation questions:
-
-- how small integers are represented
-- whether aggregates are boxed or unboxed
-- how interface values are represented
-- how host borrow handles are passed
-
-The backend consumes these decisions; it does not own them.
-
-Otherwise backend choice starts to dictate language semantics.
-
-## Safepoint and Stack Map Boundary
-
-Safepoint strategy is a Kagari-level concern.
-
-The backend receives:
-
-- where safepoints must exist
-- what values are live across them
-- what stack-map information needs to be emitted
-
-This is especially important for:
-
-- GC
-- host interop
-- hot reload invalidation
-- future suspension support
-
-## Effect Metadata
-
-Kagari IR classifies operations by effect.
-
-Effect categories include:
-
-- may allocate
-- may trap
-- may call host
-- may trigger capability checks
-- may suspend
-- may require safepoint metadata
-
-Backends consume these flags during lowering.
-
-This keeps backend implementations simpler and keeps semantic effect knowledge in the Kagari-owned layer.
-
-## Cranelift Boundary
-
-When Cranelift is used as a backend, this separation means:
-
-- only the Cranelift backend crate or module knows about Cranelift IR builders and contexts
-- Kagari IR does not become Cranelift-shaped
-- runtime helper conventions stay reusable
-- a later backend does not require frontend or runtime redesign
-
-Cranelift is an implementation detail of one backend, not the definition of Kagari execution.
-
-## What Not to Do
-
-The following are invalid architecture choices:
-
-- storing Cranelift value or block ids in Kagari IR nodes
-- exposing Cranelift type objects in runtime ABI definitions
-- passing Cranelift contexts through frontend or middle-end APIs
-- designing Kagari IR solely around one backend's conveniences
-- baking backend register or SSA assumptions into language semantics
-
-These decisions violate the backend boundary.
-
-## Backend-Specific Responsibilities
-
-The following remain inside a specific backend implementation:
-
-- backend IR construction
-- target ISA selection
-- register allocation specifics
-- machine code emission
-- relocation handling details
-- JIT memory setup details
-- object emission details
-
-These are expected to differ across backends.
-
-## Cranelift Backend
-
-Cranelift satisfies the requirements for a first machine-code backend:
-
-- it is practical for baseline JIT work
-- it avoids hand-writing multi-platform machine-code emitters
-- it is reasonably aligned with Rust-based implementation work
-
-It is treated as:
-
-- a concrete backend
-- not the backend abstraction itself
-
-## Adding Another Backend Later
-
-Adding another backend requires:
-
-- writing a new lowering from Kagari IR to the new backend IR
-- implementing the same runtime ABI surface
-- producing the same metadata outputs needed by the runtime
-
-It must not require:
-
-- rewriting parsing
-- rewriting semantic analysis
-- redesigning host interop
-- redesigning reflection
-- redesigning the type registry
-
-## Expected Cost of Switching Backends
-
-Even with good abstraction, switching or adding a backend is not free.
-
-The cost is concentrated in:
-
-- codegen lowering
-- backend-specific metadata emission
-- backend-specific target support
-
-If the cost spreads into:
-
-- frontend data structures
-- runtime value semantics
-- security model
-- host interop semantics
-
-then the abstraction boundary has been drawn too low.
-
-## Implementation Order
-
-The incremental implementation order is:
-
-1. stabilize Kagari-owned IR and function metadata
-2. define runtime helper ABI
-3. define backend-neutral compiled-code interfaces
-4. implement the interpreter against the same semantic model
-5. add a first machine-code backend
-6. only later consider additional backends
-
-This order keeps backend experimentation from destabilizing the rest of the language implementation.
-
-## Relationship to Other Specifications
-
-This document complements:
-
-- [execution.md](execution.md)
-- [runtime.md](runtime.md)
-- [host-interop.md](host-interop.md)
-
-Those documents define the execution model, runtime model, and host boundary.
-This document defines how code generation backends plug into that larger architecture.
+`kagari-abi::native_call` defines tagged Unit/Bool/i32 results and status codes.
+Runtime translates them into values or structured failures. Cranelift stores fields
+at ABI-defined offsets rather than assuming the layout of runtime Rust `Value`.
+
+At each executable point, the scalar backend calls the execution-poll helper using
+its sealed logical offset. Runtime validates and records the location, checks
+sticky termination/cancellation and visits a GC safepoint before checked arithmetic.
+Errors retain their correct source origin. There are no logical charges or
+charge-only checkpoints; optimizers retain actual effects and required safepoints.
+
+Allocation, host access, borrows, declared interface checks, reflection, paths, calls and
+future GC-bearing native operations must use the shared runtime contracts. Their
+presence in MIR does not imply support by the current scalar backend.
+
+## Preparation, Installation and Execution
+
+`PreparedProgram` retains a shared `VerifiedProgram` and, with `native`, optional
+verified MIR and a bounded native product cache. Cache keys include program-local
+function identity, complete backend configuration and runtime/helper ABI versions.
+Successful products and unsupported decisions are reusable; cancellation and
+compiler errors are not cached. Runtime-specific handles are never cached there.
+
+`KagariRuntime::prepare_native` checks the exact prepared/loaded version identity,
+entry and runtime policy, compiles or reuses the product and installs it for this
+runtime. `Runtime::install_native_function` is unsafe for direct callers; it checks
+the descriptor, host ABI, declared access, entry/function/signature and metadata bounds,
+while the caller proves code correctness and lifetime. SDK orchestration can satisfy
+that contract using the unsafe backend guarantee and verified correspondence.
+
+`InstalledNativeFunction` retains its code owner, loaded version and dependency
+closure. Runtime invocation creates ordinary sessions/frames, checks authority and
+ownership and shares cancellation, GC, cancellation and trace behavior with the VM.
+`Vm::execute_prepared` accepts an installed entry or an explicit unsupported decision.
+It never compiles. Only a pre-entry unsupported/policy decision may fall back;
+a native failure after entry is returned with its trace and never restarted.
+
+The baseline has no native observer callbacks. An attached execution observer
+forces pre-entry interpreter fallback even if descriptor flags claim debug support.
+Flags alone cannot provide debugger semantics.
+
+Reload publishes a new immutable version. Existing native entries retain the exact
+old version and pages while reachable; they cannot masquerade as entries for the
+new version. Failed publication leaves current entrypoints intact. Interpreter cache
+records are separate from native code ownership. The [AOT deployment contract](aot.md) separately defines persistent native
+bundles and their trusted loading boundary.
+
+## Current Cranelift Subset
+
+Supported functions have no arguments, one straight-line return block, and only
+Unit/Bool/i32 values. Supported instructions are constants, moves, checked i32 add/subtract/multiply/negation, boolean not, supported
+scalar equality/order comparisons and return. GC-bearing values, locals, branches,
+loops, calls, remainder/division and other numeric families select pre-entry fallback.
+Each scalar helper safepoint has an empty root map. The backend allocates one JIT
+module per successful product and frees its pages on final code-owner drop.
+
+Native/interpreter tests must distinguish Native from InterpreterFallback, including
+source and encoded artifacts, overflow and cancellation behavior, exact origins, retained code,
+reload and GC boundaries. Compiler errors must not be mislabeled unsupported.
+
+## Future Backends
+
+Wider Cranelift coverage and LLVM remain deferred independent tracks. New support
+must consume the same concrete MIR facts and explicit link/ABI descriptions, retain
+correct roots and versions and satisfy the behavior matrix. No placeholder LLVM
+crate, duplicate runtime or second implementation of source semantics is required.
+Scalar AOT uses the separate ObjectBackend emission contract and the shared
+invocation ABI; see [AOT](aot.md). General module compilation, physical GC maps
+and native debugger callbacks remain unsupported. Shareable code owners allow separate runtime
+installations, not concurrent entry into one runtime.
+
+## Async backend boundary
+
+The implemented [async executable contracts](../async-execution-design.md#executable-contracts)
+define the checked handoff.
+
+Native backends must reject unsupported suspension before entry, selecting
+checked interpreter execution without restarting already executed effects.
+Cold factory construction and resume-body execution have distinct contracts.
+JIT suspension is excluded from AX; existing synchronous native execution remains
+covered independently.

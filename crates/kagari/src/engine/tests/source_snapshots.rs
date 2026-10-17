@@ -1,0 +1,760 @@
+use crate::{
+    engine::{KagariEngine, source::ArtifactOptions},
+    error::EmbeddingError,
+};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{ModuleIdentity, PackageId},
+};
+use kagari_hir::typeck::const_budget::ConstLimits;
+use kagari_runtime::native::builder::ModuleBuilder;
+use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_syntax::parser::ParseLimits;
+use kagari_types::declaration::host::{
+    HostReflectionPolicy, HostTypeOwnership, HostTypePolicy, PathAccess,
+};
+use std::sync::Arc;
+
+#[test]
+fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
+    let engine = KagariEngine::default();
+    let first = ModuleIdentity {
+        package: PackageId("a".into()),
+        path: vec!["main".into()],
+    };
+    let second = ModuleIdentity {
+        package: PackageId("b".into()),
+        path: vec!["main".into()],
+    };
+    let name = "memory://identity.kgr";
+    let token = CancellationToken::default();
+    engine.bind_module(name, first.clone()).unwrap();
+    let id = engine
+        .set_source(name, "fn main() -> i32 { 42 }".into(), SourceLayer::Base)
+        .unwrap();
+    let old_source = engine.source_snapshot();
+    let old = engine
+        .compile_snapshot(old_source.clone(), id, &token)
+        .unwrap();
+    engine.bind_module(name, second.clone()).unwrap();
+    let current_source = engine.source_snapshot();
+    let new = engine
+        .compile_snapshot(current_source.clone(), id, &token)
+        .unwrap();
+    assert_eq!(old.module_identity(), &first);
+    assert_eq!(new.module_identity(), &second);
+    let artifact = engine.emit_bytecode(&new, Default::default()).unwrap();
+    assert_eq!(
+        artifact.records().program.modules[artifact.records().program.root.index()].identity,
+        second
+    );
+    assert_eq!(
+        artifact.records().header.module_identity,
+        artifact.records().program.modules[artifact.records().program.root.index()].identity
+    );
+    let old_again = engine.compile_snapshot(old_source, id, &token).unwrap();
+    assert_eq!(old_again.module_identity(), &first);
+    let current_again = engine.analyze(current_source, &token).unwrap();
+    assert_eq!(
+        current_again
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .lowered
+            .source
+            .module_identity(),
+        &second
+    );
+    assert_eq!(
+        current_again
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .typed
+            .reused_bodies,
+        0
+    );
+}
+
+#[test]
+fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
+    let engine = KagariEngine::default();
+    let token = CancellationToken::default();
+    let unchanged = "fn echo<T>(value: T) -> T { value } struct P { var n: i32 } fn b() -> i32 { val p: P = P { n: echo(a()) }; p.n += 1; val xs: Vec<i32> = Vec::from([p.n]); xs.push(2); match 2147483647 { 2147483647 => -2147483648, _ => xs[0] } }";
+    let id = engine
+        .set_source(
+            "memory://reuse.kgr",
+            format!("fn a() -> i32 {{ 1 }} {unchanged}"),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    engine.analyze(engine.source_snapshot(), &token).unwrap();
+    let edited = format!(
+        "fn a() -> i32 {{ val shifted: (i32, Vec<i32>) = (10, Vec::from([20])); shifted[0] + shifted[1][0] + 30 }} {unchanged}"
+    );
+    engine
+        .set_source("memory://reuse.kgr", edited.clone(), SourceLayer::Overlay)
+        .unwrap();
+    let snapshot = engine.source_snapshot();
+    let analysis = engine.analyze(snapshot.clone(), &token).unwrap();
+    assert!(analysis.file(id).unwrap().signatures_reused());
+    assert_eq!(
+        analysis
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .typed
+            .reused_bodies,
+        2
+    );
+    let reused = engine.compile_snapshot(snapshot, id, &token).unwrap();
+    let fresh_engine = KagariEngine::default();
+    let fresh = fresh_engine
+        .compile_source(SourceFile::new("memory://reuse.kgr", edited))
+        .unwrap();
+    let reused = engine.emit_bytecode(&reused, Default::default()).unwrap();
+    let fresh = fresh_engine
+        .emit_bytecode(&fresh, Default::default())
+        .unwrap();
+    assert_eq!(
+        reused.records().to_bytes(reused.definitions()).unwrap(),
+        fresh.records().to_bytes(fresh.definitions()).unwrap()
+    );
+}
+
+#[test]
+fn host_artifacts_are_canonical_across_declaration_adoption_histories() {
+    let policy = HostTypePolicy {
+        ownership: HostTypeOwnership::HostRoot,
+        reflection: HostReflectionPolicy::Metadata,
+        path_access: PathAccess::ReadOnly,
+    };
+    let artifacts = ["A", "B"].map(|first| {
+        let mut preliminary = ModuleBuilder::new(
+            "demo", &StandardDeclarations::default().catalog().unwrap(),
+        ).unwrap();
+        let mut ty = preliminary.define_type(first).unwrap();
+        ty.external(policy).unwrap();
+        ty.finish().unwrap();
+        let preliminary = preliminary.finish().unwrap();
+        // Allocate the first identity before adopting the complete provider.
+        // Both final declarations have the same semantic order.
+        let mut builder = ModuleBuilder::new("demo", &preliminary.catalog()).unwrap();
+        for name in ["A", "B"] {
+            let mut ty = builder.define_type(name).unwrap();
+            ty.external(policy).unwrap();
+            ty.finish().unwrap();
+        }
+        let engine = KagariEngine::with_native_modules(
+            Default::default(), vec![builder.finish().unwrap()],
+        ).unwrap();
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new(
+                    "host-order.kgr",
+                    "use demo; fn a(value: demo::A) -> demo::A { value } fn b(value: demo::B) -> demo::B { value } fn main() -> i32 { 42 }",
+                ),
+                Default::default(),
+            )
+            .unwrap();
+        artifact.records().to_bytes(artifact.definitions()).unwrap()
+    });
+    assert!(
+        artifacts[0] == artifacts[1],
+        "Declaration adoption history must not change artifact bytes"
+    );
+}
+
+#[test]
+fn compilation_and_tools_share_overlay_revision_and_profile() {
+    let engine = KagariEngine::default();
+    let token = CancellationToken::default();
+    let id = engine
+        .set_source(
+            "memory://main.kgr",
+            "fn main() -> i32 { 1 }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let original = engine.source_snapshot();
+    engine
+        .set_source(
+            "memory://main.kgr",
+            "fn main() -> i32 { 2 }".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    let edited = engine.source_snapshot();
+    let current = engine.analyze(edited.clone(), &token).unwrap();
+    let old = engine.analyze(original.clone(), &token).unwrap();
+    assert!(old.revision() < current.revision());
+    let again = engine.analyze(edited, &token).unwrap();
+    assert!(
+        Arc::ptr_eq(current.file(id).unwrap(), again.file(id).unwrap()),
+        "an older query must not replace the current cache"
+    );
+
+    // Supplying new base text cannot silently bypass an editor's overlay.
+    let checked = engine
+        .compile_source(SourceFile::new(
+            "memory://main.kgr",
+            "fn main() -> i32 { 3 }",
+        ))
+        .unwrap();
+    let artifact = engine
+        .emit_bytecode(&checked, ArtifactOptions::default())
+        .unwrap();
+    let from_snapshot = engine
+        .compile_snapshot(engine.source_snapshot(), id, &token)
+        .unwrap();
+    let from_snapshot = engine
+        .emit_bytecode(&from_snapshot, ArtifactOptions::default())
+        .unwrap();
+    assert_eq!(
+        artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        from_snapshot
+            .records()
+            .to_bytes(from_snapshot.definitions())
+            .unwrap()
+    );
+    assert!(
+        engine
+            .source_snapshot()
+            .file(id)
+            .unwrap()
+            .text()
+            .contains("{ 2 }")
+    );
+    engine.close_overlay("memory://main.kgr").unwrap();
+    assert!(
+        engine
+            .source_snapshot()
+            .file(id)
+            .unwrap()
+            .text()
+            .contains("{ 3 }")
+    );
+    assert!(original.file(id).unwrap().text().contains("{ 1 }"));
+
+    token.cancel();
+    assert!(matches!(
+        engine.compile_snapshot(original, id, &token),
+        Err(EmbeddingError::Cancelled)
+    ));
+}
+
+#[test]
+fn unchanged_installed_environment_reuses_analysis_results() {
+    let engine = KagariEngine::default();
+    let id = engine
+        .set_source(
+            "memory://reflect.kgr",
+            "fn main() { type_of(1); }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let token = CancellationToken::default();
+
+    let allowed = engine.analyze(engine.source_snapshot(), &token).unwrap();
+    let restricted = engine.analyze(engine.source_snapshot(), &token).unwrap();
+    assert!(Arc::ptr_eq(
+        allowed.file(id).unwrap(),
+        restricted.file(id).unwrap()
+    ));
+    assert!(
+        restricted
+            .file(id)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .is_empty()
+    );
+}
+
+#[test]
+fn diagnostics_carry_the_source_revision_that_produced_them() {
+    let engine = KagariEngine::default();
+    let id = engine
+        .set_source(
+            "memory://bad.kgr",
+            "fn main() { missing; }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let snapshot = engine.source_snapshot();
+    let Err(EmbeddingError::Diagnostics { diagnostics }) =
+        engine.compile_snapshot(snapshot.clone(), id, &CancellationToken::default())
+    else {
+        panic!("expected source diagnostics")
+    };
+    let span = diagnostics
+        .iter()
+        .find_map(|diagnostic| diagnostic.span)
+        .unwrap();
+    assert!(snapshot.contains(span));
+    engine
+        .set_source(
+            "memory://bad.kgr",
+            "fn main() {}".into(),
+            SourceLayer::Overlay,
+        )
+        .unwrap();
+    assert!(!engine.source_snapshot().contains(span));
+}
+
+#[test]
+fn parser_budget_reports_revision_owned_limits_before_codegen() {
+    let engine = KagariEngine::default();
+    engine.set_parse_limits(ParseLimits {
+        max_diagnostics: 0,
+        ..Default::default()
+    });
+    let id = engine
+        .set_source(
+            "memory://limited.kgr",
+            "fn main() -> i32 { 42 } @ fn hidden() {}".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let source = engine.source_snapshot();
+    let Err(EmbeddingError::Diagnostics { diagnostics }) =
+        engine.compile_snapshot(source.clone(), id, &Default::default())
+    else {
+        panic!("limited source must not reach code generation");
+    };
+    let limit = diagnostics
+        .iter()
+        .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
+        .expect("structured parser limit");
+    assert!(source.contains(limit.span.expect("revision-owned position")));
+    let facts = engine.analyze(source, &Default::default()).unwrap();
+    assert!(
+        facts
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .declarations
+            .iter()
+            .any(|d| d.name == "main")
+    );
+    engine
+        .compile_source(SourceFile::new(
+            "memory://valid.kgr",
+            "fn main() -> i32 { 42 }",
+        ))
+        .unwrap();
+}
+
+#[test]
+fn nesting_budget_changes_invalidate_same_revision_analysis() {
+    let engine = KagariEngine::default();
+    let id = engine
+        .set_source(
+            "memory://nested.kgr",
+            format!(
+                "fn main() -> i32 {{ {}42{} }}",
+                "(".repeat(16),
+                ")".repeat(16)
+            ),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let source = engine.source_snapshot();
+    let before = engine.analyze(source.clone(), &Default::default()).unwrap();
+    assert!(before.check_program(id, &Default::default()).is_ok());
+    // Keep installed native declarations valid while rejecting the deeper user expression.
+    engine.set_parse_limits(ParseLimits {
+        max_nesting: 16,
+        ..Default::default()
+    });
+    let result = engine.compile_snapshot(source.clone(), id, &Default::default());
+    let Err(EmbeddingError::Diagnostics { diagnostics }) = result else {
+        panic!("excessive nesting must be rejected before code generation: {result:?}");
+    };
+    let limit = diagnostics
+        .iter()
+        .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
+        .unwrap();
+    assert!(source.contains(limit.span.unwrap()));
+    assert!(before.check_program(id, &Default::default()).is_ok());
+    engine.set_parse_limits(Default::default());
+    engine
+        .compile_snapshot(source, id, &Default::default())
+        .unwrap();
+}
+
+#[test]
+fn deep_iterative_source_is_rejected_with_queryable_prefix() {
+    for max_tree_depth in [24, ParseLimits::default().max_tree_depth] {
+        let engine = KagariEngine::default();
+        engine.set_parse_limits(ParseLimits {
+            max_tree_depth,
+            ..Default::default()
+        });
+        let id = engine
+            .set_source(
+                "memory://chain.kgr",
+                format!(
+                    "fn good() -> i32 {{ 42 }} fn main() -> i32 {{ 1{} }}",
+                    " + 1".repeat(2_000)
+                ),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let source = engine.source_snapshot();
+        let analysis = engine.analyze(source.clone(), &Default::default()).unwrap();
+        assert!(
+            analysis
+                .file(id)
+                .unwrap()
+                .result()
+                .facts()
+                .declarations
+                .iter()
+                .any(|d| d.name == "good")
+        );
+        let Err(EmbeddingError::Diagnostics { diagnostics }) =
+            engine.compile_snapshot(source.clone(), id, &Default::default())
+        else {
+            panic!("deep source reached codegen")
+        };
+        let limit = diagnostics
+            .iter()
+            .find(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED")
+            .unwrap();
+        assert!(source.contains(limit.span.unwrap()));
+    }
+}
+
+#[test]
+fn default_parser_limits_retain_queryable_facts_across_recursive_syntax() {
+    let depth = 2_000;
+    let cases = [
+        format!(
+            "fn main() {{ {}1{} }}",
+            "(".repeat(depth),
+            ")".repeat(depth)
+        ),
+        format!("fn main() {{ {}true }}", "!".repeat(depth)),
+        format!(
+            "fn main() {{ {}1{} }}",
+            "[".repeat(depth),
+            "]".repeat(depth)
+        ),
+        format!(
+            "fn main(x: {}i32{}) {{}}",
+            "[".repeat(depth),
+            "]".repeat(depth)
+        ),
+        format!(
+            "fn main(x: {}i32{}) {{}}",
+            "Box<".repeat(depth),
+            ">".repeat(depth)
+        ),
+        format!(
+            "{} fn inner() {{}} {}",
+            "mod nested {".repeat(depth),
+            "}".repeat(depth)
+        ),
+        format!(
+            "use {}item{};",
+            "nested::{".repeat(depth),
+            "}".repeat(depth)
+        ),
+        format!(
+            "fn main() {{ {}1{} }}",
+            "if true {".repeat(depth),
+            "}".repeat(depth)
+        ),
+        format!("fn main() {{ {} 1 }}", "if true {} else ".repeat(depth)),
+        format!(
+            "fn main() {{ match 1 {{ {}_{} => 1 }} }}",
+            "(".repeat(depth),
+            ",)".repeat(depth)
+        ),
+    ];
+    for (index, suffix) in cases.into_iter().enumerate() {
+        let engine = KagariEngine::default();
+        let text = format!("fn good(value: i32) -> i32 {{ value }} {suffix}");
+        let id = engine
+            .set_source("memory://deep.kgr", text, SourceLayer::Base)
+            .unwrap();
+        let source = engine.source_snapshot();
+        let analysis = engine.analyze(source.clone(), &Default::default()).unwrap();
+        let file = analysis.file(id).unwrap();
+        assert_eq!(
+            file.type_at("fn good(value: i32) -> i32 { ".len()),
+            Some(kagari_hir::types::TypeId::Builtin(
+                kagari_types::scalar::BuiltinType::I32
+            )),
+            "case {index}: preceding function body remains typed",
+        );
+        assert!(
+            file.result()
+                .facts()
+                .declarations
+                .iter()
+                .any(|d| d.name == "good"),
+            "case {index}"
+        );
+        assert!(
+            file.result()
+                .diagnostics()
+                .iter()
+                .any(|d| matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. })),
+            "case {index}"
+        );
+        assert!(
+            analysis.check_program(id, &Default::default()).is_err(),
+            "case {index}"
+        );
+        assert!(
+            matches!(
+                engine.compile_snapshot(source, id, &Default::default()),
+                Err(EmbeddingError::Diagnostics { .. })
+            ),
+            "case {index}"
+        );
+    }
+}
+
+#[test]
+fn const_budgets_share_validation_and_evaluation_and_invalidate_cached_results() {
+    let engine = KagariEngine::default();
+    let id = engine
+        .set_source(
+            "memory://const-budget.kgr",
+            "const ANSWER: i32 = 42; fn main() -> i32 { ANSWER }".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    let source = engine.source_snapshot();
+    engine.set_const_limits(ConstLimits {
+        max_steps: 2,
+        max_depth: 1,
+    });
+    let complete = engine.analyze(source.clone(), &Default::default()).unwrap();
+    assert!(complete.check_program(id, &Default::default()).is_ok());
+    let declaration = complete
+        .file(id)
+        .unwrap()
+        .result()
+        .facts()
+        .declarations
+        .iter()
+        .find(|d| d.name == "main")
+        .unwrap();
+    let kagari_hir::declarations::DeclarationId::Definition(owner) = &declaration.id else {
+        panic!("function definition")
+    };
+    let old_body = engine
+        .body(source.clone(), owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(old_body.diagnostics().is_empty());
+    engine.set_const_limits(ConstLimits {
+        max_steps: 1,
+        max_depth: 1,
+    });
+    let limited = engine.analyze(source.clone(), &Default::default()).unwrap();
+    let new_body = engine
+        .body(source.clone(), owner, &Default::default())
+        .unwrap()
+        .unwrap();
+    assert!(!Arc::ptr_eq(&old_body, &new_body));
+    assert!(old_body.diagnostics().is_empty());
+    assert!(
+        new_body
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(d.kind, DiagnosticKind::CompileLimitExceeded { .. }))
+    );
+    let diagnostics = limited.file(id).unwrap().result().diagnostics();
+    assert_eq!(
+        diagnostics
+            .iter()
+            .filter(|d| matches!(
+                d.kind,
+                DiagnosticKind::CompileLimitExceeded {
+                    resource: "const steps",
+                    limit: 1
+                }
+            ))
+            .count(),
+        1
+    );
+    assert!(
+        limited
+            .file(id)
+            .unwrap()
+            .result()
+            .facts()
+            .typed
+            .const_values
+            .is_empty()
+    );
+    assert!(limited.check_program(id, &Default::default()).is_err());
+    assert!(complete.check_program(id, &Default::default()).is_ok());
+    let Err(EmbeddingError::Diagnostics { diagnostics }) =
+        engine.compile_snapshot(source.clone(), id, &Default::default())
+    else {
+        panic!("limited const reached codegen")
+    };
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d.code == "KG_COMPILE_LIMIT_EXCEEDED" && source.contains(d.span.unwrap()))
+    );
+    engine.set_const_limits(ConstLimits {
+        max_steps: 2,
+        max_depth: 1,
+    });
+    engine
+        .compile_snapshot(source, id, &Default::default())
+        .unwrap();
+}
+
+#[test]
+fn const_budget_counts_short_circuit_work_and_rejects_deep_dependencies() {
+    let engine = KagariEngine::default();
+    engine.set_const_limits(ConstLimits {
+        max_steps: 5,
+        max_depth: 2,
+    });
+    engine
+        .compile_source(SourceFile::new(
+            "memory://short.kgr",
+            "const VALUE: bool = false && true; fn main() -> bool { VALUE }",
+        ))
+        .unwrap();
+    assert!(
+        engine
+            .compile_source(SourceFile::new(
+                "memory://full.kgr",
+                "const VALUE: bool = true && true; fn main() -> bool { VALUE }"
+            ))
+            .is_err()
+    );
+    let engine = KagariEngine::default();
+    let mut text = String::from("fn good(value: i32) -> i32 { value } ");
+    for i in 0..1_000 {
+        text.push_str(&format!("const C{i}: i32 = C{}; ", i + 1));
+    }
+    text.push_str("const C1000: i32 = 42;");
+    let id = engine
+        .set_source("memory://dependencies.kgr", text, SourceLayer::Base)
+        .unwrap();
+    let analysis = engine
+        .analyze(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    let file = analysis.file(id).unwrap();
+    assert!(file.result().diagnostics().iter().any(|d| matches!(
+        d.kind,
+        DiagnosticKind::CompileLimitExceeded {
+            resource: "const depth",
+            limit: 64
+        }
+    )));
+    assert_eq!(
+        file.type_at("fn good(value: i32) -> i32 { ".len()),
+        Some(kagari_hir::types::TypeId::Builtin(
+            kagari_types::scalar::BuiltinType::I32
+        ))
+    );
+    assert!(analysis.check_program(id, &Default::default()).is_err());
+}
+
+#[test]
+fn zero_const_budget_accepts_no_consts_and_cancellation_remains_distinct() {
+    let engine = KagariEngine::default();
+    engine.set_const_limits(ConstLimits {
+        max_steps: 0,
+        max_depth: 0,
+    });
+    engine
+        .compile_source(SourceFile::new(
+            "memory://empty-const.kgr",
+            "fn main() -> i32 { 42 }",
+        ))
+        .unwrap();
+    let id = engine
+        .set_source(
+            "memory://one-const.kgr",
+            "const VALUE: i32 = 42;".into(),
+            SourceLayer::Base,
+        )
+        .unwrap();
+    assert!(matches!(
+        engine.compile_snapshot(engine.source_snapshot(), id, &Default::default()),
+        Err(EmbeddingError::Diagnostics { .. })
+    ));
+    let cancel = CancellationToken::default();
+    cancel.cancel();
+    assert!(matches!(
+        engine.analyze(engine.source_snapshot(), &cancel),
+        Err(EmbeddingError::Cancelled)
+    ));
+}
+
+#[test]
+fn invalid_const_types_cannot_bypass_validation_budget() {
+    use kagari_source::diagnostic::DiagnosticKind;
+    for max_steps in [0, 1, 3] {
+        let engine = KagariEngine::default();
+        engine.set_const_limits(ConstLimits {
+            max_steps,
+            max_depth: 64,
+        });
+        let mut text = String::from("fn good(value: i32) -> i32 { value } ");
+        for index in 0..100 {
+            text.push_str(&format!("const C{index}: [i32] = [1]; "));
+        }
+        let id = engine
+            .set_source(
+                "memory://invalid-consts.kgr",
+                text.clone(),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let analysis = engine
+            .analyze(engine.source_snapshot(), &Default::default())
+            .unwrap();
+        let file = analysis.file(id).unwrap();
+        let diagnostics = file.result().diagnostics();
+        assert_eq!(
+            diagnostics
+                .iter()
+                .filter(|d| matches!(d.kind, DiagnosticKind::InvalidConstInitializer { .. }))
+                .count(),
+            max_steps
+        );
+        let limits: Vec<_> = diagnostics
+            .iter()
+            .filter(|d| {
+                matches!(
+                    d.kind,
+                    DiagnosticKind::CompileLimitExceeded {
+                        resource: "const steps",
+                        ..
+                    }
+                )
+            })
+            .collect();
+        assert_eq!(limits.len(), 1);
+        let span = limits[0].span.unwrap();
+        assert_eq!(&text[span.start..span.end], "[1]");
+        assert!(span.start > text.find(&format!("const C{max_steps}:")).unwrap());
+        assert_eq!(
+            file.type_at("fn good(value: i32) -> i32 { ".len()),
+            Some(kagari_hir::types::TypeId::Builtin(
+                kagari_types::scalar::BuiltinType::I32
+            ))
+        );
+        assert!(analysis.check_program(id, &Default::default()).is_err());
+    }
+}

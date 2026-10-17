@@ -1,0 +1,71 @@
+use crate::{Runtime, module::LoadedModule, value::Value};
+use kagari_bytecode::{
+    module::BytecodeModule,
+    program::{BytecodeProgram, ModuleRef},
+};
+use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
+
+fn runtime_with_owner() -> (Runtime, LoadedModule) {
+    let context = DefinitionContext::new().unwrap();
+    let mut runtime = Runtime::default();
+    let owner = runtime
+        .load_program(
+            "allocations",
+            DefinitionMetadata::checked(
+                context.snapshot(),
+                BytecodeProgram {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![BytecodeModule::default()],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+        .unwrap();
+    (runtime, owner)
+}
+
+#[test]
+fn rejected_allocations_leave_all_counters_and_free_slots_unchanged() {
+    let (runtime, owner) = runtime_with_owner();
+    let first = runtime
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(1)])
+        .unwrap();
+    let before = runtime.resources().counters();
+    let heap_before = runtime.gc().stats();
+    assert!(
+        runtime
+            .alloc_array(
+                &owner,
+                Ty::Builtin(BuiltinType::I32),
+                vec![Value::Bool(true)]
+            )
+            .is_err()
+    );
+    assert_eq!(runtime.resources().counters(), before);
+    assert_eq!(runtime.gc().stats(), heap_before);
+    assert_eq!(runtime.gc().array_get(first, 0), Some(Value::I32(1)));
+    let (runtime, owner) = runtime_with_owner();
+    let old = runtime
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
+    runtime.collect_garbage().unwrap();
+    let before = runtime.gc().stats();
+    assert!(
+        runtime
+            .alloc_array(
+                &owner,
+                Ty::Builtin(BuiltinType::I32),
+                vec![Value::Bool(true)]
+            )
+            .is_err()
+    );
+    assert_eq!(runtime.gc().stats(), before);
+    let next = runtime
+        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![])
+        .unwrap();
+    assert_eq!(next.index(), old.index());
+    assert_ne!(next, old);
+}

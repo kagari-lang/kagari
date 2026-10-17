@@ -1,0 +1,18 @@
+const LIMIT: i32 = 3;
+
+fn main() -> i32 {
+    val from_or = match (2, 40) {
+        (1, value) | (2, value) => value + 2,
+        _ => 0,
+    };
+    val from_range = match 3 {
+        0..LIMIT => 0,
+        0..=LIMIT => 42,
+        _ => 0,
+    };
+    val exhaustive = match 1 {
+        _ | 2 => 42,
+        3 => "unreachable",
+    };
+    if from_or == 42 && from_range == 42 && exhaustive == 42 { 42 } else { 0 }
+}

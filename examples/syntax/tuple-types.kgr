@@ -1,0 +1,10 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/tuple-types.kgr
+// Result: main returns 42.
+fn singleton() -> (i32,) { (42,) }
+
+fn grouped(value: (i32)) -> (i32) { (value) }
+
+fn main() -> i32 {
+    val item: (i32,) = singleton();
+    grouped(item[0])
+}

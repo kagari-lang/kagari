@@ -1,0 +1,34 @@
+[package]
+name = "kagari-compiler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = ["source"]
+source = ["dep:kagari-source", "dep:kagari-hir", "dep:kagari-syntax"]
+
+[dependencies]
+kagari-types.workspace = true
+kagari-source = { workspace = true, optional = true }
+kagari-abi.workspace = true
+kagari-contract.workspace = true
+kagari-common.workspace = true
+kagari-mir.workspace = true
+kagari-bytecode.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+kagari-hir = { workspace = true, optional = true }
+kagari-syntax = { workspace = true, optional = true }
+bincode.workspace = true
+
+[[example]]
+name = "applied_traits"
+required-features = ["source"]
+
+[[example]]
+name = "layouts"
+required-features = ["source"]
+
+[dev-dependencies]
+kagari-stdlib.workspace = true

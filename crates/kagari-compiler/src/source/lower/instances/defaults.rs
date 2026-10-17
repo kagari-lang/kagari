@@ -1,0 +1,162 @@
+//! Apply registered default templates using the already checked trait selection.
+use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use kagari_common::{identity::table::DefinitionId, span::Span};
+use kagari_contract::native_import::NativeImport;
+use kagari_hir::{
+    aggregates::traits::MethodDefault,
+    declarations::DeclarationId,
+    native::NativeBinding,
+    resolver::resolved::ResolvedName,
+    typeck::table::CallTarget,
+    types::{GenericParameterType, NominalType, TypeId, TypeSubstitution, semantic::raise_type},
+};
+
+impl InstancePlanner<'_> {
+    pub(crate) fn native_default_import(
+        &self,
+        receiver: &TypeId,
+        interface: &NominalType,
+        method: &DefinitionId,
+        arguments: &[TypeId],
+        span: Span,
+    ) -> Result<NativeImport, MirLoweringError> {
+        let invalid = || MirLoweringError::MissingBinding("checked native default application");
+        let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
+        let Some(MethodDefault::Native(NativeBinding::Default(_))) = &signature.default else {
+            return Err(invalid());
+        };
+        let module = self
+            .modules
+            .get(&self.module_identity(*method))
+            .ok_or_else(invalid)?;
+        let Some(ResolvedName::Function(function)) = module.declarations.definition_target(method)
+        else {
+            return Err(invalid());
+        };
+        let checked = module
+            .typed
+            .type_table
+            .native_default_call(function)
+            .ok_or_else(invalid)?;
+        let target = match &checked.target {
+            CallTarget::Function(id) => {
+                let declaration = module
+                    .declarations
+                    .target(ResolvedName::Function(*id))
+                    .ok_or_else(invalid)?;
+                let DeclarationId::Definition(target) = &declaration.id else {
+                    return Err(invalid());
+                };
+                target
+            }
+            CallTarget::SourceFunction(target) => target,
+            _ => return Err(invalid()),
+        };
+        let parameters = interface.arguments.iter().chain(arguments).cloned();
+        if signature.generic_params.len() != interface.arguments.len() + arguments.len() {
+            return Err(invalid());
+        }
+        let mut substitution: TypeSubstitution = signature
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(parameters)
+            .collect();
+        substitution.insert_receiver(signature.owner, receiver.clone());
+        let normalize = |ty: &TypeId| {
+            self.catalog.normalize_type(
+                &self.definitions(),
+                &ty.instantiate(&substitution)
+                    .with_associated_types(interface, receiver),
+            )
+        };
+        let template_arguments = checked
+            .type_arguments
+            .iter()
+            .map(normalize)
+            .collect::<Vec<_>>();
+        let import = self.native_target_import(target, &template_arguments, span)?;
+        if import.signature.params
+            != signature
+                .params
+                .iter()
+                .map(|p| self.encode_type(&normalize(&p.ty)))
+                .collect::<Vec<_>>()
+            || import.signature.result != self.encode_type(&normalize(&signature.return_type))
+        {
+            return Err(invalid());
+        }
+        Ok(import)
+    }
+
+    pub(super) fn prepare_default_target(
+        &mut self,
+        declaration: &DefinitionId,
+        arguments: &[TypeId],
+        span: Span,
+    ) -> Result<bool, MirLoweringError> {
+        let Some((implementation, method)) = self
+            .catalog
+            .default_method(&self.definitions(), declaration)
+        else {
+            return Ok(false);
+        };
+        if !matches!(
+            method.default,
+            Some(MethodDefault::Native(NativeBinding::Default(_)))
+        ) {
+            return Ok(false);
+        }
+        let count = implementation.generic_params.len();
+        let contract = self
+            .catalog
+            .trait_(&method.owner)
+            .ok_or(MirLoweringError::MissingBinding("native default trait"))?;
+        if arguments.len() != count + method.generic_params.len() - contract.generic_params.len() {
+            return Ok(false);
+        }
+        if arguments.len() < count {
+            return Err(MirLoweringError::MissingBinding(
+                "default implementation arguments",
+            ));
+        }
+        let substitution = implementation
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(arguments[..count].iter().cloned())
+            .collect();
+        let receiver = implementation.for_type.instantiate(&substitution);
+        let interface = implementation.trait_type.instantiate(&substitution);
+        let import = self.native_default_import(
+            &receiver,
+            &interface,
+            &method.id,
+            &arguments[count..],
+            span,
+        )?;
+        let owner = implementation.id;
+        self.record_interface(&owner, &arguments[..count], span)?;
+        // Interface slots share the default template; direct native calls can
+        // independently request a concrete specialization of that template.
+        let shared = !import.instance.arguments.is_empty();
+        let arguments = import
+            .instance
+            .arguments
+            .iter()
+            .enumerate()
+            .map(|(position, ty)| {
+                if shared {
+                    TypeId::Generic(GenericParameterType {
+                        owner: import.instance.declaration,
+                        position,
+                        name: format!("T{position}"),
+                    })
+                } else {
+                    raise_type(ty)
+                }
+            })
+            .collect::<Vec<_>>();
+        self.prepare_native_target(&import.instance.declaration, &arguments, span)
+    }
+}

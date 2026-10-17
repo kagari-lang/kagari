@@ -1,0 +1,13 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/string-interpolation.kgr
+// Result: main returns 42.
+fn main() -> i32 {
+    val name = "Kagari";
+    val score = 40;
+    val message = f"Hello {name}, score={score + 2}";
+    { val passed = message == "Hello Kagari, score=42"; if !passed {val zero=0;1/zero;} };
+    { val passed = f"{name:?}" == "\"Kagari\""; if !passed {val zero=0;1/zero;} };
+    { val passed = f"{{{name}}}" == "{Kagari}"; if !passed {val zero=0;1/zero;} };
+    { val passed = f"{f"score={score}"}" == "score=40"; if !passed {val zero=0;1/zero;} };
+    { val passed = f"" == ""; if !passed {val zero=0;1/zero;} };
+    42
+}

@@ -1,0 +1,107 @@
+use crate::{
+    language::primitive as intrinsic,
+    types::proofs::{Budget, ProofCatalog, satisfies, search::Search, validate_references},
+};
+use kagari_common::cancellation::CancellationToken;
+use kagari_types::{
+    language::Protocol,
+    ty::{
+        Ty, inheritance,
+        matching::projection_output,
+        substitution::{TypeTransformError, normalize_projections},
+    },
+};
+
+impl ProofCatalog<'_> {
+    pub fn normalize(&self, ty: &Ty, cancel: &CancellationToken) -> Result<Ty, TypeTransformError> {
+        validate_references(ty, &self.definitions, cancel)?;
+        self.normalize_with(ty, &Budget::new(cancel), 0)
+    }
+
+    pub(super) fn normalize_with(
+        &self,
+        ty: &Ty,
+        budget: &Budget<'_>,
+        depth: usize,
+    ) -> Result<Ty, TypeTransformError> {
+        budget.step(depth)?;
+        normalize_projections(
+            ty,
+            &|interface, receiver, member, arguments| {
+                budget.step(depth)?;
+                if arguments.is_empty() {
+                    if let Some(output) = intrinsic::associated_output(
+                        interface,
+                        receiver,
+                        member,
+                        budget.cancel,
+                        self.trait_contract(&interface.declaration),
+                        &self.definitions,
+                    )? {
+                        return Ok(Some(output));
+                    }
+                    if Protocol::from_definition(&interface.declaration, &self.definitions)
+                        == Some(Protocol::Iterable)
+                        && let Some(required) =
+                            intrinsic::identity_iterator(interface, receiver, &self.definitions)
+                        && self.prove(
+                            &required,
+                            receiver,
+                            &[],
+                            &mut Search::default(),
+                            budget,
+                            depth + 1,
+                        )?
+                    {
+                        if *member == self.associated(interface.declaration, "Iter")? {
+                            return Ok(Some(receiver.clone()));
+                        }
+                        if *member == self.associated(interface.declaration, "Item")? {
+                            return Ok(Some(Ty::Projection {
+                                receiver: Box::new(receiver.clone()),
+                                member: self.associated(required.declaration, "Item")?,
+                                interface: Box::new(required),
+                                arguments: vec![],
+                            }));
+                        }
+                    }
+                    if let Ty::Trait(view) = receiver {
+                        return Ok(inheritance::interface_views(
+                            view,
+                            receiver,
+                            budget.cancel,
+                            &self.definitions,
+                            &|id| self.contracts.get(id).copied(),
+                        )?
+                        .into_iter()
+                        .find(|parent| satisfies(parent, interface))
+                        .and_then(|parent| parent.associated_types.get(member).cloned()));
+                    }
+                }
+                let mut selected = None;
+                for implementation in &self.implementations {
+                    budget.step(depth)?;
+                    if let Some(output) = projection_output(
+                        implementation
+                            .pattern()
+                            .ok_or(TypeTransformError::InvalidContract)?,
+                        implementation.families(),
+                        interface,
+                        receiver,
+                        member,
+                        arguments,
+                        budget.cancel,
+                    )? {
+                        if selected.is_some() {
+                            return Ok(None);
+                        }
+                        selected = Some(output);
+                    }
+                }
+
+                Ok(selected)
+            },
+            budget.cancel,
+        )
+    }
+}

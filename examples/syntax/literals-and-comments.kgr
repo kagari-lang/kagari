@@ -1,0 +1,19 @@
+// Integer bases, separators, exponents, escaped strings, and nested comments.
+/* outer
+   /* inner */
+   still outer */
+const TEN: i32 = 0b1010;
+
+fn main() -> i32 {
+    val octal = 0o12;
+    val hex = 0x0A;
+    val separated = 1_0;
+    val fractional = 1.25e1;
+    { val passed = fractional == 12.5; if !passed {val zero=0;1/zero;} };
+    { val passed = 1_2.5e0 == fractional; if !passed {val zero=0;1/zero;} };
+    { val passed = "\u{41}" == "A"; if !passed {val zero=0;1/zero;} };
+    { val passed = "\"" == "\u{22}"; if !passed {val zero=0;1/zero;} };
+    { val passed = "\\" == "\u{5c}"; if !passed {val zero=0;1/zero;} };
+    { val passed = "\n" == "\u{A}"; if !passed {val zero=0;1/zero;} };
+    TEN + octal + hex + separated + 2
+}

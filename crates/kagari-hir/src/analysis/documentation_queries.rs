@@ -1,0 +1,133 @@
+//! Source presentation is resolved through declarations owned by the snapshot.
+
+use crate::analysis::ownership;
+use crate::{
+    analysis::{
+        AnalysisSnapshot,
+        declaration_queries::{DeclarationSnapshot, FileDeclarations},
+    },
+    declarations::{Declaration, DeclarationId},
+    imports::{NamespaceId, ResolvedTarget},
+};
+use kagari_syntax::ast::{
+    item::{Item, MethodDef},
+    misc::{Field, Name, Variant},
+    traits::AstNode,
+};
+use {
+    kagari_common::{identity::ModuleIdentity, span::Span},
+    kagari_source::identity::{FileId, FileSpan},
+};
+
+#[cfg(test)]
+mod tests;
+
+/// Written source metadata. Checked call signatures are a separate semantic query.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeclarationDocumentation {
+    /// Declaration in the owning snapshot's scoped identity table.
+    pub declaration: Declaration,
+    /// Attached source documentation rendered as Markdown text.
+    pub documentation: String,
+    /// Signature spelling recovered from source, separate from checked semantic types.
+    pub written_signature: String,
+}
+
+/// Module Markdown and its location in this immutable analysis snapshot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleDocumentation {
+    /// Logical identity of the documented module.
+    pub module: ModuleIdentity,
+    /// Source range covering the module's retained source.
+    pub location: FileSpan,
+    /// Module-level Markdown extracted from the syntax tree.
+    pub documentation: String,
+}
+
+impl DeclarationSnapshot {
+    /// Finds module documentation in retained declarations; returns `None` for an unknown module.
+    pub fn module_documentation(&self, module: &ModuleIdentity) -> Option<ModuleDocumentation> {
+        let file = self
+            .files
+            .values()
+            .find(|file| file.source().module_identity() == module)?;
+        let source = file.source();
+        Some(ModuleDocumentation {
+            module: module.clone(),
+            location: source.span(Span::new(0, source.text().len()))?,
+            documentation: file.syntax().module_documentation(),
+        })
+    }
+
+    /// Read documentation without resolving or checking any function body.
+    /// Identities absent from this snapshot never fall back to a global catalog.
+    pub fn documentation(&self, id: &DeclarationId) -> Option<DeclarationDocumentation> {
+        self.files.values().find_map(|file| file.documentation(id))
+    }
+}
+
+impl AnalysisSnapshot {
+    /// Resolves a source position to a module namespace and reads that module's documentation.
+    pub fn module_documentation_at(
+        &self,
+        file: FileId,
+        offset: usize,
+    ) -> Option<ModuleDocumentation> {
+        let target = self.source_target_at(file, offset)?;
+        let ResolvedTarget::Namespace(NamespaceId::Module(unit)) = target.target else {
+            return None;
+        };
+        self.declaration_snapshot()
+            .module_documentation(&unit.module)
+    }
+
+    /// Read source metadata for the resolved declaration at a use or declaration site.
+    pub fn documentation_at(
+        &self,
+        file: FileId,
+        offset: usize,
+    ) -> Option<DeclarationDocumentation> {
+        let declaration = self.definition_at(file, offset)?;
+        self.declaration_snapshot().documentation(&declaration.id)
+    }
+}
+
+impl FileDeclarations {
+    fn documentation(&self, id: &DeclarationId) -> Option<DeclarationDocumentation> {
+        let id = ownership::locate(id, self.declarations().definitions())?;
+        let declaration = self.declarations().get(&id)?;
+        let source = self.source();
+        let local_range = source.local_range(declaration.location)?;
+        let (documentation, written_signature) = {
+            let node = self.parsed.syntax().syntax().descendants().find(|node| {
+                node.children().filter_map(Name::cast).any(|name| {
+                    let range = name
+                        .syntax()
+                        .descendants_with_tokens()
+                        .filter_map(|element| element.into_token())
+                        .find(|token| !token.kind().is_trivia())
+                        .map(|token| token.text_range());
+                    range.is_some_and(|range| {
+                        Span::new(usize::from(range.start()), usize::from(range.end()))
+                            == local_range
+                    })
+                })
+            })?;
+            let documentation = if let Some(item) = Item::cast(node.clone()) {
+                item.documentation(source.text())
+            } else if let Some(method) = MethodDef::cast(node.clone()) {
+                method.documentation(source.text())
+            } else if let Some(variant) = Variant::cast(node.clone()) {
+                variant.documentation(source.text())
+            } else {
+                Field::cast(node.clone())?.documentation(source.text())
+            };
+            (documentation, node.text().to_string())
+        };
+        Some(DeclarationDocumentation {
+            declaration: declaration.clone(),
+            documentation,
+            written_signature,
+        })
+    }
+}

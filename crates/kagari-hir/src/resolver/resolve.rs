@@ -1,26 +1,72 @@
-use std::collections::HashMap;
+//! Lexical traversal, shadowing, namespace lookup and closure capture collection.
 
-use crate::builtin::surface;
-use crate::hir::{
-    BlockId, ConstId, EnumId, ExprId, ExprKind, FunctionId, Module, ModuleId, ParamId, PatternKind,
-    PlaceId, PlaceKind, StmtId, StmtKind, StructId, TraitId,
+use crate::{
+    builtin::BuiltinFunction,
+    hir::{
+        expr::{Condition, ExprKind},
+        ids::{
+            BlockId, BodyOwner, ConstId, ExprId, FunctionId, HirOwner, ParamId, PatternId, PlaceId,
+            StmtId,
+        },
+        item::Module,
+        pattern::PatternKind,
+        place::PlaceKind,
+        stmt::StmtKind,
+    },
+    imports::{ModuleImportFacts, SourceItem, catalog::NamespaceCatalog},
+    resolver::{
+        resolved::{LexicalScope, QualifiedMember, ResolvedName, ResolvedNames, ScopeBinding},
+        table::{NameResolution, NameTable},
+    },
+    source_map::SourceMap,
 };
-use crate::resolver::{ResolvedName, ResolvedNames, table::NameTable};
+use kagari_types::declaration::names::NameNamespace;
 
+use kagari_common::{cancellation::CancellationToken, span::Span};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
+
+/// Active lexical frame: retained scope index plus each spelling's latest binding index.
+struct ActiveScope {
+    id: usize,
+    latest: HashMap<String, usize>,
+}
+
+/// Mutable lexical traversal state for one lowering and shared module inputs.
+///
+/// `scopes` is an active stack pointing into the retained scope history in `resolved`.
+/// `latest` implements current shadowing; the retained history supports byte-offset
+/// queries. Closure frames accumulate captured bindings, and owner assertions prevent
+/// cross-function node traversal.
 pub(crate) struct BodyResolver<'a> {
+    cancel: CancellationToken,
     names: &'a NameTable,
     module: &'a Module,
     resolved: ResolvedNames,
-    scopes: Vec<HashMap<String, ResolvedName>>,
+    source_map: &'a SourceMap,
+    scopes: Vec<ActiveScope>,
+    closures: Vec<(ExprId, HashSet<ResolvedName>, Vec<ResolvedName>)>,
 }
 
 impl<'a> BodyResolver<'a> {
-    pub(crate) fn new(names: &'a NameTable, module: &'a Module) -> Self {
+    pub(crate) fn new(
+        names: &'a Arc<NameTable>,
+        module: &'a Module,
+        source_map: &'a SourceMap,
+        imports: Arc<ModuleImportFacts>,
+        catalog: Arc<NamespaceCatalog>,
+        cancel: CancellationToken,
+    ) -> Self {
         Self {
+            cancel,
             names,
             module,
-            resolved: ResolvedNames::new(names.clone()),
+            source_map,
+            resolved: ResolvedNames::new(names.clone(), imports, catalog),
             scopes: Vec::new(),
+            closures: Vec::new(),
         }
     }
 
@@ -28,27 +74,50 @@ impl<'a> BodyResolver<'a> {
         self.resolved
     }
 
+    /// Checks the body owner, binds parameters, visits its nested block scopes and restores the outer scope.
     pub(crate) fn resolve_function(
         &mut self,
+        function: FunctionId,
         params: impl Iterator<Item = (&'a str, ParamId)>,
         body: BlockId,
     ) {
-        self.push_scope();
+        assert_eq!(
+            body.owner(),
+            HirOwner::Body(BodyOwner::Function(function)),
+            "function body owner mismatch"
+        );
+        let span = self.source_map.block_span(body);
+        self.push_scope(
+            self.source_map.function_span(function),
+            BodyOwner::Function(function),
+        );
         for (name, id) in params {
-            self.bind_name(name, ResolvedName::Param(id));
+            self.bind_name(name, ResolvedName::Param(id), span.start);
         }
         self.resolve_block(body);
         self.pop_scope();
     }
 
-    pub(crate) fn resolve_top_level_expr(&mut self, expr: ExprId) {
+    /// Resolves a constant initializer under its asserted constant owner.
+    pub(crate) fn resolve_top_level_expr(&mut self, owner: ConstId, expr: ExprId) {
+        assert_eq!(
+            expr.owner(),
+            HirOwner::Body(BodyOwner::Const(owner)),
+            "constant body owner mismatch"
+        );
+        self.push_scope(self.source_map.expr_span(expr), BodyOwner::Const(owner));
         self.resolve_expr(expr);
+        self.pop_scope();
     }
 
     fn resolve_block(&mut self, block_id: BlockId) {
+        self.assert_current_owner(block_id.owner());
         let block = self.module.block(block_id);
-        self.push_scope();
+        self.push_child_scope(self.source_map.block_span(block_id));
         for stmt in &block.statements {
+            if self.cancel.check().is_err() {
+                break;
+            }
             self.resolve_stmt(*stmt);
         }
         if let Some(expr) = block.tail_expr {
@@ -58,6 +127,10 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn resolve_stmt(&mut self, stmt_id: StmtId) {
+        self.assert_current_owner(stmt_id.owner());
+        if self.cancel.check().is_err() {
+            return;
+        }
         let stmt = self.module.stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Binding {
@@ -68,10 +141,14 @@ impl<'a> BodyResolver<'a> {
             } => {
                 self.resolve_expr(*initializer);
                 if !name.is_empty() {
-                    self.bind_name(name, ResolvedName::Local(*local));
+                    self.bind_name(
+                        name,
+                        ResolvedName::Local(*local),
+                        self.source_map.stmt_span(stmt_id).end,
+                    );
                 }
             }
-            StmtKind::Assign { target, value } => {
+            StmtKind::Assign { target, value, .. } => {
                 self.resolve_place(*target);
                 self.resolve_expr(*value);
             }
@@ -81,30 +158,108 @@ impl<'a> BodyResolver<'a> {
                 }
             }
             StmtKind::While { condition, body } => {
-                self.resolve_expr(*condition);
+                self.resolve_expr(condition.value());
+                if let Condition::Binding { pattern, .. } = condition {
+                    self.push_child_scope(self.source_map.block_span(*body));
+                    self.bind_pattern(*pattern, self.source_map.block_span(*body).start);
+                }
                 self.resolve_block(*body);
+                if matches!(condition, Condition::Binding { .. }) {
+                    self.pop_scope();
+                }
             }
             StmtKind::Loop { body } => self.resolve_block(*body),
+            StmtKind::For {
+                pattern,
+                iterable,
+                body,
+            } => {
+                self.resolve_expr(*iterable);
+                self.push_child_scope(self.source_map.stmt_span(stmt_id));
+                self.bind_pattern(*pattern, self.source_map.stmt_span(stmt_id).start);
+                self.resolve_block(*body);
+                self.pop_scope();
+            }
             StmtKind::Expr(expr) => self.resolve_expr(*expr),
             StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::BreakValue(expr) => self.resolve_expr(*expr),
         }
     }
 
     fn resolve_expr(&mut self, expr_id: ExprId) {
+        self.assert_current_owner(expr_id.owner());
+        if self.cancel.check().is_err() {
+            return;
+        }
         let expr = self.module.expr(expr_id);
         match &expr.kind {
-            ExprKind::Name(name) => {
-                if let Some(resolved) = self.resolve_name(name) {
-                    self.resolved.insert_expr(expr_id, resolved);
+            ExprKind::Missing => {}
+            ExprKind::Name { name, .. } => {
+                for (prefix, span) in self.source_map.expr_path(expr_id) {
+                    let namespace = if prefix == name {
+                        NameNamespace::Value
+                    } else {
+                        NameNamespace::Type
+                    };
+                    if self.cancel.check().is_err() {
+                        return;
+                    }
+                    if let Some(resolved) = self.resolve_name(prefix, namespace)
+                        && let Some(hit) = self.resolved.catalog.resolve_name(
+                            self.names,
+                            prefix,
+                            namespace,
+                            &self.cancel,
+                        )
+                        && hit.target.resolved(self.names.unit.as_ref()) == resolved
+                    {
+                        self.resolved.path_hits.push((*span, hit));
+                    }
+                }
+                if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
+                    self.resolved.insert_expr(expr_id, resolved.clone());
+                    if let Some(hit) = self.resolved.catalog.resolve_name(
+                        self.names,
+                        name,
+                        NameNamespace::Value,
+                        &self.cancel,
+                    ) && hit.target.resolved(self.names.unit.as_ref()) == resolved
+                    {
+                        self.resolved.lookup_hits.insert(expr_id, hit);
+                    }
+                    self.record_capture(resolved);
+                } else if let Some((owner, member)) = name.rsplit_once("::")
+                    && let Some(owner) = self.resolve_name(owner, NameNamespace::Type)
+                {
+                    self.resolved.insert_qualified_member(
+                        expr_id,
+                        QualifiedMember {
+                            owner,
+                            name: member.to_owned(),
+                        },
+                    );
                 }
             }
             ExprKind::Literal(_) => {}
-            ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
-            ExprKind::Binary { lhs, rhs, .. } => {
+            ExprKind::FormatPart { expr, .. }
+            | ExprKind::Await { expr }
+            | ExprKind::Propagate { expr }
+            | ExprKind::Cast { expr, .. }
+            | ExprKind::Prefix { expr, .. } => self.resolve_expr(*expr),
+            ExprKind::Binary { lhs, rhs, .. }
+            | ExprKind::ArrayRepeat {
+                value: lhs,
+                count: rhs,
+            } => {
                 self.resolve_expr(*lhs);
                 self.resolve_expr(*rhs);
             }
-            ExprKind::Call { callee, args } => {
+            ExprKind::Range { start, end, .. } => {
+                for expr in start.iter().chain(end) {
+                    self.resolve_expr(*expr);
+                }
+            }
+            ExprKind::Call { callee, args, .. } => {
                 self.resolve_expr(*callee);
                 for arg in args {
                     self.resolve_expr(*arg);
@@ -120,8 +275,15 @@ impl<'a> BodyResolver<'a> {
                 then_branch,
                 else_branch,
             } => {
-                self.resolve_expr(*condition);
+                self.resolve_expr(condition.value());
+                if let Condition::Binding { pattern, .. } = condition {
+                    self.push_child_scope(self.source_map.block_span(*then_branch));
+                    self.bind_pattern(*pattern, self.source_map.block_span(*then_branch).start);
+                }
                 self.resolve_block(*then_branch);
+                if matches!(condition, Condition::Binding { .. }) {
+                    self.pop_scope();
+                }
                 if let Some(expr) = else_branch {
                     self.resolve_expr(*expr);
                 }
@@ -129,13 +291,12 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Match { scrutinee, arms } => {
                 self.resolve_expr(*scrutinee);
                 for arm in arms {
-                    self.push_scope();
-                    if let PatternKind::Name { name, local } =
-                        &self.module.pattern(arm.pattern).kind
-                        && !name.is_empty()
-                        && name != "<missing>"
-                    {
-                        self.bind_name(name, ResolvedName::Local(*local));
+                    self.assert_current_owner(arm.pattern.owner());
+                    let span = self.source_map.expr_span(arm.expr);
+                    self.push_child_scope(span);
+                    self.bind_pattern(arm.pattern, span.start);
+                    if let Some(guard) = arm.guard {
+                        self.resolve_expr(guard);
                     }
                     self.resolve_expr(arm.expr);
                     self.pop_scope();
@@ -146,23 +307,134 @@ impl<'a> BodyResolver<'a> {
                     self.resolve_expr(field.value);
                 }
             }
-            ExprKind::Tuple(elements) | ExprKind::Array(elements) => {
+            ExprKind::InterpolatedString(elements)
+            | ExprKind::Tuple(elements)
+            | ExprKind::Array(elements) => {
                 for expr in elements {
                     self.resolve_expr(*expr);
                 }
             }
             ExprKind::Block(block) => self.resolve_block(*block),
+            ExprKind::Loop { body } => self.resolve_block(*body),
+            ExprKind::Closure { params, body, .. } => {
+                let outer = self
+                    .scopes
+                    .iter()
+                    .flat_map(|scope| {
+                        self.resolved.scopes[scope.id]
+                            .bindings
+                            .iter()
+                            .map(|binding| binding.resolved.clone())
+                    })
+                    .collect();
+                self.closures.push((expr_id, outer, Vec::new()));
+                self.push_child_scope(self.source_map.expr_span(expr_id));
+                for param in params {
+                    self.bind_name(
+                        &param.name,
+                        ResolvedName::Local(param.local),
+                        self.source_map.expr_span(*body).start,
+                    );
+                }
+                self.resolve_expr(*body);
+                self.pop_scope();
+                let (_, _, captures) = self.closures.pop().expect("closure context");
+                self.resolved.insert_closure_captures(expr_id, captures);
+            }
+        }
+    }
+
+    fn bind_pattern(&mut self, pattern: PatternId, start: usize) {
+        self.resolve_pattern_variants(pattern);
+        self.bind_pattern_locals(pattern, start);
+    }
+
+    fn resolve_pattern_variants(&mut self, pattern: PatternId) {
+        if self.cancel.check().is_err() {
+            return;
+        }
+        match self.module.pattern(pattern).kind.clone() {
+            PatternKind::Name { name, .. } => {
+                self.record_pattern_variant(pattern, &name);
+            }
+            PatternKind::EnumVariant { path, fields } => {
+                self.record_pattern_variant(pattern, &path);
+                for field in fields {
+                    self.resolve_pattern_variants(field);
+                }
+            }
+            PatternKind::Or(fields) | PatternKind::Tuple(fields) => {
+                for field in fields {
+                    self.resolve_pattern_variants(field);
+                }
+            }
+            PatternKind::Struct { fields, .. } => {
+                for field in fields {
+                    self.resolve_pattern_variants(field.pattern);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn record_pattern_variant(&mut self, pattern: PatternId, path: &str) {
+        let Some(resolved) = self.resolve_name(path, NameNamespace::Value) else {
+            return;
+        };
+        if matches!(&resolved, ResolvedName::Source(source) if matches!(source.item, SourceItem::Variant(_)))
+        {
+            self.resolved.pattern_variants.insert(pattern, resolved);
+        }
+    }
+
+    fn bind_pattern_locals(&mut self, pattern: PatternId, start: usize) {
+        match &self.module.pattern(pattern).kind {
+            PatternKind::Or(alternatives) => {
+                if let Some(first) = alternatives.first() {
+                    self.bind_pattern_locals(*first, start);
+                }
+            }
+            PatternKind::Name { name, local } if !name.is_empty() && name != "<missing>" => {
+                if self.resolved.pattern_variants.contains_key(&pattern) {
+                    return;
+                }
+                let name = name.clone();
+                let local = *local;
+                self.bind_name(&name, ResolvedName::Local(local), start);
+            }
+            PatternKind::Tuple(elements) => {
+                let elements = elements.clone();
+                for element in elements {
+                    self.bind_pattern_locals(element, start);
+                }
+            }
+            PatternKind::Struct { fields, .. } => {
+                let fields = fields.clone();
+                for field in fields {
+                    self.bind_pattern_locals(field.pattern, start);
+                }
+            }
+            PatternKind::EnumVariant { fields, .. } => {
+                let fields = fields.clone();
+                for field in fields {
+                    self.bind_pattern_locals(field, start);
+                }
+            }
+            _ => {}
         }
     }
 
     fn resolve_place(&mut self, place_id: PlaceId) {
+        self.assert_current_owner(place_id.owner());
         let place = self.module.place(place_id);
         match &place.kind {
             PlaceKind::Name(name) => {
-                if let Some(resolved) = self.resolve_name(name) {
-                    self.resolved.insert_place(place_id, resolved);
+                if let Some(resolved) = self.resolve_name(name, NameNamespace::Value) {
+                    self.resolved.insert_place(place_id, resolved.clone());
+                    self.record_capture(resolved);
                 }
             }
+            PlaceKind::Expr(expr) => self.resolve_expr(*expr),
             PlaceKind::Field { base, .. } => self.resolve_place(*base),
             PlaceKind::Index { base, index } => {
                 self.resolve_place(*base);
@@ -171,93 +443,104 @@ impl<'a> BodyResolver<'a> {
         }
     }
 
-    fn resolve_name(&self, name: &str) -> Option<ResolvedName> {
-        for scope in self.scopes.iter().rev() {
-            if let Some(resolved) = scope.get(name) {
-                return Some(*resolved);
+    fn record_capture(&mut self, resolved: ResolvedName) {
+        if !matches!(resolved, ResolvedName::Local(_) | ResolvedName::Param(_)) {
+            return;
+        }
+        for (_, outer, captures) in &mut self.closures {
+            if outer.contains(&resolved) && !captures.contains(&resolved) {
+                captures.push(resolved.clone());
             }
         }
-
-        if let Some(id) = self.names.function(name) {
-            return Some(ResolvedName::Function(id));
-        }
-        if let Some(id) = self.names.const_(name) {
-            return Some(ResolvedName::Const(id));
-        }
-        if let Some(id) = self.names.module(name) {
-            return Some(ResolvedName::Module(id));
-        }
-        if let Some(module) = self.names.standard_module(name) {
-            return Some(ResolvedName::StandardModule(module));
-        }
-        if let Some(intrinsic) = self.names.standard_function(name) {
-            return Some(ResolvedName::StandardFunction(intrinsic));
-        }
-        if let Some(id) = self.names.struct_(name) {
-            return Some(ResolvedName::Struct(id));
-        }
-        if let Some(id) = self.names.enum_(name) {
-            return Some(ResolvedName::Enum(id));
-        }
-        self.names.trait_(name).map(ResolvedName::Trait)
     }
 
-    fn bind_name(&mut self, name: &str, resolved: ResolvedName) {
+    fn binding(&self, name: &str, namespace: NameNamespace) -> Option<NameResolution> {
+        for scope in self
+            .scopes
+            .iter()
+            .rev()
+            .filter(|_| namespace == NameNamespace::Value)
+        {
+            if let Some(index) = scope.latest.get(name) {
+                return Some(NameResolution::Unique(
+                    self.resolved.scopes[scope.id].bindings[*index]
+                        .resolved
+                        .clone(),
+                ));
+            }
+        }
+        self.names.lookup(name, namespace)
+    }
+
+    /// Checks lexical/module bindings, then qualified namespace lookup, then recognized value helpers; path roots select Type independently of locals.
+    fn resolve_name(&self, name: &str, namespace: NameNamespace) -> Option<ResolvedName> {
+        if let Some(binding) = self.binding(name, namespace) {
+            return binding.target();
+        }
+        if let Some(hit) =
+            self.resolved
+                .catalog
+                .resolve_name(self.names, name, namespace, &self.cancel)
+        {
+            return Some(hit.target.resolved(self.names.unit.as_ref()));
+        }
+        if namespace == NameNamespace::Value
+            && let Some(helper) = BuiltinFunction::from_name(name)
+        {
+            return Some(ResolvedName::RuntimeHelper(helper));
+        }
+        None
+    }
+
+    /// Records a parameter/local binding and its visibility start, retaining shadowed history.
+    fn bind_name(&mut self, name: &str, resolved: ResolvedName, visible_from: usize) {
+        match resolved {
+            ResolvedName::Param(id) => self.assert_current_owner(id.owner()),
+            ResolvedName::Local(id) => self.assert_current_owner(id.owner()),
+            _ => unreachable!("only local bindings enter a body scope"),
+        }
         if let Some(scope) = self.scopes.last_mut() {
-            scope.insert(name.to_string(), resolved);
+            let bindings = &mut self.resolved.scopes[scope.id].bindings;
+            scope.latest.insert(name.to_owned(), bindings.len());
+            bindings.push(ScopeBinding {
+                name: name.to_owned(),
+                resolved,
+                visible_from,
+            });
         }
     }
 
-    fn push_scope(&mut self) {
-        self.scopes.push(HashMap::new());
+    fn push_scope(&mut self, span: Span, owner: BodyOwner) {
+        let id = self.resolved.scopes.len();
+        self.resolved.scopes.push(LexicalScope {
+            owner,
+            span,
+            parent: self.scopes.last().map(|scope| scope.id),
+            bindings: Vec::new(),
+        });
+        self.scopes.push(ActiveScope {
+            id,
+            latest: HashMap::new(),
+        });
+    }
+
+    fn push_child_scope(&mut self, span: Span) {
+        let owner =
+            self.resolved.scopes[self.scopes.last().expect("body owns its scopes").id].owner;
+        self.push_scope(span, owner);
     }
 
     fn pop_scope(&mut self) {
         self.scopes.pop();
     }
-}
 
-trait TopLevelLookup {
-    fn function(&self, name: &str) -> Option<FunctionId>;
-    fn const_(&self, name: &str) -> Option<ConstId>;
-    fn module(&self, name: &str) -> Option<ModuleId>;
-    fn standard_module(&self, name: &str) -> Option<surface::StandardModule>;
-    fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic>;
-    fn struct_(&self, name: &str) -> Option<StructId>;
-    fn enum_(&self, name: &str) -> Option<EnumId>;
-    fn trait_(&self, name: &str) -> Option<TraitId>;
-}
-
-impl TopLevelLookup for NameTable {
-    fn function(&self, name: &str) -> Option<FunctionId> {
-        self.functions.get(name).copied()
-    }
-
-    fn const_(&self, name: &str) -> Option<ConstId> {
-        self.consts.get(name).copied()
-    }
-
-    fn module(&self, name: &str) -> Option<ModuleId> {
-        self.modules.get(name).copied()
-    }
-
-    fn standard_module(&self, name: &str) -> Option<surface::StandardModule> {
-        self.standard_modules.get(name).copied()
-    }
-
-    fn standard_function(&self, name: &str) -> Option<surface::StandardIntrinsic> {
-        self.standard_functions.get(name).copied()
-    }
-
-    fn struct_(&self, name: &str) -> Option<StructId> {
-        self.structs.get(name).copied()
-    }
-
-    fn enum_(&self, name: &str) -> Option<EnumId> {
-        self.enums.get(name).copied()
-    }
-
-    fn trait_(&self, name: &str) -> Option<TraitId> {
-        self.traits.get(name).copied()
+    fn assert_current_owner(&self, owner: HirOwner) {
+        let current =
+            self.resolved.scopes[self.scopes.last().expect("body owns its nodes").id].owner;
+        assert_eq!(
+            owner,
+            HirOwner::Body(current),
+            "HIR traversal crossed a body boundary"
+        );
     }
 }

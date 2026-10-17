@@ -1,0 +1,174 @@
+//! Source/semantic identity is distinct from runtime slots and display spelling.
+pub mod map;
+pub mod mapping;
+pub mod metadata;
+pub mod scoped;
+pub mod table;
+use crate::decode_limits::bounded_vec;
+use serde::{Deserialize, Deserializer, Serialize};
+use std::fmt;
+
+pub const MAX_IDENTITY_PATH_SEGMENTS: usize = 64;
+
+fn module_path<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<String>, D::Error> {
+    bounded_vec(
+        deserializer,
+        MAX_IDENTITY_PATH_SEGMENTS,
+        "module identity path segment",
+    )
+}
+
+fn definition_path<'de, D: Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Vec<DefinitionPathSegment>, D::Error> {
+    bounded_vec(
+        deserializer,
+        MAX_IDENTITY_PATH_SEGMENTS,
+        "definition identity path segment",
+    )
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct PackageId(pub String);
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct ModuleIdentity {
+    pub package: PackageId,
+    #[serde(deserialize_with = "module_path")]
+    pub path: Vec<String>,
+}
+
+impl ModuleIdentity {
+    pub fn within_path_limit(&self) -> bool {
+        self.path.len() <= MAX_IDENTITY_PATH_SEGMENTS
+    }
+
+    /// A standalone source owns an unnamed root and a family derived from its source name.
+    /// Hex encoding keeps arbitrary host URIs out of the `::` module-path syntax.
+    pub fn single_file(source_name: impl Into<String>) -> Self {
+        let source_name = source_name.into();
+        let encoded = source_name
+            .as_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        Self {
+            package: PackageId(format!("source-file:{encoded}")),
+            path: vec![],
+        }
+    }
+}
+
+impl Default for ModuleIdentity {
+    fn default() -> Self {
+        Self::single_file("<anonymous>")
+    }
+}
+
+impl fmt::Display for ModuleIdentity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}::{}", self.package.0, self.path.join("::"))
+    }
+}
+
+/// Exact portable declaration identity, independent of any in-memory table index.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct DefinitionPath {
+    pub module: ModuleIdentity,
+    #[serde(deserialize_with = "definition_path")]
+    pub path: Vec<DefinitionPathSegment>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum DefinitionKind {
+    Function,
+    Const,
+    Module,
+    Struct,
+    Field,
+    Enum,
+    Trait,
+    Impl,
+    Method,
+    Variant,
+    AssociatedType,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct DefinitionPathSegment {
+    pub kind: DefinitionKind,
+    pub name: String,
+    /// Source-order occurrence among declarations with the same parent, kind and name.
+    /// Usually zero; also distinguishes malformed duplicates and unnamed impl blocks.
+    pub occurrence: u32,
+}
+
+impl DefinitionPath {
+    pub fn within_path_limit(&self) -> bool {
+        self.module.within_path_limit() && self.path.len() <= MAX_IDENTITY_PATH_SEGMENTS
+    }
+}
+
+pub fn associated_type_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
+    let mut id = owner.clone();
+    id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::AssociatedType,
+        name: name.to_owned(),
+        occurrence: 0,
+    });
+    id
+}
+
+pub fn associated_const_id(owner: &DefinitionPath, name: &str) -> DefinitionPath {
+    let mut id = owner.clone();
+    id.path.push(DefinitionPathSegment {
+        kind: DefinitionKind::Const,
+        name: name.to_owned(),
+        occurrence: 0,
+    });
+    id
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bincode::Options;
+
+    fn codec() -> impl Options {
+        bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .with_little_endian()
+    }
+
+    #[test]
+    fn identity_path_lengths_are_checked_before_decoding_segments() {
+        let module = ModuleIdentity::single_file("main.kgr");
+        let mut bytes = codec().serialize(&module).unwrap();
+        let count_offset = codec().serialized_size(&module.package).unwrap() as usize;
+        bytes[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        let error = codec().deserialize::<ModuleIdentity>(&bytes).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("module identity path segment count limit exceeded")
+        );
+
+        let id = DefinitionPath {
+            module,
+            path: vec![DefinitionPathSegment {
+                kind: DefinitionKind::Function,
+                name: "main".into(),
+                occurrence: 0,
+            }],
+        };
+        let mut bytes = codec().serialize(&id).unwrap();
+        let count_offset = codec().serialized_size(&id.module).unwrap() as usize;
+        bytes[count_offset..count_offset + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        let error = codec().deserialize::<DefinitionPath>(&bytes).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("definition identity path segment count limit exceeded")
+        );
+    }
+}

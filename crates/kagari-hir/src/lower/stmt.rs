@@ -1,15 +1,33 @@
-use kagari_syntax::ast;
+//! Statement/block construction and recursive assignment-place lowering.
+
+use crate::{
+    hir::{
+        expr::ops::BinaryOp,
+        ids::{BlockId, PlaceId, StmtId},
+        pattern::{PatternData, PatternKind},
+        place::{PlaceData, PlaceKind},
+        stmt::{BlockData, StmtData, StmtKind},
+        writeability::Writeability,
+    },
+    lower::context::{Lowerer, syntax_span, token_span},
+};
+use kagari_syntax::{
+    ast::{
+        expr::{BlockExpr, Expr},
+        stmt::Stmt,
+    },
+    kind::SyntaxKind,
+};
+
 use smallvec::{SmallVec, smallvec};
 
-use crate::hir::{
-    BlockData, BlockId, PlaceData, PlaceId, PlaceKind, StmtData, StmtId, StmtKind, Writeability,
-};
-use crate::lower::context::{Lowerer, syntax_span};
-
 impl Lowerer {
-    pub(crate) fn lower_block(&mut self, block: &ast::BlockExpr) -> BlockId {
+    /// Lowers statements in order and the optional tail separately, then allocates their block.
+    pub(crate) fn lower_block(&mut self, block: &BlockExpr) -> BlockId {
+        let cancel = self.cancel.clone();
         let statements = block
             .statements()
+            .take_while(|_| cancel.check().is_ok())
             .map(|stmt| self.lower_stmt(&stmt))
             .collect::<SmallVec<[_; 8]>>();
         let tail_expr = block.tail_expr().map(|expr| self.lower_expr(&expr));
@@ -23,12 +41,13 @@ impl Lowerer {
         )
     }
 
-    pub(crate) fn lower_stmt(&mut self, stmt: &ast::Stmt) -> StmtId {
+    /// Builds binding/control-flow records, using placeholders where required recovered syntax is absent.
+    pub(crate) fn lower_stmt(&mut self, stmt: &Stmt) -> StmtId {
         let kind = match stmt {
-            ast::Stmt::BindingStmt(stmt) => StmtKind::Binding {
+            Stmt::BindingStmt(stmt) => StmtKind::Binding {
                 local: self.source_map.push_local(
                     stmt.name()
-                        .map(|name| syntax_span(&name))
+                        .map(|name| token_span(&name))
                         .unwrap_or_else(|| syntax_span(stmt)),
                 ),
                 writeability: if stmt.is_var() {
@@ -41,9 +60,22 @@ impl Lowerer {
                 initializer: stmt
                     .initializer()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Stmt::AssignStmt(stmt) => StmtKind::Assign {
+            Stmt::AssignStmt(stmt) => StmtKind::Assign {
+                op: match stmt.operator() {
+                    Some(SyntaxKind::PlusEq) => Some(BinaryOp::Add),
+                    Some(SyntaxKind::MinusEq) => Some(BinaryOp::Sub),
+                    Some(SyntaxKind::StarEq) => Some(BinaryOp::Mul),
+                    Some(SyntaxKind::PercentEq) => Some(BinaryOp::Rem),
+                    Some(SyntaxKind::SlashEq) => Some(BinaryOp::Div),
+                    Some(SyntaxKind::AmpEq) => Some(BinaryOp::BitAnd),
+                    Some(SyntaxKind::PipeEq) => Some(BinaryOp::BitOr),
+                    Some(SyntaxKind::CaretEq) => Some(BinaryOp::BitXor),
+                    Some(SyntaxKind::ShlEq) => Some(BinaryOp::Shl),
+                    Some(SyntaxKind::ShrEq) => Some(BinaryOp::Shr),
+                    _ => None,
+                },
                 target: stmt
                     .target()
                     .map(|expr| self.lower_place(&expr))
@@ -51,16 +83,52 @@ impl Lowerer {
                 value: stmt
                     .value()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             },
-            ast::Stmt::ReturnStmt(stmt) => StmtKind::Return {
+            Stmt::ReturnStmt(stmt) => StmtKind::Return {
                 expr: stmt.expr().map(|expr| self.lower_expr(&expr)),
             },
-            ast::Stmt::WhileStmt(stmt) => StmtKind::While {
-                condition: stmt
-                    .condition()
+            Stmt::WhileStmt(stmt) => StmtKind::While {
+                condition: self.lower_condition(stmt.binding_condition(), stmt.condition()),
+                body: match stmt.body() {
+                    Some(body) => self.lower_block(&body),
+                    None => self.alloc_block(
+                        syntax_span(stmt),
+                        BlockData {
+                            statements: smallvec![],
+                            tail_expr: None,
+                        },
+                    ),
+                },
+            },
+            Stmt::LoopStmt(stmt) => StmtKind::Loop {
+                body: match stmt.body() {
+                    Some(body) => self.lower_block(&body),
+                    None => self.alloc_block(
+                        syntax_span(stmt),
+                        BlockData {
+                            statements: smallvec![],
+                            tail_expr: None,
+                        },
+                    ),
+                },
+            },
+            Stmt::ForStmt(stmt) => StmtKind::For {
+                pattern: stmt
+                    .pattern()
+                    .map(|pattern| self.lower_pattern(&pattern))
+                    .unwrap_or_else(|| {
+                        self.alloc_pattern(
+                            syntax_span(stmt),
+                            PatternData {
+                                kind: PatternKind::Wildcard,
+                            },
+                        )
+                    }),
+                iterable: stmt
+                    .iterable()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
                 body: match stmt.body() {
                     Some(body) => self.lower_block(&body),
                     None => self.alloc_block(
@@ -72,44 +140,36 @@ impl Lowerer {
                     ),
                 },
             },
-            ast::Stmt::LoopStmt(stmt) => StmtKind::Loop {
-                body: match stmt.body() {
-                    Some(body) => self.lower_block(&body),
-                    None => self.alloc_block(
-                        syntax_span(stmt),
-                        BlockData {
-                            statements: smallvec![],
-                            tail_expr: None,
-                        },
-                    ),
-                },
+            Stmt::BreakStmt(stmt) => match stmt.expr() {
+                Some(expr) => StmtKind::BreakValue(self.lower_expr(&expr)),
+                None => StmtKind::Break,
             },
-            ast::Stmt::BreakStmt(_) => StmtKind::Break,
-            ast::Stmt::ContinueStmt(_) => StmtKind::Continue,
-            ast::Stmt::ExprStmt(stmt) => StmtKind::Expr(
+            Stmt::ContinueStmt(_) => StmtKind::Continue,
+            Stmt::ExprStmt(stmt) => StmtKind::Expr(
                 stmt.expr()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>")),
+                    .unwrap_or_else(|| self.missing_expr()),
             ),
         };
 
         self.alloc_stmt(syntax_span(stmt), StmtData { kind })
     }
 
-    fn lower_place(&mut self, expr: &ast::Expr) -> PlaceId {
+    /// Retains field/index chains as places; general roots become expression-backed places for later validation.
+    fn lower_place(&mut self, expr: &Expr) -> PlaceId {
         match expr {
-            ast::Expr::PathExpr(path) => self.alloc_place(
+            Expr::PathExpr(path) => self.alloc_place(
                 syntax_span(path),
                 PlaceData {
                     kind: PlaceKind::Name(path.name_text().unwrap_or_default()),
                 },
             ),
-            ast::Expr::FieldExpr(field) => {
+            Expr::FieldExpr(field) => {
                 let base = field
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
                     .unwrap_or_else(|| self.synthetic_name_place("<missing>"));
-                self.alloc_place(
+                let id = self.alloc_place(
                     syntax_span(field),
                     PlaceData {
                         kind: PlaceKind::Field {
@@ -117,9 +177,13 @@ impl Lowerer {
                             name: field.name_text().unwrap_or_default(),
                         },
                     },
-                )
+                );
+                if let Some(name) = field.name() {
+                    self.source_map.insert_place_member(id, token_span(&name));
+                }
+                id
             }
-            ast::Expr::IndexExpr(index_expr) => {
+            Expr::IndexExpr(index_expr) => {
                 let base = index_expr
                     .receiver()
                     .map(|expr| self.lower_place(&expr))
@@ -127,7 +191,7 @@ impl Lowerer {
                 let index = index_expr
                     .index()
                     .map(|expr| self.lower_expr(&expr))
-                    .unwrap_or_else(|| self.synthetic_name_expr("<missing>"));
+                    .unwrap_or_else(|| self.missing_expr());
                 self.alloc_place(
                     syntax_span(index_expr),
                     PlaceData {
@@ -135,7 +199,19 @@ impl Lowerer {
                     },
                 )
             }
-            _ => self.synthetic_name_place("<missing>"),
+            Expr::ParenExpr(paren) => paren
+                .expr()
+                .map(|expr| self.lower_place(&expr))
+                .unwrap_or_else(|| self.synthetic_name_place("<missing>")),
+            _ => {
+                let value = self.lower_expr(expr);
+                self.alloc_place(
+                    syntax_span(expr),
+                    PlaceData {
+                        kind: PlaceKind::Expr(value),
+                    },
+                )
+            }
         }
     }
 }

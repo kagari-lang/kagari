@@ -1,0 +1,11 @@
+[package]
+name = "kagari-format"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-common.workspace = true
+kagari-source.workspace = true
+kagari-syntax.workspace = true
+rowan = "0.17.0"

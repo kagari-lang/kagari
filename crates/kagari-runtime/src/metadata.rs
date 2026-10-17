@@ -1,9 +1,12 @@
+use crate::{error::RuntimeError, reload::ModuleEpoch};
+use kagari_common::identity::table::DefinitionId;
+use kagari_types::{
+    declaration::TypeDef, declaration::host::PathAccess, ty::Ty, visibility::Visibility,
+};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet},
 };
-
-use crate::{error::RuntimeError, reload::ModuleEpoch, security::CapabilitySet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(u64);
@@ -61,19 +64,7 @@ pub enum TypeKind {
     DynamicInterfaceObject,
     HostObject,
     HostPathView,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Visibility {
-    Private,
-    Public,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PathAccess {
-    None,
-    ReadOnly,
-    ReadWrite,
+    Set,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,7 +107,7 @@ pub struct MethodInfo {
     pub params: Vec<ParameterInfo>,
     pub return_type: TypeId,
     pub origin: MethodOrigin,
-    pub capability_requirements: CapabilitySet,
+
     pub abi_fingerprint: AbiFingerprint,
 }
 
@@ -172,12 +163,17 @@ pub struct TypeRegistry {
     inner: RefCell<TypeRegistryInner>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 struct TypeRegistryInner {
+    native_values: HashMap<Ty, TypeId>,
+    native_external: HashMap<DefinitionId, (TypeDef, TypeId)>,
+    native_methods: HashMap<(TypeId, DefinitionId), MethodMetadataId>,
     by_id: Vec<TypeInfo>,
     by_name: HashMap<String, TypeId>,
     public_abi_fingerprints: HashSet<AbiFingerprint>,
 }
+
+pub(crate) mod native;
 
 impl TypeRegistry {
     pub fn register(&self, registration: TypeRegistration) -> Result<TypeId, RuntimeError> {
@@ -274,7 +270,6 @@ mod tests {
                     }],
                     return_type: i32_id,
                     origin: MethodOrigin::Inherent,
-                    capability_requirements: CapabilitySet::default(),
                     abi_fingerprint: AbiFingerprint(13),
                 }],
                 abi_fingerprint: AbiFingerprint(14),

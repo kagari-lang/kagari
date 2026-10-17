@@ -1,71 +1,54 @@
-use crate::{Runtime, value::Value};
+use crate::{Runtime, error::RuntimeErrorKind, value::Value};
+use kagari_abi::native_call::{
+    JIT_STATUS_CANCELLED, JIT_STATUS_ENGINE_FAULT, JIT_STATUS_INVALID_HEAP_REFERENCE,
+    JIT_STATUS_INVALID_RUNTIME, JIT_STATUS_OK, JIT_STATUS_RESOURCE_LIMIT, JIT_VALUE_TAG_BOOL,
+    JIT_VALUE_TAG_I32, JIT_VALUE_TAG_UNIT, JitValue, NativeHelperTable,
+};
+use std::ffi::c_void;
 
-pub const JIT_CONSUME_INSTRUCTION_STEP_SYMBOL: &str = "kagari_runtime.consume_instruction_step";
+/// Immutable bindings borrowed by each native invocation.
+pub static NATIVE_HELPERS: NativeHelperTable = NativeHelperTable {
+    poll_execution: poll_from_context,
+};
 
-pub const JIT_STATUS_OK: i32 = 0;
-pub const JIT_STATUS_RUNTIME_ERROR: i32 = 1;
-pub const JIT_VALUE_TAG_UNIT: u8 = 0;
-pub const JIT_VALUE_TAG_BOOL: u8 = 1;
-pub const JIT_VALUE_TAG_I32: u8 = 2;
-
-pub type JitCompiledFunction =
-    unsafe extern "C" fn(runtime: *const Runtime, result: *mut JitValue) -> i32;
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct JitValue {
-    pub tag: u8,
-    pub _padding: [u8; 7],
-    pub payload: i64,
+unsafe extern "C" fn poll_from_context(runtime: *const c_void, offset: u64) -> i32 {
+    // SAFETY: the invocation context holds the live runtime for this call.
+    unsafe { jit_poll_execution(runtime.cast(), offset) }
 }
 
-impl JitValue {
-    pub fn unit() -> Self {
-        Self {
-            tag: JIT_VALUE_TAG_UNIT,
-            _padding: [0; 7],
-            payload: 0,
-        }
-    }
-
-    pub fn bool(value: bool) -> Self {
-        Self {
-            tag: JIT_VALUE_TAG_BOOL,
-            _padding: [0; 7],
-            payload: if value { 1 } else { 0 },
-        }
-    }
-
-    pub fn i32(value: i32) -> Self {
-        Self {
-            tag: JIT_VALUE_TAG_I32,
-            _padding: [0; 7],
-            payload: i64::from(value),
-        }
-    }
-
-    pub fn into_value(self) -> Option<Value> {
-        match self.tag {
-            JIT_VALUE_TAG_UNIT => Some(Value::Unit),
-            JIT_VALUE_TAG_BOOL => Some(Value::Bool(self.payload != 0)),
-            JIT_VALUE_TAG_I32 => i32::try_from(self.payload).ok().map(Value::I32),
-            _ => None,
-        }
-    }
-}
-
-impl Default for JitValue {
-    fn default() -> Self {
-        Self::unit()
-    }
-}
-
-pub extern "C" fn jit_consume_instruction_step(runtime: *const Runtime) -> i32 {
+/// Publish a verified program point, poll cancellation and service GC.
+/// Absent frames and invalid offsets remain engine faults.
+///
+/// # Safety
+/// A non-null pointer must reference a live Runtime for the duration of this call.
+/// Generated code must obey that runtime's single-threaded execution ownership.
+pub unsafe extern "C" fn jit_poll_execution(runtime: *const Runtime, offset: u64) -> i32 {
     let Some(runtime) = (unsafe { runtime.as_ref() }) else {
-        return JIT_STATUS_RUNTIME_ERROR;
+        return JIT_STATUS_INVALID_RUNTIME;
     };
-    match runtime.consume_instruction_step() {
-        Ok(()) => JIT_STATUS_OK,
-        Err(_) => JIT_STATUS_RUNTIME_ERROR,
+    match usize::try_from(offset)
+        .ok()
+        .and_then(|offset| runtime.record_native_instruction(offset).ok())
+    {
+        Some(()) => {}
+        None => return JIT_STATUS_ENGINE_FAULT,
+    };
+    if let Err(error) = runtime.gc_safepoint() {
+        return match error.kind() {
+            RuntimeErrorKind::EngineFault => JIT_STATUS_ENGINE_FAULT,
+            RuntimeErrorKind::Cancelled => JIT_STATUS_CANCELLED,
+            RuntimeErrorKind::ResourceLimitExceeded => JIT_STATUS_RESOURCE_LIMIT,
+            _ => JIT_STATUS_INVALID_HEAP_REFERENCE,
+        };
+    }
+    JIT_STATUS_OK
+}
+
+pub fn decode_native_value(value: JitValue) -> Option<Value> {
+    match value.tag {
+        JIT_VALUE_TAG_UNIT => Some(Value::Unit),
+        JIT_VALUE_TAG_BOOL => Some(Value::Bool(value.payload != 0)),
+        JIT_VALUE_TAG_I32 => i32::try_from(value.payload).ok().map(Value::I32),
+        _ => None,
     }
 }

@@ -1,0 +1,21 @@
+use std::collections::{HashMap, HashSet};
+// Run: cargo run -p kagari-cli -- run examples/syntax/for-collections.kgr
+// Result: main returns 42.
+fn main() -> i32 {
+    val scores: HashMap<String, i32> = HashMap::new();
+    scores.insert("a", 20);
+    scores.insert("b", 22);
+    var total = 0;
+    for (key, score) in scores {
+        total += score;
+    }
+    val names: HashSet<String> = HashSet::new();
+    names.insert("a");
+    names.insert("b");
+    var count = 0;
+    for name in names {
+        count += 1;
+    }
+    { val passed = count == 2; if !passed {val zero=0;1/zero;} };
+    total
+}

@@ -1,192 +1,295 @@
-use std::cell::RefCell;
+use crate::{
+    error::RuntimeError,
+    execution_state::ExecutionState,
+    frame::values::ExecutionValues,
+    session::{
+        SessionState,
+        store::{SessionId, SessionStore},
+    },
+};
+#[cfg(test)]
+use std::sync::{Arc, Weak};
+use std::{
+    cell::{Cell, Ref, RefCell, RefMut},
+    mem,
+    num::NonZeroUsize,
+};
 
-use crate::error::RuntimeError;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AsyncLimits {
+    pub max_pending_operations: NonZeroUsize,
+    pub max_tasks: NonZeroUsize,
+    pub max_task_scopes: NonZeroUsize,
+    pub max_task_waiters: NonZeroUsize,
+}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct ResourcePolicy {
-    pub max_instruction_steps: Option<u64>,
+impl Default for AsyncLimits {
+    fn default() -> Self {
+        Self {
+            max_pending_operations: NonZeroUsize::new(1024).expect("positive default"),
+            max_tasks: NonZeroUsize::new(1024).expect("positive default"),
+            max_task_scopes: NonZeroUsize::new(64).expect("positive default"),
+            max_task_waiters: NonZeroUsize::new(4096).expect("positive default"),
+        }
+    }
+}
+
+/// Runtime-wide protection against accidental recursion. No execution metering.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RuntimeLimits {
     pub max_call_depth: Option<u32>,
-    pub max_heap_units: Option<usize>,
-    pub max_allocation_units: Option<usize>,
-    pub max_host_calls: Option<u64>,
-    pub max_reflection_operations: Option<u64>,
-    pub max_modules: Option<usize>,
-    pub max_wall_time_ms: Option<u64>,
+}
+
+impl Default for RuntimeLimits {
+    fn default() -> Self {
+        Self {
+            max_call_depth: Some(256),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ResourceCounters {
-    pub instruction_steps: u64,
     pub current_call_depth: u32,
     pub peak_call_depth: u32,
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
-    pub allocation_units: usize,
-    pub host_calls: u64,
-    pub reflection_operations: u64,
-    pub loaded_modules: usize,
-    pub elapsed_wall_time_ms: u64,
 }
 
 #[derive(Debug)]
 pub struct ResourceState {
-    policy: ResourcePolicy,
+    // Observe destruction in ownership regressions without making storage shared.
+    #[cfg(test)]
+    lifetime: Arc<()>,
+    active_session: Cell<Option<SessionId>>,
+    pub(crate) sessions: SessionStore,
+    pub(crate) frame_values: RefCell<ExecutionValues>,
+    execution: ExecutionState,
+    limits: RuntimeLimits,
     counters: RefCell<ResourceCounters>,
 }
 
+/// A checked, uncharged growth operation. No user code runs while it is held.
+pub(crate) struct HeapGrowth<'a> {
+    session: Option<Ref<'a, SessionState>>,
+    counters: RefMut<'a, ResourceCounters>,
+    live: usize,
+}
+
+/// Account temporary native storage until preparation commits or fails.
+pub(crate) struct TemporaryHeap<'a> {
+    resources: &'a ResourceState,
+    units: usize,
+}
+
+impl Drop for TemporaryHeap<'_> {
+    fn drop(&mut self) {
+        self.resources.release_heap_units(self.units);
+    }
+}
+
+impl HeapGrowth<'_> {
+    pub(crate) fn commit(mut self) {
+        self.counters.current_heap_units = self.live;
+        self.counters.peak_heap_units = self.counters.peak_heap_units.max(self.live);
+        if let Some(session) = self.session {
+            session
+                .peak_heap_units
+                .set(session.peak_heap_units.get().max(self.live));
+        }
+    }
+}
+
 impl ResourceState {
-    pub fn new(policy: ResourcePolicy) -> Self {
+    #[cfg(test)]
+    pub(crate) fn lifetime_probe(&self) -> Weak<()> {
+        Arc::downgrade(&self.lifetime)
+    }
+
+    pub(crate) fn collect_operation<T>(
+        &self,
+        collect: impl FnOnce() -> T,
+    ) -> Result<T, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        self.execution.collect(collect)
+    }
+
+    pub fn new(limits: RuntimeLimits) -> Self {
         Self {
-            policy,
+            #[cfg(test)]
+            lifetime: Arc::new(()),
+            active_session: Cell::new(None),
+            sessions: SessionStore::default(),
+            frame_values: RefCell::default(),
+            execution: Default::default(),
+            limits,
             counters: RefCell::new(ResourceCounters::default()),
         }
     }
 
-    pub fn policy(&self) -> ResourcePolicy {
-        self.policy
+    pub(crate) fn active_session(&self) -> Option<Ref<'_, SessionState>> {
+        self.active_session
+            .get()
+            .and_then(|id| self.sessions.get(id))
+    }
+
+    pub(crate) fn replace_session(&self, session: Option<SessionId>) -> Option<SessionId> {
+        self.active_session.replace(session)
+    }
+
+    pub(crate) fn start_execution(&self, session: SessionId) {
+        self.active_session.set(Some(session));
+    }
+
+    pub(crate) fn end_execution(&self, session: SessionId) {
+        if self.active_session.get() == Some(session) {
+            self.active_session.set(None);
+        }
+    }
+
+    pub fn termination(&self) -> Option<RuntimeError> {
+        self.active_session()
+            .as_ref()
+            .and_then(|session| session.termination.borrow().clone())
+    }
+
+    pub fn poll_execution(&self) -> Result<(), RuntimeError> {
+        self.execution.ensure_allowed()?;
+        // Session polling checks sticky termination before cancellation. Resolve
+        // that session once; no callback can change it during this operation.
+        if let Some(session) = self.active_session().as_ref() {
+            session.poll(self)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn limit(&self, name: &'static str) -> RuntimeError {
+        let error = RuntimeError::resource_limit(name);
+        self.active_session().as_ref().map_or_else(
+            || error.clone(),
+            |session| session.terminate(self, error.clone()),
+        )
+    }
+
+    pub fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {
+        self.execution.ensure_allowed()?;
+        if let Some(error) = self.termination() {
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub fn is_quarantined(&self) -> bool {
+        self.execution.is_quarantined()
+    }
+
+    pub(crate) fn quarantine(&self, reason: &'static str) -> RuntimeError {
+        self.execution.quarantine(reason)
+    }
+
+    pub(crate) fn commit_host_write(&self, commit: impl FnOnce()) -> Result<(), RuntimeError> {
+        self.execution.commit(commit)
+    }
+
+    pub(crate) fn prepare_dirty_record(&self, current: usize) -> Result<(), RuntimeError> {
+        self.ensure_execution_allowed()?;
+        let _next = current
+            .checked_add(1)
+            .ok_or_else(|| self.limit("dirty records"))?;
+        Ok(())
     }
 
     pub fn counters(&self) -> ResourceCounters {
         *self.counters.borrow()
     }
 
-    pub fn consume_instruction_step(&self) -> Result<(), RuntimeError> {
-        self.consume_instruction_steps(1)
+    pub(crate) fn park_call_depth(&self) -> u32 {
+        mem::take(&mut self.counters.borrow_mut().current_call_depth)
     }
 
-    pub fn consume_instruction_steps(&self, steps: u64) -> Result<(), RuntimeError> {
-        let mut counters = self.counters.borrow_mut();
-        let next = counters.instruction_steps.saturating_add(steps);
-        if let Some(max) = self.policy.max_instruction_steps {
-            if next > max {
-                return Err(RuntimeError::resource_limit("instruction steps"));
-            }
-        }
-        counters.instruction_steps = next;
-        Ok(())
+    pub(crate) fn restore_call_depth(&self, depth: u32) {
+        self.counters.borrow_mut().current_call_depth = depth;
     }
 
-    pub fn enter_call(&self) -> Result<(), RuntimeError> {
+    pub(crate) fn enter_call(&self) -> Result<(), RuntimeError> {
+        self.poll_execution()?;
         let mut counters = self.counters.borrow_mut();
-        let next = counters.current_call_depth.saturating_add(1);
-        if let Some(max) = self.policy.max_call_depth {
-            if next > max {
-                return Err(RuntimeError::resource_limit("call depth"));
-            }
+        let next = counters
+            .current_call_depth
+            .checked_add(1)
+            .ok_or_else(|| self.limit("call depth"))?;
+        if let Some(max) = self.limits.max_call_depth
+            && next > max
+        {
+            return Err(self.limit("call depth"));
         }
         counters.current_call_depth = next;
         counters.peak_call_depth = counters.peak_call_depth.max(next);
-        Ok(())
-    }
-
-    pub fn leave_call(&self) {
-        let mut counters = self.counters.borrow_mut();
-        counters.current_call_depth = counters.current_call_depth.saturating_sub(1);
-    }
-
-    pub fn record_heap_units(&self, current: usize, peak: usize) -> Result<(), RuntimeError> {
-        if let Some(max) = self.policy.max_heap_units {
-            if current > max {
-                return Err(RuntimeError::resource_limit("heap units"));
-            }
+        if let Some(session) = self.active_session() {
+            session
+                .peak_call_depth
+                .set(session.peak_call_depth.get().max(next));
         }
-
-        let mut counters = self.counters.borrow_mut();
-        counters.current_heap_units = current;
-        counters.peak_heap_units = counters.peak_heap_units.max(peak);
         Ok(())
     }
 
-    pub fn consume_allocation_units(&self, units: usize) -> Result<(), RuntimeError> {
+    pub(crate) fn leave_call(&self) {
         let mut counters = self.counters.borrow_mut();
-        let next = counters.allocation_units.saturating_add(units);
-        if let Some(max) = self.policy.max_allocation_units {
-            if next > max {
-                return Err(RuntimeError::resource_limit("allocation units"));
-            }
+        if let Some(depth) = counters.current_call_depth.checked_sub(1) {
+            counters.current_call_depth = depth;
+        } else {
+            self.quarantine("call depth underflow during frame cleanup");
         }
-        counters.allocation_units = next;
-        Ok(())
     }
 
-    pub fn consume_host_call(&self) -> Result<(), RuntimeError> {
-        let mut counters = self.counters.borrow_mut();
-        let next = counters.host_calls.saturating_add(1);
-        if let Some(max) = self.policy.max_host_calls {
-            if next > max {
-                return Err(RuntimeError::resource_limit("host calls"));
-            }
-        }
-        counters.host_calls = next;
-        Ok(())
+    pub(crate) fn prepare_heap_growth(&self, units: usize) -> Result<HeapGrowth<'_>, RuntimeError> {
+        self.poll_execution()?;
+        let counters = self.counters.borrow_mut();
+        let live = counters
+            .current_heap_units
+            .checked_add(units)
+            .ok_or_else(|| self.limit("heap units"))?;
+        Ok(HeapGrowth {
+            session: self.active_session(),
+            counters,
+            live,
+        })
     }
 
-    pub fn consume_reflection_operation(&self) -> Result<(), RuntimeError> {
-        let mut counters = self.counters.borrow_mut();
-        let next = counters.reflection_operations.saturating_add(1);
-        if let Some(max) = self.policy.max_reflection_operations {
-            if next > max {
-                return Err(RuntimeError::resource_limit("reflection operations"));
-            }
-        }
-        counters.reflection_operations = next;
-        Ok(())
+    pub(crate) fn reserve_temporary_heap(
+        &self,
+        units: usize,
+    ) -> Result<TemporaryHeap<'_>, RuntimeError> {
+        self.prepare_heap_growth(units)?.commit();
+        Ok(TemporaryHeap {
+            resources: self,
+            units,
+        })
     }
 
-    pub fn record_loaded_modules(&self, loaded_modules: usize) -> Result<(), RuntimeError> {
-        if let Some(max) = self.policy.max_modules {
-            if loaded_modules > max {
-                return Err(RuntimeError::resource_limit("loaded modules"));
-            }
-        }
-        self.counters.borrow_mut().loaded_modules = loaded_modules;
-        Ok(())
+    pub(crate) fn release_heap_units(&self, units: usize) {
+        let mut counters = self.counters.borrow_mut();
+        counters.current_heap_units = counters
+            .current_heap_units
+            .checked_sub(units)
+            .expect("heap accounting cannot underflow");
     }
 }
 
 impl Default for ResourceState {
     fn default() -> Self {
-        Self::new(ResourcePolicy::default())
+        Self::new(RuntimeLimits::default())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::error::RuntimeErrorKind;
-
-    #[test]
-    fn enforces_instruction_step_limits() {
-        let resources = ResourceState::new(ResourcePolicy {
-            max_instruction_steps: Some(1),
-            ..ResourcePolicy::default()
-        });
-
-        assert!(resources.consume_instruction_step().is_ok());
-        let error = resources.consume_instruction_step().unwrap_err();
-        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-        assert_eq!(resources.counters().instruction_steps, 1);
-    }
-
-    #[test]
-    fn enforces_bulk_instruction_step_limits() {
-        let resources = ResourceState::new(ResourcePolicy {
-            max_instruction_steps: Some(3),
-            ..ResourcePolicy::default()
-        });
-
-        resources.consume_instruction_steps(2).unwrap();
-        let error = resources.consume_instruction_steps(2).unwrap_err();
-
-        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
-        assert_eq!(resources.counters().instruction_steps, 2);
-    }
 
     #[test]
     fn tracks_call_depth_peaks() {
-        let resources = ResourceState::new(ResourcePolicy {
+        let resources = ResourceState::new(RuntimeLimits {
             max_call_depth: Some(2),
-            ..ResourcePolicy::default()
         });
 
         resources.enter_call().unwrap();
@@ -196,35 +299,7 @@ mod tests {
         resources.leave_call();
         assert_eq!(resources.counters().current_call_depth, 1);
     }
-
-    #[test]
-    fn enforces_allocation_host_and_reflection_limits() {
-        let resources = ResourceState::new(ResourcePolicy {
-            max_allocation_units: Some(2),
-            max_host_calls: Some(1),
-            max_reflection_operations: Some(1),
-            ..ResourcePolicy::default()
-        });
-
-        resources.consume_allocation_units(2).unwrap();
-        assert_eq!(
-            resources.consume_allocation_units(1).unwrap_err().kind(),
-            RuntimeErrorKind::ResourceLimitExceeded
-        );
-        assert_eq!(resources.counters().allocation_units, 2);
-
-        resources.consume_host_call().unwrap();
-        assert_eq!(
-            resources.consume_host_call().unwrap_err().kind(),
-            RuntimeErrorKind::ResourceLimitExceeded
-        );
-        assert_eq!(resources.counters().host_calls, 1);
-
-        resources.consume_reflection_operation().unwrap();
-        assert_eq!(
-            resources.consume_reflection_operation().unwrap_err().kind(),
-            RuntimeErrorKind::ResourceLimitExceeded
-        );
-        assert_eq!(resources.counters().reflection_operations, 1);
-    }
 }
+
+#[cfg(test)]
+mod mutation_resources;

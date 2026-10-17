@@ -1,34 +1,119 @@
-use std::collections::HashSet;
-
-use kagari_common::{Diagnostic, DiagnosticKind};
-use smallvec::SmallVec;
+//! Body traversal and inference orchestration; specialized operations live in child modules.
 
 use crate::{
-    builtin::{
-        BuiltinFunction, BuiltinMethod, StringMethod, array,
-        surface::{self, StandardIntrinsic, StandardMethodReceiver, StandardTypeConstraint},
-    },
+    aggregates::AggregateCatalog,
+    builtin::array_bridge,
+    declarations::Declarations,
     hir::{
-        BinaryOp, BlockId, ExprId, ExprKind, LiteralKind, MatchArm, PatternKind, PlaceId,
-        PlaceKind, PrefixOp, StmtId, StmtKind,
+        expr::{ExprKind, literal::LiteralKind},
+        ids::{BlockId, ConstId, ExprId},
     },
+    imports::functions::ImportedFunctions,
     lower::LoweredModule,
-    resolver::{ResolvedName, ResolvedNames},
-    typeck::ty::{TypeContext, display_type_id, resolve_type, resolve_type_in},
-    typeck::{BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, TypeTable},
-    types::{BuiltinType, TypeId},
+    resolver::resolved::{ResolvedName, ResolvedNames},
+    typeck::{
+        BodyTypeEnv, FunctionTypeIndex, TopLevelTypeIndex, TypeIndexes, applications,
+        asynchronous as async_types, completion,
+        scalar::ScalarValue,
+        solver::Solver,
+        table::TypeTable,
+        ty::{TypeContext, display_type_id, resolve_type_in},
+    },
+    types,
+    types::TypeId,
+};
+use kagari_common::cancellation::CancellationToken;
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
+use kagari_types::{language::Protocol, range::RangeKind, scalar::BuiltinType};
+use smallvec::SmallVec;
+use std::{
+    collections::{HashMap, HashSet},
+    mem,
 };
 
+mod asynchronous;
+mod calls;
+mod constructors;
+mod host_access;
+mod methods;
+mod patterns;
+mod places;
+mod statements;
+mod trait_calls;
+
+mod iteration;
+mod joins;
+mod numeric;
+mod operators;
+mod solving;
+mod standard;
+
+#[derive(Clone)]
+enum HostPathNode<Id> {
+    Member { node: Id, name: String },
+    Index { node: Id, argument: ExprId },
+}
+
+impl<Id: Copy> HostPathNode<Id> {
+    fn id(&self) -> Id {
+        match self {
+            Self::Member { node, .. } | Self::Index { node, .. } => *node,
+        }
+    }
+}
+
+#[derive(Clone)]
+enum LoopResult {
+    Statement,
+    Expression(Box<LoopValue>),
+}
+
+#[derive(Clone)]
+struct LoopValue {
+    expected: Option<TypeId>,
+    found: Option<TypeId>,
+}
+
+/// Per-function/constant semantic traversal state borrowing prepared catalogs.
+///
+/// The checker reads lowered nodes and resolved names, updates the body environment,
+/// and writes diagnostics plus `TypeTable` facts. `Solver` holds temporary inference
+/// variables; solving/recheck state must be sealed before publishing the table.
+/// Loop and closure stacks keep expected/result types separate from outer returns.
 pub(crate) struct BodyChecker<'a> {
+    aggregates: &'a AggregateCatalog,
+    imported_functions: &'a ImportedFunctions,
+    declarations: &'a Declarations,
+    cancel: &'a CancellationToken,
     lowered: &'a LoweredModule,
     names: &'a ResolvedNames,
     function_index: &'a FunctionTypeIndex,
     top_level_index: &'a TopLevelTypeIndex,
+    const_values: Option<&'a HashMap<ConstId, ScalarValue>>,
     diagnostics: &'a mut SmallVec<[Diagnostic; 4]>,
+    /// Mutable semantic output; node keys belong to `lowered`.
     type_table: &'a mut TypeTable,
     function_name: &'a str,
+    /// Result contract of the currently checked callable context.
     expected_return: TypeId,
+    async_body: bool,
     loop_depth: usize,
+    /// Nested loop result expectations and observed `break` value types.
+    loop_results: Vec<LoopResult>,
+    /// Expression-inference recursion depth, limited before nested inference proceeds.
+    inference_depth: usize,
+    /// Nested closure return observations, separate from the enclosing function.
+    closure_returns: Vec<Vec<TypeId>>,
+    /// Body-local variables and constraints, never a reusable signature object.
+    solver: Solver,
+    /// Whether the current traversal is accumulating/solving body constraints.
+    solving: bool,
+    body_inference: bool,
+    /// Call-site type arguments retained across inference/recheck passes.
+    explicit_arguments: HashMap<ExprId, Vec<TypeId>>,
+    used_explicit_arguments: HashSet<ExprId>,
+    /// Deferred propagation output/residual defaults awaiting inference resolution.
+    propagation_defaults: Vec<(TypeId, TypeId)>,
 }
 
 impl<'a> BodyChecker<'a> {
@@ -42,1876 +127,729 @@ impl<'a> BodyChecker<'a> {
         expected_return: TypeId,
     ) -> Self {
         Self {
+            imported_functions: indexes.imported_functions,
+            aggregates: indexes.aggregates,
+            declarations: indexes.declarations,
+            cancel: indexes.cancel,
             lowered,
             names,
             function_index: indexes.function_index,
             top_level_index: indexes.top_level_index,
+            const_values: indexes.const_values,
             diagnostics,
             type_table,
             function_name,
             expected_return,
+            async_body: false,
             loop_depth: 0,
+            loop_results: Vec::new(),
+            inference_depth: 0,
+            closure_returns: Vec::new(),
+            solver: Default::default(),
+            solving: false,
+            body_inference: false,
+            explicit_arguments: Default::default(),
+            used_explicit_arguments: Default::default(),
+            propagation_defaults: Vec::new(),
         }
+    }
+
+    pub(crate) fn set_async(&mut self, is_async: bool) {
+        self.async_body = is_async;
     }
 
     pub(crate) fn infer_block_types(&mut self, block_id: BlockId, env: &mut BodyTypeEnv) -> TypeId {
+        self.infer_block_types_expected(block_id, env, None)
+    }
+
+    /// Checks statements and the tail under an optional expected type, then accounts for whether the block can complete.
+    pub(crate) fn infer_block_types_expected(
+        &mut self,
+        block_id: BlockId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
         let block = self.lowered.module.block(block_id);
         for stmt in &block.statements {
+            if self.cancel.check().is_err() {
+                return TypeId::Unknown;
+            }
             self.check_stmt(*stmt, env);
         }
 
-        block
+        let result = block
             .tail_expr
             .map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
-                self.infer_expr_type(expr, env)
-            })
-    }
-
-    fn check_stmt(&mut self, stmt_id: StmtId, env: &mut BodyTypeEnv) {
-        let stmt = self.lowered.module.stmt(stmt_id);
-        match &stmt.kind {
-            StmtKind::Binding {
-                local,
-                writeability,
-                ty,
-                initializer,
-                ..
-            } => {
-                let initializer_ty = self.infer_expr_type(*initializer, env);
-                let local_ty = ty
-                    .and_then(|ty| {
-                        resolve_type_in(
-                            &self.lowered.module,
-                            ty,
-                            TypeContext {
-                                generics: &env.generics,
-                            },
-                        )
-                    })
-                    .unwrap_or(initializer_ty);
-                env.locals.insert(*local, local_ty.clone());
-                env.local_writeability.insert(*local, *writeability);
-                self.type_table.insert_local(*local, local_ty);
-            }
-            StmtKind::Assign { target, value } => {
-                let value_ty = self.infer_expr_type(*value, env);
-                match self.resolve_assignment_target_type(*target, env) {
-                    Some(expected) if expected != value_ty => self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                            expected: display_type_id(&expected),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(self.lowered.source_map.place_span(*target)),
-                    ),
-                    None => {
-                        let reason = self.assignment_target_error_reason(*target, env);
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::InvalidAssignmentTarget { reason })
-                                .with_span(self.lowered.source_map.place_span(*target)),
-                        );
-                    }
-                    _ => {}
-                }
-            }
-            StmtKind::Return { expr } => {
-                let found = expr.map_or(TypeId::Builtin(BuiltinType::Unit), |expr| {
-                    self.infer_expr_type(expr, env)
-                });
-                if found != self.expected_return {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
-                            function_name: self.function_name.to_string(),
-                            expected: display_type_id(&self.expected_return),
-                            found: display_type_id(&found),
-                        })
-                        .with_span(self.lowered.source_map.stmt_span(stmt_id)),
-                    );
-                }
-            }
-            StmtKind::While { condition, body } => {
-                self.check_condition_type(*condition, "while", env);
-                self.loop_depth += 1;
-                let _ = self.infer_block_types(*body, env);
-                self.loop_depth -= 1;
-            }
-            StmtKind::Loop { body } => {
-                self.loop_depth += 1;
-                let _ = self.infer_block_types(*body, env);
-                self.loop_depth -= 1;
-            }
-            StmtKind::Break => {
-                if self.loop_depth == 0 {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::BreakOutsideLoop)
-                            .with_span(self.lowered.source_map.stmt_span(stmt_id)),
-                    );
-                }
-            }
-            StmtKind::Continue => {
-                if self.loop_depth == 0 {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ContinueOutsideLoop)
-                            .with_span(self.lowered.source_map.stmt_span(stmt_id)),
-                    );
-                }
-            }
-            StmtKind::Expr(expr) => {
-                let _ = self.infer_expr_type(*expr, env);
-            }
-        }
-    }
-
-    fn resolve_assignment_target_type(
-        &mut self,
-        place_id: PlaceId,
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let ty = match &self.lowered.module.place(place_id).kind {
-            PlaceKind::Name(_) => {
-                self.place_root_resolution(place_id)
-                    .and_then(|resolved| match resolved {
-                        ResolvedName::Param(_) => None,
-                        ResolvedName::Local(id) => env
-                            .locals
-                            .get(&id)
-                            .filter(|_| {
-                                env.local_writeability
-                                    .get(&id)
-                                    .copied()
-                                    .is_some_and(|writeability| writeability.is_var())
-                            })
-                            .cloned(),
-                        ResolvedName::Const(_)
-                        | ResolvedName::Function(_)
-                        | ResolvedName::Module(_)
-                        | ResolvedName::StandardModule(_)
-                        | ResolvedName::StandardFunction(_)
-                        | ResolvedName::Struct(_)
-                        | ResolvedName::Enum(_)
-                        | ResolvedName::Trait(_) => None,
-                    })
-            }
-            PlaceKind::Field { base, name } => {
-                let base_ty = self.resolve_readable_place_type(*base, env)?;
-                self.resolve_writable_field_type(&base_ty, name)
-            }
-            PlaceKind::Index { base, index } => {
-                let base_ty = self.resolve_readable_place_type(*base, env)?;
-                self.infer_expr_type(*index, env);
-                self.resolve_index_type(*index, &base_ty)
-            }
-        };
-
-        if let Some(ty) = ty.clone() {
-            self.type_table.insert_place(place_id, ty);
-        }
-
-        ty
-    }
-
-    fn resolve_readable_place_type(
-        &mut self,
-        place_id: PlaceId,
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let ty = match &self.lowered.module.place(place_id).kind {
-            PlaceKind::Name(_) => {
-                self.place_root_resolution(place_id)
-                    .and_then(|resolved| match resolved {
-                        ResolvedName::Param(id) => env.params.get(&id).cloned(),
-                        ResolvedName::Local(id) => env.locals.get(&id).cloned(),
-                        ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                        ResolvedName::Function(_)
-                        | ResolvedName::Module(_)
-                        | ResolvedName::StandardModule(_)
-                        | ResolvedName::StandardFunction(_)
-                        | ResolvedName::Struct(_)
-                        | ResolvedName::Enum(_)
-                        | ResolvedName::Trait(_) => None,
-                    })
-            }
-            PlaceKind::Field { base, name } => {
-                let base_ty = self.resolve_readable_place_type(*base, env)?;
-                self.resolve_field_type(&base_ty, name)
-            }
-            PlaceKind::Index { base, index } => {
-                let base_ty = self.resolve_readable_place_type(*base, env)?;
-                self.infer_expr_type(*index, env);
-                self.resolve_index_type(*index, &base_ty)
-            }
-        };
-
-        if let Some(ty) = ty.clone() {
-            self.type_table.insert_place(place_id, ty);
-        }
-
-        ty
-    }
-
-    fn assignment_target_error_reason(
-        &mut self,
-        place_id: PlaceId,
-        env: &mut BodyTypeEnv,
-    ) -> String {
-        match &self.lowered.module.place(place_id).kind {
-            PlaceKind::Name(_) => self
-                .place_root_resolution(place_id)
-                .map(|resolved| match resolved {
-                    ResolvedName::Param(_) => {
-                        "function parameters are `val` bindings and cannot be reassigned"
-                            .to_string()
-                    }
-                    ResolvedName::Local(id) => match env.local_writeability.get(&id).copied() {
-                        Some(writeability) if !writeability.is_var() => {
-                            "`val` binding cannot be reassigned".to_string()
-                        }
-                        Some(_) => "assignment target type could not be resolved".to_string(),
-                        None => "unresolved assignment target".to_string(),
-                    },
-                    ResolvedName::Const(_) => "`const` item cannot be reassigned".to_string(),
-                    ResolvedName::Function(_) => "function item is not assignable".to_string(),
-                    ResolvedName::Module(_) => "module item is not assignable".to_string(),
-                    ResolvedName::StandardModule(_) => {
-                        "standard module item is not assignable".to_string()
-                    }
-                    ResolvedName::StandardFunction(_) => {
-                        "standard function item is not assignable".to_string()
-                    }
-                    ResolvedName::Struct(_) => "struct type is not assignable".to_string(),
-                    ResolvedName::Enum(_) => "enum type is not assignable".to_string(),
-                    ResolvedName::Trait(_) => "trait type is not assignable".to_string(),
-                })
-                .unwrap_or_else(|| "unresolved assignment target".to_string()),
-            PlaceKind::Field { base, name } => {
-                let Some(base_ty) = self.resolve_readable_place_type(*base, env) else {
-                    return self.assignment_target_error_reason(*base, env);
-                };
-                match self.resolve_field(&base_ty, name) {
-                    Some(field) if !field.writeability.is_var() => {
-                        format!("`val` field `{name}` cannot be assigned")
-                    }
-                    Some(_) => "assignment target type could not be resolved".to_string(),
-                    None => format!("unknown field `{name}`"),
-                }
-            }
-            PlaceKind::Index { base, index } => {
-                let Some(base_ty) = self.resolve_readable_place_type(*base, env) else {
-                    return self.assignment_target_error_reason(*base, env);
-                };
-                self.infer_expr_type(*index, env);
-                if self.resolve_index_type(*index, &base_ty).is_none() {
-                    "indexed value is not assignable".to_string()
-                } else {
-                    "assignment target type could not be resolved".to_string()
-                }
-            }
-        }
-    }
-
-    fn place_root_resolution(&self, place_id: PlaceId) -> Option<ResolvedName> {
-        let root = self.place_root(place_id);
-        self.names.place_resolution(root)
-    }
-
-    fn place_root(&self, place_id: PlaceId) -> PlaceId {
-        match &self.lowered.module.place(place_id).kind {
-            PlaceKind::Name(_) => place_id,
-            PlaceKind::Field { base, .. } | PlaceKind::Index { base, .. } => self.place_root(*base),
+                self.infer_expr_with_coercion(expr, env, expected)
+            });
+        if completion::block_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            block_id,
+            self.cancel,
+        )
+        .unwrap_or(true)
+        {
+            result
+        } else {
+            TypeId::Builtin(BuiltinType::Never)
         }
     }
 
     pub(crate) fn infer_expr_type(&mut self, expr_id: ExprId, env: &mut BodyTypeEnv) -> TypeId {
+        self.infer_expr_type_expected(expr_id, env, None)
+    }
+
+    /// Applies source context and the depth bound, computes an expression type, and records its semantic fact.
+    pub(super) fn infer_expr_type_expected(
+        &mut self,
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
+        const MAX_INFERENCE_DEPTH: usize = 32;
+        if self.inference_depth >= MAX_INFERENCE_DEPTH {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                    resource: "expression inference depth",
+                    limit: MAX_INFERENCE_DEPTH,
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            );
+            return TypeId::Unknown;
+        }
+        self.inference_depth += 1;
+        let expected = self.expression_context(expr_id, expected);
+        self.prepare_call_type_arguments(expr_id, env);
+        let result = self.infer_expr_type_expected_inner(expr_id, env, expected.as_ref());
+        self.type_table.insert_expr(expr_id, result.clone());
+        let result = if completion::expr_can_complete(
+            &self.lowered.module,
+            self.names,
+            self.type_table,
+            expr_id,
+            self.cancel,
+        )
+        .unwrap_or(true)
+        {
+            result
+        } else {
+            TypeId::Builtin(BuiltinType::Never)
+        };
+        let result = self.constrain_expression(expr_id, result, expected.as_ref());
+        if !result.reference_position_valid() {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidReference {
+                    reason: "views require a nominal target and cannot be nested in owning values",
+                })
+                .with_span(self.lowered.source_map.expr_span(expr_id)),
+            );
+        }
+        self.check_call_type_arguments_used(expr_id);
+        env.exprs.insert(expr_id, result.clone());
+        self.type_table.insert_expr(expr_id, result.clone());
+        self.inference_depth -= 1;
+        result
+    }
+
+    fn infer_expr_type_expected_inner(
+        &mut self,
+        expr_id: ExprId,
+        env: &mut BodyTypeEnv,
+        expected: Option<&TypeId>,
+    ) -> TypeId {
+        if self.cancel.check().is_err() {
+            return TypeId::Unknown;
+        }
         if let Some(ty) = env.exprs.get(&expr_id).cloned() {
             return ty;
         }
 
+        if let Some(ty) = self.infer_host_path_read(expr_id, env) {
+            env.exprs.insert(expr_id, ty.clone());
+            self.type_table.insert_expr(expr_id, ty.clone());
+            return ty;
+        }
         let expr = self.lowered.module.expr(expr_id);
+        if let Some(ty) = self.infer_associated_const(expr_id, env) {
+            env.exprs.insert(expr_id, ty.clone());
+            self.type_table.insert_expr(expr_id, ty.clone());
+            return ty;
+        }
         let ty = match &expr.kind {
-            ExprKind::Name(_) => self
+            ExprKind::Missing => {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::ExpectedExpression)
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                );
+                TypeId::Unknown
+            }
+            ExprKind::Name { explicit_type, .. }
+                if explicit_type.is_some() || self.enum_member(expr_id).is_some() =>
+            {
+                self.infer_enum_constructor(expr_id, expr_id, &[], env, expected)
+                    .expect("resolved enum member owner")
+            }
+            ExprKind::Name { name, .. } => self
                 .names
                 .expr_resolution(expr_id)
                 .and_then(|resolved| match resolved {
                     ResolvedName::Param(id) => env.params.get(&id).cloned(),
                     ResolvedName::Local(id) => env.locals.get(&id).cloned(),
                     ResolvedName::Const(id) => self.top_level_index.consts.get(&id).cloned(),
-                    ResolvedName::Function(id) => self
-                        .function_index
-                        .by_id
-                        .get(&id)
-                        .map(|function| function.return_type.clone()),
-                    ResolvedName::Module(_)
-                    | ResolvedName::StandardModule(_)
-                    | ResolvedName::StandardFunction(_)
+                    ResolvedName::Function(_)
+                    | ResolvedName::RuntimeHelper(_)
+                    | ResolvedName::Source(_)
+                    | ResolvedName::Namespace(_)
+                    | ResolvedName::Module(_)
+                    | ResolvedName::OpaqueType(_)
                     | ResolvedName::Struct(_)
                     | ResolvedName::Enum(_)
                     | ResolvedName::Trait(_) => None,
                 })
-                .unwrap_or(TypeId::Builtin(BuiltinType::Unit)),
-            ExprKind::Literal(literal) => match literal.kind {
-                LiteralKind::Number => TypeId::Builtin(BuiltinType::I32),
-                LiteralKind::Float => TypeId::Builtin(BuiltinType::F32),
-                LiteralKind::String => TypeId::Builtin(BuiltinType::String),
-                LiteralKind::Bool => TypeId::Builtin(BuiltinType::Bool),
+                .unwrap_or_else(|| {
+                    self.diagnostics.push(
+                        Diagnostic::error(if self.names.expr_resolution(expr_id).is_some() {
+                            DiagnosticKind::InvalidValueTarget { name: name.clone() }
+                        } else {
+                            DiagnosticKind::UnknownName { name: name.clone() }
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                    TypeId::Error
+                }),
+            ExprKind::Literal(literal)
+                if matches!(literal.kind, LiteralKind::Number | LiteralKind::Float) =>
+            {
+                self.infer_numeric_literal(expr_id, literal, expected, false)
+            }
+            ExprKind::Literal(literal) => match ScalarValue::parse(literal) {
+                Ok(value) => {
+                    let ty = value.ty();
+                    self.type_table.insert_scalar(expr_id, value);
+                    ty
+                }
+                Err(reason) => {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidLiteral {
+                            reason: reason.to_owned(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                    TypeId::Error
+                }
             },
+            ExprKind::InterpolatedString(parts) => {
+                for part in parts {
+                    self.infer_expr_type(*part, env);
+                }
+                TypeId::Builtin(BuiltinType::String)
+            }
+            ExprKind::FormatPart { expr, debug } => {
+                let ty = self.infer_expr_type(*expr, env);
+                let protocol = if *debug {
+                    Protocol::Debug
+                } else {
+                    Protocol::Display
+                };
+                let completes = completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    self.type_table,
+                    *expr,
+                    self.cancel,
+                )
+                .unwrap_or(false);
+                if completes
+                    && self
+                        .aggregates
+                        .language_trait(protocol)
+                        .and_then(|requested| {
+                            self.record_operator(expr_id, *expr, &ty, requested, env)
+                        })
+                        .is_none()
+                    && !ty.is_unresolved()
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                            type_name: format!(
+                                "interpolation requires {} for {}",
+                                protocol.name(),
+                                display_type_id(self.declarations.definitions(), &ty)
+                            ),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*expr)),
+                    );
+                }
+                TypeId::Builtin(BuiltinType::String)
+            }
+            ExprKind::Await { expr } => self.infer_await(expr_id, *expr, env, expected),
+            ExprKind::Propagate { expr } => self.infer_propagation(expr_id, *expr, env, expected),
+            ExprKind::Cast { expr, target } => {
+                let input = self.infer_expr_type(*expr, env);
+                let context = TypeContext {
+                    declarations: self.declarations,
+                    generics: &env.generics,
+                    self_type: None,
+                    implementation: None,
+                };
+                let output = resolve_type_in(
+                    &self.lowered.module,
+                    *target,
+                    context,
+                    self.type_table,
+                    self.cancel,
+                );
+                let completes = completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    self.type_table,
+                    *expr,
+                    self.cancel,
+                )
+                .unwrap_or(false);
+                if completes
+                    && !matches!(
+                        input,
+                        TypeId::Inference(_) | TypeId::Unknown | TypeId::Error
+                    )
+                    && !matches!((&input, &output), (TypeId::Builtin(a), TypeId::Builtin(b)) if a.can_cast_to(*b))
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidNumericCast {
+                            from: display_type_id(self.declarations.definitions(), &input),
+                            to: display_type_id(self.declarations.definitions(), &output),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                }
+                output
+            }
             ExprKind::Prefix { op, expr } => {
-                let inner = self.infer_expr_type(*expr, env);
-                match op {
-                    PrefixOp::Neg => {
-                        if !surface::supports_unary_negation(&inner) {
+                self.infer_prefix_operator(expr_id, op, expr, env, expected)
+            }
+            ExprKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let kind = RangeKind::from_parts(start.is_some(), end.is_some(), *inclusive)
+                    .unwrap_or(RangeKind::Full);
+                let mut element = match expected {
+                    Some(TypeId::Range(item, _)) => Some((**item).clone()),
+                    _ => None,
+                };
+                for operand in start.iter().chain(end) {
+                    let actual = self.infer_expr_with_coercion(*operand, env, element.as_ref());
+                    if let Some(expected) = &mut element {
+                        if expected.conflicts_with(&actual) {
                             self.diagnostics.push(
                                 Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
-                                    operator: "-",
-                                    expected: "numeric".to_owned(),
-                                    found: display_type_id(&inner),
+                                    operator: "range",
+                                    expected: display_type_id(
+                                        self.declarations.definitions(),
+                                        expected,
+                                    ),
+                                    found: display_type_id(
+                                        self.declarations.definitions(),
+                                        &actual,
+                                    ),
                                 })
-                                .with_span(self.lowered.source_map.expr_span(*expr)),
+                                .with_span(self.lowered.source_map.expr_span(*operand)),
                             );
                         }
-                        inner
-                    }
-                    PrefixOp::Not => {
-                        if inner != TypeId::Builtin(BuiltinType::Bool) {
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
-                                    operator: "!",
-                                    expected: "bool".to_owned(),
-                                    found: display_type_id(&inner),
-                                })
-                                .with_span(self.lowered.source_map.expr_span(*expr)),
-                            );
-                        }
-                        TypeId::Builtin(BuiltinType::Bool)
+                        expected.recover_from(&actual);
+                    } else {
+                        element = Some(actual);
                     }
                 }
+                TypeId::Range(
+                    Box::new(element.unwrap_or(TypeId::Builtin(BuiltinType::Unit))),
+                    kind,
+                )
             }
             ExprKind::Binary { lhs, op, rhs } => {
-                let lhs_ty = self.infer_expr_type(*lhs, env);
-                let rhs_ty = self.infer_expr_type(*rhs, env);
-                self.infer_binary_type(*op, *rhs, lhs_ty, rhs_ty)
+                self.infer_binary_operator(expr_id, lhs, op, rhs, env, expected)
             }
-            ExprKind::Call { callee, args } => {
-                if let Some(standard_ty) =
-                    self.infer_standard_call_type(expr_id, *callee, args, env)
+            ExprKind::Call { callee, args, .. } => {
+                if matches!(
+                    self.lowered.module.expr(*callee).kind,
+                    ExprKind::Name { .. }
+                ) && let Some(ty) =
+                    self.infer_trait_method_call_type(expr_id, *callee, args, env, expected)
                 {
-                    standard_ty
+                    ty
+                } else if let Some(ty) =
+                    self.infer_enum_constructor(expr_id, *callee, args, env, expected)
+                {
+                    ty
+                } else if let Some(method_ty) =
+                    self.infer_inherent_method_call_type(expr_id, *callee, args, env, expected)
+                {
+                    method_ty
                 } else if let Some(helper_ty) =
-                    self.infer_runtime_helper_call_type(*callee, args, env)
+                    self.infer_runtime_helper_call_type(expr_id, *callee, args, env)
                 {
                     helper_ty
                 } else if let Some(method_ty) =
-                    self.infer_trait_method_call_type(*callee, args, env)
+                    self.infer_trait_method_call_type(expr_id, *callee, args, env, expected)
                 {
                     method_ty
                 } else {
-                    self.infer_function_call_type(*callee, args, env)
+                    self.infer_function_call_type(expr_id, *callee, args, env, expected)
+                }
+            }
+            ExprKind::Closure {
+                params,
+                body,
+                is_async,
+            } => {
+                for capture in self.names.closure_captures(expr_id) {
+                    let captured = match capture {
+                        ResolvedName::Local(id) => env.locals.get(id),
+                        ResolvedName::Param(id) => env.params.get(id),
+                        _ => None,
+                    };
+                    if let Some(ty) = captured
+                        && ty.contains_host_value()
+                    {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidClosureCapture {
+                                type_name: display_type_id(self.declarations.definitions(), ty),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                        );
+                    }
+                }
+                let expected_params = match expected {
+                    Some(TypeId::Function { params, .. }) => Some(params.as_slice()),
+                    _ => None,
+                };
+                let expected_result = match expected {
+                    Some(TypeId::Function { result, .. }) => Some(result.as_ref()),
+                    _ => None,
+                };
+                let expected_result = if *is_async {
+                    expected_result.and_then(|ty| async_types::future_output(self.declarations, ty))
+                } else {
+                    expected_result
+                };
+                let mut closure_env = env.clone();
+                let mut param_types = Vec::with_capacity(params.len());
+                for (index, param) in params.iter().enumerate() {
+                    let ty = if let Some(annotation) = param.ty {
+                        self.prepare_annotation_holes(annotation);
+                        resolve_type_in(
+                            &self.lowered.module,
+                            annotation,
+                            TypeContext {
+                                declarations: self.declarations,
+                                generics: &env.generics,
+                                self_type: None,
+                                implementation: None,
+                            },
+                            self.type_table,
+                            self.cancel,
+                        )
+                    } else if let Some(ty) = expected_params.and_then(|types| types.get(index)) {
+                        ty.clone()
+                    } else if self.body_inference {
+                        self.inference_variable(expr_id, 128 + index)
+                    } else {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::ExpectedType)
+                                .with_span(self.lowered.source_map.local_span(param.local)),
+                        );
+                        TypeId::Unknown
+                    };
+                    self.type_table.insert_local(param.local, ty.clone());
+                    if *is_async && ty.contains_host_value() {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::InvalidAsyncCapture {
+                                type_name: display_type_id(self.declarations.definitions(), &ty),
+                            })
+                            .with_span(self.lowered.source_map.local_span(param.local)),
+                        );
+                    }
+                    closure_env.locals.insert(param.local, ty.clone());
+                    param_types.push(ty);
+                }
+                let old_async = mem::replace(&mut self.async_body, *is_async);
+                let old_return = mem::replace(
+                    &mut self.expected_return,
+                    expected_result.cloned().unwrap_or(TypeId::Unknown),
+                );
+                let old_loop_depth = mem::replace(&mut self.loop_depth, 0);
+                let old_loop_results = mem::take(&mut self.loop_results);
+                let old_name = mem::replace(&mut self.function_name, "closure");
+                self.closure_returns.push(Vec::new());
+                let body_result =
+                    self.infer_expr_with_coercion(*body, &mut closure_env, expected_result);
+                let returns = self.closure_returns.pop().expect("closure return context");
+                let completes = completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    self.type_table,
+                    *body,
+                    self.cancel,
+                )
+                .unwrap_or(false);
+                let mut result = if completes {
+                    body_result
+                } else {
+                    expected_result
+                        .filter(|ty| !matches!(ty, TypeId::Unknown))
+                        .cloned()
+                        .or_else(|| returns.first().cloned())
+                        .unwrap_or_else(|| self.inference_variable(expr_id, 2))
+                };
+                if !completes && returns.is_empty() {
+                    self.solver.defer_never(&result);
+                    if matches!(result, TypeId::Unknown) {
+                        result = TypeId::Builtin(BuiltinType::Never);
+                    }
+                }
+                for returned in returns {
+                    if result.conflicts_with(&returned) {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::ReturnTypeMismatch {
+                                function_name: "closure".into(),
+                                expected: display_type_id(self.declarations.definitions(), &result),
+                                found: display_type_id(self.declarations.definitions(), &returned),
+                            })
+                            .with_span(self.lowered.source_map.expr_span(*body)),
+                        );
+                    } else {
+                        result.recover_from(&returned);
+                    }
+                }
+                self.async_body = old_async;
+                self.function_name = old_name;
+                self.expected_return = old_return;
+                self.loop_depth = old_loop_depth;
+                self.loop_results = old_loop_results;
+                if *is_async {
+                    result =
+                        async_types::future_type(self.declarations, result).unwrap_or_else(|| {
+                            self.diagnostics.push(
+                                Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                                    feature: "async requires one installed Future storage declaration",
+                                })
+                                .with_span(self.lowered.source_map.expr_span(expr_id)),
+                            );
+                            TypeId::Error
+                        });
+                }
+                TypeId::Function {
+                    params: param_types,
+                    result: Box::new(result),
                 }
             }
             ExprKind::Field { receiver, name } => {
                 let receiver_ty = self.infer_expr_type(*receiver, env);
-                self.resolve_field_type(&receiver_ty, name)
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                let Ok(completes) = completion::expr_can_complete(
+                    &self.lowered.module,
+                    self.names,
+                    self.type_table,
+                    *receiver,
+                    self.cancel,
+                ) else {
+                    return TypeId::Unknown;
+                };
+                if name.is_empty() {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::ExpectedFieldName)
+                            .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                    TypeId::Error
+                } else if !completes {
+                    TypeId::Unknown
+                } else {
+                    self.checked_member_type(&receiver_ty, name, expr_id, false)
+                }
             }
             ExprKind::Index { receiver, index } => {
-                let receiver_ty = self.infer_expr_type(*receiver, env);
-                self.infer_expr_type(*index, env);
-                self.resolve_index_type(*index, &receiver_ty)
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit))
+                self.infer_index_operator(expr_id, receiver, index, env)
             }
             ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
+            } => self.infer_if_type(condition, *then_branch, *else_branch, env, expected),
+            ExprKind::Match { scrutinee, arms } => {
+                self.infer_match_type(*scrutinee, arms, env, expected)
+            }
+            ExprKind::StructInit {
+                path,
+                fields,
+                explicit_type,
             } => {
-                self.check_condition_type(*condition, "if", env);
-                let then_ty = self.infer_block_types(*then_branch, env);
-                match else_branch {
-                    Some(else_expr) => {
-                        let else_ty = self.infer_expr_type(*else_expr, env);
-                        if then_ty != else_ty {
+                let explicit = explicit_type.map(|ty| self.resolve_constructor_type(ty, env));
+                self.infer_struct_init_type(
+                    path,
+                    fields,
+                    expr_id,
+                    env,
+                    explicit.as_ref().or(expected),
+                )
+            }
+            ExprKind::Tuple(elements) => {
+                if elements.is_empty() {
+                    TypeId::Builtin(BuiltinType::Unit)
+                } else {
+                    let mut types = Vec::with_capacity(elements.len());
+                    for (index, expr) in elements.iter().enumerate() {
+                        if self.cancel.check().is_err() {
+                            return TypeId::Unknown;
+                        }
+                        let member = match expected {
+                            Some(TypeId::Tuple(types)) if types.len() == elements.len() => {
+                                types.get(index)
+                            }
+                            _ => None,
+                        };
+                        types.push(self.infer_expr_with_coercion(*expr, env, member));
+                    }
+                    TypeId::Tuple(types)
+                }
+            }
+            ExprKind::ArrayRepeat { value, count } => {
+                let member = expected.and_then(|ty| array_bridge::element_context(ty));
+                let element = self.infer_expr_with_coercion(*value, env, member);
+                if !self.solving
+                    && !types::supports_array_repetition(&element, |instance| {
+                        if self.cancel.check().is_err() {
+                            return None;
+                        }
+                        let contract = self.aggregates.enumeration(&instance.declaration)?;
+                        let substitution = contract
+                            .generic_params
+                            .iter()
+                            .cloned()
+                            .zip(instance.arguments.iter().cloned())
+                            .collect();
+                        Some(
+                            contract
+                                .variants
+                                .iter()
+                                .flat_map(|v| &v.payload)
+                                .map(|ty| ty.instantiate(&substitution))
+                                .collect(),
+                        )
+                    })
+                {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
+                            type_name: element.display_name(self.declarations.definitions()),
+                            constraint: "array repetition without shared mutable objects".into(),
+                            reason: "initialize each element separately to create distinct objects"
+                                .into(),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*value)),
+                    );
+                }
+                let length_type = TypeId::Builtin(BuiltinType::USize);
+                let actual = self.infer_expr_with_coercion(*count, env, Some(&length_type));
+                if actual.conflicts_with(&length_type) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
+                            operator: "array repeat count",
+                            expected: display_type_id(
+                                self.declarations.definitions(),
+                                &length_type,
+                            ),
+                            found: display_type_id(self.declarations.definitions(), &actual),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(*count)),
+                    );
+                }
+                TypeId::Array(Box::new(element))
+            }
+            ExprKind::Array(elements) => {
+                let member = expected.and_then(|ty| array_bridge::element_context(ty));
+                let mut element_ty: Option<TypeId> = None;
+                let mut reachable = true;
+                for expr in elements {
+                    if self.cancel.check().is_err() {
+                        return TypeId::Unknown;
+                    }
+                    let ty =
+                        self.infer_expr_with_coercion(*expr, env, member.or(element_ty.as_ref()));
+                    if !reachable {
+                        continue;
+                    }
+                    let Ok(completes) = completion::expr_can_complete(
+                        &self.lowered.module,
+                        self.names,
+                        self.type_table,
+                        *expr,
+                        self.cancel,
+                    ) else {
+                        return TypeId::Unknown;
+                    };
+                    if !completes {
+                        reachable = false;
+                        continue;
+                    }
+                    if let Some(element_ty) = &mut element_ty {
+                        if ty.conflicts_with(element_ty) {
                             self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::IfBranchTypeMismatch {
-                                    expected: display_type_id(&then_ty),
-                                    found: display_type_id(&else_ty),
+                                Diagnostic::error(DiagnosticKind::ArrayElementTypeMismatch {
+                                    expected: display_type_id(
+                                        self.declarations.definitions(),
+                                        element_ty,
+                                    ),
+                                    found: display_type_id(self.declarations.definitions(), &ty),
                                 })
-                                .with_span(self.lowered.source_map.expr_span(*else_expr)),
+                                .with_span(self.lowered.source_map.expr_span(*expr)),
                             );
                         }
-                        then_ty
-                    }
-                    None => TypeId::Builtin(BuiltinType::Unit),
-                }
-            }
-            ExprKind::Match { scrutinee, arms } => {
-                let scrutinee_ty = self.infer_expr_type(*scrutinee, env);
-                let mut arm_iter = arms.iter();
-                match arm_iter.next() {
-                    Some(first_arm) => {
-                        let expected = self.infer_match_arm_type(first_arm, &scrutinee_ty, env);
-                        for arm in arm_iter {
-                            let found = self.infer_match_arm_type(arm, &scrutinee_ty, env);
-                            if found != expected {
-                                self.diagnostics.push(
-                                    Diagnostic::error(DiagnosticKind::MatchArmTypeMismatch {
-                                        expected: display_type_id(&expected),
-                                        found: display_type_id(&found),
-                                    })
-                                    .with_span(self.lowered.source_map.expr_span(arm.expr)),
-                                );
-                            }
-                        }
-                        expected
-                    }
-                    None => TypeId::Builtin(BuiltinType::Unit),
-                }
-            }
-            ExprKind::StructInit { path, fields } => {
-                self.infer_struct_init_type(path, fields, expr_id, env)
-            }
-            ExprKind::Tuple(elements) => TypeId::Tuple(
-                elements
-                    .iter()
-                    .map(|expr| self.infer_expr_type(*expr, env))
-                    .collect::<Vec<_>>(),
-            ),
-            ExprKind::Array(elements) => {
-                let element_types = elements
-                    .iter()
-                    .map(|expr| (*expr, self.infer_expr_type(*expr, env)))
-                    .collect::<Vec<_>>();
-                let element_ty = element_types
-                    .first()
-                    .map(|(_, ty)| ty.clone())
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
-                for (expr, ty) in element_types.iter().skip(1) {
-                    if *ty != element_ty {
-                        self.diagnostics.push(
-                            Diagnostic::error(DiagnosticKind::ArrayElementTypeMismatch {
-                                expected: display_type_id(&element_ty),
-                                found: display_type_id(ty),
-                            })
-                            .with_span(self.lowered.source_map.expr_span(*expr)),
-                        );
+                        element_ty.recover_from(&ty);
+                    } else {
+                        element_ty = Some(ty);
                     }
                 }
-                TypeId::Array(Box::new(element_ty))
+                TypeId::Array(Box::new(element_ty.unwrap_or_else(|| {
+                    member
+                        .filter(|ty| !matches!(ty, TypeId::Unknown))
+                        .cloned()
+                        .unwrap_or_else(|| self.inference_variable(expr_id, 1))
+                })))
             }
-            ExprKind::Block(block) => self.infer_block_types(*block, env),
+            ExprKind::Loop { body } => {
+                self.loop_depth += 1;
+                self.loop_results
+                    .push(LoopResult::Expression(Box::new(LoopValue {
+                        expected: expected.cloned(),
+                        found: None,
+                    })));
+                let _ = self.infer_block_types(*body, env);
+                self.loop_depth -= 1;
+                match self.loop_results.pop() {
+                    Some(LoopResult::Expression(value)) => {
+                        value.found.unwrap_or(TypeId::Builtin(BuiltinType::Never))
+                    }
+                    _ => TypeId::Unknown,
+                }
+            }
+            ExprKind::Block(block) => self.infer_block_types_expected(*block, env, expected),
         };
 
+        applications::validate(
+            applications::ApplicationContext {
+                definitions: self.declarations.definitions(),
+                catalog: self.aggregates,
+                receiver: None,
+            },
+            &ty,
+            &env.generic_bounds,
+            self.lowered.source_map.expr_span(expr_id),
+            self.diagnostics,
+            self.cancel,
+        );
         env.exprs.insert(expr_id, ty.clone());
         self.type_table.insert_expr(expr_id, ty.clone());
         ty
-    }
-
-    fn infer_match_arm_type(
-        &mut self,
-        arm: &MatchArm,
-        scrutinee_ty: &TypeId,
-        env: &mut BodyTypeEnv,
-    ) -> TypeId {
-        let mut arm_env = env.clone();
-        if let PatternKind::Name { local, .. } = self.lowered.module.pattern(arm.pattern).kind {
-            arm_env.locals.insert(local, scrutinee_ty.clone());
-            self.type_table.insert_local(local, scrutinee_ty.clone());
-        }
-        self.infer_expr_type(arm.expr, &mut arm_env)
-    }
-
-    fn infer_standard_call_type(
-        &mut self,
-        call_expr: ExprId,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        if let Some((intrinsic, receiver_ty)) = self.standard_method(callee, env) {
-            self.type_table.insert_standard_call(call_expr, intrinsic);
-            return Some(self.infer_standard_intrinsic_type(
-                intrinsic,
-                callee,
-                Some(receiver_ty),
-                args,
-                env,
-            ));
-        }
-
-        let intrinsic = self.standard_function(callee)?;
-        self.type_table.insert_standard_call(call_expr, intrinsic);
-        Some(self.infer_standard_intrinsic_type(intrinsic, callee, None, args, env))
-    }
-
-    fn infer_standard_intrinsic_type(
-        &mut self,
-        intrinsic: StandardIntrinsic,
-        callee: ExprId,
-        receiver_ty: Option<TypeId>,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> TypeId {
-        use StandardIntrinsic::*;
-
-        let arg_tys = self.infer_call_args(args, env);
-        let name = standard_intrinsic_name(intrinsic);
-        let value_offset = usize::from(receiver_ty.is_none());
-        let arity = receiver_ty.as_ref().map_or_else(
-            || surface::standard_function_by_intrinsic(intrinsic).map(|spec| spec.arity),
-            |_| surface::standard_method_by_intrinsic(intrinsic).map(|spec| spec.arity),
-        );
-        if let Some(expected) = arity {
-            self.check_builtin_arity(name, expected, args.len(), callee);
-        }
-
-        match intrinsic {
-            ArrayLen | ArrayIsEmpty | ArrayClear | ArrayPop => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Array(element)) = array_ty else {
-                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                match intrinsic {
-                    ArrayLen => TypeId::Builtin(BuiltinType::USize),
-                    ArrayIsEmpty => TypeId::Builtin(BuiltinType::Bool),
-                    ArrayPop => option_type((*element).clone()),
-                    ArrayClear => TypeId::Array(element),
-                    _ => unreachable!(),
-                }
-            }
-            ArrayGet | ArrayRemove => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Array(element)) = array_ty else {
-                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_arg_type(
-                    name,
-                    "index",
-                    TypeId::Builtin(BuiltinType::USize),
-                    value_offset,
-                    &arg_tys,
-                );
-                option_type((*element).clone())
-            }
-            ArrayPush => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Array(element)) = array_ty else {
-                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_arg_type(name, "item", (*element).clone(), value_offset, &arg_tys);
-                TypeId::Array(element)
-            }
-            ArrayInsert => {
-                let array_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Array(element)) = array_ty else {
-                    self.emit_standard_arg_error(name, "value", "array", callee, &array_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_arg_type(
-                    name,
-                    "index",
-                    TypeId::Builtin(BuiltinType::USize),
-                    value_offset,
-                    &arg_tys,
-                );
-                self.check_arg_type(name, "item", (*element).clone(), value_offset + 1, &arg_tys);
-                TypeId::Array(element)
-            }
-            MapNew => TypeId::Map {
-                key: Box::new(TypeId::Generic("K".to_owned())),
-                value: Box::new(TypeId::Generic("V".to_owned())),
-            },
-            MapLen | MapIsEmpty | MapClear | MapKeys | MapValues | MapEntries => {
-                let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Map { key, value }) = map_ty else {
-                    self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_standard_constraint(&key, StandardTypeConstraint::HashKey, env, callee);
-                match intrinsic {
-                    MapLen => TypeId::Builtin(BuiltinType::USize),
-                    MapIsEmpty => TypeId::Builtin(BuiltinType::Bool),
-                    MapClear => TypeId::Map { key, value },
-                    MapKeys => TypeId::Array(key),
-                    MapValues => TypeId::Array(value),
-                    MapEntries => TypeId::Array(Box::new(TypeId::Tuple(vec![*key, *value]))),
-                    _ => unreachable!(),
-                }
-            }
-            MapContainsKey | MapGet | MapInsert | MapRemove => {
-                let map_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Map { key, value }) = map_ty else {
-                    self.emit_standard_arg_error(name, "value", "Map<K, V>", callee, &map_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_standard_constraint(&key, StandardTypeConstraint::HashKey, env, callee);
-                self.check_arg_type(name, "key", (*key).clone(), value_offset, &arg_tys);
-                match intrinsic {
-                    MapContainsKey => TypeId::Builtin(BuiltinType::Bool),
-                    MapGet | MapRemove => option_type((*value).clone()),
-                    MapInsert => {
-                        self.check_arg_type(
-                            name,
-                            "item",
-                            (*value).clone(),
-                            value_offset + 1,
-                            &arg_tys,
-                        );
-                        TypeId::Map { key, value }
-                    }
-                    _ => unreachable!(),
-                }
-            }
-            SetNew => TypeId::Set(Box::new(TypeId::Generic("T".to_owned()))),
-            SetLen | SetIsEmpty | SetClear | SetToArray => {
-                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Set(element)) = set_ty else {
-                    self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_standard_constraint(
-                    &element,
-                    StandardTypeConstraint::HashKey,
-                    env,
-                    callee,
-                );
-                match intrinsic {
-                    SetLen => TypeId::Builtin(BuiltinType::USize),
-                    SetIsEmpty => TypeId::Builtin(BuiltinType::Bool),
-                    SetClear => TypeId::Set(element),
-                    SetToArray => TypeId::Array(element),
-                    _ => unreachable!(),
-                }
-            }
-            SetContains | SetInsert | SetRemove => {
-                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Set(element)) = set_ty else {
-                    self.emit_standard_arg_error(name, "value", "Set<T>", callee, &set_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_standard_constraint(
-                    &element,
-                    StandardTypeConstraint::HashKey,
-                    env,
-                    callee,
-                );
-                self.check_arg_type(name, "item", (*element).clone(), value_offset, &arg_tys);
-                match intrinsic {
-                    SetContains | SetRemove => TypeId::Builtin(BuiltinType::Bool),
-                    SetInsert => TypeId::Set(element),
-                    _ => unreachable!(),
-                }
-            }
-            SetUnion | SetIntersection | SetDifference => {
-                let set_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(TypeId::Set(element)) = set_ty else {
-                    self.emit_standard_arg_error(name, "lhs", "Set<T>", callee, &set_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_standard_constraint(
-                    &element,
-                    StandardTypeConstraint::HashKey,
-                    env,
-                    callee,
-                );
-                self.check_arg_type(
-                    name,
-                    "rhs",
-                    TypeId::Set(element.clone()),
-                    value_offset,
-                    &arg_tys,
-                );
-                TypeId::Set(element)
-            }
-            StringLenBytes | StringLenChars => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
-                TypeId::Builtin(BuiltinType::USize)
-            }
-            StringIsEmpty | StringContains | StringStartsWith | StringEndsWith => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
-                if matches!(
-                    intrinsic,
-                    StringContains | StringStartsWith | StringEndsWith
-                ) {
-                    self.check_arg_type(
-                        name,
-                        "needle",
-                        TypeId::Builtin(BuiltinType::String),
-                        value_offset,
-                        &arg_tys,
-                    );
-                }
-                TypeId::Builtin(BuiltinType::Bool)
-            }
-            StringConcat => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
-                self.check_arg_type(
-                    name,
-                    "rhs",
-                    TypeId::Builtin(BuiltinType::String),
-                    value_offset,
-                    &arg_tys,
-                );
-                TypeId::Builtin(BuiltinType::String)
-            }
-            StringSlice => {
-                self.check_string_receiver_or_arg(name, callee, receiver_ty, &arg_tys);
-                self.check_arg_type(
-                    name,
-                    "start",
-                    TypeId::Builtin(BuiltinType::USize),
-                    value_offset,
-                    &arg_tys,
-                );
-                self.check_arg_type(
-                    name,
-                    "end",
-                    TypeId::Builtin(BuiltinType::USize),
-                    value_offset + 1,
-                    &arg_tys,
-                );
-                option_type(TypeId::Builtin(BuiltinType::String))
-            }
-            OptionIsSome | OptionIsNone | OptionUnwrapOr | OptionMap | OptionAndThen => {
-                let option_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some((item_ty, _)) = standard_enum_args(&option_ty, "Option", 1) else {
-                    self.emit_standard_arg_error(name, "value", "Option<T>", callee, &option_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                match intrinsic {
-                    OptionIsSome | OptionIsNone => TypeId::Builtin(BuiltinType::Bool),
-                    OptionUnwrapOr => {
-                        self.check_arg_type(
-                            name,
-                            "fallback",
-                            item_ty.clone(),
-                            value_offset,
-                            &arg_tys,
-                        );
-                        item_ty
-                    }
-                    OptionMap | OptionAndThen => option_type(TypeId::Generic("U".to_owned())),
-                    _ => unreachable!(),
-                }
-            }
-            ResultIsOk | ResultIsErr | ResultUnwrapOr | ResultMap | ResultMapErr
-            | ResultAndThen => {
-                let result_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some((ok_ty, err_ty)) = standard_enum_args(&result_ty, "Result", 2) else {
-                    self.emit_standard_arg_error(name, "value", "Result<T, E>", callee, &result_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                match intrinsic {
-                    ResultIsOk | ResultIsErr => TypeId::Builtin(BuiltinType::Bool),
-                    ResultUnwrapOr => {
-                        self.check_arg_type(
-                            name,
-                            "fallback",
-                            ok_ty.clone(),
-                            value_offset,
-                            &arg_tys,
-                        );
-                        ok_ty
-                    }
-                    ResultMap => result_type(TypeId::Generic("U".to_owned()), err_ty),
-                    ResultMapErr => result_type(ok_ty, TypeId::Generic("F".to_owned())),
-                    ResultAndThen => result_type(TypeId::Generic("U".to_owned()), err_ty),
-                    _ => unreachable!(),
-                }
-            }
-            IterLen | IterIsEmpty | IterGet | IterToArray | IterForEach => {
-                let iterable_ty = receiver_ty.or_else(|| arg_tys.first().map(|(_, ty)| ty.clone()));
-                let Some(item_ty) = iterable_item_type(&iterable_ty) else {
-                    self.emit_standard_arg_error(name, "value", "Iterable", callee, &iterable_ty);
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                match intrinsic {
-                    IterLen => TypeId::Builtin(BuiltinType::USize),
-                    IterIsEmpty => TypeId::Builtin(BuiltinType::Bool),
-                    IterGet => {
-                        self.check_arg_type(
-                            name,
-                            "index",
-                            TypeId::Builtin(BuiltinType::USize),
-                            value_offset,
-                            &arg_tys,
-                        );
-                        option_type(item_ty)
-                    }
-                    IterToArray => TypeId::Array(Box::new(item_ty)),
-                    IterForEach => TypeId::Builtin(BuiltinType::Unit),
-                    _ => unreachable!(),
-                }
-            }
-            MathMin | MathMax | MathClamp => {
-                let Some((_, value_ty)) = arg_tys.first() else {
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_standard_constraint(
-                    value_ty,
-                    StandardTypeConstraint::OrderedNumber,
-                    env,
-                    callee,
-                );
-                for (index, (_, ty)) in arg_tys.iter().enumerate().skip(1) {
-                    if ty != value_ty {
-                        self.emit_arg_mismatch(name, &format!("arg{index}"), value_ty, ty, callee);
-                    }
-                }
-                value_ty.clone()
-            }
-            MathAbs => {
-                let Some((_, value_ty)) = arg_tys.first() else {
-                    return TypeId::Builtin(BuiltinType::Unit);
-                };
-                self.check_standard_constraint(
-                    value_ty,
-                    StandardTypeConstraint::SignedNumber,
-                    env,
-                    callee,
-                );
-                value_ty.clone()
-            }
-            MathFloor | MathCeil | MathRound | MathSqrt | MathSin | MathCos | MathTan => {
-                self.check_arg_type(
-                    name,
-                    "value",
-                    TypeId::Builtin(BuiltinType::F64),
-                    0,
-                    &arg_tys,
-                );
-                TypeId::Builtin(BuiltinType::F64)
-            }
-            DebugPrint | DebugPanic => {
-                self.check_arg_type(
-                    name,
-                    "message",
-                    TypeId::Builtin(BuiltinType::String),
-                    0,
-                    &arg_tys,
-                );
-                TypeId::Builtin(BuiltinType::Unit)
-            }
-            DebugAssert => {
-                self.check_arg_type(
-                    name,
-                    "condition",
-                    TypeId::Builtin(BuiltinType::Bool),
-                    0,
-                    &arg_tys,
-                );
-                self.check_arg_type(
-                    name,
-                    "message",
-                    TypeId::Builtin(BuiltinType::String),
-                    1,
-                    &arg_tys,
-                );
-                TypeId::Builtin(BuiltinType::Unit)
-            }
-            DebugAssertEq => {
-                if let (Some((_, lhs)), Some((_, rhs))) = (arg_tys.first(), arg_tys.get(1))
-                    && lhs != rhs
-                {
-                    self.emit_arg_mismatch(name, "rhs", lhs, rhs, callee);
-                }
-                self.check_arg_type(
-                    name,
-                    "message",
-                    TypeId::Builtin(BuiltinType::String),
-                    2,
-                    &arg_tys,
-                );
-                TypeId::Builtin(BuiltinType::Unit)
-            }
-        }
-    }
-
-    fn infer_runtime_helper_call_type(
-        &mut self,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        if let Some(method_ty) = self.infer_builtin_method_call_type(callee, args, env) {
-            return Some(method_ty);
-        }
-
-        let builtin = self.builtin_function(callee)?;
-        match builtin {
-            BuiltinFunction::TypeOf => {
-                let _ = self.infer_call_args(args, env);
-                Some(TypeId::Builtin(BuiltinType::String))
-            }
-            BuiltinFunction::GetField => {
-                let [base, field_name_expr] = args else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
-                };
-                let base_ty = self.infer_expr_type(*base, env);
-                let _ = self.infer_expr_type(*field_name_expr, env);
-                let field_name = self.string_literal_value(*field_name_expr)?;
-                Some(
-                    self.resolve_field_type(&base_ty, &field_name)
-                        .unwrap_or(TypeId::Builtin(BuiltinType::Unit)),
-                )
-            }
-            BuiltinFunction::SetField => {
-                let [base, field_name_expr, value] = args else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
-                };
-                let base_ty = self.infer_expr_type(*base, env);
-                self.check_const_write(*base);
-                let _ = self.infer_expr_type(*field_name_expr, env);
-                let value_ty = self.infer_expr_type(*value, env);
-                let field_name = self.string_literal_value(*field_name_expr)?;
-                if let Some(expected) = self.resolve_field_type(&base_ty, &field_name)
-                    && expected != value_ty
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                            expected: display_type_id(&expected),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*value)),
-                    );
-                }
-                Some(base_ty)
-            }
-            BuiltinFunction::SetIndex => {
-                let [base, index, value] = args else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
-                };
-                let base_ty = self.infer_expr_type(*base, env);
-                self.check_const_write(*base);
-                self.infer_expr_type(*index, env);
-                let value_ty = self.infer_expr_type(*value, env);
-                if let Some(expected) = self.resolve_index_type(*index, &base_ty)
-                    && expected != value_ty
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                            expected: display_type_id(&expected),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*value)),
-                    );
-                }
-                Some(base_ty)
-            }
-            BuiltinFunction::Print => {
-                self.check_builtin_arity("print", 1, args.len(), callee);
-                let arg_tys = self.infer_call_args(args, env);
-                if let Some((arg, ty)) = arg_tys.first()
-                    && *ty != TypeId::Builtin(BuiltinType::String)
-                {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                            function_name: "print".to_owned(),
-                            parameter_name: "message".to_owned(),
-                            expected: "String".to_owned(),
-                            found: display_type_id(ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*arg)),
-                    );
-                }
-                Some(TypeId::Builtin(BuiltinType::Unit))
-            }
-        }
-    }
-
-    fn infer_builtin_method_call_type(
-        &mut self,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let (method, _, receiver_ty) = self.builtin_method(callee, env)?;
-        match method {
-            BuiltinMethod::Array(method) => {
-                self.infer_array_method_call_type(method, callee, &receiver_ty, args, env)
-            }
-            BuiltinMethod::Iterable(_) => None,
-            BuiltinMethod::String(method) => {
-                self.infer_string_method_call_type(method, callee, args, env)
-            }
-        }
-    }
-
-    fn infer_array_method_call_type(
-        &mut self,
-        method: array::Method,
-        callee: ExprId,
-        receiver_ty: &TypeId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let spec = array::method_spec(method);
-        match method {
-            array::Method::Len => {
-                let _ = self.infer_call_args(args, env);
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                Some(TypeId::Builtin(BuiltinType::USize))
-            }
-            array::Method::Push => {
-                let TypeId::Array(element_ty) = receiver_ty else {
-                    return Some(TypeId::Builtin(BuiltinType::Unit));
-                };
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                let value_ty = args
-                    .first()
-                    .map(|expr| self.infer_expr_type(*expr, env))
-                    .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
-                if value_ty != **element_ty {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                            function_name: spec.name.to_string(),
-                            parameter_name: "value".to_string(),
-                            expected: display_type_id(element_ty),
-                            found: display_type_id(&value_ty),
-                        })
-                        .with_span(
-                            args.first()
-                                .copied()
-                                .map(|expr| self.lowered.source_map.expr_span(expr))
-                                .unwrap_or_else(|| self.lowered.source_map.expr_span(callee)),
-                        ),
-                    );
-                }
-                for arg in args.iter().skip(1) {
-                    let _ = self.infer_expr_type(*arg, env);
-                }
-                Some(receiver_ty.clone())
-            }
-            array::Method::Pop => {
-                let _ = self.infer_call_args(args, env);
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                Some(receiver_ty.clone())
-            }
-        }
-    }
-
-    fn infer_string_method_call_type(
-        &mut self,
-        method: StringMethod,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let spec = BuiltinMethod::String(method).spec();
-        match method {
-            StringMethod::Len => {
-                let _ = self.infer_call_args(args, env);
-                self.check_builtin_arity(spec.name, spec.arity, args.len(), callee);
-                Some(TypeId::Builtin(BuiltinType::USize))
-            }
-        }
-    }
-
-    fn infer_trait_method_call_type(
-        &mut self,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> Option<TypeId> {
-        let expr = self.lowered.module.expr(callee);
-        let ExprKind::Field { receiver, name } = &expr.kind else {
-            return None;
-        };
-        let receiver_ty = self.infer_expr_type(*receiver, env);
-        let (trait_name, self_ty) = match &receiver_ty {
-            TypeId::Trait(name) => (name.clone(), receiver_ty.clone()),
-            TypeId::Generic(generic_name) => {
-                let trait_name = env
-                    .generic_bounds
-                    .get(generic_name)
-                    .and_then(|bounds| {
-                        bounds.iter().find(|trait_name| {
-                            self.trait_method_function(trait_name, name).is_some()
-                        })
-                    })
-                    .cloned()?;
-                (trait_name, receiver_ty.clone())
-            }
-            _ => return None,
-        };
-
-        let method_function = self.trait_method_function(&trait_name, name)?;
-        let Some(method) = self.function_index.by_id.get(&method_function) else {
-            return Some(TypeId::Builtin(BuiltinType::Unit));
-        };
-        let params = method
-            .params
-            .iter()
-            .filter(|param| param.name != "self")
-            .collect::<Vec<_>>();
-        let arg_tys = self.infer_call_args(args, env);
-        if params.len() != arg_tys.len() {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::CallArityMismatch {
-                    function_name: name.clone(),
-                    expected: params.len(),
-                    found: arg_tys.len(),
-                })
-                .with_span(self.lowered.source_map.expr_span(callee)),
-            );
-        }
-        for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
-            if let Some(param) = params.get(index) {
-                let expected = substitute_self_type(&param.ty, &self_ty);
-                if expected != *arg_ty {
-                    self.diagnostics.push(
-                        Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                            function_name: name.clone(),
-                            parameter_name: param.name.clone(),
-                            expected: display_type_id(&expected),
-                            found: display_type_id(arg_ty),
-                        })
-                        .with_span(self.lowered.source_map.expr_span(*arg_expr)),
-                    );
-                }
-            }
-        }
-
-        Some(substitute_self_type(&method.return_type, &self_ty))
-    }
-
-    fn trait_method_function(
-        &self,
-        trait_name: &str,
-        method_name: &str,
-    ) -> Option<crate::hir::FunctionId> {
-        self.lowered
-            .module
-            .traits
-            .iter()
-            .find(|trait_def| trait_def.name == trait_name)
-            .and_then(|trait_def| {
-                trait_def
-                    .methods
-                    .iter()
-                    .find(|method| method.name == method_name)
-                    .map(|method| method.function)
-            })
-    }
-
-    fn infer_function_call_type(
-        &mut self,
-        callee: ExprId,
-        args: &[ExprId],
-        env: &mut BodyTypeEnv,
-    ) -> TypeId {
-        let arg_tys = self.infer_call_args(args, env);
-        let Some(ResolvedName::Function(id)) = self.names.expr_resolution(callee) else {
-            return self.infer_expr_type(callee, env);
-        };
-        let Some(function) = self.function_index.by_id.get(&id) else {
-            return self.infer_expr_type(callee, env);
-        };
-        if function.params.len() != arg_tys.len() {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::CallArityMismatch {
-                    function_name: function.name.clone(),
-                    expected: function.params.len(),
-                    found: arg_tys.len(),
-                })
-                .with_span(self.lowered.source_map.expr_span(callee)),
-            );
-        }
-        for (index, (arg_expr, arg_ty)) in arg_tys.iter().enumerate() {
-            if let Some(param) = function.params.get(index)
-                && param.ty != *arg_ty
-            {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                        function_name: function.name.clone(),
-                        parameter_name: param.name.clone(),
-                        expected: display_type_id(&param.ty),
-                        found: display_type_id(arg_ty),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(*arg_expr)),
-                );
-            }
-        }
-        function.return_type.clone()
-    }
-
-    fn const_root_name(&self, expr_id: ExprId) -> Option<String> {
-        match &self.lowered.module.expr(expr_id).kind {
-            ExprKind::Name(_) => match self.names.expr_resolution(expr_id) {
-                Some(ResolvedName::Const(id)) => self
-                    .lowered
-                    .module
-                    .consts
-                    .iter()
-                    .find(|item| item.id == id)
-                    .map(|item| item.name.clone()),
-                _ => None,
-            },
-            ExprKind::Field { receiver, .. } | ExprKind::Index { receiver, .. } => {
-                self.const_root_name(*receiver)
-            }
-            _ => None,
-        }
-    }
-
-    fn resolve_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
-        self.resolve_field(receiver, field_name)
-            .and_then(|field| resolve_type(&self.lowered.module, field.ty))
-    }
-
-    fn resolve_writable_field_type(&self, receiver: &TypeId, field_name: &str) -> Option<TypeId> {
-        self.resolve_field(receiver, field_name)
-            .filter(|field| field.writeability.is_var())
-            .and_then(|field| resolve_type(&self.lowered.module, field.ty))
-    }
-
-    fn resolve_field(&self, receiver: &TypeId, field_name: &str) -> Option<&crate::hir::Field> {
-        match receiver {
-            TypeId::Struct(name) => self
-                .lowered
-                .module
-                .structs
-                .iter()
-                .find(|item| item.name == *name)
-                .and_then(|item| item.fields.iter().find(|field| field.name == field_name)),
-            _ => None,
-        }
-    }
-
-    fn infer_binary_type(
-        &mut self,
-        op: BinaryOp,
-        rhs_expr: ExprId,
-        lhs_ty: TypeId,
-        rhs_ty: TypeId,
-    ) -> TypeId {
-        match op {
-            BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div => {
-                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
-                    self.emit_binary_operand_type_mismatch(
-                        op,
-                        "matching numeric",
-                        &lhs_ty,
-                        &rhs_ty,
-                        rhs_expr,
-                    );
-                }
-                lhs_ty
-            }
-            BinaryOp::Eq | BinaryOp::NotEq => {
-                if lhs_ty != rhs_ty {
-                    self.emit_binary_operand_type_mismatch(
-                        op, "matching", &lhs_ty, &rhs_ty, rhs_expr,
-                    );
-                }
-                TypeId::Builtin(BuiltinType::Bool)
-            }
-            BinaryOp::Lt | BinaryOp::Gt | BinaryOp::Le | BinaryOp::Ge => {
-                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
-                    self.emit_binary_operand_type_mismatch(
-                        op,
-                        "matching numeric",
-                        &lhs_ty,
-                        &rhs_ty,
-                        rhs_expr,
-                    );
-                }
-                TypeId::Builtin(BuiltinType::Bool)
-            }
-            BinaryOp::AndAnd | BinaryOp::OrOr => {
-                if lhs_ty != TypeId::Builtin(BuiltinType::Bool)
-                    || rhs_ty != TypeId::Builtin(BuiltinType::Bool)
-                {
-                    self.emit_binary_operand_type_mismatch(op, "bool", &lhs_ty, &rhs_ty, rhs_expr);
-                }
-                TypeId::Builtin(BuiltinType::Bool)
-            }
-        }
-    }
-
-    fn matching_numeric_operands(&self, lhs: &TypeId, rhs: &TypeId) -> bool {
-        surface::supports_arithmetic(lhs, rhs)
-    }
-
-    fn emit_binary_operand_type_mismatch(
-        &mut self,
-        op: BinaryOp,
-        expected: &'static str,
-        lhs: &TypeId,
-        rhs: &TypeId,
-        span_expr: ExprId,
-    ) {
-        self.diagnostics.push(
-            Diagnostic::error(DiagnosticKind::BinaryOperandTypeMismatch {
-                operator: self.binary_operator_name(op),
-                expected: expected.to_owned(),
-                lhs: display_type_id(lhs),
-                rhs: display_type_id(rhs),
-            })
-            .with_span(self.lowered.source_map.expr_span(span_expr)),
-        );
-    }
-
-    fn binary_operator_name(&self, op: BinaryOp) -> &'static str {
-        match op {
-            BinaryOp::Add => "+",
-            BinaryOp::Sub => "-",
-            BinaryOp::Mul => "*",
-            BinaryOp::Div => "/",
-            BinaryOp::Eq => "==",
-            BinaryOp::NotEq => "!=",
-            BinaryOp::Lt => "<",
-            BinaryOp::Gt => ">",
-            BinaryOp::Le => "<=",
-            BinaryOp::Ge => ">=",
-            BinaryOp::AndAnd => "&&",
-            BinaryOp::OrOr => "||",
-        }
-    }
-
-    fn check_condition_type(
-        &mut self,
-        expr_id: ExprId,
-        context: &'static str,
-        env: &mut BodyTypeEnv,
-    ) {
-        let ty = self.infer_expr_type(expr_id, env);
-        if ty != TypeId::Builtin(BuiltinType::Bool) {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::ConditionTypeMismatch {
-                    context,
-                    found: display_type_id(&ty),
-                })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
-            );
-        }
-    }
-
-    fn infer_struct_init_type(
-        &mut self,
-        path: &str,
-        fields: &[crate::hir::FieldInit],
-        expr_id: ExprId,
-        env: &mut BodyTypeEnv,
-    ) -> TypeId {
-        let field_tys = fields
-            .iter()
-            .map(|field| {
-                (
-                    field.name.as_str(),
-                    field.value,
-                    self.infer_expr_type(field.value, env),
-                )
-            })
-            .collect::<Vec<_>>();
-
-        let Some(struct_def) = self
-            .lowered
-            .module
-            .structs
-            .iter()
-            .find(|item| item.name == path)
-        else {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
-                    struct_name: path.to_owned(),
-                    reason: "unknown struct".to_owned(),
-                })
-                .with_span(self.lowered.source_map.expr_span(expr_id)),
-            );
-            return TypeId::Builtin(BuiltinType::Unit);
-        };
-
-        let mut seen = HashSet::new();
-        for (name, value_expr, value_ty) in &field_tys {
-            if !seen.insert((*name).to_owned()) {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
-                        struct_name: path.to_owned(),
-                        reason: format!("duplicate field `{name}`"),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
-                );
-                continue;
-            }
-
-            let Some(field) = struct_def.fields.iter().find(|field| field.name == *name) else {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
-                        struct_name: path.to_owned(),
-                        reason: format!("unknown field `{name}`"),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
-                );
-                continue;
-            };
-
-            let Some(expected) = resolve_type(&self.lowered.module, field.ty) else {
-                continue;
-            };
-            if expected != *value_ty {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::AssignmentTypeMismatch {
-                        expected: display_type_id(&expected),
-                        found: display_type_id(value_ty),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(*value_expr)),
-                );
-            }
-        }
-
-        for field in &struct_def.fields {
-            if !seen.contains(&field.name) {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
-                        struct_name: path.to_owned(),
-                        reason: format!("missing field `{}`", field.name),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
-                );
-            }
-        }
-
-        TypeId::Struct(path.to_owned())
-    }
-
-    fn resolve_index_type(&self, index_expr: ExprId, receiver: &TypeId) -> Option<TypeId> {
-        match receiver {
-            TypeId::Array(element) => Some((**element).clone()),
-            TypeId::Tuple(elements) => self
-                .tuple_index(index_expr)
-                .and_then(|index| elements.get(index).cloned()),
-            _ => None,
-        }
-    }
-
-    fn tuple_index(&self, index_expr: ExprId) -> Option<usize> {
-        let expr = self.lowered.module.expr(index_expr);
-        let ExprKind::Literal(literal) = &expr.kind else {
-            return None;
-        };
-        if literal.kind != LiteralKind::Number {
-            return None;
-        }
-        literal.text.parse::<usize>().ok()
-    }
-
-    fn standard_function(&self, expr_id: ExprId) -> Option<StandardIntrinsic> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Name(name) = &expr.kind else {
-            return None;
-        };
-        if let Some(ResolvedName::StandardFunction(intrinsic)) = self.names.expr_resolution(expr_id)
-        {
-            return Some(intrinsic);
-        }
-        self.standard_function_path(name)
-    }
-
-    fn standard_function_path(&self, name: &str) -> Option<StandardIntrinsic> {
-        if let Some((module_alias, function_name)) = name.rsplit_once("::") {
-            if let Some(module) = self.standard_module_path(module_alias) {
-                return surface::standard_function(module, function_name)
-                    .map(|function| function.intrinsic);
-            }
-        }
-        None
-    }
-
-    fn standard_module_path(&self, path: &str) -> Option<surface::StandardModule> {
-        if let Some(module) = surface::standard_module(path).map(|module| module.kind) {
-            return Some(module);
-        }
-        if !path.contains("::")
-            && let Some(ResolvedName::StandardModule(module)) = self
-                .names
-                .items
-                .standard_modules
-                .get(path)
-                .copied()
-                .map(ResolvedName::StandardModule)
-        {
-            return Some(module);
-        }
-        None
-    }
-
-    fn standard_method(
-        &mut self,
-        expr_id: ExprId,
-        env: &mut BodyTypeEnv,
-    ) -> Option<(StandardIntrinsic, TypeId)> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Field { receiver, name } = &expr.kind else {
-            return None;
-        };
-        let receiver_ty = self.infer_expr_type(*receiver, env);
-        let receiver = standard_method_receiver(&receiver_ty)?;
-        surface::standard_method(receiver, name).map(|method| (method.intrinsic, receiver_ty))
-    }
-
-    fn check_arg_type(
-        &mut self,
-        function_name: &str,
-        parameter_name: &str,
-        expected: TypeId,
-        index: usize,
-        args: &[(ExprId, TypeId)],
-    ) {
-        let Some((arg_expr, found)) = args.get(index) else {
-            return;
-        };
-        if *found != expected {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                    function_name: function_name.to_owned(),
-                    parameter_name: parameter_name.to_owned(),
-                    expected: display_type_id(&expected),
-                    found: display_type_id(found),
-                })
-                .with_span(self.lowered.source_map.expr_span(*arg_expr)),
-            );
-        }
-    }
-
-    fn emit_arg_mismatch(
-        &mut self,
-        function_name: &str,
-        parameter_name: &str,
-        expected: &TypeId,
-        found: &TypeId,
-        span_expr: ExprId,
-    ) {
-        self.diagnostics.push(
-            Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                function_name: function_name.to_owned(),
-                parameter_name: parameter_name.to_owned(),
-                expected: display_type_id(expected),
-                found: display_type_id(found),
-            })
-            .with_span(self.lowered.source_map.expr_span(span_expr)),
-        );
-    }
-
-    fn emit_standard_arg_error(
-        &mut self,
-        function_name: &str,
-        parameter_name: &str,
-        expected: &str,
-        span_expr: ExprId,
-        found: &Option<TypeId>,
-    ) {
-        self.diagnostics.push(
-            Diagnostic::error(DiagnosticKind::ArgumentTypeMismatch {
-                function_name: function_name.to_owned(),
-                parameter_name: parameter_name.to_owned(),
-                expected: expected.to_owned(),
-                found: found
-                    .as_ref()
-                    .map(display_type_id)
-                    .unwrap_or_else(|| "<missing>".to_owned()),
-            })
-            .with_span(self.lowered.source_map.expr_span(span_expr)),
-        );
-    }
-
-    fn check_string_receiver_or_arg(
-        &mut self,
-        function_name: &str,
-        callee: ExprId,
-        receiver_ty: Option<TypeId>,
-        args: &[(ExprId, TypeId)],
-    ) {
-        let found = receiver_ty.or_else(|| args.first().map(|(_, ty)| ty.clone()));
-        if found != Some(TypeId::Builtin(BuiltinType::String)) {
-            self.emit_standard_arg_error(function_name, "value", "String", callee, &found);
-        }
-    }
-
-    fn check_standard_constraint(
-        &mut self,
-        ty: &TypeId,
-        constraint: StandardTypeConstraint,
-        env: &BodyTypeEnv,
-        span_expr: ExprId,
-    ) {
-        if type_satisfies_standard_constraint(ty, constraint, env) {
-            return;
-        }
-        self.diagnostics.push(
-            Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                type_name: display_type_id(ty),
-                constraint: surface::standard_constraint_name(constraint).to_owned(),
-                reason: standard_constraint_reason(constraint).to_owned(),
-            })
-            .with_span(self.lowered.source_map.expr_span(span_expr)),
-        );
-    }
-
-    fn builtin_function(&self, expr_id: ExprId) -> Option<BuiltinFunction> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Name(name) = &expr.kind else {
-            return None;
-        };
-        BuiltinFunction::from_name(name)
-    }
-
-    fn builtin_method(
-        &mut self,
-        expr_id: ExprId,
-        env: &mut BodyTypeEnv,
-    ) -> Option<(BuiltinMethod, ExprId, TypeId)> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Field { receiver, name } = &expr.kind else {
-            return None;
-        };
-        let receiver_ty = self.infer_expr_type(*receiver, env);
-        BuiltinMethod::resolve(&receiver_ty, name).map(|method| (method, *receiver, receiver_ty))
-    }
-
-    fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {
-        let expr = self.lowered.module.expr(expr_id);
-        let ExprKind::Literal(literal) = &expr.kind else {
-            return None;
-        };
-        if literal.kind != LiteralKind::String {
-            return None;
-        }
-        Some(
-            literal
-                .text
-                .strip_prefix('"')
-                .and_then(|text| text.strip_suffix('"'))
-                .unwrap_or(&literal.text)
-                .to_owned(),
-        )
-    }
-
-    fn infer_call_args(&mut self, args: &[ExprId], env: &mut BodyTypeEnv) -> Vec<(ExprId, TypeId)> {
-        args.iter()
-            .map(|arg| (*arg, self.infer_expr_type(*arg, env)))
-            .collect()
-    }
-
-    fn check_builtin_arity(&mut self, name: &str, expected: usize, found: usize, callee: ExprId) {
-        if expected != found {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::CallArityMismatch {
-                    function_name: name.to_string(),
-                    expected,
-                    found,
-                })
-                .with_span(self.lowered.source_map.expr_span(callee)),
-            );
-        }
-    }
-
-    fn check_const_write(&mut self, expr_id: ExprId) {
-        if let Some(const_name) = self.const_root_name(expr_id) {
-            self.diagnostics.push(
-                Diagnostic::error(DiagnosticKind::ConstWriteNotAllowed { const_name })
-                    .with_span(self.lowered.source_map.expr_span(expr_id)),
-            );
-        }
-    }
-}
-
-fn substitute_self_type(ty: &TypeId, self_ty: &TypeId) -> TypeId {
-    match ty {
-        TypeId::Generic(name) if name == "Self" => self_ty.clone(),
-        TypeId::Tuple(elements) => TypeId::Tuple(
-            elements
-                .iter()
-                .map(|element| substitute_self_type(element, self_ty))
-                .collect::<Vec<_>>(),
-        ),
-        TypeId::Array(element) => TypeId::Array(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::Map { key, value } => TypeId::Map {
-            key: Box::new(substitute_self_type(key, self_ty)),
-            value: Box::new(substitute_self_type(value, self_ty)),
-        },
-        TypeId::Set(element) => TypeId::Set(Box::new(substitute_self_type(element, self_ty))),
-        TypeId::StandardEnum { name, args } => TypeId::StandardEnum {
-            name: name.clone(),
-            args: args
-                .iter()
-                .map(|arg| substitute_self_type(arg, self_ty))
-                .collect::<Vec<_>>(),
-        },
-        _ => ty.clone(),
-    }
-}
-
-fn standard_method_receiver(ty: &TypeId) -> Option<StandardMethodReceiver> {
-    match ty {
-        TypeId::Array(_) => Some(StandardMethodReceiver::Array),
-        TypeId::Map { .. } => Some(StandardMethodReceiver::Map),
-        TypeId::Set(_) => Some(StandardMethodReceiver::Set),
-        TypeId::Builtin(BuiltinType::String) => Some(StandardMethodReceiver::String),
-        TypeId::StandardEnum { name, .. } if name == "Option" => {
-            Some(StandardMethodReceiver::Option)
-        }
-        TypeId::StandardEnum { name, .. } if name == "Result" => {
-            Some(StandardMethodReceiver::Result)
-        }
-        _ if surface::iterable_protocol(ty).is_some() => Some(StandardMethodReceiver::Iterable),
-        _ => None,
-    }
-}
-
-fn option_type(item: TypeId) -> TypeId {
-    TypeId::StandardEnum {
-        name: "Option".to_owned(),
-        args: vec![item],
-    }
-}
-
-fn result_type(ok: TypeId, err: TypeId) -> TypeId {
-    TypeId::StandardEnum {
-        name: "Result".to_owned(),
-        args: vec![ok, err],
-    }
-}
-
-fn standard_enum_args(
-    ty: &Option<TypeId>,
-    expected_name: &str,
-    expected_arity: usize,
-) -> Option<(TypeId, TypeId)> {
-    let Some(TypeId::StandardEnum { name, args }) = ty else {
-        return None;
-    };
-    if name != expected_name || args.len() != expected_arity {
-        return None;
-    }
-    let first = args.first()?.clone();
-    let second = args
-        .get(1)
-        .cloned()
-        .unwrap_or(TypeId::Builtin(BuiltinType::Unit));
-    Some((first, second))
-}
-
-fn iterable_item_type(ty: &Option<TypeId>) -> Option<TypeId> {
-    match surface::iterable_protocol(ty.as_ref()?)? {
-        surface::IterableProtocol::Array { item } => Some(item),
-        surface::IterableProtocol::Map { key, value } => Some(TypeId::Tuple(vec![key, value])),
-        surface::IterableProtocol::Set { item } => Some(item),
-        surface::IterableProtocol::String { .. } => Some(TypeId::Builtin(BuiltinType::String)),
-    }
-}
-
-fn type_satisfies_standard_constraint(
-    ty: &TypeId,
-    constraint: StandardTypeConstraint,
-    env: &BodyTypeEnv,
-) -> bool {
-    match ty {
-        TypeId::Generic(name) => env.generic_bounds.get(name).is_some_and(|bounds| {
-            bounds
-                .iter()
-                .any(|bound| surface::standard_constraint(bound) == Some(constraint))
-        }),
-        _ => match constraint {
-            StandardTypeConstraint::HashKey => surface::supports_hash_key(ty),
-            StandardTypeConstraint::Iterable => surface::iterable_protocol(ty).is_some(),
-            StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
-            StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-            StandardTypeConstraint::Comparable => !matches!(
-                ty,
-                TypeId::Array(_)
-                    | TypeId::Map { .. }
-                    | TypeId::Set(_)
-                    | TypeId::Trait(_)
-                    | TypeId::Generic(_)
-            ),
-        },
-    }
-}
-
-fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
-    match constraint {
-        StandardTypeConstraint::HashKey => {
-            "only bool, integer, and String keys have specified hash semantics"
-        }
-        StandardTypeConstraint::Iterable => "type is not part of the standard iterable protocol",
-        StandardTypeConstraint::OrderedNumber => "type is not an ordered numeric type",
-        StandardTypeConstraint::SignedNumber => "type is not a signed numeric type",
-        StandardTypeConstraint::Comparable => "type does not have standard equality semantics",
-    }
-}
-
-fn standard_intrinsic_name(intrinsic: StandardIntrinsic) -> &'static str {
-    use StandardIntrinsic::*;
-
-    match intrinsic {
-        ArrayLen => "std::array::len",
-        ArrayIsEmpty => "std::array::is_empty",
-        ArrayGet => "std::array::get",
-        ArrayPush => "std::array::push",
-        ArrayPop => "std::array::pop",
-        ArrayInsert => "std::array::insert",
-        ArrayRemove => "std::array::remove",
-        ArrayClear => "std::array::clear",
-        MapNew => "std::map::new",
-        MapLen => "std::map::len",
-        MapIsEmpty => "std::map::is_empty",
-        MapContainsKey => "std::map::contains_key",
-        MapGet => "std::map::get",
-        MapInsert => "std::map::insert",
-        MapRemove => "std::map::remove",
-        MapClear => "std::map::clear",
-        MapKeys => "std::map::keys",
-        MapValues => "std::map::values",
-        MapEntries => "std::map::entries",
-        SetNew => "std::set::new",
-        SetLen => "std::set::len",
-        SetIsEmpty => "std::set::is_empty",
-        SetContains => "std::set::contains",
-        SetInsert => "std::set::insert",
-        SetRemove => "std::set::remove",
-        SetClear => "std::set::clear",
-        SetToArray => "std::set::to_array",
-        SetUnion => "std::set::union",
-        SetIntersection => "std::set::intersection",
-        SetDifference => "std::set::difference",
-        StringLenBytes => "std::string::len_bytes",
-        StringLenChars => "std::string::len_chars",
-        StringIsEmpty => "std::string::is_empty",
-        StringConcat => "std::string::concat",
-        StringContains => "std::string::contains",
-        StringStartsWith => "std::string::starts_with",
-        StringEndsWith => "std::string::ends_with",
-        StringSlice => "std::string::slice",
-        OptionIsSome => "std::option::is_some",
-        OptionIsNone => "std::option::is_none",
-        OptionUnwrapOr => "std::option::unwrap_or",
-        OptionMap => "std::option::map",
-        OptionAndThen => "std::option::and_then",
-        ResultIsOk => "std::result::is_ok",
-        ResultIsErr => "std::result::is_err",
-        ResultUnwrapOr => "std::result::unwrap_or",
-        ResultMap => "std::result::map",
-        ResultMapErr => "std::result::map_err",
-        ResultAndThen => "std::result::and_then",
-        IterLen => "std::iter::len",
-        IterIsEmpty => "std::iter::is_empty",
-        IterGet => "std::iter::get",
-        IterToArray => "std::iter::to_array",
-        IterForEach => "std::iter::for_each",
-        MathMin => "std::math::min",
-        MathMax => "std::math::max",
-        MathClamp => "std::math::clamp",
-        MathAbs => "std::math::abs",
-        MathFloor => "std::math::floor",
-        MathCeil => "std::math::ceil",
-        MathRound => "std::math::round",
-        MathSqrt => "std::math::sqrt",
-        MathSin => "std::math::sin",
-        MathCos => "std::math::cos",
-        MathTan => "std::math::tan",
-        DebugPrint => "std::debug::print",
-        DebugAssert => "std::debug::assert",
-        DebugAssertEq => "std::debug::assert_eq",
-        DebugPanic => "std::debug::panic",
     }
 }

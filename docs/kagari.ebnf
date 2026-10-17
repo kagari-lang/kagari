@@ -1,8 +1,9 @@
 (* Kagari source grammar *)
-(* This file is a compact single-file EBNF view of the source syntax. *)
+(* This file is the intended single-file source grammar. Implementation and
+   evidence gaps are tracked in docs/syntax-coverage.tsv. *)
 (* Kagari is a Kotlin-style business scripting language with Rust-inspired syntax. *)
 (* Trait names are interface types directly. There is no script-level dyn trait-object syntax. *)
-(* `pub` is the only explicit visibility marker; unmarked items are private. *)
+(* `pub` and `pub(super)` are explicit visibility markers; unmarked items are private. *)
 (* Fields and referenced objects may be mutated according to their type and host policy. *)
 (* `val` declares a read-only binding or field slot; `var` declares a writable one. *)
 (* `const` is the immutable compile-time value form. *)
@@ -20,7 +21,7 @@ item_decl           ::= use_decl
                       | trait_item
                       | impl_block ;
 
-visibility          ::= "pub" ;
+visibility          ::= "pub" ("(" "super" ")")? ;
 
 function_item       ::= visibility? function_decl ;
 
@@ -35,7 +36,7 @@ trait_item          ::= visibility? trait_decl ;
 (* Attributes are compile-time metadata for compiler passes, generated code,
    host registration, tooling, and validation. They are not a promise of
    script-visible runtime reflection. *)
-attribute           ::= "@" path attribute_args? ;
+attribute           ::= "#" "[" path attribute_args? "]" ;
 
 attribute_args      ::= "(" attribute_arg_list? ")" ;
 
@@ -48,15 +49,24 @@ attribute_value     ::= literal
                       | path
                       | "[" attribute_arg_list? "]" ;
 
-module_decl         ::= visibility? "mod" IDENT module_block ;
+module_decl         ::= visibility? "mod" IDENT (";" | module_block) ;
 
 module_block        ::= "{" item* "}" ;
 
-use_decl            ::= visibility? "use" path use_alias? ";" ;
+use_decl            ::= visibility? "use" use_tree ";" ;
+
+use_tree            ::= path use_alias?
+                      | path "::" "*"
+                      | path "::" use_tree_group
+                      | use_tree_group ;
+
+use_tree_group      ::= "{" use_tree_list? "}" ;
+
+use_tree_list       ::= use_tree ("," use_tree)* (",")? ;
 
 use_alias           ::= "as" IDENT ;
 
-function_decl       ::= "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
+function_decl       ::= ("async")? "fn" IDENT generic_param_clause? "(" param_list? ")" return_type? where_clause? block ;
 
 generic_param_clause ::= "<" generic_param ("," generic_param)* (",")? ">" ;
 
@@ -90,49 +100,80 @@ trait_decl          ::= "trait" IDENT generic_param_clause? supertrait_clause? "
 
 supertrait_clause   ::= ":" type_bound_list ;
 
-trait_member        ::= attribute* trait_method ;
+trait_member        ::= attribute* trait_method
+                      | attribute* associated_type_decl
+                      | attribute* associated_const_decl ;
+
+associated_const_decl ::= "const" IDENT ":" type ("=" expr)? ";" ;
+
+associated_type_decl ::= "type" IDENT generic_param_clause? (":" type_bound_list)? where_clause? ";" ;
 
 trait_method        ::= method_sig (";" | block) ;
 
-method_sig          ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
+method_sig          ::= ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? ;
 
 type_list           ::= type ("," type)* (",")? ;
 
 type                ::= path generic_args?
                       | array_type
-                      | tuple_type ;
+                      | tuple_type
+                      | function_type
+                      | parenthesized_type
+                      | qualified_type ;
+
+qualified_type      ::= "<" type "as" trait_ref ">" "::" IDENT generic_args? ;
+
+function_type       ::= "fn" "(" type_list? ")" "->" type ;
 
 array_type          ::= "[" type "]" ;
 
-tuple_type          ::= "(" type_list? ")" ;
+tuple_type          ::= "(" ")"
+                      | "(" type "," (type ("," type)* (",")?)? ")" ;
 
-generic_args        ::= "<" type ("," type)* (",")? ">" ;
+parenthesized_type  ::= "(" type ")" ;
+
+generic_args        ::= "<" generic_arg ("," generic_arg)* (",")? ">" ;
+
+generic_arg         ::= type
+                      | associated_type_binding ;
+
+associated_type_binding ::= IDENT "=" type ;
 
 path                ::= path_segment ("::" path_segment)* ;
 
 path_segment        ::= IDENT
+                      | "crate"
                       | "self"
-                      | "Self" ;
+                      | "super" ;
 
 where_clause        ::= "where" where_predicate ("," where_predicate)* (",")? ;
 
-where_predicate     ::= IDENT ":" type_bound_list ;
+(* Semantics restrict where targets to generic parameters and their projections. *)
+where_predicate     ::= type ":" type_bound_list ;
 
-trait_ref           ::= path generic_args? ;
+trait_ref           ::= path trait_arguments? ;
+trait_arguments     ::= generic_args | callable_arguments ;
+callable_arguments  ::= "(" type_list? ")" ("->" type)? ;
 
 impl_block          ::= inherent_impl
                       | trait_impl ;
 
-(* User-written impls are deliberately simple. More complex generic or
-   conditional impls are outside this grammar and require a separate language
-   extension. *)
-inherent_impl       ::= "impl" type "{" impl_item* "}" ;
+(* User-written impls may declare type parameters and where predicates. *)
+inherent_impl       ::= "impl" generic_param_clause? type where_clause? "{" impl_item* "}" ;
 
-trait_impl          ::= "impl" trait_ref "for" type "{" impl_item* "}" ;
+trait_impl          ::= "impl" generic_param_clause? trait_ref "for" type where_clause? "{" trait_impl_item* "}" ;
+
+trait_impl_item     ::= attribute* method_decl
+                      | attribute* associated_type_def
+                      | attribute* associated_const_def ;
+
+associated_const_def ::= "const" IDENT ":" type "=" expr ";" ;
+
+associated_type_def ::= "type" IDENT generic_param_clause? "=" type where_clause? ";" ;
 
 impl_item           ::= attribute* method_decl ;
 
-method_decl         ::= "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl         ::= visibility? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
 
 method_param_list   ::= receiver_param ("," param_list)? (",")?
                       | param_list ;
@@ -168,13 +209,21 @@ assign_op           ::= "="
                       | "+="
                       | "-="
                       | "*="
-                      | "/=" ;
+                      | "/="
+                      | "%="
+                      | "&="
+                      | "|="
+                      | "^="
+                      | "<<="
+                      | ">>=" ;
 
 expr_stmt           ::= expr ";" ;
 
 return_stmt         ::= "return" expr? ";" ;
 
-if_stmt             ::= "if" condition block ("else" (if_stmt | block))? ;
+if_stmt             ::= if_expr ;
+
+if_expr             ::= "if" condition block ("else" (if_expr | block))? ;
 
 while_stmt          ::= "while" condition block ;
 
@@ -193,22 +242,28 @@ binding_condition   ::= "val" pattern "=" expr ;
 
 expr                ::= range_expr ;
 
-range_expr          ::= logic_or_expr (range_op logic_or_expr)? ;
-
-range_op            ::= ".."
-                      | "..=" ;
+range_expr          ::= logic_or_expr? ".." logic_or_expr?
+                      | logic_or_expr? "..=" logic_or_expr
+                      | logic_or_expr ;
 
 logic_or_expr       ::= logic_and_expr ("||" logic_and_expr)* ;
 
 logic_and_expr      ::= equality_expr ("&&" equality_expr)* ;
 
-equality_expr       ::= compare_expr (("==" | "!=") compare_expr)* ;
+equality_expr       ::= compare_expr (("==" | "!=" | "===" | "!==") compare_expr)* ;
 
-compare_expr        ::= additive_expr (("<" | "<=" | ">" | ">=") additive_expr)* ;
+compare_expr        ::= bit_or_expr (("<" | "<=" | ">" | ">=") bit_or_expr)* ;
+
+bit_or_expr         ::= bit_xor_expr ("|" bit_xor_expr)* ;
+bit_xor_expr        ::= bit_and_expr ("^" bit_and_expr)* ;
+bit_and_expr        ::= shift_expr ("&" shift_expr)* ;
+shift_expr          ::= additive_expr (("<<" | ">>") additive_expr)* ;
 
 additive_expr       ::= multiplicative_expr (("+" | "-") multiplicative_expr)* ;
 
-multiplicative_expr ::= unary_expr (("*" | "/" | "%") unary_expr)* ;
+multiplicative_expr ::= cast_expr (("*" | "/" | "%") cast_expr)* ;
+
+cast_expr           ::= unary_expr ("as" type)* ;
 
 unary_expr          ::= ("!" | "-") unary_expr
                       | postfix_expr ;
@@ -217,9 +272,11 @@ postfix_expr        ::= primary_expr postfix_op* ;
 
 postfix_op          ::= call_suffix
                       | field_suffix
-                      | index_suffix ;
+                      | index_suffix
+                      | propagation_suffix
+                      | await_suffix ;
 
-call_suffix         ::= "(" arg_list? ")" ;
+call_suffix         ::= ("::" generic_args)? "(" arg_list? ")" ;
 
 arg_list            ::= expr ("," expr)* (",")? ;
 
@@ -227,15 +284,29 @@ field_suffix        ::= "." IDENT ;
 
 index_suffix        ::= "[" expr "]" ;
 
+(* Built-in Option/Result only; exits the nearest function or closure. *)
+propagation_suffix  ::= "?" ;
+
+await_suffix        ::= "." "await" ;
+
 primary_expr        ::= literal
                       | path
+                      | if_expr
                       | parenthesized_expr
                       | tuple_expr
                       | array_expr
                       | struct_expr
                       | closure_expr
+                      | loop_expr
                       | match_expr
-                      | block ;
+                      | block
+                      | qualified_type
+                      | interpolated_string ;
+
+interpolated_string ::= FORMAT_START interpolation_part* FORMAT_END ;
+interpolation_part  ::= FORMAT_TEXT | interpolation ;
+interpolation       ::= FORMAT_OPEN expr interpolation_format? FORMAT_CLOSE ;
+interpolation_format ::= ":" "?" ;
 
 parenthesized_expr  ::= "(" expr ")" ;
 
@@ -243,7 +314,7 @@ tuple_expr          ::= "(" expr "," expr_list? ")" ;
 
 expr_list           ::= expr ("," expr)* (",")? ;
 
-array_expr          ::= "[" expr_list? "]" ;
+array_expr          ::= "[" (expr_list | expr ";" expr)? "]" ;
 
 struct_expr         ::= path generic_args? "{" field_init_list? "}" ;
 
@@ -252,9 +323,9 @@ field_init_list     ::= field_init ("," field_init)* (",")? ;
 field_init          ::= IDENT
                       | IDENT ":" expr ;
 
-(* Closures are part of the source grammar. Hot reload and persistence specs
-   define how long-lived closures may be stored. *)
-closure_expr        ::= "|" closure_param_list? "|" closure_body ;
+(* Closures are runtime values with lexical captures. Persisting closure values
+   across process restarts is outside the current runtime contract. *)
+closure_expr        ::= ("async")? "|" closure_param_list? "|" closure_body ;
 
 closure_param_list  ::= closure_param ("," closure_param)* (",")? ;
 
@@ -262,6 +333,8 @@ closure_param       ::= IDENT (":" type)? ;
 
 closure_body        ::= expr
                       | block ;
+
+loop_expr           ::= "loop" block ;
 
 match_expr          ::= "match" expr "{" match_arm_list? "}" ;
 
@@ -296,7 +369,8 @@ primary_pattern     ::= "_"
 
 parenthesized_pattern ::= "(" pattern ")" ;
 
-tuple_pattern       ::= "(" pattern_list? ")" ;
+tuple_pattern       ::= "(" ")"
+                      | "(" pattern "," (pattern ("," pattern)* (",")?)? ")" ;
 
 pattern_list        ::= pattern ("," pattern)* (",")? ;
 
@@ -310,6 +384,7 @@ field_pattern       ::= IDENT
                       | IDENT ":" pattern ;
 
 place_expr          ::= path place_suffix*
+                      | postfix_expr place_suffix+
                       | parenthesized_place_expr ;
 
 parenthesized_place_expr
@@ -330,7 +405,7 @@ WHITESPACE          ::= (" " | "\t" | "\n" | "\r")+ ;
 
 LINE_COMMENT        ::= "//" LINE_TEXT? LINE_END ;
 
-BLOCK_COMMENT       ::= "/*" BLOCK_COMMENT_TEXT? "*/" ;
+BLOCK_COMMENT       ::= "/*" (BLOCK_COMMENT | BLOCK_COMMENT_CHAR)* "*/" ;
 
 IDENT               ::= IDENT_START IDENT_CONTINUE* ;
 
@@ -338,21 +413,23 @@ IDENT_START         ::= "_" | ASCII_LETTER ;
 
 IDENT_CONTINUE      ::= IDENT_START | DIGIT ;
 
-INTEGER             ::= DEC_INTEGER
+INTEGER             ::= (DEC_INTEGER
                       | BIN_INTEGER
                       | OCT_INTEGER
-                      | HEX_INTEGER ;
+                      | HEX_INTEGER) ("i8" | "i16" | "i32" | "i64" | "isize"
+                                     | "u8" | "u16" | "u32" | "u64" | "usize")? ;
 
 DEC_INTEGER         ::= DIGIT (DIGIT | "_")* ;
 
-BIN_INTEGER         ::= "0b" BIN_DIGIT (BIN_DIGIT | "_")* ;
+BIN_INTEGER         ::= "0b" "_"* BIN_DIGIT (BIN_DIGIT | "_")* ;
 
-OCT_INTEGER         ::= "0o" OCT_DIGIT (OCT_DIGIT | "_")* ;
+OCT_INTEGER         ::= "0o" "_"* OCT_DIGIT (OCT_DIGIT | "_")* ;
 
-HEX_INTEGER         ::= "0x" HEX_DIGIT (HEX_DIGIT | "_")* ;
+HEX_INTEGER         ::= "0x" "_"* HEX_DIGIT (HEX_DIGIT | "_")* ;
 
-FLOAT               ::= DEC_INTEGER "." DIGIT (DIGIT | "_")* EXPONENT?
-                      | DEC_INTEGER EXPONENT ;
+FLOAT               ::= (DEC_INTEGER "." DIGIT (DIGIT | "_")* EXPONENT?
+                      | DEC_INTEGER EXPONENT) ("f32" | "f64")?
+                      | DEC_INTEGER ("f32" | "f64") ;
 
 EXPONENT            ::= ("e" | "E") ("+" | "-")? DIGIT (DIGIT | "_")* ;
 
@@ -375,6 +452,8 @@ OPERATOR_TOKEN      ::= "+"
                       | "="
                       | "=="
                       | "!="
+                      | "==="
+                      | "!=="
                       | "<"
                       | "<="
                       | ">"
@@ -390,7 +469,13 @@ OPERATOR_TOKEN      ::= "+"
                       | "+="
                       | "-="
                       | "*="
-                      | "/=" ;
+                      | "/="
+                      | "%="
+                      | "&="
+                      | "|="
+                      | "^="
+                      | "<<="
+                      | ">>=" ;
 
 DELIMITER_TOKEN     ::= "("
                       | ")"
@@ -419,10 +504,20 @@ HEX_DIGIT           ::= DIGIT | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | 
 
 LINE_TEXT           ::= ? any scalar value except line terminators ? ;
 
-BLOCK_COMMENT_TEXT  ::= ? any scalar sequence accepted by block comments ? ;
+BLOCK_COMMENT_CHAR  ::= ? any scalar not starting "/*" or "*/" ? ;
 
 STRING_TEXT_CHAR    ::= ? any scalar value except `"` `\` and line terminators ? ;
 
 LINE_END            ::= "\n"
                       | "\r\n"
                       | EOF ;
+
+(* Interpolation tokens are context-sensitive. FORMAT_TEXT follows ordinary string
+   escapes; doubled braces are text. Within a hole ordinary expression tokens,
+   comments, strings and nested interpolations are recognized. Format delimiters
+   do not consume the braces belonging to a nested block or struct expression. *)
+FORMAT_START        ::= "f" "\"" ;
+FORMAT_END          ::= "\"" ;
+FORMAT_OPEN         ::= "{" ;
+FORMAT_CLOSE        ::= "}" ;
+FORMAT_TEXT         ::= ? string text or doubled braces within an interpolated string ? ;

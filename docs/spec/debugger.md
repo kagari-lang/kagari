@@ -4,7 +4,14 @@ This document defines Kagari debugger support.
 The target user experience is close to debugging Kotlin in IntelliJ IDEA: source breakpoints, stepping, stack frames, variable inspection, watch expressions, and stable behavior across hot reload.
 
 Debugger support is a host/tooling capability.
-It is not an ordinary script API and it must not bypass runtime security, host exposure policy, typed path mutation policy, or hot reload validation.
+It is not an ordinary script API and it must not bypass runtime security, installed interface contracts, typed path mutation policy, or hot reload validation.
+
+Implementation status: this document also retains target capabilities that are
+not yet implemented. Current `DebugSession` records rooted snapshots and supports
+binding-name watches; it does not wait interactively at a breakpoint. The
+[queued interactive debugger design](../debugger-design.md) records the confirmed
+synchronous host-thread pause model, remaining gaps and proposed implementation
+scope. Its recording does not activate those features or establish DAP support.
 
 ## Design Goals
 
@@ -64,13 +71,40 @@ They adapt tool requests into this debugger control surface.
 
 ## Debug Sessions
 
+Runtime owns DebugSession as its boxed execution observer. The VM exposes short
+Ref/RefMut guards into that state, without a second shared owner. It moves with
+the runtime and needs Send, not Sync. Root observer activation is inherited by
+synchronous host reentry; an executor does not hold a mutable debugger borrow
+across a host call. Breakpoints are resolved for the
+pinned dependency program before execution. Nested instruction and trap events
+inspect the complete session-owned stack. Suspended callers report the active call
+instruction, while the executing frame advances to its next program point only
+when it resumes. Snapshot values keep their explicit GC roots after frame cleanup.
+Native code follows the debug-metadata fallback policy. Lexical visibility and
+stable frame identity across snapshots remain debugger requirements; snapshot
+rooting alone does not establish them.
+
+Owned async roots have distinct generational `ExecutionId` values. The identity
+survives bounded drive calls and waits; synchronous reentry shares its root's
+identity. `DebugPause.execution` identifies the observed root. Its stack contains
+only that execution's frames, never other parked roots. Step-into, step-over and
+step-out requests follow the most recent snapshot's execution; another root may
+hit its own breakpoint without consuming that request. A request before any
+snapshot binds to the first observed root. Manual pause remains isolate-wide.
+
+The host may remove or replace the observer between drive calls. Parked roots
+forget the old attachment, and each activates the replacement and resolves its
+pinned program on its next drive. Completion notices only mark readiness; they
+neither enter the debugger nor execute script. The current observer records
+snapshots synchronously and does not block the host driver waiting for a debugger
+command. An interactive transport/pause scheduler is outside the async integration.
+
 A debug session is created by the host.
 
 The session records:
 
 - runtime isolate id
-- security profile
-- debugger capabilities
+- host debugger configuration
 - visible module set
 - host object inspection policy
 - watch/evaluate policy
@@ -121,10 +155,10 @@ The baseline debugger supports:
 - temporary breakpoints
 - trap breakpoints
 - host call failure breakpoints
-- capability denial breakpoints
+- rejected access breakpoints
 
 Data breakpoints and watchpoint-style field mutation breakpoints are not baseline requirements.
-They may be added later through typed path dirty hooks.
+They may be added later by observing the committed typed-path dirty-record ledger.
 
 ## Safe Debug Points
 
@@ -166,6 +200,10 @@ Stepping is defined over safe debug points and source spans.
 `run to cursor` installs a temporary source breakpoint and continues.
 
 Host calls are stepped as opaque calls unless the host exposes a debugger integration for that API.
+Registered native interface methods are opaque callable frames. Stepping continues
+to the next debuggable script callback or caller safe point. Stack/error snapshots
+identify their native import target and implementation generation, with no invented
+source span or script local bindings.
 
 ## Call Stack Inspection
 
@@ -222,7 +260,7 @@ The value inspector supports:
 - host handles as opaque values unless host policy exposes metadata
 - host path views through typed path read policy
 
-Value expansion must respect reflection and host exposure policy.
+Value expansion must respect reflection and installed interface contracts.
 Debugger inspection must not become an unrestricted reflection backdoor.
 
 ## Watch Expressions
@@ -242,18 +280,18 @@ The evaluator rejects:
 
 - assignment
 - path mutation
-- host calls without debug-evaluation permission
+- host calls outside supported debug evaluation
 - allocation-heavy operations beyond resource limits
 - suspension
 - operations requiring unavailable frame-scoped host borrows
 
 ## Evaluate Expression
 
-Evaluate Expression is optional and profile-gated.
+Evaluate Expression is an optional host tooling feature.
 
 When enabled, it uses the same evaluator as watch expressions but may allow a larger expression subset according to host policy.
 Side-effecting evaluation is disabled by default.
-If an embedding enables side effects, they must run through ordinary runtime capability checks, host exposure checks, typed path policy, and resource limits.
+If an embedding enables side effects, they must run through ordinary installed interfaces, typed path contracts, cancellation and call-depth limits.
 
 ## Trap and Exception Breakpoints
 
@@ -262,7 +300,7 @@ The debugger can pause on:
 - script traps
 - runtime type errors
 - bytecode verification failures during load
-- capability denials
+- rejected interface access
 - resource limit failures
 - host call failures
 - reload validation failures
@@ -306,25 +344,18 @@ JIT code may participate in debugging only when it provides:
 - safe debug point traps or callbacks
 - fallback to interpreter when debug metadata is insufficient
 
-The baseline Cranelift JIT does not require arbitrary native instruction debugging.
+The current Cranelift subset has no execution-observer callbacks. An attached
+observer forces pre-entry interpreter fallback even when descriptor flags claim
+complete debug metadata. Native debugger participation requires actual callbacks,
+not flags alone. Arbitrary native instruction debugging is outside the baseline.
 
-## Security
+## Host Tooling Boundary
 
-Debugger capabilities are separate from reflection capabilities.
-
-Useful debugger capabilities include:
-
-- attach debugger
-- set breakpoints
-- pause execution
-- inspect stack
-- inspect local values
-- inspect host-exposed values
-- evaluate read-only expressions
-- evaluate side-effecting expressions
-
-Restricted profiles may disable debugger attachment entirely.
-Debugger operations must observe resource limits and host exposure policy.
+The host chooses whether to attach a debugger. Breakpoints, stepping and inspection
+use ordinary runtime validation without a separate permission matrix. Inspecting
+host values respects declared metadata, member visibility and valid lifetimes.
+Expression evaluation retains its supported read-only semantics; this change does
+not add side-effecting evaluation or native observer support.
 
 ## Debug Metadata Requirements
 
@@ -343,6 +374,13 @@ Bytecode and artifacts must preserve enough metadata for:
 
 Debug metadata may be stripped only when the module is not intended to be debugged.
 If debug metadata is stripped, breakpoints and variable inspection are unavailable for that artifact.
+Local live ranges use instruction offsets with an inclusive start and exclusive
+end. A source local starts after its initializing store; parameters start at
+function entry. IR records lexical scope identity at each instruction and
+terminator. Bytecode lowering emits disjoint ranges when control-flow emission
+leaves and reenters a scope. The verifier checks scope ownership and range bounds;
+the debugger queries these program points rather than inferring visibility from
+source spans.
 
 ## Debug Adapter Boundary
 
@@ -379,3 +417,66 @@ Debugger support is complete when:
 - trap and host failure breakpoints pause execution
 - hot reload re-resolves breakpoints and preserves old-frame source maps
 - debug sessions can force interpreter fallback when JIT metadata is insufficient
+
+
+## Adapter boundary
+
+Kagari exposes debugger control through the VM debugger protocol boundary, not through script-visible APIs.
+IDE integrations, DAP servers, and host tools should translate their own protocol messages into `DebugAdapterRequest` values and forward emitted `DebugAdapterEvent` values back to the tool.
+
+### Session Flow
+
+1. Create a runtime and attach a DebugSession.
+2. Create a `Vm` for that runtime.
+3. Create a `DebugProtocolAdapter` with an event sink.
+4. Send `DebugAdapterRequest::Attach`.
+5. Send breakpoint, stepping, pause, continue, run-to-cursor, or watch-evaluation requests.
+6. Execute the module through the VM.
+7. Call `FlushEvents` or `flush_events` after execution steps to deliver resolved breakpoint and pause events to the host tool.
+
+The adapter boundary owns protocol translation only.
+Runtime semantics remain in the parser, checker, bytecode verifier, VM, runtime security checks, and debug session hooks.
+
+### Supported Requests
+
+- `Attach`
+- `SetBreakpoint`
+- `Continue`
+- `Pause`
+- `StepInto`
+- `StepOver`
+- `StepOut`
+- `RunToCursor`
+- `EvaluateWatch`
+- `FlushEvents`
+
+### Events
+
+Adapters receive:
+
+- session attachment
+- breakpoint creation
+- breakpoint resolution to safe debug points
+- continue and pause requests
+- pause events with inspected frames
+
+Pause events carry debugger frame ids, module ids, module epochs, function ids, source spans, instruction offsets, and visible bindings.
+Watch evaluation uses those debugger frame ids and remains subject to declared visibility and valid runtime handles.
+
+### Policy
+
+The host chooses whether to attach a debugger. No runtime permission bits are required.
+Host-owned values are inspectable only when the runtime debug visibility policy exposes them.
+JIT execution may fall back to the interpreter when active debug sessions require metadata that the compiled artifact cannot provide.
+
+### Adapter Responsibilities
+
+An IDE or DAP adapter is responsible for:
+
+- converting IDE protocol requests into Kagari debug adapter requests
+- mapping Kagari events back to IDE protocol events
+- presenting source files and variable trees
+- preserving user breakpoint UI state
+- owning transport, message ids, and client-specific lifecycle
+
+The adapter must not add script-visible debugger functions or reinterpret Kagari execution behavior.
