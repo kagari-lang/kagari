@@ -1,8 +1,8 @@
 # Object storage overhead execution plan
 
 Status: activated on 2026-10-18 after the baseline/measurement policy refresh.
-OM01/OM02 are locally accepted. OM03 defers per-layout groups after the sparse
-cost screen; OM04 interface consolidation review is active and OM05 is unstarted.
+OM01/OM02/OM04 are locally accepted. OM03 defers per-layout groups after the sparse
+cost screen; OM05 integrated validation and documentation handoff is active.
 The [roadmap](implementation-roadmap.md#object-storage-overhead) owns
 activation and ordering. This plan owns OM01-OM05, conditional decisions,
 acceptance and the progress ledger. The user authorized execution and staged commits.
@@ -383,7 +383,7 @@ checks, not workspace builds or tests.
 - [x] OM01: cost attribution, consumer audit and frozen current baseline/controls.
 - [x] OM02: common-directory/native-revision migration and local acceptance.
 - [x] OM03: retain packed arena; per-layout group model explicitly deferred.
-- [ ] OM04: interface record decision; accepted implementation or explicit deferral.
+- [x] OM04: direct snapshot location accepted after accounting-boundary correction.
 - [ ] OM05: integrated local acceptance, CI scope and documentation handoff.
 
 Current decisions: keep Value and full checked handles; make directory slimming
@@ -782,3 +782,20 @@ remain 98/6,928. The 20,480-byte interface savings and OM02 Point/Pair savings a
 unchanged. Commit this coherent accounting-boundary correction before running a
 new fixed seven-pair OM01 comparison; only a passing result advances to inherited
 pre-RS and OM02 forms comparisons. No unchanged favorable retry is authorized.
+
+The follow-up at 65bbf477 passes all 29 OM01 storage gates. Maximum is node
+construction 1.018304 (range 0.997398-1.048227); revision_growth is 1.005592
+(0.999636-1.012590). All 26 inherited pre-RS gates pass: fields/float/read/write
+ratios 0.597290/0.615716/0.615961/0.793797; maximum lifecycle ratio is node release
+GC 1.049002 (1.017606-1.075983), within 1.10. All twelve OM02 forms gates pass;
+maximum is direct recurrence 1.014041 (0.980426-1.027427), interface 0.999405 and
+shared generic 0.996589. Setup and Lua remain diagnostics, not speed/parity claims.
+Each comparison used seven complete alternating pairs, without overlapping builds,
+tests, diagnostics or other timings. No pair/report extension or limit change was
+used; the failed 90342034 candidate remains recorded above.
+
+Together with both 96-row memory comparisons, 28 focused contracts and required
+local quality checks, this accepts OM04. OM05 reuses this final unchanged-runtime
+composition/measurement evidence rather than rerunning it for another green log.
+No carried build/test failure remains. Full workspace/feature/backend/platform CI
+is unrun and stays queued; documentation handoff does not establish that acceptance.

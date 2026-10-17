@@ -38,9 +38,9 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Object storage overhead](object-storage-overhead-plan.md): OM01/OM02 are locally
-  accepted; OM03 defers layout grouping after its sparse-cost screen, and OM04 evaluates
-  group struct layouts and consolidate interface records under measured gates.
+- [Object storage overhead](object-storage-overhead-plan.md): OM01/OM02/OM04 are
+  locally accepted; OM03 defers layout grouping after its sparse-cost screen, and
+  OM05 owns integrated validation and documentation handoff.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11
