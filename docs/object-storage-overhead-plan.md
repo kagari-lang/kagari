@@ -1,10 +1,11 @@
 # Object storage overhead execution plan
 
-Status: proposed execution plan recorded on 2026-10-16; baseline and measurement
-policy refreshed on 2026-10-18. Implementation has not started.
+Status: activated on 2026-10-18 after the baseline/measurement policy refresh.
+OM01 attribution/baseline work is locally complete; OM02 revision migration is
+active and OM03-OM05 are unstarted.
 The [roadmap](implementation-roadmap.md#object-storage-overhead) owns
 activation and ordering. This plan owns OM01-OM05, conditional decisions,
-acceptance and the progress ledger. Writing it does not activate implementation.
+acceptance and the progress ledger. The user authorized execution and staged commits.
 
 ## Outcome and finite scope
 
@@ -379,7 +380,7 @@ checks, not workspace builds or tests.
 ## Progress and decisions
 
 - [x] Planning: current owners, finite phases and numerical gates recorded.
-- [ ] OM01: cost attribution, consumer audit and frozen current baseline/controls.
+- [x] OM01: cost attribution, consumer audit and frozen current baseline/controls.
 - [ ] OM02: common-directory/native-revision migration and acceptance.
 - [ ] OM03: layout grouping decision; accepted implementation or explicit deferral.
 - [ ] OM04: interface record decision; accepted implementation or explicit deferral.
@@ -402,3 +403,133 @@ Refresh validation: phase/checklist and roadmap consistency, Markdown fences,
 124 repository-relative links/anchors across the two changed documents and
 whitespace checks pass. This documentation-only update requires no build, test or
 Clippy run.
+
+### OM01 activation and ownership inventory, 2026-10-18
+
+The user activated OM01-OM05 and staged commits. The starting checkout is clean at
+51ca855d, including the later default/construction work. OM01 changes only the
+benchmark and opt-in accounting views; ordinary object layouts and consumers remain
+unchanged. The baseline image is frozen before any OM02 production edit. The original
+26 timing rows retain their source/counts/regions; three separately compiled
+2,000-element controls add sequence growth, iterator advancement and callback-driven
+retain/reverse. Their declarations load only after the original measurements.
+Ordinary rows now retain all eleven sample values. Allocation runs additionally
+check three equal reuse cycles and report actual backing lengths/capacities without
+persistent counters or allocating a diagnostic result.
+
+The revision consumer audit selects one runtime-owned NativeObject field, adjacent
+to the erased payload, rather than another general table or library-owned field.
+New native allocation initializes it; replacing a payload retains the receiver's
+revision and relocation moves the whole native record. Common identity generation
+and locator remain with ObjectStorage. The following commit points must stay intact:
+
+| Consumer | Current guarantee to preserve |
+| --- | --- |
+| `gc.rs` allocation | New/reused identity begins at revision zero; full owner/generation admission precedes access. |
+| `gc/buffers.rs`, `gc/maps_sets.rs` | Preflight counter exhaustion; commit when successful operations change length, retaining existing replacement behavior. |
+| `gc/sequence_ops.rs` | Swaps/reverse preserve their no-change rules and existing bounds/poll order. |
+| `gc/native.rs` | Direct native-data edit publishes invalidation before lending data; bulk scalar writes retain their existing post-callback publication. |
+| `gc/native/managed.rs` | Managed writes invalidate before commit, retaining installed-schema, root and host-borrow checks. |
+| `gc/sequence_edit.rs` | Prepare the next revision before detaching; restore storage and revision in Drop on success, failure, cancellation and unwind. |
+| `gc/mutations.rs` | Prepared replacement publishes the preflighted next revision with the new payload. |
+| `gc/iter.rs` | Validate the actual receiver identity; detached sequence storage has no readable revision; stale traversal traps before its next read. |
+| `gc/native/take.rs`, directory detach/sweep | Extraction retires identity; moved records retain state, reused identities receive fresh native state, and destruction stays outside store borrows. |
+
+Interface inventory distinguishes wrapper reachability from snapshot reachability.
+Heap interface records point to checked snapshot IDs; MetadataRoot/MetadataEdge,
+prepared MethodSelection and parent-view cache cells can retain snapshots directly.
+Snapshots trace receivers and shared descriptions; descriptions retain application,
+operation and pinned module dependencies. The metadata-only-root test explicitly
+allows a wrapper to die while its receiver survives. OM04 must preserve that case;
+removing a table on the strength of an ordinary boxing benchmark is insufficient.
+
+Reference review uses OpenJDK `jdk-25-ga`
+[AbstractList](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/java.base/share/classes/java/util/AbstractList.java)
+and [markWord](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/oops/markWord.hpp):
+collection modification tracking belongs to collection state rather than a universal
+object header. Kagari adopts that responsibility split, while retaining its u64
+exhaustion errors, custom managed/native invalidation, explicit identities and exact
+commit order. Java's optional int fail-fast counter and locking/identity header bits
+are not substitutes for those guarantees. Go `go1.25.2`
+[mheap](https://github.com/golang/go/blob/go1.25.2/src/runtime/mheap.go) keeps element
+size, occupancy and allocation/mark metadata under span ownership. That informs
+OM03's stride/metadata attribution, not copying a concurrent allocator: Kagari's exact
+nominal generation/layout, zero-byte identities, explicit roots and safe relocation
+remain distinct constraints. No collector or grouping change is selected in OM01.
+
+An initial diagnostics build rejected accounting access from the sibling diagnostics
+module (E0616). The read method now lives under the GC owner; diagnostic result types
+remain under diagnostics. The failed build is not allocation evidence; its copied
+ordinary image/output is discarded and replaced by a checked diagnostic build.
+
+OM01 measured baseline: Apple M1 Max, 32 GiB/10 logical CPUs, arm64 macOS 26.6.2,
+rustc 1.98.1/LLVM 22.1.8, workspace release profile/default target and Cargo
+parallelism, SDK source/native plus vendored Lua dependencies. Ordinary storage
+runs use explicit GC, three warmups and eleven samples, with compilation/linking
+outside the timers. Frozen runtime is 51ca855d plus only the reviewed OM01 probe
+changes. All 29 ordinary row/result/sample checks pass; no speedup is inferred from
+this unpaired freeze. Diagnostic builds enable execution-diagnostics and the
+counting allocator, separately from ordinary timing.
+
+All sixteen one/512-object diagnostic lifecycles pass zero-net teardown, and all
+three equal reuse cycles plateau. Loaded setup is 5,251,827 requested bytes for
+this workload/standard declarations, not a universal empty-runtime size. Field
+loops retain 98 requests/6,928 requested bytes/zero net bytes. The Point/Pair
+attribution below includes reserved capacity, not just occupied records:
+
+| 512-object state | Point bytes | Pair bytes | Attributed backing bytes | Remaining bytes |
+| --- | ---: | ---: | ---: | --- |
+| Live | 57,036 | 57,812 | 49,816 | 7,220 / 7,996 |
+| Empty | 39,460 | 39,500 | 32,768 | 6,692 / 6,732 |
+| Reused | 65,644 | 66,004 | 58,008 | 7,636 / 7,996 |
+
+Live backing is directory 24,576 (1,024 slots at 24 bytes), struct records 12,288
+(512 at 24 bytes), fields 4,096, native record capacity 544 (four at 136 bytes),
+native payload box 120 and sequence capacity 8,192. Empty backing is the unchanged
+directory plus 8,192 bytes of free identities; reused backing additionally includes
+that free capacity. Exactly one shared struct layout serves each population.
+The remainder includes roots, frame/call capacity, shared layout/type/codec and
+lookup metadata; those child allocations are not individually attributed by the
+shallow store view. Their total is explicit rather than presented as field cost,
+RSS or an exact object header. Interface/node remainders are larger because they
+also include separately traced metadata and native child storage. OM03/OM04 must
+measure any proposed change to those owners instead of counting that remainder as
+available savings.
+
+Projection for OM02: even an eight-byte directory reduction saves 8,192 bytes of
+this reserved directory, against roughly 32 bytes of extra native-record capacity.
+That can clear the required 10% total live/empty reduction without a general side
+table; actual Rust layout and complete lifecycle measurements decide acceptance.
+No smaller counter, compressed identity or struct special case is needed.
+
+Reproduce the baseline probes with `cargo build --locked --release -p
+kagari-lua-benchmark --example runtime_storage`, save the ordinary executable, then
+run it; build separately with `--features diagnostics` for allocation/accounting.
+The saved ordinary executable never changes while the diagnostic build runs.
+Matching pre-RS evidence uses afec4a3b with only the same raw-sample output addition;
+its script is byte-identical. Its lockfile additionally predates unrelated LSP
+packages, while all shared external dependency versions are identical. This
+historical comparison is separate from OM's exact current-lock baseline.
+
+Focused OM02 selection: runtime sparse payload relocation; sequence lease
+error/unwind restoration; bulk mutation failure and fixed-array boundaries; foreign
+and stale identity admission; one native revision relocation/replacement/exhaustion
+contract if not already covered; and representative SDK managed/native mutation and
+iterator behavior. Conditional grouping adds zero-byte/mixed-generation layout
+coverage only if prototyped; interface consolidation additionally uses metadata-only
+roots, parent-view caches and pinned reload. Exhaustive feature/backend/workspace
+coverage stays in CI.
+
+OM01 local checks pass: ordinary/diagnostic builds and checked probes, workspace
+all-target Clippy, diagnostics-enabled example Clippy, structure (1,306 Rust files,
+zero findings/exceptions), fmt and diff checks. The source review finds no new
+production glob, re-export, unsafe storage, persistent counter or runtime layout
+change. Diagnostic snapshot access stays under the GC owner and only copies facts.
+
+The pre-RS ordinary image also builds and passes all 26 result/sample checks. This
+closes OM01 local attribution/baseline acceptance. Before changing production
+storage, preserve the final ordinary image after all diagnostic-only additions;
+reuse its existing checked freeze if the binary is identical. OM02 now owns the
+revision migration and fresh paired/memory gates. Conditional layout/interface
+control designs remain bounded by their exact ownership decisions and must freeze
+matching probes on this original runtime before any respective prototype.

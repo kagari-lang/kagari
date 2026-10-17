@@ -2,6 +2,8 @@
 //! Run with --release; --features diagnostics selects allocation accounting only.
 #[cfg(feature = "diagnostics")]
 mod memory;
+#[cfg(not(feature = "diagnostics"))]
+mod revisions;
 
 use kagari::{
     context::ExecutionContext,
@@ -39,9 +41,10 @@ fn sample(name: &str, operations: i32, mut action: impl FnMut() -> i32) {
         *time = start.elapsed().as_nanos();
         assert_eq!(result, operations);
     }
+    let samples = times;
     times.sort_unstable();
     println!(
-        "execute,{name},operations={operations},median_ns={},min_ns={},max_ns={},samples=11,warmups=3",
+        "execute,{name},operations={operations},median_ns={},min_ns={},max_ns={},samples=11,warmups=3,samples_ns={samples:?}",
         times[5], times[0], times[10]
     );
 }
@@ -84,9 +87,10 @@ fn lifecycle(engine: &KagariEngine, program: &PreparedProgram, context: &Executi
             .into_iter()
             .zip(phases)
         {
+            let samples = times;
             times.sort_unstable();
             println!(
-                "{label},{name},objects={POPULATION},median_ns={},min_ns={},max_ns={},samples=11,warmups=3",
+                "{label},{name},objects={POPULATION},median_ns={},min_ns={},max_ns={},samples=11,warmups=3,samples_ns={samples:?}",
                 times[5], times[0], times[10]
             );
         }
@@ -177,5 +181,6 @@ fn main() {
         drop(loaded);
         drop(runtime);
         lifecycle(&engine, &program, &context);
+        revisions::run(&engine, &context);
     }
 }

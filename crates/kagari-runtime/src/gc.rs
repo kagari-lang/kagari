@@ -36,6 +36,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "execution-diagnostics")]
+mod accounting;
 mod arrays;
 mod fields;
 mod future;

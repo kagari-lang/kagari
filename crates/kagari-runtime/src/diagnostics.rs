@@ -3,6 +3,7 @@
 pub mod allocations;
 #[cfg(test)]
 mod memory;
+pub mod storage;
 
 use std::cell::Cell;
 

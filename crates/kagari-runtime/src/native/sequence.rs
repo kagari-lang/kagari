@@ -13,6 +13,8 @@ use crate::{
     value::Value,
 };
 use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
+#[cfg(feature = "execution-diagnostics")]
+use std::mem::size_of;
 use std::{any::Any, collections::TryReserveError, sync::Arc};
 
 #[derive(Debug)]
@@ -50,6 +52,14 @@ macro_rules! storage {
 
             pub(crate) fn capacity(&self) -> usize {
                 match self { $(Self::$variant(values) => values.capacity(),)+ Self::Traced(values) => values.capacity() }
+            }
+
+            #[cfg(feature = "execution-diagnostics")]
+            pub(crate) fn backing_bytes(&self) -> (usize, usize) {
+                match self {
+                    $(Self::$variant(values) => (values.len() * size_of::<$ty>(), values.capacity() * size_of::<$ty>()),)+
+                    Self::Traced(values) => (values.len() * size_of::<Value>(), values.capacity() * size_of::<Value>()),
+                }
             }
 
             pub(crate) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {

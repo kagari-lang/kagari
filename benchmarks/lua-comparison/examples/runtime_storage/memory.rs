@@ -1,7 +1,10 @@
 //! Count requested bytes through runtime teardown; do not use these runs for timing.
 use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
 use kagari_runtime::{
-    diagnostics::allocations::{self, Counts},
+    diagnostics::{
+        allocations::{self, Counts},
+        storage::StorageUsage,
+    },
     gc::GcHeapStats,
     native::value_handle::ScriptValue,
 };
@@ -9,6 +12,7 @@ use kagari_runtime::{
 struct Snapshot {
     allocations: Counts,
     heap: GcHeapStats,
+    storage: StorageUsage,
 }
 
 pub(super) fn run(
@@ -35,6 +39,7 @@ pub(super) fn run(
                 let snapshot = || Snapshot {
                     allocations: allocations::current().unwrap(),
                     heap: runtime.runtime().gc().stats(),
+                    storage: runtime.runtime().gc().storage_usage(),
                 };
                 let setup = snapshot();
                 let values: ScriptValue = runtime
@@ -54,19 +59,30 @@ pub(super) fn run(
                 drop(sparse);
                 runtime.runtime().collect_garbage().unwrap();
                 let empty = snapshot();
-                // Repeat the same population to expose retained-capacity reuse.
-                let again: ScriptValue = runtime
-                    .execute_typed(&loaded, name, (count,), context)
-                    .unwrap();
-                runtime.runtime().collect_garbage().unwrap();
-                let reused = snapshot();
-                drop(again);
-                runtime.runtime().collect_garbage().unwrap();
+                // Three equal cycles expose capacity growth after the first reuse.
+                let mut reused = None;
+                let mut plateau = None;
+                for cycle in 0..3 {
+                    let again: ScriptValue = runtime
+                        .execute_typed(&loaded, name, (count,), context)
+                        .unwrap();
+                    runtime.runtime().collect_garbage().unwrap();
+                    let live = snapshot();
+                    drop(again);
+                    runtime.runtime().collect_garbage().unwrap();
+                    let empty = snapshot();
+                    let net = (live.allocations.net_bytes, empty.allocations.net_bytes);
+                    if let Some(expected) = plateau {
+                        assert_eq!(net, expected, "{name} reuse cycle {cycle}");
+                    }
+                    plateau = Some(net);
+                    reused = Some(live);
+                }
                 assert_eq!(
                     runtime.runtime().gc().stats().allocated_objects,
                     setup.heap.allocated_objects
                 );
-                [setup, constructed, live, released, empty, reused]
+                [setup, constructed, live, released, empty, reused.unwrap()]
             };
             // Immutable prepared-program caches can initialize on first execution
             // and outlive Runtime. Warm that shared owner before measuring its
@@ -88,6 +104,10 @@ pub(super) fn run(
                 println!(
                     "memory,{name},count={count},phase={phase},allocations={:?},heap={:?}",
                     snapshot.allocations, snapshot.heap
+                );
+                println!(
+                    "storage,{name},count={count},phase={phase},usage={:?}",
+                    snapshot.storage
                 );
             }
             println!("teardown,{name},count={count},allocations={total:?}");

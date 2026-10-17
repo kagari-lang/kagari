@@ -21,6 +21,8 @@ use crate::{
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
+#[cfg(feature = "execution-diagnostics")]
+use std::mem::size_of_val;
 use std::{
     any::{Any, TypeId},
     fmt,
@@ -352,6 +354,11 @@ impl Debug for NativeObject {
 }
 
 impl NativeObject {
+    #[cfg(feature = "execution-diagnostics")]
+    pub(crate) fn payload_bytes(&self) -> usize {
+        size_of_val(self.payload.as_ref())
+    }
+
     pub(crate) fn into_payload<S: NativeTake>(self) -> S {
         // The GC preflights Rust identity before any detachment. This immutable
         // erased record cannot change payload types between validation and move.

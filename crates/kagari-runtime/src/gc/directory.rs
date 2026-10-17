@@ -1,4 +1,7 @@
 //! Stable checked identities point into dense stores of concrete payload kinds.
+#[cfg(feature = "execution-diagnostics")]
+mod accounting;
+
 use crate::{
     closure::ClosureValueSnapshot,
     error_trace::ErrorTrace,
