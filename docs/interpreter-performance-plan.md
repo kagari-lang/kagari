@@ -15,6 +15,9 @@ All eleven open gates belong to the independent Lua setup reference. Every earli
 sample and exact image/path is retained. This experiment has reached its finite
 endpoint; no further extension or batch/schedule pilot follows. IP02/IP03 acceptance
 stays open, pending an explicit measurement-environment or scope decision.
+The subsequently authorized instability investigation identifies mixed process
+warmth, observed minor faults/preemption and confounded order factors; its bounded
+diagnostic results below do not replace acceptance or fully explain residual noise.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -3167,3 +3170,100 @@ Reproduction: run the strict checker on the completed report with
 70 gate rows. Documentation-only checkpoint validation covers the edited diff,
 relative links and Markdown fences; no Rust implementation changed and no Rust
 build/test/Clippy rerun is required.
+
+### IP03 reference-instability diagnosis authorized on 2026-10-17
+
+The user now requests investigation of the unstable controls. This authorizes
+bounded attribution, not another acceptance attempt or a change to its gates.
+First inspect the retained raw samples and reference lifecycle. The reference
+creates 32 states, compiles and initializes them, validates every returned entry,
+then destroys them before the next of three samples. Those samples therefore
+share process/allocator history despite using fresh Lua states. The first sample
+is systematically slower in the completed report. For arrays engine_init, pooled
+sample-position candidate/baseline median ratios are 1.02594/1.01128/1.00386, while
+the declared median-of-process-medians ratio is 1.072835. These are different
+estimators; positional analysis diagnoses heterogeneity and does not replace gates.
+
+Predeclare one diagnostic instrumented reference image and 48 workers: twelve
+blocks, arrays and fibonacci, each with original lifecycle and one complete
+untimed preconditioning lifecycle before the original three samples. Alternate
+mode order and workload order by block. Keep batch 32, source, checksums and all
+entry validations. Record wall time, thread CPU time, minor/major faults and
+voluntary/involuntary context switches around each setup phase, with resource
+reads outside its wall timer. Record an empty action to characterize probe overhead;
+do not subtract that overhead from acceptance or treat microsecond CPU counters
+as precise explanations of the shortest phases. The intervention tests process
+history; it is not a replacement cold-setup protocol. Keep its changed code/image
+separate, build before measuring, restore temporary source/dependency changes,
+retain every diagnostic record, and run no other CPU workloads concurrently.
+Do not extend the experiment for favorable results. OS/core-frequency and Lua
+hash-seed effects remain hypotheses unless separately supported by evidence.
+
+The diagnostic completes all 48 workers, 672 resource records and 168 validated
+32-state lifecycle batches. Its separate image SHA-256 is
+45ba80220d813bc178d6d806a843aee589d56e34e628bce40a8b804f973739ef;
+diagnostic source SHA-256 is
+63fe0dccaf324ceed4c5a42ecf323f3e8076a36bdd5ad0f29281106442623bb3.
+The only temporary dependency is the already locked libc 0.2.190 for platform ABI
+types and resource calls. Cargo's default release profile, target and parallelism
+are used. The temporary example, manifest and lockfile changes are restored before
+timing; no production runtime or accepted reference source changes remain. The
+three acceptance image hashes are verified unchanged afterward.
+
+Findings, with the distinction between mechanism and attribution preserved:
+
+1. Fresh Lua states are not fresh processes. In the original-lifecycle diagnostic,
+   arrays engine_init sample-position medians are 1.112/0.986/0.910 ms, and fibonacci
+   1.122/0.980/0.922 ms. Both have 81/4/0 median minor faults. After one untimed
+   lifecycle, the next measured first sample has four median minor faults and
+   takes 0.960/0.969 ms for arrays/fibonacci. Process preconditioning therefore
+   changes both the observed fault count and elapsed time; it does not isolate
+   the contribution of page faults from allocator/cache/CPU-state warming. The
+   [current lifecycle](../benchmarks/lua-comparison/examples/lua_setup_reference.rs)
+   mixes those states into one three-sample process median. Occasional later
+   spikes change which position supplies that median. This is a heterogeneous
+   estimator input, not evidence that its arithmetic is wrong.
+2. Preemption contributes to some measured spikes. A fibonacci compilation sample
+   records 192,958 ns wall versus 163,541 ns thread CPU, with one involuntary
+   context switch and no reported faults. An arrays engine-init sample records
+   1,159,416 ns wall versus 1,108,083 ns CPU, with nine involuntary switches and no
+   reported faults. All major-fault counts are zero in this diagnostic. These
+   observations explain part of these new samples, not the uninstrumented
+   historical 25.75 ms spike, whose cause cannot be recovered from elapsed time.
+3. Tiny module-init intervals remain variable without reported faults or context
+   switches. All 168 module-init observations report zero for both. For the 36
+   measured prewarmed samples per input, arrays p10/median/p90 is
+   4.146/4.688/5.396 us and fibonacci is 4.333/5.083/6.146 us (inclusive quantiles).
+   Prewarming alone is not an adequate remedy. The platform Mach timebase is
+   125/3 ns per tick; all original module-init values match this quantization.
+   One tick is about 0.8-1% of a typical 4-5 us batch, insufficient alone to explain
+   the observed spread. Empty-probe CPU spans have group medians 292-417 ns, so
+   very small wall/CPU differences must not be overinterpreted or subtracted.
+4. The [driver](../scripts/benchmark_lua.py) couples variant order and workload
+   reversal to the same pair-parity bit. The [reference worker launcher](../scripts/benchmark_reference.py)
+   inherits workload insertion order: AB always uses forward workload order and
+   BA always uses reverse. In retained data, calls engine-init paired ratios are
+   1.107 for even/forward pairs and 1.025 for odd/reverse pairs. This is an order
+   association, not a causal estimate: the design cannot separate the two order
+   factors or their interaction with preceding workloads. A separately balanced
+   four-condition design would make that attribution possible.
+
+Independent recomputation from raw records agrees with both estimators for all
+70 gates; no batch normalization, pair-label or arithmetic discrepancy is found.
+The installed Lua 5.4.9 [state initializer](https://www.lua.org/source/5.4/lstate.c.html)
+also derives string-hash seeds from time and addresses, so a fixed image does not
+fix all internal state. Seed/ASLR, allocator layout, caches and core/frequency
+selection remain plausible contributors to residual on-CPU variability, not
+established explanations; this diagnostic does not measure seeds or CPU residency.
+
+The next measurement-design review should first define cold-process and
+process-reused setup as separate contracts, independently balance variant and
+workload order, and evaluate reference repeatability before subject acceptance.
+Keep resource probes as separate attribution, since they perturb the executable
+and surroundings of very short timers. Do not adopt prewarming, CPU-time timing,
+an alternate estimator, or a larger batch as an acceptance repair from these
+results alone. No new acceptance run is started and IP02/IP03 remain open.
+Raw records, source and reproduction scripts are retained under ignored target/;
+the methods, numerical evidence and limitations needed for resumption are above.
+Documentation diff, relative file links and fences pass. No permanent Rust change
+requires a new workspace Clippy or correctness-test sweep at this checkpoint.
