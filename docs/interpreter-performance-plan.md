@@ -2451,6 +2451,67 @@ luaD_callnoyield lacks a matched PE unwind range, so neither is attributed by th
 inspection. Equal selected code shapes do not prove equal timing or allocator/cache
 state; those limits remain explicit when interpreting the pending order experiment.
 
+The preparation-order experiment (UTC 20261016T223709Z) completes all 28 processes
+and 1,288 rows with matching checksums, image hashes and observed preparation order
+for every sample. Identical probe source SHA-256 is
+`66790fd12022ee0924f6075ad106d27a8e3bab2855fb14976a047d1381d11959`.
+
+| Lua preparation | Before Kagari aggregate / paired | After Kagari aggregate / paired |
+| --- | ---: | ---: |
+| engine_init | 1.003055 / 0.998982 | 1.018994 / 0.986592 |
+| source_to_chunk | 1.084656 / 1.054645 | 1.063218 / 1.057143 |
+| module_init | 0.952381 / 0.952381 | 0.681818 / 0.681818 |
+
+Lua execution is 1.016618/1.017809 before and 1.013527/1.014091 after. In the
+before condition, the first setup sample executes before any Kagari preparation;
+its Lua compilation medians are 33.6/35.4 us for baseline/candidate. Later samples
+retain previous process history and cannot be described as fresh-process isolation.
+Compilation's difference in both orders does not support an explanation solely
+through preceding Kagari preparation. Module initialization's opposite direction
+in the probe means the original-position failure does not reproduce in these
+different linked images. Neither result identifies a specific cache or allocator
+mechanism. Do not tune runtime logic from these Lua setup results.
+
+The remaining defect is in experimental ownership: each monolithic benchmark
+links its own copy of the reference engine into a different subject image, and
+the timed cold Lua preparation shares the subject's preceding state. Unchanged
+Lua source is therefore not a fixed reference treatment. Correct this boundary
+before another runtime optimization, with the following finite protocol repair:
+
+- Keep the exact frozen IP01 and current Kagari ordinary images, sources, workload
+  sizes, execution samples, checksums, target ratios and all Kagari setup gates.
+  Existing forms/root/window and allocation evidence stays with its unchanged owner.
+- Measure the original suite's three Lua preparation phases in one separately
+  frozen reference executable, launched in fresh processes for both paired variants.
+  It uses the same pinned mlua/Lua dependency, exact existing Lua inputs and frozen
+  expected results. It performs no Kagari preparation or execution.
+- Predeclare three setup samples, each batching 32 independent Lua states/chunks/
+  returned entries. Allocate result-vector capacity outside timers; retain each
+  state/chunk until entry construction finishes and verify every returned workload
+  checksum outside timing. This is a batched reference control, not a claim about
+  the previous individual cold-call latencies. Normalize by 32 and preserve both
+  estimators, +5% limits and the 0.01 inconclusive band.
+- Keep every embedded Lua setup row and its original failed report as diagnostic
+  evidence. The new control has explicit source/image/path/sampling provenance;
+  never relabel an embedded row as an independent one or silently drop failures.
+  Embedded Lua execution and all 16 matched interpreter/Lua execution workloads
+  remain unchanged and retain their existing gates.
+- Validate reference identities, hashes, sample completeness, batching and checksums
+  independently; missing or changed reference evidence fails acceptance. Extensions
+  must retain the same reference image/path and all earlier reference samples as
+  well as both subject images/paths. Exclude only the new independent runner from
+  the subject's source fingerprint and track it under its own explicit fingerprint.
+- Run focused checker coverage, the runner's checksum validation, structure/fmt/
+  workspace Clippy and diff checks. Then run a new declared seven-pair original
+  comparison under the corrected protocol; the failed original comparison is not
+  retroactively passed or extended. No required phase is accepted before this
+  independent control and every unchanged subject gate pass.
+
+This changes the Lua setup control's treatment and ownership, not a numerical
+threshold or Kagari baseline. It is an explicit measurement-plan correction before
+its implementation. No reference runtime library, global cache, runtime padding,
+scope expansion into OM, or waiver of correctness/retention/teardown is introduced.
+
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains a
