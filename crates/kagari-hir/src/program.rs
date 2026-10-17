@@ -150,7 +150,7 @@ impl AnalysisSnapshot {
     ///     "use pkg::api::sum as add; fn main() -> i32 { add(41) }".into(),
     ///     SourceLayer::Base).unwrap();
     /// let mut database = AnalysisDatabase::default();
-    /// database.set_native_modules(kagari_stdlib::catalog::shared());
+    /// database.set_native_modules(kagari_stdlib::catalog::shared().unwrap());
     /// let snapshot = database.snapshot(sources.snapshot(), &Default::default()).unwrap();
     /// let analysis = snapshot.file(app).unwrap();
     /// let target = analysis.result().facts().names.imports.directives[0]

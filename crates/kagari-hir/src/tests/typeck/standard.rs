@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    analyze_source,
     declarations::DeclarationId,
     imports::{NamespaceId, SourceItem},
     language::semantics::ProtocolSemantics,
@@ -649,7 +650,6 @@ fn bad(values: HashMap<String, i32>) -> bool {
 
 #[test]
 fn checks_standard_numeric_surface() {
-    let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok(
         r#"
 fn signed(value: i16) -> i16 { -value }
@@ -657,20 +657,14 @@ fn unsigned(lhs: u64, rhs: u64) -> u64 { lhs + rhs }
 fn float(lhs: f64, rhs: f64) -> bool { lhs < rhs }
 "#,
     );
-    let names = resolve_names(&lowered)
-        .unwrap()
-        .into_checked()
-        .expect("resolver should succeed");
-    check_module(&context, &lowered, &names, None)
+    analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect("standard numeric types should check");
 
     let lowered = common::lower_ok("fn bad(value: u32) -> u32 { -value }");
-    let names = resolve_names(&lowered)
-        .unwrap()
-        .into_checked()
-        .expect("resolver should succeed");
-    let diagnostics = check_module(&context, &lowered, &names, None)
+    let diagnostics = analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
+        .expect("installed declaration analysis")
         .into_checked()
         .expect_err("unsigned negation should reject");
     assert!(diagnostics.iter().any(|diagnostic| {

@@ -3,11 +3,144 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     gc::{GcHeap, GcObjectKind, HeapObjectId},
     module::entry::ProgramEntry,
+    native::{
+        binding::{Codec, NativeBinding, NativeResult},
+        builder::ModuleBuilder,
+        context::CallContext,
+        declarations::{FunctionDecl, MethodDecl},
+        types::Type,
+        views::SequenceMutHandle,
+    },
     range::index_bound,
     reflection,
     value::{Value, ValueCategory},
+    value_semantics::identity_equal,
 };
+use kagari_stdlib::declarations::StandardDeclarations;
+use kagari_types::language::Protocol;
 use std::ops::Bound;
+
+#[test]
+fn declared_sequence_layout_selects_contiguous_i32_even_when_empty() {
+    let declarations = StandardDeclarations::default();
+    let mut builder = ModuleBuilder::new(
+        "example::buffers",
+        &declarations.catalog().expect("explicit standard providers"),
+    )
+    .unwrap();
+    let mut declaration = builder.define_type("Buffer").unwrap();
+    let item = declaration.type_parameter("T").unwrap();
+    declaration.sequence_storage(&item).unwrap();
+    let buffer = declaration.finish().unwrap();
+    let ty = buffer.apply([Type::i32()]).unwrap();
+    builder
+        .implement(buffer.clone(), |group| {
+            let receiver = group.receiver();
+            group.inherent_impl(|methods| {
+                let new =
+                    methods.define_method(MethodDecl::static_method("new").returns(receiver))?;
+                methods.bind(
+                    new,
+                    NativeBinding::new(vec![], buffer.codec(), |context| context.allocate_result()),
+                )
+            })?;
+            group.trait_impl(
+                declarations.protocol(Protocol::PartialEq).apply([])?,
+                |methods| {
+                    methods.bind(
+                        "eq",
+                        NativeBinding::new(
+                            vec![buffer.codec(), buffer.codec()],
+                            Codec::Exact(Type::bool()),
+                            |context| {
+                                identity_equal(
+                                    context.heap(),
+                                    &context.argument(0)?,
+                                    &context.argument(1)?,
+                                )
+                                .map(Value::Bool)
+                            },
+                        ),
+                    )
+                },
+            )?;
+            group.trait_impl(declarations.eq().apply([])?, |_| Ok(()))?;
+            group.trait_impl(declarations.hash().apply([])?, |methods| {
+                methods.bind(
+                    "hash",
+                    // Collisions are intentional; equality still distinguishes buffer identities.
+                    NativeBinding::new(vec![buffer.codec()], Codec::Exact(Type::i64()), |_| {
+                        Ok(Value::I64(0))
+                    }),
+                )
+            })
+        })
+        .unwrap();
+    let push = builder
+        .define_function(
+            FunctionDecl::new("push")
+                .parameter("buffer", ty.clone())
+                .parameter("value", Type::i32()),
+        )
+        .unwrap();
+    builder
+        .bind(
+            push,
+            NativeBinding::new(
+                vec![buffer.codec(), Codec::Exact(Type::i32())],
+                Codec::Exact(Type::unit()),
+                |context| {
+                    context.sequence_push(0, context.argument(1)?)?;
+                    Ok(Value::Unit)
+                },
+            ),
+        )
+        .unwrap();
+    let sum = builder
+        .define_function(
+            FunctionDecl::new("sum")
+                .parameter("buffer", ty)
+                .returns(Type::i32()),
+        )
+        .unwrap();
+    builder
+        .bind(
+            sum,
+            |_context: &mut CallContext<'_>,
+             mut buffer: SequenceMutHandle<'_>|
+             -> NativeResult<i32> {
+                assert!(
+                    buffer
+                        .read()
+                        .with_slice::<u32, _>(|_| Ok(()))
+                        .unwrap_err()
+                        .message()
+                        .contains("scalar layout")
+                );
+                buffer.with_slice_mut::<i32, _>(|values| {
+                    values.reverse();
+                    Ok(())
+                })?;
+                buffer
+                    .read()
+                    .with_slice::<i32, _>(|values| Ok(values.iter().copied().sum()))
+            },
+        )
+        .unwrap();
+    let module = builder.finish().unwrap();
+    let (vm, loaded) = compile(
+        "use std::collections::{HashMap};\nuse example::buffers::{Buffer, push, sum}; fn main() -> i32 { val buffer: Buffer<i32> = Buffer::new(); val other: Buffer<i32> = Buffer::new(); if buffer != buffer || buffer == other { return -2; } val keys = HashMap::new(); keys.insert(buffer, 42); if !keys.contains_key(buffer) || keys.contains_key(other) { return -3; } if sum(buffer) != 0 { return -1; } push(buffer, 20); push(buffer, 22); sum(buffer) }",
+        Some(&module),
+    );
+    assert_eq!(
+        vm.execute(&loaded, ProgramEntry::Main)
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
+}
 
 #[test]
 fn index_bounds_validate_the_applied_type_even_without_a_payload() {

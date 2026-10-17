@@ -25,6 +25,7 @@ use kagari_runtime::{
         module::NativeModule,
         types::Type,
     },
+    reload::ReloadValidationError,
     session::ExecutionOptions,
     value::Value,
 };
@@ -351,36 +352,22 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
                 .is_err()
         );
         NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
-        let active = runtime
+        runtime
             .load_program("core", program(base.clone()))
             .unwrap_or_else(|error| panic!("{:?}: {error}", definition.identity));
-        let mut forged = base.clone();
-        let changed = forged
+        let missing_name = base
             .public_items
-            .iter_mut()
+            .iter()
             .find_map(|item| match item {
-                PublicItem::Trait(trait_) if !trait_.methods.is_empty() => Some(trait_),
+                PublicItem::Trait(trait_) if !trait_.methods.is_empty() => {
+                    Some(trait_.name.clone())
+                }
                 _ => None,
             })
             .unwrap();
-        let changed_name = changed.name.clone();
-        changed.methods[0].params[0].name = "forged_argument".into();
-        // Portable structural validation accepts the declaration; installation binds
-        // reserved identities to the exact checked language registration.
-        VerifiedProgram::new(program(forged.clone()), &context).unwrap();
-        assert!(
-            runtime
-                .load_program("forged_core", program(forged.clone()))
-                .is_err()
-        );
-        assert!(
-            runtime
-                .stage_reload_program(&active, "core", program(forged))
-                .is_err()
-        );
         let mut missing = base.clone();
         missing.public_items.retain(
-            |item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == changed_name),
+            |item| !matches!(item, PublicItem::Trait(trait_) if trait_.name == missing_name),
         );
         assert!(
             runtime
@@ -396,46 +383,81 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         );
     }
 
-    // Moving a referenced public role to private correctly invalidates dependent
-    // public implementation tables. Test private installation authority in an
-    // independent no-call module, so rejection belongs to the installed catalog.
+    // Renaming self changes interface eligibility in the complete library closure.
+    // Isolate declarations from interface uses and implementation tables so forged
+    // public/private contracts pass portable verification and reach installation.
     let format_module = modules
         .iter()
         .find(|module| module.identity == namespaces::module("core", "fmt"))
         .unwrap();
-    let mut contract = format_module
+    let program = |module| {
+        DefinitionMetadata::checked(
+            context.snapshot(),
+            BytecodeProgram {
+                exports: Default::default(),
+                root: ModuleRef::new(0),
+                modules: vec![module],
+            },
+            &Default::default(),
+        )
+        .unwrap()
+    };
+    let base = BytecodeModule {
+        identity: format_module.identity.clone(),
+        public_items: format_module
+            .public_items
+            .iter()
+            .filter(|item| matches!(item, PublicItem::Trait(_)))
+            .cloned()
+            .collect(),
+        ..Default::default()
+    };
+    VerifiedProgram::new(program(base.clone()), &context).unwrap();
+    let mut runtime = Runtime::default();
+    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
+    let active = runtime
+        .load_program("public_core", program(base.clone()))
+        .unwrap();
+    let mut forged = base;
+    let contract = forged
         .public_items
-        .iter()
+        .iter_mut()
         .find_map(|item| match item {
-            PublicItem::Trait(contract) if contract.name == "Debug" => Some(contract.clone()),
+            PublicItem::Trait(contract) if contract.name == "Debug" => Some(contract),
             _ => None,
         })
         .unwrap();
+    contract.methods[0].params[0].name = "forged_argument".into();
+    let contract = contract.clone();
+    let forged = program(forged);
+    VerifiedProgram::new(forged.clone(), &context).unwrap();
+    let error = runtime
+        .load_program("forged_core", forged.clone())
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("reserved or native trait differs from its installed contract"),
+        "{error}"
+    );
+    // Staging rejects the changed public ABI before installation validation.
+    assert!(matches!(
+        runtime.stage_reload_program(&active, "public_core", forged),
+        Err(ReloadValidationError::PublicAbiFingerprintMismatch)
+    ));
     let root = context.intern_root(&format_module.identity).unwrap();
     let declaration = context
         .intern_child(root, DefinitionKind::Trait, &contract.name, 0)
         .unwrap();
-    contract.methods[0].params[0].name = "forged_argument".into();
-    let private = DefinitionMetadata::checked(
-        context.snapshot(),
-        BytecodeProgram {
-            exports: Default::default(),
-            root: ModuleRef::new(0),
-            modules: vec![BytecodeModule {
-                identity: format_module.identity.clone(),
-                trait_contracts: vec![TraitContract {
-                    declaration,
-                    abi: contract,
-                }],
-                ..Default::default()
-            }],
-        },
-        &Default::default(),
-    )
-    .unwrap();
+    let private = program(BytecodeModule {
+        identity: format_module.identity.clone(),
+        trait_contracts: vec![TraitContract {
+            declaration,
+            abi: contract,
+        }],
+        ..Default::default()
+    });
     VerifiedProgram::new(private.clone(), &context).unwrap();
-    let mut runtime = Runtime::default();
-    NativeModule::install_all(&crate::modules().unwrap(), &mut runtime).unwrap();
     let error = runtime.load_program("private_core", private).unwrap_err();
     assert!(
         error

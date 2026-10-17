@@ -2,17 +2,30 @@ use kagari_common::identity::metadata::DefinitionMetadata;
 mod payload_failures;
 mod program_cycles;
 use super::{compile, compile_program};
-use crate::vm::Vm;
+use crate::vm::{Vm, owned::DriveResult};
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
 use kagari_runtime::{
     Runtime,
+    error::RuntimeError,
+    gc::roots::RootedValue,
     module::entry::ProgramEntry,
-    value::{MapKey, Value},
-    value_semantics::{format_value, script_equal},
+    native::{
+        binding::{Codec, NativeBinding},
+        builder::ModuleBuilder,
+        declarations::FunctionDecl,
+        types::Type,
+    },
+    value::Value,
+    value_semantics::format_value,
 };
+use kagari_stdlib::declarations::StandardDeclarations;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
-use std::collections::HashSet;
+use std::{
+    collections::HashSet,
+    num::NonZeroUsize,
+    sync::{Arc, Mutex},
+};
 
 #[test]
 fn mark_sweep_traces_tuples_enum_payloads_and_cycles_without_retaining_unreachable_graphs() {
@@ -91,18 +104,38 @@ fn tracing_a_deep_heap_chain_uses_an_explicit_work_stack() {
 fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     let (vm, loaded) = compile(
         r#"use std::collections::{HashMap, HashSet};
+        use std::hash::Hash;
 
-        fn main() -> (HashMap<Option<(Vec<i32>, String)>, i32>, HashSet<Option<(Vec<i32>, String)>>, bool) {
-            val object = Vec::from([42]);
-            val key = Some((object, "key"));
-            val map: HashMap<Option<(Vec<i32>, String)>, i32> = HashMap::new();
+        pub struct KeyObject { var value: i32 }
+        impl PartialEq for KeyObject {
+            fn eq(self, other: Self) -> bool { self === other }
+        }
+        impl Eq for KeyObject {}
+        impl Hash for KeyObject { fn hash(self) -> i64 { 0i64 } }
+
+        pub fn key_hash(key: Option<(KeyObject, String)>) -> i64 { key.hash() }
+        pub fn keys_equal(left: Option<(KeyObject, String)>, right: Option<(KeyObject, String)>) -> bool {
+            left == right
+        }
+        pub fn contains(map: HashMap<Option<(KeyObject, String)>, i32>, set: HashSet<Option<(KeyObject, String)>>, key: Option<(KeyObject, String)>) -> bool {
+            map.contains_key(key) && set.contains(key)
+        }
+        pub fn restore_map(map: HashMap<Option<(KeyObject, String)>, i32>, key: Option<(KeyObject, String)>) {
             map.insert(key, 20);
-            val set: HashSet<Option<(Vec<i32>, String)>> = HashSet::new();
+        }
+        fn main() -> (HashMap<Option<(KeyObject, String)>, i32>, HashSet<Option<(KeyObject, String)>>, bool) {
+            val object = KeyObject { value: 42 };
+            val alias = object;
+            val key = Some((object, "key"));
+            val map: HashMap<Option<(KeyObject, String)>, i32> = HashMap::new();
+            map.insert(key, 20);
+            val set: HashSet<Option<(KeyObject, String)>> = HashSet::new();
             set.insert(key);
-            object.push(99);
-            val equal = Some((object, "key"));
+            alias.value = 99;
+            val equal = Some((alias, "key"));
+            val different = Some((KeyObject { value: 99 }, "key"));
             val found = match map.get(equal) { Some(value) => value == 20, None => false };
-            (map, set, found && set.contains(equal))
+            (map, set, found && set.contains(equal) && !map.contains_key(different) && !set.contains(different))
         }
     "#,
         None,
@@ -126,6 +159,31 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
     );
     let (map, set) = (*map, *set);
     let runtime = vm.runtime();
+    let root = runtime
+        .root_value(
+            runtime
+                .gc()
+                .alloc_tuple(vec![Value::Map(map), Value::Set(set)])
+                .unwrap(),
+        )
+        .unwrap();
+    let call = |entry: &str, arguments: &[Value]| {
+        let execution = vm
+            .start(&loaded, entry, arguments, Default::default())
+            .unwrap();
+        loop {
+            match vm
+                .drive(&execution, NonZeroUsize::new(1024).unwrap())
+                .unwrap()
+            {
+                DriveResult::Runnable => {}
+                DriveResult::Waiting => panic!("synchronous key protocol suspended"),
+                DriveResult::Complete(result) => {
+                    break result.unwrap().value(runtime.gc()).unwrap();
+                }
+            }
+        }
+    };
     let key = runtime.gc().map_snapshot(map).unwrap()[0].0;
     let Value::Enum(value) = key else {
         panic!("enum key")
@@ -135,60 +193,100 @@ fn map_and_set_keys_keep_structural_payloads_and_identity_objects_alive() {
         panic!("tuple payload")
     };
     let parts = runtime.gc().tuple(*parts).unwrap().to_vec();
-    let [Value::GcHandle(object), _] = parts.as_slice() else {
+    let [Value::Struct(object), _] = parts.as_slice() else {
         panic!("identity payload")
     };
     let object = *object;
-    let hash = MapKey::from_value(runtime.gc(), &key)
-        .unwrap()
-        .script_hash();
-    let root = runtime
-        .root_value(
-            vm.runtime()
-                .gc()
-                .alloc_tuple(vec![Value::Map(map), Value::Set(set)])
-                .unwrap(),
-        )
-        .unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 7);
-    runtime.gc().sequence_push(object, Value::I32(101)).unwrap();
+    let layout = runtime.gc().struct_layout(object).unwrap();
     assert_eq!(
-        hash,
-        MapKey::from_value(runtime.gc(), &key)
-            .unwrap()
-            .script_hash()
+        runtime.gc().struct_get_slot(object, &layout, 0),
+        Some(Value::I32(99))
+    );
+    let hash = call("key_hash", &[key]);
+    assert!(matches!(hash, Value::I64(_)));
+    assert_eq!(runtime.gc().active_roots(), 1);
+    // Six data objects: holder tuple, map, set, Option, payload tuple and identity object.
+    // The published program also caches "key" and the encoded Some hash-identity string.
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
+    runtime
+        .gc()
+        .struct_set_slot(object, &layout, 0, Value::I32(101))
+        .unwrap();
+    assert_eq!(
+        runtime.gc().struct_get_slot(object, &layout, 0),
+        Some(Value::I32(101))
+    );
+    assert_eq!(hash, call("key_hash", &[key]));
+    assert_eq!(
+        call("contains", &[Value::Map(map), Value::Set(set), key]),
+        Value::Bool(true)
     );
     let equal = runtime
         .alloc_enum(
-            runtime
-                .gc()
-                .enum_snapshot(match key {
-                    Value::Enum(id) => id,
-                    _ => panic!("enum key"),
-                })
-                .unwrap()
-                .tag,
+            runtime.gc().enum_snapshot(value).unwrap().tag,
             vec![
-                vm.runtime()
+                runtime
                     .gc()
                     .alloc_tuple(vec![
-                        Value::GcHandle(object),
-                        vm.runtime().gc().alloc_string("key".into()).unwrap(),
+                        Value::Struct(object),
+                        runtime.gc().alloc_string("key".into()).unwrap(),
                     ])
                     .unwrap(),
             ],
         )
         .unwrap();
-    assert!(script_equal(runtime.gc(), &key, &Value::Enum(equal)).unwrap());
+    let equal_root = runtime.root_value(Value::Enum(equal)).unwrap();
+    assert_eq!(
+        call("keys_equal", &[key, Value::Enum(equal)]),
+        Value::Bool(true)
+    );
+    assert_eq!(hash, call("key_hash", &[Value::Enum(equal)]));
+    assert_eq!(
+        call(
+            "contains",
+            &[Value::Map(map), Value::Set(set), Value::Enum(equal)]
+        ),
+        Value::Bool(true)
+    );
+    assert_eq!(runtime.gc().active_roots(), 2);
+    // Discard hashing temporaries while retaining the duplicate enum, tuple and string.
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 11);
+    drop(equal_root);
+    assert_eq!(runtime.gc().active_roots(), 1);
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
+
+    // Only the set now retains the composite key and its mutable object.
     runtime.gc().map_clear(map).unwrap();
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 7);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
+    assert_eq!(runtime.gc().map_snapshot(map), Some(vec![]));
+    assert_eq!(runtime.gc().set_snapshot(set), Some(vec![key]));
+    assert_eq!(
+        runtime.gc().struct_get_slot(object, &layout, 0),
+        Some(Value::I32(101))
+    );
+
+    // Restore the same key before checking the symmetric map-only retention path.
+    assert_eq!(call("restore_map", &[Value::Map(map), key]), Value::Unit);
     runtime.gc().set_clear(set).unwrap();
-    // The original string is still owned by the published constant cache.
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
+    assert_eq!(
+        runtime.gc().map_snapshot(map),
+        Some(vec![(key, Value::I32(20))])
+    );
+    assert_eq!(runtime.gc().set_snapshot(set), Some(vec![]));
+    assert_eq!(
+        runtime.gc().struct_get_slot(object, &layout, 0),
+        Some(Value::I32(101))
+    );
+
+    runtime.gc().map_clear(map).unwrap();
+    // Only the original enum, tuple and identity object die; both cached strings remain.
     assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 3);
-    assert!(MapKey::from_value(runtime.gc(), &key).is_none());
+    assert!(!runtime.gc().validate_value(&key));
+    assert!(runtime.gc().struct_layout(object).is_none());
     drop(root);
-    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 1);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
     let candidate = runtime
         .stage_reload_verified_program(
             &loaded,
@@ -359,25 +457,67 @@ fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
 
 #[test]
 fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
+    let captured = Arc::new(Mutex::new(None::<RootedValue>));
+    let mut builder = ModuleBuilder::new(
+        "fixture::capture",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap();
+    let capture = builder
+        .define_function(FunctionDecl::new("capture"))
+        .unwrap();
+    builder
+        .function(&capture, |function| {
+            let value = function.type_parameter("T")?.ty();
+            function.parameter("value", value)
+        })
+        .unwrap();
+    let capture_slot = captured.clone();
+    builder
+        .bind(
+            capture,
+            NativeBinding::new(vec![Codec::Value], Codec::Exact(Type::unit()), move |cx| {
+                let root = cx
+                    .heap()
+                    .root_value(cx.argument(0)?)
+                    .ok_or_else(|| RuntimeError::module_validation("captured data root"))?;
+                let mut slot = capture_slot.lock().unwrap();
+                assert!(slot.is_none());
+                *slot = Some(root);
+                Ok(Value::Unit)
+            }),
+        )
+        .unwrap();
+    let module = builder.finish().unwrap();
     let (vm, old) = compile(
-        "struct Item { val value: i32 } fn main() -> Vec<Item> { Vec::from([Item { value: 42 }]) }",
-        None,
+        r#"use fixture::capture::capture;
+        struct Item { val value: i32 }
+        fn main() -> i32 {
+            capture(Vec::from([Item { value: 42 }]));
+            42
+        }"#,
+        Some(&module),
     );
-    let value = vm
-        .execute(&old, ProgramEntry::Main)
-        .unwrap()
-        .return_value
-        .value(vm.runtime().gc())
-        .expect("retained execution result");
-    let Value::GcHandle(array) = value else {
+    assert_eq!(
+        vm.execute(&old, ProgramEntry::Main)
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
+    // Transfer the sole data lease out of the native capture; retain no callable metadata.
+    let root = captured.lock().unwrap().take().unwrap();
+    assert!(captured.lock().unwrap().is_none());
+    assert_eq!(vm.runtime().gc().active_roots(), 1);
+    let Value::GcHandle(array) = root.value(vm.runtime().gc()).unwrap() else {
         panic!("typed array")
     };
-    let root = vm.runtime().root_value(value).unwrap();
     let replacement = vm
         .reload_program(
             &old,
             "boundary",
-            compile_program("fn main() -> i32 { 99 }", None),
+            compile_program("fn main() -> i32 { 99 }", Some(&module)),
         )
         .unwrap();
     let expected: HashSet<_> = old.members().map(|member| member.key()).collect();
@@ -409,6 +549,7 @@ fn rooted_data_keeps_type_metadata_without_retaining_obsolete_module_state() {
         Value::I32(99)
     );
     drop(root);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
     assert_eq!(vm.runtime().collect_garbage().unwrap().reclaimed_objects, 2);
 }
 
