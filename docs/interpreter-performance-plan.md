@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status: active, authorized on 2026-10-17; IP08-IP09 complete, IP10 next.** The user
+**Status: active, authorized on 2026-10-17; IP08-IP10 complete, IP11 next.** The user
 requested autonomous execution and coherent phase commits. The
 [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns activation
 and dependencies. This document owns the finite phase order, decisions, acceptance
@@ -439,7 +439,7 @@ Documentation-only preparation needs link/content/diff checks, not workspace bui
 
 - [x] IP08: baseline, attribution and predeclared scoped gates.
 - [x] IP09: shared internal call admission/return model and evaluation.
-- [ ] IP10: uniform instruction/operand decision and any justified implementation.
+- [x] IP10: instruction/operand decision and justified local implementation.
 - [ ] IP11: collection transactions and explicit enum-boundary decision.
 - [ ] IP12: integrated evaluation, acceptance report and documentation handoff.
 
@@ -588,3 +588,39 @@ prove a statistically stable 2% gain. Independent helper movement and removed wo
 support retaining the bounded owner correction, not claiming recursion improved.
 Final integrated allocation/lifecycle diagnostics remain IP12 work; no new allocation
 or retained-state mechanism was introduced. CI and Lua parity remain unverified/unmet.
+
+### IP10 — 2026-10-17
+
+Selected the predeclared local code-generation correction, not a representation
+migration: ordinary `#[inline]` on `CancellationToken::check`. Its Acquire load,
+result, identity/subscriptions and all consumers' poll locations are unchanged.
+Rust 1.90's [inline attribute contract](https://doc.rust-lang.org/1.90.0/reference/attributes/codegen.html#the-inline-attribute)
+is a hint; actual release-object inspection establishes this compiler's result.
+The unbounded scalar slice previously had two cancellation-check call relocations;
+now it has none and directly reads/tests the cancellation flag. Other operand
+bounds/initialization checks and the common numeric kernels remain unchanged.
+Broad local/debug transport, complete bytecode initialization proof, numeric ABI
+and fusion remain deferred for the reasons in IP08, not silently counted as delivered.
+
+Froze the accepted IP09 ordinary executable and original/forms reports before the
+edit using the IP08 freeze commands with `target/interpreter-ip09/before`.
+Seven-pair comparisons against that image passed all checksums and checker gates:
+
+| Workload | Median candidate/baseline | Pair range | Total setup ratio |
+| --- | ---: | ---: | ---: |
+| arithmetic | 0.83496 | 0.81809-0.85699 | 0.99491 |
+| branches | 0.85936 | 0.83999-0.87411 | 1.00385 |
+| calls | 0.94873 | 0.90982-0.98592 | 0.99891 |
+
+Reports started at 11:38:33, 11:40:51 and 11:42:27 UTC. Reproduce with the existing
+paired driver, `--workload arithmetic`, `branches` or `calls`, IP09's baseline image,
+and the checker (`--target arithmetic=0.98`). These are local measured improvements
+in complete workloads, not isolated poll costs or a general speed guarantee.
+Image size fell from 26,843,136 to 26,782,208 bytes (0.99773); SHA-256:
+`a350af02b023ad7795db07ed573cb96ad6361f1d2f7ce8d6c47207e4e8663ca9`.
+No storage, allocation or preparation model changed.
+
+The selected common subscription test and both VM cancellation/effect/cleanup tests
+passed. Required structure, format, workspace all-target Clippy and diff checks
+passed. IP09 evidence still covers unaffected admission, roots/reentry and reload;
+complete CI and integrated IP12 acceptance remain outstanding.

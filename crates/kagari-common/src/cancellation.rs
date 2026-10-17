@@ -51,6 +51,7 @@ impl CancellationToken {
         }
     }
 
+    #[inline]
     pub fn check(&self) -> Result<(), Cancelled> {
         if self.0.cancelled.load(Ordering::Acquire) {
             Err(Cancelled)
