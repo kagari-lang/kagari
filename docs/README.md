@@ -59,6 +59,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; recover concrete values through checked identity and lifetime
   contracts without introducing Any.
 
+- [Default and struct update](default-construction-plan.md): selected next for SA26;
+  DF01-DF05 cover ordinary core Default, contextual static calls, explicit standard
+  implementations, struct update and editor syntax, then focused boundary acceptance.
+  Implementation is active with phase commits; DF01 is complete, DF02 is next.
 - [Host API unification](host-api-refactor.md).
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,

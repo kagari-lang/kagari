@@ -480,7 +480,9 @@ contracts. Exhaustive workspace/feature/backend validation remains CI-owned.
 
 The agreed direction is a core-library `Default` trait plus general struct
 update syntax, using Rust's behavior as the reference except for its ownership
-rules. This records a future feature; implementation is not activated. The
+rules. The user selected this feature next; the
+[execution plan](default-construction-plan.md) owns DF01-DF05, design decisions and
+focused acceptance. Implementation is active under that plan. The
 [current trait inventory](../crates/kagari-stdlib/src/catalog/key.rs) has no
 standard Default declaration. The [grammar](kagari.ebnf) accepts only named or
 shorthand struct fields, and [struct checking](../crates/kagari-hir/src/typeck/body/constructors.rs)
@@ -570,7 +572,9 @@ left-to-right once-only evaluation, default-call effects, traps/cancellation,
 outer-object independence and shared nested fields. Include representative
 source-free execution and pinned reload of selected default implementations.
 Complete workspace/feature/backend coverage remains CI-owned. No performance
-improvement is claimed.
+improvement is claimed. The finding remains open until the plan's required
+implementation and focused acceptance are complete; recording the plan does not
+make these examples executable.
 
 ## Architecture findings
 

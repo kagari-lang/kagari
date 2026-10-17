@@ -461,13 +461,39 @@ SA22 construction witnesses, SA23 scalar cleanup, SA25 method authoring, native
 collection storage and broader native-backend work remain separate. No performance
 improvement or completion of those tracks is implied.
 
+## Default and struct update
+
+The user selected [SA26](review.md#sa26-add-ordinary-default-construction-and-struct-update-expressions)
+ahead of the default review queue on 2026-10-17. The
+[Default and struct update execution plan](default-construction-plan.md) owns
+DF01-DF05, the sole progress ledger, design decisions and focused acceptance.
+Implementation and one commit per phase are authorized. DF01 froze the contract
+and focused acceptance; DF02 ordinary registration/contextual calls are next.
+
+Deliver ordinary `core::default::Default` and prelude publication, contextual
+static associated-call Self inference, a finite standard implementation inventory,
+and general `Struct { field: value, ..base }` construction. The update base is
+independent of Default. Keep nominal/generic/all-field visibility checks, once-only
+source-order effects, a fresh outer struct with shared member identity, cleanup
+and generation-pinned calls. Include source tooling and editor syntax in the
+construction checkpoint; no compiler-only syntax acceptance.
+
+Default is not a language protocol or special runtime constructor. Derive, automatic
+enum selection, field declaration initializers, SA22, SA25, host/view decomposition,
+new native instructions and collection storage remain separate. The pre-existing
+SA16/SA17 editor-grammar gap was independently resolved before activation; reuse
+that merged support rather than reimplementing it. Focused source/artifact/source-free and lifecycle evidence belongs
+to this plan; complete feature/backend/platform/editor inventory remains CI-owned.
+
 ## Review follow-up order
 
 The following is the proposed default order for the unresolved [SA review](review.md)
 work, chosen to reduce replacement of newly implemented models. It does not
 activate implementation, settle open language/API choices or combine unrelated
 findings into one migration. Explicitly grouped scopes below share one plan; each
-activated task retains a finite scope and focused gates.
+activated task retains a finite scope and focused gates. SA26 is explicitly
+selected next under its [own plan](#default-and-struct-update); the table below
+retains the default order for the other queued findings.
 SA21 registration/interop is implemented as described above. Struct-pattern rest
 and ordinary destructuring declarations are implemented; their current contracts
 live in [syntax](spec/syntax.md#blocks-and-statements),
