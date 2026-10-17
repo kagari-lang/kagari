@@ -1,0 +1,129 @@
+==================
+Async method and postfix await chain
+==================
+impl S {
+  pub async fn run(self, value: i32) { value.await?.field[0].await }
+}
+
+---
+
+(source_file
+  (impl_item
+    (type_path (type_identifier))
+    (method_item
+      (visibility)
+      (identifier)
+      (method_parameters
+        (receiver_parameter)
+        (parameter (identifier) (type_path (type_identifier))))
+      (block
+        (await_expression
+          (index_expression
+            (field_expression
+              (propagation_expression (await_expression (path (identifier))))
+              (identifier))
+            (integer_literal)))))))
+
+==================
+Explicit nested generic enum path and struct constructor
+==================
+fn main() {
+  model::Token<Map<i32, [bool]>>::Empty;
+  model::Marker<Map<i32, [bool]>> { value: 7 }
+}
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (generic_path
+          (path (identifier) (identifier))
+          (generic_arguments
+            (generic_type
+              (type_path (type_identifier))
+              (generic_arguments
+                (type_path (type_identifier))
+                (array_type (type_path (type_identifier))))))
+          (identifier)))
+      (struct_expression
+        (path (identifier) (identifier))
+        (generic_arguments
+          (generic_type
+            (type_path (type_identifier))
+            (generic_arguments
+              (type_path (type_identifier))
+              (array_type (type_path (type_identifier))))))
+        (field_initializer (identifier) (integer_literal))))))
+
+==================
+Closure bars, bitwise bars and pattern alternatives
+==================
+fn main() {
+  val callback = |x: i32| x | 2;
+  match value { (1, x) | (2, x) => callback(x), _ => 0 }
+}
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (binding_statement
+        (identifier)
+        (closure_expression
+          (closure_parameters
+            (closure_parameter (identifier) (type_annotation (type_path (type_identifier)))))
+          (binary_expression (path (identifier)) (integer_literal))))
+      (match_expression
+        (path (identifier))
+        (match_arm
+          (or_pattern
+            (tuple_pattern (integer_literal) (path (identifier)))
+            (tuple_pattern (integer_literal) (path (identifier))))
+          (call_expression (path (identifier)) (arguments (path (identifier)))))
+        (match_arm (wildcard_pattern) (integer_literal))))))
+
+==================
+Adjacent shifts and nested generic closers
+==================
+fn main() {
+  val values: Vec<Vec<i32>> = make::<Vec<Vec<i32>>>();
+  a << b >> c;
+}
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (binding_statement
+        (identifier)
+        (type_annotation
+          (generic_type
+            (type_path (type_identifier))
+            (generic_arguments
+              (generic_type
+                (type_path (type_identifier))
+                (generic_arguments (type_path (type_identifier)))))))
+        (call_expression
+          (path (identifier))
+          (generic_arguments
+            (generic_type
+              (type_path (type_identifier))
+              (generic_arguments
+                (generic_type
+                  (type_path (type_identifier))
+                  (generic_arguments (type_path (type_identifier)))))))
+          (arguments)))
+      (expression_statement
+        (binary_expression
+          (binary_expression (path (identifier)) (path (identifier)))
+          (path (identifier)))))))

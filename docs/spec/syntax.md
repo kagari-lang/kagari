@@ -614,7 +614,7 @@ associated_type_def ::= "type" IDENT "=" type ";" ;
 
 impl_item       ::= attribute* method_decl ;
 
-method_decl     ::= visibility? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl     ::= visibility? ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
 
 method_param_list
                 ::= receiver_param ("," param_list)? (",")?

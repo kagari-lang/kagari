@@ -1,0 +1,39 @@
+{
+  "name": "kagari-language",
+  "displayName": "Kagari",
+  "description": "Declarative syntax highlighting and basic editing support for Kagari.",
+  "version": "0.1.0",
+  "publisher": "kagari-lang",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kagari-lang/kagari.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.142.0"
+  },
+  "categories": ["Programming Languages"],
+  "keywords": ["kagari", "syntax", "highlighting"],
+  "scripts": {
+    "test": "node --test ../tests/vscode/*.test.mjs",
+    "package": "vsce package --no-dependencies --out ../../target/editors/kagari-language-0.1.0.vsix"
+  },
+  "contributes": {
+    "languages": [
+      {
+        "id": "kagari",
+        "aliases": ["Kagari", "kagari"],
+        "extensions": [".kgr"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kagari",
+        "scopeName": "source.kagari",
+        "path": "./syntaxes/kagari.tmLanguage.json"
+      }
+    ]
+  }
+}

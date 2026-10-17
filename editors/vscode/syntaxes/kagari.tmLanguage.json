@@ -1,0 +1,203 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Kagari",
+  "scopeName": "source.kagari",
+  "patterns": [{ "include": "#code" }],
+  "repository": {
+    "code": {
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#interpolated-string" },
+        { "include": "#string" },
+        { "include": "#attribute" },
+        { "include": "#declarations" },
+        { "include": "#keywords" },
+        { "include": "#numbers" },
+        { "include": "#braces" },
+        { "include": "#brackets" },
+        { "include": "#operators" },
+        { "match": "[(),;:]", "name": "punctuation.separator.kagari" },
+        { "match": "[A-Za-z_][A-Za-z0-9_]*", "name": "variable.other.kagari" }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "begin": "///",
+          "end": "(?=\\r?$)",
+          "name": "comment.line.documentation.kagari",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.kagari" } }
+        },
+        {
+          "begin": "//",
+          "end": "(?=\\r?$)",
+          "name": "comment.line.double-slash.kagari",
+          "beginCaptures": { "0": { "name": "punctuation.definition.comment.kagari" } }
+        },
+        { "include": "#doc-comment" },
+        { "include": "#block-comment" }
+      ]
+    },
+    "doc-comment": {
+      "begin": "/\\*(?=\\*)",
+      "end": "\\*/",
+      "name": "comment.block.documentation.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.comment.end.kagari" } },
+      "patterns": [{ "include": "#doc-comment" }, { "include": "#block-comment" }]
+    },
+    "block-comment": {
+      "begin": "/\\*",
+      "end": "\\*/",
+      "name": "comment.block.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.definition.comment.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.comment.end.kagari" } },
+      "patterns": [{ "include": "#doc-comment" }, { "include": "#block-comment" }]
+    },
+    "string": {
+      "begin": "\"",
+      "end": "\"|(?=\\r?$)",
+      "name": "string.quoted.double.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.definition.string.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.definition.string.end.kagari" } },
+      "patterns": [{ "include": "#escapes" }]
+    },
+    "escapes": {
+      "patterns": [
+        {
+          "match": "\\\\u\\{[0-9A-Fa-f]+\\}",
+          "name": "string.quoted.double.kagari constant.character.escape.unicode.kagari"
+        },
+        {
+          "match": "\\\\[\"\\\\nrt0]",
+          "name": "string.quoted.double.kagari constant.character.escape.kagari"
+        },
+        {
+          "match": "\\\\u\\{[^\"}\\r\\n]*\\}?|\\\\[^\\r\\n]?",
+          "name": "string.quoted.double.kagari invalid.illegal.escape.kagari"
+        }
+      ]
+    },
+    "interpolated-string": {
+      "comment": "Do not put a string scope on this context: it would theme embedded expressions as strings even after their encoded token category resets.",
+      "begin": "f\"",
+      "end": "\"|(?=\\r?$)",
+      "name": "meta.interpolated.kagari",
+      "beginCaptures": { "0": { "name": "string.quoted.double.kagari punctuation.definition.string.begin.kagari" } },
+      "endCaptures": { "0": { "name": "string.quoted.double.kagari punctuation.definition.string.end.kagari" } },
+      "patterns": [
+        { "include": "#escapes" },
+        { "match": "\\{\\{|\\}\\}", "name": "string.quoted.double.kagari constant.character.escape.brace.kagari" },
+        { "include": "#interpolation" },
+        { "match": "[^\"\\\\{}\\r\\n]+", "name": "string.quoted.double.kagari" },
+        { "match": "\\}", "name": "string.quoted.double.kagari invalid.illegal.brace.kagari" }
+      ]
+    },
+    "interpolation": {
+      "begin": "\\{",
+      "end": "\\}",
+      "name": "meta.embedded.expression.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.section.interpolation.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.section.interpolation.end.kagari" } },
+      "comment": "Colon and question mark stay separate code tokens; trivia, closure annotations and propagation need no speculative format-suffix parser.",
+      "patterns": [{ "include": "#code" }]
+    },
+    "braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "name": "meta.block.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.section.block.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.section.block.end.kagari" } },
+      "patterns": [{ "include": "#code" }]
+    },
+    "brackets": {
+      "begin": "\\[",
+      "end": "\\]",
+      "name": "meta.brackets.kagari",
+      "beginCaptures": { "0": { "name": "punctuation.section.brackets.begin.kagari" } },
+      "endCaptures": { "0": { "name": "punctuation.section.brackets.end.kagari" } },
+      "patterns": [{ "include": "#code" }]
+    },
+    "attribute": {
+      "begin": "(#\\[)([ \\t]*)([A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*)?",
+      "end": "\\]",
+      "name": "meta.attribute.kagari",
+      "beginCaptures": {
+        "1": { "name": "punctuation.definition.attribute.kagari" },
+        "3": { "name": "entity.other.attribute-name.kagari" }
+      },
+      "endCaptures": { "0": { "name": "punctuation.definition.attribute.end.kagari" } },
+      "patterns": [{ "include": "#code" }]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "storage.type.function.kagari" },
+            "3": { "name": "entity.name.function.kagari" }
+          }
+        },
+        {
+          "match": "\\b(struct|enum|trait|type)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "storage.type.kagari" },
+            "3": { "name": "entity.name.type.kagari" }
+          }
+        },
+        {
+          "match": "\\b(mod)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)\\b",
+          "captures": {
+            "1": { "name": "storage.type.module.kagari" },
+            "3": { "name": "entity.name.namespace.kagari" }
+          }
+        },
+        {
+          "match": "\\b(val|var|const)([ \\t]+)([A-Za-z_][A-Za-z0-9_]*)([ \\t]*)(:)([ \\t]*)(?!fn\\b)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "storage.type.kagari" },
+            "3": { "name": "variable.other.kagari" },
+            "5": { "name": "punctuation.separator.type.kagari" },
+            "7": { "name": "entity.name.type.kagari" }
+          }
+        },
+        {
+          "match": "(->)([ \\t]*)(?!fn\\b)([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.operator.kagari" },
+            "3": { "name": "entity.name.type.kagari" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "match": "\\b(true|false)\\b", "name": "constant.language.boolean.kagari" },
+        { "match": "\\b(as|async|await|break|continue|else|for|if|in|loop|match|return|use|where|while)\\b", "name": "keyword.control.kagari" },
+        { "match": "\\b(const|enum|fn|impl|mod|struct|trait|type|val|var)\\b", "name": "storage.type.kagari" },
+        { "match": "\\bpub\\b", "name": "storage.modifier.kagari" },
+        { "match": "\\b(crate|self|super)\\b", "name": "variable.language.kagari" }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "match": "(?<![A-Za-z0-9_])(?:0b(?=[01_]*[01])[01_]+|0o(?=[0-7_]*[0-7])[0-7_]+|0x(?=[0-9A-Fa-f_]*[0-9A-Fa-f])[0-9A-Fa-f_]+)(?:[iu](?:8|16|32|64|size))?(?![A-Za-z0-9_])",
+          "name": "constant.numeric.integer.kagari"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_])[0-9][0-9_]*(?:(?:\\.[0-9][0-9_]*)?(?:[eE][+-]?[0-9][0-9_]*)?f(?:32|64)|\\.[0-9][0-9_]*(?:[eE][+-]?[0-9][0-9_]*)?|[eE][+-]?[0-9][0-9_]*)(?![A-Za-z0-9_])",
+          "name": "constant.numeric.float.kagari"
+        },
+        {
+          "match": "(?<![A-Za-z0-9_])[0-9][0-9_]*(?:[iu](?:8|16|32|64|size))?(?![A-Za-z0-9_])",
+          "name": "constant.numeric.integer.kagari"
+        }
+      ]
+    },
+    "operators": {
+      "match": "===|!==|<<=?|>>=?|\\.\\.=|\\.\\.|::|->|=>|[=!<>]=|[+*/%&|^-]=|&&|\\|\\||[+*/%=!<>&|^?.-]",
+      "name": "keyword.operator.kagari"
+    }
+  }
+}

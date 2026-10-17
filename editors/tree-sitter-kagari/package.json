@@ -1,0 +1,24 @@
+{
+  "name": "tree-sitter-kagari",
+  "version": "0.0.0",
+  "description": "Recoverable Tree-sitter grammar for Kagari",
+  "license": "MIT OR Apache-2.0",
+  "main": "bindings/node",
+  "files": ["grammar.js", "tree-sitter.json", "binding.gyp", "bindings/node/**", "src/**", "prebuilds/**"],
+  "scripts": {
+    "generate": "tree-sitter generate --abi 15",
+    "build": "node-gyp rebuild",
+    "install": "node-gyp-build",
+    "test:corpus": "tree-sitter test",
+    "test:unit": "node --test test/*.test.js",
+    "test": "npm run test:corpus && npm run test:unit"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.3.1",
+    "node-gyp-build": "^4.8.4"
+  },
+  "peerDependencies": { "tree-sitter": "0.25.1" },
+  "peerDependenciesMeta": { "tree-sitter": { "optional": true } },
+  "engines": { "node": ">=22" },
+  "tree-sitter": [{ "scope": "source.kagari", "file-types": ["kgr"] }]
+}

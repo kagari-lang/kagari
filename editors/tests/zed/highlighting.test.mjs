@@ -1,0 +1,100 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import test from 'node:test';
+import { parse as parseToml } from 'smol-toml';
+import { cases, region } from '../contracts.mjs';
+import { captures, effectiveCapture, languageDirectory, overrideAt, parse, query } from './tokenize.mjs';
+
+const config = parseToml(readFileSync(new URL('config.toml', languageDirectory), 'utf8'));
+const manifest = parseToml(readFileSync(new URL('../../zed/extension.toml', import.meta.url), 'utf8'));
+
+test('all shipped queries compile against the shipped grammar', () => {
+  for (const file of ['highlights.scm', 'brackets.scm', 'overrides.scm']) assert.ok(query(file));
+  assert.equal(manifest.grammars.kagari.path, 'editors/tree-sitter-kagari');
+  assert.equal(manifest.language_servers, undefined);
+  assert.equal(manifest.lib, undefined);
+  assert.deepEqual(config.path_suffixes, ['kgr']);
+  assert.equal(config.grammar, 'kagari');
+  assert.deepEqual(config.line_comments, ['// ']);
+  assert.deepEqual(config.block_comment, ['/*', '*/']);
+  assert.equal(config.autoclose_before, ')]}', 'Allow pairing before existing closers, including an interpolation boundary');
+  assert.deepEqual(config.brackets.map(pair => pair.start), ['(', '[', '{', '"']);
+  for (const pair of config.brackets) assert.deepEqual(pair.not_in, ['string', 'comment']);
+});
+
+for (const fixture of cases) {
+  test(`theme captures: ${fixture.name}`, () => {
+    const found = captures(fixture.text);
+    for (const expected of fixture.expected.filter(item => item.capture)) {
+      const { start, end } = region(fixture.text, expected);
+      for (let at = start; at < end; at++) {
+        assert.equal(effectiveCapture(found, at), expected.capture, `${expected.needle}: expected winning @${expected.capture}`);
+      }
+    }
+    assert.ok(found.every(({ name }) => supportedCaptures.has(name)), 'Only Zed-supported theme captures');
+  });
+}
+
+const supportedCaptures = new Set(['variable', 'variable.parameter', 'type', 'function', 'enum',
+  'label', 'constant', 'variant', 'property', 'attribute', 'keyword', 'boolean', 'number',
+  'comment', 'comment.doc', 'string', 'string.escape', 'operator', 'punctuation.bracket',
+  'punctuation.delimiter', 'punctuation.special']);
+
+test('declaration/type captures and bracket pairs use syntax, not name guesses', () => {
+  const text = '#[meta(tag = "demo")] struct Point { pub var x: i32 } impl Point { pub async fn run(self, n: i32) { f"x={n}" } }';
+  const tree = parse(text);
+  assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
+  const found = captures(text);
+  for (const [name, value] of [['attribute', 'meta'], ['type', 'Point'], ['property', 'x'],
+    ['function', 'run'], ['variable.parameter', 'n:']]) {
+    assert.equal(effectiveCapture(found, text.indexOf(value)), name, `${name}: ${value}`);
+  }
+  const matches = query('brackets.scm').matches(tree.rootNode);
+  assert.ok(matches.length > 4);
+  for (const match of matches) {
+    const open = match.captures.find(capture => capture.name === 'open');
+    const close = match.captures.find(capture => capture.name === 'close');
+    assert.ok(open && close);
+    assert.ok(open.node.startIndex < close.node.startIndex);
+  }
+});
+
+test('string/comment override ranges do not disable pairing inside interpolation code', () => {
+  const text = 'fn main() { val s = f"outer {call(1)} tail"; /* comment */ }';
+  const overrides = query('overrides.scm').captures(parse(text).rootNode);
+  const inScope = (needle, scope) => overrideAt(overrides, text.indexOf(needle)) === scope;
+  assert.ok(inScope('outer', 'string'));
+  assert.ok(inScope('tail', 'string'));
+  assert.ok(inScope('comment', 'comment'));
+  assert.equal(inScope('call', 'string'), false);
+  assert.equal(overrideAt(overrides, text.indexOf('call')), 'interpolation');
+});
+
+test('empty strings, one-character text and hole boundaries follow actual Zed cursor rules', () => {
+  for (const source of ['f""', 'f"x"', 'f"{x}"', 'f"a{x}b"', 'f"{f""}"']) {
+    const text = `fn main() { ${source} }`;
+    const tree = parse(text);
+    const found = query('overrides.scm').captures(tree.rootNode);
+    const strings = tree.rootNode.descendantsOfType('interpolated_string');
+    for (const node of strings) {
+      assert.equal(overrideAt(found, node.startIndex + 2), 'string', source);
+      assert.equal(overrideAt(found, node.endIndex - 1), 'string', source);
+      assert.notEqual(overrideAt(found, node.endIndex), 'string', 'Do not extend the closed string scope outside its quote');
+    }
+    for (const hole of tree.rootNode.descendantsOfType('interpolation')) {
+      const at = hole.startIndex + 1;
+      // A nested string may start at this position, but its exclusive start does
+      // not shadow the enclosing code hole until the cursor moves inside it.
+      assert.equal(overrideAt(found, at), 'interpolation', source);
+    }
+  }
+});
+
+test('attribute paths and interpolation delimiters win over generic names and punctuation', () => {
+  const text = '#[tool::meta] fn main() { f"{x: /* debug */ ?}" }';
+  const found = captures(text);
+  for (const name of ['tool', 'meta']) assert.equal(effectiveCapture(found, text.indexOf(name)), 'attribute');
+  for (const needle of ['{x', ': /*', '?}', '}"']) {
+    assert.equal(effectiveCapture(found, text.indexOf(needle)), 'punctuation.special', needle);
+  }
+});

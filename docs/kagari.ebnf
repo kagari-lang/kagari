@@ -173,7 +173,7 @@ associated_type_def ::= "type" IDENT generic_param_clause? "=" type where_clause
 
 impl_item           ::= attribute* method_decl ;
 
-method_decl         ::= visibility? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
+method_decl         ::= visibility? ("async")? "fn" IDENT generic_param_clause? "(" method_param_list? ")" return_type? where_clause? block ;
 
 method_param_list   ::= receiver_param ("," param_list)? (",")?
                       | param_list ;
@@ -291,6 +291,7 @@ await_suffix        ::= "." "await" ;
 
 primary_expr        ::= literal
                       | path
+                      | explicit_enum_path
                       | if_expr
                       | parenthesized_expr
                       | tuple_expr
@@ -315,6 +316,8 @@ tuple_expr          ::= "(" expr "," expr_list? ")" ;
 expr_list           ::= expr ("," expr)* (",")? ;
 
 array_expr          ::= "[" (expr_list | expr ";" expr)? "]" ;
+
+explicit_enum_path  ::= path generic_args "::" IDENT ;
 
 struct_expr         ::= path generic_args? "{" field_init_list? "}" ;
 

@@ -1,0 +1,10 @@
+# Allow only the declarative extension payload and licensing.
+**
+!package.json
+!README.md
+!LICENSE
+!LICENSE-MIT
+!LICENSE-APACHE
+!language-configuration.json
+!syntaxes/
+!syntaxes/kagari.tmLanguage.json

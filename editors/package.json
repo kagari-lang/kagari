@@ -1,0 +1,36 @@
+{
+  "name": "kagari-editor-tooling",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Development tooling for Kagari editor grammars and adapters",
+  "license": "MIT OR Apache-2.0",
+  "workspaces": ["tree-sitter-kagari", "vscode"],
+  "engines": { "node": ">=22.12.0" },
+  "scripts": {
+    "generate": "npm run generate --workspace tree-sitter-kagari",
+    "build:grammar": "npm run build --workspace tree-sitter-kagari",
+    "test:grammar": "npm test --workspace tree-sitter-kagari",
+    "test:zed": "node --test tests/zed/*.test.mjs",
+    "test:vscode": "npm test --workspace kagari-language",
+    "test:shared": "node --test tests/shared.test.mjs",
+    "test:inventory": "node tests/inventory.mjs",
+    "check:generated": "node scripts/check-generated.mjs",
+    "stage:zed": "node scripts/stage-zed.mjs",
+    "build:zed": "node scripts/test-zed-build.mjs",
+    "test:zed-host": "node scripts/test-zed-host.mjs",
+    "test:vscode-host": "node scripts/test-vscode-host.mjs",
+    "package:vscode": "node scripts/package-vscode.mjs"
+  },
+  "devDependencies": {
+    "@vscode/test-electron": "3.1.0",
+    "@vscode/vsce": "4.0.0",
+    "node-addon-api": "8.9.2",
+    "node-gyp": "11.5.0",
+    "node-gyp-build": "4.8.4",
+    "smol-toml": "1.9.1",
+    "tree-sitter": "0.25.1",
+    "tree-sitter-cli": "0.25.10",
+    "vscode-oniguruma": "2.0.1",
+    "vscode-textmate": "9.3.2"
+  }
+}

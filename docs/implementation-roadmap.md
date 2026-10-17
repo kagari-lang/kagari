@@ -134,16 +134,22 @@ expression simplification and measured performance advice. Each requires its own
 semantic justification for exports, trait lookup, traps and side effects; none is
 part of the six-rule release.
 
-The [editor tooling plan](editor-tooling-plan.md) owns the agreed next sequence:
-ET01 establishes a real stdio `kagari-analyzer` and document synchronization in
-this workspace, then ET02-ET04 deliver Tree-sitter/Zed and TextMate/VS Code basic
-highlighting, followed by ET05 integration and documentation. All phases are
-unstarted. Reuse existing source identities, overlays and analysis ownership;
-do not import a second VFS/database or preserve empty skeleton crates from the
-separate analyzer repository. Basic highlighting does not depend on the server.
-Semantic IDE features, editor server-launch integration and marketplace publication
-remain deferred. The plan owns the old-repository preservation/retirement audit;
-remote deletion is not part of the documentation change.
+The stdio analyzer and syntax adapters are implemented; current ownership belongs
+in [architecture](architecture.md#language-server-foundation), and the
+[editor guide](../editors/README.md) owns installation and selected local validation.
+The complete editor-tooling CI job, full syntax-example inventory, clean Linux
+installation and broader editor/platform matrix remain pending CI. Windows local
+acceptance does not establish those results. Semantic IDE features, editor
+server-launch integration and marketplace publication remain deferred.
+
+Old analyzer repository retirement remains a separately authorized administrative
+action. Its public tree at `4a05bc564dd56c5e32f68c7f0138ddc83840cec2` and public
+issue/PR/release metadata were audited: only skeletons/design intent were present,
+with no unique behavior to transfer. No code was copied; the old workspace declared
+`MIT OR Apache-2.0` but contained no license texts. Its public wiki lookup returned
+`Repository not found`. The owner must confirm preservation of inaccessible
+private/deleted/wiki/project material before deletion; no remote mutation has been
+performed and no build/test depends on that repository.
 
 The [script testing design](script-testing-design.md) proposes `kg test` with
 source-owned private `#[test]` functions, limited `#[cfg(test)]` selection,

@@ -102,7 +102,7 @@ impl SourceDatabase {
     /// cannot change the meaning of relative source names in this database.
     pub fn new(root: &str) -> Result<Self, String> {
         let root = normalize_source_name(root)?;
-        if !is_absolute_path(&root) || root.contains("://") {
+        if !is_absolute_path(&root) {
             return Err("source root must be an absolute filesystem path".into());
         }
         Ok(Self {
@@ -113,8 +113,11 @@ impl SourceDatabase {
     }
 
     pub fn source_name(&self, name: &str) -> Result<String, String> {
+        // Classify before folding: `./untitled:Name` is a relative filesystem path.
+        let virtual_source =
+            source_uri_scheme(name).is_some_and(|scheme| !scheme.eq_ignore_ascii_case("file"));
         let name = normalize_source_name(name)?;
-        if is_absolute_path(&name) || name.contains("://") {
+        if is_absolute_path(&name) || virtual_source {
             Ok(name)
         } else {
             normalize_source_name(&format!("{}/{name}", self.root))
@@ -123,7 +126,7 @@ impl SourceDatabase {
 
     pub fn load_file(&mut self, path: &str) -> Result<FileId, String> {
         let name = self.source_name(path)?;
-        if name.contains("://") {
+        if source_uri_scheme(&name).is_some() {
             return Err("virtual sources must be supplied by the host".into());
         }
         let text = fs::read_to_string(&name).map_err(|error| format!("{name}: {error}"))?;
@@ -337,53 +340,30 @@ fn validate_module(module: &ModuleIdentity) -> Result<(), String> {
     Ok(())
 }
 
-/// Lexical normalization only: virtual/unsaved sources need not exist on disk.
+/// Lexically normalize a filesystem path or source URI without requiring it to exist.
+///
+/// Non-file URIs normalize only the scheme's case; their remaining bytes are opaque.
+/// Single-letter prefixes such as `c:` are reserved for Windows drives, including
+/// ambiguous drive-relative forms, which are rejected. To name a relative path with
+/// a URI-like first component, use an explicit `./` prefix when passing it to a database.
+/// Local file URIs decode to filesystem paths; UNC paths and remote authorities fail.
 pub fn normalize_source_name(name: &str) -> Result<String, String> {
     if name.contains('\0') {
         return Err("source name contains NUL".into());
     }
-    if let Some((scheme, rest)) = name.split_once("://")
-        && scheme != "file"
-    {
-        if scheme.is_empty()
-            || rest.is_empty()
-            || !scheme
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'+' | b'-' | b'.'))
-        {
-            return Err("invalid virtual source URI".into());
+    let mut path = if let Some(scheme) = source_uri_scheme(name) {
+        let rest = &name[scheme.len() + 1..];
+        if !scheme.eq_ignore_ascii_case("file") {
+            return Ok(format!("{}:{rest}", scheme.to_ascii_lowercase()));
         }
-        return Ok(format!("{}://{rest}", scheme.to_ascii_lowercase()));
-    }
-    let mut path = if let Some(uri) = name.strip_prefix("file://") {
-        let uri = uri
-            .strip_prefix("localhost/")
-            .map(|p| format!("/{p}"))
-            .unwrap_or_else(|| uri.to_owned());
-        if !uri.starts_with('/') {
-            return Err("remote file URI authorities are unsupported".into());
-        }
-        let mut bytes = Vec::new();
-        let input = uri.as_bytes();
-        let mut cursor = 0;
-        while cursor < input.len() {
-            if input[cursor] == b'%' {
-                let digits = input
-                    .get(cursor + 1..cursor + 3)
-                    .ok_or("invalid URI escape")?;
-                let digits = str::from_utf8(digits).map_err(|_| "invalid URI escape")?;
-                bytes.push(u8::from_str_radix(digits, 16).map_err(|_| "invalid URI escape")?);
-                cursor += 3;
-            } else {
-                bytes.push(input[cursor]);
-                cursor += 1;
-            }
-        }
-        String::from_utf8(bytes).map_err(|_| "source URI is not UTF-8")?
+        local_file_uri_path(rest)?
     } else {
         name.to_owned()
     }
     .replace('\\', "/");
+    if path.starts_with("//") {
+        return Err("UNC source paths are unsupported".into());
+    }
     if path.contains('\0') {
         return Err("source name contains NUL".into());
     }
@@ -424,6 +404,50 @@ pub fn normalize_source_name(name: &str) -> Result<String, String> {
         return Err("empty source name".into());
     }
     Ok(normalized)
+}
+
+/// Recognize RFC 3986 schemes, reserving single-letter prefixes for Windows paths.
+/// This is source-key classification, not protocol-level URI validation.
+fn source_uri_scheme(name: &str) -> Option<&str> {
+    let (scheme, _) = name.split_once(':')?;
+    (scheme.len() > 1
+        && scheme.as_bytes()[0].is_ascii_alphabetic()
+        && scheme
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')))
+    .then_some(scheme)
+}
+
+fn local_file_uri_path(uri: &str) -> Result<String, String> {
+    let path = if let Some(uri) = uri.strip_prefix("//") {
+        let (authority, path) = uri.split_at(uri.find('/').unwrap_or(uri.len()));
+        if !authority.is_empty() && !authority.eq_ignore_ascii_case("localhost") {
+            return Err("remote file URI authorities are unsupported".into());
+        }
+        path
+    } else {
+        uri
+    };
+    if !path.starts_with('/') {
+        return Err("file URI requires an absolute filesystem path".into());
+    }
+    let mut bytes = Vec::new();
+    let input = path.as_bytes();
+    let mut cursor = 0;
+    while cursor < input.len() {
+        if input[cursor] == b'%' {
+            let digits = input
+                .get(cursor + 1..cursor + 3)
+                .ok_or("invalid URI escape")?;
+            let digits = str::from_utf8(digits).map_err(|_| "invalid URI escape")?;
+            bytes.push(u8::from_str_radix(digits, 16).map_err(|_| "invalid URI escape")?);
+            cursor += 3;
+        } else {
+            bytes.push(input[cursor]);
+            cursor += 1;
+        }
+    }
+    String::from_utf8(bytes).map_err(|_| "source URI is not UTF-8".into())
 }
 
 fn is_absolute_path(path: &str) -> bool {
@@ -565,6 +589,131 @@ mod tests {
             "memory://main.kgr"
         );
         assert_ne!(file, virtual_file);
+    }
+
+    #[test]
+    fn virtual_uri_schemes_preserve_opaque_identity_without_filesystem_folding() {
+        let mut db = SourceDatabase::new("C:/project").unwrap();
+        for (input, normalized) in [
+            ("UNTITLED:Untitled-1", "untitled:Untitled-1"),
+            (
+                "Editor+1.-:Case/../Name%2f?Query#Fragment\\Tail",
+                "editor+1.-:Case/../Name%2f?Query#Fragment\\Tail",
+            ),
+            ("MEMORY://Host/../Name%2F", "memory://Host/../Name%2F"),
+            ("empty:", "empty:"),
+        ] {
+            assert_eq!(normalize_source_name(input).unwrap(), normalized);
+            assert_eq!(db.source_name(input).unwrap(), normalized);
+            assert_eq!(normalize_source_name(normalized).unwrap(), normalized);
+            let id = db
+                .set(input, "virtual".into(), SourceLayer::Overlay)
+                .unwrap();
+            assert_eq!(db.file_id(normalized), Some(id));
+            assert_eq!(db.snapshot().file(id).unwrap().name(), normalized);
+            let old = db.snapshot();
+            db.close_overlay(normalized).unwrap();
+            assert!(db.snapshot().file(id).is_none());
+            assert_eq!(old.file(id).unwrap().text(), "virtual");
+            assert_eq!(
+                db.set(normalized, "reopened".into(), SourceLayer::Overlay)
+                    .unwrap(),
+                id
+            );
+        }
+        let id = db.file_id("untitled:Untitled-1").unwrap();
+        for other in [
+            "untitled:untitled-1",
+            "untitled:%55ntitled-1",
+            "./untitled:Untitled-1",
+            "Untitled-1",
+        ] {
+            let other_id = db.set(other, "distinct".into(), SourceLayer::Base).unwrap();
+            assert_ne!(other_id, id, "{other}");
+        }
+        assert_eq!(
+            db.source_name("./untitled:Untitled-1").unwrap(),
+            "c:/project/untitled:Untitled-1"
+        );
+    }
+
+    #[test]
+    fn scheme_grammar_reserves_single_letter_prefixes_for_windows_paths() {
+        let db = SourceDatabase::new("C:/project").unwrap();
+        for path in ["c:foo", "C:", "x:opaque", "X:?query"] {
+            assert!(db.source_name(path).is_err(), "{path}");
+        }
+        for path in ["C:/foo", "C:\\foo", "C://foo"] {
+            assert_eq!(db.source_name(path).unwrap(), "c:/foo");
+        }
+        for path in ["1scheme:Name", "+scheme:Name", "scheme_name:Name"] {
+            assert_eq!(db.source_name(path).unwrap(), format!("c:/project/{path}"));
+        }
+    }
+
+    #[test]
+    fn local_file_uris_decode_paths_but_virtual_uris_cannot_be_roots_or_loaded() {
+        let mut db = SourceDatabase::new("FiLe://LOCALHOST/C:/project").unwrap();
+        let id = db
+            .set("C:/project/a b#%中.kgr", "base".into(), SourceLayer::Base)
+            .unwrap();
+        for uri in [
+            "file:///C:/project/a%20b%23%25%E4%B8%AD.kgr",
+            "FILE://localhost/c%3A/project/a%20b%23%25%E4%B8%AD.kgr",
+            "file:/C:/project/a%20b%23%25%E4%B8%AD.kgr",
+        ] {
+            assert_eq!(db.file_id(uri), Some(id), "{uri}");
+        }
+        for uri in ["untitled:Untitled-1", "memory://Main", "empty:"] {
+            assert!(SourceDatabase::new(uri).is_err(), "{uri}");
+            assert_eq!(
+                db.load_file(uri).unwrap_err(),
+                "virtual sources must be supplied by the host"
+            );
+        }
+        for uri in [
+            "file:relative.kgr",
+            "file:///bad%",
+            "file:///bad%GG",
+            "file:///bad%00",
+        ] {
+            assert!(db.source_name(uri).is_err(), "{uri}");
+        }
+        assert_eq!(db.snapshot().file(id).unwrap().text(), "base");
+    }
+
+    #[test]
+    fn unc_paths_and_nonlocal_file_authorities_are_rejected_without_mutation() {
+        let mut db = SourceDatabase::new("C:/project").unwrap();
+        let id = db
+            .set("main.kgr", "base".into(), SourceLayer::Base)
+            .unwrap();
+        let before = db.snapshot();
+        for name in [
+            "//server/share/main.kgr",
+            "\\\\server\\share\\main.kgr",
+            "/\\server/share/main.kgr",
+            "file://server/share/main.kgr",
+            "FILE://server/C:/project/main.kgr",
+            "file://localhost:80/share/main.kgr",
+            "file:////server/share/main.kgr",
+            "file://localhost//server/share/main.kgr",
+            "file:///%2Fserver/share/main.kgr",
+            "file:///%5Cserver/share/main.kgr",
+        ] {
+            assert!(normalize_source_name(name).is_err(), "{name}");
+            assert!(SourceDatabase::new(name).is_err(), "{name}");
+            assert!(
+                db.set(name, "invalid".into(), SourceLayer::Overlay)
+                    .is_err(),
+                "{name}"
+            );
+            assert!(db.load_file(name).is_err(), "{name}");
+        }
+        assert_eq!(db.snapshot().revision(), before.revision());
+        assert_eq!(db.snapshot().files().count(), 1);
+        assert_eq!(db.file_id("main.kgr"), Some(id));
+        assert_eq!(db.snapshot().file(id).unwrap().text(), "base");
     }
 
     #[test]
