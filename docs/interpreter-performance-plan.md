@@ -2,17 +2,16 @@
 
 Status: activated on 2026-10-16. IP01 froze the original baseline at 60bfaacb.
 IP02/IP03 are implemented as buildable checkpoints; selected local correctness and
-memory checks pass. IP04-IP07 are unstarted. The old finite timing experiment ended
-with all Kagari original-suite rows and required call targets passing, but independent
-Lua setup controls left acceptance open. Its results remain historical evidence.
-On 2026-10-17 the user authorized simplifying performance measurement: replace the
-independent reference, report extensions and dual-estimator gate with the fixed
-before/after execution workflow below. Setup and Lua timings are diagnostics;
-execution/lifecycle targets and memory/semantic obligations remain. This changes
-acceptance scope explicitly, not historical outcomes. Fresh reports under the new
-workflow and the required architecture follow-up are still outstanding; IP02/IP03
-are not automatically accepted. The architecture review remains required before
-further code-generation tuning or new specialization.
+memory checks pass. IP04-IP07 are unstarted. On 2026-10-17 the user authorized the
+simplified fixed before/after workflow below, with setup/Lua timings diagnostic.
+Fresh comparisons against the original runtime now pass 60/61 execution/lifecycle
+gates, including all four required call targets. Only collection after 256 forward
+cancellations fails (1.06870 versus the 1.05 limit); IP02/IP03 remain unaccepted
+pending attribution of that result. Their projection/publication architecture
+follow-up is complete, with bounded existing hints retained and no production
+change. Session storage and specialization reviews remain in their owning phases.
+Earlier independent Lua setup failures remain historical evidence, not reclassified
+passes. See the final ledger entries for current measurements and the next action.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
 the progress ledger.
@@ -517,8 +516,8 @@ commands are historical, not instructions to restore the deleted tooling.
 - [ ] IP07: integrated local acceptance and documentation handoff.
 
 The architecture follow-up above is required work within IP03-IP06, not a new
-phase. The 2026-10-17 review records it as pending; no implementation or comparative
-source study is claimed complete by this documentation checkpoint.
+phase. The projection/publication review is complete in the final ledger entry;
+IP04-IP06 still own the remaining reference comparisons and decisions.
 
 Current decisions: OM retains object-storage scope; IP02/IP03 are required once
 activated; IP04-IP06 are conditional. No new production cache, second semantic
@@ -3331,3 +3330,158 @@ speedup or a complete noise characterization. An earlier smoke run before removi
 setup repetition also completed; it is not substituted for this final-harness run.
 Temporary outputs stay under target/. IP02/IP03 fresh acceptance and the recorded
 architecture follow-ups remain pending.
+
+### 2026-10-17 Projection and publication architecture follow-up
+
+The review requested before further code-generation tuning is complete for IP03.
+No production change is needed from this review. Preserve one checked bank decoder
+and one window allocator; retain the existing bounded hints with the following
+dispositions, rather than extending them to individual instruction handlers.
+
+- `OperandWindow::with_value`: retain the projection boundary and its hint. For
+  `point.x`, window admission first checks owner/generation and borrows the banks;
+  the projection extracts the struct handle, then ordinary object access checks
+  the object and member. A managed operand can be borrowed, but a scalar operand
+  must be decoded into a temporary `Value`. Returning `&Value` for both would be
+  invalid. Returning a copied `Value` restores the previously observed transport;
+  a borrowed/owned enum or caller scratch slot adds representation or lifetime
+  machinery without evidence of a benefit. The closure consumes either form
+  within the borrow and preserves distinct missing-slot and wrong-value errors.
+- Shared `with_operand`: retain the single decoder and its hint. Copied reads and
+  both borrowed views use this owner. Earlier release assembly showed that inlining
+  only the outer wrapper still left the generic projection result crossing a call
+  boundary; the current transitive boundary eliminates that transfer. Moving the
+  decoder into one view and forwarding the other through it would relocate the
+  same abstraction, not remove the scalar temporary or its lifetime requirement.
+  No struct-only decoder, unchecked handle or handler-specific hint is warranted.
+- `Windows::insert`: retain consuming publication and its hint. Reserve capacity
+  before argument/root publication, then move the complete window into its slot.
+  The earlier MSVC assembly showed a separate 176-byte window temporary/copy at an
+  outlined insertion boundary. Moving free-slot logic into frame admission would
+  split allocator ownership; a callback construction API adds rollback/lifetime
+  machinery without a demonstrated need. Retirement continues to drop in place.
+  These alternatives are source-level comparisons, not measured prototypes.
+
+Reference comparison uses pinned Rust 1.90.0
+[Option](https://github.com/rust-lang/rust/blob/1.90.0/library/core/src/option.rs)
+(`as_ref`/`map`) and
+[Vec](https://github.com/rust-lang/rust/blob/1.90.0/library/alloc/src/vec/mod.rs)
+(`push`/`push_mut`/`truncate`): borrow/project while the value is available, consume
+insertion at its owner, and drop removed elements in place. Their ordinary inline
+hints do not establish a need for `inline(always)` in Kagari; that narrower choice
+rests on the recorded Kagari code-generation failures. Standard-library unsafe
+storage internals are not copied, and Kagari must additionally preserve GC roots,
+checked identities and failure-before-publication ordering.
+
+Lua 5.4.9's [field instruction](https://www.lua.org/source/5.4/lvm.c.html) also
+consumes the operand near its handler, but its tagged values and dynamic table
+lookup differ from Kagari's split scalar/managed banks and nominal checked handles.
+It supports reviewing the transfer boundary, not importing a table fast path.
+Existing focused cursor borrow/quarantine and nominal/scoped-field checks remain
+applicable, as do window identity/reuse, rollback and root-retirement contracts.
+No semantics, representation, allocation site or validation owner changes here.
+
+For the new ordinary release baseline and candidate, Mach-O `__TEXT` is
+17,874,944 bytes in both images (`size <baseline> <candidate>`). This is whole-image
+segment size, not isolated instruction size or proof of each hint's marginal cost.
+The earlier field assembly and Windows insertion diagnostic establish mechanisms;
+fresh ordinary timing below checks the combined implementation. Neither implies
+portable code-generation guarantees or licenses more hint-based repairs.
+Inspection of the fresh ordinary ARM64 field handler also confirms no calls to
+`with_value` or `with_operand`; copied reads on other field-operation branches
+still use `read_location`. This check does not imply every field operation borrows.
+
+Read-only preparation for IP04 compares Lua 5.4.9's
+[per-state stack](https://www.lua.org/source/5.4/lstate.h.html) with JVM SE 25
+[private stacks and shared heap](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-2.html#jvms-2.5.2).
+Both distinguish execution-owned storage from shared GC objects. Kagari sessions
+are not Java threads: suspension, synchronous host reentry, explicit roots and
+generation-pinned reload remain additional obligations. Current global bank
+compaction and the separate retained-session scan remain distinct costs. IP04 must
+decide their ownership and attribute movement before any migration; these references
+do not establish a speedup or activate a segmentation implementation.
+
+### 2026-10-17 Fresh simplified comparison: one collection gate remains
+
+The resumed work freezes baseline images from runtime revision 60bfaacb using the
+same new harness as candidate b1d20e87. Only the three Python driver/checker files
+and the prepare-once benchmark main are temporarily copied to the baseline checkout;
+workload sources, inputs, Cargo.lock and runtime code remain at the intended baseline.
+The baseline checkout is restored clean after freezing. No production edits, tests,
+builds or profiling overlap a timing process. All four suites finish their fixed
+seven alternating pairs; none is extended or repeated to obtain a pass.
+
+Environment: Apple M1 Max, 32 GiB, 10 logical CPUs, macOS 26.6.2 arm64,
+rustc 1.98.1 (LLVM 22.1.8), workspace release profile, default Cargo build
+parallelism and sequential single-thread execution. The ordinary benchmark enables
+source/native and vendored Lua 5.4.9; private windows use the runtime library test
+harness with default features. Build caches are reused; ordinary processes prepare
+once, and every suite performs three
+warmups followed by eleven samples. Private windows retain their existing batch of
+32; owned-root collection measures one collection per sample. Compilation/setup
+remain outside execution timing. Source/workload/image validation and all result
+checksums pass for all 56 processes.
+
+| Suite | Passing gates | Current report timestamp (UTC) |
+| --- | ---: | --- |
+| Original execution | 7/7 | 20261017T061738Z-paired |
+| Source forms | 12/12 | 20261017T061403Z-forms-paired |
+| Owned-root lifecycle | 23/24 | 20261017T062650Z-controls-paired |
+| Private windows | 18/18 | 20261017T062815Z-windows-paired |
+
+| Required execution target | Median paired candidate/baseline | Full pair range |
+| --- | ---: | --- |
+| calls | 0.788421 | 0.779926-0.794739 |
+| fibonacci | 0.782193 | 0.775351-0.795995 |
+| forms_interface | 0.782681 | 0.774919-0.800139 |
+| forms_shared_generic | 0.770475 | 0.751711-0.782377 |
+
+All four exceed the required 10% reduction. Field execution is 1.003408;
+single-window admission/fragmentation are 1.033940/1.000000. Private-window
+retirement at 256 windows/128 values is 0.759552 for tail order and 0.890731 for
+random order. These are current-machine combined measurements, not attribution
+of each implementation change or proof of Lua parity.
+
+The sole failure is `collect/roots_256_forward_cancel`: median paired ratio
+1.068697, limit 1.05, range 0.891183-1.281086. The seven baseline process medians
+are 6667, 8041, 6750, 7500, 7667, 6667 and 6791 ns; candidate medians are
+7125, 7166, 6666, 6834, 8917, 8541 and 8000 ns. Four pairs exceed the limit and
+three favor the candidate; retain them all. The other 256-root collection rows
+pass at 1.006185 (forward complete), 0.964070 (random cancel) and 0.975857
+(random complete). Scatter is evident, but does not establish a noise-only cause.
+
+Source attribution: the harness times collection only after every root has completed
+or cancelled, its handle is dropped, and the retired-execution drain returns zero.
+It is a full runtime GC, including root snapshots, program/metadata tracing,
+mark/sweep and cleanup; it does not time cancellation or window compaction.
+The collector, root-table pruning and program-graph orchestration sources are
+unchanged from IP01, but their inputs include retained linked execution products
+whose representation changed. Unchanged collector source alone cannot prove
+unchanged work or exclude a runtime/code-generation cause. Do not change the
+cancel path, add a fast path, waive this row or repeat the acceptance run on that
+assumption.
+
+Next IP03 action: use a bounded, identical temporary diagnostic on both revisions
+to compare root/window counts, traced program/metadata work and collection results
+after forward cancellation versus forward completion. Keep it outside acceptance
+timing and remove the instrumentation afterward. Establish whether work differs
+before considering a model correction or a separate measurement diagnosis. IP04
+implementation remains sequenced after required IP02/IP03 acceptance; its read-only
+ownership review can continue. No new benchmark framework is required.
+
+Reproduction uses `scripts/benchmark_lua.py --baseline-executable <saved-IP01>`
+with no mode flag for original, `--source-forms`, `--execution-controls`, or
+`--window-controls` for the other suites. Freeze the corresponding baseline report
+with the same harness first. Check each report with `scripts/check_benchmark.py`;
+original additionally selects `--target calls=0.90 --target fibonacci=0.90`, and
+forms selects `--target forms_interface=0.90 --target forms_shared_generic=0.90`.
+Saved images/reports are disposable outputs under target/; the method, measured
+conclusions and unresolved gate are recorded here for resumption.
+
+The existing focused correctness, eight-artifact prepared/loaded memory, warm-call
+allocation, bounded reuse and zero-teardown evidence remains applicable: this
+checkpoint changes documentation only. The preceding simplification checkpoint's
+Python tests, benchmark semantic test and local structure/fmt/workspace Clippy
+checks remain evidence for that harness. Documentation links/fences and diff checks
+are the local checks for this checkpoint; exhaustive CI and overall IP acceptance
+remain outstanding.

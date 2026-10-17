@@ -243,11 +243,12 @@ alternate numeric diagnostics and JIT results cannot replace that gate.
 The [interpreter performance execution plan](interpreter-performance-plan.md)
 owns active IP01-IP07 work as of 2026-10-16. IP01 has frozen the fresh baseline
 and acceptance tooling at 60bfaacb. IP02 window-slot reuse and IP03 call transitions
-are implemented but remain unaccepted; the finite reference experiment ended with
-independent Lua setup gates open. On 2026-10-17 the user authorized a simpler
-fixed before/after execution comparison with setup/Lua timings as diagnostics.
-Fresh evidence under that workflow remains pending; historical results are not
-reclassified as acceptance. IP04-IP07 are unstarted. The plan's
+are implemented but remain unaccepted. The user-authorized simplified before/after
+workflow now passes 60/61 execution/lifecycle gates, including all four call targets;
+collection after 256 forward cancellations remains above the 1.05 limit at 1.06870
+and needs attribution. Setup/Lua timings are diagnostics; historical results are
+not reclassified as acceptance. The projection/publication architecture review is
+complete without further production changes. IP04-IP07 are unstarted. The plan's
 [architecture follow-up](interpreter-performance-plan.md#architecture-follow-up-from-the-2026-10-17-review)
 requires reference-first review of fragile inlining, session storage ownership and
 specialized paths within the existing phases before further affected optimization.
