@@ -26,6 +26,8 @@ behavior; queued designs do not imply implemented APIs.
 - [Runnable examples](../examples/README.md), [structure checks](structure-checks.md)
   and [engineering rules](../AGENTS.md).
 - [Test preparation and execution](testing.md).
+- [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
+  syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
 - [Performance measurements](performance-baseline.md), including the completed
   [runtime storage evaluation](performance-baseline.md#runtime-storage-2026-10-16), and
   [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
@@ -53,9 +55,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; recover concrete values through checked identity and lifetime
   contracts without introducing Any.
 - [Host API unification](host-api-refactor.md).
-- [Editor tooling](editor-tooling-plan.md): ET01-ET05 are unstarted; consolidate
-  the LSP foundation into this workspace, then add Zed/VS Code basic highlighting
-  independent of a server. Full semantic IDE features remain deferred.
+- [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
+  complete CI/platform acceptance, semantic IDE features, server-launch integration,
+  marketplace publication and separately authorized old-repository administration.
+  The syntax-adapter implementation and selected local acceptance are complete.
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from
   formatter/checker/linter implementation.

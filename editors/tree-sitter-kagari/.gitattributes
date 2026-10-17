@@ -1,0 +1,4 @@
+/src/parser.c text eol=lf
+/src/grammar.json text eol=lf
+/src/node-types.json text eol=lf
+/src/tree_sitter/*.h text eol=lf

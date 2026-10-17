@@ -69,6 +69,81 @@ jobs:
       - name: Test CLI native feature
         run: cargo test -p kagari-cli --features jit
 
+  editor-tooling:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: editors
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Install Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: editors/package-lock.json
+
+      - name: Install Python for node-gyp
+        id: python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install native grammar build prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends build-essential
+
+      # npm ci builds the native binding from the committed generated parser.
+      # Generation and tests below use installed tools, not npx downloads.
+      - name: Install locked editor dependencies and build native grammar
+        timeout-minutes: 5
+        env:
+          PYTHON: ${{ steps.python.outputs.python-path }}
+        run: npm ci
+
+      - name: Check generated parser consistency
+        run: npm run check:generated
+
+      - name: Test grammar corpus and selected syntax boundaries
+        run: npm run test:grammar
+
+      - name: Build and validate Zed WASM grammar (download official WASI SDK 34)
+        timeout-minutes: 6
+        run: npm run build:zed -- --download-sdk
+
+      - name: Test Zed captures, configuration and WASM staging
+        timeout-minutes: 6
+        env:
+          KAGARI_TEST_ZED_WASM: "1"
+          WASI_SDK_PATH: ${{ github.workspace }}/target/editors/wasi-sdk-34.0-x86_64-linux
+        run: npm run test:zed
+
+      - name: Test VS Code tokenization and configuration
+        run: npm run test:vscode
+
+      - name: Test shared classification boundaries
+        run: npm run test:shared
+
+      - name: Parse complete syntax example inventory (CI only)
+        run: npm run test:inventory
+
+      - name: Package VS Code extension
+        run: |
+          mkdir -p ../target/editors
+          npm run package:vscode
+
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: kagari-vscode
+          path: target/editors/*.vsix
+          if-no-files-found: error
+
   windows-aot:
     runs-on: windows-latest
 
@@ -109,6 +184,14 @@ jobs:
 
       - name: Test Windows toolchain command contracts
         run: cargo test --locked -p kagari-cli --test toolchain --no-fail-fast
+
+      - name: Test Windows analyzer URI and document lifecycle contracts
+        timeout-minutes: 5
+        run: cargo test --locked -p kagari-analyzer --bin kagari-analyzer --no-fail-fast
+
+      - name: Test Windows analyzer stdio lifecycle and Unicode CRLF input
+        timeout-minutes: 5
+        run: cargo test --locked -p kagari-analyzer --test stdio --no-fail-fast
 
       - name: Test CLI AOT and JIT arguments
         run: cargo test --locked -p kagari-cli --features aot,jit tests::parses

@@ -1,0 +1,134 @@
+==================
+Nested and documentation comments
+==================
+/// docs 文
+//! module docs
+//// ordinary
+/** docs /* nested */ end */
+/*! module docs */
+/**/ /* regular /* nested */ end */
+fn main() { 42 }
+
+---
+
+(source_file
+  (doc_line_comment)
+  (doc_line_comment)
+  (line_comment)
+  (doc_block_comment)
+  (doc_block_comment)
+  (block_comment)
+  (block_comment)
+  (function_item
+    (identifier)
+    (parameters)
+    (block (integer_literal))))
+
+==================
+Numeric suffixes do not consume a range or hexadecimal digits
+==================
+fn main() { 1..2; 1f64; 0xff_u8; 0xff32; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (range_expression (integer_literal) (integer_literal)))
+      (expression_statement (float_literal))
+      (expression_statement (integer_literal))
+      (expression_statement (integer_literal)))))
+
+==================
+Nested interpolation, doubled braces and debug trivia
+==================
+fn main() { f"{{text}} {f"{value}": /* debug */ ?}" }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (interpolated_string
+        (format_text)
+        (interpolation
+          (interpolated_string
+            (interpolation (path (identifier))))
+          (interpolation_format (block_comment)))))))
+
+==================
+Multiline expression hole preserves ordinary code nesting
+==================
+fn main() { f"before { {
+  val value = "}";
+  /* } /* nested */ */
+  value
+} } after" }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (interpolated_string
+        (format_text)
+        (interpolation
+          (block
+            (binding_statement (identifier) (string_literal (string_content)))
+            (block_comment)
+            (path (identifier))))
+        (format_text)))))
+
+==================
+Physical line boundary exits ordinary string text
+==================
+fn main() {
+  "broken
+  ;
+  val after = 42;
+}
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (string_literal (string_content) (unterminated_string_end)))
+      (binding_statement (identifier) (integer_literal)))))
+
+==================
+Physical line boundary exits interpolated text
+==================
+fn main() {
+  f"broken
+  ;
+  val after = 42;
+}
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement (interpolated_string (format_text) (unterminated_string_end)))
+      (binding_statement (identifier) (integer_literal)))))
+
+==================
+Unterminated nested comment has no invented line boundary
+==================
+/* outer /* inner */
+fn hidden() {}
+
+---
+
+(source_file (unterminated_block_comment))

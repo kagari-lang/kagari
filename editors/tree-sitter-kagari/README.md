@@ -1,0 +1,182 @@
+# Kagari Tree-sitter grammar
+
+This package owns recoverable source syntax, not static legality, name resolution
+or compiler diagnostics. The source contracts are [syntax](../../docs/spec/syntax.md),
+[EBNF](../../docs/kagari.ebnf) and the [source parser](../../crates/kagari-syntax/src/parser/grammar/).
+It does not import Rust binding, lifetime, reference, character, byte-string,
+raw-string, `dyn`, async-block or prefix-await syntax.
+
+## Build and test
+
+The parent `editors` npm workspace owns installation and its one lockfile. It pins
+`tree-sitter-cli` **0.25.10** and native `tree-sitter` **0.25.1**. Generation uses
+**ABI 15**. This package needs `node-addon-api` and `node-gyp-build`; the workspace
+must also provide `node-gyp` for the explicit build script.
+
+From `editors/`, after the parent installs dependencies:
+
+```sh
+npm run generate --workspace tree-sitter-kagari
+npm run build --workspace tree-sitter-kagari
+npm test --workspace tree-sitter-kagari
+```
+
+On Windows, if Python is managed by uv rather than on `PATH`, run `uv python find`
+and set `PYTHON` to the returned executable path before building. Native compilation
+also requires Visual Studio's C++ build tools. The local build used Python 3.12.12,
+Node 22.21.1, node-gyp 11.5.0 and Visual Studio 2022 (17.14); the corpus compiler
+was clang 16.0.4. No alternate Node build wrapper or compiler ABI is required.
+Before the parent runs a clean workspace installation from `editors/`, PowerShell
+can configure the same Python discovery explicitly:
+
+```powershell
+$env:PYTHON = uv python find
+npm ci
+```
+
+`binding.gyp` consumes node-addon-api's headers directly, using the absolute
+package directory returned by `require.resolve`, without an external addon gyp
+target. Node 22 already supplies Node-API; the header-only C++ wrapper needs no
+`node_api.gyp:nothing` library. External gyp targets can emit Visual Studio
+projects into a nested `node_modules/node-addon-api` directory when dependencies
+are hoisted, creating a package-less shadow that breaks npm dependency resolution.
+Keeping generated projects under this package's `build/` avoids that collision.
+
+The direct configuration preserves the exception behavior of node-addon-api
+8.9.2's `node_addon_api_except` target: `NAPI_CPP_EXCEPTIONS`, removal of
+`-fno-exceptions` on Unix, `/EHsc` and `_HAS_EXCEPTIONS=1` on Windows, and Xcode C++
+exception support on macOS. This retains `Napi::Error` translation through the
+module registration wrapper rather than silently switching to exception-disabled
+error handling. No runtime/package dependency has been removed or replaced.
+
+Generation requires no WebAssembly compiler. Tracked `src/parser.c`,
+`src/grammar.json`, `src/node-types.json` and `src/tree_sitter/` headers support
+native editor builds without Node or regeneration. There is no grammar Cargo
+workspace/crate or unused generated Rust binding.
+
+The Node entrypoint follows the upstream
+[tree-sitter-javascript v0.25.0 binding](https://github.com/tree-sitter/tree-sitter-javascript/tree/v0.25.0/bindings/node):
+`node-gyp-build` loads a matching packaged `prebuilds/` binary, or the local
+`node-gyp` build. No prebuilt binaries are committed here; installations without a
+matching prebuild require a native C/C++ toolchain and Node headers. The N-API
+language external uses Tree-sitter's upstream language type tag, not a raw pointer
+or the incompatible historical language wrapper. Both CommonJS and this interface
+are covered by the native tests:
+
+```js
+import Parser from 'tree-sitter';
+import Kagari from 'tree-sitter-kagari';
+const parser = new Parser();
+parser.setLanguage(Kagari);
+const query = new Parser.Query(Kagari, '(identifier) @variable');
+```
+
+## Scanner ownership and recovery
+
+`src/scanner.c` handles only recursive block comments and string text boundaries.
+It has **no persistent state**: create returns `NULL`, serialization writes zero
+bytes, and deserialization is a no-op. The LR parse stack selects ordinary text
+versus interpolated text via valid external symbols. Grammar productions own
+interpolation expression holes, nested blocks/struct literals, ordinary strings,
+nested f-strings, escapes and debug formatting; no scanner searches for the first
+closing brace. This also means incremental reuse cannot retain a stale scanner
+brace stack after a quote or brace edit. An unused external sentinel rejects
+Tree-sitter's all-symbols-valid recovery invocation rather than inventing a text
+mode during general error recovery.
+
+- A whole nested comment is scanned atomically. `block_comment` and
+  `doc_block_comment` classify regular versus `/**`/`/*!` documentation openers
+  (`/**/` is an ordinary empty comment). `///`/`//!` line docs have separate
+  `doc_line_comment` nodes; `////` remains an ordinary `line_comment`.
+- Ordinary `string_content` and interpolated `format_text` never consume CR or LF.
+  Whitespace and comments *inside* text are text, not extras. A valid quote produces
+  the closing anonymous `"` delimiter. Escapes have `escape_sequence` nodes;
+  doubled braces remain `format_text`, and `\u{...}` braces belong to the escape.
+- Missing text quotes at CR, LF or EOF produce a zero-width, named
+  **`unterminated_string_end`**. This is an explicit invalid lexical boundary,
+  not a valid quote and not a wildcard recovery rule. The grammar exits text mode
+  before ordinary code resumes. Subsequent missing statement delimiters can still
+  produce Tree-sitter `ERROR`/`MISSING` nodes.
+- A block comment missing its closing delimiter produces
+  **`unterminated_block_comment`**, extending through EOF. A newline does not end
+  it. This extra is deliberately visible to highlighting and validity tests.
+- Consumers checking validity must reject both explicit unterminated node kinds
+  in addition to `rootNode.hasError`/`ERROR`/`MISSING`. Tree-sitter highlighting
+  should classify an unfinished comment as a comment and unfinished string text
+  as string text, without treating following lines as string text.
+- Expression holes may contain multiline code with LF or CRLF. `interpolation`
+  owns `{`, field `expression`, optional `interpolation_format` and `}`. The debug
+  format owns separate `:` and `?` tokens, so ordinary trivia may intervene.
+  Type annotations inside closures and postfix propagation remain code.
+- Ending the text of a nested f-string does not invent a missing outer hole brace.
+  With `f"{f"nested` followed by a new code line, the inner text ends at the newline,
+  but the outer hole remains structurally incomplete. The following identifiers
+  are code nodes, potentially inside `ERROR`, not `format_text`. Separate binding
+  nodes are not promised across unmatched outer delimiters. Incomplete escapes
+  likewise use ordinary `ERROR` recovery without continuing text across a newline.
+
+No catch-all item/expression/token production conceals unsupported syntax.
+Ordinary incomplete declarations, holes and delimiters use Tree-sitter's error
+recovery. The compiler remains authoritative for invalid escape values, numeric
+ranges, legal receivers, trait async support, assignment places and other static
+restrictions; syntactic recognition is not executable support.
+
+## Node API for editor queries
+
+`src/node-types.json` is the generated, exact query API. Important categories:
+
+- Declarations: `function_item`, `method_item`, `const_item`, `struct_item`,
+  `enum_item`, `enum_variant`, `trait_item`, `impl_item`, `module_item`, `use_item`,
+  `associated_type`, `associated_const`, `field_declaration`, `visibility`,
+  `attribute`, `attribute_arguments`, `attribute_argument`.
+- Names: `identifier`, `type_identifier`, `path`, `type_path`, `generic_path`.
+  Declaration/member/binding names have `name` fields. `function_item` and
+  `method_item` have `parameters` and `body`; calls have `function`/`arguments`;
+  field access has `value`/`field`. Constructor expressions use field `type`.
+- Types: `generic_type`, `generic_parameters`, `type_parameter`,
+  `generic_arguments`, `associated_type_binding`, `qualified_type`, `array_type`,
+  `tuple_type`, `parenthesized_type`, `function_type`, `never_type`,
+  `trait_reference`, `type_bounds`, `where_clause`, `type_annotation`.
+- Statements/expressions: `binding_statement`, `assignment_statement`,
+  `expression_statement`, `return_statement`, `break_statement`,
+  `continue_statement`, `while_statement`, `for_statement`, `binding_condition`,
+  `block`, `binary_expression`, `range_expression`, `unary_expression`,
+  `cast_expression`, `call_expression`, `field_expression`, `index_expression`,
+  `propagation_expression`, `await_expression`, `closure_expression`,
+  `closure_parameters`, `closure_parameter`, `if_expression`, `loop_expression`,
+  `match_expression`, `match_arm`, `match_guard`, `struct_expression`.
+- Patterns: `or_pattern`, `range_pattern`, `wildcard_pattern`, `tuple_pattern`,
+  `parenthesized_pattern`, `tuple_struct_pattern`, `struct_pattern`, `field_pattern`.
+- Lexical nodes: `integer_literal`, `float_literal`, `boolean_literal`,
+  `string_literal`, `string_content`, `escape_sequence`, `interpolated_string`,
+  `format_text`, `interpolation`, `interpolation_format`, the four comment kinds,
+  and the two explicit invalid boundary kinds above.
+
+Keywords and operators are anonymous tokens, including `val`/`var`, `.`/`await`,
+`===`/`!==`, bitwise/compound operators, generic angles and closure/pattern bars.
+Shifts are single adjacent tokens; generic `>` closers remain independently
+lexable. Condition productions reserve bare braces for their control-flow bodies
+while preserving ordinary expressions inside parentheses and call arguments.
+Block-like final expressions retain the `block.tail` field; the same constructs
+before another statement remain statements. Unparenthesized range endpoints do
+not recursively accept another range. An open range before a `for` body does not
+consume that body's brace as its endpoint.
+
+## Validation scope
+
+The corpus establishes concrete tree shapes at lexical/recovery boundaries. Native
+unit tests load the actual Node addon, compile queries, parse seven
+selected shared syntax examples and a small representative set, assert ambiguity
+and unsupported-syntax boundaries, and compare complete incremental/fresh trees
+(including anonymous tokens, fields, errors, ranges and positions) through quote,
+hole/block-brace and nested-comment-terminator edits with LF and CRLF.
+
+The complete examples inventory, adapter capture contracts, Zed integration and
+platform matrix belong to the parent/CI. They are not run by this package's local
+tests.
+
+The parent guide records [validation scope](../README.md#validation-scope);
+[the roadmap](../../docs/implementation-roadmap.md#toolchain-distribution-and-modes)
+retains pending CI/platform acceptance. Native interface tests verify
+default ESM imports, `setLanguage` and `Parser.Query`; a native parser passing
+these tests is not evidence of a WASM build or editor installation.

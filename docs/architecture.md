@@ -156,6 +156,7 @@ harness sharing production execution mechanics; they do not grant host entry acc
 | kagari-vm | Interpreter/frame driver, debugger and prepared tier selection |
 | kagari | Host SDK, preparation and execution orchestration |
 | kagari-cli | Arguments, filesystem IO and presentation |
+| kagari-analyzer | Stdio LSP lifecycle, URI adaptation and document synchronization over source-owned text/identities |
 
 Runtime, bytecode and VM have no production dependency on MIR, source/syntax/HIR or
 codegen. Types depends only on common among workspace crates. MIR depends on
@@ -1534,6 +1535,74 @@ The [queued debugger design](debugger-design.md) preserves the Rust call chain b
 waiting on the executing host thread; live command control and DAP remain unimplemented.
 Attached observers force pre-entry fallback when native code lacks callbacks.
 Ordinary reflection stays within declared metadata and member adapters.
+
+### Language server foundation
+
+`kagari-analyzer` is a binary-only workspace product, launched over stdio with
+`cargo run --locked -p kagari-analyzer` or the built executable. Stdout contains
+only LSP frames; logs/errors use stderr. It advertises UTF-16 positions and
+open/close/full-text synchronization, not diagnostics, semantic IDE queries,
+formatting or editor server-launch integration. Syntax highlighting is a separate
+editor-grammar concern. The [editor guide](../editors/README.md) owns installation
+and validation scope; the [roadmap](implementation-roadmap.md#toolchain-distribution-and-modes)
+owns deferred IDE features and pending CI.
+
+The analyzer depends on source services and protocol/transport libraries, not on
+SDK/runtime execution. `server` drives transport; `session` owns lifecycle and
+capabilities; `protocol` validates URIs; `documents` tracks original URI, language
+ID and client version by source-owned FileId. Text, source revisions, overlays and
+retained snapshots remain in `kagari-source`. For example, opening an unsaved
+`untitled:Untitled-1` installs an overlay; a full change replaces its text without
+requiring valid syntax. Closing removes current content, retains the identity for
+reopen and leaves earlier snapshots readable. If a base was already retained,
+closing restores it instead. Document versions are independent of source revisions,
+including when a notification leaves text unchanged.
+
+Only `kagari` documents are accepted. Invalid lifecycle requests return protocol
+errors; invalid notifications are logged without responses or partial document
+updates. Local file URI escaping and Windows drive paths share source normalization.
+File URI queries/fragments, credentials, ports, non-local authorities and UNC are
+rejected. Non-file URI text is explicitly supplied, never disk-loaded, and retains
+opaque scheme-specific identity; source normalizes only the scheme's case.
+Single-letter prefixes are reserved for Windows drives, so analyzer rejects
+single-letter URI schemes explicitly. Source callers can use `./` to disambiguate
+URI-like relative paths. No project crawling, dependency loading or background
+analysis occurs. There is no second VFS, database, coordinate converter or IDE
+query implementation.
+
+### Editor syntax adapters
+
+The [editor tooling workspace](../editors/README.md) independently owns a
+Tree-sitter grammar, Zed queries/configuration and a VS Code TextMate extension.
+No adapter starts `kagari-analyzer` for basic highlighting or adds Node/editor
+libraries to SDK/runtime dependencies. Compiler syntax/HIR remain authoritative;
+editor grammars do not perform type checking, resolve symbols or feed compilation.
+
+Tree-sitter's generated ABI15 C/JSON/header assets are built from the same
+repository. Its stateless external scanner handles atomic nested comments and
+string-text boundaries; grammar productions own expressions, nested interpolation
+and structural recovery. Zed owns theme classifications and editing overrides.
+For `f"score={score + 2}"`, only delimiters/text receive string captures; the hole
+retains code classifications. Editing overrides use whole-string ranges and
+smaller interpolation ranges so empty strings and cursor positions beside quotes
+remain covered without suppressing code pairing inside holes. Zed also explicitly
+allows autoclosing before `)]}`: scope eligibility alone does not permit insertion
+before an existing interpolation `}` when the host's `autoclose_before` is empty.
+Local development stages current grammar assets into a disposable, deterministic Git snapshot and
+uses a resolved `file://` revision plus the monorepo subpath; no second maintained
+grammar repository or machine-specific committed manifest is required.
+
+VS Code independently uses recursive TextMate/Oniguruma contexts and standard
+scopes, resetting embedded expression token categories inside interpolated strings.
+Its VSIX is declarative and contains no activation code, language client or Node
+dependencies. Both adapters obey single-line string-text boundaries while permitting
+multiline expression holes; a genuinely unterminated block comment extends to EOF.
+A small shared oracle asserts explicit code/string/comment regions independently
+in both adapters. Detailed scopes/tree captures and incremental-state checks stay
+with each adapter. Native/engine tests, actual editor-host checks and manual visual
+acceptance provide different evidence and must not be conflated. The
+[editor guide](../editors/README.md#validation-scope) records the tested environment
+and selected acceptance boundaries; the roadmap retains unrun CI/platform scope.
 
 ## Baseline Cranelift native execution
 

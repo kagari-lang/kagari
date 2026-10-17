@@ -1,0 +1,20 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/config.schema.json",
+  "grammars": [
+    {
+      "name": "kagari",
+      "camelcase": "Kagari",
+      "scope": "source.kagari",
+      "path": ".",
+      "file-types": ["kgr"],
+      "injection-regex": "^kagari$"
+    }
+  ],
+  "metadata": {
+    "version": "0.0.0",
+    "license": "MIT OR Apache-2.0",
+    "description": "Recoverable Kagari source grammar",
+    "links": { "repository": "https://github.com/kagari-lang/kagari" }
+  },
+  "bindings": { "c": true, "node": true, "go": false, "python": false, "rust": false, "swift": false }
+}

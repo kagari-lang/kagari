@@ -1,0 +1,18 @@
+{
+  "name": "kagari-host-acceptance",
+  "publisher": "kagari-lang",
+  "displayName": "Kagari isolated host acceptance harness",
+  "description": "Disposable test-only runner; never included in the Kagari VSIX.",
+  "version": "0.0.0",
+  "private": true,
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kagari-lang/kagari.git",
+    "directory": "editors/tests/vscode-host"
+  },
+  "engines": { "vscode": "^1.142.0" },
+  "files": ["harness.cjs", "index.cjs", "README.md", "LICENSE"],
+  "main": "./harness.cjs",
+  "activationEvents": ["onStartupFinished"]
+}

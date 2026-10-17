@@ -1,0 +1,12 @@
+id = "kagari"
+name = "Kagari"
+version = "0.1.0"
+schema_version = 1
+authors = ["Kagari contributors"]
+description = "Kagari syntax highlighting and basic editing support"
+repository = "https://github.com/kagari-lang/kagari"
+
+[grammars.kagari]
+repository = "https://github.com/kagari-lang/kagari.git"
+rev = "main"
+path = "editors/tree-sitter-kagari"

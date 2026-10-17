@@ -1,2 +1,6 @@
 target/
 __pycache__/
+node_modules/
+editors/tree-sitter-kagari/build/
+editors/zed/grammars/
+*.vsix

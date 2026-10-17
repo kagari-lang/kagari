@@ -7,6 +7,7 @@ members = [
     "crates/kagari-types",
     "crates/kagari-stdlib",
     "crates/kagari-cli",
+    "crates/kagari-analyzer",
     "crates/kagari-format",
     "crates/kagari-lint",
     "crates/kagari-common",

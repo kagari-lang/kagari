@@ -1,0 +1,12 @@
+[package]
+name = "kagari-analyzer"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kagari-source.workspace = true
+lsp-server = "0.10.0"
+lsp-types = "0.97.0"
+serde.workspace = true
+serde_json = "1"
