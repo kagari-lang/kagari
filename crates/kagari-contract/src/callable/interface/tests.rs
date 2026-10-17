@@ -90,6 +90,7 @@ fn interface_application_substitutes_both_binders_inside_callbacks_and_results()
         let signature = call
             .signature(&contract, &cancel, &context.snapshot())
             .unwrap();
+        assert!(signature.has_receiver);
         assert_eq!(
             signature.params[1],
             Ty::Function {
@@ -337,8 +338,26 @@ fn static_constraint_calls_do_not_invent_a_receiver_argument() {
     let signature = call
         .signature(&contract, &cancel, &context.snapshot())
         .unwrap();
+    assert!(!signature.has_receiver);
     assert_eq!(signature.params.len(), 1);
     assert_eq!(signature.result, parameter.as_type());
+    contract.methods[0].params.clear();
+    let signature = call
+        .signature(&contract, &cancel, &context.snapshot())
+        .unwrap();
+    assert!(!signature.has_receiver);
+    assert!(signature.params.is_empty());
+    assert_eq!(signature.result, parameter.as_type());
+    contract.methods[0].params.push(Param {
+        name: "value".into(),
+        ty: Ty::SelfType(call.interface.declaration),
+        mutable: false,
+    });
+    let signature = call
+        .signature(&contract, &cancel, &context.snapshot())
+        .unwrap();
+    assert!(!signature.has_receiver);
+    assert_eq!(signature.params, [parameter.as_type()]);
     let evidence = GenericBound {
         ty: parameter.as_type(),
         constraints: vec![call.interface.clone()],
@@ -364,7 +383,41 @@ fn static_constraint_calls_do_not_invent_a_receiver_argument() {
     );
     assert!(
         !call
-            .check(&contract, &catalog, &[parameter], &[], &cancel)
+            .check(
+                &contract,
+                &catalog,
+                slice::from_ref(&parameter),
+                &[],
+                &cancel
+            )
+            .unwrap()
+    );
+    // Even when Self is absent from all value slots, its operation owner must
+    // belong to the caller's checked type scope.
+    contract.methods[0].params.clear();
+    contract.methods[0].return_type = Ty::Builtin(BuiltinType::I32);
+    let catalog = ProofCatalog::new(
+        vec![],
+        [],
+        [(call.interface.declaration, &contract)],
+        [],
+        &context.snapshot(),
+        &cancel,
+    )
+    .unwrap();
+    assert!(
+        call.check(
+            &contract,
+            &catalog,
+            slice::from_ref(&parameter),
+            slice::from_ref(&evidence),
+            &cancel
+        )
+        .unwrap()
+    );
+    assert!(
+        !call
+            .check(&contract, &catalog, &[], &[evidence], &cancel)
             .unwrap()
     );
 }

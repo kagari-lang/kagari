@@ -119,9 +119,12 @@ pub struct ExprData {
 ///
 /// Point { x: 1, y }
 /// -> StructInit { path: "Point", explicit_type: None,
-///                 fields: [FieldInit { name: "x", value: e_1 }, FieldInit { name: "y", value: e_y }] }
+///                 fields: [FieldInit { name: "x", value: e_1 }, FieldInit { name: "y", value: e_y }],
+///                 base: None }
 /// e_y -> Name { name: "y", explicit_type: None } // synthesized shorthand
 /// Point<i32> { x: 1 } -> same StructInit with explicit_type: Some(t_point)
+/// Point { x: 1, ..previous } -> fields contains only x; base: Some(e_previous)
+/// Point { .. } -> base: Some(e_missing), not None
 /// ```
 ///
 /// MatchArm, FieldInit and ClosureParam are INLINE records, not extra arena rows.
@@ -259,6 +262,9 @@ pub enum ExprKind {
         explicit_type: Option<TypeRefId>,
         /// Inline named-field values in source order.
         fields: FieldInitBuffer,
+        /// Update operand evaluated after explicit fields; a written incomplete
+        /// marker retains Some(Missing), while no marker is None.
+        base: Option<ExprId>,
     },
     /// Tuple elements such as `(x, y)`, each retained as an expression ID.
     Tuple(ExprBuffer),

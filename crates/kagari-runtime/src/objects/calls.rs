@@ -101,15 +101,16 @@ impl Runtime {
         &self,
         frame: &ExecutionFrame,
         call: &ScopedInterfaceCall,
-        receiver: &Value,
-    ) -> Result<(MethodInvocation, Value), RuntimeError> {
+        receiver: Option<&Value>,
+    ) -> Result<(MethodInvocation, Option<Value>), RuntimeError> {
         let invalid = || RuntimeError::module_validation("generic call operation environment");
         if let Some(operation) = call.operation {
             let method = MethodInvocation::from_operation(self, operation)?;
             let method =
                 self.apply_method_invocation(method, &call.arguments, call.operations.clone())?;
-            return Ok((method, *receiver));
+            return Ok((method, receiver.copied()));
         }
+        let receiver = receiver.ok_or_else(invalid)?;
         let id = self.select_interface_snapshot(receiver, call.interface_type())?;
         let method = MethodInvocation::from_interface(self, id, call.slot)?;
         let receiver = self.gc.interface_metadata(id).ok_or_else(invalid)?.data;
@@ -128,7 +129,7 @@ impl Runtime {
         if !compatible {
             return Err(invalid());
         }
-        Ok((method, receiver))
+        Ok((method, Some(receiver)))
     }
 
     /// Bind already-verified witnesses in their lexical executable scope. Host

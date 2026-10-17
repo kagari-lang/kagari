@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one coherent commit per phase authorized on
-2026-10-17. DF01-DF03 are complete; DF04 is next. Remote publication is not authorized. The [roadmap](implementation-roadmap.md#default-and-struct-update)
+2026-10-17. DF01-DF04 are complete; DF05 final handoff is next. Remote publication is not authorized. The [roadmap](implementation-roadmap.md#default-and-struct-update)
 owns activation and queue placement. This is the single execution plan for
 [SA26](review.md#sa26-add-ordinary-default-construction-and-struct-update-expressions),
 including DF01-DF05, design decisions, focused acceptance and the progress ledger.
@@ -337,7 +337,7 @@ use Conventional Commits and `Plan-Phase: DF0N`; mark actual breaking APIs expli
 - [x] DF01: freeze contracts, consumer inventory and focused acceptance selection.
 - [x] DF02: ordinary declaration and general contextual static-call inference.
 - [x] DF03: finite standard implementation inventory and bindings.
-- [ ] DF04: struct update vertical slice, source tools and editor syntax.
+- [x] DF04: struct update vertical slice, source tools and editor syntax.
 - [ ] DF05: focused boundary acceptance, disposable products and documentation handoff.
 
 ### DF01 — activation and acceptance freeze
@@ -423,3 +423,56 @@ violations/exceptions; formatting, workspace all-target Clippy and diff checks
 passed. Manual imports/ownership/visibility review added no exceptions. No failures
 remain. Source-free fixture regeneration is intentionally batched at DF05; complete
 feature/backend/platform acceptance remains CI-only.
+
+### DF04 — struct update, tools and checked static-bound integration
+
+Implemented the dedicated terminal base node/accessor, HIR base/missing recovery,
+constructor/context/completion/access checks, explicit-only navigation facts and
+omitted identity remaps, and existing MIR field reads/fresh construction. The base
+executes even with all fields overridden. Normalized associated projections on both
+target and base boundaries, including lowering through the existing planner.
+Source tools and grammar inventories agree; the runnable generic update example
+checks order, once-only calls, alias read timing, outer independence and inner sharing.
+
+Selected checks passed: 8 constructor parser cases, 5 pattern-rest regressions;
+11 HIR update cases and 8 frozen constructor/visibility/reuse/dispatch regressions;
+6 compiler lowering/verification cases with affected projection filters rerun after
+repair; SDK example source/artifact execution, 2 formatter checks and usage/lint.
+All 5 grammar-inventory checks were completed (3 failing cases passed after repair).
+Within the already changed inventories, reconciled existing omitted explicit_enum_path
+rule/branch and optional method async numbering. No assertions were weakened:
+explicit_enum_path has no example witness and is honestly marked unverified.
+
+Integration acceptance exposed a required DF02 boundary gap: an operation owner T
+was conflated with a value-level self in shared generic T::default(). Expanded this
+checkpoint coherently at contract/MIR/runtime owners: derive has_receiver from the
+checked declaration, preserve scope checks on the owner type, validate imported
+full signatures, and forward static arguments without a fabricated receiver.
+No compiler special case, new opcode or ABI bump. The retained generic reload test
+now passes, plus 7 contract interface, 24 VM interface and 5 runtime application
+tests, including malformed static calls, explicit Self-typed arguments, artifact
+round-trip and GC cleanup. DF05's SDK acceptance edits remain separate from this
+production checkpoint. This necessary boundary repair is an explicit scope
+clarification, not native-backend expansion or unrelated solver work.
+
+Other repaired intermediate failures were the syntax/HIR handoff, a test-only Span
+API mistake, premature inference errors on returning bases and unnormalized projected
+applications. No carried implementation/build/test failures remain. Investigative
+probes also encountered existing projected closure-argument and generic-closure
+limitations outside required update/default surfaces; equivalent projected base
+lowering was verified through checked Fn::call and generic functions without
+weakening assertions or changing those unrelated mechanisms.
+
+Editor acceptance passed: pinned npm installation, generated consistency (6 exact
+hashes/LF), grammar corpus plus 38 native tests, Zed 21 passed/1 optional WASM test
+skipped, TextMate 17, shared regions 12, and direct parsing of the runnable example.
+Staging succeeded. Actual build:zed was attempted, then pinned official SDK 34
+acquisition twice; curl 56 connection failures prevented completion. SDK 29 was not
+substituted. Actual WASM loading/rendering is unverified; complete host/platform
+acceptance stays pending rather than inferred from native tests.
+
+Manual structure/ownership/import/LOC review split a growing compiler test at its
+semantic boundary; no exceptions/re-exports added. Structure checked 1,302 Rust
+files, zero violations/exceptions; formatting, workspace all-target Clippy and diff
+checks passed. Remaining DF05 work is acceptance/product/documentation handoff;
+full workspace/feature/backend/editor inventory remains CI-only.

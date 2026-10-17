@@ -213,6 +213,24 @@ leaf stores precede debug-local publication. Captures, lexical scope exit and GC
 roots retain their existing owners; backends neither re-resolve fields nor infer
 leaf types. See [declaration semantics](../spec/syntax.md#blocks-and-statements).
 
+### Struct update facts
+
+For `Player { health: value, ..base }`, StructInit retains explicit fields in source
+order and `base: Some(base_expr)`. The dedicated AST update-base node distinguishes
+no marker from a marker with a missing operand; recovery retains the latter as a
+missing HIR expression. Resolver, completion and constant validation visit the base
+after explicit fields. The base is not a synthetic FieldInit or a range.
+
+ResolvedStructInit.fields remains aligned with written labels, including recovery
+holes; base_fields separately stores omitted checked definition IDs in declaration
+order. Navigation must not pair omitted members with explicit source spans. Both
+field lists participate in definition remapping, while base expression facts retain
+ordinary body/snapshot identity. Constructor inference includes the base before
+finalizing type arguments and checks all-field visibility and normalized nominal
+identity. Compiler lowering evaluates explicit operands and the base, reads only
+those checked omitted fields and emits the existing complete MakeStruct contract.
+No backend resolves source fields or introduces a special update/default operation.
+
 ## An alias through a public glob
 
 Bind these source units using `SourceDatabase::bind_module` with package

@@ -364,8 +364,10 @@ pub enum SyntaxKind {
     IndexExpr,
     /// A conditional with an expression or binding condition and optional else branch. See [`IfExpr`](crate::ast::expr::IfExpr).
     IfExpr,
-    /// A constructor path followed by named field initializers. See [`StructExpr`](crate::ast::expr::StructExpr).
+    /// A constructor path, named field initializers and optional update base. See [`StructExpr`](crate::ast::expr::StructExpr).
     StructExpr,
+    /// A struct update marker and its expression operand. See [`StructUpdateBase`](crate::ast::expr::StructUpdateBase).
+    StructUpdateBase,
     /// The field initializer list of a struct expression. See [`FieldInitList`](crate::ast::expr::FieldInitList).
     FieldInitList,
     /// One named field initializer, with an optional explicit value. See [`FieldInit`](crate::ast::expr::FieldInit).

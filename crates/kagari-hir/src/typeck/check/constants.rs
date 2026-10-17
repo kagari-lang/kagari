@@ -231,9 +231,12 @@ pub(super) fn validate_const_initializers(
                         self.validate_const_expr(owner, *element);
                     }
                 }
-                ExprKind::StructInit { fields, .. } => {
+                ExprKind::StructInit { fields, base, .. } => {
                     for field in fields {
                         self.validate_const_expr(owner, field.value);
+                    }
+                    if let Some(base) = base {
+                        self.validate_const_expr(owner, *base);
                     }
                 }
                 _ => self.emit_invalid_const(

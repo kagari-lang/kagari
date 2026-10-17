@@ -319,9 +319,17 @@ array_expr          ::= "[" (expr_list | expr ";" expr)? "]" ;
 
 explicit_enum_path  ::= path generic_args "::" IDENT ;
 
-struct_expr         ::= path generic_args? "{" field_init_list? "}" ;
+struct_expr         ::= path generic_args? "{" struct_init? "}" ;
+
+struct_init         ::= field_init_list
+                      | struct_update_base
+                      | field_init ("," field_init)* "," struct_update_base ;
 
 field_init_list     ::= field_init ("," field_init)* (",")? ;
+
+(* Unlike operand-free pattern rest, an update base is one terminal expression
+   with no trailing comma. `..=` is never an update marker. *)
+struct_update_base  ::= ".." expr ;
 
 field_init          ::= IDENT
                       | IDENT ":" expr ;

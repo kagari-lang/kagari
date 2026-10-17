@@ -103,8 +103,11 @@ parenthesized_expr	covered	examples/syntax/expressions.kgr	-
 tuple_expr	covered	examples/syntax/data-model.kgr	-
 expr_list	covered	examples/syntax/data-model.kgr	-
 array_expr	covered	examples/syntax/array-operations.kgr	-
-struct_expr	covered	examples/syntax/data-model.kgr	-
+explicit_enum_path	unverified	-	No existing example witnesses path generic_args "::" IDENT
+struct_expr	covered	examples/syntax/struct-update.kgr	-
+struct_init	covered	examples/syntax/struct-update.kgr	-
 field_init_list	covered	examples/syntax/data-model.kgr	-
+struct_update_base	covered	examples/syntax/struct-update.kgr	-
 field_init	covered	examples/syntax/data-model.kgr	-
 closure_expr	covered	examples/syntax/closures.kgr	-
 closure_param_list	covered	examples/syntax/closures.kgr	-

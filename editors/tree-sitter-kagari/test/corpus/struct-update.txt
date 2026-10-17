@@ -1,0 +1,108 @@
+==================
+Explicit fields and terminal call or base-only update
+==================
+fn main() { Point { x: 1, label, ..Default::default() }; Point { ..base } }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (struct_expression
+          (path (identifier))
+          (field_initializer (identifier) (integer_literal))
+          (field_initializer (identifier))
+          (struct_update_base
+            (call_expression (path (identifier) (identifier)) (arguments)))))
+      (struct_expression
+        (path (identifier))
+        (struct_update_base (path (identifier)))))))
+
+==================
+Update markers are not ranges or pattern rest but their operands may be ranges
+==================
+fn main() { Point { x: ..end, ..1..2 }; val Point { .., } = base; ..base }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (struct_expression
+          (path (identifier))
+          (field_initializer (identifier) (range_expression (path (identifier))))
+          (struct_update_base (range_expression (integer_literal) (integer_literal)))))
+      (binding_statement
+        (struct_pattern (path (identifier)) (rest_pattern))
+        (path (identifier)))
+      (range_expression (path (identifier))))))
+
+==================
+Nested struct updates and interpolations retain their own closing braces
+==================
+fn main() { f"before {Point { label: f"inner {score}", ..Point { ..base } }} tail" }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (interpolated_string
+        (format_text)
+        (interpolation
+          (struct_expression
+            (path (identifier))
+            (field_initializer
+              (identifier)
+              (interpolated_string
+                (format_text)
+                (interpolation (path (identifier)))))
+            (struct_update_base
+              (struct_expression
+                (path (identifier))
+                (struct_update_base (path (identifier)))))))
+        (format_text)))))
+
+==================
+Missing update operand preserves the following declaration
+==================
+fn main() { val broken = Point { .. }; val after = 42; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (binding_statement
+        (path (identifier))
+        (struct_expression (path (identifier)) (ERROR)))
+      (binding_statement (path (identifier)) (integer_literal)))))
+
+==================
+Missing update operand inside interpolation preserves text and following code
+==================
+fn main() { f"before {Point { .. }} tail"; val after = 42; }
+
+---
+
+(source_file
+  (function_item
+    (identifier)
+    (parameters)
+    (block
+      (expression_statement
+        (interpolated_string
+          (format_text)
+          (interpolation (struct_expression (path (identifier)) (ERROR)))
+          (format_text)))
+      (binding_statement (path (identifier)) (integer_literal)))))

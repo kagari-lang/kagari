@@ -109,6 +109,52 @@ fn struct_initializer_labels_follow_checked_field_targets_after_errors() {
 }
 
 #[test]
+fn struct_update_navigation_keeps_explicit_labels_and_base_references_separate() {
+    let text = "// 中文 😀\r\nstruct Item { val first: i32, val second: i32 } fn good(base: Item) -> Item { Item { first: 1, ..base } } fn bad(base: Item) { Item { first: false, absent: 0, ..base }; }";
+    let mut sources = SourceDatabase::default();
+    let file = sources
+        .set("update-navigation.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = analyze(&mut test_analysis(), &sources);
+    let analysis = snapshot.file(file).unwrap();
+    for label in ["first: 1", "first: false"] {
+        assert_eq!(
+            analysis
+                .definition_at(text.find(label).unwrap())
+                .unwrap()
+                .name,
+            "first"
+        );
+    }
+    assert!(
+        analysis
+            .definition_at(text.find("absent: 0").unwrap())
+            .is_none()
+    );
+    for (marker, _) in text.match_indices("..base") {
+        assert!(analysis.definition_at(marker).is_none());
+        let base = analysis.definition_at(marker + 2).unwrap();
+        assert_eq!(base.name, "base");
+        assert!(base.location.range.start < marker);
+    }
+    let facts = analysis.result().facts();
+    for (id, _) in facts.lowered.module.body.expressions() {
+        if let Some(init) = facts.typed.type_table.struct_init(id) {
+            assert_eq!(
+                facts
+                    .lowered
+                    .source_map
+                    .struct_field_spans(id)
+                    .unwrap()
+                    .len(),
+                init.fields.len()
+            );
+            assert_eq!(init.base_fields.len(), 1);
+        }
+    }
+}
+
+#[test]
 fn members_keep_module_ownership_and_exact_declaration_locations() {
     let text = "// 中文 😀\r\nenum State { Ready, Running }\r\nstruct Point { var x: i32 }";
     let mut sources = SourceDatabase::default();

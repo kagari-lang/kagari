@@ -85,6 +85,74 @@ test('struct rest is final and shared by declarations, matches, loops and condit
   }
 });
 
+test('struct updates keep explicit fields and one terminal ordinary base expression', () => {
+  for (const [operand, type] of [
+    ['base', 'path'], ['Default::default()', 'call_expression'],
+    ['make()?.items[0]', 'index_expression'], ['source.await', 'await_expression'],
+    ['{ val next = make(); next }', 'block'],
+    ['if ready { first } else { second }', 'if_expression'],
+    ['match tag { _ => base }', 'match_expression'], ['loop { break base; }', 'loop_expression'],
+    ['Point { ..base }', 'struct_expression'], ['|x: i32| x', 'closure_expression'],
+    ['left + right * 2', 'binary_expression'], ['base as Point', 'cast_expression'],
+    ['1..2', 'range_expression'], ['..end', 'range_expression'], ['..', 'range_expression'],
+  ]) {
+    const tree = valid(`fn main() { model::Point<i32> { x: 1, label, ..${operand} } }`);
+    const struct = nodes(tree.rootNode, 'struct_expression')[0];
+    assert.equal(struct.childForFieldName('type').text, 'model::Point');
+    assert.deepEqual(struct.namedChildren.filter(n => n.type === 'field_initializer').map(n => n.text),
+      ['x: 1', 'label']);
+    const base = struct.childForFieldName('base');
+    assert.equal(base.type, 'struct_update_base');
+    assert.equal(base.children[0].type, '..');
+    assert.equal(base.childForFieldName('value').type, type, operand);
+    assert.equal(base.childForFieldName('value').text, operand);
+    assert.equal(nodes(tree.rootNode, 'rest_pattern').length, 0);
+  }
+  const tree = valid(`fn main() {
+    Point {}; Point { x, }; Point { ..base }; Point { x: ..end, ..base };
+    val Point { .., } = base;
+    ..base;
+  }`);
+  assert.equal(nodes(tree.rootNode, 'struct_update_base').length, 2);
+  assert.equal(nodes(tree.rootNode, 'range_expression').length, 2,
+    'Only the explicit field value and standalone expression are ranges, never the update marker');
+  assert.equal(nodes(tree.rootNode, 'rest_pattern').length, 1);
+});
+
+test('malformed update placement and missing operands preserve following source', () => {
+  for (const expression of ['Point { .. }', 'Point { x, .. }', 'Point { ..base, }',
+    'Point { ..base, x: 1 }', 'Point { ..base, ..other }', 'Point { ..=base }',
+    'Point { x ..base }']) {
+    for (const eol of ['\n', '\r\n']) {
+      const tree = parse(`fn main() { val broken = ${expression};${eol}val after = 42; }${eol}fn later() { 7 }`);
+      assert.ok(tree.rootNode.hasError, expression);
+      assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
+        tree.rootNode.toString());
+      assert.ok(nodes(tree.rootNode, 'function_item').some(n => n.childForFieldName('name')?.text === 'later'),
+        tree.rootNode.toString());
+    }
+  }
+});
+
+test('nested interpolation updates recover without consuming later text or code', () => {
+  for (const eol of ['\n', '\r\n']) {
+    const source = `fn main() { val rendered = f"before {Point {
+      label: f"inner {score}", ..{ /* } .. */ Point { ..make("}")? } }
+    }:?} tail"; val after = 42; }`.replaceAll('\n', eol);
+    const tree = valid(source);
+    assert.equal(nodes(tree.rootNode, 'struct_update_base').length, 2);
+    assert.equal(nodes(tree.rootNode, 'range_expression').length, 0);
+    assert.equal(nodes(tree.rootNode, 'interpolation').length, 2);
+    for (const operand of ['', 'base,', '=base']) {
+      const broken = parse(`fn main() { val s = f"before {Point { ..${operand} }} tail";${eol}val after = 42; }`);
+      assert.ok(broken.rootNode.hasError, operand);
+      assert.ok(nodes(broken.rootNode, 'format_text').some(n => n.text === ' tail'), broken.rootNode.toString());
+      assert.ok(nodes(broken.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
+        broken.rootNode.toString());
+    }
+  }
+});
+
 test('numbers, adjacency, identity and generic angles remain distinct', () => {
   const tree = valid(`fn main() {
     val range = 1..2;
@@ -258,6 +326,14 @@ test('incremental quotes, hole/block braces and nested comment terminators agree
     editSequence(`fn main() {${eol}val (left, Point { x: renamed, .. }) = input;${eol}val after = 42; }`, [
       ['.. }', '. }'], ['. }', '.. }'], ['.. })', '.. )'], ['.. )', '.. })'],
       ['(left, Point', '((left, _) | (_, left), Point'],
+    ]);
+    editSequence(`fn main() { val s = f"outer {Point { label: f"inner {score}", ..base }} tail";${eol}val after = 42; }`, [
+      ['..base', '..'], ['.. }}', '..base }}'],
+      ['..base', '..base,'], ['..base,', '..base'],
+      ['..base', '..=base'], ['..=base', '..base'],
+      ['..base }}', '..base }'], ['..base } tail', '..base }} tail'],
+      ['inner {score}"', 'inner {score}'], ['inner {score}', 'inner {score}"'],
+      ['..base', '..{ Point { ..base } }'],
     ]);
     editSequence(`/* outer /* inner */ end */${eol}fn main() { 42 }`, [
       ['inner */', 'inner'], ['inner', 'inner */'], ['end */', 'end'], ['end', 'end */'],

@@ -301,9 +301,12 @@ impl<'a> BodyResolver<'a> {
                     self.pop_scope();
                 }
             }
-            ExprKind::StructInit { fields, .. } => {
+            ExprKind::StructInit { fields, base, .. } => {
                 for field in fields {
                     self.resolve_expr(field.value);
+                }
+                if let Some(base) = base {
+                    self.resolve_expr(*base);
                 }
             }
             ExprKind::InterpolatedString(elements)

@@ -82,7 +82,7 @@ fn usage_tracks_reads_shadowing_captures_and_places() {
     let (_, _, snapshot, root) = analyze(
         &[(
             "root",
-            "fn read()->i32 { var (changed, stable)=(1,2); val read=||changed; changed=3; val (_, unused)=(4,5); read()+stable }",
+            "struct Point { val n:i32 } fn read()->i32 { var (changed, stable)=(1,2); val read=||changed; changed=3; val (_, unused)=(4,5); val base=Point{n:1}; val copy=||Point{..base}; read()+stable+copy().n }",
         )],
         100,
     );

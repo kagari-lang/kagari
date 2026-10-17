@@ -470,7 +470,11 @@ DF01-DF05, the sole progress ledger, design decisions and focused acceptance.
 Implementation and one commit per phase are authorized. DF01 froze the contract
 and focused acceptance; DF02 ordinary registration/contextual calls passed focused
 local checks. DF03 standard implementations passed focused value/fresh-storage
-acceptance; DF04 struct update and editor syntax are next.
+acceptance. DF04 struct update, source/editor syntax and static bound-call
+integration passed focused local checks; DF05 final acceptance/handoff is next.
+Actual updated Zed WASM loading/rendering remains unverified: pinned SDK 34 download
+attempts failed with connection errors; native parser/capture tests are not host
+rendering evidence.
 
 Deliver ordinary `core::default::Default` and prelude publication, contextual
 static associated-call Self inference, a finite standard implementation inventory,

@@ -69,6 +69,7 @@ impl RemapDefinitions for InterfaceMethodSignature {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceMethodSignature {
+            has_receiver: self.has_receiver,
             params: map_sequence(&self.params, |value| (value).remap_definitions(mapper))?,
             result: self.result.remap_definitions(mapper)?,
             bounds: map_sequence(&self.bounds, |value| (value).remap_definitions(mapper))?,

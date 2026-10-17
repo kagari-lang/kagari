@@ -191,6 +191,7 @@ impl RemapDefinitions for ResolvedStructInit {
                     .map(|value| mapper.reference(value))
                     .transpose()
             })?,
+            base_fields: map_sequence(&self.base_fields, |value| mapper.reference(value))?,
         })
     }
 }
@@ -208,6 +209,10 @@ impl DefinitionReferences for ResolvedStructInit {
                 check_cancel(cancel)?;
                 visit(value1)?;
             }
+        }
+        for field in &self.base_fields {
+            check_cancel(cancel)?;
+            visit(field)?;
         }
         Ok(())
     }

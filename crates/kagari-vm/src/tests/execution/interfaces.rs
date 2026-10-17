@@ -7,11 +7,11 @@ use crate::{
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
     program::{BytecodeProgram, identity, verify_program},
-    verifier::verify_module,
+    verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_runtime::{
-    Runtime,
+    Runtime, RuntimeConfig,
     frame::{
         driver::{ExecutionAction, ReturnAction},
         transfer::ReturnValue,
@@ -201,6 +201,82 @@ fn source_interface_method_call_dispatches_through_the_linked_slot() {
             .expect("retained execution result"),
         Value::I32(8)
     );
+}
+
+#[test]
+fn static_bound_calls_preserve_explicit_self_typed_arguments_and_checked_signatures() {
+    let source = r#"
+        trait Factory {
+            fn make() -> Self;
+            fn shift(value: Self, by: i32) -> Self;
+            fn read(self) -> i32;
+        }
+        struct Item { val value: i32 }
+        impl Factory for Item {
+            fn make() -> Self { Item { value: 20 } }
+            fn shift(value: Self, by: i32) -> Self { Item { value: value.value + by } }
+            fn read(self) -> i32 { self.value }
+        }
+        trait Relay {
+            fn relay<T: Factory>(self, value: T) -> i32 {
+                T::shift(value, 2).read() + T::make().read()
+            }
+        }
+        impl Relay for i32 {}
+        fn main() -> i32 { val relay: Relay = 0; relay.relay(Item { value: 20 }) }
+    "#;
+    let program = round_trip_bytecode(compile_test_bytecode(source));
+    let (definitions, records) = program.clone().into_parts();
+    for corruption in 0..3 {
+        let mut forged = records.clone();
+        let (dst, args) = forged
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.functions)
+            .flat_map(|function| &mut function.instructions)
+            .find_map(|instruction| match instruction {
+                BytecodeInstruction::Call {
+                    dst,
+                    callee: CallTarget::InterfaceMethod { contract, .. },
+                    args,
+                } if contract.receiver.is_some() && args.len() == 2 => Some((dst, args)),
+                _ => None,
+            })
+            .expect("shared static call with an explicit Self-typed argument");
+        match corruption {
+            0 => {
+                args.pop();
+            }
+            1 => args[0] = args[1],
+            2 => *dst = Some(args[1]),
+            _ => unreachable!(),
+        }
+        let error = verify_program(&forged, &definitions).unwrap_err();
+        assert!(
+            matches!(
+                error,
+                BytecodeVerificationError::InvalidOperation { .. }
+                    | BytecodeVerificationError::TypeMismatch { .. }
+            ),
+            "corruption {corruption}: {error:?}"
+        );
+    }
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    let mut runtime = standard_runtime(config);
+    let loaded = runtime.load_program("static-bound", program).unwrap();
+    let vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute(&loaded, ProgramEntry::Main)
+            .unwrap()
+            .return_value
+            .value(vm.runtime().gc())
+            .expect("retained execution result"),
+        Value::I32(42)
+    );
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
 }
 
 #[test]

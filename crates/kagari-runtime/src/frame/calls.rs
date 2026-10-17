@@ -87,7 +87,9 @@ impl ExecutionStack<'_> {
             } => {
                 let (invocation, receiver) = {
                     let caller = self.current()?;
-                    let receiver = caller.read_register(runtime, *receiver)?;
+                    let receiver = receiver
+                        .map(|register| caller.read_register(runtime, register))
+                        .transpose()?;
                     let scoped_call;
                     let call = if *closed {
                         caller
@@ -111,10 +113,14 @@ impl ExecutionStack<'_> {
                         )?;
                         scoped_call.as_ref()
                     };
-                    runtime.resolve_interface_invocation(&caller, call, &receiver)?
+                    runtime.resolve_interface_invocation(&caller, call, receiver.as_ref())?
                 };
-                let arguments = FrameArguments::frame(slots, &call.arguments[1..])
-                    .with_prefix(slice::from_ref(&receiver))?;
+                let arguments = if let Some(receiver) = receiver.as_ref() {
+                    FrameArguments::frame(slots, &call.arguments[1..])
+                        .with_prefix(slice::from_ref(receiver))?
+                } else {
+                    FrameArguments::frame(slots, &call.arguments)
+                };
                 let view = invocation.view(runtime)?;
                 view.validate_arguments(runtime, arguments)?;
                 let loaded = view.implementation().clone();

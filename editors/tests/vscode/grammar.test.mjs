@@ -257,6 +257,32 @@ test('grouped/unit/singleton and struct rest patterns balance inside nested inte
   }
 });
 
+test('struct updates stay lexical in valid and incomplete nested interpolation', async () => {
+  for (const newline of ['\n', '\r\n']) {
+    for (const operand of ['base', 'Default::default()', '', 'base,', '=base']) {
+      const text = `fn main() { val s = f"before {Point {
+        label: f"inner {score}", ..${operand}
+      }} tail"; val after = 42; }`.replaceAll('\n', newline);
+      const spans = await tokenize(text);
+      region(text, spans, 'before ', 'string');
+      region(text, spans, 'inner ', 'string');
+      region(text, spans, 'score', 'code', 'variable.other.kagari');
+      region(text, spans, 'Point', 'code', 'variable.other.kagari');
+      region(text, spans, 'label', 'code', 'variable.other.kagari');
+      region(text, spans, operand === '=base' ? '..=' : '..', 'code', 'keyword.operator.kagari');
+      region(text, spans, ' tail', 'string');
+      region(text, spans, 'val after', 'code');
+      if (operand === 'base' || operand === 'Default::default()') {
+        region(text, spans, operand === 'base' ? 'base' : 'Default', 'code', 'variable.other.kagari');
+        if (operand !== 'base') region(text, spans, 'default', 'code', 'variable.other.kagari');
+      }
+      for (const span of spans.filter(span => span.type === 'code')) {
+        assert.ok(!span.scopes.some(scope => scope.startsWith('string.')), span.scopes.join(' '));
+      }
+    }
+  }
+});
+
 test('operators preserve adjacency without claiming generic/comparison resolution', async () => {
   const operators = ['===', '!==', '<<', '>>', '<<=', '>>=', '&=', '|=', '^=', '%=', '?', '|', '||',
     '&&', '=>', '->', '::', '..', '..=', '+', '-', '*', '/', '%', '<=', '>='];
@@ -318,6 +344,10 @@ test('incremental retokenization from valid preceding stacks agrees with fresh t
       from: '.. }', to: '..', needle: 'tail', type: 'code' },
     { text: 'val s = f"{\n /* outer\n /* inner */\n end */ value\n} tail";\nval after = 1;',
       from: 'end */ value', to: 'end value', needle: 'val after', type: 'comment' },
+    { text: 'val s = f"{Point {\n label: f"inner {score}",\n ..base\n}} tail";\nval after = 1;',
+      from: '..base', to: '..', needle: ' tail', type: 'string' },
+    { text: 'val s = f"{Point {\n label: f"inner {score}",\n ..base }\n} tail";\nval after = 1;',
+      from: '..base }', to: '..base', needle: ' tail', type: 'code' },
     { text: '/* header\n end */\nval s = "closed";\nval after = 1;',
       from: '"closed";', to: '"open', needle: 'val after', type: 'code' },
   ];

@@ -69,15 +69,19 @@ postfix_op	2	witnessed	examples/syntax/expressions.kgr	-	field_suffix
 postfix_op	3	witnessed	examples/syntax/data-model.kgr	-	index_suffix
 primary_expr	1	witnessed	examples/syntax/expressions.kgr	-	literal
 primary_expr	2	witnessed	examples/syntax/expressions.kgr	-	path
-primary_expr	3	witnessed	examples/syntax/expressions.kgr	-	if_expr
-primary_expr	4	witnessed	examples/syntax/expressions.kgr	-	parenthesized_expr
-primary_expr	5	witnessed	examples/syntax/data-model.kgr	-	tuple_expr
-primary_expr	6	witnessed	examples/syntax/data-model.kgr	-	array_expr
-primary_expr	7	witnessed	examples/syntax/data-model.kgr	-	struct_expr
-primary_expr	8	witnessed	examples/syntax/closures.kgr	-	closure_expr
-primary_expr	9	witnessed	examples/syntax/control-flow.kgr	-	loop_expr
-primary_expr	10	witnessed	examples/syntax/match.kgr	-	match_expr
-primary_expr	11	witnessed	examples/syntax/blocks.kgr	-	block
+primary_expr	3	unverified	-	No existing example witnesses path generic_args "::" IDENT	explicit_enum_path
+primary_expr	4	witnessed	examples/syntax/expressions.kgr	-	if_expr
+primary_expr	5	witnessed	examples/syntax/expressions.kgr	-	parenthesized_expr
+primary_expr	6	witnessed	examples/syntax/data-model.kgr	-	tuple_expr
+primary_expr	7	witnessed	examples/syntax/data-model.kgr	-	array_expr
+primary_expr	8	witnessed	examples/syntax/data-model.kgr	-	struct_expr
+primary_expr	9	witnessed	examples/syntax/closures.kgr	-	closure_expr
+primary_expr	10	witnessed	examples/syntax/control-flow.kgr	-	loop_expr
+primary_expr	11	witnessed	examples/syntax/match.kgr	-	match_expr
+primary_expr	12	witnessed	examples/syntax/blocks.kgr	-	block
+struct_init	1	witnessed	examples/syntax/data-model.kgr	-	field_init_list
+struct_init	2	witnessed	examples/syntax/struct-update.kgr	-	struct_update_base
+struct_init	3	witnessed	examples/syntax/struct-update.kgr	-	field_init ("," field_init)* "," struct_update_base
 field_init	1	witnessed	examples/syntax/data-model.kgr	-	IDENT
 field_init	2	witnessed	examples/syntax/data-model.kgr	-	IDENT ":" expr
 closure_body	1	witnessed	examples/syntax/closures.kgr	-	expr
@@ -113,9 +117,9 @@ literal	4	witnessed	examples/syntax/expressions.kgr	-	"true"
 literal	5	witnessed	examples/syntax/expressions.kgr	-	"false"
 trait_member	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_decl
 trait_impl_item	3	witnessed	examples/syntax/associated-constants.kgr	-	attribute* associated_const_def
-primary_expr	12	witnessed	examples/syntax/associated-constants.kgr	-	qualified_type
+primary_expr	13	witnessed	examples/syntax/associated-constants.kgr	-	qualified_type
 postfix_op	4	witnessed	examples/syntax/result-option.kgr	-	propagation_suffix
-primary_expr	13	witnessed	examples/syntax/string-interpolation.kgr	-	interpolated_string
+primary_expr	14	witnessed	examples/syntax/string-interpolation.kgr	-	interpolated_string
 interpolation_part	1	witnessed	examples/syntax/string-interpolation.kgr	-	FORMAT_TEXT
 interpolation_part	2	witnessed	examples/syntax/string-interpolation.kgr	-	interpolation
 assign_op	6	witnessed	examples/syntax/bitwise.kgr	-	"%="

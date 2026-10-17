@@ -9,3 +9,4 @@ mod contracts;
 mod joins;
 mod operators;
 mod recovery;
+mod struct_update;

@@ -64,7 +64,7 @@ fn generic_interface_instances_share_the_instantiation_budget() {
 fn aggregate_instances_are_concrete_deduplicated_and_budgeted_with_functions() {
     let context = DefinitionContext::new().unwrap();
     let checked = common::program_ok(
-        "struct Cell<T> { var value: T } enum Packet<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { x.value } fn main() -> (i32, bool) { val a = Cell { value: 1 }; val b = Cell { value: 2 }; val c = Cell { value: true }; val p = Packet::Data(a); (get(b), c.value) }",
+        "struct Cell<T> { var value: T } enum Packet<T> { Data(T) } fn get<T>(x: Cell<T>) -> T { Cell { ..x }.value } fn main() -> (i32, bool) { val a = Cell { value: 1 }; val b = Cell { value: 2 }; val c = Cell { value: true }; val p = Packet::Data(a); (get(b), c.value) }",
     );
     let ir = lower_to_mir(
         checked.root(),
@@ -371,9 +371,12 @@ fn returning_aggregate_member_stops_later_members() {
         "[if true { return 42; } else { return 7; }, grow(1)]",
         "Pair::Data(if true { return 42; } else { return 7; }, grow(1))",
         "PairStruct { first: if true { return 42; } else { return 7; }, second: grow(1) }",
+        "PairStruct { first: if true { return 42; } else { return 7; }, second: grow(1), ..make(1) }",
+        "PairStruct { first: (), ..if true { return 42; } else { return 7; } }",
+        "PairStruct { first: (), second: (), ..if true { return 42; } else { return 7; } }",
     ] {
         let analyzed = common::program_ok(&format!(
-            "enum Pair {{ Data((), ()) }} struct PairStruct {{ val first: (), val second: () }} fn grow<T>(x: T) {{ grow((x, x)); }} fn main() -> i32 {{ val unused = {expression}; }}"
+            "enum Pair {{ Data((), ()) }} struct PairStruct {{ val first: (), val second: () }} fn grow<T>(x: T) {{ grow((x, x)); }} fn make<T>(x: T) -> PairStruct {{ grow(x); PairStruct {{ first: (), second: () }} }} fn main() -> i32 {{ val unused = {expression}; }}"
         ));
         let ir = lower_to_mir(
             analyzed.root(),
@@ -384,6 +387,17 @@ fn returning_aggregate_member_stops_later_members() {
         )
         .unwrap();
         assert_eq!(ir.functions.len(), 1, "{expression}");
+        assert!(
+            ir.functions[0]
+                .blocks
+                .iter()
+                .flat_map(|block| &block.instructions)
+                .all(|instruction| !matches!(
+                    instruction,
+                    Instruction::MakeStruct { .. } | Instruction::ReadAggregateField { .. }
+                )),
+            "{expression}"
+        );
         assert!(
             ir.functions[0]
                 .blocks

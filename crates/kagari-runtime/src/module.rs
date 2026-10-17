@@ -206,7 +206,7 @@ impl VerifiedProgram {
             })
             .collect();
         for (index, prepared) in execution.iter_mut().enumerate() {
-            prepared.prepare_calls(ModuleRef::new(index), &modules[index]);
+            prepared.prepare_calls(ModuleRef::new(index), program.program(), &definitions);
         }
         Self {
             execution: execution.into(),

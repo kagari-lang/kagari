@@ -28,8 +28,9 @@ pub struct InterfaceCallContract {
     /// Associated projections resolved by the compiler for this application.
     /// Linked verification checks every fact against the supplying declarations.
     pub normalizations: Vec<TypeNormalization>,
-    /// None dispatches a boxed interface; Some invokes the caller's checked
-    /// constraint operation on an unboxed value of this type.
+    /// None dispatches a boxed interface; Some selects the caller's checked
+    /// constraint operation owned by this type. Only a declared `self` parameter
+    /// consumes a receiver value; static methods do not.
     pub receiver: Option<Ty>,
     pub operations: Vec<OperationWitness>,
     pub interface: NominalTy,
@@ -45,6 +46,8 @@ pub struct TypeNormalization {
 }
 
 pub struct InterfaceMethodSignature {
+    /// Whether the declaration's first parameter is `self`, not merely `Self`-typed.
+    pub has_receiver: bool,
     pub params: Vec<Ty>,
     pub result: Ty,
     pub bounds: Vec<GenericBound>,
@@ -245,6 +248,7 @@ impl InterfaceCallContract {
             cancel,
         )?;
         Ok(InterfaceMethodSignature {
+            has_receiver,
             params,
             result: apply(&method.return_type)?,
             bounds,
@@ -288,6 +292,7 @@ impl InterfaceCallContract {
         if !types_in_scope(
             self.arguments
                 .iter()
+                .chain(self.receiver.iter())
                 .chain(signature.params.iter())
                 .chain([&signature.result]),
             parameters,

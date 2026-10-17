@@ -409,7 +409,7 @@ ast_node!(
 );
 
 ast_node!(
-    /// A constructor path followed by named field initializers.
+    /// A constructor path, explicit field initializers and an optional terminal update base.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
     ///
@@ -417,24 +417,30 @@ ast_node!(
     ///
     /// Trivia is omitted; child-node descendants are collapsed.
     ///
-    /// `Point { x: 1, y: 2 }`:
+    /// `Point { x: 1, y, ..base }`:
     ///
     /// ```text
     /// StructExpr
     /// +-- PathExpr (Point) [node] [Expr #0] -> path()
     /// +-- LBrace "{" [token]
-    /// +-- FieldInitList (x: 1, y: 2) [node] -> field_list()
+    /// +-- FieldInitList (x: 1, y,) [node] -> field_list()
+    /// +-- StructUpdateBase (..base) [node] -> update_base()
     /// `-- RBrace "}" [token]
     /// ```
     ///
-    /// Braces are direct tokens here; `FieldInitList` owns the comma-separated fields.
-    /// Generic constructor arguments, when present, are direct children of this node.
+    /// Braces are direct tokens here; `FieldInitList` owns explicit fields and their
+    /// commas, including the separator before the base. Its list is empty in
+    /// `Point { ..base }`. Generic constructor arguments, when present, are direct
+    /// children before the opening brace. `StructUpdateBase` is not an `Expr`, so
+    /// filtering direct children by `Expr::cast` selects only the constructor path,
+    /// not the nested base operand. An absent marker yields `update_base() == None`;
+    /// recovered `Point { .. }` retains a base node whose `value()` is `None`.
     StructExpr,
     StructExpr
 );
 
 ast_node!(
-    /// The field initializer list of a struct expression.
+    /// The explicit field initializer list of a struct expression.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
     ///
@@ -451,10 +457,37 @@ ast_node!(
     /// `-- FieldInit (y: 2) [node] -> fields()
     /// ```
     ///
-    /// Iterates direct `FieldInit` children in source order; commas are tokens.
-    /// The enclosing braces belong to `StructExpr`.
+    /// Iterates only direct `FieldInit` children in source order; commas are tokens.
+    /// The enclosing braces and optional `StructUpdateBase` belong to `StructExpr`,
+    /// not this list. The list is present but empty for `Point {}` and `Point { ..base }`.
     FieldInitList,
     FieldInitList
+);
+
+ast_node!(
+    /// A struct update marker with its expression operand, not a standalone expression.
+    ///
+    /// See [AST conventions](crate::ast) for storage and diagram notation.
+    ///
+    /// # Tree shape
+    ///
+    /// In `Point { x: 1, ..make_point() }`, the direct `StructExpr` child is:
+    ///
+    /// ```text
+    /// StructUpdateBase
+    /// +-- DotDot ".." [token]
+    /// `-- CallExpr (make_point()) [node] [Expr #0] -> value()
+    /// ```
+    ///
+    /// Trivia is omitted and the call's descendants are collapsed. `value()` selects
+    /// the first direct expression node, not physical child/token #0. The marker
+    /// is not a range expression or a pattern rest token. A base is terminal and
+    /// permits no trailing comma. Recovered `Point { .. }` retains `DotDot` but no
+    /// expression child; `value()` returns `None` without hiding marker presence.
+    /// An invalid `..=` marker is retained in an error node instead. Repeated bases
+    /// and post-base fields are retained under error nodes, outside the explicit list.
+    StructUpdateBase,
+    StructUpdateBase
 );
 
 ast_node!(
@@ -946,7 +979,7 @@ pub enum Expr {
     IndexExpr(IndexExpr),
     /// A conditional, such as `if ready { a } else { b }` or `if val Some(x) = value { x }`.
     IfExpr(IfExpr),
-    /// Struct construction, such as `Point { x: 1, y }`, including shorthand fields.
+    /// Struct construction, such as `Point { x: 1, y, ..base }`, including shorthand and update.
     StructExpr(StructExpr),
     /// Pattern selection, such as `match value { Some(x) => x, _ => 0 }`.
     MatchExpr(MatchExpr),
@@ -1358,18 +1391,36 @@ impl StructExpr {
         self.syntax().children().filter_map(PathExpr::cast).next()
     }
 
-    /// Returns the field list `x: 1, y` in `Point { x: 1, y }`, including shorthand fields.
-    /// The braces belong to the struct expression, not the list.
+    /// Returns the explicit field list, including shorthand fields but never the base.
+    /// In `Point { x: 1, y, ..base }` this selects `x: 1, y,`; in `Point { ..base }`
+    /// it selects an empty list. The braces belong to the struct expression.
     pub fn field_list(&self) -> Option<FieldInitList> {
         self.syntax()
             .children()
             .filter_map(FieldInitList::cast)
             .next()
     }
+
+    /// Returns the written `..base` node, independently of whether its operand exists.
+    /// Ordinary construction returns `None`; recovered `Point { .. }` returns `Some`
+    /// with `value() == None`. Only the first direct base is selected; repeated bases
+    /// retained under recovery error nodes are not additional valid bases.
+    pub fn update_base(&self) -> Option<StructUpdateBase> {
+        support::child(self.syntax())
+    }
+}
+
+impl StructUpdateBase {
+    /// Returns `base` in `Point { ..base }`, or `None` for recovered `Point { .. }`.
+    /// The surrounding base node records marker presence independently of this operand.
+    pub fn value(&self) -> Option<Expr> {
+        support::child(self.syntax())
+    }
 }
 
 impl FieldInitList {
-    /// Iterates `x: 1` then shorthand `y` in `{ x: 1, y }`; `{}` yields no fields.
+    /// Iterates explicit `x: 1` then shorthand `y` in `{ x: 1, y, ..base }`.
+    /// Both `{}` and `{ ..base }` yield no fields; the update base is never a field.
     pub fn fields(&self) -> impl Iterator<Item = FieldInit> {
         self.syntax().children().filter_map(FieldInit::cast)
     }

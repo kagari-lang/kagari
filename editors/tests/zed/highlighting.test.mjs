@@ -90,6 +90,31 @@ test('empty strings, one-character text and hole boundaries follow actual Zed cu
   }
 });
 
+test('update bases retain ordinary captures and code pairing through incomplete interpolation edits', () => {
+  for (const eol of ['\n', '\r\n']) {
+    for (const operand of ['base', 'Default::default()', '', 'base,', '=base']) {
+      const text = `fn main() { val s = f"before {Point { x: 1, ..${operand} }} tail";${eol}val after = 42; }`;
+      const tree = parse(text);
+      assert.equal(tree.rootNode.hasError, ['', 'base,', '=base'].includes(operand), tree.rootNode.toString());
+      const found = captures(text);
+      const overrides = query('overrides.scm').captures(tree.rootNode);
+      for (const [needle, name] of [['x:', 'property'], ['..', 'operator'], ['tail', 'string'],
+        ['after', 'variable'], ['42', 'number']]) {
+        assert.equal(effectiveCapture(found, text.indexOf(needle)), name, `${operand}: ${needle}`);
+      }
+      if (operand === 'base' || operand === 'Default::default()') {
+        const start = text.indexOf(operand);
+        assert.equal(effectiveCapture(found, start), 'variable', 'An update operand is not a field name or resolved type');
+        assert.equal(overrideAt(overrides, start), 'interpolation');
+      }
+      const brackets = query('brackets.scm').matches(tree.rootNode);
+      const struct = tree.rootNode.descendantsOfType('struct_expression')[0];
+      assert.ok(brackets.some(({ captures }) => captures.some(({ name, node }) => name === 'close'
+        && node.endIndex === struct.endIndex)), 'The struct closer must not be mistaken for the hole closer');
+    }
+  }
+});
+
 test('attribute paths and interpolation delimiters win over generic names and punctuation', () => {
   const text = '#[tool::meta] fn main() { f"{x: /* debug */ ?}" }';
   const found = captures(text);

@@ -835,26 +835,90 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::FieldInitList);
         self.bump_trivia();
 
-        while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            self.start_node(SyntaxKind::FieldInit);
-            self.parse_field_name();
-            self.bump_trivia();
-            if self.at(TokenKind::Colon) {
-                self.bump();
-                self.parse_expr();
-            }
-            self.finish_node();
-
+        while self.at(TokenKind::Ident) {
+            self.parse_struct_field_init();
             self.bump_trivia();
             if self.at(TokenKind::Comma) {
                 self.bump();
                 self.bump_trivia();
             } else {
+                if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+                    self.error_here(DiagnosticKind::UnexpectedToken);
+                }
                 break;
             }
         }
 
         self.finish_node();
+        if self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            self.parse_struct_update_base();
+            self.recover_after_struct_update_base();
+        }
         self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
+    }
+
+    fn parse_struct_field_init(&mut self) {
+        self.start_node(SyntaxKind::FieldInit);
+        self.parse_field_name();
+        self.bump_trivia();
+        if self.at(TokenKind::Colon) {
+            self.bump();
+            self.parse_expr();
+        }
+        self.finish_node();
+    }
+
+    fn parse_struct_update_base(&mut self) {
+        if self.at(TokenKind::DotDotEq) {
+            self.error_here(DiagnosticKind::UnexpectedToken);
+            self.start_node(SyntaxKind::Error);
+        } else {
+            self.start_node(SyntaxKind::StructUpdateBase);
+        }
+        self.bump();
+        self.bump_trivia();
+        // A second marker is not the missing operand's open-ended range.
+        if self.expr_starts() && !self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+            self.parse_expr();
+        } else {
+            self.error_here(DiagnosticKind::ExpectedExpression);
+        }
+        self.finish_node();
+        self.bump_trivia();
+    }
+
+    fn recover_after_struct_update_base(&mut self) {
+        loop {
+            let has_comma = self.at(TokenKind::Comma);
+            if has_comma {
+                // Unlike pattern rest, update bases cannot have a trailing comma.
+                self.error_here(DiagnosticKind::UnexpectedToken);
+                self.bump_as_error();
+                self.bump_trivia();
+            }
+            if self.at(TokenKind::Ident)
+                && (has_comma
+                    || matches!(
+                        self.nth_nontrivia_kind(1),
+                        Some(TokenKind::Colon | TokenKind::Comma | TokenKind::RBrace)
+                    ))
+            {
+                if !has_comma {
+                    self.error_here(DiagnosticKind::UnexpectedToken);
+                }
+                self.start_node(SyntaxKind::Error);
+                self.parse_struct_field_init();
+                self.finish_node();
+                self.bump_trivia();
+                continue;
+            }
+            if !self.at_any(&[TokenKind::DotDot, TokenKind::DotDotEq]) {
+                break;
+            }
+            self.error_here(DiagnosticKind::UnexpectedToken);
+            self.start_node(SyntaxKind::Error);
+            self.parse_struct_update_base();
+            self.finish_node();
+        }
     }
 }

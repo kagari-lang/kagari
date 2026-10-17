@@ -164,6 +164,40 @@ before another statement remain statements. Unparenthesized range endpoints do
 not recursively accept another range. An open range before a `for` body does not
 consume that body's brace as its endpoint.
 
+### Struct update expressions
+
+Struct expressions permit one terminal `..base` with an ordinary expression
+operand, with or without preceding named/shorthand fields. A comma may separate
+explicit fields from the base, but no comma may follow the base. For
+`Point { x: 1, ..Default::default() }`, the query tree is:
+
+```text
+struct_expression
+  type: path(identifier: Point)
+  field_initializer
+    name: identifier: x
+    value: integer_literal: 1
+  base: struct_update_base
+    ..
+    value: call_expression
+      function: path(identifier: Default, identifier: default)
+      arguments
+```
+
+The sketch omits other anonymous punctuation. The marker belongs to
+`struct_update_base`, not `range_expression` or `rest_pattern`; its `value` may
+itself be any ordinary expression, including a range or nested struct expression.
+The nominal type/access rules remain the compiler's responsibility. Pattern rest
+still has no operand and may have a trailing comma.
+
+Missing operands, repeated/nonterminal bases, trailing base commas and `..=`
+markers recover through ordinary `ERROR`/`MISSING` nodes, not a permissive valid
+production. Recovery may omit the `base` child; clients must not assume a complete
+update node in malformed source. Nested interpolation keeps its own braces and
+string/comment boundaries. Existing Zed operator/name captures and lexical
+TextMate rules cover this syntax without semantic guesses about `Default` or
+other referenced names.
+
 ### Declaration patterns and struct rest
 
 Ordinary `val`/`var` declarations share the existing pattern nodes used by match,
@@ -200,8 +234,8 @@ unit tests load the actual Node addon, compile queries, parse seven
 selected shared syntax examples and a small representative set, assert ambiguity
 and unsupported-syntax boundaries, and compare complete incremental/fresh trees
 (including anonymous tokens, fields, errors, ranges and positions) through quote,
-hole/block-brace, pattern delimiter/rest and nested-comment-terminator edits with
-LF and CRLF.
+hole/block-brace, pattern delimiter/rest, struct update marker/operand/delimiter
+and nested-comment-terminator edits with LF and CRLF.
 
 The complete examples inventory, adapter capture contracts, Zed integration and
 platform matrix belong to the parent/CI. They are not run by this package's local

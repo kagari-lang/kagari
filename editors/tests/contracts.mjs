@@ -84,7 +84,26 @@ const bindingPatterns = {
     { needle: 'next', category: 'code', capture: 'variable' },
   ],
 };
-export const cases = [lexical, interpolation, bindingPatterns, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
+const structUpdate = {
+  name: 'struct update base blocks balance strings and comments inside interpolation',
+  text: `fn main() { val rendered = f"before {Point {
+    label: f"inner {score}", ..{ /* } .. /* nested */ */ Point { ..make("}")? } }
+  }:?} tail"; val after = 42; }`,
+  expected: [
+    { needle: 'before', category: 'string' },
+    { needle: 'label', category: 'code', capture: 'property' },
+    { needle: 'inner ', category: 'string' },
+    { needle: 'score', category: 'code', capture: 'variable' },
+    { needle: '..', category: 'code', capture: 'operator' },
+    { needle: '/* nested */', category: 'comment' },
+    { needle: 'make', category: 'code', capture: 'variable' },
+    { needle: '"}"', category: 'string' },
+    { needle: '?', category: 'code', capture: 'operator' },
+    { needle: 'tail', category: 'string' },
+    { needle: 'after', category: 'code', capture: 'variable' },
+  ],
+};
+export const cases = [lexical, interpolation, bindingPatterns, structUpdate, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
   name: 'unterminated block comment really extends to EOF',
   text: 'fn main() {} /* outer /* inner */ fn hidden() {}',
   expected: [

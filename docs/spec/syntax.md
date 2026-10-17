@@ -916,7 +916,13 @@ expr_list       ::= expr ("," expr)* (",")? ;
 
 array_expr      ::= "[" (expr_list | expr ";" expr)? "]" ;
 
-struct_expr     ::= path generic_args? "{" field_init_list? "}" ;
+struct_expr     ::= path generic_args? "{" struct_init? "}" ;
+
+struct_init     ::= field_init_list
+                  | struct_update_base
+                  | field_init ("," field_init)* "," struct_update_base ;
+
+struct_update_base ::= ".." expr ;
 
 explicit_enum_path ::= path generic_args "::" IDENT ;
 
@@ -1018,6 +1024,36 @@ the member types it needs to resolve.
 Standard bounds use the same rules in function calls and user-type applications.
 For example, a caller's `T: PartialEq` also satisfies PartialEq for `(T, i32)`;
 an unconstrained `T` does not establish that recursive requirement.
+
+### Struct update expressions
+
+`Player { health: 200, ..base }` creates a new Player using explicit fields and
+remaining fields from base. `Player { ..base }` is also supported. Exactly one
+base expression may appear at the end, without a trailing comma. Unlike pattern
+rest, update `..` requires an operand; `..=` is not an update marker.
+
+The base must have the same nominal owned struct type and normalized type arguments.
+No type-changing update, structural conversion, interface adaptation or host/view
+projection is implied. Every field must be accessible, including omitted fields
+and the all-overridden case. Duplicate/unknown fields remain errors. Without a
+base, every field remains required. A normally produced base can constrain generic
+arguments not supplied by explicit fields; target context flows into the base before
+constructor inference is finalized. This includes ordinary contextual static calls:
+
+```text
+val next = Player { health: 200, ..Default::default() };
+```
+
+Default is an [ordinary core trait](builtins.md#default-construction), not a special
+case in construction. A non-generic target or supplied generic context constrains
+the call's Self; otherwise unresolved arguments remain diagnostics.
+Explicit fields execute once in source order, then the complete base expression
+executes once, even if all fields are overridden. Only omitted fields are read,
+after base evaluation, and a fresh outer struct is constructed. Inner object fields
+retain shared identity and the base remains usable. Earlier exits skip later effects
+and final construction while preserving completed effects and ordinary root cleanup.
+See [value semantics](value-semantics.md#struct-update-construction) and the runnable
+[update example](../../examples/syntax/struct-update.kgr).
 
 ### Patterns
 

@@ -76,10 +76,11 @@ trait_impl	3	*	trait_impl_item
 trait_impl_item	1	*	attribute
 impl_item	1	*	attribute
 method_decl	1	?	visibility
-method_decl	2	?	generic_param_clause
-method_decl	3	?	method_param_list
-method_decl	4	?	return_type
-method_decl	5	?	where_clause
+method_decl	2	?	("async")
+method_decl	3	?	generic_param_clause
+method_decl	4	?	method_param_list
+method_decl	5	?	return_type
+method_decl	6	?	where_clause
 method_param_list	1	?	("," param_list)
 method_param_list	2	?	(",")
 block	1	*	stmt
@@ -108,7 +109,8 @@ expr_list	1	*	("," expr)
 expr_list	2	?	(",")
 array_expr	1	?	(expr_list | expr ";" expr)
 struct_expr	1	?	generic_args
-struct_expr	2	?	field_init_list
+struct_expr	2	?	struct_init
+struct_init	1	*	("," field_init)
 field_init_list	1	*	("," field_init)
 field_init_list	2	?	(",")
 closure_expr	1	?	("async")

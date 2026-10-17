@@ -396,9 +396,12 @@ impl<'a> Completion<'a> {
                                 work.push(Task::Visit(Node::Expr(*scrutinee)));
                                 continue;
                             }
-                            ExprKind::StructInit { fields, .. } => {
-                                Box::new(fields.iter().map(|field| Node::Expr(field.value)))
-                            }
+                            ExprKind::StructInit { fields, base, .. } => Box::new(
+                                fields
+                                    .iter()
+                                    .map(|field| Node::Expr(field.value))
+                                    .chain(base.iter().copied().map(Node::Expr)),
+                            ),
                             ExprKind::InterpolatedString(elements)
                             | ExprKind::Tuple(elements)
                             | ExprKind::Array(elements) => {

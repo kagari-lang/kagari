@@ -683,12 +683,14 @@ impl<'a> BodyChecker<'a> {
             ExprKind::StructInit {
                 path,
                 fields,
+                base,
                 explicit_type,
             } => {
                 let explicit = explicit_type.map(|ty| self.resolve_constructor_type(ty, env));
                 self.infer_struct_init_type(
                     path,
                     fields,
+                    *base,
                     expr_id,
                     env,
                     explicit.as_ref().or(expected),

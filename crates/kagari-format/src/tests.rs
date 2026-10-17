@@ -31,6 +31,8 @@ fn functions_bindings_and_width_have_expected_layout() {
 fn adjacency_interpolation_comments_and_boundaries_are_idempotent() {
     for text in [
         "fn f(x:i32)->i32{x>>2<<1}",
+        "fn f(){val copy=Point{x:1,/* base */..make()};val all=Point{..base};}",
+        "fn f(){val x=Point{x:1,.. // base\nmake()};}",
         "fn f(x:Outer<Inner<i32>>){val y=x;}",
         "fn f(){val s=f\"π {1+2} literal {{brace}}\";}",
         "fn f(){val s=f\"{1 // comment\n + 2}\";}",
@@ -84,6 +86,7 @@ fn representative_grammar_preserves_structure_and_is_idempotent() {
         "grammar-witnesses.kgr",
         "closures.kgr",
         "binding-patterns.kgr",
+        "struct-update.kgr",
         "string-interpolation.kgr",
         "generic-associated-types.kgr",
         "async.kgr",
@@ -136,6 +139,7 @@ fn complete_grammar_fixture_inventory() {
         "ranges.kgr",
         "result-option.kgr",
         "standard-traits.kgr",
+        "struct-update.kgr",
         "string-interpolation.kgr",
         "trait-inheritance.kgr",
         "try-protocols.kgr",

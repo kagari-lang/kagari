@@ -6,6 +6,7 @@ use kagari_hir::{
         ids::ExprId,
     },
     typeck::table::ResolvedHostPath,
+    types::TypeId,
 };
 use kagari_mir::instruction::{Instruction, MirValue, PathRef, StructFieldInit};
 use smallvec::SmallVec;
@@ -91,6 +92,7 @@ impl FunctionLowerer<'_, '_> {
         &mut self,
         expr_id: ExprId,
         fields: FieldInitBuffer,
+        base: Option<ExprId>,
     ) -> Result<MirValue, MirLoweringError> {
         let target = self
             .analyzed
@@ -124,6 +126,60 @@ impl FunctionLowerer<'_, '_> {
                     .slot,
                 value,
             });
+        }
+        if let Some(base_id) = base {
+            let base = self.lower_expr(base_id)?;
+            if self.current_block_terminated() {
+                return Ok(base);
+            }
+            let receiver = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(base_id)
+                .ok_or(MirLoweringError::MissingExprType(base_id))?;
+            let receiver = self
+                .planner
+                .arguments(
+                    &[receiver],
+                    &self.instance.substitution,
+                    self.analyzed.lowered.source_map.expr_span(base_id),
+                )?
+                .remove(0);
+            let TypeId::Struct(owner) = &receiver else {
+                return Err(MirLoweringError::MissingBinding(
+                    "checked struct update base",
+                ));
+            };
+            let structure = self.planner.catalog.structure(&target.structure).ok_or(
+                MirLoweringError::MissingBinding("checked struct update layout"),
+            )?;
+            let substitution = structure
+                .generic_params
+                .iter()
+                .cloned()
+                .zip(owner.arguments.iter().cloned())
+                .collect();
+            for declaration in target.base_fields {
+                let field = self.aggregate_field_ref(&declaration, &receiver)?;
+                let signature = self.analyzed.aggregates.field(&declaration).ok_or(
+                    MirLoweringError::MissingBinding("checked struct update field"),
+                )?;
+                let ty = signature.ty.instantiate(&substitution);
+                let value = self.alloc_temp(self.value_type(&ty)?);
+                let semantic = self.semantic_type(&ty)?;
+                self.function
+                    .semantic
+                    .registers
+                    .insert(value.temp.index(), semantic);
+                let slot = field.slot;
+                self.emit(Instruction::ReadAggregateField {
+                    dst: value,
+                    base,
+                    field,
+                });
+                lowered_fields.push(StructFieldInit { slot, value });
+            }
         }
         let dst = self.alloc_temp(self.expr_type(expr_id)?);
         self.emit(Instruction::MakeStruct {

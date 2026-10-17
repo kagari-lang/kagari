@@ -391,20 +391,15 @@ pub(super) fn verify(
                         context.expect(arg.ty, param, "interface call argument")?;
                     }
                     contracts::verify_call_dst(dst.map(|v| v.ty), return_type).map_err(contract)?;
-                } else {
-                    // Whole-program verification checks the imported declaration
-                    // and complete method signature before bytecode lowering.
+                } else if interface_call.receiver.is_none() {
+                    // Boxed dispatch always consumes an interface value. A bound
+                    // operation's type owner does not imply a value-level `self`;
+                    // whole-program verification checks its imported declaration
+                    // and complete signature before bytecode lowering.
                     let receiver = args
                         .first()
                         .ok_or_else(|| context.error(Error::InvalidInterfaceTable))?;
-                    context.expect(
-                        receiver.ty,
-                        interface_call
-                            .receiver
-                            .as_ref()
-                            .map_or(ValueType::HeapObject, semantic_representation),
-                        "interface receiver",
-                    )?;
+                    context.expect(receiver.ty, ValueType::HeapObject, "interface receiver")?;
                 }
             }
             CallTarget::RuntimePrimitive(intrinsic) => contracts::verify_intrinsic(

@@ -115,8 +115,12 @@ pub struct ResolvedCall {
 pub struct ResolvedStructInit {
     /// Canonical struct definition identity.
     pub structure: DefinitionId,
-    /// Source order, including holes for unknown initializer fields.
+    /// Explicit source order, including holes for unknown initializer fields.
     pub fields: Vec<Option<DefinitionId>>,
+    /// Omitted accessible fields supplied by the update base, in declaration order.
+    /// Empty without a base or when every field is explicitly initialized. The
+    /// operand itself belongs only to ExprKind::StructInit and must still run.
+    pub base_fields: Vec<DefinitionId>,
 }
 
 /// Known enum owner and optional selected variant for construction/recovery.

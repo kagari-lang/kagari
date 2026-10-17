@@ -307,6 +307,11 @@ impl Lowerer {
                             .collect::<SmallVec<[_; 4]>>()
                     })
                     .unwrap_or_default(),
+                base: struct_expr.update_base().map(|base| {
+                    base.value()
+                        .map(|expr| self.lower_expr(&expr))
+                        .unwrap_or_else(|| self.missing_expr())
+                }),
             },
             Expr::MatchExpr(match_expr) => ExprKind::Match {
                 scrutinee: match_expr

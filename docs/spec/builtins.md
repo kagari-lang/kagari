@@ -107,8 +107,9 @@ return Unit, false, correctly typed integer/positive floating zero, empty String
 a fresh empty Vec<T>, or None for Option<T>. Vec and Option do not require
 T: Default. Other types need an explicit implementation; no tuple/array/map/set,
 Result, host/view or implicit user-struct implementations are supplied.
-Default does not zero-initialize arbitrary types or enable derive, enum default
-selection or struct update expressions.
+Default does not zero-initialize arbitrary types or enable derive or enum default
+selection. [Struct update](syntax.md#struct-update-expressions) is a separate ordinary
+construction form; its base may use Default or any eligible struct expression.
 
 ## Core Builtin Types
 

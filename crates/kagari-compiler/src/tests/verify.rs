@@ -35,6 +35,8 @@ use kagari_types::{
 };
 use std::slice;
 
+mod struct_updates;
+
 fn raw(context: &DefinitionContext, source: &str) -> MirModule {
     common::adopt(
         context,
@@ -578,45 +580,53 @@ fn field_operands_require_an_existing_owner_slot_type_and_write_permission() {
 #[test]
 fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
     let context = DefinitionContext::new().unwrap();
-    let input = common::program_ok(
-        "struct P { val first: i32, val second: bool } fn main() -> P { P { second: true, first: 42 } }",
-    );
-    let module = lower_to_mir(input.root(), &Default::default()).unwrap();
-    let bytecode =
-        common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &module));
-    let (structure, fields) = bytecode.modules[bytecode.root.index()]
-        .functions
-        .iter()
-        .flat_map(|f| &f.instructions)
-        .find_map(|instruction| {
-            if let BytecodeInstruction::MakeStruct {
-                structure, fields, ..
-            } = instruction
-            {
-                Some((structure, fields))
-            } else {
-                None
-            }
-        })
-        .unwrap();
-    assert_eq!(
-        bytecode.modules[bytecode.root.index()].structures[structure.index()]
-            .fields
+    for expression in [
+        "P { second: true, first: 42 }",
+        "P { ..base() }",
+        "P { second: true, ..base() }",
+        "P { second: true, first: 42, ..base() }",
+    ] {
+        let input = common::program_ok(&format!(
+            "struct P {{ val first: i32, val second: bool }} fn base() -> P {{ P {{ first: 0, second: false }} }} fn main() -> P {{ {expression} }}",
+        ));
+        let module = lower_to_mir(input.root(), &Default::default()).unwrap();
+        let bytecode =
+            common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &module));
+        let main = bytecode.modules[bytecode.root.index()]
+            .functions
             .iter()
-            .map(|field| field.name.as_str())
-            .collect::<Vec<_>>(),
-        ["first", "second"]
-    );
-    let registers = &bytecode.modules[bytecode.root.index()].functions[0]
-        .metadata
-        .registers;
-    assert_eq!(
-        fields
+            .find(|function| function.name == "main")
+            .unwrap();
+        let (structure, fields) = main
+            .instructions
             .iter()
-            .map(|register| registers[register.index()])
-            .collect::<Vec<_>>(),
-        [ValueType::I32, ValueType::Bool]
-    );
+            .find_map(|instruction| {
+                if let BytecodeInstruction::MakeStruct {
+                    structure, fields, ..
+                } = instruction
+                {
+                    Some((structure, fields))
+                } else {
+                    None
+                }
+            })
+            .unwrap();
+        assert_eq!(
+            bytecode.modules[bytecode.root.index()].structures[structure.index()]
+                .fields
+                .iter()
+                .map(|field| field.name.as_str())
+                .collect::<Vec<_>>(),
+            ["first", "second"]
+        );
+        assert_eq!(
+            fields
+                .iter()
+                .map(|register| main.metadata.registers[register.index()])
+                .collect::<Vec<_>>(),
+            [ValueType::I32, ValueType::Bool]
+        );
+    }
 }
 
 #[test]

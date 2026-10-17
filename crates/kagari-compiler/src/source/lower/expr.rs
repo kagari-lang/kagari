@@ -664,7 +664,9 @@ impl FunctionLowerer<'_, '_> {
             ExprKind::Index { receiver, index } => self.lower_index(expr_id, receiver, index),
             ExprKind::Match { scrutinee, arms } => self.lower_match(expr_id, scrutinee, arms),
             ExprKind::Loop { body } => self.lower_loop_expr(expr_id, body),
-            ExprKind::StructInit { fields, .. } => self.lower_struct_init(expr_id, fields),
+            ExprKind::StructInit { fields, base, .. } => {
+                self.lower_struct_init(expr_id, fields, base)
+            }
             ExprKind::Tuple(elements) if elements.is_empty() => Ok(self.lower_unit()),
             ExprKind::Tuple(elements) => self.lower_tuple(expr_id, elements),
             ExprKind::ArrayRepeat { value, count } => {

@@ -8,9 +8,10 @@ use crate::module::execution::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget, Register},
-    module::{BytecodeModule, CallableTarget},
-    program::ModuleRef,
+    module::CallableTarget,
+    program::{BytecodeProgram, ModuleRef},
 };
+use kagari_common::identity::table::DefinitionTable;
 use kagari_contract::callable::{interface::InterfaceCallContract, witness::OperationWitness};
 use kagari_types::ty::Ty;
 
@@ -34,7 +35,7 @@ pub(crate) enum PreparedCallTarget {
     },
     Interface {
         closed: bool,
-        receiver: Register,
+        receiver: Option<Register>,
     },
     Closure(Box<PreparedClosureCall>),
 }
@@ -59,7 +60,13 @@ pub(crate) enum PreparedClosureSignature {
 impl ExecutionModule {
     /// Module slots refer to the containing verified program. Activation binds
     /// them through the caller's pinned descriptor, never the latest publication.
-    pub(crate) fn prepare_calls(&mut self, slot: ModuleRef, module: &BytecodeModule) {
+    pub(crate) fn prepare_calls(
+        &mut self,
+        slot: ModuleRef,
+        program: &BytecodeProgram,
+        definitions: &DefinitionTable,
+    ) {
+        let module = &program.modules[slot.index()];
         for (prepared, function) in self.functions.iter_mut().zip(&module.functions) {
             let mut calls = Vec::new();
             for (pc, instruction) in function.instructions.iter().enumerate() {
@@ -79,12 +86,27 @@ impl ExecutionModule {
                         prepared.has_call_contracts = true;
                         PreparedCallTarget::Shared { module, target }
                     }
-                    CallTarget::InterfaceMethod { ref contract, .. } => {
+                    CallTarget::InterfaceMethod {
+                        module,
+                        ref contract,
+                    } => {
+                        let owner = &program.modules[module.index()];
+                        let signature = contract
+                            .signature_in(
+                                &owner.identity,
+                                &owner.public_items,
+                                &owner.trait_contracts,
+                                &Default::default(),
+                                definitions,
+                            )
+                            .expect("verified interface signature");
                         let closed = closed_interface_contract(contract);
                         prepared.has_call_contracts = true;
                         PreparedCallTarget::Interface {
                             closed,
-                            receiver: *args.first().expect("verified interface receiver"),
+                            receiver: signature
+                                .has_receiver
+                                .then(|| *args.first().expect("verified interface receiver")),
                         }
                     }
                     CallTarget::ClosureRegister {

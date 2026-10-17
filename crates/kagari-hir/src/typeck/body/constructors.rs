@@ -248,6 +248,7 @@ impl<'a> BodyChecker<'a> {
         &mut self,
         path: &str,
         fields: &[FieldInit],
+        base: Option<ExprId>,
         expr_id: ExprId,
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
@@ -259,6 +260,9 @@ impl<'a> BodyChecker<'a> {
         else {
             for field in fields {
                 self.infer_expr_type(field.value, env);
+            }
+            if let Some(base) = base {
+                self.infer_expr_type(base, env);
             }
             self.diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
@@ -283,6 +287,17 @@ impl<'a> BodyChecker<'a> {
                     .zip(nominal.arguments.iter().cloned()),
             );
         }
+        // Update operands share persistent slots before finalization, so a typed
+        // base can refine an earlier factory field on the next bounded body round.
+        if base.is_some() && self.body_inference {
+            for (index, parameter) in struct_def.generic_params.iter().enumerate() {
+                let variable = self.inference_variable(expr_id, index + 1024);
+                if let Some(seeded) = substitution.get(parameter) {
+                    let _ = self.solver.constrain(&variable, seeded, self.cancel);
+                }
+                substitution.entry(parameter.clone()).or_insert(variable);
+            }
+        }
         let mut field_tys = Vec::with_capacity(fields.len());
         let mut completes = true;
         for field in fields {
@@ -301,9 +316,11 @@ impl<'a> BodyChecker<'a> {
                     )
             });
             let expected = parameter.map(|member| {
-                member
-                    .ty
-                    .argument_context(&substitution, &struct_def.generic_params)
+                self.solver.resolve(
+                    &member
+                        .ty
+                        .argument_context(&substitution, &struct_def.generic_params),
+                )
             });
             let actual = self.infer_expr_with_coercion(field.value, env, expected.as_ref());
             let Ok(field_completes) = completion::expr_can_complete(
@@ -316,6 +333,12 @@ impl<'a> BodyChecker<'a> {
                 return TypeId::Unknown;
             };
             completes &= field_completes;
+            if base.is_some()
+                && field_completes
+                && let Some(expected) = &expected
+            {
+                let _ = self.solver.constrain(expected, &actual, self.cancel);
+            }
             if field_completes
                 && let Some(parameter) = parameter
                 && inference::infer(
@@ -336,6 +359,62 @@ impl<'a> BodyChecker<'a> {
             }
             field_tys.push((field.name.as_str(), field.value, actual, field_completes));
         }
+        let template = TypeId::Struct(NominalType {
+            associated_types: Default::default(),
+            declaration: struct_def.id,
+            arguments: struct_def
+                .generic_params
+                .iter()
+                .cloned()
+                .map(TypeId::Generic)
+                .collect(),
+        });
+        let base_ty = if let Some(base) = base {
+            let expected = self.aggregates.normalize_type(
+                self.declarations.definitions(),
+                &self
+                    .solver
+                    .resolve(&template.argument_context(&substitution, &struct_def.generic_params)),
+            );
+            let actual = self.infer_expr_type_expected(base, env, Some(&expected));
+            let actual = self
+                .aggregates
+                .normalize_type(self.declarations.definitions(), &actual);
+            let Ok(base_completes) = completion::expr_can_complete(
+                &self.lowered.module,
+                self.names,
+                self.type_table,
+                base,
+                self.cancel,
+            ) else {
+                return TypeId::Unknown;
+            };
+            completes &= base_completes;
+            if base_completes {
+                let _ = self.solver.constrain(&expected, &actual, self.cancel);
+                if inference::infer(
+                    &template,
+                    &actual,
+                    &struct_def.generic_params,
+                    &mut substitution,
+                    self.cancel,
+                    None,
+                )
+                .is_err()
+                {
+                    return TypeId::Unknown;
+                }
+            }
+            Some((actual, base_completes))
+        } else {
+            None
+        };
+        if base.is_some() && !completes {
+            // An early update slot is not a produced argument. Preserve known
+            // members, but let the existing termination suppression handle an
+            // entirely unconstrained binder as it does without update slots.
+            substitution.retain(|_, ty| !matches!(self.solver.resolve(ty), TypeId::Inference(_)));
+        }
         let arguments = self.finish_inferred_arguments(
             &mut substitution,
             &struct_def.generic_params,
@@ -343,9 +422,26 @@ impl<'a> BodyChecker<'a> {
             expr_id,
             !completes,
         );
+        let result = TypeId::Struct(NominalType {
+            associated_types: Default::default(),
+            declaration: struct_def.id,
+            arguments,
+        });
+        let result = if base.is_some() {
+            self.aggregates.normalize_type(
+                self.declarations.definitions(),
+                &self.solver.resolve(&result),
+            )
+        } else {
+            result
+        };
+        if let (Some(base), Some((actual, true))) = (base, &base_ty) {
+            self.check_struct_update_base(path, base, &result, actual);
+        }
         let mut seen = HashSet::new();
-        let resolved = ResolvedStructInit {
+        let mut resolved = ResolvedStructInit {
             structure: struct_def.id,
+            base_fields: Vec::new(),
             fields: fields
                 .iter()
                 .map(|init| {
@@ -414,9 +510,31 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        self.type_table.insert_struct_init(expr_id, resolved);
+        let explicit: HashSet<_> = resolved.fields.iter().flatten().copied().collect();
         for field in &struct_def.fields {
-            if !seen.contains(&field.name) {
+            if base.is_some() {
+                if !field.visibility.allows(
+                    self.declarations
+                        .definitions()
+                        .resolve(field.owner)
+                        .expect("scoped member owner")
+                        .module(),
+                    self.lowered.source.module_identity(),
+                ) {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                            struct_name: path.to_owned(),
+                            reason: format!(
+                                "field `{}` is not accessible for struct update",
+                                field.name
+                            ),
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                } else if !explicit.contains(&field.id) {
+                    resolved.base_fields.push(field.id);
+                }
+            } else if !seen.contains(&field.name) {
                 self.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
                         struct_name: path.to_owned(),
@@ -427,10 +545,52 @@ impl<'a> BodyChecker<'a> {
             }
         }
 
-        TypeId::Struct(NominalType {
-            associated_types: Default::default(),
-            declaration: struct_def.id,
-            arguments,
-        })
+        self.type_table.insert_struct_init(expr_id, resolved);
+        result
+    }
+
+    fn check_struct_update_base(
+        &mut self,
+        path: &str,
+        base: ExprId,
+        expected: &TypeId,
+        actual: &TypeId,
+    ) {
+        let expected = self.aggregates.normalize_type(
+            self.declarations.definitions(),
+            &self.solver.resolve(expected),
+        );
+        let actual = self.aggregates.normalize_type(
+            self.declarations.definitions(),
+            &self.solver.resolve(actual),
+        );
+        if matches!(
+            actual,
+            TypeId::Unknown | TypeId::Error | TypeId::Inference(_)
+        ) {
+            return;
+        }
+        // Incomplete arguments do not hide an independently wrong base category
+        // or owner, including after an earlier field terminates construction.
+        let same_owner = matches!((&expected, &actual), (TypeId::Struct(expected), TypeId::Struct(actual))
+            if expected.declaration == actual.declaration && expected.arguments.len() == actual.arguments.len());
+        // No coercion, structural lookalike or type-changing update: even an
+        // all-overridden base must have exactly the constructed owned type.
+        if !same_owner
+            || expected.conflicts_with(&actual)
+            || (!actual.is_unresolved() && !expected.is_unresolved() && actual != expected)
+        {
+            self.diagnostics.push(
+                Diagnostic::error(DiagnosticKind::InvalidStructInitializer {
+                    struct_name: path.to_owned(),
+                    reason: format!(
+                        "update base must have type `{}`, found `{}`",
+                        display_type_id(self.declarations.definitions(), &expected),
+                        display_type_id(self.declarations.definitions(), &actual)
+                    ),
+                })
+                .with_span(self.lowered.source_map.expr_span(base)),
+            );
+        }
     }
 }

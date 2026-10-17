@@ -407,6 +407,25 @@ read after the RHS. Updating a tuple member prepares a new tuple value and thus
 requires a writable enclosing slot; modifying a mutable object referenced by a
 tuple does not replace the tuple.
 
+## Struct update construction
+
+For `Player { health: record(200), ..make_player() }`, evaluate record first, then
+make_player once and in full, then read only omitted members from its result and
+allocate the new Player. The base expression still executes when no member is
+inherited. Reads are not hoisted before explicit/base effects: another alias may
+change a member before it is copied. Explicit values remain rooted across base
+calls, collection and synchronous host reentry. Traps, cancellation and early
+returns retain completed effects and release existing temporary/frame roots.
+
+The result has independent outer identity and scalar slots. Referenced fields,
+such as an items collection, retain shared identity: changing the new player's
+health does not alter the base's health, while mutating their shared items is
+visible through either alias. The base remains usable. There is no implicit Clone,
+deep copy, move or in-place update. All-field access and exact nominal/generic
+eligibility are checked by [struct update typing](syntax.md#struct-update-expressions).
+This follows Rust 1.90's terminal-base, visibility and operand-order contracts but
+not its move/partial-invalidation ownership model.
+
 ## Acceptance examples
 
 - Mutating `b` after `val b = a` changes the object observed through `a`.

@@ -309,6 +309,11 @@ added. Without sufficient constraints, Self remains uninferred even if only one
 implementation exists. Incompatible or unproven receivers remain diagnostics.
 Concrete `Item::make()`, generic `T::make()` and qualified
 `<Item as Factory>::make()` retain ordinary static dispatch and ambiguity rules.
+In shared generic bodies, a bound operation's owner type is distinct from a
+value-level receiver. Only a declared `self` parameter consumes a receiver value;
+a static call forwards precisely its declared value arguments, even when empty.
+The selected operation and its checked types remain pinned to their supplying
+generation, including calls from retained closures after reload.
 
 ### Operation-specific bounds
 

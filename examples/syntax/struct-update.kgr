@@ -1,0 +1,41 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/struct-update.kgr
+// Result: main returns 42.
+struct Player<T> { var health: i32, var score: i32, val items: Vec<T> }
+
+impl<T> Default for Player<T> {
+    fn default() -> Self {
+        Player { health: 100, score: 1, items: Default::default() }
+    }
+}
+
+fn explicit(base: Player<i32>, calls: Vec<i32>) -> i32 {
+    calls.push(1);
+    base.score = 2;
+    200
+}
+
+fn marked(base: Player<i32>, calls: Vec<i32>) -> Player<i32> {
+    calls.push(2);
+    base.score = 3;
+    base
+}
+
+fn main() -> i32 {
+    val base: Player<i32> = Default::default();
+    base.items.push(20);
+    val calls = Vec::new();
+    val changed = Player { health: explicit(base, calls), ..marked(base, calls) };
+    if calls.len() != 2usize || calls[0] != 1 || calls[1] != 2 { return 0; }
+    if changed === base || changed.items !== base.items
+        || base.health != 100 || changed.health != 200 || changed.score != 3 { return 0; }
+    changed.items[0] += 2;
+    if base.items[0] != 22 { return 0; }
+    val copy = Player { ..changed };
+    if copy === changed || copy.items !== changed.items || copy.score != 3 { return 0; }
+    val overridden = Player {
+        health: 1, score: 1, items: Vec::new(), ..marked(base, calls)
+    };
+    if calls.len() != 3usize || calls[2] != 2 || overridden.items.len() != 0usize { return 0; }
+    val contextual: Player<i32> = Player { health: 20, ..Default::default() };
+    base.items[0] + contextual.health
+}
