@@ -267,6 +267,36 @@ fn main()->i32 {
 }
 
 #[test]
+fn standard_default_constructors_preserve_values_and_fresh_storage() {
+    execute(
+        r#"
+struct NoDefault { val value: i32 }
+fn make<T: Default>() -> T { Default::default() }
+fn main() -> i32 {
+    val _: () = Default::default();
+    val a: i8 = make(); val b: i16 = make(); val c: i32 = make();
+    val d: i64 = make(); val e: isize = make();
+    val f: u8 = make(); val g: u16 = make(); val h: u32 = make();
+    val i: u64 = make(); val j: usize = make();
+    val single: f32 = make(); val double: f64 = make();
+    val flag: bool = make(); val text: String = make();
+    if a != 0i8 || b != 0i16 || c != 0 || d != 0i64 || e != 0isize
+        || f != 0u8 || g != 0u16 || h != 0u32 || i != 0u64 || j != 0usize
+        || single != 0f32 || double != 0f64 || flag || text != "" { return 0; }
+    if !(1f32 / single > 0f32) || !(1f64 / double > 0f64) { return 0; }
+    val first: Vec<NoDefault> = Default::default();
+    val second = Vec<NoDefault>::default();
+    if first === second || first.len() != 0usize || second.len() != 0usize { return 0; }
+    first.push(NoDefault { value: 42 });
+    if second.len() != 0usize { return 0; }
+    val empty: Option<NoDefault> = make();
+    match empty { None => first[0].value, Some(_) => 0 }
+}
+"#,
+    );
+}
+
+#[test]
 fn foundation_aggregation_calls_script_iterators_synchronously() {
     execute(
         r#"
@@ -311,6 +341,8 @@ fn main()->i32 {
 #[test]
 fn construction_contracts_reject_invalid_signatures_and_bounds() {
     for source in [
+        "struct NoDefault {} fn main() { val value: NoDefault = Default::default(); }",
+        "fn main() { val value: (i32, i32) = Default::default(); }",
         "fn main() { val result:i32 = [1,2].collect(); }",
         "fn main(){[1,2].collect();}",
         "use std::collections::HashSet; struct Key{} fn main(){val result:HashSet<Key>=[Key{}].collect();}",

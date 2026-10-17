@@ -3,6 +3,7 @@
 mod arrays;
 mod comparison;
 mod construction;
+mod default_construction;
 mod enums;
 mod hash;
 mod iterable;
@@ -101,6 +102,10 @@ fn build_module(
             )
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?,
         )? {
+            bindings.insert(*id, binding);
+            continue;
+        }
+        if let Some(binding) = default_construction::binding(name) {
             bindings.insert(*id, binding);
             continue;
         }

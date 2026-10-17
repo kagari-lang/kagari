@@ -469,7 +469,8 @@ ahead of the default review queue on 2026-10-17. The
 DF01-DF05, the sole progress ledger, design decisions and focused acceptance.
 Implementation and one commit per phase are authorized. DF01 froze the contract
 and focused acceptance; DF02 ordinary registration/contextual calls passed focused
-local checks. DF03 standard implementations are next.
+local checks. DF03 standard implementations passed focused value/fresh-storage
+acceptance; DF04 struct update and editor syntax are next.
 
 Deliver ordinary `core::default::Default` and prelude publication, contextual
 static associated-call Self inference, a finite standard implementation inventory,

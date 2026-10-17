@@ -35,6 +35,7 @@ pub(super) fn declare(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
 ) -> Result<(), DeclarationError> {
+    default_implementations(ids, module)?;
     checked_conversions(ids, module)?;
     for target in SCALARS {
         let mut interface = key::applied(ids, RegistrationTrait::FromStr, vec![])?;
@@ -84,6 +85,146 @@ pub(super) fn declare(
     iteration_calls(ids, module, item)?;
     hash_constructors(ids, module)?;
 
+    Ok(())
+}
+
+fn default_implementations(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+) -> Result<(), DeclarationError> {
+    for (target, binding, description) in [
+        (
+            BuiltinType::Unit,
+            "$foundation_default_Unit",
+            "Return the Unit value ().",
+        ),
+        (
+            BuiltinType::Bool,
+            "$foundation_default_Bool",
+            "Return false.",
+        ),
+        (
+            BuiltinType::I8,
+            "$foundation_default_I8",
+            "Return zero of type i8.",
+        ),
+        (
+            BuiltinType::I16,
+            "$foundation_default_I16",
+            "Return zero of type i16.",
+        ),
+        (
+            BuiltinType::I32,
+            "$foundation_default_I32",
+            "Return zero of type i32.",
+        ),
+        (
+            BuiltinType::I64,
+            "$foundation_default_I64",
+            "Return zero of type i64.",
+        ),
+        (
+            BuiltinType::ISize,
+            "$foundation_default_ISize",
+            "Return zero of type isize.",
+        ),
+        (
+            BuiltinType::U8,
+            "$foundation_default_U8",
+            "Return zero of type u8.",
+        ),
+        (
+            BuiltinType::U16,
+            "$foundation_default_U16",
+            "Return zero of type u16.",
+        ),
+        (
+            BuiltinType::U32,
+            "$foundation_default_U32",
+            "Return zero of type u32.",
+        ),
+        (
+            BuiltinType::U64,
+            "$foundation_default_U64",
+            "Return zero of type u64.",
+        ),
+        (
+            BuiltinType::USize,
+            "$foundation_default_USize",
+            "Return zero of type usize.",
+        ),
+        (
+            BuiltinType::F32,
+            "$foundation_default_F32",
+            "Return positive zero of type f32.",
+        ),
+        (
+            BuiltinType::F64,
+            "$foundation_default_F64",
+            "Return positive zero of type f64.",
+        ),
+        (
+            BuiltinType::String,
+            "$foundation_default_String",
+            "Return an empty immutable String.",
+        ),
+    ] {
+        implement_default(
+            ids,
+            module,
+            Ty::Builtin(target),
+            vec![],
+            binding,
+            description,
+        )?;
+    }
+    for (name, binding, description) in [
+        (
+            "Vec",
+            "$foundation_default_Vec",
+            "Return a fresh empty Vec<T>. Every call creates independent mutable storage; T need not implement Default.",
+        ),
+        (
+            "Option",
+            "$foundation_default_Option",
+            "Return Option<T>::None using the checked Option enum identity. T need not implement Default.",
+        ),
+    ] {
+        let parameter = GenericParam {
+            owner: identities::implementation(ids, module.implementations.len())?,
+            position: 0,
+        };
+        let receiver = if name == "Vec" {
+            contracts::vec_type(ids, parameter.as_type())?
+        } else {
+            contracts::option(ids, parameter.as_type())?
+        };
+        implement_default(ids, module, receiver, vec![parameter], binding, description)?;
+    }
+    Ok(())
+}
+
+fn implement_default(
+    ids: &DefinitionContext,
+    module: &mut ModuleDecl,
+    receiver: Ty,
+    parameters: Vec<GenericParam>,
+    binding: &str,
+    description: &str,
+) -> Result<(), DeclarationError> {
+    let owner = identities::implementation(ids, module.implementations.len())?;
+    implement(
+        ids,
+        module,
+        key::applied(ids, RegistrationTrait::Default, vec![])?,
+        receiver,
+        parameters,
+        binding,
+    )?;
+    module.documentation.insert(
+        identities::method(ids, &owner, "default")?,
+        format!("{description}\n\nSee `core::default::Default` for the construction contract."),
+    );
     Ok(())
 }
 

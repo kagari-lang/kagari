@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one coherent commit per phase authorized on
-2026-10-17. DF01-DF02 are complete; DF03 is next. Remote publication is not authorized. The [roadmap](implementation-roadmap.md#default-and-struct-update)
+2026-10-17. DF01-DF03 are complete; DF04 is next. Remote publication is not authorized. The [roadmap](implementation-roadmap.md#default-and-struct-update)
 owns activation and queue placement. This is the single execution plan for
 [SA26](review.md#sa26-add-ordinary-default-construction-and-struct-update-expressions),
 including DF01-DF05, design decisions, focused acceptance and the progress ledger.
@@ -336,7 +336,7 @@ use Conventional Commits and `Plan-Phase: DF0N`; mark actual breaking APIs expli
 
 - [x] DF01: freeze contracts, consumer inventory and focused acceptance selection.
 - [x] DF02: ordinary declaration and general contextual static-call inference.
-- [ ] DF03: finite standard implementation inventory and bindings.
+- [x] DF03: finite standard implementation inventory and bindings.
 - [ ] DF04: struct update vertical slice, source tools and editor syntax.
 - [ ] DF05: focused boundary acceptance, disposable products and documentation handoff.
 
@@ -406,3 +406,20 @@ Clippy and diff checks passed. Manual import/visibility/LOC review added no
 exceptions. No carried failures. Standard Default implementations remain DF03;
 updates/editors and combined source-free/reload acceptance remain DF04/DF05.
 Complete feature/backend/platform tests are CI-only and unrun locally.
+
+### DF03 — finite standard implementations
+
+Registered/bound Unit, bool, the ten integers, f32/f64, String, Vec<T> and Option<T>
+through explicit ordinary native entries and namespace ownership. No universal
+recipe, new language role or element Default bound. Updated implementation docs
+and registration assertions. SDK checks every value/width, positive float zero,
+fresh independent Vec storage and None with a non-Default element type under
+forced GC through source/artifact/artifact-JIT. Existing constructor rejection
+coverage now also rejects implicit user-struct and tuple defaults.
+
+Passed 3 stdlib registration tests, the API documentation contract and both SDK
+value/invalid-construction filters. Structure checked 1,300 Rust files with zero
+violations/exceptions; formatting, workspace all-target Clippy and diff checks
+passed. Manual imports/ownership/visibility review added no exceptions. No failures
+remain. Source-free fixture regeneration is intentionally batched at DF05; complete
+feature/backend/platform acceptance remains CI-only.

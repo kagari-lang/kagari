@@ -42,6 +42,26 @@ fn entry<'a>(
 }
 
 fn function_owner(name: &str) -> ModuleIdentity {
+    match name {
+        "$foundation_default_Unit"
+        | "$foundation_default_Bool"
+        | "$foundation_default_I8"
+        | "$foundation_default_I16"
+        | "$foundation_default_I32"
+        | "$foundation_default_I64"
+        | "$foundation_default_ISize"
+        | "$foundation_default_U8"
+        | "$foundation_default_U16"
+        | "$foundation_default_U32"
+        | "$foundation_default_U64"
+        | "$foundation_default_USize"
+        | "$foundation_default_F32"
+        | "$foundation_default_F64" => return namespaces::module("core", "num"),
+        "$foundation_default_String" => return namespaces::type_owner("String"),
+        "$foundation_default_Vec" => return namespaces::type_owner("Vec"),
+        "$foundation_default_Option" => return namespaces::type_owner("Option"),
+        _ => {}
+    }
     if matches!(
         name,
         "list_content_equal" | "set_content_equal" | "map_content_equal"

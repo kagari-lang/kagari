@@ -15,9 +15,14 @@ use kagari_runtime::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::names::{ExportName, NameNamespace},
+    declaration::{
+        module::ModuleDecl,
+        names::{ExportName, NameNamespace},
+    },
     ty::Ty,
 };
+
+use std::collections::BTreeSet;
 
 #[derive(Debug)]
 struct EmptyPayload;
@@ -75,6 +80,98 @@ fn declaration_storage_binding_preserves_local_contract() {
             .is_err()
     );
     foreign.finish().unwrap();
+}
+
+#[test]
+fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
+    let modules = catalog::declarations().unwrap();
+    let default = modules
+        .iter()
+        .find(|module| module.records().identity == namespaces::module("core", "default"))
+        .unwrap();
+    let default_id = default
+        .records()
+        .definition(DefinitionKind::Trait, "Default", default.definitions())
+        .unwrap();
+    let mut inventory = BTreeSet::new();
+    for provider in &modules {
+        let module = provider.records();
+        let definitions = provider.definitions();
+        for (index, implementation) in module.implementations.iter().enumerate() {
+            let Some(interface) = &implementation.trait_type else {
+                continue;
+            };
+            if interface.declaration != default_id {
+                continue;
+            }
+            assert!(interface.arguments.is_empty());
+            assert!(interface.associated_types.is_empty());
+            assert!(implementation.bounds.is_empty());
+            let name = match &implementation.for_type {
+                Ty::Builtin(kind) => {
+                    assert!(implementation.generic_params.is_empty());
+                    format!("{kind:?}")
+                }
+                Ty::NativeObject(nominal) | Ty::Enum(nominal) => {
+                    let [parameter] = implementation.generic_params.as_slice() else {
+                        panic!("container defaults require exactly one unbounded parameter");
+                    };
+                    assert_eq!(nominal.arguments, [parameter.as_type()]);
+                    definitions
+                        .resolve(nominal.declaration)
+                        .unwrap()
+                        .last()
+                        .unwrap()
+                        .name
+                        .to_owned()
+                }
+                receiver => panic!("unexpected standard Default target {receiver:?}"),
+            };
+            let expected_owner = match name.as_str() {
+                "String" | "Vec" | "Option" => namespaces::type_owner(&name),
+                _ => namespaces::module("core", "num"),
+            };
+            assert_eq!(module.identity, expected_owner);
+            assert!(
+                inventory.insert(name.clone()),
+                "duplicate Default for {name}"
+            );
+            let [method] = implementation.methods.as_slice() else {
+                panic!("Default implementations must bind exactly one method");
+            };
+            assert_eq!(method.name, "default");
+            assert!(method.params.is_empty());
+            assert!(method.bounds.is_empty());
+            assert_eq!(method.generic_params, implementation.generic_params);
+            assert_eq!(method.return_type, implementation.for_type);
+            let CallableImplementation::Native(binding) = method.implementation else {
+                panic!("standard defaults require explicit native bindings");
+            };
+            let binding = definitions.resolve(binding).unwrap();
+            assert_eq!(binding.module(), &expected_owner);
+            assert_eq!(
+                binding.last().unwrap().name,
+                format!("$foundation_default_{name}")
+            );
+            let method_id = ModuleDecl::method_id(
+                module.implementation_id(index, definitions).unwrap(),
+                "default",
+                definitions,
+            )
+            .unwrap();
+            assert!(!module.documentation[&method_id].is_empty());
+        }
+    }
+    assert_eq!(
+        inventory,
+        [
+            "Unit", "Bool", "I8", "I16", "I32", "I64", "ISize", "U8", "U16", "U32", "U64", "USize",
+            "F32", "F64", "String", "Vec", "Option",
+        ]
+        .into_iter()
+        .map(str::to_owned)
+        .collect()
+    );
 }
 
 #[test]
