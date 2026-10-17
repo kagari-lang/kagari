@@ -14,7 +14,7 @@ uv run python scripts/benchmark_lua.py --interpreter-only --workload arithmetic
 
 The driver builds `kagari-lua-benchmark` in the existing release profile and
 default target directory, then launches two sequential processes. It saves CSV
-samples, JIT diagnostics, source/binary hashes, machine/toolchain metadata,
+samples, JIT diagnostics, executable/workload checksums, machine/toolchain metadata,
 separate build duration and summarized JSON under ignored `target/lua-comparison/`.
 No system Lua installation is needed: this benchmark-only package embeds standard
 Lua 5.4 through `mlua` with `lua54,vendored`. Kagari production dependencies do
@@ -73,90 +73,66 @@ loops. Its ratios are diagnostic, outside the frozen matched parity gate; it doe
 not claim Lua implements Kagari's entire integer/float domain or checked-overflow
 semantics.
 
-A baseline binary and its report are frozen together before production changes.
-Run each selected suite against the same destination to add its frozen report:
+## Before/after workflow
+
+1. Before editing the runtime, save its release executable and workload report.
+2. After editing, build once and run the old/new executables sequentially in seven
+   pairs, alternating which goes first. Both execute the same selected inputs.
+3. Check results, then compare execution time. Compilation and preparation are
+   reported separately; they are not included in execution time or its pass/fail.
 
 ```text
-uv run python scripts/benchmark_lua.py --interpreter-only --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
-uv run python scripts/benchmark_lua.py --source-forms --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
-uv run python scripts/benchmark_lua.py --execution-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
-uv run python scripts/benchmark_lua.py --window-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01-windows.exe
-uv run python scripts/benchmark_lua.py --freeze-lua-reference target/interpreter-performance/lua-setup-reference.exe
-uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable target/interpreter-performance/ip01.exe --baseline-report target/interpreter-performance/ip01.exe.original.json --lua-setup-reference target/interpreter-performance/lua-setup-reference.exe
-uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable target/interpreter-performance/ip01.exe --baseline-report target/interpreter-performance/ip01.exe.forms.json
-uv run python scripts/check_benchmark.py <paired-results.json> --target forms_interface=0.90 --target forms_shared_generic=0.90
+# Before the runtime change (one process; saves executable + original.json):
+uv run python scripts/benchmark_lua.py --freeze-baseline target/perf/before
+# After the change (seven pairs by default; discovers before.original.json):
+uv run python scripts/benchmark_lua.py --baseline-executable target/perf/before
+uv run python scripts/check_benchmark.py <paired-results.json>
 ```
 
-Both binaries must contain the same selected fixtures. Results, binary/source hashes
-and process order are recorded; setup, allocation instrumentation and throughput
-runs remain separate. See the [measurement scope](../../docs/performance-baseline.md#frozen-paired-throughput).
-The single-process freeze verifies the workload contract and preserves a runnable
-binary; it is not timing acceptance. Subsequent comparisons rerun that binary in
-at least seven fresh alternating pairs. A focused original-suite comparison may
-select `--workload calls` against the full frozen original report; the entire
-baseline report is still validated before selecting that row.
-The checker validates the frozen binary/configuration, complete process/sample
-identities, workload sizes, batches and checksums. It requires seven alternating
-process pairs, three warmups and eleven execution samples. Both the ratio of
-process medians and the median paired ratio must satisfy the target. Values within
-0.01 of a gate are inconclusive and return a failing exit status; further pairs
-must be declared before collection and all evidence retained. This checks timing
-only, not allocation, correctness or CI acceptance.
+Use `--source-forms`, `--execution-controls` or `--window-controls` on both steps
+for those suites. Window controls use a separate test-harness executable. A focused
+`--workload calls` run can use the full original baseline report. Optional
+`--baseline-report` selects a report stored elsewhere. Use `--target calls=0.90`
+with the checker when a 10% improvement is required; otherwise the execution
+regression limit is 1.05. Smaller ratios mean faster execution.
 
-Original-suite paired runs require a separately frozen Lua setup reference. A
-different Kagari image also changes the linked reference engine's layout, and its
-cold preparation follows Kagari's allocator/cache state. Consequently those
-embedded Lua preparation times cannot provide a fixed reference treatment. They
-remain in `raw` and in the checker's explicit `embedded_lua_setup_diagnostics`,
-including failures. Kagari setup/execution and embedded Lua execution keep their
-original samples, frozen workload contracts and acceptance thresholds.
+Each process prepares each workload once, then performs three warmups and eleven execution samples with results
+checked outside the timer. For each pair, divide the candidate sample median by
+its baseline sample median; report the median of those seven ratios. This is the
+only pass/fail estimator. Raw samples, per-process medians and the min/max paired
+ratios remain available. The range is not a confidence interval, and a threshold
+pass alone is not statistical proof of a small speedup. Investigate visibly noisy
+results before making a performance claim; do not select favorable samples.
 
-The [independent runner](examples/lua_setup_reference.rs) uses the same pinned
-mlua/Lua dependency and exact existing Lua source files. Each subject process is
-followed sequentially by one fresh reference worker per selected workload, using
-the same fixed image for both variants. Three samples each create 32 independent
-Lua states, compile their chunks and construct returned entries. Vector capacity
-is reserved outside timers; all states/chunks stay live through preparation, and
-every returned entry is checked against the frozen workload result outside timing.
-These batched preparation controls are normalized by 32; they are not the old
-individual cold-call measurements. Both estimators retain the +5% gate and 0.01
-inconclusive band. Forms and lifecycle suites do not use this reference.
+The fixed run count is chosen before starting (`--runs` overrides it). There is
+no report extension, second estimator or fixed near-threshold margin. A follow-up
+experiment produces a separate report and must disclose earlier conflicting
+results. Workload/engine reversal changes every two pairs independently of the
+alternating baseline/candidate order; each group of four pairs covers all four
+order combinations. Keep the image paths fixed during a run. Build and test before
+measurement; do not overlap timing with other benchmark or profiling work.
 
-Freezing builds only the reference example and writes an immutable image/manifest
-pair; it does not replace the ordinary benchmark. Reuse that exact path for later
-comparisons. The driver separately fingerprints the reference source, image,
-manifest, dependency lock, toolchain and sampling, and checks input/image hashes
-before and after each worker. `reference_raw`, `reference_processes` and
-`reference_summary` retain the independent evidence. Missing samples, validation
-results or changed provenance fail acceptance. Only this independently owned
-example is excluded from the ordinary subject source fingerprint. Previously
-frozen IP01 binaries and source/checksum contracts remain unchanged.
+The checker validates complete rows, sample counts, pair identities, sizes, batches,
+checksums and matched build settings. One workload checksum covers the selected
+harness and fixtures; executable checksums identify the two images and are checked
+again after timing. Revision/status, dependency lock, machine, toolchain, features,
+profile and cache treatment are recorded once per run. Runtime source trees and
+per-worker provenance manifests are not fingerprinted.
 
-After declaring additional pairs, keep the same matrix/baseline options and add
-`--extend-report <previous-paired-results.json> --runs <new-total-pairs>`. This
-retains every earlier row and continues the alternating order. The driver rejects
-changed candidate/baseline hashes, absolute image paths or configuration; a changed implementation needs
-a separate new comparison. The new report also retains the previous metadata and
-report hash, so extending noisy evidence cannot silently discard unfavorable runs.
-Extensions reuse the original candidate image path without rebuilding. Finish any
-extension before another build replaces that image. An archived copy at another
-path cannot extend the experiment; there is no image-path override. Older paired reports
-without image-path evidence cannot be extended or establish new acceptance. Frozen
-single-variant IP01 reports still supply their unchanged workload/checksum contract;
-their old setup timings are not substituted for new matched baseline processes.
-For original runs, also retain `--lua-setup-reference` and its exact reference
-image/path/configuration; extensions preserve all earlier reference rows and
-worker provenance. Historical original paired reports without the independent
-reference remain historical diagnostics and cannot establish new acceptance.
-Current revision/status describe the measuring worktree; `continued_metadata`
-retains the original candidate's build provenance and path through every extension.
+Only Kagari execution and the selected Kagari lifecycle controls affect the
+comparison's exit status. Kagari setup and all embedded Lua timings remain visible
+as diagnostics. The driver still prints candidate Kagari/Lua execution ratios for
+cross-language context; Lua timing is not a before/after regression gate for a
+Kagari change. Startup optimization requires a separately specified startup
+experiment, including an explicit cold/warm process contract. There is no independent
+Lua setup executable or reference calibration requirement.
 
-On Windows, identical executable bytes at two paths produced a roughly 10% Lua
-string-call difference in a seven-pair diagnostic. Image loading/placement is part
-of the measurement environment; hash equality alone did not preserve it. Keep
-archival EXE/PDB copies, but do not relocate or replace either measured image during
-one experiment. This restriction does not identify the underlying OS/CPU mechanism
-or waive any regression gate.
+This simplified workflow replaces the old independent-reference and continuation
+protocol. Old reports remain historical records and are not converted into passes.
+Regenerate disposable baseline reports using this driver against the intended old
+runtime checkout with the same toolchain and fixtures; do not substitute the new
+runtime as the baseline for an existing optimization. Timing checks do not establish
+memory, semantic correctness or CI acceptance.
 
 `--execution-controls` is a separate Kagari-only lifecycle matrix, outside Lua
 parity. It parks 1/32/256 owned executions after one instruction, then completes
@@ -196,14 +172,15 @@ Host API entry, return conversion and default GC during execution remain include
 Console output, source file I/O, expected-value calculation and setup are excluded.
 No profiler or counting allocator is installed.
 
-Setup has its own three samples per workload per process. Each uses a fresh
-Kagari engine and fresh Lua state, so source analysis is not reused from an earlier
-compilation. Kagari source-to-artifact includes static analysis, MIR, bytecode,
+Setup is recorded once per workload per process, using a fresh Kagari engine
+and Lua state. The resulting program and runtime are then reused for warmups and
+execution samples; the driver does not repeatedly compile just to measure execution. Kagari source-to-artifact includes static analysis, MIR, bytecode,
 verification and portable MIR emission. Lua source-to-chunk compiles the source;
 its separate module-init stage creates the script functions. These stages provide
 startup cost context, rather than identical compiler responsibilities. Engine
-initialization's first process-local sample also includes Kagari's cold fixed
-foundation caches; later engine/runtime construction reuses those caches.
+initialization for the first workload also includes Kagari's cold fixed foundation
+caches; later workloads in the same process can reuse them. These diagnostic
+startup rows are not a controlled cold-start comparison.
 
 The native route requires `JitExecutionStatus::Native` on every execution. A
 `PreparedNativeEntry::Unsupported` is logged and omitted from JIT timing, without

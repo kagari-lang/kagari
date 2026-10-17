@@ -1,27 +1,18 @@
 # Interpreter performance execution plan
 
-Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
-at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
-prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass. Historical Windows timing findings remain
-recorded below. The current macOS candidate passes all forms, window and owned-root
-gates, all Kagari original-suite rows, and all embedded Lua execution rows. The four
-required call targets pass. Eight independent Lua preparation controls fail in the
-seven-pair original comparison; adjacent A/A and a rejected larger-batch calibration
-also fail to establish repeatability. The production reference remains three-by-32.
-The one predeclared original extension to 21 total pairs, UTC 20261017T041918Z,
-has completed with 59/70 gates passing, ten failures and one inconclusive gate.
-All eleven open gates belong to the independent Lua setup reference. Every earlier
-sample and exact image/path is retained. This experiment has reached its finite
-endpoint; no further extension or batch/schedule pilot follows. IP02/IP03 acceptance
-stays open, pending an explicit measurement-environment or scope decision.
-The subsequently authorized instability investigation identifies mixed process
-warmth, observed minor faults/preemption and confounded order factors; its bounded
-diagnostic results below do not replace acceptance or fully explain residual noise.
-IP04-IP07 are unstarted.
-The 2026-10-17 user review requires the architecture follow-up below before further
-code-generation tuning or new specialization. It does not close timing acceptance
-or activate the conditional implementation phases.
+Status: activated on 2026-10-16. IP01 froze the original baseline at 60bfaacb.
+IP02/IP03 are implemented as buildable checkpoints; selected local correctness and
+memory checks pass. IP04-IP07 are unstarted. The old finite timing experiment ended
+with all Kagari original-suite rows and required call targets passing, but independent
+Lua setup controls left acceptance open. Its results remain historical evidence.
+On 2026-10-17 the user authorized simplifying performance measurement: replace the
+independent reference, report extensions and dual-estimator gate with the fixed
+before/after execution workflow below. Setup and Lua timings are diagnostics;
+execution/lifecycle targets and memory/semantic obligations remain. This changes
+acceptance scope explicitly, not historical outcomes. Fresh reports under the new
+workflow and the required architecture follow-up are still outstanding; IP02/IP03
+are not automatically accepted. The architecture review remains required before
+further code-generation tuning or new specialization.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
 the progress ledger.
@@ -279,7 +270,7 @@ the estimator with synthetic unequal process distributions, paired-order reversa
 missing/duplicate records, zero baselines and passing/failing thresholds. These
 checks validate measurement tooling, not runtime performance.
 Acceptance: all selected controls build/run, the gate checker rejects incomplete
-evidence and reports both required ratios, allocation/profiling limits and separate
+evidence and reports the paired ratio and spread, allocation/profiling limits and separate
 setup sampling are documented, and the baseline is reproducible on the selected
 machine. Preserve each accepted checkpoint's revision, binary hash and rebuild
 inputs for later comparisons against the preceding accepted checkpoint.
@@ -373,69 +364,52 @@ default target and build parallelism for matched pairs. Build first; never overl
 timing with compilation, tests or another agent-started workload. Separate ordinary
 timing, sampling, allocation instrumentation and logical counters. Report setup,
 execution, collection and retirement separately, with GC policy fixed per pair.
-Record the absolute candidate/baseline image paths from the first pair and retain
-them through every extension, in addition to hashes. Extensions do not rebuild or
-relocate images: complete them before another build replaces the original image.
-Archival EXE/PDB copies remain useful for attribution, but cannot stand in for the
-original measured path. Paired reports without this evidence cannot establish new
-acceptance; frozen single-variant IP01 workload/checksum contracts remain valid.
+Save the baseline executable before changing the runtime. Record candidate/baseline
+image paths and hashes once, and keep each image unchanged during the experiment.
+One checksum covers the selected workload harness and inputs; revision/status,
+lockfile and build/environment metadata provide context without per-file runtime
+snapshots or per-worker manifests. Historical reports remain immutable; obsolete
+report formats are disposable and have no compatibility reader.
 
-For execution and lifecycle acceptance use at least seven alternating
-baseline/current process pairs, three warmups and eleven samples per timed row.
-Setup has a separate fresh-state protocol: the current driver samples each setup
-phase three times per process for the original suite and once for source forms.
-Freeze those counts and cold/warm shared-preparation treatment in IP01, retain all
-seven process pairs and report setup separately. Do not describe setup as eleven
-warmed samples or mix Cargo build duration with script compilation/preparation.
+Use seven baseline/current process pairs by default, three warmups and eleven
+execution samples per row. Choose any larger run count before starting. Alternate
+baseline/current order each pair; reverse workload/engine order every two pairs so
+it is not tied to the same parity bit. Every four pairs covers the four combinations.
+The benchmark validates results outside timers; the checker rejects missing or
+repeated rows, altered inputs/results, mismatched builds and invalid pair identities.
 
-Original-suite paired acceptance now uses an independently frozen Lua setup
-reference for engine_init, source_to_chunk and module_init. For each subject
-process/workload, launch the same reference image afresh and collect three samples
-of 32 independent states/chunks/returned entries. Validate every entry outside
-timing and normalize by 32. The ordinary subject retains its original individual
-Lua setup rows as explicit diagnostics; embedded Lua execution is unchanged.
-The ledger below records why this reference-ownership correction is necessary.
-It does not change any Kagari baseline, subject workload or numerical gate.
-Reference source, absolute image path, image/manifest hashes and sampling are fixed
-through extensions, with independent completeness/checksum validation. See the
-[driver guide](../benchmarks/lua-comparison/README.md#matching-and-timing).
-
-For each phase/workload/engine row and matched process pair i, compute B_i and C_i
-as that process's baseline and candidate sample medians after batch normalization.
-Report all process medians/ranges and both ratios:
+For pair i, B_i and C_i are process sample medians after batch normalization:
 
 ```text
-aggregate ratio = median(C_i) / median(B_i)
-paired ratio    = median(C_i / B_i)
+comparison ratio = median(C_i / B_i)
 ```
 
-Both must satisfy each applicable gate; a 10% improvement means <=0.90 and a 5%
-regression limit means <=1.05. Pooling samples across processes is not equivalent.
-The IP01 checker must validate pair/variant identity, expected rows and sample
-counts, checksums, fixture hashes and matched configuration before computing gates.
-Missing, duplicate, mismatched or failed evidence cannot pass. A zero timing median
-requires a predeclared longer batch and a new matched measurement, not division by
-zero. Report pass/fail/inconclusive per gate and fail automated acceptance when any
-required evidence is missing or any gate is not passed. Setup uses these same
-process-level estimators with its separately declared sample count.
+This is the only threshold estimator: <=0.90 means the measured 10% target is met;
+<=1.05 meets the default regression limit. Retain all process medians, raw samples
+and min/max paired ratios. A range is not a confidence interval and a numerical pass
+is not a significance claim. Zero medians are inconclusive. Remove the second
+aggregate-ratio gate and fixed 0.01 band; do not extend reports or discard unfavorable
+runs. Noisy follow-up experiments get separate reports and disclose conflicting
+results instead of running until a pass.
 
-Near-threshold noise is inconclusive: predeclare additional pairs and retain all
-results. Keep raw files under ignored target/ and the methods, hashes, conclusions
-and limits in this ledger until handoff. Do not select favorable samples.
+Kagari compilation/preparation and all embedded Lua rows remain reported diagnostics,
+not execution-regression gates. There is no independent Lua setup worker, frozen
+reference manifest or reference calibration. Prepare each original workload or forms module once per process, then reuse it
+for warmups and execution. Setup rows can still mix first-workload and reused
+process state across workloads; they cannot establish a cold-start guarantee. Future startup
+work must define its own cold/warm contract before drawing conclusions. Lifecycle
+controls retain separate admission, retirement and collection/fragmentation rows.
 
-The [driver](../scripts/benchmark_lua.py) builds before timing and treats --runs as
-the number of matched process pairs when a baseline is supplied. Freeze the binary
-and each matrix report with --freeze-baseline before production edits. A successful
-measurement is not acceptance: the [checker](../scripts/check_benchmark.py) validates
-both process-level estimators and the complete frozen matrix contract. IP01 also
-records separate storage, session-retirement and allocation measurements.
+The [driver guide](../benchmarks/lua-comparison/README.md#beforeafter-workflow)
+owns usage. Freeze each suite's baseline executable/report once before the runtime
+change; the driver discovers the companion report automatically. For an optimization
+already in progress, regenerate a report with the new driver on the intended old
+runtime checkout, not by rebasing the baseline to the candidate. Historical timing
+reports are not retroactively reclassified. Example after freezing the original suite:
 
 ```text
-uv run python scripts/benchmark_lua.py --freeze-lua-reference <reference-executable>
-uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-original-report> --lua-setup-reference <reference-executable>
-uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-forms-report>
-uv run python scripts/benchmark_lua.py --execution-controls --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-controls-report>
-uv run python scripts/check_benchmark.py <paired-results.json>
+uv run python scripts/benchmark_lua.py --baseline-executable <baseline-executable>
+uv run python scripts/check_benchmark.py <paired-results.json> --target calls=0.90 --target fibonacci=0.90
 ```
 
 Common gates apply to each retained checkpoint and the final result against IP01;
@@ -444,7 +418,8 @@ allowances do not compound across phases:
 - Every unchanged execution/control median remains within +5%; phase-specific
   improvement gates apply in addition and remain satisfied at later checkpoints
   and IP07. Construction, live/release GC and retirement controls stay within +5%.
-- Compilation, preparation and linking are each within +5%. Separately attributed
+- Compilation, preparation and linking times are reported separately for review;
+  they are outside default execution acceptance. Separately attributed
   prepared-code/metadata and loaded-setup requested bytes are each within +5%.
   Report the cost of added descriptors rather than hiding it in runtime setup.
 - Live, empty and reused requested bytes for every workload, including performance
@@ -526,6 +501,11 @@ CI-only. Documentation-only planning needs content, link and diff checks.
 Use Conventional Commits with Plan-Phase: IPxx trailers for implementation phases.
 
 ## Progress and decisions
+
+Current measurement policy is the simplified workflow above, authorized on
+2026-10-17. Earlier entries describe the protocol in use when collected, including
+now-removed independent-reference and extension mechanisms. Their thresholds and
+commands are historical, not instructions to restore the deleted tooling.
 
 - [x] Planning: owners, phase order, finite experiments and acceptance recorded.
 - [x] IP01: fresh baseline, attribution, frozen controls, gate checker and test selection.
@@ -3256,7 +3236,7 @@ Findings, with the distinction between mechanism and attribution preserved:
    takes 0.960/0.969 ms for arrays/fibonacci. Process preconditioning therefore
    changes both the observed fault count and elapsed time; it does not isolate
    the contribution of page faults from allocator/cache/CPU-state warming. The
-   [current lifecycle](../benchmarks/lua-comparison/examples/lua_setup_reference.rs)
+   then-current lifecycle (removed reference example; retained in Git history)
    mixes those states into one three-sample process median. Occasional later
    spikes change which position supplies that median. This is a heterogeneous
    estimator input, not evidence that its arithmetic is wrong.
@@ -3277,7 +3257,7 @@ Findings, with the distinction between mechanism and attribution preserved:
    the observed spread. Empty-probe CPU spans have group medians 292-417 ns, so
    very small wall/CPU differences must not be overinterpreted or subtracted.
 4. The [driver](../scripts/benchmark_lua.py) couples variant order and workload
-   reversal to the same pair-parity bit. The [reference worker launcher](../scripts/benchmark_reference.py)
+   reversal to the same pair-parity bit. The reference worker launcher (removed; retained in Git history)
    inherits workload insertion order: AB always uses forward workload order and
    BA always uses reverse. In retained data, calls engine-init paired ratios are
    1.107 for even/forward pairs and 1.025 for odd/reverse pairs. This is an order
@@ -3304,3 +3284,50 @@ Raw records, source and reproduction scripts are retained under ignored target/;
 the methods, numerical evidence and limitations needed for resumption are above.
 Documentation diff, relative file links and fences pass. No permanent Rust change
 requires a new workspace Clippy or correctness-test sweep at this checkpoint.
+
+
+### 2026-10-17 User-authorized measurement simplification
+
+The user requested a simpler performance workflow after the architecture review.
+Replace the independent Lua reference executable/module, continuation validation
+and nested report history with fixed before/after runs. Use one median paired ratio
+and report its full process values and range; remove the aggregate-ratio gate and
+0.01 band. Only Kagari execution/lifecycle rows gate the comparison. Compilation,
+preparation and Lua remain visible diagnostics. Memory, semantic and required
+execution-improvement obligations remain unchanged; old failures are not converted
+into passes. This supersedes the earlier instruction to obtain a measurement-scope
+decision: that decision is now supplied by this user request.
+
+Original workloads now prepare once per process before three warmups and eleven
+execution samples. Remove the setup repetition option/loop, without changing script
+bodies, inputs, checksums or timed execution boundaries. This changes preparation
+cache history, so refresh baseline reports with the same harness on the intended
+old runtime before measuring existing optimizations. Do not compare new reports
+with old timings or substitute today's runtime as IP01. Baseline report discovery
+is automatic; retain only executable, selected-workload and lock checksums instead
+of per-file source snapshots and per-worker provenance. Alternating variant order
+and two-pair workload reversal no longer use the same parity bit.
+
+Validation: 15 focused Python measurement tests pass, including sample/result
+integrity, threshold arithmetic, diagnostic separation and workload identity.
+The existing benchmark test `matched_scripts_handle_empty_and_single_element_inputs`
+passes, covering all seven original inputs at sizes zero and one, including the
+native unsupported/result boundary. Structure checks, fmt, workspace all-target
+Clippy, documentation file links/fences and diff checks pass. Rust review is limited
+to removing the example and unwrapping the preparation loop: no imports/re-exports,
+visibility, storage ownership or production execution semantics change. Exhaustive
+feature/backend tests remain CI-only; no runtime optimization acceptance is claimed.
+
+A real final-workflow smoke run freezes a calls-only binary/report and then uses
+only `--workload calls --baseline-executable <saved-image>` for seven pairs. Both
+images have identical bytes. On Apple M1 Max, 32 GiB, macOS 26.6.2 arm64,
+rustc 1.98.1/LLVM 22.1.8, workspace release defaults, source/native and vendored
+Lua features, default Cargo parallelism and sequential single-thread execution,
+all 14 processes and 420 raw rows validate. Build cache is reused; fresh processes
+prepare once, then execution is warmed. Builds/tests/profilers do not overlap timing.
+The paired calls ratio is 1.004083, range 0.974826-1.009709; the checker exits zero
+under the ordinary 1.05 execution limit. This validates the tool flow only, not a
+speedup or a complete noise characterization. An earlier smoke run before removing
+setup repetition also completed; it is not substituted for this final-harness run.
+Temporary outputs stay under target/. IP02/IP03 fresh acceptance and the recorded
+architecture follow-ups remain pending.

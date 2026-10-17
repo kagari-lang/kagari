@@ -7,8 +7,6 @@ from pathlib import PurePosixPath, PureWindowsPath
 import re
 from statistics import median
 
-import benchmark_reference as reference
-
 ORIGINAL = ("entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
 FORMS = ("direct", "helper", "concrete_generic", "interface", "shared_generic",
          "capture_cell", "field", "native", "byte_state", "host_callback",
@@ -19,7 +17,7 @@ CONTROLS = tuple(f"roots_{population}_{order}_{mode}"
 WINDOWS = ("windows_1_0_tail", "windows_32_8_tail", "windows_256_128_tail",
            "windows_256_0_random", "windows_256_8_forward", "windows_256_128_random")
 MATCHED_CONFIG = ("rustc", "cargo", "machine", "profile", "features", "parallelism",
-                  "environment", "source_sha256", "lock_sha256", "suite", "workload",
+                  "environment", "workload_sha256", "lock_sha256", "suite", "workload",
                   "samples_per_process", "warmups_per_route", "setup_samples_per_workload",
                   "setup_scope", "interpreter_only", "check")
 IMAGE_PATHS = ("candidate_executable", "baseline_executable")
@@ -38,26 +36,13 @@ def row_key(row: dict) -> tuple[str, str, str]:
     return row["phase"], row["workload"], row["engine"]
 
 
-def validate_extension_identity(current: dict, earlier: dict) -> None:
-    """Image paths are part of one paired experiment, even for identical bytes."""
-    require(earlier.get("paired") is True and earlier.get("check") is False,
-            "extend ordinary paired evidence only")
-    require(type(earlier.get("runs")) is int and type(current.get("runs")) is int
-            and 0 < earlier["runs"] < current["runs"], "extension must add process pairs")
-    for key in (*MATCHED_CONFIG, "binary_sha256", "baseline_binary_sha256", *IMAGE_PATHS):
-        require(key in current and key in earlier, f"missing extension metadata: {key}")
-        require(current[key] == earlier[key], f"extension configuration mismatch: {key}")
-    require(current.get("lua_setup_reference") == earlier.get("lua_setup_reference"),
-            "extension reference image/path/configuration changed")
-
-
 def expected_rows(metadata: dict) -> dict[tuple[str, str, str], int]:
     """Keep the finite timing schema explicit so an entirely absent row is detected."""
     require(metadata["interpreter_only"], "acceptance requires interpreter-only evidence")
     samples = metadata["samples_per_process"]
     setup = metadata["setup_samples_per_workload"]
     require(type(samples) is int and samples > 0, "invalid execution sample count")
-    require(type(setup) is int and setup > 0, "invalid setup sample count")
+    require(type(setup) is int and setup == 1, "one preparation per workload is required")
     result = {}
     if metadata["suite"] == "original":
         names = (metadata["workload"],) if metadata["workload"] else ORIGINAL
@@ -73,7 +58,6 @@ def expected_rows(metadata: dict) -> dict[tuple[str, str, str], int]:
                     result[phase, name, engine] = setup
     elif metadata["suite"] == "forms":
         require(not metadata["workload"], "forms cannot select an original workload")
-        require(setup == 1, "forms setup has exactly one sample per process")
         for name in FORMS:
             for engine in ("kagari_vm", "lua54"):
                 result["execute", f"forms_{name}", engine] = samples
@@ -95,9 +79,8 @@ def validate_report(report: dict) -> dict[tuple[int, str, str, str], list[dict]]
     metadata = report["metadata"]
     for key in (*MATCHED_CONFIG, "binary_sha256", "revision", "runs", "paired"):
         require(key in metadata, f"missing metadata: {key}")
-    require(isinstance(metadata["source_sha256"], dict) and metadata["source_sha256"]
-            and isinstance(metadata["machine"], dict) and metadata["machine"], "missing fixture/machine evidence")
-    for value in (metadata["binary_sha256"], metadata["lock_sha256"], *metadata["source_sha256"].values()):
+    require(isinstance(metadata["machine"], dict) and metadata["machine"], "missing machine evidence")
+    for value in (metadata["binary_sha256"], metadata["lock_sha256"], metadata["workload_sha256"]):
         require(isinstance(value, str) and re.fullmatch("[0-9a-f]{64}", value), "invalid SHA-256 evidence")
     require(type(metadata["runs"]) is int and metadata["runs"] > 0, "invalid process count")
     require(type(metadata["paired"]) is bool, "invalid paired mode")
@@ -107,12 +90,6 @@ def validate_report(report: dict) -> dict[tuple[int, str, str, str], list[dict]]
             require(isinstance(path, str) and bool(path)
                     and (PurePosixPath(path).is_absolute() or PureWindowsPath(path).is_absolute()),
                     f"missing absolute image path: {key}")
-        continued = metadata
-        while "continued_metadata" in continued:
-            earlier = continued["continued_metadata"]
-            require(isinstance(earlier, dict), "invalid continued metadata")
-            validate_extension_identity(continued, earlier)
-            continued = earlier
     schema = expected_rows(metadata)
     variants = 2 if metadata["paired"] else 1
     grouped = defaultdict(list)
@@ -178,29 +155,10 @@ def validate_baseline(current: dict, baseline: dict) -> None:
             "baseline binary does not match its frozen report")
 
 
-def validate_extension(current: dict, previous: dict) -> int:
-    """Extend unchanged paired evidence without discarding earlier samples/order."""
-    validate_report(previous)
-    earlier = previous["metadata"]
-    validate_extension_identity(current, earlier)
-    validate_baseline(current, previous["baseline"])
-    if current["suite"] == "original":
-        reference_summaries(previous)
-    return earlier["runs"]
-
-
-def reference_summaries(report: dict) -> list[dict]:
-    try:
-        return reference.summaries(report)
-    except (KeyError, TypeError, ValueError) as error:
-        raise EvidenceError(f"invalid independent Lua setup evidence: {error}") from error
-
-
 def compare(report: dict, targets: dict[str, float] | None = None,
-            minimum_pairs: int = 7, margin: float = 0.01) -> dict:
+            minimum_pairs: int = 7) -> dict:
     """Check timing gates only; correctness and allocation acceptance remain separate."""
     targets = targets or {}
-    require(math.isfinite(margin) and 0 <= margin < 1, "invalid near-gate margin")
     for limit in targets.values():
         require(math.isfinite(limit) and 0 < limit <= 1.05, "invalid target ratio")
     metadata = report["metadata"]
@@ -209,8 +167,6 @@ def compare(report: dict, targets: dict[str, float] | None = None,
             "insufficient ordinary process pairs")
     require(metadata["samples_per_process"] == 11 and metadata["warmups_per_route"] == 3,
             "acceptance requires three warmups and eleven execution samples")
-    require(metadata["setup_samples_per_workload"] == (3 if metadata["suite"] == "original" else 1),
-            "unexpected setup sampling")
     baseline = report["baseline"]
     validate_baseline(metadata, baseline)
     summaries = process_summary(report)
@@ -218,43 +174,40 @@ def compare(report: dict, targets: dict[str, float] | None = None,
     for row in report["raw"]:
         require(frozen[row_key(row)] == (row["size"], row["batch"], row["checksum"]),
                 "measurement differs from frozen workload contract")
-    embedded_setup = []
-    if metadata["suite"] == "original":
-        embedded_setup = [row for row in summaries if reference.is_setup(row)]
-        summaries = [row for row in summaries if not reference.is_setup(row)] + reference_summaries(report)
-    target_names = {row["workload"] for row in summaries
+    measured, diagnostics = [], []
+    for row in summaries:
+        selected = (row["engine"] == "kagari_vm"
+                    and row["phase"] in ("execute", "admit", "retire", "collect", "fragment"))
+        (measured if selected else diagnostics).append(row)
+    target_names = {row["workload"] for row in measured
                     if row["phase"] in ("execute", "retire") and row["engine"] == "kagari_vm"}
     require(targets.keys() <= target_names, "target absent from selected matrix")
-    gates = timing_gates(summaries, metadata["runs"], targets, margin)
-    diagnostics = timing_gates(embedded_setup, metadata["runs"], {}, margin)
-    return dict(scope="timing only", passed=all(row["status"] == "pass" for row in gates),
-                near_gate_margin=margin, gates=gates, processes=summaries,
-                embedded_lua_setup_diagnostics=dict(gates=diagnostics, processes=embedded_setup))
+    gates = timing_comparisons(measured, metadata["runs"], targets)
+    return dict(scope="Kagari execution/lifecycle timing only",
+                passed=all(row["status"] == "pass" for row in gates), gates=gates,
+                diagnostics=timing_comparisons(diagnostics, metadata["runs"]), processes=summaries)
 
 
-def timing_gates(summaries: list[dict], pairs: int, targets: dict[str, float], margin: float) -> list[dict]:
+def timing_comparisons(summaries: list[dict], pairs: int, targets: dict[str, float] | None = None) -> list[dict]:
     groups = defaultdict(dict)
-    origins = {}
     for row in summaries:
         key = row_key(row)
-        origin = row.get("origin", "subject")
-        require(origins.setdefault(key, origin) == origin, "mixed timing owners")
         groups[key][row["pair"], row["variant"]] = row["median_ns"]
     gates = []
     for (phase, workload, engine), values in sorted(groups.items()):
         before = [values[i, "baseline"] for i in range(pairs)]
         after = [values[i, "candidate"] for i in range(pairs)]
-        limit = targets.get(workload, 1.05) if phase in ("execute", "retire") and engine == "kagari_vm" else 1.05
-        if min(before + after) <= 0:
-            aggregate = paired = None
-            status = "inconclusive"
-        else:
-            aggregate = median(after) / median(before)
-            paired = median(c / b for b, c in zip(before, after))
-            worst = max(aggregate, paired)
-            status = "fail" if worst > limit else "inconclusive" if worst > limit - margin else "pass"
-        gates.append(dict(phase=phase, workload=workload, engine=engine, limit=limit,
-                          origin=origins[phase, workload, engine],
-                          aggregate_ratio=aggregate, paired_ratio=paired, status=status,
-                          baseline_process_medians_ns=before, candidate_process_medians_ns=after))
+        comparison = dict(phase=phase, workload=workload, engine=engine,
+                          baseline_ns=median(before), candidate_ns=median(after),
+                          baseline_process_medians_ns=before, candidate_process_medians_ns=after)
+        ratios = [c / b for b, c in zip(before, after)] if min(before + after) > 0 else []
+        ratio = median(ratios) if ratios else None
+        comparison.update(ratio=ratio, pair_ratios=ratios,
+                          min_ratio=min(ratios) if ratios else None,
+                          max_ratio=max(ratios) if ratios else None)
+        if targets is not None:
+            limit = targets.get(workload, 1.05) if phase in ("execute", "retire") else 1.05
+            comparison.update(limit=limit, status="inconclusive" if ratio is None else
+                              "pass" if ratio <= limit else "fail")
+        gates.append(comparison)
     return gates

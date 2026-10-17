@@ -244,7 +244,10 @@ The [interpreter performance execution plan](interpreter-performance-plan.md)
 owns active IP01-IP07 work as of 2026-10-16. IP01 has frozen the fresh baseline
 and acceptance tooling at 60bfaacb. IP02 window-slot reuse and IP03 call transitions
 are implemented but remain unaccepted; the finite reference experiment ended with
-independent Lua setup gates open. IP04-IP07 are unstarted. The plan's
+independent Lua setup gates open. On 2026-10-17 the user authorized a simpler
+fixed before/after execution comparison with setup/Lua timings as diagnostics.
+Fresh evidence under that workflow remains pending; historical results are not
+reclassified as acceptance. IP04-IP07 are unstarted. The plan's
 [architecture follow-up](interpreter-performance-plan.md#architecture-follow-up-from-the-2026-10-17-review)
 requires reference-first review of fragile inlining, session storage ownership and
 specialized paths within the existing phases before further affected optimization.
