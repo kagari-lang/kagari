@@ -81,11 +81,12 @@ impl ExecutionStack<'_> {
             .ok_or_else(|| runtime.resources().quarantine("missing return frame"))?;
         let destination = frame.return_to;
         let frame = frames.pop().expect("checked return frame");
-        frame.release_values(self.session.resources);
+        let mut values = frame.retire_values(self.session.resources);
         drop(frame);
         self.session.resources.leave_call();
         runtime.gc.ensure_execution_allowed()?;
         if frames.len() == self.base {
+            drop(values);
             drop(frames);
             let value = packet
                 .materialize()
@@ -112,11 +113,9 @@ impl ExecutionStack<'_> {
         }
         // Retirement and publication form a closed transition: no allocation,
         // collection or callback can observe an unrooted managed return value.
-        let mut values = runtime
-            .resources()
-            .frame_values
-            .try_borrow_mut()
-            .map_err(|_| runtime.resources().quarantine("return window borrowed"))?;
+        let values = values
+            .as_mut()
+            .expect("retirement admitted execution storage");
         let published = if let Some((representation, bits)) = packet.payload() {
             match destination {
                 ReturnDestination::Register(Some(register)) => {

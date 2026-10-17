@@ -41,7 +41,7 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   group struct layouts and consolidate interface records under measured gates.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
-  collection transactions. IP08 froze the baseline and scoped gates; IP09 is next.
+  collection transactions. IP08-IP09 passed their scoped local gates; IP10 is next.
   IP01-IP07 completed local
   acceptance; preserve their call/window foundations. The roadmap owns activation,
   pending CI and the unmet pure-interpreter Lua-parity objective.

@@ -1,15 +1,10 @@
-#[cfg(feature = "execution-diagnostics")]
-use crate::diagnostics::{self, Event};
-
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    execution_metadata::MetadataRoot,
     frame::{
         arguments::FrameArguments,
-        driver::ExecutionAction,
         types::TypeEnvironment,
-        values::{FrameMetadata, FrameSlots},
+        values::{ExecutionValues, FrameSlots},
     },
     gc::CollectionMutation,
     module::{
@@ -42,6 +37,7 @@ use std::{
     sync::Arc,
 };
 
+mod admission;
 pub(crate) mod arguments;
 mod calls;
 mod closures;
@@ -274,61 +270,6 @@ impl<'runtime> ExecutionStack<'runtime> {
             .map(|_| ())
     }
 
-    /// Reuse a checked stack only across internal preparation without callbacks.
-    fn push_admitted_arguments(
-        &self,
-        runtime: &Runtime,
-        loaded: LoadedModule,
-        target: CallableTarget,
-        args: FrameArguments<'_>,
-        return_dst: Option<Register>,
-        dispatch: FrameDispatch<'_>,
-    ) -> Result<ExecutionAction, RuntimeError> {
-        #[cfg(feature = "execution-diagnostics")]
-        diagnostics::record(Event::CallAdmission);
-        if !args.all_managed(runtime, |value| runtime.gc.validate_candidate_value(value))? {
-            return Err(RuntimeError::execution_phase_violation(
-                "external object in candidate call arguments",
-            ));
-        }
-        if loaded
-            .execution()
-            .callee(target)
-            .is_some_and(|callee| callee.may_suspend)
-            && (self.session.state().owner.borrow().is_none()
-                || (!self.frames()?.is_empty() && !matches!(dispatch.entry, FrameEntry::Await)))
-        {
-            return Err(RuntimeError::module_validation(
-                "resume body requires an owned driver entry",
-            ));
-        }
-        let mut frames = self
-            .session
-            .resources
-            .sessions
-            .frames_mut(self.session.id)
-            .ok_or_else(|| {
-                self.session
-                    .resources
-                    .quarantine("frame stack is borrowed across execution")
-            })?;
-        frames
-            .try_reserve(1)
-            .map_err(|_| self.session.resources.limit("frame capacity"))?;
-        self.session.resources.enter_call()?;
-        let prepared = ExecutionFrame::new(runtime, loaded, target, args, return_dst, dispatch);
-        match prepared {
-            Ok((frame, action)) => {
-                frames.push(frame);
-                Ok(action)
-            }
-            Err(error) => {
-                self.session.resources.leave_call();
-                Err(error)
-            }
-        }
-    }
-
     pub fn pop(&self) -> Result<(), RuntimeError> {
         self.validate_top()?;
         let mut frames = self
@@ -445,15 +386,24 @@ struct FrameDispatch<'call> {
 
 impl ExecutionFrame {
     pub(crate) fn release_values(&self, resources: &ResourceState) {
-        if resources
-            .frame_values
-            .try_borrow_mut()
-            .ok()
-            .and_then(|mut values| values.release(self.slots))
+        drop(self.retire_values(resources));
+    }
+
+    /// Retain storage only for the closed retirement/publication transition.
+    /// Failure quarantines execution but must not interrupt frame/depth cleanup.
+    fn retire_values<'resources>(
+        &self,
+        resources: &'resources ResourceState,
+    ) -> Option<RefMut<'resources, ExecutionValues>> {
+        let mut values = resources.frame_values.try_borrow_mut().ok();
+        if values
+            .as_mut()
+            .and_then(|values| values.release(self.slots))
             .is_none()
         {
             resources.quarantine("execution slots remained borrowed during frame cleanup");
         }
+        values
     }
 
     fn validate_runtime(&self, runtime: &Runtime) -> Result<(), RuntimeError> {
@@ -463,141 +413,6 @@ impl ExecutionFrame {
             ));
         }
         runtime.resources().ensure_execution_allowed()
-    }
-
-    fn new(
-        runtime: &Runtime,
-        loaded: LoadedModule,
-        target: CallableTarget,
-        args: FrameArguments<'_>,
-        return_dst: Option<Register>,
-        dispatch: FrameDispatch<'_>,
-    ) -> Result<(Self, ExecutionAction), RuntimeError> {
-        let heap = runtime.gc();
-        let resources = runtime.resources();
-        let FrameDispatch {
-            prepared,
-            entry: _,
-            invocation,
-            environment,
-        } = dispatch;
-        let callee = loaded
-            .execution()
-            .callee(target)
-            .ok_or_else(|| resources.quarantine("invalid prepared callee layout"))?;
-        let (native_entry, action) = match target {
-            CallableTarget::Script(function) => {
-                if args.len() != callee.parameter_count {
-                    return Err(RuntimeError::module_validation(
-                        "frame argument count does not match the linked function",
-                    ));
-                }
-                if callee.generic
-                    && loaded.bytecode.functions[function.index()]
-                        .metadata
-                        .semantic
-                        .generic
-                        .as_ref()
-                        .is_some_and(|body| {
-                            environment
-                                .as_ref()
-                                .is_none_or(|environment| !environment.types.matches(body))
-                        })
-                {
-                    return Err(RuntimeError::module_validation(
-                        "shared generic entry requires a call environment",
-                    ));
-                }
-                (NativeEntryState::Script, ExecutionAction::Script)
-            }
-            CallableTarget::Native(import) => {
-                if callee.generic
-                    && loaded.bytecode.native_imports[import.index()]
-                        .generic
-                        .as_ref()
-                        .is_some_and(|body| {
-                            environment
-                                .as_ref()
-                                .is_none_or(|environment| !environment.types.matches(body))
-                        })
-                {
-                    return Err(RuntimeError::module_validation(
-                        "shared native frame environment",
-                    ));
-                }
-                if args.len() != callee.parameter_count {
-                    return Err(RuntimeError::module_validation("native frame arguments"));
-                }
-                (NativeEntryState::Pending, ExecutionAction::NativeEntry)
-            }
-        };
-        let register_count = callee.registers.register_count;
-        let slot_count = callee.registers.locations.len();
-        let argument_offset = callee.argument_offset;
-        let registers = Some(callee.registers.clone());
-
-        heap.ensure_execution_allowed()?;
-        if !args.all_managed(runtime, |value| heap.validate_value(value))? {
-            return Err(RuntimeError::module_validation("invalid heap argument"));
-        }
-        runtime.validate_metadata(MetadataRoot::Program(loaded.clone()).edge())?;
-        if let Some(environment) = &environment {
-            runtime.validate_environment(environment.id)?;
-        }
-        let links = match target {
-            CallableTarget::Script(function)
-                if loaded.execution().functions[function.index()].needs_runtime_links() =>
-            {
-                Some(
-                    runtime
-                        .modules
-                        .linked_function(
-                            &loaded,
-                            function,
-                            environment.as_ref().map(|scope| scope.id),
-                        )
-                        .ok_or_else(|| {
-                            RuntimeError::module_validation("missing linked function execution")
-                        })?,
-                )
-            }
-            _ => None,
-        };
-        let slots = resources
-            .frame_values
-            .try_borrow_mut()
-            .map_err(|_| resources.quarantine("execution slots borrowed during frame entry"))?
-            .allocate(
-                slot_count,
-                argument_offset,
-                &args,
-                FrameMetadata {
-                    program: loaded.clone(),
-                    environment: environment.clone(),
-                    invocation,
-                },
-                registers.clone(),
-            )?;
-        Ok((
-            Self {
-                links,
-                environment,
-                loaded,
-                target,
-                native_entry,
-                ip: 0,
-                executing: None,
-                slots,
-                register_count,
-                registers,
-                return_to: prepared.map_or(ReturnDestination::Register(return_dst), |call| {
-                    ReturnDestination::Prepared(call.destination)
-                }),
-                invocation,
-                mutations: Vec::new(),
-            },
-            action,
-        ))
     }
 
     /// Temporary storage after preparation. Logical register identities in the

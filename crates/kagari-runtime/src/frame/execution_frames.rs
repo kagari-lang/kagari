@@ -1,15 +1,22 @@
 use crate::{
-    Runtime,
+    Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::ExecutionFrame,
-    module::LoadedModule,
+    frame::{ExecutionFrame, FrameDispatch, FrameEntry, arguments::FrameArguments},
+    module::{
+        LoadedModule,
+        execution::{OperandSlot, layout::Location},
+    },
+    resource::RuntimeLimits,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, Register},
-    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
+    module::{
+        BytecodeFunction, BytecodeModule, CallableTarget, FunctionMetadata, FunctionRecord,
+        RootSlotLayout,
+    },
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
@@ -40,7 +47,6 @@ fn loaded_with_instructions(
     runtime: &mut Runtime,
     instructions: Vec<BytecodeInstruction>,
 ) -> LoadedModule {
-    let context = DefinitionContext::new().unwrap();
     let function = BytecodeFunction {
         id: FunctionRef::new(0),
         name: "main".into(),
@@ -53,6 +59,11 @@ fn loaded_with_instructions(
         instructions,
         ..Default::default()
     };
+    loaded_function(runtime, function)
+}
+
+fn loaded_function(runtime: &mut Runtime, function: BytecodeFunction) -> LoadedModule {
+    let context = DefinitionContext::new().unwrap();
     runtime
         .load_program(
             "frames",
@@ -67,8 +78,8 @@ fn loaded_with_instructions(
                             id: function.id,
                             identity: function.identity.clone(),
                             name: function.name.clone(),
-                            params: vec![],
-                            return_type: ValueType::Unit,
+                            params: function.metadata.params.clone(),
+                            return_type: function.metadata.return_type,
                             effects: Default::default(),
                         }],
                         functions: vec![function],
@@ -80,6 +91,204 @@ fn loaded_with_instructions(
             .unwrap(),
         )
         .unwrap()
+}
+
+#[test]
+fn call_argument_admission_preserves_failure_precedence_and_atomicity() {
+    let mut foreign = Runtime::default();
+    let foreign_module = loaded(&mut foreign);
+    let foreign_value = Value::Array(
+        foreign
+            .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
+            .unwrap(),
+    );
+    let _foreign_root = foreign.root_value(foreign_value).unwrap();
+    for (candidate_phase, cancel, max_depth, argument_count, expected) in [
+        (
+            false,
+            false,
+            None,
+            2,
+            RuntimeError::module_validation("invalid heap argument"),
+        ),
+        (
+            false,
+            false,
+            None,
+            1,
+            RuntimeError::module_validation(
+                "frame argument count does not match the linked function",
+            ),
+        ),
+        (
+            false,
+            true,
+            None,
+            2,
+            RuntimeError::new(RuntimeErrorKind::Cancelled, "execution cancelled"),
+        ),
+        (
+            false,
+            false,
+            Some(0),
+            2,
+            RuntimeError::resource_limit("call depth"),
+        ),
+        (
+            true,
+            true,
+            None,
+            2,
+            RuntimeError::execution_phase_violation("external object in candidate call arguments"),
+        ),
+        (
+            true,
+            false,
+            Some(0),
+            2,
+            RuntimeError::execution_phase_violation("external object in candidate call arguments"),
+        ),
+    ] {
+        let mut runtime = Runtime::new(RuntimeConfig {
+            limits: RuntimeLimits {
+                max_call_depth: max_depth,
+            },
+            ..Default::default()
+        });
+        let params = vec![ValueType::HeapObject; 2];
+        let baseline = loaded_function(
+            &mut runtime,
+            BytecodeFunction {
+                id: FunctionRef::new(0),
+                name: "main".into(),
+                parameter_count: 2,
+                local_count: 2,
+                metadata: FunctionMetadata {
+                    roots: RootSlotLayout::from_types(&params, &[]),
+                    locals: params.clone(),
+                    params,
+                    ..Default::default()
+                },
+                instructions: vec![BytecodeInstruction::Return(None)],
+                ..Default::default()
+            },
+        );
+        let candidate = candidate_phase.then(|| {
+            let (definitions, module) = baseline
+                .to_unverified(&Default::default())
+                .unwrap()
+                .into_parts();
+            runtime
+                .stage_reload_program(
+                    &baseline,
+                    "frames",
+                    DefinitionMetadata::checked(
+                        definitions,
+                        BytecodeProgram {
+                            exports: Default::default(),
+                            root: ModuleRef::new(0),
+                            modules: vec![module],
+                        },
+                        &Default::default(),
+                    )
+                    .unwrap(),
+                )
+                .unwrap()
+        });
+        let old_object = Value::Array(
+            runtime
+                .alloc_array(&baseline, Ty::Builtin(BuiltinType::I32), vec![])
+                .unwrap(),
+        );
+        let _old_root = runtime.root_value(old_object).unwrap();
+        let _initialization = candidate
+            .as_ref()
+            .map(|candidate| runtime.begin_candidate_initialization(candidate).unwrap());
+        let owner = candidate
+            .as_ref()
+            .map_or(&baseline, |candidate| candidate.module());
+        let options = runtime.execution_options();
+        let cancellation = options.cancellation.clone();
+        let _session = candidate
+            .is_none()
+            .then(|| runtime.begin_execution(owner, options).unwrap());
+        let stack = runtime.enter_execution_stack(owner).unwrap();
+        let roots_before = runtime.gc().active_roots();
+        if cancel {
+            cancellation.cancel();
+        }
+        let arguments = if candidate_phase {
+            [Value::Unit, old_object]
+        } else {
+            [foreign_value, Value::Unit]
+        };
+        let error = stack
+            .push(
+                &runtime,
+                owner.slot(),
+                FunctionRef::new(0),
+                &arguments[..argument_count],
+                None,
+            )
+            .unwrap_err();
+        assert_eq!(error.kind(), expected.kind());
+        assert_eq!(error.message(), expected.message());
+        assert!(stack.is_empty().unwrap());
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert_eq!(runtime.gc().active_roots(), roots_before);
+        assert!(!runtime.is_quarantined());
+    }
+}
+
+#[test]
+fn heap_rejection_does_not_skip_later_argument_window_validation() {
+    let mut foreign = Runtime::default();
+    let foreign_module = loaded(&mut foreign);
+    let foreign_value = Value::Array(
+        foreign
+            .alloc_array(&foreign_module, Ty::Builtin(BuiltinType::I32), vec![])
+            .unwrap(),
+    );
+    let _foreign_root = foreign.root_value(foreign_value).unwrap();
+    let mut runtime = Runtime::default();
+    let module = loaded(&mut runtime);
+    let stack = runtime.enter_execution_stack(&module).unwrap();
+    stack
+        .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    let slots = stack.current().unwrap().slots;
+    let sources = [Location {
+        operand: OperandSlot::new(1, true),
+        representation: ValueType::HeapObject,
+        semantic: None,
+    }];
+    let prefix = [foreign_value];
+    let arguments = FrameArguments::frame(slots, &sources)
+        .with_prefix(&prefix)
+        .unwrap();
+    let error = stack
+        .push_admitted_arguments(
+            &runtime,
+            module.clone(),
+            CallableTarget::Script(FunctionRef::new(0)),
+            arguments,
+            None,
+            FrameDispatch {
+                prepared: None,
+                entry: FrameEntry::Call,
+                invocation: None,
+                environment: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+    assert!(error.message().contains("invalid call argument register"));
+    assert_eq!(stack.frames().unwrap().len(), 1);
+    assert_eq!(runtime.resources().counters().current_call_depth, 1);
+    assert_eq!(runtime.gc().active_roots(), 1);
+    drop(stack);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(runtime.gc().active_roots(), 0);
 }
 
 #[test]

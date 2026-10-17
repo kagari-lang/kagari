@@ -1306,11 +1306,20 @@ heap borrow ends before script/native execution. Scoped semantic substitution re
 part of closure signature admission where required.
 Shared verified records contain no runtime-local identities. Admission reuses one
 session/scope check until frame creation, while retaining dynamic argument, depth
-and cancellation checks. All frame returns share retirement, depth release and caller
-publication. Required environment/interface adapters run before retirement while
+and cancellation checks. A private admission transaction checks candidate membership
+and heap identity in one managed-value traversal without publishing a frame. It defers
+heap rejection until after the original cancellation/depth, signature/environment and
+execution-borrow gates, and never skips later candidate/source-window errors. Reused
+evidence is local to preparation without callbacks, collection or argument mutation;
+physical/domain admission and copy still precede publication.
+All frame returns share retirement, depth release and caller publication, retaining
+one operand-bank borrow across the closed retirement/publication transition. Caller
+locations are resolved after retirement, which may compact other live windows.
+Required environment/interface adapters run before retirement while
 callee roots are live, with no exclusive frame/bank borrow across adaptation.
 Unadapted scalar packets retain raw payload transfers; general Values keep heap
-ownership and destination checks. Root/factory conversion releases the stack borrow.
+ownership and destination checks. Root/factory conversion releases both stack and
+operand-bank borrows.
 Bank allocation order is independent of identity-slot reuse. Last-allocated windows
 truncate both banks. Independent out-of-order retirement compacts the banks and
 adjusts only the surviving allocation-order suffix, preserving window identities.

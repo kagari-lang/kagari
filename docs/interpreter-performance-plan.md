@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status: active, authorized on 2026-10-17; IP08 complete, IP09 next.** The user
+**Status: active, authorized on 2026-10-17; IP08-IP09 complete, IP10 next.** The user
 requested autonomous execution and coherent phase commits. The
 [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns activation
 and dependencies. This document owns the finite phase order, decisions, acceptance
@@ -438,7 +438,7 @@ Documentation-only preparation needs link/content/diff checks, not workspace bui
 ## Progress and decision ledger
 
 - [x] IP08: baseline, attribution and predeclared scoped gates.
-- [ ] IP09: shared internal call admission/return model and evaluation.
+- [x] IP09: shared internal call admission/return model and evaluation.
 - [ ] IP10: uniform instruction/operand decision and any justified implementation.
 - [ ] IP11: collection transactions and explicit enum-boundary decision.
 - [ ] IP12: integrated evaluation, acceptance report and documentation handoff.
@@ -549,3 +549,42 @@ checkpoints. Full workspace tests and the exhaustive backend/platform matrix rem
 CI-only. IP12 compares all unchanged original/source-form workloads and the owned
 lifecycle controls to the frozen IP08 image. No new build errors are known at IP08;
 existing compiler/CI follow-ups stay with the roadmap.
+
+### IP09 — 2026-10-17
+
+Implemented one private admission owner, replacing the split stack/constructor
+orchestration. Candidate membership and heap identity share a managed traversal;
+heap failure remains deferred, and later candidate/window errors keep their original
+precedence. Physical/domain admission and argument copy remain separate. Returns
+retain one bank borrow across retirement/publication, with allocation-capable adapters
+outside it and destination validation after retirement. No persistent fields, ABI,
+cache, allocation site or window representation were added.
+
+All selected commands above passed: 7 storage tests, 14 frame tests (including two
+new distinct precedence/atomicity contracts), and 7 VM tests. The manual release
+window-timing test remains deliberately ignored during correctness testing; it is
+not a skipped contract test. Structure (1,287 files, no exceptions), format,
+workspace all-target Clippy with denied warnings and diff checks passed. Manual
+review covered production imports, ownership, private visibility and cleanup order.
+
+Seven-pair ordinary comparisons against IP08 passed all checksums and checker gates:
+
+| Workload | Median candidate/baseline | Pair range |
+| --- | ---: | ---: |
+| calls | 0.97725 | 0.94334-1.05190 |
+| fibonacci | 0.99459 | 0.93119-1.02001 |
+| forms_helper | 0.96473 | 0.93203-1.04881 |
+| forms_string_calls | 0.98224 | 0.93124-1.01391 |
+
+The other ten source-form controls span 0.99543-1.03757, all within 1.05. Total
+setup paired medians were 0.99096 (calls), 0.99829 (recursion), 1.00036 (forms).
+Executable size stayed 26,843,136 bytes; image SHA-256 is
+`f94306166c22b46cd0d1be9ae43984c6ef6b5428aede1adb4f52eea9974c6752`.
+Reports were produced at 11:28:48, 11:30:45 and 11:32:21 UTC. Reproduction uses the
+existing driver with `--workload calls`, `--workload fibonacci` or `--source-forms`,
+`--baseline-executable target/interpreter-ip08/before`, then the checker (calls adds
+`--target calls=0.98`). The measured target passes narrowly; the wide ranges do not
+prove a statistically stable 2% gain. Independent helper movement and removed work
+support retaining the bounded owner correction, not claiming recursion improved.
+Final integrated allocation/lifecycle diagnostics remain IP12 work; no new allocation
+or retained-state mechanism was introduced. CI and Lua parity remain unverified/unmet.
