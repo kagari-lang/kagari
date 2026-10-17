@@ -284,8 +284,14 @@ bounded instruction/operand decision, consolidate collection transactions and ev
 the retained changes together. IP08 froze the ordinary baseline and declared scoped
 gates; IP09 consolidated admission/return and IP10 retained a measured cancellation
 code-generation correction. Both passed scoped local gates, not CI or Lua parity.
-IP11 rejected map/Vec candidates after measured gates failed; IP12 integrated
-evaluation is next. The plan carries the design constraints,
+IP11 rejected map/Vec candidates after measured gates failed. IP12 integrated
+original/forms execution gates passed, but lifecycle collection timing acceptance
+remains outstanding after unrestricted and fixed-affinity runs. The
+[follow-up evaluation](performance-baseline.md#interpreter-follow-up-evaluation-windows-2026-10-17)
+records retained gains, failed candidates and the exact unresolved gate; Lua parity
+remains unmet (2.20-41.07x in the integrated run). Do not add more local optimizations
+before diagnosing collection work/retained shape versus measurement uncertainty.
+The plan carries the design constraints,
 versioned Lua/Rust/JVM references, applicability decisions, phase-specific gates and
 the sole follow-up ledger rather than maintaining another decision list here. Keep existing prepared calls, direct
 transfers and exact installed primitives; do not add workload recognition, a second

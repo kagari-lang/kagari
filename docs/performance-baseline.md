@@ -16,6 +16,217 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Interpreter follow-up evaluation, Windows, 2026-10-17
+
+**Outcome: measured interpreter gains; final lifecycle performance acceptance is
+outstanding. Lua parity remains unmet.** IP09 (`ebb22ec2`) retains shared call
+admission/return ownership; IP10 (`af9051f7`) retains ordinary cross-crate inlining
+of the cancellation predicate. IP11 (`c2e6fbbc`) rejects both collection candidates
+rather than retaining complexity that misses predeclared gates. The
+[active plan](interpreter-performance-plan.md) retains the unresolved IP12 gate,
+phase decisions and exact focused local test selection; this is not complete CI or
+performance acceptance.
+
+### Environment and method
+
+Same Windows 11/i9-12900K/24-logical-CPU/approximately 64 GiB machine, Rust/Cargo
+1.99.0 and LLVM 23.1.1 as the investigation below. Ordinary workspace release
+profile (opt-level 3), default target and Cargo parallelism, unchanged lockfile
+SHA-256 `1a18e39bd7312c9ca332af0ebeb81aabb3aca293256f75c85b028a3873b7ba06`.
+SDK source/native features were built, but only the interpreter executed; vendored
+PUC Lua 5.4.9 through mlua 0.12.2, no JIT/native preparation or execution. No CPU
+sampler/counting allocator, build or test overlapped ordinary timing. Process
+placement, power management and desktop load were uncontrolled except in the
+explicitly separate affinity diagnosis below. No current CPU-stack/hardware-counter
+cost partition is available.
+
+Baseline code: `88e87fd4`, frozen before production edits. Measured integrated
+candidate: `c2e6fbbc` (production state is IP09 + IP10; IP11 changes were removed).
+Original, source-form and lifecycle workload checksums are unchanged. Image SHA-256:
+
+- Baseline: `2a6605f8368310cae43e4981c66a55d7df376dc088b4f66a432574c9bcf5286c`.
+- Integrated candidate: `3e04133b0137fc518c5f9248aa195f9ee030a7b631eb31cda89493371cad002c`.
+
+The [existing paired procedure](../benchmarks/lua-comparison/README.md#beforeafter-workflow)
+uses seven alternating baseline/candidate process pairs, three warmups and eleven
+checked execution samples per route. Pass/fail uses the median of seven within-pair
+candidate/baseline sample-median ratios, not the ratio of pooled medians. Pair
+ranges are not confidence intervals. Workloads, algorithms, result checks and
+cancellation/checked-arithmetic policies are unchanged. Compilation, verification,
+preparation and linking are outside execution timers. Setup is diagnostic, measured
+once per process; processes reuse warmed execution state.
+
+Reproduction starts by freezing the old revision's ordinary executable and each
+suite report, then uses:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable target/interpreter-ip08/before
+uv run python scripts/benchmark_lua.py --source-forms --baseline-executable target/interpreter-ip08/before
+uv run python scripts/benchmark_lua.py --execution-controls --baseline-executable target/interpreter-ip08/before
+uv run python scripts/check_benchmark.py <paired-results.json>
+```
+
+The old image must actually contain the baseline revision; rebuilding current code
+at its path is not a valid baseline. Reports below retain methods/results directly,
+not a dependency on ignored local files. The integrated original/forms/control runs
+started at 12:06:15, 12:17:02 and 12:18:53 UTC respectively.
+
+### Retained mechanisms and phase evidence
+
+- **Calls:** one admission transaction inspects candidate membership and heap
+  identity together, but reports heap failure at the original late gate and completes
+  subsequent candidate/window validation. No callback/collection/mutation invalidates
+  that operation-local evidence. Nested return retirement and caller publication
+  reuse one bank borrow; allocating result adaptation remains outside it, and caller
+  locations resolve after possible compaction. Physical admission/copy, root windows,
+  prepared calls, scalar return packets and error order remain checked. No cache,
+  new frame field, stack ABI or additional allocation site was introduced.
+- **Polling:** ordinary `#[inline]` on the existing cancellation check exposes its
+  Acquire load/result across crate boundaries. Scalar release-object inspection
+  found two outlined cancellation-check call relocations before, zero after, with
+  direct flag reads/tests. The number/order of polls did not change. Numeric kernels,
+  initialization checks and checked arithmetic remain in their existing owners.
+- **Representation decision:** defer broad local/debug storage remapping, numeric
+  kernel ABI replacement and fusion. Ordinary source-free bytecode flow verification
+  is not a general initialization proof, and arbitrary in-range frame jumps are not
+  a verified CFG transition. No safety defect or permission to remove checks follows
+  from this investigation. See the plan's producer/consumer/validity inventory.
+
+IP09's isolated calls ratio was 0.97725 (range 0.94334-1.05190), helper 0.96473,
+recursion 0.99459. The 0.98 calls target passed narrowly; this does not establish a
+stable 2% improvement. IP10 versus accepted IP09 gave arithmetic 0.83496
+(0.81809-0.85699), branches 0.85936 (0.83999-0.87411), calls 0.94873
+(0.90982-0.98592), passing its 0.98 arithmetic target and 1.05 controls. These are
+complete-workload gains, not isolated per-poll costs. Do not multiply phase medians
+to manufacture the independent integrated results below.
+
+### Integrated ordinary execution
+
+All checksums and the 1.05 execution regression checker gates passed for the original
+and source-form suites. The 16 matched pure-interpreter workloads remain **2.20-41.07x
+Lua time** in this run. Entry (0.99155 before/after), native (0.96859) and host callback
+(0.98266) controls are outside matched-language parity.
+
+| Matched workload | Candidate/baseline paired median | Pair range | Candidate/Lua time |
+| --- | ---: | ---: | ---: |
+| arithmetic | 0.83042 | 0.77824-0.96265 | 3.12 |
+| branches | 0.88532 | 0.82278-1.35284 | 2.20 |
+| calls | 0.97088 | 0.88663-0.99536 | 16.88 |
+| fibonacci | 0.96830 | 0.92993-1.10564 | 25.69 |
+| arrays | 0.99899 | 0.96155-1.04545 | 26.22 |
+| maps | 0.98648 | 0.85948-1.05306 | 39.72 |
+| direct | 0.85357 | 0.46357-0.88567 | 2.90 |
+| helper | 0.93514 | 0.58978-0.97103 | 15.32 |
+| concrete generic | 0.99503 | 0.52325-1.15236 | 16.81 |
+| interface | 0.98029 | 0.91748-1.25348 | 27.60 |
+| shared generic | 0.98563 | 0.94326-1.02766 | 41.07 |
+| capture cell | 0.95953 | 0.92075-1.02769 | 36.25 |
+| field | 0.99614 | 0.95376-1.05850 | 7.00 |
+| byte state | 0.99482 | 0.97005-1.05788 | 22.18 |
+| string constants | 0.93057 | 0.54098-0.97936 | 8.15 |
+| string calls | 0.98510 | 0.79368-1.01230 | 19.43 |
+
+The ranges include substantial placement/load outliers, especially direct/helper/
+concrete generic and branches. They are disclosed, not filtered or replaced with
+favorable reruns. Small median movements are not general speed claims. For scale,
+candidate complete arithmetic took 1,171.4 us, calls 3,401.4 us and helper 1,679.6 us;
+matching Lua medians were 375.3, 201.5 and 109.6 us respectively.
+
+Total Kagari setup paired medians were 1.00141 (original) and 0.98867 (forms), within
+the predeclared 1.10 diagnostic limit. Executable size is 26,782,208 versus 26,843,136
+bytes (0.99773); no new prepared product or retained layout was introduced.
+
+### Rejected collection experiments
+
+Both transactions were prototyped through existing owners with shared semantics,
+not private benchmark implementations. Sealed Vec reused nominal/element and mutation
+admission while retaining polls, late borrowing, bounds checks and the final checked
+write. Map carried occupied/vacant membership through fallible capacity/accounting
+preparation and commit. Standard Entry was used only with spare capacity to avoid
+infallible growth before the original gate; full occupied tables still needed two
+lookups. SDK conversion/reentry validation, custom Hash/Eq, original keys and
+collision tokens remained checked. No enum/Option representation changed.
+
+The predeclared target was 0.98 for each affected workload, other controls 1.05:
+
+| Candidate | maps | arrays | interface control | Disposition |
+| --- | ---: | ---: | ---: | --- |
+| Map + sealed Vec | 0.97634 | 0.98290 | 1.07466 | Reject Vec target miss and control regression. |
+| Independent map only | 0.98530 | 0.98599 | 1.00075 | Reject map target miss. |
+
+All selected semantic tests/checks passed, but performance did not. The first
+reports started 11:53:49/11:55:51/11:57:26 UTC; the independently scoped map-only
+reports 11:59:55/12:01:54/12:03:30. These are different candidates, not replacement
+samples selected to pass. All prototype production code/tests were removed. The
+second result clears the interface median regression but cannot establish its exact
+cause; CPU/code-layout attribution remains missing. Further collection work needs
+new attribution; repeating these near-threshold candidates or adding enum effects
+is not the accepted next optimization.
+
+### Lifecycle gate still outstanding
+
+All owned admission/retirement median gates passed; explicit post-retirement
+collection failed three unrestricted-scheduler rows: forward cancel 1.09524,
+forward complete 1.21053, random cancel 1.06061. For scale, forward-complete process
+medians were baseline 4.0 us versus candidate 4.6 us; pair range 0.39048-1.60000.
+No collection/storage algorithm changed. This is not enough evidence to dismiss the
+failure as noise or to claim a GC regression's root cause.
+
+A separate bounded diagnosis was declared before execution: same unchanged images,
+seven alternating pairs/3 warmups/11 samples, pin parent/workers to logical CPU 0
+with process affinity mask 1, no priority/power changes or relaxed threshold. Windows
+GetSystemCpuSetInformation reports group 0 CPUs 0-15 as EfficiencyClass 1, CPUs 16-23
+class 0. The run started at 12:21:32 UTC. The original three failed rows then passed,
+but random-complete collection **failed at 1.0512820513**, versus the exact 1.05
+limit (range 0.82222-1.22500). Do not round that into a pass. All admission/retirement
+rows passed again. This experiment reduces one source of variation but does not
+establish why the collection gate fails. Both reports remain evidence; IP12 is not
+complete, and no more unchanged-candidate acceptance reruns are planned.
+
+To reproduce the constrained diagnosis on Windows after the ordinary image is built:
+
+```text
+uv run python -c "import ctypes,subprocess,sys; k=ctypes.WinDLL('kernel32',use_last_error=True); k.SetProcessAffinityMask.argtypes=[ctypes.c_void_p,ctypes.c_size_t]; assert k.SetProcessAffinityMask(ctypes.c_void_p(-1),1); raise SystemExit(subprocess.call([sys.executable,'scripts/benchmark_lua.py','--execution-controls','--baseline-executable','target/interpreter-ip08/before']))"
+```
+
+The affinity is local to that process tree and ends with it. It is not the default
+benchmark environment or a new language/runtime execution policy. Next diagnosis
+belongs to this existing lifecycle gate: distinguish collection work, retained-state
+shape and microsecond-scale measurement uncertainty before changing runtime code.
+
+### Correctness and allocation limits
+
+Focused runtime window/frame and VM frame/depth/trap/reload/reentry/owned-drive tests
+passed, as did cancellation subscription and observed-effect/cleanup tests. Prototype
+collection contracts passed before rejection. Structure, format, workspace all-target
+Clippy with warnings denied and diff checks passed at implementation checkpoints.
+Unchanged passing checks retain their evidence; no full-workspace test sweep or
+feature/backend/platform matrix was run locally. Those remain CI-only.
+
+Separate counting-allocator builds (not throughput evidence) passed original/forms
+checksums and all eight owned lifecycle diagnostic cases. Original warm diagnostic
+rows exactly match the pre-edit investigation: calls/recursion still request seven
+Rust allocations total, create no heap objects/GC, and initialize 360,090/1,182,132
+bank bytes with zero moved bytes. Helper requests seven allocations; interface/shared
+identity eleven total, one object each, no new environment/application/preparation
+per call. Arrays/maps remain 51/2,216 requests and 1/2,001 objects; no collection
+prototype benefit is retained. Owned controls assert a three-cycle reuse plateau
+and **zero net requested bytes after complete runtime teardown** in every case.
+This is neither RSS nor allocator-failure/OOM proof; a live returned report may
+legitimately retain bytes before teardown.
+
+```text
+cargo build --release --locked -p kagari-lua-benchmark --features diagnostics
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --diagnostics
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --diagnostics --source-forms
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --diagnostics --execution-controls
+```
+
+Do not use the diagnostic binary for ordinary timing; restore the default-feature
+ordinary build afterward. These local checks establish selected contracts and
+bounded allocation behavior, **not** full CI, the outstanding lifecycle timing gate
+or Lua parity.
+
 ## Interpreter attribution, Windows, 2026-10-17
 
 This is a read-only execution investigation at `88e87fd4`, not a new optimization

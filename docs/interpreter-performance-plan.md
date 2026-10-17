@@ -2,7 +2,9 @@
 
 ## Status and authority
 
-**Status: active, authorized on 2026-10-17; IP08-IP11 evaluated, IP12 next.** The user
+**Status: active, authorized on 2026-10-17; IP08-IP11 evaluated; IP12 lifecycle
+performance acceptance remains blocked.** Retained changes and integrated execution
+results are committed; do not treat this status as complete acceptance. The user
 requested autonomous execution and coherent phase commits. The
 [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns activation
 and dependencies. This document owns the finite phase order, decisions, acceptance
@@ -674,3 +676,61 @@ new attribution, not another near-threshold rerun of these candidates.
 IP12 now evaluates only retained IP09/IP10 against the original IP08 baseline,
 including original/forms and owned lifecycle suites. Run ordinary timing before
 separate `diagnostics` feature builds; never mix their execution measurements.
+
+### IP12 — integrated run and bounded noise diagnosis
+
+Seven-pair original/forms comparisons against IP08 passed all checksums and all
+1.05 execution regression gates (reports 12:06:15 and 12:17:02 UTC). The lifecycle
+report at 12:18:53 UTC **failed** three explicit post-retirement collection rows:
+forward cancel 1.09524, forward complete 1.21053, random cancel 1.06061. All admission
+and retirement rows passed. These failures remain part of the acceptance record.
+For example forward-complete process medians were baseline 4.0 us versus candidate
+4.6 us; its paired range was 0.39048-1.60000. Uncontrolled placement/background
+activity is plausible, not established as the cause. Collection/storage algorithms
+and retained layouts were not changed; runtime GC still checks borrowing/execution
+before tracing after all owned executions have retired.
+
+Before another measurement, queried Windows GetSystemCpuSetInformation: group 0,
+logical CPUs 0-15 have EfficiencyClass 1 (paired cores), CPUs 16-23 class 0. Declare
+one separate diagnostic experiment: pin only the Python benchmark parent and its
+workers to logical CPU 0 with process affinity mask 1, then run the **unchanged**
+owned lifecycle suite for the standard seven alternating pairs/3 warmups/11 samples.
+No priority/power-policy/system-wide setting changes, harness edits, extra samples,
+new estimator or relaxed 1.05 gate. Cargo settings/default target stay unchanged;
+its ordinary executable is already built. Record this constrained result separately
+and disclose conflict with unrestricted-scheduler evidence, not select a favorable
+rerun. If failures persist, leave IP12 acceptance explicitly outstanding rather
+than stack unrelated optimization. Then run separate diagnostic original/forms/
+owned-control counts, including zero-net teardown and reuse-plateau assertions.
+
+The declared affinity experiment at 12:21:32 UTC passed the original three failed
+rows but **failed** random-complete collection at 1.0512820513 (range
+0.82222-1.22500), over the exact 1.05 gate. All admission/retirement rows passed.
+Both reports remain evidence; no more unchanged-candidate acceptance reruns or
+unrelated code changes were made. The source-level collection algorithm is unchanged,
+but that does not establish noise as the cause. IP12's required lifecycle performance
+acceptance is **outstanding**, not waived. Next work belongs to this same gate:
+attribution of collection work/retained shape versus microsecond-scale uncertainty,
+not an additional optimization phase or speculative fix.
+
+Separate diagnostic-feature builds passed original/forms checksums and all eight
+owned control cases. Original warm diagnostic rows exactly match the pre-edit
+investigation. Calls/recursion remain seven Rust allocation requests with no heap
+objects/GC, 360,090/1,182,132 initialized bytes, zero moved bytes. Helper remains
+seven requests; interface/shared identity eleven, one object each, zero new warm
+preparation/environment/application. All lifecycle cases passed three-cycle reuse
+plateau and zero-net requested bytes after complete runtime teardown. No RSS or
+allocator-failure guarantee is inferred. Restored the default-feature ordinary
+release executable after diagnostics.
+
+Integrated ordinary/source-form workload gates and setup/size gates passed. Full
+results, reproducible commands, all failed experiments, diagnostic limits and the
+retained model now live in the lasting
+[measurement record](performance-baseline.md#interpreter-follow-up-evaluation-windows-2026-10-17).
+Architecture owns the retained admission/return contract. The final source has no
+retained IP11 changes; IP09/IP10 focused tests, structure/format/workspace Clippy
+and manual ownership/import/LOC review remain passing evidence for unchanged code.
+Documentation links/whitespace and final diff are checked at this handoff. Full
+workspace/backend/platform CI was not run; Lua parity is unmet at 2.20-41.07x across
+the 16 matched workloads. Keep this plan because a required gate remains unresolved;
+do not remove it as a completed ledger.

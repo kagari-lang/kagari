@@ -42,7 +42,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11
-    candidates were rejected by their performance gates. IP12 integration is next.
+    candidates were rejected by their performance gates. IP12 execution/setup/size
+      gates passed; lifecycle collection timing acceptance remains outstanding.
   IP01-IP07 completed local
   acceptance; preserve their call/window foundations. The roadmap owns activation,
   pending CI and the unmet pure-interpreter Lua-parity objective.

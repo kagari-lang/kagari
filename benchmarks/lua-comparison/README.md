@@ -32,14 +32,17 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The [latest Windows interpreter investigation](../../docs/performance-baseline.md#interpreter-attribution-windows-2026-10-17)
-at `88e87fd4` records 16 matched workloads at 2.48-41.94x PUC Lua 5.4.9 time,
-with independent instruction/protocol counts and release-object inspection. It is
-a diagnosis, not a measured optimization. The [macOS call-lifecycle evaluation](../../docs/performance-baseline.md#interpreter-call-lifecycle-2026-10-17)
+The [latest Windows follow-up evaluation](../../docs/performance-baseline.md#interpreter-follow-up-evaluation-windows-2026-10-17)
+records retained call/polling changes, rejected collection experiments and 16 matched
+workloads at 2.20-41.07x PUC Lua 5.4.9 time. Execution/setup/size gates passed;
+lifecycle collection timing acceptance remains outstanding. The
+[preceding investigation](../../docs/performance-baseline.md#interpreter-attribution-windows-2026-10-17)
+records independent instruction/protocol counts and release-object inspection.
+The [macOS call-lifecycle evaluation](../../docs/performance-baseline.md#interpreter-call-lifecycle-2026-10-17)
 records the previous matched optimization checkpoint separately. Parity remains
 unmet; full GitHub CI acceptance was unverified. Each report records its environment,
 revision and measurement limits. [The roadmap](../../docs/implementation-roadmap.md#interpreter-performance-follow-up)
-owns proposed follow-up work; completed execution plans live in Git history.
+owns active/deferred follow-up work; completed execution plans live in Git history.
 
 ## Matching and timing
 
