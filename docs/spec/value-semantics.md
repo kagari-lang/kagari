@@ -15,6 +15,11 @@ argument passing, and returns share their identity. `val` prevents rebinding a
 slot, not mutation of the referenced object. Container copy operations are
 shallow. There is no generic deep-copy or deep-freeze operation in v1.
 
+[Pattern-based declarations](syntax.md#blocks-and-statements) extract members under
+this same value model: scalar leaves copy values and object leaves retain shared
+identity. Destructuring neither moves members out nor implicitly clones/freezes an
+object; rebinding an extracted `var` leaf does not write back to its source field.
+
 [Collection access](collection-access.md) distinguishes read-only `List<T>`, `Map<K, V>` and `Set<T>` from writable `MutableList<T>`,
 `MutableMap<K, V>` and `MutableSet<T>`. Concrete storage is `Vec`,
 `HashMap` and `HashSet`. Array literals infer `[T]`. Access

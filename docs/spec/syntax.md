@@ -731,6 +731,14 @@ Initializer effects, traps, cancellation and temporary/capture-cell cleanup reta
 the ordinary execution contract. See the runnable
 [binding example](../../examples/syntax/binding-patterns.kgr).
 
+The structural model follows Rust 1.90's
+[let statements](https://doc.rust-lang.org/1.90.0/reference/statements.html#let-statements),
+[patterns](https://doc.rust-lang.org/1.90.0/reference/patterns.html) and
+[binding scopes](https://doc.rust-lang.org/1.90.0/reference/names/scopes.html#pattern-binding-scopes).
+Kagari deliberately differs in declaration-wide writeability, bare-name shadowing,
+conservative irrefutability and shared-GC value semantics; Rust moves, borrowing and
+per-leaf `mut` are not adopted.
+
 Function return checking distinguishes normal completion from explicit `return`.
 The tail expression (or Unit when absent) must match the declared result only when
 control can reach the end. Each explicit return operand is checked independently.

@@ -462,8 +462,14 @@ work, chosen to reduce replacement of newly implemented models. It does not
 activate implementation, settle open language/API choices or combine unrelated
 findings into one migration. Explicitly grouped scopes below share one plan; each
 activated task retains a finite scope and focused gates.
-SA21 registration/interop is implemented as described above. SA16/SA17 are now
-selected for the combined pattern-binding plan; other entries remain queued.
+SA21 registration/interop is implemented as described above. Struct-pattern rest
+and ordinary destructuring declarations are implemented; their current contracts
+live in [syntax](spec/syntax.md#blocks-and-statements),
+[patterns](spec/syntax.md#patterns) and the
+[HIR guide](architecture/hir.md#pattern-based-declarations).
+Focused local grammar, typing, execution, capture/tooling, lifecycle cleanup and
+source-free artifact checks passed. Complete feature/backend/platform acceptance
+remains pending CI; the other entries below remain queued.
 
 Ordinary collection-interface ownership is implemented. Current contracts live in
 [collection semantics](spec/collection-access.md), [value semantics](spec/value-semantics.md)
@@ -485,18 +491,11 @@ host-registration scope.
 | 1 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
 | 2 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
 | 3 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
-| 4 | [SA16 + SA17](pattern-binding-plan.md): struct patterns and destructuring declarations | Active PB01-PB04 plan; PB02 explicit rest/completeness passed focused local acceptance. PB03 next unifies declarations, captures, checked extraction and tooling; CI remains pending. |
-| 5 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 6 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 4 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 5 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
 Important ordering constraints and limits:
 
-- The combined [pattern-binding plan](pattern-binding-plan.md) is active with
-  user-authorized phase commits. It owns the sole PB01-PB04 ledger and frozen name/refutability/host
-  boundaries. SA16 rules must be established before SA17 declarations are accepted;
-  this is an internal phase dependency, not two independent migrations. Existing
-  host/scoped simple bindings remain supported; direct host/view decomposition is
-  not silently added. Default/struct update (SA26) remains separate.
 - SA14's declaration ownership/allocation design must be settled before SA11
   changes function identity storage; the proposed default completes SA14 first.
 - SA15 -> SA9 -> SA1 is a preferred sequence for overlapping import/graph/lowering

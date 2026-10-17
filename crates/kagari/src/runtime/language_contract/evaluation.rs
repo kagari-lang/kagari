@@ -106,6 +106,34 @@ fn heap_loop_cancellation_preserves_earlier_write() {
     ).vector(&[1], &[42]).effects(&["committed"], &["committed"]);
     heap_loop_cancel.cancel_at = Some(100);
     run_routes(&heap_loop_cancel);
+
+    let mut declaration_cancel = Case::new(
+        "declaration-initializer-cancellation-preserves-earlier-write",
+        r#"
+use observe as test;
+struct Pending { val ready: fn() -> i32, val spare: Vec<i32> }
+fn spin() -> i32 { print("pending"); loop {} }
+fn main() {
+    val a = test::vector();
+    var (count, _) = (0, Vec::from([1]));
+    val Pending { ready, .. } = Pending {
+        ready: || { count += 1; count }, spare: Vec::from([2])
+    };
+    a[0] = 41 + ready();
+    print("committed");
+    val (Pending { ready: next, .. }, _) = (
+        Pending { ready: ready, spare: Vec::from([3]) }, spin()
+    );
+    next();
+    print("unreachable");
+}
+"#,
+        Expected::Cancelled,
+    )
+    .vector(&[1], &[42])
+    .effects(&["committed", "pending"], &["committed", "pending"]);
+    declaration_cancel.cancel_at = Some(300);
+    run_routes(&declaration_cancel);
 }
 
 #[test]
@@ -209,6 +237,30 @@ fn duplicate_field_declarations() {
 #[test]
 fn field_initializers_follow_source_order() {
     run_routes(&Case::new("field-initializers-follow-source-order", "struct P { var left: i32, var right: i32 } fn left() -> i32 { print(\"left\"); 1 } fn right() -> i32 { print(\"right\"); 2 } fn main() -> i32 { val p = P { right: right(), left: left() }; p.left += p.right; p.left * 10 + p.right }", Expected::Value(|_| Value::I32(32))).effects(&["right", "left"], &["right", "left"]));
+    run_routes(
+        &Case::new(
+            "declaration-initializer-runs-once-including-ignored-fields",
+            r#"
+struct P { val left: i32, val right: i32 }
+fn left() -> i32 { print("left"); 1 }
+fn right() -> i32 { print("right"); 2 }
+fn make() -> (P, P) {
+    print("initializer");
+    (P { right: right(), left: left() }, P { left: left(), right: right() })
+}
+fn main() -> i32 {
+    val _ = print("discarded");
+    val (P { right, .. }, P { .. }) = make();
+    right
+}
+"#,
+            Expected::Value(|_| Value::I32(2)),
+        )
+        .effects(
+            &["discarded", "initializer", "right", "left", "left", "right"],
+            &["discarded", "initializer", "right", "left", "left", "right"],
+        ),
+    );
 }
 
 #[test]
@@ -736,6 +788,36 @@ fn completed_effect_survives_trap() {
             "fn main() { print(\"committed\"); val a = [1]; a[9] = 2; print(\"unreachable\"); }",
             Expected::IndexTrap,
         )
+        .effects(&["committed"], &["committed"]),
+    );
+    run_routes(
+        &Case::new(
+            "declaration-initializer-trap-preserves-earlier-write",
+            r#"
+use observe as test;
+struct Pending { val ready: fn() -> i32, val spare: Vec<i32> }
+fn main() {
+    val a = test::vector();
+    var (count, _) = (0, Vec::from([1]));
+    val Pending { ready, .. } = Pending {
+        ready: || { count += 1; count }, spare: Vec::from([2])
+    };
+    val (Pending { ready: next, .. }, _) = (
+        Pending { ready: ready, spare: Vec::from([3]) },
+        {
+            a[0] = 41 + ready();
+            print("committed");
+            val invalid = [1];
+            invalid[9]
+        }
+    );
+    next();
+    print("unreachable");
+}
+"#,
+            Expected::IndexTrap,
+        )
+        .vector(&[1], &[42])
         .effects(&["committed"], &["committed"]),
     );
 }
