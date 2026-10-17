@@ -3,11 +3,12 @@
 Status: activated on 2026-10-16 by the user's execution request. IP01 is complete
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
-correctness and memory checks pass. The current image passes all Kagari timing
-rows, all forms rows, extended owned-root controls and private-window controls.
-The full original comparison has ten failed and two inconclusive Lua preparation
-controls, so IP02/IP03 acceptance stays open pending the independent-reference
-measurement repair and its new complete original comparison.
+correctness and memory checks pass. Historical Windows timing findings remain
+recorded below. The renewed macOS comparison passes the four required call targets
+and owned-root controls, but has tail-window retirement and forms_field regressions,
+plus failed/inconclusive independent Lua preparation controls. A subsequent in-place
+window retirement repair passes all 18 window gates. IP02/IP03 acceptance stays open
+while field/reference findings and combined current-image acceptance are resolved.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -2664,6 +2665,73 @@ The sequential runner and per-suite logs are under `target/interpreter-performan
 start duplicate runs, edit production code or replace measured images until it
 finishes. Original/forms acceptance is not yet available; no extension is declared.
 The carried window failures keep IP02/IP03 open independently of those results.
+
+The declared macOS sequence completes on the unchanged ordinary image. Original
+has 64/70 passing gates, five failed and one inconclusive; forms has 27/28 passing
+gates. All subject/reference checksums and provenance validation pass. All Kagari
+original rows pass, including calls (0.78795/0.78607) and fibonacci
+(0.78702/0.78785). Forms interface/shared_generic pass at 0.78185/0.78265 and
+0.75951/0.76100. Forms_field fails at 1.06403/1.06665: baseline medians are
+713625, 713166, 701875, 700250, 715792, 711250 and 714166 ns; candidate medians
+are 740917, 754917, 760125, 758833, 763500, 769333 and 753417 ns. The complete
+forms report is UTC 20261017T025334Z. Field-path attribution must precede further
+runtime optimization; this is not a reason to activate IP05 prematurely.
+
+The independent Lua failures are fibonacci engine_init (1.08467/1.10179),
+source_to_chunk (1.05470/1.10827) and module_init (1.17143/1.12836), plus arrays
+module_init (1.08035/1.05217) and entry module_init (1.12678/0.99966). Branches
+module_init is inconclusive (1.04324/1.00869). The fixed independent image removes
+different linked subject images but does not prove equal scheduling/cache state.
+The fibonacci direction is consistent across multiple phases; do not dismiss it
+as timer resolution or silently extend until passing. These control failures
+cannot justify padding or extra preparation in Kagari. Preserve the complete
+failed result and diagnose the reference separately before changing its protocol.
+
+Both measured candidate images are archived and hash-verified before a new build;
+the window archive is `target/interpreter-performance/macos-ip03-windows`.
+The terminal sequential runner exited zero, which does not override failed gates.
+No extension was run. The first bounded repair now replaces unused window-table
+pop results with safe Vec truncation, including trailing vacant slots after
+unlinking. It changes neither retained layout/capacity nor bank movement, validates
+identities at the same owner, and preserves dependency-drop order. Run the seven
+frame-value contracts, direct frame isolation/depth and nested reentry coverage,
+required local checks, exact-image assembly inspection and a new seven-pair window
+comparison. No full-workspace tests or complete CI matrix is run locally.
+
+The in-place retirement repair passes seven release frame-value contracts, two VM
+frame isolation/depth contracts and the nested breakpoint/trap/reentry contract.
+The manual window timing case is intentionally ignored in the correctness command
+and completes separately below. Structure (1,284 files, zero violations/exceptions),
+formatting, workspace all-target Clippy with -D warnings and diff checks pass.
+Manual review finds no changed import/public surface, representation, retained
+field/capacity, allocator request or lifetime owner; existing memory evidence remains
+applicable to this operation-only change. Exact release-harness disassembly confirms
+tail retirement now passes the slot's vector address directly to drop glue instead
+of copying its 176 bytes into a pop temporary. Vacant links are still unlinked
+before truncation. No unsafe kernel or duplicate retirement path is introduced.
+
+Fresh window comparison UTC 20261017T025924Z passes all 18 gates and checksums in
+seven alternating pairs. Tail retirement aggregate/paired ratios against IP01 are
+0.95417/0.95529 (1/0), 0.83402/0.83696 (32/8) and 0.82637/0.81975 (256/128).
+The prior failed seven-pair result is retained separately; no samples are merged
+and no extension is used. The new image is archived as
+`target/interpreter-performance/macos-in-place-windows` with its report/hash.
+This supports retaining the local retirement correction; it does not accept the
+remaining ordinary field/reference gates or IP04-IP07.
+
+Next bounded attribution uses the saved IP01 and pre-repair ordinary images for
+forms_field: one five-second macOS sample per image inside the existing ten-second
+warmed profile window, followed by separate logical counts. Retain exact image
+hashes, source/profile settings and optimized-inline attribution limits. Neither
+profile is throughput evidence; no build/test/timing run overlaps it. Review the
+existing layout-site, borrowed operand and field-handler responsibilities against
+the samples before another production edit. Separately, run seven adjacent A/A
+process pairs of the unchanged independent reference on fibonacci, with its exact
+three-by-32 contract and every validation result. This checks reference variability
+without a Kagari subject; it is diagnostic only and cannot replace or retroactively
+pass the failed original report. No batching, gate or acceptance protocol change is
+authorized by the diagnostic itself. Record these results before choosing any
+further experiment or measurement-boundary correction.
 
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist

@@ -72,10 +72,13 @@ impl Windows {
     /// no retired executable may stay alive just because its identity is reusable.
     pub(super) fn retire(&mut self, index: usize) {
         if index + 1 == self.slots.len() {
-            self.slots.pop();
+            // Retirement consumes the slot. Drop its dependencies in place instead
+            // of moving the occupied Window into an unused pop result.
+            self.slots.truncate(index);
             while matches!(self.slots.last(), Some(Slot::Vacant { .. })) {
-                self.unlink_free(self.slots.len() - 1);
-                self.slots.pop();
+                let last = self.slots.len() - 1;
+                self.unlink_free(last);
+                self.slots.truncate(last);
             }
         } else {
             self.slots[index] = Slot::Vacant {
