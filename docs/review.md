@@ -483,6 +483,279 @@ forged/missing witnesses and reload. Do not infer an object upper bound from an
 arbitrary trait or bypass conversion checks. This is a recorded existing limitation,
 not an activated feature, Any/downcast design or part of host registration unification.
 
+## SA23 Builtin type specifications duplicate scalar properties
+
+[BuiltinTypeSpec](../crates/kagari-types/src/surface.rs) stores `family`,
+`const_safe` and `heap_backed` beside `ty` in a fixed builtin table. The requested
+follow-up is to remove these stored properties and query the scalar semantic
+owner instead. This is a deferred cleanup, not activated implementation.
+
+`family` duplicates facts already available through
+[BuiltinType::number_type and integer_layout](../crates/kagari-types/src/scalar.rs).
+Its current consumers in [HIR scalar checks](../crates/kagari-hir/src/builtin/surface.rs)
+only classify numeric types and signed-integer/float negation. Meanwhile,
+`StandardTypeConstraint::accepts_builtin_number` already uses the scalar methods
+for those predicates. Reuse scalar-owned facts for primitive checks and remove
+`BuiltinTypeFamily` when it has no remaining consumers. The separate
+[trait-constraint cleanup](#sa24-replace-special-standard-constraints-with-trait-bounds)
+owns removal of the special generic constraints; SA23 does not require retaining
+them or moving their source-level semantics into scalar classification methods.
+
+For the current builtin types, only `String` is heap-backed. Constant eligibility
+is a separate language policy: `Never` and `String` are not const-safe, while the
+other builtin types are. In particular, `Never` is neither heap-backed nor
+const-safe, so constant eligibility cannot be derived as `!is_heap_backed()`.
+Move both queries to explicit `BuiltinType` methods; define constant eligibility
+with an exhaustive match so new builtin variants require a deliberate decision.
+Update the HIR constant checks and representation classification to use those
+methods, preserving existing behavior and the remaining name lookup/display table.
+
+Follow-up owner: `kagari-types` scalar semantics and their HIR consumers. Keep
+numeric admission, constant eligibility and representation facts distinct; do not
+expand this cleanup into runtime reflection, declaration registration or a type
+model migration. The table is fixed data, not per-object metadata. No memory or
+speed improvement has been measured, and removing fields does not establish a
+byte saving without checking padding and the resulting layout.
+
+When activated, reuse the existing [standard type checks](../crates/kagari-hir/src/tests/typeck/standard.rs)
+and constant-check contracts, with focused numeric/negation and builtin
+name/display coverage. Verify all consumers migrate without changing accepted
+programs or diagnostics; add coverage only for distinct missing rules.
+
+## SA24 Replace special standard constraints with trait bounds
+
+The agreed direction is to remove `StandardTypeConstraint` and the separate
+`Constraint::Standard` branch, expressing operation requirements through ordinary
+standard-library trait declarations and bounds. This records requested future
+work only; implementation is not activated.
+
+[HIR bound resolution](../crates/kagari-hir/src/typeck/constraints.rs) currently
+recognizes the otherwise unresolved names `SignedNumber` and `OrderedNumber`
+as sealed engine constraints. [Operator checking](../crates/kagari-hir/src/typeck/body/operators.rs)
+uses those constraints alongside the existing trait path. The shared
+[constraint model](../crates/kagari-types/src/ty.rs) and its wire form retain a
+separate Standard case, and [source-free proof checking](../crates/kagari-contract/src/types/proofs/structural.rs)
+has dedicated branches. `HashKey` and `Comparable` already delegate to canonical
+standard trait proofs, so their special representation duplicates that mechanism.
+
+Use the existing [core trait registrations](../crates/kagari-stdlib/src/catalog/roles.rs)
+as the semantic owners. For example, a generic negate function should require
+`Neg<Output = T>`; comparison requires `PartialOrd` or `Ord` as appropriate, and
+arithmetic requires the particular operator traits and associated outputs used
+by the function. Replace `HashKey` with `Eq + Hash` and `Comparable` with
+`PartialEq`. Do not replace `OrderedNumber` with one overly broad bound without
+checking each consumer's actual operations. Additional numeric abstractions,
+when concretely needed, belong to ordinary standard-library traits and helpers.
+
+This deliberately removes the sealed numeric-only generic requirements: a user
+type with the required trait implementation may satisfy the operation contract.
+Do not preserve special name recognition, compatibility aliases or a renamed
+builtin-constraint branch. Compiler recognition of validated language roles such
+as Neg remains necessary to connect operators to the declared core traits; an
+unrelated same-named application trait must not acquire that role. Primitive
+execution still uses checked numeric operations, preserving overflow, comparison
+semantics, evaluation order, completed effects and failure behavior.
+
+Follow-up owner: standard-library declarations, HIR resolution/type checking,
+shared type/wire contracts, compiler lowering and source-free proof verification.
+Migrate declarations, consumers, fixtures and documentation together, carrying
+checked trait applications and associated-output facts to backends. Reuse the
+existing proof and operator paths instead of adding a second semantic checker.
+Keep SA23's scalar-property cleanup separate; this does not activate collection
+storage migration, interface-construction witnesses or runtime reflection work.
+
+When activated, select existing generic/operator and contract verification tests
+for builtin and custom receivers, missing implementations, associated-output
+mismatches, trait identity/shadowing and source-free rejection of forged or
+missing proofs. Include representative shared generic execution and pinned reload;
+source typing alone does not establish executable support. Full workspace and
+feature/backend acceptance remain CI-owned. No performance benefit is measured.
+
+## SA25 Standard-library method authoring scatters contracts across name-based passes
+
+Standard-library methods should declare their signatures, generic bounds and
+native callable dependencies together at their definition owner. The current
+construction has nonlocal, name-driven policy that makes a method's complete
+contract difficult to read and change. This is a recorded authoring-model
+follow-up, not activated implementation or an observed execution failure.
+
+In [list method authoring](../crates/kagari-stdlib/src/catalog/list_methods.rs),
+`declare` enumerates method names and derives callback shapes from suffixes;
+`comparison` assigns Eq/Ord bounds; `calls` reconstructs comparison, iteration
+and mutation dependencies; `configure_overrides` scans another method-name list
+and attaches concrete implementations' requirements and result metadata.
+[Foundation assembly](../crates/kagari-stdlib/src/catalog/mod.rs) first declares
+these methods, projects concrete implementations, then runs that override pass.
+[Hash collection defaults](../crates/kagari-stdlib/src/catalog/defaults.rs) also
+attach key-operation requirements through a name whitelist after selecting the
+most recently appended implementation. Adding or renaming a method requires
+coordinating these rules, not merely changing its declaration.
+
+The issue is construction cohesion, not late inference of static constraints.
+Bounds already enter `FnDecl` during declaration construction. A
+[NativeCallableRequirement](../crates/kagari-types/src/declaration/requirement.rs)
+is a symbolic dependency on a receiver type's trait member, not a bound,
+function pointer or runtime argument list. Its `arguments` are the method's own
+type arguments; trait arguments belong to `interface`. The
+[compiler](../crates/kagari-compiler/src/source/lower/instances/callables.rs)
+substitutes and selects or forwards these operations. Native execution consumes
+prepared calls rather than searching for an implementation by method name.
+
+For example, `dedup` requires `T: Eq`, but its callable dependency is
+`T`'s `PartialEq::eq`. A generic MutableList default additionally needs receiver
+iteration, iterator advancement and removal; the Vec override operates directly
+on storage and needs only the element comparison dependency. The
+[Vec binding](../crates/kagari-stdlib/src/bindings/vectors.rs) retrieves that
+requirement's declaration-scoped `SelectedCall` and invokes the selected equality
+operation. Deriving bounds solely from callbacks would lose the stronger Eq
+contract; copying the default's dependencies into every override would retain
+operations its body does not need.
+
+Proposed direction: introduce a cohesive per-method authoring record or a small
+builder, initially for these collection methods. Keep one public signature/bound
+owner and attach explicit implementation recipes to it:
+
+```text
+MutableList<T>::dedup
+  public contract: (Self) -> Unit, T: Eq
+  generic native default:
+    equal -> T's PartialEq::eq
+    iter / next / remove -> declared receiver operations
+  Vec<T> native override:
+    equal -> T's PartialEq::eq
+    direct Vec storage operations
+```
+
+Create owner-scoped operation handles when declaring dependencies, and let Rust
+bindings consume those same handles rather than reconstructing intent from
+method names or independently maintained slot numbers. Names may label methods
+and operations for presentation, but must not silently select their contracts.
+Instantiate default/override recipes with checked identity and generic mappings;
+later passes may allocate identities, project implementations and validate them,
+but should not rediscover method semantics from strings. The exact API remains
+a design question; this does not prescribe a new macro system or global DSL.
+
+Lower the authoring description into the existing
+[FnDecl/NativeDeclaration](../crates/kagari-types/src/declaration/mod.rs) and
+[ModuleDecl](../crates/kagari-types/src/declaration/module.rs) records. Identity-keyed
+side maps can remain normalized storage without being a manually coordinated
+authoring interface. Preserve distinct bounds, symbolic requirements and selected
+executable operations; Rust closures stay outside portable declaration records.
+Retain owner/scope validation, callback signature and slot correspondence,
+source-free verification and generation-pinned calls. Shared generic operations
+must keep their existing checked forwarding path, not become runtime trait search.
+
+Follow-up owner: `kagari-stdlib` declaration/binding authoring, with narrowly scoped
+shared registration or operation-handle support only where required. Keep this
+separate from SA24's constraint semantics, Host API facade changes and collection
+storage redesign. Start with the list/default/Vec path and hash-key dependencies;
+remove superseded name-based attachment passes instead of retaining a second
+source of method policy. No performance improvement has been measured.
+
+When activated, reuse existing list/default and hash-collection contract tests.
+Select coverage for Eq versus PartialEq admission, generic default versus concrete
+override dependencies, scripted/native callbacks and generic substitution. Check
+rejection of missing, mismatched or foreign-owner operations and representative
+source-free execution and pinned reload. Confirm generated declarations and
+observable behavior remain unchanged; add tests only for distinct uncovered
+contracts. Exhaustive workspace/feature/backend validation remains CI-owned.
+
+## SA26 Add ordinary Default construction and struct update expressions
+
+The agreed direction is a core-library `Default` trait plus general struct
+update syntax, using Rust's behavior as the reference except for its ownership
+rules. This records a future feature; implementation is not activated. The
+[current trait inventory](../crates/kagari-stdlib/src/catalog/key.rs) has no
+standard Default declaration. The [grammar](kagari.ebnf) accepts only named or
+shorthand struct fields, and [struct checking](../crates/kagari-hir/src/typeck/body/constructors.rs)
+reports omitted fields; there is no struct-update base expression.
+
+Default is a core-library ordinary trait, not a compiler language protocol.
+Declare it through standard registration and make it available through the
+ordinary default prelude. Use the existing associated-function and trait-bound
+mechanisms for `Type::default()` and `T: Default`; do not add Protocol/LangRole
+variants, a `default` keyword, hidden name recognition or a special runtime
+constructor. A private registration key may identify the standard declaration.
+Resolve applications by their actual declaration identities, not spelling.
+Rust's Sized bound belongs to its type system and does not require a new Kagari
+Sized mechanism. The proposed source contract is:
+
+```text
+trait Default {
+    fn default() -> Self;
+}
+
+impl Default for Player {
+    fn default() -> Self {
+        Player { health: 100, level: 1 }
+    }
+}
+
+val player = Player::default();
+val inferred: Player = Default::default();
+val changed = Player { health: 200, ..Default::default() };
+val updated = Player { health: 200, ..existing_player };
+```
+
+The examples are proposed syntax/behavior, not currently supported standard APIs.
+A default is an ordinary implementation-defined value, not zeroed storage.
+Choose primitive/container implementations deliberately at activation; do not
+infer one for every type. Ordinary associated functions without `self` remain
+static-only under the [trait contract](spec/traits.md), so this feature does not
+make Default an interface value. Automatic `#[derive(Default)]`, enum default
+selection and field declaration initializers are separate extensions, not
+prerequisites or implicitly authorized work.
+
+Implement `..base` as general struct construction, independent of Default:
+
+- Permit one base expression at the end of a named-field struct initializer.
+  It must have the same nominal struct type and type arguments as the result;
+  structural similarity or an interface conversion is insufficient.
+- Explicit fields provide their values; only omitted fields are read from the
+  base. Existing duplicate/unknown-field checks remain. All fields must be
+  accessible, including those supplied through the base, as in Rust; update
+  syntax must not bypass private construction boundaries.
+- Supply the target struct type as context to the base expression. In
+  `Player { health: 200, ..Default::default() }`, ordinary trait-call inference
+  selects Self = Player. Support contextual `Default::default()` consistently
+  with annotated bindings, not through a struct-only hardcoded Default path.
+- Evaluate explicit field expressions in source order, then the base expression,
+  each once. A default call constructs its whole returned value; it is not
+  separate per-omitted-field defaulting. Preserve its effects even when some or
+  all returned fields are overridden. On a trap or cancellation, later
+  expressions do not run, completed effects remain and temporary roots are
+  cleaned up under existing execution rules.
+- Allocate a new outer struct and copy remaining field values using Kagari's
+  existing value semantics. Do not move fields out of or directly overwrite the
+  base object, invoke Clone implicitly or deep-copy referenced objects. Object
+  fields retain shared references; the base remains usable.
+
+For example, updating only `health` in a Player with an `items` collection creates
+an independent outer Player, leaves the base's health unchanged and shares the
+unchanged items collection. Mutation through either collection alias remains
+observable through the other. Rust instead moves or copies remaining fields and
+may partially invalidate the base; borrow, move, Copy and Drop restrictions must
+not be imported into Kagari to implement this feature.
+
+Primary references: [Rust Default](https://doc.rust-lang.org/std/default/trait.Default.html),
+[struct updates](https://doc.rust-lang.org/reference/expressions/struct-expr.html#functional-update-syntax)
+and [operand evaluation order](https://doc.rust-lang.org/reference/expressions.html#evaluation-order-of-operands).
+Follow-up owners: core-library registration/prelude, syntax/AST/HIR construction
+and ordinary associated-call inference, with compiler/backend lowering consuming
+checked field/base facts. Update grammar and syntax/trait/value contracts when
+implemented; do not make executable loading depend on source analysis. This is
+independent of SA16's pattern rest marker and SA25's authoring cleanup, and does
+not activate a general cloning, storage or host-registration migration.
+
+When activated, reuse existing trait/associated-call and struct-construction
+coverage for concrete and generic defaults, contextual Self inference and nominal
+identity/shadowing. Select cases for base type/field visibility, update placement,
+left-to-right once-only evaluation, default-call effects, traps/cancellation,
+outer-object independence and shared nested fields. Include representative
+source-free execution and pinned reload of selected default implementations.
+Complete workspace/feature/backend coverage remains CI-owned. No performance
+improvement is claimed.
+
 ## Architecture findings
 
 These IDs originated in the 2026-10-03 review of
