@@ -45,9 +45,9 @@ The main repository already owns:
   conversion and CRLF handling.
 - [Syntax examples](../examples/syntax), lexer/parser tests and grammar coverage.
 
-The separate analyzer repository was inspected at commit
-`4a05bc564dd56c5e32f68c7f0138ddc83840cec2`. Its workspace contains analyzer, IDE,
-base-db and VFS skeletons. The inspected server bootstrap dispatches synthetic
+The separate [analyzer repository](https://github.com/kagari-lang/kagari-analyzer)
+was inspected at commit `4a05bc564dd56c5e32f68c7f0138ddc83840cec2`. Its workspace
+contains analyzer, IDE, base-db and VFS skeletons. The inspected server bootstrap dispatches synthetic
 messages and prints a startup line; it is not a stdio LSP transport. Its diagnostic
 helper reports an empty file as an error rather than invoking Kagari analysis.
 Its base-db stores analyzer-side VFS inputs rather than integrating the existing
@@ -100,6 +100,10 @@ Primary references for the design decisions recorded on 2026-10-17:
   [extension development](https://zed.dev/docs/extensions/developing-extensions):
   Tree-sitter grammars and queries provide basic highlighting without custom Rust
   extension code. Local grammar repositories can use `file://` references.
+  The [manifest model at Zed 1.24.2 commit fb690677](https://github.com/zed-industries/zed/blob/fb69067729cb16a7f6135e2c1600c26a28c59659/crates/extension/src/extension_manifest.rs)
+  has `repository`, `rev` and optional `path` fields for grammar entries, allowing
+  a monorepo subdirectory reference. This source inspection is not evidence of a
+  successful grammar build or development installation.
 - [VS Code syntax highlighting](https://code.visualstudio.com/api/language-extensions/syntax-highlight-guide)
   and [language configuration](https://code.visualstudio.com/api/language-extensions/language-configuration-guide):
   TextMate/Oniguruma and declarative configuration provide baseline coloring and
@@ -271,25 +275,45 @@ Scope:
 4. Advertise full-document synchronization initially: `didOpen`, full `didChange`
    and `didClose`. Apply client text as overlays using the existing source owner;
    closing removes the overlay and restores a retained base or removes an
-   overlay-only document according to the source contract. Do not eagerly crawl
-   projects or load dependency closures.
+   overlay-only document from the current snapshot. Retain its source identity
+   for reopen; closing does not require deleting the database identity record.
+   Do not eagerly crawl projects or load dependency closures. Base restoration
+   tests may seed retained base text without introducing disk loading.
 5. Track URI, language ID and document version at the protocol boundary. Define
    behavior for duplicate opens, changes to unopened documents, stale versions and
    ranged changes inconsistent with full sync: no partial update or state corruption;
    invalid notifications are logged, not answered as requests. Handle reopen with
    a fresh protocol version lifecycle. Preserve previously retained snapshots.
-6. Use standard URI parsing for file URIs, including Windows paths and escaping.
-   Support explicitly supplied virtual-document text without treating its URI as
-   a disk path. Reuse source normalization rather than inventing a second file ID
-   system. Start with UTF-16 positions; reuse the existing line index when converting
-   ranges, without adding a speculative second conversion implementation.
+6. Use standard URI parsing for local file URIs, including Windows drive paths
+   and escaping. In this phase, explicitly reject non-local file authorities and
+   UNC paths before source normalization; do not collapse them into local paths.
+   UNC support remains deferred, not implicitly covered by Windows drive support.
+   Support explicitly supplied non-file document text, including non-hierarchical
+   URIs such as `untitled:Untitled-1`, without treating its URI as a disk path.
+   Preserve scheme-specific identity without collisions with filesystem keys.
+   Reuse and extend source normalization at its existing owner rather than
+   inventing a second file ID system. Start with UTF-16 positions; reuse the
+   existing line index when converting ranges, without adding a speculative
+   second conversion implementation.
+
+Known source boundary gaps to resolve in ET01: the existing
+[normalizer](../crates/kagari-source/src/source_database.rs) recognizes virtual
+sources only through `://`, so `untitled:Untitled-1` is currently treated as a
+relative path. Its path normalization also loses UNC's leading double separator.
+A standard URI parser at the protocol boundary alone does not repair either
+source-key issue. Keep URI adaptation in analyzer and source-key normalization in
+source; do not add another VFS or route document sync through complete-input
+replacement, which clears overlays and removes identities outside its batch.
 
 Acceptance:
 
 - A bounded subprocess test exchanges real Content-Length-framed LSP messages,
   completes initialization/shutdown/exit and verifies stdout is protocol-only.
 - Focused session tests cover open/change/close/reopen, version rejection,
-  base-versus-overlay behavior, retained snapshots and URI normalization.
+  base-versus-overlay behavior, retained snapshots and URI normalization. Include
+  an overlay-only reopen retaining its FileId with a fresh protocol-version
+  lifecycle, a non-hierarchical virtual URI, escaped Windows drive URIs and
+  explicit UNC/non-local-authority rejection without source-state mutation.
 - Empty and malformed Kagari source can be synchronized without fake diagnostics.
 - Unsupported language features are absent from capabilities; unknown requests
   receive the appropriate protocol error, not a fabricated empty success.
@@ -313,6 +337,22 @@ parser and conformance tests together. Resolve discrepancies at their owner inst
 of silently treating an editor grammar as a new language specification. The current
 Markdown operator overview is not an exhaustive token list.
 
+Known syntax-document discrepancies to resolve at the start of ET02:
+
+- EBNF `primary_expr` omits the explicit generic enum/member path represented by
+  `Token<i32>::Empty`, although the syntax specification and parser support it.
+  Correct the EBNF and reuse representative nested-generic path/constructor inputs
+  from [existing structure tests](../crates/kagari-syntax/src/tests/parser/struct_expr.rs).
+- EBNF and Markdown `method_decl` omit optional `async`, although the parser and
+  specification prose support inherent async methods. Correct both productions
+  and reuse the [async callable contract](../crates/kagari-syntax/src/tests/parser/functions.rs),
+  including inherent methods, explicit closures and postfix await chains. Do not
+  import Rust async blocks or prefix await; do not confuse syntax recovery for
+  unsupported async trait methods with executable support.
+
+These are existing documentation gaps, not authorization to change language
+semantics or make editor grammars enforce static legality.
+
 Coverage includes declarations, types/generics, statements, expressions, patterns,
 attributes, closures and current async syntax. Do not implement type checking or
 static legality constraints. Avoid catch-all rules that conceal missing grammar.
@@ -327,9 +367,16 @@ Required lexical/context boundaries:
   `1..2`, `1f64`, `0xff_u8` and hexadecimal `0xff32`.
 - Ordinary strings versus `f"..."`, escapes including `\u{...}`, `{{`/`}}`,
   expression holes and `:?`; blocks, comments, strings and nested interpolation
-  inside holes must not terminate the outer context early.
+  inside holes must not terminate the outer context early. Ordinary string text
+  and interpolated text segments cannot cross physical line breaks; expression
+  holes may contain multiline code under ordinary whitespace/comment rules.
+- The debug suffix consists of separate `:` and `?` tokens with trivia permitted
+  between them, as in `f"{value: /* debug */ ?}"`. Do not mistake a type-annotation
+  colon inside a closure or propagation `?` inside an expression for the suffix.
 - Generic angle brackets versus comparison/shift operators, `===`/`!==`, bitwise
   and compound operators, propagation, closure bars and pattern alternatives.
+  Include nested generic closers and explicit generic enum paths. Shift tokens
+  require character adjacency: do not merge `> >` or `> /* comment */ >`.
 
 For example, in `f"score={score + 2}"`, `score=` is string text, `score + 2`
 receives code classifications, and the closing delimiter returns to string mode.
@@ -344,10 +391,14 @@ are evidence of language behavior, not substitutes for capture assertions.
 
 Acceptance: selected valid fixtures parse without unexpected ERROR/MISSING nodes;
 corpus cases establish ambiguous structure and lexical boundaries; incomplete
-inputs recover at documented boundaries. For selected edit sequences, incremental
-parses agree with fresh parses after adding/removing quotes, braces and comment
-terminators. Do not require an actually unterminated block comment to stop at an
-invented boundary simply to avoid coloring the rest of a file.
+inputs recover at documented boundaries. Include unterminated ordinary strings,
+unterminated interpolated text and valid multiline expression holes, with LF and
+CRLF, and verify the expected lexical context after each line boundary. For selected
+edit sequences, incremental parses agree with fresh parses after adding/removing
+quotes, braces and comment terminators. Reuse these boundary cases and selected
+edit sequences for adapter classification tests. Do not require an actually
+unterminated block comment to stop at an invented boundary simply to avoid
+coloring the rest of a file.
 
 ## ET03 — Add the Zed language extension
 
@@ -363,10 +414,13 @@ crate or language-server registration is needed for this phase.
 - Configure comment toggling and basic parentheses/braces/brackets/quote pairing.
   Do not globally auto-close `<` as `>` or add unsupported single-quote strings.
 - Verify the monorepo grammar loading/build path with a development extension.
-  Supply a reproducible local setup with a resolved repository location and Git
-  revision, without committing a machine-specific absolute path. If the selected
-  Zed version requires staging a grammar repository/root, use a disposable build
-  product from this tree, not a second maintained source repository.
+  First try a repository/revision reference with `path` set to
+  `editors/tree-sitter-kagari`; do not assume a separate grammar repository is
+  required. Supply a reproducible local setup with a resolved repository location
+  and Git revision, without committing a machine-specific absolute path. If the
+  selected Zed version actually requires staging a grammar repository/root, record
+  the observed limitation and use a disposable build product from this tree, not
+  a second maintained source repository.
 - Record generation/WASM build prerequisites, tested Zed version and install steps.
   Marketplace registration and automated release packaging remain deferred.
 
@@ -393,7 +447,11 @@ Use language ID `kagari`, scope `source.kagari` and extension `.kgr`.
 - Test with the actual `vscode-textmate`/Oniguruma engine, carrying rule stacks
   across lines and asserting scopes and string/comment/code token categories.
   Reuse shared source inputs, but keep TextMate-specific expected scopes separate
-  from Tree-sitter captures. Pin Node dependencies and use a lockfile.
+  from Tree-sitter captures. For selected ET02 edit sequences, retokenize from the
+  affected line using the valid preceding rule stack and compare with tokenization
+  from the beginning of the edited document. Verify that quote, brace and comment
+  edits do not leave stale string/comment state on later lines. Pin Node
+  dependencies and use a lockfile.
 
 Acceptance: targeted tokenization tests pass; an Extension Development Host and a
 locally packaged VSIX recognize `.kgr`, handle the selected interpolation/comment
@@ -403,9 +461,13 @@ correct scope boundaries. Package no unnecessary test tooling or local paths.
 
 ## ET05 — Integration, documentation and retirement
 
-- Run shared classification cases through both adapters. Require agreement on
-  critical code/string/comment boundaries and baseline categories, not identical
-  parse trees, scope names or RGB colors. Record deliberate contextual limits.
+- Run shared classification cases through both adapters. Define explicit expected
+  code/string/comment regions for a small set of critical boundaries, including
+  nested interpolation and newline recovery, and assert each adapter against
+  those expectations; agreement between two incorrect outputs is insufficient.
+  Require agreement on critical boundaries and baseline categories, not identical
+  parse trees, token segmentation, scope names or RGB colors. Keep detailed capture
+  and scope expectations adapter-specific. Record deliberate contextual limits.
 - Add focused editor-tooling CI jobs for parser generation consistency, corpus/
   capture tests, TextMate tests and extension build/package checks. Keep Node and
   grammar tooling out of the runtime dependency graph. Add representative Windows
@@ -467,6 +529,15 @@ this plan is not authorization to commit, publish or delete remote resources.
 Planning baseline: no implementation, runtime validation or editor installation
 has been performed for this plan. No known intermediate implementation failures
 are carried. Full CI and manual platform/editor acceptance remain pending.
+
+Pre-implementation review on 2026-10-17: retain ET01-ET05 order and ownership.
+Recorded ET01 source-key gaps and local-file/virtual-URI boundaries, ET02 syntax
+production discrepancies and string/newline/debug-suffix boundaries, ET03 direct
+monorepo grammar loading as the first path to verify, and ET04-ET05 edit-state and
+independent classification expectations. Existing source overlays and retained
+snapshots remain the foundation; no replacement database or broader IDE scope is
+needed. These findings are implementation obligations in the phases above, not
+completed implementation or installation evidence.
 
 During execution, extend this ledger with decisions, focused validation results,
 selected-test rationale, open failures and remaining CI/manual scope. Do not create
