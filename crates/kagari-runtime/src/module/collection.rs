@@ -111,9 +111,6 @@ impl ProgramGraph<'_> {
                 }
             })
             .collect::<Vec<_>>();
-        for retained in self.store.retentions.values_mut() {
-            retained.prune();
-        }
         self.restore_abandonment = false;
         retired
     }

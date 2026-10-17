@@ -3485,3 +3485,89 @@ Python tests, benchmark semantic test and local structure/fmt/workspace Clippy
 checks remain evidence for that harness. Documentation links/fences and diff checks
 are the local checks for this checkpoint; exhaustive CI and overall IP acceptance
 remain outstanding.
+
+### 2026-10-17 Resumed goal: retention bookkeeping diagnosis
+
+Two finite temporary diagnostics compare IP01 and the current runtime, with all
+eight lifecycle cases and fourteen cycles per case. Both builds complete and every
+result check passes; both source trees are restored afterward. All 112 corresponding
+graph records match: zero value/metadata roots, zero active windows, one live program
+with 35 members, no linked call records, no live objects and no reclaimed objects or
+metadata. A second inspection includes external program-retention registrations:
+34 member tables are empty and the remaining table has exactly 1, 32 or 256 dead
+weak registrations after retirement, matching the preceding population in both
+versions. Each collection scans and removes them despite having no live lease.
+These counts locate population-dependent work outside graph marking. They do not
+prove that this shared pre-existing work caused the isolated 1.068697 ratio.
+
+The ownership issue is concrete: the store retains a list of individual dead lease
+records solely to answer whether a module/program is retained and how many distinct
+registrations exist per retention kind. Creation prunes that list repeatedly;
+collection discovers and frees expired records. Replace this bookkeeping within
+IP03's external call-lifetime boundary, without changing session-bank ownership.
+
+Reference: Rust's standard [Arc ownership contract](https://doc.rust-lang.org/std/sync/struct.Arc.html)
+(documentation 1.99.1, implementation toolchain 1.98.1) supplies shared registration
+lifetime and thread-safe last-drop release without accessing the runtime store.
+Use one lazily allocated ownership token per retention kind and scope. Each distinct
+lease registration holds one token reference behind a shared Arc; cloning a lease
+clones that outer registration, so it does not add a registration count. The store's
+own token reference is excluded from the count. Only the exclusive runtime owner
+can create a registration; cross-thread clone/drop cannot increase the token count,
+so collection may conservatively observe a concurrent final drop but cannot miss
+a new registration during its exclusive traversal. Tokens contain no runtime state.
+
+Keep member retention distinct from whole-program retention. The latter belongs
+once to the existing program root, whose collector already traverses every member;
+member-visible counts combine its local registrations with that root's whole-program
+registrations. Preserve validation of every member before publication. Lua 5.4.9's
+[prototype graph traversal](https://www.lua.org/source/5.4/lgc.c.html) and Java SE 25's
+[loader-scoped unloading](https://docs.oracle.com/javase/specs/jls/se25/html/jls-12.html#jls-12.7)
+support following existing ownership edges rather than duplicating external roots
+at every member. Neither provides Kagari's reload/lease-count contract; retain
+those explicit guarantees and the existing graph collector.
+
+Prototype acceptance: existing retention foreign/stale identity, collection exclusion,
+cross-thread last-clone drop, no-store-borrow and runtime-outliving lease tests;
+member-versus-program count coverage, pinned reload and owned-root lifecycle checks.
+Measure warm allocation requests/bytes and live/empty/reused retention before keeping
+the change; no allocator or memory exemption is granted. Then collect fresh ordinary
+controls and the affected execution matrices with the unchanged simplified workflow.
+No custom atomic counter, finalizer queue, unsafe storage, inline hint or workload
+selector is needed. If lifetime or allocation constraints fail, revise or remove this
+prototype rather than waive them. IP04-IP07 remain sequenced after IP02/IP03 closure.
+
+The prototype replaces weak-registration vectors with lazy per-kind ownership
+tokens. `ProgramLease` shares a named `Registration` containing one token reference;
+whole-program tokens belong only to the program-root entry. Counts for a member
+combine local and whole-program registrations. No GC pruning loop remains. The
+outer registration keeps the warmed per-lease allocation size/count unchanged.
+An initial directly nested Arc spelling triggered Clippy's redundant-allocation
+lint; the named registration expresses its distinct clone lifetime without a lint
+exception. Its single Arc field preserves the measured layout and allocation work.
+
+Eleven selected correctness tests pass: five retention boundary contracts, the new
+member/program count contract, existing imported-generation public paths, two generic
+reload cases, the async lifecycle/reload contract and the source-free residual-call
+consumer. The two clone/count cases also pass after naming the registration owner.
+Structure (1,284 Rust files, no findings), fmt, workspace all-target Clippy and diff
+checks pass. No production glob/re-export, unsafe code or widened visibility is added.
+Exhaustive test matrices remain CI-only.
+
+Allocation diagnostics compare IP01 and the prototype across seven original and
+36 forms/protocol warm records: no request count or byte increase. All eight root
+cases keep identical warmed request counts/bytes; all six live/empty/reused increments
+per case are below baseline (ratios 0.99618-0.99730), with bounded plateaus and zero
+teardown. The eight-artifact, three-cycle setup comparison also passes every +5%
+gate: prepared retained 1.00123-1.00208, additional loaded retained
+1.00113-1.00138, preparation requested 0.99752-1.00335 and additional load requested
+0.81564-0.82255. All warmed teardowns are zero. Baseline setup observations reuse
+the unchanged IP01 diagnostic; execution/root observations are newly collected.
+These results do not attribute the older IP03 allocation improvements to this change.
+
+Next run ordinary seven-pair controls, forms, private windows and original workloads
+sequentially with the saved simplified IP01 images. Apply the existing four call
+targets and 1.05 common gates; stop for a failed gate, without extending its report.
+Keep code fixed and run no builds, tests or diagnostics during timing. The earlier
+60/61 report and its unresolved cause remain recorded; this is a new implementation
+comparison, not a retry of that unchanged candidate. Phase acceptance remains open.

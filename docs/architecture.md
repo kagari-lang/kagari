@@ -1269,6 +1269,16 @@ Shared-call application entries can retain reusable environments and operation g
 while their supplying program remains live, independently of escaped closure values.
 Detached Rust snapshots confer no retention: once the program graph is retired, they
 cannot republish a stale environment into a newly published program.
+External program leases use store-owned registration counts, separate from traced
+metadata edges. Each retention kind has a lazy Arc ownership token; one distinct
+registration holds one token reference behind the lease's shared registration.
+Cloning a lease does not add a registration. The last clone releases that reference
+on any thread without borrowing or retaining runtime storage. The store's own token
+reference is excluded from counts, so collection checks bounded per-kind counts
+instead of scanning expired lease records. Whole-program registrations belong to
+the existing program root; member-visible counts include those registrations plus
+local member leases. All member identities are checked before registering a whole
+program. The program graph retains the same generation and member dependencies.
 Receiver selection,
 argument/result checks and cross-version interface compatibility still run per call.
 Application arguments share their prepared exact type identities. Each immutable

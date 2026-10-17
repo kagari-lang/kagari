@@ -47,6 +47,53 @@ fn bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
 }
 
 #[test]
+fn member_counts_distinguish_local_and_whole_program_leases() {
+    let mut runtime = Runtime::default();
+    let root = runtime.load_verified_program("exports", code(7)).unwrap();
+    let member = root
+        .members()
+        .find(|member| member.key() != root.key())
+        .unwrap();
+    let whole = runtime
+        .retain_program(&member, ModuleEpochRetention::CompiledArtifact)
+        .unwrap();
+    let clone = whole.clone();
+    let local = runtime
+        .retain_module(&member, ModuleEpochRetention::RuntimeValue)
+        .unwrap();
+    for loaded in root.members() {
+        let counts = runtime.modules().retention_counts(loaded.key());
+        assert_eq!(counts.compiled_artifacts, 1);
+        assert_eq!(
+            counts.runtime_values,
+            usize::from(loaded.key() == member.key())
+        );
+    }
+    drop(whole);
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(root.key())
+            .compiled_artifacts,
+        1
+    );
+    drop(clone);
+    assert_eq!(runtime.modules().retention_counts(root.key()).total(), 0);
+    assert_eq!(
+        runtime
+            .modules()
+            .retention_counts(member.key())
+            .runtime_values,
+        1
+    );
+    drop(local);
+    assert!(
+        root.members()
+            .all(|member| runtime.modules().retention_counts(member.key()).total() == 0)
+    );
+}
+
+#[test]
 fn public_paths_remain_rooted_and_generation_pinned_after_identity_import() {
     let original = code(7);
     let target = original.exported_function("damage").unwrap();

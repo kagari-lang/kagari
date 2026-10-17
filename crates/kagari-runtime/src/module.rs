@@ -570,15 +570,12 @@ impl ModuleStore {
         {
             return None;
         }
-        let lease = ProgramLease::new(kind);
-        for member in module.members() {
+        Some(
             inner
                 .retentions
-                .get_mut(&member.key())?
-                .register(&lease)
-                .ok()?;
-        }
-        Some(lease)
+                .get_mut(&module.program_key())?
+                .retain_program(kind),
+        )
     }
 
     pub(crate) fn stage_verified_program(
@@ -744,22 +741,29 @@ impl ModuleStore {
     ) -> Option<ProgramLease> {
         let mut inner = self.inner.try_borrow_mut().ok()?;
         inner.resolve(module)?;
-        let lease = ProgramLease::new(kind);
-        inner
-            .retentions
-            .get_mut(&module.key())?
-            .register(&lease)
-            .ok()?;
-        Some(lease)
+        Some(inner.retentions.get_mut(&module.key())?.retain_member(kind))
     }
 
     pub fn retention_counts(&self, key: ModuleKey) -> ModuleEpochRetentionCounts {
         let inner = self.inner.borrow();
-        inner
-            .available(key)
-            .and_then(|_| inner.retentions.get(&key))
-            .map(Retentions::counts)
-            .unwrap_or_default()
+        let Some(module) = inner.available(key) else {
+            return ModuleEpochRetentionCounts::default();
+        };
+        let member = inner
+            .retentions
+            .get(&key)
+            .map(Retentions::member_counts)
+            .unwrap_or_default();
+        let program = inner
+            .retentions
+            .get(&module.program_key())
+            .map(Retentions::program_counts)
+            .unwrap_or_default();
+        ModuleEpochRetentionCounts {
+            active_calls: member.active_calls + program.active_calls,
+            runtime_values: member.runtime_values + program.runtime_values,
+            compiled_artifacts: member.compiled_artifacts + program.compiled_artifacts,
+        }
     }
 
     #[cfg(test)]

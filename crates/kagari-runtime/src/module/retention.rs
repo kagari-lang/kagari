@@ -1,60 +1,92 @@
 //! Version retention is registered centrally; exported leases never own the store.
 use crate::module::{ModuleEpochRetention, ModuleEpochRetentionCounts};
-use std::{
-    collections::TryReserveError,
-    sync::{Arc, Weak},
-};
-
-#[derive(Debug)]
-struct Retention {
-    kind: ModuleEpochRetention,
-}
+use std::sync::Arc;
 
 /// Keeps registered module versions reachable until the last clone is dropped.
 /// A lease has no access to module storage and may outlive its runtime.
 #[must_use = "retain the lease while the selected versions are needed"]
 #[derive(Debug, Clone)]
 pub struct ProgramLease {
-    retention: Arc<Retention>,
+    _registration: Arc<Registration>,
 }
 
-impl ProgramLease {
-    pub(super) fn new(kind: ModuleEpochRetention) -> Self {
-        Self {
-            retention: Arc::new(Retention { kind }),
-        }
-    }
+/// Lease clones share this registration. Only distinct registrations hold a
+/// token reference, so clones do not increase the store's registration count.
+#[derive(Debug)]
+struct Registration {
+    _token: Arc<()>,
+}
+
+/// Tokens own no program or runtime state. The store holds one reference; each
+/// distinct registration holds one more until its last lease clone is dropped.
+#[derive(Debug, Default)]
+struct Registrations {
+    active_calls: Option<Arc<()>>,
+    runtime_values: Option<Arc<()>>,
+    compiled_artifacts: Option<Arc<()>>,
 }
 
 #[derive(Debug, Default)]
-pub(super) struct Retentions(Vec<Weak<Retention>>);
+pub(super) struct Retentions {
+    member: Registrations,
+    // Only a program root needs whole-program registrations.
+    program: Option<Box<Registrations>>,
+}
 
 impl Retentions {
-    pub(super) fn register(&mut self, lease: &ProgramLease) -> Result<(), TryReserveError> {
-        self.prune();
-        self.0.try_reserve(1)?;
-        self.0.push(Arc::downgrade(&lease.retention));
-        Ok(())
+    pub(super) fn retain_member(&mut self, kind: ModuleEpochRetention) -> ProgramLease {
+        self.member.retain(kind)
     }
 
-    pub(super) fn prune(&mut self) {
-        self.0.retain(|lease| lease.strong_count() != 0);
+    pub(super) fn retain_program(&mut self, kind: ModuleEpochRetention) -> ProgramLease {
+        self.program.get_or_insert_default().retain(kind)
     }
 
     pub(super) fn is_retained(&self) -> bool {
-        self.0.iter().any(|lease| lease.strong_count() != 0)
+        self.member.counts().is_retained() || self.program_counts().is_retained()
     }
 
-    pub(super) fn counts(&self) -> ModuleEpochRetentionCounts {
-        let mut counts = ModuleEpochRetentionCounts::default();
-        for lease in self.0.iter().filter_map(Weak::upgrade) {
-            match lease.kind {
-                ModuleEpochRetention::ActiveCall => counts.active_calls += 1,
-                ModuleEpochRetention::RuntimeValue => counts.runtime_values += 1,
-                ModuleEpochRetention::CompiledArtifact => counts.compiled_artifacts += 1,
-            }
+    pub(super) fn member_counts(&self) -> ModuleEpochRetentionCounts {
+        self.member.counts()
+    }
+
+    pub(super) fn program_counts(&self) -> ModuleEpochRetentionCounts {
+        self.program
+            .as_deref()
+            .map(Registrations::counts)
+            .unwrap_or_default()
+    }
+}
+
+impl Registrations {
+    fn retain(&mut self, kind: ModuleEpochRetention) -> ProgramLease {
+        let token = match kind {
+            ModuleEpochRetention::ActiveCall => &mut self.active_calls,
+            ModuleEpochRetention::RuntimeValue => &mut self.runtime_values,
+            ModuleEpochRetention::CompiledArtifact => &mut self.compiled_artifacts,
         }
-        counts
+        .get_or_insert_with(|| Arc::new(()));
+        ProgramLease {
+            _registration: Arc::new(Registration {
+                _token: token.clone(),
+            }),
+        }
+    }
+
+    fn counts(&self) -> ModuleEpochRetentionCounts {
+        // New registrations require the store's exclusive borrow. Other threads
+        // can only release token references, so a snapshot may retain too much,
+        // never omit a registration created concurrently with collection.
+        let count = |token: &Option<Arc<()>>| {
+            token
+                .as_ref()
+                .map_or(0, |token| Arc::strong_count(token) - 1)
+        };
+        ModuleEpochRetentionCounts {
+            active_calls: count(&self.active_calls),
+            runtime_values: count(&self.runtime_values),
+            compiled_artifacts: count(&self.compiled_artifacts),
+        }
     }
 }
 
