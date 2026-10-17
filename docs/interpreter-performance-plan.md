@@ -2576,6 +2576,45 @@ reproduced HEAD failure, and shared identity cannot stand in for Add coverage.
 No new local integration failure is known; exhaustive prior CI acceptance remains
 unverified.
 
+### macOS handoff and renewed matched measurement, 2026-10-17
+
+The resumed checkout is clean at 5b9d149342bd6e52d5b331b0275b7975e95ab156.
+The Windows frozen images and raw reports were not transferred: neither
+`target/interpreter-performance` nor `target/lua-comparison` exists on arrival.
+In particular, the final independent-reference original report is unavailable.
+The earlier Windows findings above remain historical ledger evidence; they have
+not been revalidated from raw reports here and cannot accept a macOS candidate.
+
+The new measurement environment is Apple M1 Max, 32 GiB RAM, ten logical CPUs,
+macOS 26.6.2 (25G83), aarch64-apple-darwin, rustc 1.98.1
+(48a229cea, LLVM 22.1.8), Cargo 1.98.1. Both revisions use this same installed
+toolchain, unchanged Cargo.lock, workspace release profile, default target and
+Cargo parallelism. Each checkout initially lacks release products; builds precede
+timing, and subsequent processes reuse filesystem/build caches with fresh runtime
+states and the frozen warmup/sample contract. The desktop is not reserved from
+OS or user activity. No compilation, tests, profiling or allocation diagnostics
+will run concurrently with measurements.
+
+A new clean detached worktree at 60bfaacb supplies the actual IP01 source baseline;
+no old experimental worktree or current runtime substitutes for it. Recreate the
+four original/forms/controls/windows single-process contracts with its tracked
+driver, freezing ordinary and window images under `target/interpreter-performance`
+in the resumed checkout as `macos-ip01` and `macos-ip01-windows`. Benchmark subject
+sources, dependency lock and private-window probe match current sources; the sole
+added Rust benchmark source is the separately fingerprinted Lua reference.
+Freeze the current reference as `macos-lua-setup-control` with the current driver.
+
+The finite new comparison is seven alternating pairs for each of windows, controls,
+original and forms, run sequentially against the same current runtime revision.
+Original uses the independent reference and calls/fibonacci limits of 0.90; forms
+uses interface/shared_generic limits of 0.90. All ordinary/setup gates and fixed
+inconclusive bands remain unchanged. Complete this declared matrix even if one
+suite fails, then diagnose from the complete evidence. No extension is declared.
+Keep original absolute image paths and hashes through any subsequently declared
+extension, retain every result and never merge Windows/macOS pairs. This changes
+the measurement environment, not IP01 source identity, required phases or targets.
+IP02/IP03 remain unaccepted; IP04-IP07 decisions still follow their closure.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
