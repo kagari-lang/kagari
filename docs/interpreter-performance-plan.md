@@ -9,10 +9,12 @@ gates, all Kagari original-suite rows, and all embedded Lua execution rows. The 
 required call targets pass. Eight independent Lua preparation controls fail in the
 seven-pair original comparison; adjacent A/A and a rejected larger-batch calibration
 also fail to establish repeatability. The production reference remains three-by-32.
-One predeclared original extension to 21 total pairs is running at UTC 20261017T041918Z,
-retaining every earlier sample and exact image/path. No further extension or batch
-pilot is authorized by that experiment. IP02/IP03 acceptance stays open until its
-remaining reference gates are resolved.
+The one predeclared original extension to 21 total pairs, UTC 20261017T041918Z,
+has completed with 59/70 gates passing, ten failures and one inconclusive gate.
+All eleven open gates belong to the independent Lua setup reference. Every earlier
+sample and exact image/path is retained. This experiment has reached its finite
+endpoint; no further extension or batch/schedule pilot follows. IP02/IP03 acceptance
+stays open, pending an explicit measurement-environment or scope decision.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -3103,3 +3105,65 @@ Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
 not run Rust builds, tests or Clippy.
+
+### IP03 finite original extension: measurement boundary remains open
+
+UTC 20261017T041918Z completes all 42 subject processes and their independent
+reference workers. The strict checker exits 1: 59/70 gates pass, ten fail and one
+is inconclusive. The complete report contains 13,524 subject and 3,528 reference
+records. Direct comparison confirms that the original 4,508/1,176 records remain
+exact prefixes and that the continued-report hash matches UTC 20261017T034422Z.
+The original absolute paths and candidate/baseline/reference SHA-256 values remain
+847c6d50.../5684ddd3.../9c1ad124... respectively, verified against the current files.
+No build, test, profile, allocation diagnostic or production edit overlaps timing.
+The machine, toolchain, release profile, features and three-by-32 reference protocol
+remain those recorded for the original experiment; no samples from another run or
+machine are combined.
+
+All 49 subject-owned gates pass: every Kagari setup/execution row and every embedded
+Lua execution row. Calls is 0.787884/0.785847 and fibonacci 0.780758/0.782954
+(aggregate/paired). The independently measured forms, windows and owned-root
+acceptance results above remain unchanged. The 21 embedded Lua setup diagnostics
+also pass in this extension, but cannot replace the declared independent reference
+or retroactively erase the earlier embedded-control failures.
+
+The eleven open independent-reference gates are:
+
+| Phase | Workload | Aggregate ratio | Paired ratio | Status |
+| --- | --- | ---: | ---: | --- |
+| engine_init | arithmetic | 1.051432 | 1.030664 | fail |
+| engine_init | arrays | 1.072835 | 1.050962 | fail |
+| engine_init | calls | 1.056710 | 1.049117 | fail |
+| engine_init | maps | 1.058715 | 1.063588 | fail |
+| module_init | arithmetic | 1.077083 | 1.040485 | fail |
+| module_init | arrays | 1.078353 | 1.056079 | fail |
+| module_init | branches | 0.981890 | 1.058824 | fail |
+| module_init | calls | 1.058087 | 1.056851 | fail |
+| module_init | fibonacci | 1.037817 | 1.074680 | fail |
+| source_to_chunk | arithmetic | 1.054099 | 1.023094 | fail |
+| source_to_chunk | calls | 1.043715 | 1.045655 | inconclusive |
+
+The same reference executable is used for both variant labels. Together with the
+previous same-image adjacent A/A failures and rejected 1,024-state calibration,
+these results do not establish a Kagari runtime cause or identify a specific OS
+cause. More pairs did not resolve the measurement boundary. Keep the initial
+62/70 result and this 59/70 result as separate, complete evidence; neither passes
+the declared acceptance protocol. Do not select the embedded controls because
+they now happen to pass, relax a numerical gate, discard records, repeat this
+experiment, or enlarge its sample count again.
+
+This closes the authorized finite experiment, not IP02/IP03. No runtime repair is
+justified by the remaining reference-only differences. Before further timing or
+activating IP04-IP07, obtain an explicit decision on a different measurement
+environment or a reviewed change to the measurement requirements. An environment
+change must freshly freeze matching IP01/current/reference images and contracts
+on that environment, preserve all gates, and keep this machine's evidence separate;
+it cannot guarantee a pass. A protocol/scope change must be reviewed before any new
+experiment and cannot retrospectively relabel these failures. The existing goal,
+required phase scope and unrun CI acceptance remain outstanding.
+
+Reproduction: run the strict checker on the completed report with
+`--target calls=0.90 --target fibonacci=0.90`; preserve its nonzero exit and all
+70 gate rows. Documentation-only checkpoint validation covers the edited diff,
+relative links and Markdown fences; no Rust implementation changed and no Rust
+build/test/Clippy rerun is required.
