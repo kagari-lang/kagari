@@ -1010,14 +1010,25 @@ tuple_struct_pattern
 struct_pattern  ::= path "{" field_pattern_list? "}" ;
 
 field_pattern_list
-                ::= field_pattern ("," field_pattern)* (",")? ;
+                ::= field_pattern ("," field_pattern)* ("," "..")? (",")?
+                  | ".." (",")? ;
 
 field_pattern   ::= IDENT
                   | IDENT ":" pattern ;
 ```
 
-`(p)` groups a pattern; `(p,)` is a one-element tuple pattern. Kagari does not
-currently accept all of Rust's reference, slice and rest patterns.
+`(p)` groups a pattern; `(p,)` is a one-element tuple pattern. Named-field struct
+patterns require every declared field unless they end with one `..` rest marker.
+For `Point { x, y }`, `Point { x, .. }` and `Point { .. }` explicitly omit fields;
+`Point { x }` is incomplete. Rest may omit zero fields and permits a trailing comma.
+Unknown/duplicate-field, nominal type, generic substitution and field-access checks
+still apply. An inaccessible field can be omitted with rest, but cannot be listed
+even as `_`. The same rule applies recursively in match, for and binding conditions.
+The marker is not a range and introduces neither bindings nor field reads.
+
+Kagari does not accept Rust's reference/slice patterns or tuple/slice rest patterns.
+Ordinary local declaration destructuring is tracked separately in the active
+[pattern-binding plan](../pattern-binding-plan.md).
 
 ### Place Expressions
 

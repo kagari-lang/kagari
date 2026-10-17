@@ -79,6 +79,7 @@ impl Lowerer {
                         PatternField { name, pattern }
                     })
                     .collect(),
+                has_rest: pattern.has_rest(),
             }
         } else if pattern.is_tuple_struct() {
             PatternKind::EnumVariant {

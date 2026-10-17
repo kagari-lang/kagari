@@ -784,21 +784,37 @@ impl<'a> Parser<'a> {
     fn parse_struct_pattern(&mut self) {
         self.expect(TokenKind::LBrace, DiagnosticKind::ExpectedBlockEnd);
         self.bump_trivia();
+        let mut has_rest = false;
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
-            self.start_node(SyntaxKind::PatternField);
-            self.parse_field_name();
-            self.bump_trivia();
-            if self.at(TokenKind::Colon) {
-                self.bump();
-                self.bump_trivia();
-                self.parse_match_pattern();
+            if !self.at_any(&[TokenKind::Ident, TokenKind::DotDot]) {
+                break;
             }
-            self.finish_node();
+            if has_rest {
+                self.error_here(DiagnosticKind::UnexpectedToken);
+            }
+            if self.at(TokenKind::DotDot) {
+                if has_rest {
+                    self.bump_as_error();
+                } else {
+                    self.bump();
+                    has_rest = true;
+                }
+            } else {
+                self.start_node(SyntaxKind::PatternField);
+                self.parse_field_name();
+                self.bump_trivia();
+                if self.at(TokenKind::Colon) {
+                    self.bump();
+                    self.bump_trivia();
+                    self.parse_match_pattern();
+                }
+                self.finish_node();
+            }
             self.bump_trivia();
             if self.at(TokenKind::Comma) {
                 self.bump();
                 self.bump_trivia();
-            } else {
+            } else if !has_rest || !self.at_any(&[TokenKind::Ident, TokenKind::DotDot]) {
                 break;
             }
         }

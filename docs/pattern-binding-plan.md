@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one commit per phase authorized on 2026-10-17.
-PB01 is complete; PB02 is next.
+PB01-PB02 are complete; PB03 is next.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation and
 queue placement. This is the single execution plan for
 [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-) and
@@ -284,7 +284,7 @@ checks, not Cargo builds. Commit each authorized phase coherently with a
 ## Progress ledger
 
 - [x] PB01: freeze decisions, consumer inventory and focused acceptance selection.
-- [ ] PB02: SA16 shared pattern rule and fixture migration.
+- [x] PB02: SA16 shared pattern rule and fixture migration.
 - [ ] PB03: SA17 unified declarations and all direct consumers.
 - [ ] PB04: focused integration, actual acceptance and documentation handoff.
 
@@ -339,3 +339,23 @@ Frozen focused selection (reuse passing unaffected evidence):
 This phase changes documentation only. Local documentation file links, whitespace
 and diff checks are required before its commit; no Cargo build is needed. No new
 intermediate implementation errors or performance claims exist at PB01.
+
+### PB02 — explicit struct-pattern omission
+
+Implemented one terminal rest token and AST has_rest; range_inclusive excludes
+struct rest. HIR retains the boolean, and recursive checking compares valid resolved
+field identities against the entire nominal declaration, including inaccessible
+fields. Duplicate/unknown/access errors still reject; rest does not create locals.
+Ordinary declarations remain unchanged for PB03. Grammar/specification, branch and
+quantifier inventories, the existing match example and formatter coverage agree.
+
+All frozen PB02 commands passed: 5 match-parser cases, 5 grammar-inventory cases,
+6 HIR completeness/access/generic cases, the existing named-pattern type-fact test,
+formatter canonical/idempotent patterns and source/artifact execution through match,
+for, if-val and while-val (19 tests). Structure checked 1,289 Rust files with zero
+violations/exceptions; formatting, workspace all-target Clippy with denied warnings
+and diff checks passed. Manual ownership/import/LOC review introduced no visibility
+or re-export exceptions. No intermediate build errors remain. Full workspace and
+backend/platform CI are not run locally; source-free combined acceptance stays in
+PB04. This checkpoint intentionally rejects omitted fields without rest; existing
+code must list those fields or add `..`.

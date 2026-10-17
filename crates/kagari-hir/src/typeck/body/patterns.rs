@@ -190,9 +190,14 @@ impl<'a> BodyChecker<'a> {
                     self.check_pattern(element, ty, env);
                 }
             }
-            PatternKind::Struct { path, fields } => {
+            PatternKind::Struct {
+                path,
+                fields,
+                has_rest,
+            } => {
                 let path = path.clone();
                 let fields = fields.clone();
+                let has_rest = *has_rest;
                 let TypeId::Struct(owner) = expected else {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
@@ -241,6 +246,27 @@ impl<'a> BodyChecker<'a> {
                     };
                     identities.push(signature.id);
                     self.check_pattern(field.pattern, &signature.ty, env);
+                }
+                if !has_rest {
+                    let resolved_fields = identities.iter().copied().collect::<HashSet<_>>();
+                    let missing = self
+                        .aggregates
+                        .structure(&owner.declaration)
+                        .expect("struct signature catalog")
+                        .fields
+                        .iter()
+                        .filter(|field| !resolved_fields.contains(&field.id))
+                        .map(|field| format!("`{}`", field.name))
+                        .collect::<Vec<_>>();
+                    if !missing.is_empty() {
+                        self.diagnostics.push(
+                            Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
+                                expected: format!("all fields of `{path}` or `..`"),
+                                found: format!("missing fields: {}", missing.join(", ")),
+                            })
+                            .with_span(span),
+                        );
+                    }
                 }
                 self.type_table.insert_pattern_fields(pattern, identities);
             }

@@ -57,9 +57,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; recover concrete values through checked identity and lifetime
   contracts without introducing Any.
 - [Struct patterns and destructuring declarations](pattern-binding-plan.md):
-  active PB01-PB04 combine SA16/SA17 with phase commits. PB01 froze the contract;
-  PB02 establishes explicit rest/completeness before unified val/var patterns,
-  checked extraction, captures and tooling.
+  active PB01-PB04 combine SA16/SA17 with phase commits. PB02 explicit struct rest
+  and completeness passed focused checks; PB03 next unifies val/var patterns,
+  checked extraction, captures and tooling. Full CI remains pending.
 - [Host API unification](host-api-refactor.md).
 - [Editor tooling](editor-tooling-plan.md): ET01-ET05 are unstarted; consolidate
   the LSP foundation into this workspace, then add Zed/VS Code basic highlighting

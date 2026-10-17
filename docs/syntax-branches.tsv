@@ -97,6 +97,8 @@ primary_pattern	6	witnessed	examples/syntax/match.kgr	-	tuple_pattern
 primary_pattern	7	witnessed	examples/syntax/match.kgr	-	parenthesized_pattern
 tuple_pattern	1	witnessed	examples/syntax/grammar-witnesses.kgr	-	"(" ")"
 tuple_pattern	2	witnessed	examples/syntax/match.kgr	-	"(" pattern "," (pattern ("," pattern)* (",")?)? ")"
+field_pattern_list	1	witnessed	examples/syntax/match.kgr	-	field_pattern ("," field_pattern)* ("," "..")? (",")?
+field_pattern_list	2	witnessed	examples/syntax/match.kgr	-	".." (",")?
 field_pattern	1	witnessed	examples/syntax/match.kgr	-	IDENT
 field_pattern	2	witnessed	examples/syntax/match.kgr	-	IDENT ":" pattern
 place_expr	1	witnessed	examples/syntax/data-model.kgr	-	path place_suffix*

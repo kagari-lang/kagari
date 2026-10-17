@@ -378,7 +378,8 @@ tuple_struct_pattern ::= path "(" pattern_list? ")" ;
 
 struct_pattern      ::= path "{" field_pattern_list? "}" ;
 
-field_pattern_list  ::= field_pattern ("," field_pattern)* (",")? ;
+field_pattern_list  ::= field_pattern ("," field_pattern)* ("," "..")? (",")?
+                      | ".." (",")? ;
 
 field_pattern       ::= IDENT
                       | IDENT ":" pattern ;

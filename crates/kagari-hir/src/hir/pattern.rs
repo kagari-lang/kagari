@@ -35,7 +35,8 @@ pub struct PatternData {
 /// | `x` | `Name { name: "x", local: l }` |
 /// | `42` | `Literal(Literal { kind: Number, text: "42" })` |
 /// | `(x, _)` / `()` | `Tuple([x_pattern, wildcard])` / `Tuple([])` |
-/// | `Point { x: n, y }` | `Struct { path: "Point", fields: [PatternField { name: "x", pattern: n_pattern }, PatternField { name: "y", pattern: y_pattern }] }` |
+/// | `Point { x: n, y }` | `Struct { path: "Point", fields: [PatternField { name: "x", pattern: n_pattern }, PatternField { name: "y", pattern: y_pattern }], has_rest: false }` |
+/// | `Point { x, .. }` | `Struct { path: "Point", fields: [PatternField { name: "x", pattern: x_pattern }], has_rest: true }` |
 /// | `Choice::Some(x)` | `EnumVariant { path: "Choice::Some", fields: [x_pattern] }` |
 /// | `Choice::None` | `EnumVariant { path: "Choice::None", fields: [] }` |
 ///
@@ -44,7 +45,9 @@ pub struct PatternData {
 /// not ExprIds, and `..` sets `inclusive: false`. Bare names receive provisional
 /// LocalIds: a visible unit variant can later resolve as a constructor instead
 /// of a binding. Struct shorthand `y` creates a nested Name { name: "y", local }
-/// pattern. Semantic tables own alternative-binding consistency and constructor
+/// pattern. Struct rest is a presence flag, not a field or child pattern; without
+/// it, checking requires every field of the nominal declaration, including private
+/// fields. Semantic tables own alternative-binding consistency and constructor
 /// identity; neither is implied by these strings.
 #[derive(Debug, Clone)]
 pub enum PatternKind {
@@ -78,6 +81,8 @@ pub enum PatternKind {
         path: String,
         /// Inline field-name/subpattern pairs.
         fields: Vec<PatternField>,
+        /// Whether a trailing `..` explicitly permits unlisted fields.
+        has_rest: bool,
     },
     /// A qualified or tuple-constructor variant pattern.
     EnumVariant {

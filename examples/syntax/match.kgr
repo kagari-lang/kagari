@@ -30,6 +30,9 @@ fn main() -> i32 {
         _ => 0,
     };
     { val passed = from_struct == 42; if !passed {val zero=0;1/zero;} };
+    val from_rest = match point { Point { x, .. } => x + 22 };
+    val from_empty_rest = match point { Point { .., } => 42 };
+    { val passed = from_rest == 42 && from_empty_rest == 42; if !passed {val zero=0;1/zero;} };
     val answer = Answer::Value(42);
     val from_enum = match answer {
         Answer::Missing => 0,

@@ -1,6 +1,7 @@
 pub(crate) mod common;
 mod language_conformance;
 mod lower;
+mod patterns;
 mod recovery;
 mod resolver;
 mod typeck;

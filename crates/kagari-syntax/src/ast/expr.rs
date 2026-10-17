@@ -1497,7 +1497,11 @@ impl Pattern {
 
     /// Returns `Some(true)` for `1..=3`, `Some(false)` for `1..3`, and `None` for `1`.
     /// Checks only the direct range token, not whether both bounds are valid.
+    /// Struct-pattern rest, such as `Point { .. }`, is not a range.
     pub fn range_inclusive(&self) -> Option<bool> {
+        if self.is_struct() {
+            return None;
+        }
         if support::token(self.syntax(), SyntaxKind::DotDotEq).is_some() {
             Some(true)
         } else if support::token(self.syntax(), SyntaxKind::DotDot).is_some() {
@@ -1545,6 +1549,13 @@ impl Pattern {
     /// Recognized by a direct `{` token.
     pub fn is_struct(&self) -> bool {
         support::token(self.syntax(), SyntaxKind::LBrace).is_some()
+    }
+
+    /// Whether this struct pattern contains an explicit rest marker, as in `Point { x, .. }`.
+    /// Reads only a direct `..` token; nested rests and ordinary ranges return false.
+    /// The marker is not a field or a nested pattern, and may omit zero fields.
+    pub fn has_rest(&self) -> bool {
+        self.is_struct() && support::token(self.syntax(), SyntaxKind::DotDot).is_some()
     }
 
     /// Whether this is a tuple-struct-shaped pattern, such as `Some(value)`.

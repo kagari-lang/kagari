@@ -170,6 +170,10 @@ fn declarations_types_attributes_and_patterns_have_canonical_layout() {
             "fn f(value: Option<i32>) -> i32 {\n    match value {\n        Some(x) => x + 1,\n        None => 0\n    }\n}\n",
         ),
         (
+            "fn f(value:Point)->i32{match value{Point{x,..}=>x}}",
+            "fn f(value: Point) -> i32 {\n    match value {\n        Point { x, .. } => x\n    }\n}\n",
+        ),
+        (
             "fn f(x:fn((i32,bool),[i32])->i32){val values=[1,2,3];val pair=(1,true);}",
             "fn f(x: fn((i32, bool), [i32]) -> i32) {\n    val values = [1, 2, 3];\n    val pair = (1, true);\n}\n",
         ),
