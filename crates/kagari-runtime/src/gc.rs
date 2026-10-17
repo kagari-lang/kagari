@@ -676,14 +676,12 @@ impl GcHeap {
             .map_err(|_| self.resource_limit("allocation capacity"))?;
         let slot = if index == objects.slots.len() {
             objects.slots.push(ObjectSlot {
-                revision: 0,
                 generation: 0,
                 location: Some(location),
             });
             index
         } else {
             free.pop();
-            objects.slots[index].revision = 0;
             objects.slots[index].location = Some(location);
             index
         };

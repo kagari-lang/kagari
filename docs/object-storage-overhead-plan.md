@@ -533,3 +533,47 @@ reuse its existing checked freeze if the binary is identical. OM02 now owns the
 revision migration and fresh paired/memory gates. Conditional layout/interface
 control designs remain bounded by their exact ownership decisions and must freeze
 matching probes on this original runtime before any respective prototype.
+
+### OM02 native revision migration, 2026-10-18
+
+The implementation removes revision from ObjectSlot and adds it to NativeObject,
+covering every native storage family and custom managed payload. All audited readers,
+mutators and lease restoration paths now use the same checked native record.
+Prepared payload replacement carries receiver state; the allocation owner explicitly
+starts a new identity at zero, including buffers copied through replaced_payload.
+No library payload, auxiliary map, counter narrowing or forwarding access path is
+introduced. collection_revision requires a readable native record for native value
+tags; detached sequence exclusion and immutable string/range behavior remain.
+
+The new focused lifecycle contract checks revision retention through native record
+relocation, fresh/reused/copied identities, prepared payload replacement, stale
+traversal rejection and exhaustion without mutation/accounting effects. Existing
+lease/unwind, bulk/fixed-array, foreign identity, managed/data write, extraction,
+iterator GC/failure and source-free contracts supply the selected regression set.
+Local semantic/code-quality and allocation/timing acceptance are in progress;
+this implementation entry does not yet accept OM02 or activate OM03.
+
+Fresh OM02 diagnostics measure a 12-byte directory entry (was 24), a 144-byte dense
+native entry (was 136), and unchanged 24-byte struct records/16-byte Value transport.
+All 96 setup/construction/live/released/empty/reused comparisons across the original
+eight populations at one/512 objects pass their frozen limits. Main 512-object
+Point live/empty increments are 44,780/27,172 versus 57,036/39,460 (-21.49%/-31.14%);
+Pair is 45,556/27,212 versus 57,812/39,500 (-21.20%/-31.11%). The directory's 12,288
+reserved-byte reduction minus 32 extra native-capacity bytes explains the live
+12,256-byte reduction exactly. All sixteen diagnostic teardowns are zero and three
+reuse cycles plateau. Warm field requests/bytes remain 98/6,928. These allocation
+results do not establish pending timing acceptance.
+
+Thirteen selected semantic contracts pass: the revision lifecycle, two sequence
+lease/error/unwind cases, three bulk/fixed-array cases, sparse relocation, foreign
+identity, native data edits, managed fields/reentry/GC, extraction/reuse, iterator
+revision/GC/failure and a native-enabled source-free algorithm/custom-payload case.
+The source-free case initially could not find the disposable target fixture; the
+existing regenerate_feature_artifact example generated it, then that exact case
+passed without source features. No production repair or weakened assertion was
+needed. The new revision case also passes after final allocation-reset changes.
+Workspace all-target and diagnostics-example Clippy, structure (1,307 files, no
+findings), fmt/diff checks pass. Ordinary and diagnostic images are saved separately.
+Commit the coherent implementation with timing acceptance still open; next compare
+the fixed candidate against OM01 for all 29 rows and afec4a3b for the original 26,
+using seven fixed alternating pairs per comparison and the recorded limits.

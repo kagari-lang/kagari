@@ -33,7 +33,7 @@ impl Drop for StorageLease<'_> {
             mem::swap(&mut sequence.values, &mut self.values);
             sequence.leased_units = None;
             let after = sequence.values.len();
-            objects.slots[self.id.index()].revision = self.revision;
+            object.revision = self.revision;
             self.heap.release_heap_units(self.before - after);
             Some(())
         })();
@@ -78,16 +78,10 @@ impl GcHeap {
             .borrow(id)
             .map_err(|_| self.resource_limit("sequence edit registry"))?;
         let mut objects = self.objects.try_borrow_mut().map_err(|_| invalid())?;
-        let revision = objects
-            .slots
-            .get(id.index())
-            .ok_or_else(invalid)?
-            .revision
-            .checked_add(1)
-            .ok_or_else(invalid)?;
         let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(invalid());
         };
+        let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
         let sequence = object.payload_mut::<SequencePayload>()?;
         let before = sequence.values.len();
         let values = mem::replace(

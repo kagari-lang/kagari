@@ -229,6 +229,13 @@ a saturated generation retires its slot. Reads, writes, root registration and sc
 equality reject foreign, stale or incorrectly tagged references. Failed handle
 validation cannot consume heap growth units or change the target object.
 
+Native mutation revisions belong to runtime-owned native records, separately from
+the common identity generation/locator. New identities begin with a fresh revision;
+record relocation preserves it and payload replacement keeps the receiver's state.
+Structural edits, checked native writes and detached sequence restoration retain
+their operation-specific invalidation/commit order. Exhaustion rejects the operation
+without wrapping. A temporarily detached sequence has no readable traversal revision.
+
 The marker walks identities through storage-provided edges. Object representations
 own reference traversal; closure signatures and runtime type compatibility have
 separate execution owners. Heap objects and executable programs share one mark

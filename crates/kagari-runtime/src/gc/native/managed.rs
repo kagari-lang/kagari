@@ -31,14 +31,14 @@ impl GcHeap {
         if !payload.schema.registered_in(&object.storage) {
             return Err(invalid());
         }
-        let revision = objects.slots[id.index()]
+        let revision = object
             .revision
             .checked_add(1)
             .ok_or_else(|| RuntimeError::module_validation("native revision exhausted"))?;
-        objects.slots[id.index()].revision = revision;
         let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(invalid());
         };
+        object.revision = revision;
         let payload = object.payload_mut::<Managed<T>>()?;
         self.native_borrows.set(self.native_borrows.get() + 1);
         let _borrow = NativeBorrow(&self.native_borrows);

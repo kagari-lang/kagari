@@ -54,10 +54,10 @@ impl GcHeap {
         let before = source.units();
         let _temporary = self.resources.reserve_temporary_heap(before)?;
         self.resources.poll_execution()?;
-        let revision = objects.slots[id.index()]
-            .revision
-            .checked_add(1)
-            .ok_or_else(invalid)?;
+        let revision = match &source {
+            HeapObject::Native(object) => object.revision.checked_add(1).ok_or_else(invalid)?,
+            _ => return Err(invalid()),
+        };
         let allocation = || self.resource_limit("prepared collection storage");
         let prepared: HeapObject = if operation == PreparedCollectionCommit::ReplaceSequence {
             let HeapObject::Native(original) = source else {
@@ -162,7 +162,7 @@ impl GcHeap {
             return Err(invalid());
         };
         *target = prepared;
-        objects.slots[id.index()].revision = revision;
+        target.revision = revision;
         self.release_heap_units(before - after);
         Ok(())
     }

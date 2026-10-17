@@ -327,6 +327,7 @@ impl NativeStorage {
             _owner: owner.clone(),
             scope: None,
             selected: Arc::from([]),
+            revision: 0,
         })
     }
 }
@@ -337,6 +338,9 @@ impl NativeStorage {
 /// create a module-state -> data -> module-instance retention cycle.
 pub(crate) struct NativeObject {
     pub(crate) storage: NativeStorage,
+    /// Runtime-owned mutation state travels with this identity's native record.
+    /// Replacing its Rust payload preserves it; a new allocation starts at zero.
+    pub(crate) revision: u64,
     payload: Box<dyn Any + Send>,
     pub(crate) ty: Ty,
     _owner: LoadedModule,
@@ -409,6 +413,7 @@ impl NativeObject {
             _owner: self._owner.clone(),
             scope: self.scope.clone(),
             selected: self.selected.clone(),
+            revision: self.revision,
         })
     }
 

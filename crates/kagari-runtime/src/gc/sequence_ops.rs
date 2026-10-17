@@ -148,16 +148,10 @@ impl GcHeap {
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
         let mut objects = self.objects_mut()?;
-        let revision = objects
-            .slots
-            .get(id.index())
-            .ok_or_else(invalid)?
-            .revision
-            .checked_add(1)
-            .ok_or_else(invalid)?;
         let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(invalid());
         };
+        let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
         if !matches!(object.ty, Ty::NativeObject(_)) {
             return Err(invalid());
         }
@@ -167,7 +161,7 @@ impl GcHeap {
         }
         values.swap(a, b)?;
         if a != b {
-            objects.slots[id.index()].revision = revision;
+            object.revision = revision;
         }
         Ok(())
     }
@@ -179,22 +173,16 @@ impl GcHeap {
         let count = self.sequence_len(id).ok_or_else(invalid)?;
         self.resources.poll_execution()?;
         let mut objects = self.objects_mut()?;
-        let revision = objects
-            .slots
-            .get(id.index())
-            .ok_or_else(invalid)?
-            .revision
-            .checked_add(1)
-            .ok_or_else(invalid)?;
         let Some(object) = self.native_mut(&mut objects, id) else {
             return Err(invalid());
         };
+        let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
         if !matches!(object.ty, Ty::NativeObject(_)) {
             return Err(invalid());
         }
         object.payload_mut::<SequencePayload>()?.values.reverse();
         if count > 1 {
-            objects.slots[id.index()].revision = revision;
+            object.revision = revision;
         }
         Ok(())
     }

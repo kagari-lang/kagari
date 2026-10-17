@@ -1091,8 +1091,13 @@ outside the script heap. Runtime-only ephemeral IDs remain a distinct value tag.
 Every heap access still checks owner, generation and object kind. Saturated slot
 generations retire storage; owner/slot exhaustion cannot truncate or wrap identity.
 
-The heap directory stores generation, revision and a kind/store locator (24 bytes
-on the measured 64-bit target). Dense typed stores own each payload family; native
+The heap directory stores generation and a kind/store locator (12 bytes on the
+measured 64-bit target). Runtime-owned native
+records carry their u64 mutation revision next to the erased Rust payload, so other
+object kinds do not pay for native invalidation state. Allocation initializes a new
+native identity's revision even when its payload was copied from a mutated object;
+payload replacement within an existing identity preserves and commits that identity's
+revision. Dense typed stores own each payload family; native
 arrays, collections and custom Rust payloads retain their existing native owner.
 Rare candidate-initialization ownership is keyed by full identity outside the
 common directory slot. Sweep updates private locators when compacting records,

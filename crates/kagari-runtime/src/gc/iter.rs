@@ -86,9 +86,10 @@ impl GcHeap {
             Value::Str(_) | Value::Range(_) => Some(0),
             Value::Array(id) | Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => {
                 let objects = self.objects.borrow();
-                let object = self.readable_object(&objects, *id)?;
-                if let HeapObject::Native(object) = object
-                    && object.storage.accepts_payload::<SequencePayload>()
+                let HeapObject::Native(object) = self.readable_object(&objects, *id)? else {
+                    return None;
+                };
+                if object.storage.accepts_payload::<SequencePayload>()
                     && object
                         .payload::<SequencePayload>()
                         .ok()?
@@ -97,7 +98,7 @@ impl GcHeap {
                 {
                     return None;
                 }
-                Some(objects.slots[id.index()].revision)
+                Some(object.revision)
             }
             _ => None,
         }

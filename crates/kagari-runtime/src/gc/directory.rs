@@ -54,7 +54,6 @@ pub(super) struct PayloadLocation {
 
 #[derive(Debug)]
 pub(super) struct ObjectSlot {
-    pub(super) revision: u64,
     pub(super) generation: u32,
     pub(super) location: Option<PayloadLocation>,
 }
