@@ -14,6 +14,9 @@ use std::{
     sync::{Arc, Weak},
 };
 
+#[cfg(feature = "execution-diagnostics")]
+use crate::diagnostics::storage::BufferUsage;
+
 /// Equality preserves applied type provenance and ordered construction witnesses.
 /// This runtime-local registry holds no executable roots or receivers.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -30,6 +33,14 @@ pub(crate) struct InterfaceSnapshotId {
     owner: u64,
     slot: usize,
     generation: u64,
+}
+
+impl InterfaceSnapshotId {
+    /// The compact locator is usable only after this full token is admitted by
+    /// its store. An unrepresentable slot cannot publish a heap wrapper.
+    pub(crate) fn directory_index(self) -> Option<u32> {
+        u32::try_from(self.slot).ok()
+    }
 }
 
 #[derive(Debug)]
@@ -92,6 +103,27 @@ impl InterfaceStore {
         (slot.generation == id.generation)
             .then_some(slot.interface.as_ref())
             .flatten()
+    }
+
+    /// A published directory binding cannot outlive this slot: live wrappers mark
+    /// metadata, and collection invalidates dead heap IDs before detaching snapshots.
+    /// Independent metadata tokens still validate their complete owner/generation.
+    pub(crate) fn directory_binding(&self, index: u32) -> Option<(InterfaceSnapshotId, usize)> {
+        let slot = self.slots.get(index as usize)?;
+        let interface = slot.interface.as_ref()?;
+        Some((
+            InterfaceSnapshotId {
+                owner: self.owner,
+                slot: index as usize,
+                generation: slot.generation,
+            },
+            interface.description.methods.len(),
+        ))
+    }
+
+    #[cfg(feature = "execution-diagnostics")]
+    pub(crate) fn storage_usage(&self) -> BufferUsage {
+        BufferUsage::new("interface_snapshots", &self.slots)
     }
 
     pub(crate) fn prune_descriptions(&mut self) {

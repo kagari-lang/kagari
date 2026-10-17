@@ -183,20 +183,16 @@ impl GcHeap {
         // Evaluate payload accounting before mutating slots: it is a native hook.
         let dead = {
             let objects = self.objects.try_borrow().ok()?;
-            objects
-                .slots
-                .iter()
-                .enumerate()
-                .filter_map(|(index, slot)| {
-                    let id = HeapObjectId::new(self.owner, index, slot.generation);
-                    (!live.contains(&id))
-                        .then(|| {
-                            slot.location
-                                .map(|location| (index, objects.get(location).units()))
-                        })
-                        .flatten()
-                })
-                .collect::<Vec<_>>()
+            let mut dead = Vec::new();
+            for (index, slot) in objects.slots.iter().enumerate() {
+                let id = HeapObjectId::new(self.owner, index, slot.generation);
+                if !live.contains(&id)
+                    && let Some(location) = slot.location
+                {
+                    dead.push((index, objects.get(location, &self.interfaces)?.units()));
+                }
+            }
+            dead
         };
         if self.resources.is_quarantined() {
             return None;

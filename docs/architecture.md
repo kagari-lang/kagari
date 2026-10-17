@@ -1137,6 +1137,19 @@ operation still admits its own receiver. The weak registry introduces no root;
 metadata tracing visits a shared description once and traces each receiver/view
 separately. Sharing parent snapshots would incorrectly share receivers and is forbidden.
 
+Heap interface identities locate those snapshots directly through the common
+directory; there is no separate wrapper payload vector. Metadata snapshots retain
+their own full owner/slot/generation IDs. Every live heap wrapper traces its snapshot,
+and collection invalidates dead heap IDs before metadata detaches, so a published
+locator cannot survive snapshot-slot reuse. Checked metadata tokens and caches still
+validate their complete identities. Multiple wrappers may share a snapshot while
+keeping distinct heap identities, and a metadata-only root can outlive every wrapper.
+Rewrapping that snapshot publishes a fresh heap identity. Publication validates the
+full token and receiver, and rejects a snapshot slot that cannot fit the u32 locator.
+Access borrows the metadata owner only long enough to copy immutable ID/unit facts;
+receiver/description storage is neither cloned nor rooted by the transient view.
+Shared metadata views and mutable heap storage retain their separate borrow owners.
+
 The storage and scalar-transfer kernels use safe Rust. Any future bounded unsafe
 kernel must expose a safe owner-controlled API with enforced bounds, initialization,
 alignment, aliasing and lifetime invariants, and focused validation including Miri

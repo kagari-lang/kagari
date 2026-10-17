@@ -427,6 +427,9 @@ impl GcHeap {
             ));
         }
         let method_count = view.description.methods.len();
+        snapshot
+            .directory_index()
+            .ok_or_else(|| self.resource_limit("interface snapshot locator"))?;
         drop(view);
         self.alloc_object(HeapObject::Interface {
             snapshot,
@@ -535,7 +538,7 @@ impl GcHeap {
     ) -> Option<InterfaceSnapshotId> {
         let objects = self.objects.try_borrow().ok()?;
         match self.readable_object(&objects, id.0)? {
-            HeapObject::Interface { snapshot, .. } => Some(*snapshot),
+            HeapObject::Interface { snapshot, .. } => Some(snapshot),
             _ => None,
         }
     }
@@ -730,7 +733,7 @@ impl GcHeap {
         objects: &'a ObjectStorage,
         id: HeapObjectId,
     ) -> Option<HeapObject<Shared<'a>>> {
-        Some(objects.get(self.object_location(objects, id)?))
+        objects.get(self.object_location(objects, id)?, &self.interfaces)
     }
 
     // Script-visible reads are isolated; collector traversal uses object_ref directly.
@@ -739,7 +742,7 @@ impl GcHeap {
         objects: &'a ObjectStorage,
         id: HeapObjectId,
     ) -> Option<HeapObject<Shared<'a>>> {
-        Some(objects.get(self.readable_location(objects, id)?))
+        objects.get(self.readable_location(objects, id)?, &self.interfaces)
     }
 
     fn object_mut<'a>(
@@ -748,7 +751,7 @@ impl GcHeap {
         id: HeapObjectId,
     ) -> Option<HeapObject<Exclusive<'a>>> {
         let location = self.readable_location(objects, id)?;
-        Some(objects.get_mut(location))
+        objects.get_mut(location, &self.interfaces)
     }
 
     fn native_ref<'a>(

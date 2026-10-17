@@ -647,3 +647,91 @@ needs a new sparse-capacity justification; this decision does not assert that ev
 possible grouping design is impossible. Additional zero-byte/reference/generation
 prototype checks are unnecessary for the rejected model. The existing packed arena,
 codec and full checked identities remain the single storage implementation.
+
+### OM04 proposed interface owner before prototype, 2026-10-18
+
+Retain both logical identity roles because they have different validity: ordinary
+heap wrapper IDs and full owner/slot/generation metadata snapshot IDs. Consolidate
+the payload owner instead. A checked directory locator will point directly to the
+existing InterfaceStore slot, removing the intermediate dense wrapper record and
+its stored snapshot-ID/method-count copy. InterfaceStore remains the only owner of
+receiver data, parent caches and shared-description references. Multiple wrappers
+may address one snapshot and keep their distinct heap identities; no canonicalized
+wrapper cache, forwarding ID table or second snapshot implementation is introduced.
+
+The lifetime proof is the existing collection transaction: every live wrapper
+marks its snapshot; a snapshot slot cannot retire/reuse while a wrapper is live.
+Dead heap identities invalidate before metadata detaches. Thus a validated directory
+binding can obtain the current full metadata ID/count from its stable slot; original
+metadata tokens still validate their complete owner/generation through InterfaceStore.
+Metadata-only roots continue retaining a receiver after the wrapper dies, and a
+later wrapper publishes a fresh checked heap identity. Missing/borrowed metadata
+must fail closed before any partial sweep. Shared metadata borrows remain separate
+from mutable object storage; no receiver/description is copied or permanently rooted.
+
+Publication first validates the original full metadata token and receiver, then
+checks that its slot fits the existing u32 directory locator before allocation.
+This is an explicit checked publication bound, not a truncated metadata ID or a
+narrowed generation. Snapshot IDs retain their widths and saturation behavior.
+Transient interface access carries the full metadata ID/count by value; measure
+any wider transient enum/code-generation effects rather than adding inline hints.
+Read the immutable description's method count at access, retaining identical
+logical units and pre-detachment accounting. Remove obsolete wrapper disposal and
+accounting paths coherently with this owner change.
+
+The 512-interface projection can remove 20,480 wrapper backing bytes (512 x 40),
+about 19.6-19.9% of post-OM02 live increments. This is not a measured retained win;
+the prototype must clear 15% on narrow/wide/generic interfaces against OM02, improve
+OM01, and pass all common memory/timing/lifetime gates. Add the existing forms suite
+as a bounded call-regression control, frozen on accepted OM02 before production
+edits, because transient object views also participate in dynamic call validation.
+All twelve forms rows must remain <=1.05 against OM02; Lua/setup stay diagnostics.
+
+OpenJDK `jdk-25-ga` [InstanceKlass](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/oops/instanceKlass.hpp)
+keeps shared vtable/itable data with class metadata. Rust's
+[trait-object reference](https://doc.rust-lang.org/reference/types/trait-object.html)
+separates receiver and vtable pointers; its
+[dyn compatibility rules](https://doc.rust-lang.org/reference/items/traits.html#dyn-compatibility)
+exclude dispatchable type-generic methods. Kagari already shares method/type
+descriptions, but also supports generic interface methods, scalar receivers, precise
+GC roots and pinned reload applications. Retain its checked view metadata rather
+than copying raw fat pointers, Java object headers or Rust's callable restriction.
+This proposal removes repeated wrapper data under those existing owners.
+
+The OM04 prototype removes the wrapper Vec/record/disposal path. ObjectStorage
+resolves an interface locator through InterfaceStore under a short shared borrow,
+copying the complete metadata ID and immutable method count into its transient
+object view. Ordinary/native/struct storage remains under its existing owner.
+Dead-object accounting resolves every binding before mutation; interface identities
+retire in the common directory and snapshot disposal remains with metadata.
+Diagnostics now report snapshot-slot backing directly and remove the obsolete
+wrapper-buffer entry rather than retaining a compatibility field/reader.
+
+Thirteen existing interface metadata contracts pass unchanged, covering scalar
+identity, parent caches, full stale/foreign/exhausted IDs, borrowed views, corruption
+rejection, metadata-only roots and pinned descriptions. A new contract checks
+multiple distinct heap wrappers to one snapshot, unrelated heap-slot reuse, separate
+alias expiry and zero remaining logical heap units. Sparse mixed payload relocation
+also passes. The new test initially used the wrong alloc_string return shape (E0308);
+its setup is corrected and the exact case passes. No production semantic repair
+or relaxed assertion was needed.
+
+All 96 memory comparisons pass against OM02 and OM01. Narrow/wide/generic 512-view
+live increments fall from 103,040/104,264/104,416 to 82,560/83,784/83,936: exactly
+20,480 bytes removed per case, ratios 0.801242/0.803576/0.803861 against OM02.
+Point/Pair savings remain unchanged, as do 98 field-loop requests/6,928 bytes.
+All sixteen teardowns are zero and three equal reuse cycles plateau. The prototype
+has not yet passed dynamic-call, host/reload/source-free and ordinary timing gates;
+no performance acceptance is inferred from memory alone.
+
+The selected SDK checks also pass: concrete/interface identity, ordered identity
+traps/root cleanup, rooted host GC/reentry/reload/trap cleanup, retained generic
+closures across reload, and native-enabled source-free algorithms/custom payload.
+Together with fourteen interface-store/alias contracts and sparse relocation, this
+is twenty focused contracts. Workspace all-target Clippy, diagnostics-example
+Clippy, structure (1,307 Rust files, no findings), fmt and diff checks pass. No new
+production glob/re-export, unsafe storage, cache, source-analysis dependency or
+format/ABI identifier change is introduced. Commit the coherent prototype while
+ordinary acceptance remains open. Next run fixed seven-pair current/OM01 storage,
+current/pre-RS storage and current/OM02 forms comparisons sequentially; preserve
+both target savings and earlier common gates, with no other workload overlapping.

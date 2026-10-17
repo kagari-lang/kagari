@@ -7,7 +7,11 @@ use crate::{
 use std::sync::Arc;
 
 impl ObjectStorage {
-    pub(crate) fn storage_usage(&self, free_identities: BufferUsage) -> StorageUsage {
+    pub(crate) fn storage_usage(
+        &self,
+        free_identities: BufferUsage,
+        interface_snapshots: BufferUsage,
+    ) -> StorageUsage {
         let stores = &self.payloads;
         let distinct_struct_layouts = stores
             .structs
@@ -43,11 +47,11 @@ impl ObjectStorage {
                 BufferUsage::new("enums", &stores.enums),
                 BufferUsage::new("struct_records", &stores.structs),
                 BufferUsage::new("struct_fields", &stores.struct_bytes),
-                BufferUsage::new("interface_wrappers", &stores.interfaces),
                 BufferUsage::new("closures", &stores.closures),
                 BufferUsage::new("cells", &stores.cells),
                 free_identities,
             ],
+            interface_snapshots,
             distinct_struct_layouts,
             initialization_owners: self.initialization_owners.len(),
             initialization_owner_capacity: self.initialization_owners.capacity(),

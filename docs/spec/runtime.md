@@ -236,6 +236,16 @@ Structural edits, checked native writes and detached sequence restoration retain
 their operation-specific invalidation/commit order. Exhaustion rejects the operation
 without wrapping. A temporarily detached sequence has no readable traversal revision.
 
+An interface heap identity directly locates a runtime-owned snapshot. Heap aliases
+have independent checked identities even when they share one metadata snapshot.
+Metadata roots may keep the snapshot and receiver alive after heap aliases expire;
+later publication creates a fresh heap identity. Complete metadata owner/generation
+checks remain at token admission and metadata access. The compact directory locator
+requires a representable snapshot slot; publication fails before heap growth or
+identity publication when that bound is exceeded. Collection validates the complete
+graph and accounts dead wrapper units before invalidating heap IDs and detaching
+metadata. Borrow conflicts cannot produce a partial sweep.
+
 The marker walks identities through storage-provided edges. Object representations
 own reference traversal; closure signatures and runtime type compatibility have
 separate execution owners. Heap objects and executable programs share one mark

@@ -80,9 +80,11 @@ pub(super) enum HeapObject<A: ObjectAccess = Owned> {
     Struct {
         storage: A::Structure,
     },
+    /// Immutable facts copied from the separately borrowed metadata owner. Even
+    /// exclusive heap access cannot replace a snapshot or its receiver here.
     Interface {
-        snapshot: A::Field<InterfaceSnapshotId>,
-        method_count: A::Field<usize>,
+        snapshot: InterfaceSnapshotId,
+        method_count: usize,
     },
     Closure {
         snapshot: A::Field<ClosureValueSnapshot>,
@@ -111,7 +113,7 @@ impl<A: ObjectAccess> HeapObject<A> {
             Self::Native(object) => object.borrow().units(),
             Self::Enum(value, _) => value.borrow().fields.len(),
             Self::Struct { storage } => A::field_count(storage),
-            Self::Interface { method_count, .. } => 1 + *method_count.borrow(),
+            Self::Interface { method_count, .. } => 1 + *method_count,
             Self::Closure { snapshot, .. } => 1 + snapshot.borrow().captures.len(),
             Self::Cell { .. } => 2,
         }
@@ -123,7 +125,7 @@ impl<'a> HeapObject<Shared<'a>> {
     /// Plain data layouts only retain immutable type metadata.
     pub(super) fn metadata(self) -> Option<MetadataEdge<'a>> {
         match self {
-            Self::Interface { snapshot, .. } => Some(MetadataEdge::Interface(*snapshot)),
+            Self::Interface { snapshot, .. } => Some(MetadataEdge::Interface(snapshot)),
             Self::Closure { snapshot } => Some(MetadataEdge::Closure(snapshot)),
             Self::Native(object) if !object.selected.is_empty() => {
                 Some(MetadataEdge::Selections(&object.selected))
@@ -145,7 +147,7 @@ impl<'a> HeapObject<Shared<'a>> {
             Self::Native(object) => object.trace(&mut |value| visit(*value)),
             Self::Enum(snapshot, _) => snapshot.fields.iter().rev().copied().for_each(visit),
             Self::Struct { storage } => storage.trace(visit)?,
-            Self::Interface { snapshot, .. } => visit(interfaces.get(*snapshot)?.data),
+            Self::Interface { snapshot, .. } => visit(interfaces.get(snapshot)?.data),
             Self::Closure { snapshot, .. } => {
                 snapshot.captures.iter().rev().copied().for_each(visit)
             }

@@ -5,7 +5,7 @@ mod accounting;
 use crate::{
     closure::ClosureValueSnapshot,
     error_trace::ErrorTrace,
-    execution_metadata::interfaces::InterfaceSnapshotId,
+    execution_metadata::interfaces::InterfaceStore,
     gc::{
         HeapObjectId,
         fields::{StructView, StructViewMut},
@@ -20,6 +20,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use std::{
+    cell::RefCell,
     collections::{HashMap, TryReserveError},
     mem,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -84,7 +85,6 @@ pub(super) struct PayloadStores {
     enums: Vec<Entry<(EnumValueSnapshot, Option<Arc<ErrorTrace>>)>>,
     structs: Vec<Entry<StructRecord>>,
     struct_bytes: Vec<u8>,
-    interfaces: Vec<Entry<(InterfaceSnapshotId, usize)>>,
     closures: Vec<Entry<ClosureValueSnapshot>>,
     cells: Vec<Entry<(ValueType, Value)>>,
 }
@@ -103,7 +103,6 @@ enum RetiredBatch {
     Ephemeral(Vec<Entry<EphemeralValue>>),
     Native(Vec<Entry<NativeObject>>),
     Enum(Vec<Entry<(EnumValueSnapshot, Option<Arc<ErrorTrace>>)>>),
-    Interface(Vec<Entry<(InterfaceSnapshotId, usize)>>),
     Closure(Vec<Entry<ClosureValueSnapshot>>),
     Cell(Vec<Entry<(ValueType, Value)>>),
     Structs {
@@ -263,22 +262,12 @@ impl ObjectStorage {
                     index,
                 })
             }
-            HeapObject::Interface {
-                snapshot,
-                method_count,
-            } => {
-                self.payloads.interfaces.try_reserve(1)?;
-                let index = u32::try_from(self.payloads.interfaces.len())
-                    .expect("admitted heap payload index");
-                self.payloads.interfaces.push(Entry {
-                    directory,
-                    payload: (snapshot, method_count),
-                });
-                Ok(PayloadLocation {
-                    kind: PayloadKind::Interface,
-                    index,
-                })
-            }
+            HeapObject::Interface { snapshot, .. } => Ok(PayloadLocation {
+                kind: PayloadKind::Interface,
+                index: snapshot
+                    .directory_index()
+                    .expect("admitted interface locator"),
+            }),
             HeapObject::Closure { snapshot } => {
                 self.payloads.closures.try_reserve(1)?;
                 let index = u32::try_from(self.payloads.closures.len())
@@ -350,9 +339,13 @@ impl ObjectStorage {
         description.fields = Box::new([]);
     }
 
-    pub(super) fn get(&self, location: PayloadLocation) -> HeapObject<Shared<'_>> {
+    pub(super) fn get(
+        &self,
+        location: PayloadLocation,
+        interfaces: &RefCell<InterfaceStore>,
+    ) -> Option<HeapObject<Shared<'_>>> {
         let index = location.index as usize;
-        match location.kind {
+        Some(match location.kind {
             PayloadKind::String => {
                 let value = &self.payloads.strings[index].payload;
                 HeapObject::String(value)
@@ -389,10 +382,13 @@ impl ObjectStorage {
                 storage: self.structure(location).expect("struct location"),
             },
             PayloadKind::Interface => {
-                let value = &self.payloads.interfaces[index].payload;
+                let (snapshot, method_count) = interfaces
+                    .try_borrow()
+                    .ok()?
+                    .directory_binding(location.index)?;
                 HeapObject::Interface {
-                    snapshot: &value.0,
-                    method_count: &value.1,
+                    snapshot,
+                    method_count,
                 }
             }
             PayloadKind::Closure => {
@@ -406,12 +402,16 @@ impl ObjectStorage {
                     value: &value.1,
                 }
             }
-        }
+        })
     }
 
-    pub(super) fn get_mut(&mut self, location: PayloadLocation) -> HeapObject<Exclusive<'_>> {
+    pub(super) fn get_mut(
+        &mut self,
+        location: PayloadLocation,
+        interfaces: &RefCell<InterfaceStore>,
+    ) -> Option<HeapObject<Exclusive<'_>>> {
         let index = location.index as usize;
-        match location.kind {
+        Some(match location.kind {
             PayloadKind::String => {
                 let value = &mut self.payloads.strings[index].payload;
                 HeapObject::String(value)
@@ -448,10 +448,13 @@ impl ObjectStorage {
                 storage: self.structure_mut(location).expect("struct location"),
             },
             PayloadKind::Interface => {
-                let value = &mut self.payloads.interfaces[index].payload;
+                let (snapshot, method_count) = interfaces
+                    .try_borrow()
+                    .ok()?
+                    .directory_binding(location.index)?;
                 HeapObject::Interface {
-                    snapshot: &mut value.0,
-                    method_count: &mut value.1,
+                    snapshot,
+                    method_count,
                 }
             }
             PayloadKind::Closure => {
@@ -465,7 +468,7 @@ impl ObjectStorage {
                     value: &mut value.1,
                 }
             }
-        }
+        })
     }
 
     /// Detach without running payload destructors. The caller advances the stable
@@ -492,7 +495,10 @@ impl ObjectStorage {
             .location
             .take()
             .expect("marked live directory entry");
-        counts.0[location.kind as usize] += 1;
+        // Interface payloads belong to metadata; only their heap identity retires here.
+        if !matches!(location.kind, PayloadKind::Interface) {
+            counts.0[location.kind as usize] += 1;
+        }
         self.initialization_owners.remove(&id);
     }
 
@@ -576,13 +582,6 @@ impl ObjectStorage {
             };
             retired.push(RetiredBatch::Structs { records, bytes });
         }
-        if counts.0[PayloadKind::Interface as usize] != 0 {
-            retired.push(RetiredBatch::Interface(extract(
-                &mut self.payloads.interfaces,
-                &mut self.slots,
-                counts.0[PayloadKind::Interface as usize],
-            )));
-        }
         if counts.0[PayloadKind::Closure as usize] != 0 {
             retired.push(RetiredBatch::Closure(extract(
                 &mut self.payloads.closures,
@@ -642,7 +641,6 @@ impl RetiredPayloads {
                 RetiredBatch::Ephemeral(entries) => dispose(entries, &mut on_panic),
                 RetiredBatch::Native(entries) => dispose(entries, &mut on_panic),
                 RetiredBatch::Enum(entries) => dispose(entries, &mut on_panic),
-                RetiredBatch::Interface(entries) => dispose(entries, &mut on_panic),
                 RetiredBatch::Closure(entries) => dispose(entries, &mut on_panic),
                 RetiredBatch::Cell(entries) => dispose(entries, &mut on_panic),
                 RetiredBatch::Structs { records, bytes } => {

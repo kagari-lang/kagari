@@ -588,6 +588,43 @@ fn metadata_only_root_retains_the_heap_receiver_without_retaining_the_wrapper() 
 }
 
 #[test]
+fn independent_heap_aliases_keep_their_snapshot_after_wrapper_reuse() {
+    let (runtime, _loaded, _table, old) = fixture();
+    let id = identity(&runtime, &old);
+    let metadata = runtime
+        .root_metadata(vec![MetadataRoot::Interface(id)])
+        .unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+    assert!(!runtime.gc.validate_value(&old));
+
+    let temporary = runtime.gc.alloc_string("reuse".into()).unwrap();
+    let first = Value::Interface(runtime.gc.alloc_interface(id).unwrap());
+    let second = Value::Interface(runtime.gc.alloc_interface(id).unwrap());
+    assert_ne!(
+        first, second,
+        "distinct heap wrappers keep distinct identities"
+    );
+    assert_eq!(identity(&runtime, &first), id);
+    assert_eq!(identity(&runtime, &second), id);
+    assert!(runtime.gc.validate_value(&temporary));
+    assert!(!runtime.gc.validate_value(&old));
+    let first_root = runtime.gc.root_value(first).unwrap();
+    let second_root = runtime.gc.root_value(second).unwrap();
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+
+    drop(metadata);
+    drop(first_root);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+    assert!(!runtime.gc.validate_value(&first));
+    assert!(runtime.gc.validate_value(&second));
+    assert!(runtime.gc.interface_metadata(id).is_some());
+    drop(second_root);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+    assert!(runtime.gc.interface_metadata(id).is_none());
+    assert_eq!(runtime.gc.stats().current_heap_units, 0);
+}
+
+#[test]
 fn invalid_interface_inspection_preserves_declaration_and_slot_error_kinds() {
     let (runtime, _loaded, _table, value) = fixture();
     let id = identity(&runtime, &value);
