@@ -4,11 +4,15 @@ Status: activated on 2026-10-16 by the user's execution request. IP01 is complet
 at 60bfaacb. IP02/IP03 are implemented as buildable combined checkpoints, including
 prepared calls, native type evidence and construction ownership. Selected local
 correctness and memory checks pass. Historical Windows timing findings remain
-recorded below. The renewed macOS comparison passes the four required call targets
-and owned-root controls, but has tail-window retirement and forms_field regressions,
-plus failed/inconclusive independent Lua preparation controls. A subsequent in-place
-window retirement repair passes all 18 window gates. IP02/IP03 acceptance stays open
-while field/reference findings and combined current-image acceptance are resolved.
+recorded below. The current macOS candidate passes all forms, window and owned-root
+gates, all Kagari original-suite rows, and all embedded Lua execution rows. The four
+required call targets pass. Eight independent Lua preparation controls fail in the
+seven-pair original comparison; adjacent A/A and a rejected larger-batch calibration
+also fail to establish repeatability. The production reference remains three-by-32.
+One predeclared original extension to 21 total pairs is running at UTC 20261017T041918Z,
+retaining every earlier sample and exact image/path. No further extension or batch
+pilot is authorized by that experiment. IP02/IP03 acceptance stays open until its
+remaining reference gates are resolved.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
