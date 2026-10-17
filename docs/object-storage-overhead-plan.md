@@ -1,8 +1,8 @@
 # Object storage overhead execution plan
 
 Status: activated on 2026-10-18 after the baseline/measurement policy refresh.
-OM01 attribution/baseline work is locally complete; OM02 revision migration is
-active and OM03-OM05 are unstarted.
+OM01/OM02 are locally accepted. OM03 layout-grouping decision is active;
+OM04/OM05 are unstarted.
 The [roadmap](implementation-roadmap.md#object-storage-overhead) owns
 activation and ordering. This plan owns OM01-OM05, conditional decisions,
 acceptance and the progress ledger. The user authorized execution and staged commits.
@@ -381,7 +381,7 @@ checks, not workspace builds or tests.
 
 - [x] Planning: current owners, finite phases and numerical gates recorded.
 - [x] OM01: cost attribution, consumer audit and frozen current baseline/controls.
-- [ ] OM02: common-directory/native-revision migration and acceptance.
+- [x] OM02: common-directory/native-revision migration and local acceptance.
 - [ ] OM03: layout grouping decision; accepted implementation or explicit deferral.
 - [ ] OM04: interface record decision; accepted implementation or explicit deferral.
 - [ ] OM05: integrated local acceptance, CI scope and documentation handoff.
@@ -577,3 +577,33 @@ findings), fmt/diff checks pass. Ordinary and diagnostic images are saved separa
 Commit the coherent implementation with timing acceptance still open; next compare
 the fixed candidate against OM01 for all 29 rows and afec4a3b for the original 26,
 using seven fixed alternating pairs per comparison and the recorded limits.
+
+The fixed OM01/OM02 seven-pair comparison passes all 29 timing gates. Maximum ratio
+is read_fields 1.020315 (range 0.996680-1.037071). Revision growth/iterator/callback
+ratios are 1.004421/1.002535/1.001313; allocation savings do not imply an execution
+speedup. The separately frozen pre-RS comparison is still running; no builds,
+tests, diagnostics or other timings overlap either comparison. OM02 acceptance
+remains open until inherited RS gates complete.
+
+Conditional OM03 projection, before any grouping prototype: examine one/64 exact
+scalar layouts with one/four rooted rows per layout using direct checked allocation
+and the existing manual layout diagnostic owner. Warm immutable program preparation
+separately; measure actual live/empty requested-byte increments and zero teardown.
+A minimal group model contains one Arc description, field-byte Vec and reverse-owner
+Vec; global rows need group/row locations and each group needs directory backrefs.
+Measure these Rust record sizes, then compare optimistic metadata cost against
+current live bytes, excluding map/control/slack costs in the model's favor. This
+is a cost projection, not an implementation or speed claim. If even that projection
+violates the +5% sparse-layout budget, reject this group model before adding a
+second sparse fallback or further migration machinery. Only a model that passes
+that first cost screen justifies additional zero-byte/reference/generation controls
+and a production prototype. Existing unchanged codec/generation contracts remain
+owned by their current tests.
+
+The separate pre-RS seven-pair comparison passes all 26 inherited gates. Node
+release GC is 1.063990 (range 1.060152-1.095753), within the original 1.10 limit;
+no OM allowance is compounded. Together with 29/29 OM01 timing gates, 96/96 memory
+checks, thirteen focused contracts and required local quality checks, this closes
+OM02 local acceptance at runtime 1788d94b. All fixed runs/images are retained,
+without an extension or discarded pair. Complete CI remains pending. OM03 now
+runs the predeclared bounded cost projection; no grouping prototype is selected.
