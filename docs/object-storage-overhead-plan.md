@@ -1,7 +1,8 @@
 # Object storage overhead execution plan
 
-Status: proposed execution plan recorded on 2026-10-16; implementation has not
-started. The [roadmap](implementation-roadmap.md#object-storage-overhead) owns
+Status: proposed execution plan recorded on 2026-10-16; baseline and measurement
+policy refreshed on 2026-10-18. Implementation has not started.
+The [roadmap](implementation-roadmap.md#object-storage-overhead) owns
 activation and ordering. This plan owns OM01-OM05, conditional decisions,
 acceptance and the progress ledger. Writing it does not activate implementation.
 
@@ -32,21 +33,31 @@ this ledger or require conditional storage changes to be implemented.
 
 ## Evidence and cost ownership
 
-Baseline implementation is 35077323; documentation handoff is 312e6b46. The
-[retained measurements](performance-baseline.md#runtime-storage-2026-10-16) record
-seven matched process pairs on Apple M1 Max, arm64 macOS 26.6.2, rustc 1.98.1,
-workspace release profile. They are evidence for selecting work, not fresh OM
-measurements or comparisons with another language's whole process.
+OM01 has no frozen baseline yet. Freeze the current coherent implementation at
+activation, including the accepted IP call/window/lease work and subsequent accepted
+changes; record its exact revision, relevant working-tree changes and validation
+status before any OM production edit. Neither the old RS revision nor the IP
+checkpoint automatically represents the implementation at activation.
 
-| Current item | Evidence | Implication |
+The [RS measurements](performance-baseline.md#runtime-storage-2026-10-16) at
+35077323 (handoff 312e6b46) retain the original pre-RS comparison. The later
+[IP storage checks](performance-baseline.md#interpreter-call-lifecycle-2026-10-17)
+at f070a092 provide newer allocation observations. Both used Apple M1 Max,
+arm64 macOS 26.6.2, rustc 1.98.1 and the workspace release profile; the IP allocation
+run is not a fresh RS latency comparison. These are historical evidence for selecting
+work, not fresh OM measurements or current-HEAD guarantees. Recheck ownership,
+sizes, capacities and behavior in OM01 rather than attributing intervening changes
+to OM or discarding their accepted improvements.
+
+| Item | Recorded evidence | Implication |
 | --- | --- | --- |
-| Common directory entry | 24 bytes on the measured target | Every kind pays for a u64 revision, generation and locator. |
-| Struct record plus its directory back-reference | About 24 bytes by current 64-bit layout | Every instance repeats a description reference and byte offset. Verify sizes in OM01. |
+| Common directory entry | RS: 24 bytes on the measured target | Every kind pays for a u64 revision, generation and locator. Recheck the current layout in OM01. |
+| Struct record plus its directory back-reference | RS: about 24 bytes by the reviewed 64-bit layout | Every instance repeats a description reference and byte offset. Verify sizes in OM01. |
 | Point fields | Two i32 fields occupy eight bytes | Field payload compression is not the main remaining opportunity. |
-| 512 Points | 58,084 live / 40,508 empty / 66,692 reused requested-byte increments | Approximately 113 bytes per Point is a workload average, not object size. |
-| 512 Pair<i32> values | 58,860 live / 40,548 empty / 67,052 reused | Generic layout provenance must survive any grouping. |
-| Narrow / wide / generic interfaces | 128,616 / 129,840 / 129,992 live increments | Description sharing already works; remaining instance records need separate attribution. |
-| Cyclic nodes | 414,428 live increment; release GC +9.4% against pre-RS baseline | Reference-heavy retention and collection latency are sensitive controls. |
+| 512 Points | IP: 57,036 live / 39,460 empty / 65,644 reused requested-byte increments | Total population cost includes capacity and bookkeeping; dividing by 512 does not establish an object size. |
+| 512 Pair<i32> values | IP: 57,812 live / 39,500 empty / 66,004 reused | Generic layout provenance must survive any grouping. |
+| Narrow / wide / generic interfaces | IP: 127,584 / 128,808 / 128,960 live increments | Description sharing already works; remaining instance records need separate attribution. |
+| Cyclic nodes | IP: 413,380 live increment; historical RS release GC +9.4% against pre-RS baseline | Reference-heavy retention and collection latency are sensitive controls; these observations come from separate runs. |
 
 The common directory and per-store record have different responsibilities:
 the directory owns stable identity/generation; each dense store's back-reference
@@ -190,8 +201,14 @@ Diagnostic attribution must not add permanent counters or alter ordinary timing.
 
 Record actual sizes/capacities, ownership/consumer inventories, environment and
 the missing data for new controls. Freeze their exact sources, counts and gates
-before modifying production storage. Baseline is 35077323, with only equivalent
-probe/diagnostic additions if required; preserve the original pre-RS comparison.
+before modifying production storage. Use the current implementation selected at
+activation, with only equivalent probe/diagnostic additions if required. Save its
+ordinary executable and baseline report before the first production edit, and keep
+that image fixed across OM comparisons. Collect allocation diagnostics separately.
+Later conditional phases also compare against their preceding accepted checkpoint;
+they do not replace the OM01 baseline or compound its allowances. Preserve the
+original pre-RS comparison and RS obligations using matched evidence, not elapsed
+times copied from a different machine or toolchain.
 
 Acceptance: allocator totals are reconciled with documented limits; all revision
 consumers and interface identity roots are accounted for; fresh matched controls
@@ -279,16 +296,46 @@ The following limits apply to **each accepted checkpoint and the final result**:
 - No correctness, trap ordering, cleanup, cancellation, host borrowing or pinned
   reload regression is acceptable. A smaller size does not offset a lost check.
 
-Use the same machine, toolchain, release profile, features, target, default build
-parallelism and workload for each matched comparison. Separate compilation,
-preparation/linking, ordinary timing and allocation instrumentation. Run no build
-or test concurrently with timing. Use at least seven alternating baseline/current
-process pairs with the existing three warmups and eleven samples per case. Report
-all process medians/ranges, aggregate ratios and paired-ratio medians; both must
-pass. Near-gate noise is inconclusive: predeclare an expanded sample set and retain
-all results, rather than selecting a favorable run. Diagnose the ownership model
-before further tuning when a gate fails. Keep raw logs in ignored target/ and all
-necessary methods/results/limitations in this plan until handoff.
+Apply the simplified [before/after protocol](../benchmarks/lua-comparison/README.md#beforeafter-workflow)
+to the storage probe's own rows; the guide's Lua-suite commands do not select this
+probe. Keep the existing workload sizes, timing regions and checked results.
+Use the same machine, toolchain, release profile, features, target and default
+build parallelism for matched comparisons. Build first, then run old/new ordinary
+executables sequentially. Separate compilation/preparation/linking, ordinary timing,
+sampling and allocation instrumentation; run no builds, tests or other measurements
+concurrently with timing. Compilation and preparation times are diagnostics;
+construction and live/release GC remain separate gated lifecycle rows. Setup-memory
+limits above remain in force.
+
+Use seven fixed baseline/current process pairs by default, alternating B/C and C/B,
+with three warmups and eleven samples per case. Choose any different pair count
+before starting. If workload order is reversed, change it every two pairs,
+independently of which executable runs first. For each row, let B_i and C_i be the
+baseline and candidate process sample medians, normalized by batch size if needed:
+
+```text
+comparison ratio = median(C_i / B_i)
+```
+
+This is the sole timing threshold estimator, including inherited RS timing gates.
+For example, <=1.05 meets the OM regression limit and <=0.90 meets a 10% reduction
+target. Preserve raw samples, process medians and min/max paired ratios; the range
+is not a confidence interval and a numerical pass is not a significance claim.
+Zero baseline medians are inconclusive. There is no second aggregate-ratio gate,
+fixed near-threshold margin, report extension or independent reference calibration.
+Investigate visibly noisy results before claiming a speedup. A justified follow-up
+is a separate, predeclared experiment that retains and discloses earlier conflicting
+results, not an extension or repeated unchanged run until a pass. Historical RS
+reports keep their original conclusions; this policy applies to new comparisons.
+
+Validate complete rows/samples, pair identities, workload inputs/results and matched
+build settings. Record one selected-workload checksum, the two executable checksums,
+revision/status, dependency lock and environment/cache metadata once per run; do not
+add per-source-file or per-worker manifests. Keep images unchanged throughout each
+comparison. Diagnose ownership before further tuning when a gate fails. Keep raw
+logs under ignored target/ and necessary methods/results/limitations in this plan
+until handoff. This update changes measurement policy, not the storage savings,
+correctness or regression limits above.
 
 ## Correctness and verification
 
@@ -332,7 +379,7 @@ checks, not workspace builds or tests.
 ## Progress and decisions
 
 - [x] Planning: current owners, finite phases and numerical gates recorded.
-- [ ] OM01: cost attribution, consumer audit and frozen expanded baseline.
+- [ ] OM01: cost attribution, consumer audit and frozen current baseline/controls.
 - [ ] OM02: common-directory/native-revision migration and acceptance.
 - [ ] OM03: layout grouping decision; accepted implementation or explicit deferral.
 - [ ] OM04: interface record decision; accepted implementation or explicit deferral.
@@ -345,7 +392,13 @@ revision state already protects native managed edits and sequence recovery, not
 only collection iterators. Planning has not established a new implementation
 failure or a new performance result. Prior exhaustive CI acceptance remains pending.
 
-Planning validation: phase/checklist and roadmap/index consistency, Markdown
-fences, 154 repository-relative links/anchors across the three changed documents,
-and whitespace checks pass. No production code changed; builds, tests and Clippy
-were not run for this documentation-only checkpoint.
+2026-10-18 planning refresh: replace the fixed pre-IP baseline with a fresh current
+baseline at activation; distinguish historical RS and IP evidence; adopt the fixed
+paired-ratio protocol above without dual acceptance or report extensions. Preserve
+all numerical storage/latency targets and original RS obligations. OM01-OM05 remain
+unstarted; no new measurement or implementation acceptance is claimed.
+
+Refresh validation: phase/checklist and roadmap consistency, Markdown fences,
+124 repository-relative links/anchors across the two changed documents and
+whitespace checks pass. This documentation-only update requires no build, test or
+Clippy run.

@@ -204,6 +204,13 @@ and interface-record consolidation are conditional on additional measured saving
 sparse-layout capacity, unchanged semantics and non-compounding latency gates.
 Value and full owner/slot/generation handles remain unchanged.
 
+OM01 will freeze the coherent current implementation at activation, including
+accepted IP work and subsequent accepted changes. Historical RS/IP observations
+remain reference evidence, not the new baseline. Measurements use fixed seven-pair
+before/after runs and one median paired-ratio gate; original RS regression
+obligations and OM storage targets remain unchanged. No report extension or
+independent calibration is required.
+
 This is a recorded follow-up, not activation of implementation or a new dependency
 that blocks DC/NC. Before activating another storage-dependent track, refresh its
 inventory against whichever OM checkpoints have actually been accepted. OM owns
