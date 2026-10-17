@@ -2733,6 +2733,50 @@ pass the failed original report. No batching, gate or acceptance protocol change
 authorized by the diagnostic itself. Record these results before choosing any
 further experiment or measurement-boundary correction.
 
+Both declared field profiles finish without overlapping builds/tests/timing; all
+profile-window and logical-count checksums pass. They sample the original measured
+paths and hashes (`macos-ip01` and ordinary `aeb1ddb7...`), not the newer retirement
+candidate. Each executes 90,016 logical Kagari instructions versus 55,008 Lua
+instructions, including 10,000 field reads and 5,000 field writes. Both retain
+16/24-byte Value/prepared instructions and the same 13 physical registers, 11 scalar
+slots and five managed slots. Allocation is one Counter per invocation; the ten-
+second windows execute different numbers of invocations, so their object/collection
+totals are not a regression comparison. No throughput claim is derived from sampling.
+
+The main-thread samples are 3,940 baseline and 3,944 candidate. Named field-handler
+inclusive samples are 1,470 (37.31%) and 1,620 (41.08%); scalar-loop inclusive samples
+are 1,716 (43.55%) and 1,648 (41.78%). Inclusive families overlap their callees and
+must not be summed. Candidate `OperandWindow::with_value` receiver projection has
+103 leaf samples (2.61%) and a concrete out-of-line call from execute_field; baseline
+receiver extraction is inlined. The current borrowed-read owner remains sound and
+shares the scalar/managed decoding implementation with copied reads. Do not restore
+the old Value-copy workaround. ResourceState::termination has 73/195 leaf samples,
+but its source is unchanged; optimized inlining/call-site attribution prevents
+assigning that difference to extra semantic checks. These are one trace per image,
+not exact CPU shares or a predicted speedup.
+
+Next evaluate a single inline hint at the existing OperandWindow borrowed-projection
+boundary, without changing representation, branches, validation, GC storage or
+instruction semantics. Inspect the new field call site and run existing cursor,
+nominal-field mismatch and scoped-generation tests plus local checks. Compare all
+forms in seven new pairs against IP01 (interface/shared_generic targets retained).
+If the field gate remains open, revisit the boundary diagnosis; do not stack more
+hints or change field semantics merely to pass. The saved ordinary image continues
+to own the earlier original/reference findings; no passing result is inferred for
+a newly linked image. Current-image combined timing still remains required.
+
+The declared adjacent reference A/A diagnostic completes 14 fresh fibonacci workers
+and 168 complete setup/validation records, using the unchanged image/path, three
+samples and batch 32. Every entry checksum and reference provenance check passes.
+Engine_init aggregate/paired is 1.00675/1.01165, source_to_chunk 0.97226/0.96607,
+and module_init 0.99063/0.99035: all three diagnostic gates pass. Its report lives at
+`target/interpreter-performance/macos-reference-aa/results.json` and explicitly
+contains no new subject timings. The comparison shows that consecutive fixed-image
+workers can meet the existing limits; it neither explains the original long-run
+fibonacci bias nor proves that preceding subject state caused it. Original failures
+remain mandatory unresolved evidence. No sampling/protocol change or extension is
+made from this result alone.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
