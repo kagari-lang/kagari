@@ -1,19 +1,24 @@
 """Process evidence must fail closed and preserve the declared paired estimator."""
 import copy
+import hashlib
+import json
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from benchmark_lua import summarize, window_rows
+from benchmark_reference import SOURCE, load
 from benchmark_results import ORIGINAL, EvidenceError, compare, expected_rows, validate_extension, validate_report
 
 
 def metadata(paired=False, runs=1):
     return dict(rustc="test compiler", cargo="test cargo", machine={"cpu": "test"},
                 profile="release", features="source,native", parallelism="default",
-                environment={}, source_sha256={"fixture": "a" * 64}, lock_sha256="b" * 64,
+                environment={}, source_sha256={"fixture": "a" * 64,
+                    "benchmarks/lua-comparison/workloads/calls.lua": "a" * 64}, lock_sha256="b" * 64,
                 suite="original", workload="calls", samples_per_process=11,
                 warmups_per_route=3, setup_samples_per_workload=3, setup_scope="per workload",
                 interpreter_only=True, check=False, binary_sha256="c" * 64,
@@ -40,10 +45,107 @@ def fixture(before=None, after=None):
                         size=10, batch=1, sample=sample, ns=value,
                         checksum=42 if phase == "execute" else 0,
                         run=run, pair=pair, variant=variant))
+    config = report["metadata"]
+    config["lua_setup_reference"] = dict(executable="C:/bench/reference.exe", binary_sha256="d" * 64,
+        manifest_sha256="e" * 64, source_sha256={SOURCE: "f" * 64}, features="mlua lua54,vendored",
+        batch=32, samples=3, **{key: config[key] for key in ("rustc", "cargo", "profile", "lock_sha256", "environment")})
+    report.update(reference_raw=[], reference_processes=[])
+    for run in range(config["runs"] * 2):
+        subject = next(row for row in report["raw"] if row["run"] == run and row["phase"] == "execute")
+        value = (before if subject["variant"] == "baseline" else after)[subject["pair"]]
+        identity = {key: subject[key] for key in ("run", "pair", "variant", "workload")}
+        source_key = "benchmarks/lua-comparison/workloads/calls.lua"
+        report["reference_processes"].append(dict(**identity, executable="C:/bench/reference.exe",
+            binary_sha256="d" * 64, source=f"C:/repo/{source_key}", source_key=source_key,
+            source_sha256="a" * 64, execution_batch=1, expected_checksum=42))
+        for phase in ("engine_init", "source_to_chunk", "module_init", "validate"):
+            for sample in range(3):
+                report["reference_raw"].append(dict(**identity, phase=phase, engine="lua54", size=10,
+                    batch=32, sample=sample, ns=0 if phase == "validate" else value * 32,
+                    checksum=42 if phase == "validate" else 0))
     return report
 
 
 class BenchmarkResultsTests(unittest.TestCase):
+    def test_frozen_reference_loader_rejects_changed_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / SOURCE
+            source.parent.mkdir(parents=True)
+            source.write_bytes(b"reference source")
+            image = root / "reference.exe"
+            image.write_bytes(b"frozen image")
+            subject = metadata()
+            config = dict(fixture()["metadata"]["lua_setup_reference"], executable=str(image),
+                          binary_sha256=hashlib.sha256(image.read_bytes()).hexdigest(),
+                          source_sha256={SOURCE: hashlib.sha256(source.read_bytes()).hexdigest()})
+            Path(str(image) + ".json").write_text(json.dumps(config), encoding="utf-8")
+            self.assertEqual(load(root, image, subject)["binary_sha256"], config["binary_sha256"])
+            image.write_bytes(b"another image")
+            with self.assertRaises(ValueError):
+                load(root, image, subject)
+            image.write_bytes(b"frozen image")
+            source.write_bytes(b"changed source")
+            with self.assertRaises(ValueError):
+                load(root, image, subject)
+
+    def test_reference_owner_is_independent_and_embedded_failures_remain_visible(self):
+        report = fixture(after=[88] * 7)
+        for row in report["raw"]:
+            if row["engine"] == "lua54" and row["phase"] != "execute" and row["variant"] == "candidate":
+                row["ns"] = 200
+        result = compare(report, {"calls": 0.90})
+        self.assertTrue(result["passed"])
+        self.assertTrue(all(row["status"] == "fail" for row in result["embedded_lua_setup_diagnostics"]["gates"]))
+        controls = [row for row in result["gates"] if row["origin"] == "independent_lua_setup"]
+        self.assertEqual(len(controls), 3)
+        self.assertTrue(all(row["paired_ratio"] == 0.88 for row in controls))
+        for row in report["reference_raw"]:
+            if row["variant"] == "candidate" and row["phase"] != "validate":
+                row["ns"] = 200 * 32
+        self.assertFalse(compare(report)["passed"])
+
+    def test_reference_provenance_samples_and_checksum_fail_closed(self):
+        changes = [
+            lambda r: r["metadata"].pop("lua_setup_reference"),
+            lambda r: r.pop("reference_raw"),
+            lambda r: r["reference_raw"].pop(),
+            lambda r: r["reference_raw"].append(r["reference_raw"][0].copy()),
+            lambda r: r["reference_processes"].pop(),
+            lambda r: r["reference_processes"].append(r["reference_processes"][0].copy()),
+            lambda r: r["reference_processes"][0].update(executable="C:/copy/reference.exe"),
+            lambda r: r["reference_processes"][0].update(binary_sha256="0" * 64),
+            lambda r: r["reference_processes"][0].update(source_sha256="0" * 64),
+            lambda r: r["reference_processes"][0].update(expected_checksum=43),
+            lambda r: r["reference_processes"][0].update(run=False),
+            lambda r: r["reference_raw"][0].update(pair=1),
+            lambda r: r["reference_raw"][0].update(variant="candidate"),
+            lambda r: r["reference_raw"][0].update(batch=1),
+            lambda r: r["reference_raw"][0].update(sample=1),
+            lambda r: r["reference_raw"][0].update(ns=-1),
+            lambda r: next(row for row in r["reference_raw"] if row["phase"] == "validate").update(checksum=43),
+        ]
+        for change in changes:
+            with self.subTest(change=change):
+                report = fixture()
+                change(report)
+                with self.assertRaises(EvidenceError):
+                    compare(report)
+
+    def test_reference_identity_is_fixed_through_extensions(self):
+        previous = fixture()
+        current = dict(previous["metadata"], runs=21)
+        for key, value in (("executable", "C:/copy/reference.exe"), ("binary_sha256", "0" * 64),
+                           ("manifest_sha256", "0" * 64), ("batch", 64), ("samples", 11)):
+            with self.subTest(key=key):
+                changed = copy.deepcopy(current)
+                changed["lua_setup_reference"][key] = value
+                with self.assertRaises(EvidenceError):
+                    validate_extension(changed, previous)
+        previous["reference_raw"].pop()
+        with self.assertRaises(EvidenceError):
+            validate_extension(current, previous)
+
     def test_extension_preserves_binary_configuration_and_all_prior_pairs(self):
         previous = fixture()
         current = dict(previous["metadata"], runs=21)

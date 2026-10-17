@@ -6,7 +6,8 @@ prepared calls, native type evidence and construction ownership. Selected local
 correctness and memory checks pass. The current image passes all Kagari timing
 rows, all forms rows, extended owned-root controls and private-window controls.
 The full original comparison has ten failed and two inconclusive Lua preparation
-controls, so IP02/IP03 acceptance stays open pending attribution of that difference.
+controls, so IP02/IP03 acceptance stays open pending the independent-reference
+measurement repair and its new complete original comparison.
 IP04-IP07 are unstarted.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
@@ -344,6 +345,18 @@ Freeze those counts and cold/warm shared-preparation treatment in IP01, retain a
 seven process pairs and report setup separately. Do not describe setup as eleven
 warmed samples or mix Cargo build duration with script compilation/preparation.
 
+Original-suite paired acceptance now uses an independently frozen Lua setup
+reference for engine_init, source_to_chunk and module_init. For each subject
+process/workload, launch the same reference image afresh and collect three samples
+of 32 independent states/chunks/returned entries. Validate every entry outside
+timing and normalize by 32. The ordinary subject retains its original individual
+Lua setup rows as explicit diagnostics; embedded Lua execution is unchanged.
+The ledger below records why this reference-ownership correction is necessary.
+It does not change any Kagari baseline, subject workload or numerical gate.
+Reference source, absolute image path, image/manifest hashes and sampling are fixed
+through extensions, with independent completeness/checksum validation. See the
+[driver guide](../benchmarks/lua-comparison/README.md#matching-and-timing).
+
 For each phase/workload/engine row and matched process pair i, compute B_i and C_i
 as that process's baseline and candidate sample medians after batch normalization.
 Report all process medians/ranges and both ratios:
@@ -375,7 +388,8 @@ both process-level estimators and the complete frozen matrix contract. IP01 also
 records separate storage, session-retirement and allocation measurements.
 
 ```text
-uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-original-report>
+uv run python scripts/benchmark_lua.py --freeze-lua-reference <reference-executable>
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-original-report> --lua-setup-reference <reference-executable>
 uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-forms-report>
 uv run python scripts/benchmark_lua.py --execution-controls --runs 7 --baseline-executable <baseline-executable> --baseline-report <baseline-controls-report>
 uv run python scripts/check_benchmark.py <paired-results.json>
@@ -2511,6 +2525,48 @@ This changes the Lua setup control's treatment and ownership, not a numerical
 threshold or Kagari baseline. It is an explicit measurement-plan correction before
 its implementation. No reference runtime library, global cache, runtime padding,
 scope expansion into OM, or waiver of correctness/retention/teardown is introduced.
+
+The independent reference repair is implemented in the benchmark example and
+`benchmark_reference.py`; the driver/checker keep embedded setup diagnostics and
+validate the separate worker evidence before computing setup control gates.
+The reference archive is `target/interpreter-performance/lua-setup-control.exe`,
+SHA-256 `21c0349501fe3cb2a7a94516271176f3e4652a6c9a60d77c37a8f56166d7f934`;
+runner source SHA-256 is
+`5ae3959c33dbd85b8b9f8bec2cd4af4ef41f6bf392742945a4cf2824ffeb0b90`.
+Its manifest fixes the dependency lock, toolchain, profile/features, relevant build
+environment and sample/batch contract. Earlier unmeasured reference-build artifacts
+are not acceptance inputs.
+
+Functional validation runs all seven inputs, 32 independent states in each of three
+samples, with every entry checksum checked. A real worker/CSV/provenance integration
+check passes seven workers, 84 records and 21 phase summaries; it is explicitly not
+a performance comparison. All 18 focused evidence tests pass, covering preserved
+embedded failures, independent gate failures, missing/tampered reference samples,
+checksums/processes, changed frozen files and extension identity. Source-contract
+comparison confirms the subject fingerprint still exactly matches frozen IP01.
+The ordinary current image remains `1f48aed3...`; no runtime production edit occurs.
+
+Structure initially reports two qualified-path violations in the new example;
+an explicit LuaResult import resolves them. Final structure checks 1,284 files with
+zero violations/exceptions, fmt/diff checks pass, and workspace all-target Clippy
+exits successfully. Clippy retains the existing MSVC linker-output informational
+warning from kagari-derive (`linker_messages` explicitly ignores -D warnings).
+No full-workspace test sweep is run; unchanged runtime correctness/allocation and
+forms/root/window measurements retain their recorded evidentiary scope. Exhaustive
+CI and required current-image original timing acceptance remain separate and open.
+
+Now run the predeclared new seven-pair original comparison with the fixed reference:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable target/interpreter-performance/ip01.exe --baseline-report target/interpreter-performance/ip01.exe.original.json --lua-setup-reference target/interpreter-performance/lua-setup-control.exe
+uv run python scripts/check_benchmark.py <new-original-results.json> --target calls=0.90 --target fibonacci=0.90
+```
+
+Keep both original subject image paths and the reference path/hashes unchanged
+through the sequence. Retain every embedded diagnostic and independent reference
+sample; run no concurrent builds, tests, profiling or allocation diagnostics.
+This is a new experiment under the explicit repaired control protocol, not an
+extension or retroactive acceptance of the original 58/70 passing report.
 
 Known external follow-up: shared generic Add failed lowering at the historical
 HP06 revision with MissingBinding("checked callable requirement"); its

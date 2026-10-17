@@ -7,6 +7,8 @@ from pathlib import PurePosixPath, PureWindowsPath
 import re
 from statistics import median
 
+import benchmark_reference as reference
+
 ORIGINAL = ("entry", "arithmetic", "branches", "calls", "fibonacci", "arrays", "maps")
 FORMS = ("direct", "helper", "concrete_generic", "interface", "shared_generic",
          "capture_cell", "field", "native", "byte_state", "host_callback",
@@ -45,6 +47,8 @@ def validate_extension_identity(current: dict, earlier: dict) -> None:
     for key in (*MATCHED_CONFIG, "binary_sha256", "baseline_binary_sha256", *IMAGE_PATHS):
         require(key in current and key in earlier, f"missing extension metadata: {key}")
         require(current[key] == earlier[key], f"extension configuration mismatch: {key}")
+    require(current.get("lua_setup_reference") == earlier.get("lua_setup_reference"),
+            "extension reference image/path/configuration changed")
 
 
 def expected_rows(metadata: dict) -> dict[tuple[str, str, str], int]:
@@ -180,7 +184,16 @@ def validate_extension(current: dict, previous: dict) -> int:
     earlier = previous["metadata"]
     validate_extension_identity(current, earlier)
     validate_baseline(current, previous["baseline"])
+    if current["suite"] == "original":
+        reference_summaries(previous)
     return earlier["runs"]
+
+
+def reference_summaries(report: dict) -> list[dict]:
+    try:
+        return reference.summaries(report)
+    except (KeyError, TypeError, ValueError) as error:
+        raise EvidenceError(f"invalid independent Lua setup evidence: {error}") from error
 
 
 def compare(report: dict, targets: dict[str, float] | None = None,
@@ -205,15 +218,32 @@ def compare(report: dict, targets: dict[str, float] | None = None,
     for row in report["raw"]:
         require(frozen[row_key(row)] == (row["size"], row["batch"], row["checksum"]),
                 "measurement differs from frozen workload contract")
-    groups = defaultdict(dict)
-    for row in summaries:
-        groups[row_key(row)][row["pair"], row["variant"]] = row["median_ns"]
-    target_names = {key[1] for key in groups if key[0] in ("execute", "retire") and key[2] == "kagari_vm"}
+    embedded_setup = []
+    if metadata["suite"] == "original":
+        embedded_setup = [row for row in summaries if reference.is_setup(row)]
+        summaries = [row for row in summaries if not reference.is_setup(row)] + reference_summaries(report)
+    target_names = {row["workload"] for row in summaries
+                    if row["phase"] in ("execute", "retire") and row["engine"] == "kagari_vm"}
     require(targets.keys() <= target_names, "target absent from selected matrix")
+    gates = timing_gates(summaries, metadata["runs"], targets, margin)
+    diagnostics = timing_gates(embedded_setup, metadata["runs"], {}, margin)
+    return dict(scope="timing only", passed=all(row["status"] == "pass" for row in gates),
+                near_gate_margin=margin, gates=gates, processes=summaries,
+                embedded_lua_setup_diagnostics=dict(gates=diagnostics, processes=embedded_setup))
+
+
+def timing_gates(summaries: list[dict], pairs: int, targets: dict[str, float], margin: float) -> list[dict]:
+    groups = defaultdict(dict)
+    origins = {}
+    for row in summaries:
+        key = row_key(row)
+        origin = row.get("origin", "subject")
+        require(origins.setdefault(key, origin) == origin, "mixed timing owners")
+        groups[key][row["pair"], row["variant"]] = row["median_ns"]
     gates = []
     for (phase, workload, engine), values in sorted(groups.items()):
-        before = [values[i, "baseline"] for i in range(metadata["runs"])]
-        after = [values[i, "candidate"] for i in range(metadata["runs"])]
+        before = [values[i, "baseline"] for i in range(pairs)]
+        after = [values[i, "candidate"] for i in range(pairs)]
         limit = targets.get(workload, 1.05) if phase in ("execute", "retire") and engine == "kagari_vm" else 1.05
         if min(before + after) <= 0:
             aggregate = paired = None
@@ -224,7 +254,7 @@ def compare(report: dict, targets: dict[str, float] | None = None,
             worst = max(aggregate, paired)
             status = "fail" if worst > limit else "inconclusive" if worst > limit - margin else "pass"
         gates.append(dict(phase=phase, workload=workload, engine=engine, limit=limit,
+                          origin=origins[phase, workload, engine],
                           aggregate_ratio=aggregate, paired_ratio=paired, status=status,
                           baseline_process_medians_ns=before, candidate_process_medians_ns=after))
-    return dict(scope="timing only", passed=all(row["status"] == "pass" for row in gates),
-                near_gate_margin=margin, gates=gates, processes=summaries)
+    return gates

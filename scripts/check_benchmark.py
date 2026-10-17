@@ -30,7 +30,14 @@ def main() -> None:
     for gate in result["gates"]:
         print(f"{gate['status']}: {gate['phase']}/{gate['workload']}/{gate['engine']} "
               f"aggregate={gate['aggregate_ratio']} paired={gate['paired_ratio']} "
-              f"limit={gate['limit']}")
+              f"limit={gate['limit']} owner={gate['origin']}")
+    diagnostics = result["embedded_lua_setup_diagnostics"]["gates"]
+    if diagnostics:
+        print("Embedded Lua setup is retained below as subject-image diagnostics; "
+              "the independent frozen reference owns setup control acceptance.")
+        for gate in diagnostics:
+            print(f"diagnostic {gate['status']}: {gate['phase']}/{gate['workload']} "
+                  f"aggregate={gate['aggregate_ratio']} paired={gate['paired_ratio']}")
     print("Timing evidence only; this does not establish memory, correctness or full CI acceptance.")
     raise SystemExit(0 if result["passed"] else 1)
 

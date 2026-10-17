@@ -16,6 +16,7 @@ import statistics
 import subprocess
 import time
 
+import benchmark_reference as reference
 from benchmark_results import process_summary, validate_baseline, validate_extension
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,7 +83,19 @@ def main() -> None:
                         help="Save this ordinary binary and matrix report after successful measurements")
     parser.add_argument("--extend-report", type=Path,
                         help="Retain a prior paired report and extend it to --runs total pairs")
+    parser.add_argument("--freeze-lua-reference", type=Path,
+                        help="Build/freeze the independent Lua setup reference, then exit")
+    parser.add_argument("--lua-setup-reference", type=Path,
+                        help="Frozen independent reference required for paired original setup controls")
     args = parser.parse_args()
+    if args.freeze_lua_reference:
+        if any((args.check, args.workload, args.numeric_matrix, args.source_forms,
+                args.execution_controls, args.window_controls, args.baseline_executable,
+                args.baseline_report, args.freeze_baseline, args.extend_report,
+                args.lua_setup_reference, args.interpreter_only, args.runs != 2)):
+            parser.error("freeze the Lua setup reference separately from a measurement")
+        reference.freeze(ROOT, args.freeze_lua_reference)
+        return
     if args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls or args.baseline_executable:
         args.interpreter_only = True
     if args.workload and (args.numeric_matrix or args.source_forms or args.execution_controls or args.window_controls):
@@ -103,6 +116,10 @@ def main() -> None:
         args.interpreter_only = True
     if args.baseline_executable and args.numeric_matrix:
         parser.error("numeric diagnostics are outside paired interpreter acceptance")
+    original_pair = bool(args.baseline_executable) and not any((args.numeric_matrix,
+                         args.source_forms, args.execution_controls, args.window_controls))
+    if bool(args.lua_setup_reference) != original_pair:
+        parser.error("paired original measurements require --lua-setup-reference; other suites do not use it")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     suffix = "-controls" if args.execution_controls else "-forms" if args.source_forms else "-numeric" if args.numeric_matrix else ""
     if args.window_controls:
@@ -140,12 +157,15 @@ def main() -> None:
         path.relative_to(ROOT).as_posix(): hashlib.sha256(path.read_bytes()).hexdigest()
         for path in sorted(sources.rglob("*"))
         if path.is_file() and path.suffix in {".rs", ".kgr", ".lua", ".toml"}
+        and path.relative_to(ROOT).as_posix() != reference.SOURCE
     }
     if args.window_controls:
         probe = Path("crates/kagari-runtime/src/frame/values/tests/measurements.rs")
         metadata["source_sha256"][probe.as_posix()] = hashlib.sha256((ROOT / probe).read_bytes()).hexdigest()
     metadata["driver_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     metadata["lock_sha256"] = hashlib.sha256((ROOT / "Cargo.lock").read_bytes()).hexdigest()
+    if args.lua_setup_reference:
+        metadata["lua_setup_reference"] = reference.load(ROOT, args.lua_setup_reference, metadata)
     print(f"Output: {output}", flush=True)
     previous = None
     if args.extend_report:
@@ -163,7 +183,8 @@ def main() -> None:
         with (output / "build.log").open("w", encoding="utf-8") as log:
             build = (["cargo", "test", "--release", "--locked", "-p", "kagari-runtime", "--lib",
                       "--no-run", "--message-format=json"] if args.window_controls else
-                     ["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark"])
+                     ["cargo", "build", "--release", "--locked", "-p", "kagari-lua-benchmark",
+                      "--bin", "kagari-lua-benchmark"])
             subprocess.run(build,
                            cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True)
         metadata["build_wall_seconds"] = time.perf_counter() - start
@@ -184,12 +205,17 @@ def main() -> None:
         baseline = json.loads(args.baseline_report.read_text(encoding="utf-8"))
         validate_baseline(metadata, baseline)
     rows = []
+    reference_rows = []
+    reference_processes = []
     start_pair = 0
     if previous is not None:
         start_pair = validate_extension(metadata, previous)
         if previous["baseline"] != baseline:
             parser.error("extension must retain the exact frozen baseline report")
         rows.extend(previous["raw"])
+        if args.lua_setup_reference:
+            reference_rows.extend(previous["reference_raw"])
+            reference_processes.extend(previous["reference_processes"])
         metadata["continued_report_sha256"] = hashlib.sha256(args.extend_report.read_bytes()).hexdigest()
         metadata["continued_metadata"] = previous["metadata"]
         metadata.update({key: value for key, value in previous["metadata"].items() if key.startswith("run_")})
@@ -224,21 +250,31 @@ def main() -> None:
         metadata[f"run_{run}_wall_seconds"] = time.perf_counter() - start
         with (output / f"run-{run}.csv").open(encoding="utf-8", newline="") as raw:
             measured = csv.DictReader(raw) if not args.window_controls else window_rows(raw)
+            subject_rows = []
             for row in measured:
                 row.update({key: int(row[key]) for key in ("size", "batch", "sample", "ns", "checksum")})
                 row["run"] = run
                 row["pair"] = pair
                 row["variant"] = variant
                 rows.append(row)
+                subject_rows.append(row)
+        if args.lua_setup_reference:
+            samples, provenance = reference.measure(ROOT, output, metadata, subject_rows, run, pair, variant)
+            reference_rows.extend(samples)
+            reference_processes.extend(provenance)
         print(f"Run {run + 1}/{first_run + len(routes)} ({variant}): all checksums pass", flush=True)
     summary = []
     for variant in sorted({row["variant"] for row in rows}):
         summary.extend(dict(row, variant=variant) for row in summarize([row for row in rows if row["variant"] == variant]))
     report = {"metadata": metadata, "summary": summary, "raw": rows}
+    if args.lua_setup_reference:
+        report.update(reference_raw=reference_rows, reference_processes=reference_processes)
     if args.interpreter_only and not args.numeric_matrix:
         report["processes"] = process_summary(report)
     if args.baseline_executable:
         report["baseline"] = baseline
+    if args.lua_setup_reference:
+        report["reference_summary"] = reference.summaries(report)
     (output / "results.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     if args.freeze_baseline:
         frozen = args.freeze_baseline.resolve()

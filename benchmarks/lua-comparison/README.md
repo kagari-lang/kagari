@@ -81,6 +81,8 @@ uv run python scripts/benchmark_lua.py --interpreter-only --runs 1 --freeze-base
 uv run python scripts/benchmark_lua.py --source-forms --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
 uv run python scripts/benchmark_lua.py --execution-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01.exe
 uv run python scripts/benchmark_lua.py --window-controls --runs 1 --freeze-baseline target/interpreter-performance/ip01-windows.exe
+uv run python scripts/benchmark_lua.py --freeze-lua-reference target/interpreter-performance/lua-setup-reference.exe
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 7 --baseline-executable target/interpreter-performance/ip01.exe --baseline-report target/interpreter-performance/ip01.exe.original.json --lua-setup-reference target/interpreter-performance/lua-setup-reference.exe
 uv run python scripts/benchmark_lua.py --source-forms --runs 7 --baseline-executable target/interpreter-performance/ip01.exe --baseline-report target/interpreter-performance/ip01.exe.forms.json
 uv run python scripts/check_benchmark.py <paired-results.json> --target forms_interface=0.90 --target forms_shared_generic=0.90
 ```
@@ -101,6 +103,35 @@ process medians and the median paired ratio must satisfy the target. Values with
 must be declared before collection and all evidence retained. This checks timing
 only, not allocation, correctness or CI acceptance.
 
+Original-suite paired runs require a separately frozen Lua setup reference. A
+different Kagari image also changes the linked reference engine's layout, and its
+cold preparation follows Kagari's allocator/cache state. Consequently those
+embedded Lua preparation times cannot provide a fixed reference treatment. They
+remain in `raw` and in the checker's explicit `embedded_lua_setup_diagnostics`,
+including failures. Kagari setup/execution and embedded Lua execution keep their
+original samples, frozen workload contracts and acceptance thresholds.
+
+The [independent runner](examples/lua_setup_reference.rs) uses the same pinned
+mlua/Lua dependency and exact existing Lua source files. Each subject process is
+followed sequentially by one fresh reference worker per selected workload, using
+the same fixed image for both variants. Three samples each create 32 independent
+Lua states, compile their chunks and construct returned entries. Vector capacity
+is reserved outside timers; all states/chunks stay live through preparation, and
+every returned entry is checked against the frozen workload result outside timing.
+These batched preparation controls are normalized by 32; they are not the old
+individual cold-call measurements. Both estimators retain the +5% gate and 0.01
+inconclusive band. Forms and lifecycle suites do not use this reference.
+
+Freezing builds only the reference example and writes an immutable image/manifest
+pair; it does not replace the ordinary benchmark. Reuse that exact path for later
+comparisons. The driver separately fingerprints the reference source, image,
+manifest, dependency lock, toolchain and sampling, and checks input/image hashes
+before and after each worker. `reference_raw`, `reference_processes` and
+`reference_summary` retain the independent evidence. Missing samples, validation
+results or changed provenance fail acceptance. Only this independently owned
+example is excluded from the ordinary subject source fingerprint. Previously
+frozen IP01 binaries and source/checksum contracts remain unchanged.
+
 After declaring additional pairs, keep the same matrix/baseline options and add
 `--extend-report <previous-paired-results.json> --runs <new-total-pairs>`. This
 retains every earlier row and continues the alternating order. The driver rejects
@@ -113,6 +144,10 @@ path cannot extend the experiment; there is no image-path override. Older paired
 without image-path evidence cannot be extended or establish new acceptance. Frozen
 single-variant IP01 reports still supply their unchanged workload/checksum contract;
 their old setup timings are not substituted for new matched baseline processes.
+For original runs, also retain `--lua-setup-reference` and its exact reference
+image/path/configuration; extensions preserve all earlier reference rows and
+worker provenance. Historical original paired reports without the independent
+reference remain historical diagnostics and cannot establish new acceptance.
 Current revision/status describe the measuring worktree; `continued_metadata`
 retains the original candidate's build provenance and path through every extension.
 
