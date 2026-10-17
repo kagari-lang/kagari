@@ -629,6 +629,11 @@ fn scoped_programs_import_exact_identities_without_replacing_versions_or_epochs(
     assert_eq!(b.definitions().resolve(b_id).unwrap().to_path(), path);
     assert!(a.verified_program().same_version(b.verified_program()));
     assert!(a.verified_program().same_version(&verified));
+    let imported = second
+        .load_verified_program("already_normalized", a.verified_program().clone())
+        .unwrap();
+    assert_eq!(imported.bytecode.structures[0].declaration, b_id);
+    assert!(imported.verified_program().same_version(&verified));
     let foreign = Ty::Struct(NominalTy {
         declaration: a_id,
         arguments: vec![],

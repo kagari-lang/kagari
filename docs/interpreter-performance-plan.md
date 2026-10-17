@@ -2885,6 +2885,33 @@ matrices for the changed candidate. Record added preparation time and bytes; mov
 work into preparation does not exempt that stage from its gate. If the fact's
 ownership or memory cost is unsuitable, remove it rather than grow another cache.
 
+The immutable-reference prototype is implemented in module/normalization.rs. The
+slice belongs to VerifiedProgram's current definition scope; clones share it and a
+cross-scope normalized copy receives mapped IDs. Original immutable version identity
+and physical execution products remain shared. The existing scoped import test now
+also imports an already-normalized program into another runtime, checking both the
+new scope and original version. Existing independent runtime linkage/version tests
+and that extended scope test pass. Source-free residual-call validation initially
+stops because the new machine lacks target/fixtures/feature_artifact.kbc; running
+the repository regenerate_feature_artifact example supplies it and the selected
+source-free test then passes. This was missing fixture evidence, not a semantic
+assertion failure. Structure (1,285 files, zero findings/exceptions), fmt, workspace
+all-target Clippy and diff checks pass. Manual review finds no new public entrypoint,
+re-export, unsafe code, runtime-wide cache or weakened validation.
+
+The unchanged release prepared_execution_retention probe runs on both macOS source
+revisions with execution-diagnostics. IP01/candidate prepared retained bytes are
+44,537/43,093; additional loaded bytes are 52,426/52,465. Preparation requested bytes
+excluding the initial context are 615,983/622,001 (1.00977); additional load requested
+bytes are 173,535/159,769 (0.92066). Five prepared call descriptors remain in both;
+warm teardown is zero. The retained/requested gates pass for this mechanism probe;
+it does not replace the remaining full-workload memory review. Allocation records
+and structs are unchanged except the scoped immutable reference slice and its Arc.
+No call/GC/root execution path changes, so previous warm call-allocation evidence
+remains applicable. Current-image ordinary forms timing is next, with seven pairs
+and the unchanged interface/shared_generic targets. Other current-image timing,
+full-workload metadata accounting and IP04-IP07 remain open.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does

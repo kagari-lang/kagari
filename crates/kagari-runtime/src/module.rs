@@ -12,6 +12,7 @@ pub(crate) mod layout_scope;
 pub(crate) mod layout_storage;
 mod layouts;
 pub(crate) mod linked_execution;
+mod normalization;
 mod records;
 pub mod retention;
 pub(crate) mod staging;
@@ -41,8 +42,7 @@ use kagari_bytecode::{
     instruction::{EnumId, PathId, StructId},
     module::BytecodeModule,
     program::{
-        BytecodeProgram, ModuleRef, exports::ExportTarget, identity,
-        verified::VerifiedBytecodeProgram,
+        BytecodeProgram, ModuleRef, exports::ExportTarget, verified::VerifiedBytecodeProgram,
     },
 };
 
@@ -56,9 +56,7 @@ use kagari_common::{
     identity::{
         ModuleIdentity,
         map::DefinitionContext,
-        mapping::{DefinitionMapper, DefinitionMappingError},
         metadata::DefinitionMetadata,
-        scoped::{DefinitionReferences, RemapDefinitions},
         table::{DefinitionId, DefinitionTable, DefinitionView},
     },
 };
@@ -140,6 +138,7 @@ pub struct VerifiedProgram {
     root: ModuleRef,
     modules: Arc<[Arc<BytecodeModule>]>,
     definitions: DefinitionTable,
+    definition_references: Arc<[DefinitionId]>,
     execution: Arc<[ExecutionModule]>,
     version: Arc<[Arc<BytecodeModule>]>,
     version_definitions: DefinitionTable,
@@ -189,6 +188,9 @@ impl VerifiedProgram {
             .cloned()
             .map(Arc::new)
             .collect();
+        let definition_references =
+            Self::prepare_definition_references(&modules, &program.program().exports)
+                .expect("verified program retains bounded definition references");
         let mut allocation_work = 0;
         let mut execution: Vec<ExecutionModule> = modules
             .iter()
@@ -214,6 +216,7 @@ impl VerifiedProgram {
             version: modules.clone(),
             version_definitions: definitions.clone(),
             definitions,
+            definition_references,
             modules,
             dependencies,
         }
@@ -235,91 +238,6 @@ impl VerifiedProgram {
 
     pub fn definitions(&self) -> &DefinitionTable {
         &self.definitions
-    }
-
-    /// Import exact identities once while retaining the immutable source version.
-    /// Remapping changes only scoped identity references; no verification flag or hash
-    /// can create this evidence, and the original sealed records stay immutable.
-    pub(crate) fn normalized(&self, context: &DefinitionContext) -> Result<Self, RuntimeError> {
-        if self.definitions.id() == context.snapshot().id() {
-            return Ok(self.clone());
-        }
-        let cancel = CancellationToken::default();
-        let mut ids = HashSet::new();
-        for module in self.modules.iter() {
-            module
-                .visit_definition_ids(
-                    &mut |id| {
-                        ids.insert(*id);
-                        Ok(())
-                    },
-                    &cancel,
-                )
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        }
-        self.exports
-            .visit_definition_ids(
-                &mut |id| {
-                    ids.insert(*id);
-                    Ok(())
-                },
-                &cancel,
-            )
-            .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        let (modules, exports, export_targets) = if ids.is_empty() {
-            (
-                self.modules.clone(),
-                self.exports.clone(),
-                self.export_targets.clone(),
-            )
-        } else {
-            let remap = context
-                .import(&self.definitions, ids)
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-            let modules = self
-                .modules
-                .iter()
-                .map(|module| {
-                    module
-                        .remap_definitions(&mut DefinitionMapper::new(
-                            &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
-                            &cancel,
-                        ))
-                        .map(Arc::new)
-                })
-                .collect::<Result<_, _>>()
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-            let exports = self
-                .exports
-                .remap_definitions(&mut DefinitionMapper::new(
-                    &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
-                    &cancel,
-                ))
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-            let export_targets = self
-                .export_targets
-                .iter()
-                .map(|(id, target)| remap.map(*id).map(|id| (id, *target)))
-                .collect::<Result<_, _>>()
-                .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-            (modules, Arc::new(exports), Arc::new(export_targets))
-        };
-        let definitions = identity::collect(
-            &modules.iter().map(Arc::as_ref).collect::<Vec<_>>(),
-            context,
-        )
-        .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
-        Ok(Self {
-            root: self.root,
-            exports,
-            export_targets,
-            modules,
-            definitions,
-            execution: self.execution.clone(),
-            version: self.version.clone(),
-            version_definitions: self.version_definitions.clone(),
-            dependencies: self.dependencies.clone(),
-        })
     }
 
     pub(crate) fn dependencies(&self) -> &ReloadDependencySnapshot {
