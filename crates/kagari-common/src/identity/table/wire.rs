@@ -5,7 +5,7 @@ use crate::{
         DefinitionKind, DefinitionPath, ModuleIdentity,
         table::{
             DefinitionId, DefinitionIndex, DefinitionRemap, DefinitionTable,
-            DefinitionTableBuilder, DefinitionTableError, Node,
+            DefinitionTableBuilder, DefinitionTableError, DefinitionTableId, Node,
         },
     },
 };
@@ -58,7 +58,7 @@ pub struct PortableDefinitionTable {
 
 pub struct DefinitionEncoding {
     pub table: PortableDefinitionTable,
-    owner: super::DefinitionTableId,
+    owner: DefinitionTableId,
     references: HashMap<DefinitionIndex, PortableDefinitionRef>,
 }
 

@@ -8,6 +8,7 @@ use crate::{
     ty::{NominalTy, Ty},
 };
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
+
 pub fn adapter_contract(
     required: &NativeCallableRequirement,
     definitions: &DefinitionTable,

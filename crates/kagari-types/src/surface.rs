@@ -21,11 +21,11 @@ pub struct BuiltinTypeSpec {
     pub heap_backed: bool,
 }
 
+// Operation predicates for intrinsic signatures. HashKey and Comparable delegate
+// to canonical standard traits and are not source-level bound names.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
 )]
-// Operation predicates for intrinsic signatures. HashKey and Comparable delegate
-// to canonical standard traits and are not source-level bound names.
 pub enum StandardTypeConstraint {
     HashKey,
     OrderedNumber,
