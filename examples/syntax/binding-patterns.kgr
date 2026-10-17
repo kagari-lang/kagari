@@ -1,0 +1,42 @@
+// Run: cargo run -p kagari-cli -- run examples/syntax/binding-patterns.kgr
+// Result: main returns 42.
+trait Read { fn read(self) -> i32; }
+
+struct Item { var value: i32 }
+
+impl Read for Item {
+    fn read(self) -> i32 { self.value }
+}
+
+struct Pair<T> { val first: T, val spare: i32 }
+
+struct Choice { val first: i32, val second: i32 }
+
+const LIMIT: i32 = 100;
+
+fn main() -> i32 {
+    val calls = Vec::from([0]);
+    val shared = Item { value: 10 };
+    val x = 4;
+    val (x, Pair { first: alias, .. }) = {
+        calls[0] += 1;
+        (x + 1, Pair { first: shared, spare: 99 })
+    };
+    alias.value = 20;
+    var (total, step) = (x, 2);
+    val update = || { total += step; total };
+    step = 3;
+    update();
+    update();
+    val ((0, first) | (first, _)) = (0, 5);
+    if first != 5 { return -2; }
+    var ((Choice { first: chosen, second: 0 } | Choice { first: _, second: chosen }), _) =
+        (Choice { first: 100, second: 7 }, 0);
+    val read_chosen = || chosen;
+    chosen += 1;
+    val (reader, wide): (Read, i64) = (shared, 4);
+    if wide != 4i64 { return -1; }
+    val _ = { calls[0] += 1; () };
+    val (None, LIMIT) = (0, 1);
+    total + read_chosen() + reader.read() + calls[0] + None + LIMIT
+}

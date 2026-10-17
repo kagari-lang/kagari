@@ -134,18 +134,17 @@ impl<'a> BodyResolver<'a> {
         let stmt = self.module.stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Binding {
-                local,
-                name,
+                pattern,
                 initializer,
                 ..
             } => {
                 self.resolve_expr(*initializer);
-                if !name.is_empty() {
-                    self.bind_name(
-                        name,
-                        ResolvedName::Local(*local),
-                        self.source_map.stmt_span(stmt_id).end,
-                    );
+                self.resolve_pattern_variants(*pattern, false);
+                let start = self.source_map.stmt_span(stmt_id).end;
+                for (local, name) in self.module.body.pattern_bindings(*pattern) {
+                    if !name.is_empty() && name != "<missing>" {
+                        self.bind_name(name, ResolvedName::Local(local), start);
+                    }
                 }
             }
             StmtKind::Assign { target, value, .. } => {
@@ -345,32 +344,33 @@ impl<'a> BodyResolver<'a> {
     }
 
     fn bind_pattern(&mut self, pattern: PatternId, start: usize) {
-        self.resolve_pattern_variants(pattern);
+        self.resolve_pattern_variants(pattern, true);
         self.bind_pattern_locals(pattern, start);
     }
 
-    fn resolve_pattern_variants(&mut self, pattern: PatternId) {
+    fn resolve_pattern_variants(&mut self, pattern: PatternId, bare_variants: bool) {
+        self.assert_current_owner(pattern.owner());
         if self.cancel.check().is_err() {
             return;
         }
         match self.module.pattern(pattern).kind.clone() {
-            PatternKind::Name { name, .. } => {
+            PatternKind::Name { name, .. } if bare_variants => {
                 self.record_pattern_variant(pattern, &name);
             }
             PatternKind::EnumVariant { path, fields } => {
                 self.record_pattern_variant(pattern, &path);
                 for field in fields {
-                    self.resolve_pattern_variants(field);
+                    self.resolve_pattern_variants(field, bare_variants);
                 }
             }
             PatternKind::Or(fields) | PatternKind::Tuple(fields) => {
                 for field in fields {
-                    self.resolve_pattern_variants(field);
+                    self.resolve_pattern_variants(field, bare_variants);
                 }
             }
             PatternKind::Struct { fields, .. } => {
                 for field in fields {
-                    self.resolve_pattern_variants(field.pattern);
+                    self.resolve_pattern_variants(field.pattern, bare_variants);
                 }
             }
             _ => {}

@@ -2,8 +2,8 @@
 
 use crate::hir::{
     expr::ExprData,
-    ids::{BlockId, ExprId, HirArenaId, HirOwner, PatternId, PlaceId, StmtId, TypeRefId},
-    pattern::PatternData,
+    ids::{BlockId, ExprId, HirArenaId, HirOwner, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
+    pattern::{PatternData, PatternKind},
     place::PlaceData,
     stmt::{BlockData, StmtData},
     ty::TypeData,
@@ -32,16 +32,17 @@ use crate::hir::{
 /// ```
 ///
 /// Name resolution, semantic types and source spans are separate tables keyed by
-/// these IDs. Parameters are held by functions and local bindings by statements,
-/// patterns or closure parameters; neither has its own vector in `Body`.
+/// these IDs. Parameters are held by functions and local bindings by pattern
+/// leaves or closure parameters; neither has its own vector in `Body`.
 ///
 /// For the example above, `blocks` contains the function's block, `exprs` contains
 /// both operand occurrences and the addition, `types` contains the parameter and
 /// result i32 syntax, and `stmts`/`places`/`patterns` are empty. Adding `val y = x;`
-/// creates a statement row; `y = x;` creates a place row; `match x { n => n }`
-/// creates pattern rows. Every vector row stores `(allocation_owner, payload)`.
-/// Parameters/locals still live inline in their declaration/statement/pattern/
-/// closure records; their IDs address source-map slots and semantic binding maps.
+/// creates statement and pattern rows; `y = x;` creates a place row;
+/// `match x { n => n }` creates pattern rows. Every vector row stores
+/// `(allocation_owner, payload)`. Parameters/locals still live inline in
+/// declaration, pattern or closure records; their IDs address source-map slots
+/// and semantic binding maps.
 ///
 /// `arena` is synthesized once for the lowering and shared with SourceMap, not
 /// written in source. `HirOwner::Declaration` marks nodes outside function/constant
@@ -150,6 +151,43 @@ impl Body {
         let (owner, node) = &self.patterns[id.index()];
         assert_eq!(id.owner(), *owner, "foreign HIR body node");
         node
+    }
+
+    /// Collects a declaration pattern's provisional name leaves in source order.
+    ///
+    /// Traversal is depth-first through tuples, struct fields (not declaration
+    /// slot order), and constructor payloads. Only the first `Or` alternative
+    /// supplies canonical bindings, matching lexical publication. For example,
+    /// `val (x, Point { y: z, .. }) = value;` yields `[(x_local, "x"),
+    /// (z_local, "z")]`. Wildcards, literals and ranges supply no binding.
+    ///
+    /// This is structural traversal, not resolution or validation: names borrow
+    /// this body, duplicates/recovery names are retained, and even a refutable
+    /// constructor's payload leaves are returned. Use it only for declaration
+    /// patterns, where bare names always bind. Match/for/condition names can
+    /// instead denote variants and require their resolved-name policy.
+    ///
+    /// Panics for foreign or invalid pattern IDs; see [storage checks](Self#panics).
+    pub fn pattern_bindings(&self, pattern: PatternId) -> Vec<(LocalId, &str)> {
+        let mut bindings = Vec::new();
+        let mut work = vec![pattern];
+        while let Some(pattern) = work.pop() {
+            match &self.pattern(pattern).kind {
+                PatternKind::Name { local, name } => bindings.push((*local, name.as_str())),
+                PatternKind::Or(alternatives) => work.extend(alternatives.first().copied()),
+                PatternKind::Tuple(elements)
+                | PatternKind::EnumVariant {
+                    fields: elements, ..
+                } => {
+                    work.extend(elements.iter().rev().copied());
+                }
+                PatternKind::Struct { fields, .. } => {
+                    work.extend(fields.iter().rev().map(|field| field.pattern));
+                }
+                PatternKind::Wildcard | PatternKind::Literal(_) | PatternKind::Range { .. } => {}
+            }
+        }
+        bindings
     }
 
     /// Borrows the type-syntax row addressed by `id`; see the [storage checks](Self#panics).

@@ -7,7 +7,7 @@
 use crate::{
     ast::{
         expr::{BindingCondition, BlockExpr, Expr, Pattern},
-        misc::{Name, Writeability},
+        misc::Writeability,
         support,
         traits::AstNode,
         ty::TypeRef,
@@ -17,7 +17,8 @@ use crate::{
 };
 
 ast_node!(
-    /// A `val` or `var` local declaration with optional type and initializer.
+    /// A `val` or `var` pattern declaration with an optional whole-value type annotation.
+    /// An initializer is required semantically but may be absent in recovered syntax.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
     ///
@@ -30,16 +31,21 @@ ast_node!(
     /// ```text
     /// BindingStmt
     /// +-- VarKw "var" [token]
-    /// +-- Name (count) [node] -> name()
+    /// +-- Pattern (count) [node] [child #0] -> pattern()
     /// +-- Colon ":" [token]
-    /// +-- TypeRef (i32) [node] -> ty()
+    /// +-- TypeRef (i32) [node] [child #1] -> ty()
     /// +-- Eq "=" [token]
-    /// +-- Literal (1) [node] [Expr #0] -> initializer()
+    /// +-- Literal (1) [node] [child #2] [Expr #0] -> initializer()
     /// `-- Semi ";" [token]
     /// ```
     ///
-    /// Type and initializer can be absent in the syntax tree. `writeability()` reads
-    /// `val`/`var` tokens; an absent keyword after recovery yields `None`.
+    /// Child indices count direct nodes, excluding tokens. Without an annotation,
+    /// the initializer is child #1 but remains direct expression #0. The path inside
+    /// `Pattern (count)` is not a direct expression of this declaration.
+    /// `val (id, Point { x, .. }) = load();` likewise has one direct `Pattern`
+    /// followed by its initializer `CallExpr`; nested patterns belong to that pattern.
+    /// Type and initializer can be absent in recovered syntax. `writeability()` reads
+    /// the outer `val`/`var` token; an absent keyword after recovery yields `None`.
     BindingStmt,
     BindingStmt
 );
@@ -328,23 +334,22 @@ impl BindingStmt {
         self.writeability() == Some(Writeability::Var)
     }
 
-    /// Returns `count` in `val count: i32 = 1;`.
-    pub fn name(&self) -> Option<Name> {
+    /// Returns `count` in `val count = 1;` or `(x, y)` in `var (x, y) = pair;`.
+    /// Selects the direct pattern, including `_`; recovered patterns may be incomplete.
+    pub fn pattern(&self) -> Option<Pattern> {
         support::child(self.syntax())
     }
 
-    /// Returns `Some("count")` for `val count = 1;`, or `None` if the name/token is missing.
-    pub fn name_text(&self) -> Option<String> {
-        self.name().and_then(|name| name.text())
-    }
-
-    /// Returns the annotation `i32` in `val count: i32 = 1;`.
-    /// Returns `None` for `val count = 1;`; this accessor does not infer a type.
+    /// Returns the whole-initializer annotation, such as `(i32, i32)` in
+    /// `val (x, y): (i32, i32) = pair;`, or `i32` in `val count: i32 = 1;`.
+    /// Returns `None` without an annotation; this accessor does not infer leaf types.
     pub fn ty(&self) -> Option<TypeRef> {
         support::child(self.syntax())
     }
 
     /// Returns `1 + 2` in `val count = 1 + 2;`.
+    /// Selects only the first direct expression, never a path or literal nested in
+    /// the pattern. Returns `None` when the initializer is absent after recovery.
     pub fn initializer(&self) -> Option<Expr> {
         self.syntax().children().filter_map(Expr::cast).next()
     }

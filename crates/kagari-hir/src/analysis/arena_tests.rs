@@ -9,7 +9,7 @@ fn analyze(db: &mut AnalysisDatabase, source: &SourceDatabase) -> AnalysisSnapsh
 #[test]
 fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     let mut sources = SourceDatabase::default();
-    let text = "fn value(x: i32) -> i32 { var local = x; local += 1; match local { 2 => 3, other => other } }";
+    let text = "fn value(x: i32) -> i32 { var (local, _) = (x, true); local += 1; match local { 2 => 3, other => other } }";
     let left_id = sources
         .set("left.kgr", text.into(), SourceLayer::Base)
         .unwrap();
@@ -50,17 +50,23 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
     assert_eq!(left_stmt.index(), right_stmt.index());
     assert_ne!(left_stmt, right_stmt);
     let StmtKind::Binding {
-        local: left_local, ..
+        pattern: left_pattern,
+        ..
     } = left.lowered.module.stmt(left_stmt).kind
     else {
         panic!("binding");
     };
     let StmtKind::Binding {
-        local: right_local, ..
+        pattern: right_pattern,
+        ..
     } = right.lowered.module.stmt(right_stmt).kind
     else {
         panic!("binding");
     };
+    let left_local = left.lowered.module.body.pattern_bindings(left_pattern)[0].0;
+    let right_local = right.lowered.module.body.pattern_bindings(right_pattern)[0].0;
+    assert_eq!(left_pattern.index(), right_pattern.index());
+    assert_ne!(left_pattern, right_pattern);
     assert_eq!(left_local.index(), right_local.index());
     assert_ne!(left_local, right_local);
     assert!(right.typed.type_table.local_type(left_local).is_none());
@@ -70,6 +76,10 @@ fn identical_local_slots_from_different_lowerings_cannot_resolve() {
         std::panic::catch_unwind(|| right.lowered.source_map.param_span(a.params[0].id)).is_err()
     );
     assert!(std::panic::catch_unwind(|| right.lowered.module.stmt(left_stmt)).is_err());
+    assert!(
+        std::panic::catch_unwind(|| right.lowered.module.body.pattern_bindings(left_pattern))
+            .is_err()
+    );
 }
 
 #[test]

@@ -2,7 +2,7 @@
 
 use crate::hir::{
     expr::{Condition, ops::BinaryOp},
-    ids::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
+    ids::{BlockId, ExprId, PatternId, PlaceId, StmtId, TypeRefId},
     writeability::Writeability,
 };
 use smallvec::SmallVec;
@@ -12,8 +12,9 @@ use smallvec::SmallVec;
 /// ```text
 /// { val y: i32 = x + 1; y }
 /// BlockData { statements: [s], tail_expr: Some(e) }
-/// s -> Body.stmt -> StmtData { kind: Binding { local: l, writeability: Val,
-///      name: "y", ty: Some(t), initializer: sum } }
+/// s -> Body.stmt -> StmtData { kind: Binding { pattern: p, writeability: Val,
+///      ty: Some(t), initializer: sum } }
+/// p -> Body.pattern -> Name { name: "y", local: l }
 /// t -> Body.type_ref -> Named("i32")
 /// sum -> Body.expr -> Binary { lhs: x_expr, op: Add, rhs: one }
 /// e -> Body.expr -> Name { name: "y", explicit_type: None }
@@ -35,9 +36,10 @@ pub struct BlockData {
 
 /// A statement row in Body.stmts; its only payload field is `kind`.
 ///
-/// `var n = 1;` becomes `StmtData { kind: Binding { local: l, writeability: Var,
-/// name: "n", ty: None, initializer: one } }`. The owning block stores its StmtId;
-/// Body::stmt performs qualified lookup. Local identity/type/source facts are
+/// `var n = 1;` becomes `StmtData { kind: Binding { pattern: p, writeability: Var,
+/// ty: None, initializer: one } }`, where p is `Name { name: "n", local: l }`.
+/// The owning block stores its StmtId; Body::stmt performs qualified lookup.
+/// Local identity/type/source facts are
 /// separate from this row; see StmtKind for every source-to-payload form.
 #[derive(Debug, Clone)]
 pub struct StmtData {
@@ -51,7 +53,8 @@ pub struct StmtData {
 ///
 /// | Source fragment | Kind |
 /// | --- | --- |
-/// | `val n: i32 = 1;` | `Binding { local: l, writeability: Val, name: "n", ty: Some(i32_type), initializer: one }` |
+/// | `val n: i32 = 1;` | `Binding { pattern: name_pattern, writeability: Val, ty: Some(i32_type), initializer: one }` |
+/// | `val (x, _) = pair;` | `Binding { pattern: tuple_pattern, writeability: Val, ty: None, initializer: pair_expr }` |
 /// | `var n = 1;` | Same Binding, with `Var` and `ty: None` (inference) |
 /// | `items[i] += step();` | `Assign { target: indexed_place, op: Some(Add), value: call }` |
 /// | `n = 2;` | `Assign { target: name_place, op: None, value: two }` |
@@ -62,11 +65,13 @@ pub struct StmtData {
 /// | `break;` / `break n;` / `continue;` | `Break` / `BreakValue(n_expr)` / `Continue` |
 /// | `work();` | `Expr(call)`; the Call itself lives in Body.exprs |
 ///
-/// `local` is allocated, not written syntax. It keys binding facts; it is not an
-/// expression index. Missing initializers recover as ExprKind::Missing. Mutation
+/// Binding names and allocated local IDs live in the pattern's Name leaves;
+/// wildcard leaves allocate no local. The annotation describes the whole value,
+/// and outer writeability applies to every canonical leaf. Missing initializers
+/// recover as ExprKind::Missing, not uninitialized declarations. Mutation
 /// targets enter Body.places, retaining the writable path once rather than
-/// desugaring `+=` to a duplicated target read. Body.patterns owns for patterns,
-/// and Body.blocks owns loop blocks. Binding while conditions use Condition::Binding.
+/// desugaring `+=` to a duplicated target read. Body.patterns owns declaration/for
+/// patterns, and Body.blocks owns loop blocks. Binding while conditions use Condition::Binding.
 ///
 /// `if ...` and bare blocks in statement position are Expr statements wrapping
 /// ExprKind::If/Block; there are no separate If/Block statement variants. A final
@@ -77,13 +82,11 @@ pub struct StmtData {
 pub enum StmtKind {
     /// A `val` or `var` local binding, such as `val y = x + 1;`.
     Binding {
-        /// Allocated binding identity used by resolution and type tables.
-        local: LocalId,
+        /// Pattern containing the declaration's local binding identities.
+        pattern: PatternId,
         /// Whether the binding permits reassignment.
         writeability: Writeability,
-        /// Declared name; may be empty in recovered syntax.
-        name: String,
-        /// Explicit type annotation, or `None` when inference is requested.
+        /// Whole-value type annotation, or `None` when inference is requested.
         ty: Option<TypeRefId>,
         /// Initializer expression; missing syntax points to `ExprKind::Missing`.
         initializer: ExprId,

@@ -142,7 +142,7 @@ fn single_function_query_does_not_check_or_bind_its_neighbors() {
 #[test]
 fn body_reuse_remaps_types_and_refreshes_local_identity_after_neighbor_edit() {
     let mut sources = SourceDatabase::default();
-    let text = "fn first() -> i32 { 1 } struct P { var n: i32 } fn good() -> i32 { val p: P = P { n: first() }; val answer = p.n; answer }";
+    let text = "fn first() -> i32 { 1 } struct P { var n: i32 } fn good() -> i32 { val p: P = P { n: first() }; val P { n: answer } = p; answer }";
     let id = sources
         .set("reuse.kgr", text.into(), SourceLayer::Base)
         .unwrap();

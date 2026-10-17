@@ -5,7 +5,7 @@ use crate::source::{
     },
     types,
 };
-use kagari_abi::representation::ValueType;
+
 use kagari_hir::{
     hir::{
         expr::Condition,
@@ -64,8 +64,7 @@ impl FunctionLowerer<'_, '_> {
         let stmt = self.analyzed.lowered.module.stmt(stmt_id).clone();
         match stmt.kind {
             StmtKind::Binding {
-                local,
-                name,
+                pattern,
                 initializer,
                 ..
             } => {
@@ -73,20 +72,15 @@ impl FunctionLowerer<'_, '_> {
                 if self.current_block_terminated() {
                     return Ok(());
                 }
-                let dst = self.bind_local(local, name)?;
-                let src = if self.cell_locals.contains(&local) {
-                    let cell = self.alloc_temp(ValueType::HeapObject);
-                    self.emit(Instruction::MakeCell {
-                        dst: cell,
-                        value: src,
-                    });
-                    cell
-                } else {
-                    src
-                };
-                self.emit(Instruction::StoreLocal { local: dst, src });
-                self.introduce_debug_local(dst);
-                Ok(())
+                let ty = self
+                    .analyzed
+                    .typed
+                    .type_table
+                    .coerced_expr_type(&self.planner.definitions(), initializer)
+                    .ok_or(MirLoweringError::MissingExprType(initializer))?;
+                let mut bindings = Vec::new();
+                self.lower_pattern_decision(pattern, src, &ty, None, &mut bindings)?;
+                self.publish_declaration_bindings(pattern, bindings)
             }
             StmtKind::Assign { target, value, op } => {
                 let Some(location) = self.prepare_place(target)? else {
@@ -201,7 +195,7 @@ impl FunctionLowerer<'_, '_> {
                     .type_table
                     .expr_type(initializer)
                     .ok_or(MirLoweringError::MissingExprType(initializer))?;
-                self.lower_pattern_decision(pattern, cond, &ty, exit_block, &mut bindings)?;
+                self.lower_pattern_decision(pattern, cond, &ty, Some(exit_block), &mut bindings)?;
                 self.set_terminator(Terminator::Jump(body_block));
             }
         }
@@ -213,10 +207,7 @@ impl FunctionLowerer<'_, '_> {
         });
         self.switch_to_block(body_block);
         let outer_scope = self.current_scope;
-        for (local, value) in bindings {
-            self.emit(Instruction::StoreLocal { local, src: value });
-            self.introduce_debug_local(local);
-        }
+        self.publish_pattern_bindings(bindings)?;
         let _ = self.lower_block(body)?;
         self.ensure_jump(cond_block);
         self.loops.pop();
@@ -316,11 +307,8 @@ impl FunctionLowerer<'_, '_> {
         self.switch_to_block(body_block);
         let item = self.read_enum_field(&optional, value, 0, 0)?;
         let mut bindings = Vec::new();
-        self.lower_pattern_decision(pattern, item, &fact.item, exit, &mut bindings)?;
-        for (local, value) in bindings {
-            self.emit(Instruction::StoreLocal { local, src: value });
-            self.introduce_debug_local(local);
-        }
+        self.lower_pattern_decision(pattern, item, &fact.item, Some(exit), &mut bindings)?;
+        self.publish_pattern_bindings(bindings)?;
         self.loops.push(LoopScope {
             break_block: exit,
             continue_block: next_block,

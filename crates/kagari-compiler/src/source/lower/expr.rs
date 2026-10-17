@@ -719,16 +719,13 @@ impl FunctionLowerer<'_, '_> {
                     .type_table
                     .expr_type(initializer)
                     .ok_or(MirLoweringError::MissingExprType(initializer))?;
-                self.lower_pattern_decision(pattern, cond, &ty, else_block, &mut bindings)?;
+                self.lower_pattern_decision(pattern, cond, &ty, Some(else_block), &mut bindings)?;
                 self.set_terminator(Terminator::Jump(then_block));
             }
         }
 
         self.switch_to_block(then_block);
-        for (local, value) in bindings {
-            self.emit(Instruction::StoreLocal { local, src: value });
-            self.introduce_debug_local(local);
-        }
+        self.publish_pattern_bindings(bindings)?;
         let then_value = self.lower_block(then_branch)?;
         if !self.current_block_terminated() {
             let then_value = if else_branch.is_some() {

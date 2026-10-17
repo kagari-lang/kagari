@@ -25,6 +25,7 @@ macro_rules! syntax_examples {
 }
 
 syntax_examples! {
+    declaration_patterns_preserve_scope_aliases_and_captures: "examples/syntax/binding-patterns.kgr" => "../../../../../../examples/syntax/binding-patterns.kgr",
     callables: "examples/syntax/callables.kgr" => "../../../../../../examples/syntax/callables.kgr",
     array_operations: "examples/syntax/array-operations.kgr" => "../../../../../../examples/syntax/array-operations.kgr",
     bitwise: "examples/syntax/bitwise.kgr" => "../../../../../../examples/syntax/bitwise.kgr",

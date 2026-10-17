@@ -78,6 +78,18 @@ fn usage_tracks_reads_shadowing_captures_and_places() {
     assert_eq!(codes(&records, "unused_binding"), 2, "{records:?}");
     assert_eq!(codes(&records, "unused_parameter"), 1, "{records:?}");
     assert_eq!(codes(&records, "unnecessary_var"), 2, "{records:?}");
+
+    let (_, _, snapshot, root) = analyze(
+        &[(
+            "root",
+            "fn read()->i32 { var (changed, stable)=(1,2); val read=||changed; changed=3; val (_, unused)=(4,5); read()+stable }",
+        )],
+        100,
+    );
+    snapshot.check_program(root, &Default::default()).unwrap();
+    let records = findings(&snapshot, root, &Policy::default());
+    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
+    assert_eq!(codes(&records, "unnecessary_var"), 1, "{records:?}");
 }
 
 #[test]

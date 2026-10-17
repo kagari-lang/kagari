@@ -66,7 +66,7 @@ method_param_list	covered	examples/syntax/data-model.kgr	-
 receiver_param	covered	examples/syntax/data-model.kgr	-
 block	covered	examples/syntax/expressions.kgr	-
 stmt	covered	examples/syntax/blocks.kgr	-
-binding_stmt	covered	examples/syntax/expressions.kgr	-
+binding_stmt	covered	examples/syntax/binding-patterns.kgr	-
 binding_kind	covered	examples/syntax/expressions.kgr	-
 type_annotation	covered	examples/standard-library.kgr	-
 init_expr	covered	examples/syntax/expressions.kgr	-

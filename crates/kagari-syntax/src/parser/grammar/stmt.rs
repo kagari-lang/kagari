@@ -70,8 +70,20 @@ impl<'a> Parser<'a> {
     pub(crate) fn parse_binding_stmt(&mut self) {
         self.start_node(SyntaxKind::BindingStmt);
         self.parse_binding_kind();
-        self.parse_binding_name();
+        self.parse_binding_pattern();
         self.bump_trivia();
+        if self.at(TokenKind::Pipe) {
+            // Retain forbidden alternatives without letting block recovery parse a closure.
+            self.error_here(DiagnosticKind::UnexpectedToken);
+            self.start_node(SyntaxKind::Error);
+            while self.at(TokenKind::Pipe) {
+                self.bump();
+                self.bump_trivia();
+                self.parse_binding_pattern();
+                self.bump_trivia();
+            }
+            self.finish_node();
+        }
         if self.at(TokenKind::Colon) {
             self.bump();
             self.parse_type_ref();

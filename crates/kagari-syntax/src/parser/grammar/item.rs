@@ -673,12 +673,6 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
-    pub(crate) fn parse_binding_name(&mut self) {
-        self.start_node(SyntaxKind::Name);
-        self.expect(TokenKind::Ident, DiagnosticKind::ExpectedBindingName);
-        self.finish_node();
-    }
-
     pub(crate) fn parse_use_alias(&mut self) {
         self.start_node(SyntaxKind::Name);
         self.expect(TokenKind::Ident, DiagnosticKind::ExpectedUseAlias);

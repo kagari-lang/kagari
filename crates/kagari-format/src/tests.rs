@@ -83,6 +83,7 @@ fn representative_grammar_preserves_structure_and_is_idempotent() {
     for name in [
         "grammar-witnesses.kgr",
         "closures.kgr",
+        "binding-patterns.kgr",
         "string-interpolation.kgr",
         "generic-associated-types.kgr",
         "async.kgr",
@@ -103,6 +104,7 @@ fn complete_grammar_fixture_inventory() {
         "async.kgr",
         "attributes.kgr",
         "binding-conditions.kgr",
+        "binding-patterns.kgr",
         "bitwise.kgr",
         "blocks.kgr",
         "callables.kgr",
@@ -172,6 +174,10 @@ fn declarations_types_attributes_and_patterns_have_canonical_layout() {
         (
             "fn f(value:Point)->i32{match value{Point{x,..}=>x}}",
             "fn f(value: Point) -> i32 {\n    match value {\n        Point { x, .. } => x\n    }\n}\n",
+        ),
+        (
+            "fn f(pair:(i32,i32)){var(x,y):(i32,i32)=pair;val _=x+y;}",
+            "fn f(pair: (i32, i32)) {\n    var (x, y): (i32, i32) = pair;\n    val _ = x + y;\n}\n",
         ),
         (
             "fn f(x:fn((i32,bool),[i32])->i32){val values=[1,2,3];val pair=(1,true);}",

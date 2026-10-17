@@ -25,7 +25,7 @@ pub struct PatternData {
     pub kind: PatternKind,
 }
 
-/// Source patterns and nested pattern links, used by match, for and binding conditions.
+/// Source patterns and nested links used by declarations, match, for and binding conditions.
 ///
 /// | Pattern source | Kind (all payload fields shown) |
 /// | --- | --- |
@@ -43,8 +43,8 @@ pub struct PatternData {
 /// Or/Tuple/variant child IDs enter Body.patterns; struct fields are inline
 /// records linking to subpatterns. Range endpoints are inline PatternBound values,
 /// not ExprIds, and `..` sets `inclusive: false`. Bare names receive provisional
-/// LocalIds: a visible unit variant can later resolve as a constructor instead
-/// of a binding. Struct shorthand `y` creates a nested Name { name: "y", local }
+/// LocalIds: outside ordinary declarations, a visible unit variant can later
+/// resolve as a constructor instead of a binding. Declaration bare names always bind. Struct shorthand `y` creates a nested Name { name: "y", local }
 /// pattern. Struct rest is a presence flag, not a field or child pattern; without
 /// it, checking requires every field of the nominal declaration, including private
 /// fields. Semantic tables own alternative-binding consistency and constructor

@@ -689,6 +689,12 @@ impl<'a> Parser<'a> {
         self.finish_node();
     }
 
+    /// Enters guarded declaration-pattern parsing without a top-level alternative.
+    /// Nested tuple, constructor and field patterns retain their existing alternatives.
+    pub(crate) fn parse_binding_pattern(&mut self) {
+        self.with_nesting(Self::parse_single_pattern);
+    }
+
     /// Enters guarded pattern parsing; alternatives wrap nested `Pattern` children.
     pub(crate) fn parse_match_pattern(&mut self) {
         self.with_nesting(Self::parse_match_pattern_nested);

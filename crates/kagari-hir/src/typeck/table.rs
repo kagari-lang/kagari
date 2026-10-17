@@ -356,7 +356,7 @@ impl TypeTable {
 
             keys!(propagations: ExprId, iterations: ExprId, protocol_receivers: ExprId, host_place_paths: PlaceId, host_paths: ExprId, constraints: TypeRefId, type_refs: TypeRefId, expr_fields: ExprId,
                 place_fields: PlaceId, place_indexes: PlaceId, place_index_writes: PlaceId, struct_inits: ExprId, enum_constructors: ExprId, exprs: ExprId, locals: LocalId,
-                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_variants: PatternId,
+                places: PlaceId, calls: ExprId, scalars: ExprId, pattern_scalars: PatternId, pattern_ranges: PatternId, pattern_fields: PatternId, pattern_variants: PatternId,
                 callable_coercions: ExprId, interface_coercions: ExprId, associated_consts: ExprId);
             for site in result.native_default_calls.values_mut() {
                 assert_eq!(site.arena(), from);

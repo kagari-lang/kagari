@@ -10,6 +10,7 @@ mod never;
 mod numeric;
 mod origins;
 mod passes;
+mod patterns;
 mod program_points;
 mod verify;
 mod visibility;

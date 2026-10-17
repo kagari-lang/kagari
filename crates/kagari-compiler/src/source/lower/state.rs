@@ -119,13 +119,15 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
                 }
                 match &stmt.kind {
                     StmtKind::Binding {
-                        local,
+                        pattern,
                         writeability: Writeability::Var,
                         ..
-                    } => Some(*local),
+                    } => Some(*pattern),
                     _ => None,
                 }
             })
+            .flat_map(|pattern| analyzed.lowered.module.body.pattern_bindings(pattern))
+            .map(|(local, _)| local)
             .collect::<HashSet<_>>();
         let cell_locals = analyzed
             .lowered

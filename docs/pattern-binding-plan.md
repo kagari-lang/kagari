@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one commit per phase authorized on 2026-10-17.
-PB01-PB02 are complete; PB03 is next.
+PB01-PB03 are complete; PB04 integration and handoff are next.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation and
 queue placement. This is the single execution plan for
 [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-) and
@@ -285,7 +285,7 @@ checks, not Cargo builds. Commit each authorized phase coherently with a
 
 - [x] PB01: freeze decisions, consumer inventory and focused acceptance selection.
 - [x] PB02: SA16 shared pattern rule and fixture migration.
-- [ ] PB03: SA17 unified declarations and all direct consumers.
+- [x] PB03: SA17 unified declarations and all direct consumers.
 - [ ] PB04: focused integration, actual acceptance and documentation handoff.
 
 ### PB01 — contract and acceptance freeze
@@ -359,3 +359,38 @@ or re-export exceptions. No intermediate build errors remain. Full workspace and
 backend/platform CI are not run locally; source-free combined acceptance stays in
 PB04. This checkpoint intentionally rejects omitted fields without rest; existing
 code must list those fields or add `..`.
+
+### PB03 — unified declaration patterns
+
+Replaced Binding's statement-level name/local with one pattern; migrated parser,
+AST, HIR, old-scope resolution, whole-value contextual typing/coercion, leaf
+writeability, usage/navigation, snapshot facts and captured-variable discovery.
+Shared checked extraction now stages leaf values before local/cell/debug
+publication, handles alternative-specific values, and skips ignored projections.
+Declarations have no runtime failure edge. Simple host/scoped names remain valid.
+The syntax/HIR guides and runnable binding example document the current contract.
+
+Focused validation passed: 10 statement-parser cases and the nesting-budget case;
+9 declaration-pattern HIR cases; HIR lower/resolver/arena/owner suites (23 cases),
+body-reuse identity equivalence and scoped-reference forwarding; 4 MIR pattern
+contracts; 3 formatter cases, the existing usage/lint contract, 2 VM capture/debug
+contracts, 5 grammar-inventory cases, and source/artifact execution of the binding
+example. The example covers first-success and fallback alternatives, once-only
+initialization, old scope, shared objects, mutable captures and whole-value
+interface coercion.
+
+Two test issues were resolved without weakening semantic assertions: a MIR test
+incorrectly assumed block storage order was execution order; it now checks both
+projection paths while SDK execution checks chosen values. The body-reuse comparison
+helper omitted pattern_fields from arena normalization; it now asserts ownership
+and normalizes that key like other pattern facts. Actual restoration already maps
+those IDs. Each failing filter passed after repair. A bounded-generic divergence
+review probe confirmed ordinary trait obligations still apply to Never; explicit
+valid whole-value annotations work and no runtime value is fabricated.
+
+Manual imports, visibility, responsibilities and effective-LOC review found no new
+exceptions. Structure checked 1,291 Rust files with zero violations/exceptions;
+formatting, workspace all-target Clippy with denied warnings and diff checks passed.
+No carried implementation failures remain. PB04 owns the separately prepared
+lifecycle conformance/feature fixture edits; those are excluded from this commit.
+Full workspace tests and the complete backend/platform matrix remain CI-only.

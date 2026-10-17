@@ -45,17 +45,15 @@ impl Lowerer {
     pub(crate) fn lower_stmt(&mut self, stmt: &Stmt) -> StmtId {
         let kind = match stmt {
             Stmt::BindingStmt(stmt) => StmtKind::Binding {
-                local: self.source_map.push_local(
-                    stmt.name()
-                        .map(|name| token_span(&name))
-                        .unwrap_or_else(|| syntax_span(stmt)),
-                ),
+                pattern: stmt
+                    .pattern()
+                    .map(|pattern| self.lower_pattern(&pattern))
+                    .unwrap_or_else(|| self.synthetic_name_pattern("<missing>")),
                 writeability: if stmt.is_var() {
                     Writeability::Var
                 } else {
                     Writeability::Val
                 },
-                name: stmt.name_text().unwrap_or_default(),
                 ty: stmt.ty().map(|ty| self.lower_type(&ty)),
                 initializer: stmt
                     .initializer()

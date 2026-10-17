@@ -132,6 +132,16 @@ fn recursive_grammar_families_stop_at_nesting_budget() {
             "(".repeat(depth),
             ",)".repeat(depth)
         ),
+        format!(
+            "fn main() {{ val {}_{} = value; }}",
+            "(".repeat(depth),
+            ",)".repeat(depth)
+        ),
+        format!(
+            "fn main() {{ val {}_{} = value; }}",
+            "Point { x: ".repeat(depth),
+            ", .. }".repeat(depth)
+        ),
     ];
     for (index, text) in cases.into_iter().enumerate() {
         let source = SourceFile::new("nesting.kgr", text);

@@ -148,7 +148,8 @@ Function(f).params = [Param { id: p, name: "x", ty: t, ... }]
 Function(f).body = Some(b)
 Block(b).statements = [s]
 Block(b).tail_expr = Some(result)
-Stmt(s) = Binding { local: l, name: "y", initializer: sum, ... }
+Stmt(s) = Binding { pattern: binding, initializer: sum, ... }
+Pattern(binding) = Name { local: l, name: "y" }
 Expr(sum) = Binary { lhs: x, op: Add, rhs: one }
 Expr(x) = Name { name: "x", ... }
 Expr(one) = Literal(Number, "1")       // literal record abbreviated
@@ -184,6 +185,33 @@ ranges and the checked arithmetic type. Declaration metadata lives in
 on [ModuleSignatures](../../crates/kagari-hir/src/typeck/mod.rs). Missing facts can
 mean an inapplicable operation, a stage not requested or source recovery; each
 table's accessor contract explains which applies.
+
+### Pattern-based declarations
+
+Every ordinary `Binding` owns one `PatternId`, declaration-wide writeability, an
+optional whole-value annotation and its initializer; simple names have no separate
+statement-level representation. Pattern leaves own local identities. For example,
+`var (x, Point { y, .. }) = make_pair();` links a tuple pattern to a name leaf and
+a struct pattern, whose field child owns the other local. Rest is a boolean on the
+struct pattern, not a field or binding.
+
+Resolution visits the initializer before publishing any leaf. Declaration bare
+names always bind; other pattern contexts retain their constructor policy. The
+shared checker records nominal field identities and leaf types, checks access and
+completeness recursively, and requires conservative declaration irrefutability.
+The whole annotation contextualizes the initializer rather than converting leaves.
+Usage/navigation consume those same leaf identities; `Body::pattern_bindings`
+selects canonical declaration leaves, with the first alternative representing an
+Or pattern's consistent binding set.
+
+Compiler lowering consumes checked facts through the shared pattern extractor.
+Declarations have no failure continuation; refutable constructs require a real
+match/condition/iteration failure edge, not an added declaration trap. Extraction
+stages values in pattern source order, skips ignored projections, and selects the
+successful alternative's values before allocating captured-variable cells. All
+leaf stores precede debug-local publication. Captures, lexical scope exit and GC
+roots retain their existing owners; backends neither re-resolve fields nor infer
+leaf types. See [declaration semantics](../spec/syntax.md#blocks-and-statements).
 
 ## An alias through a public glob
 

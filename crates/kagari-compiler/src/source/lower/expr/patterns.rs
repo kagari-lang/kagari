@@ -4,16 +4,24 @@ use kagari_contract::{operations::BinaryOp, representation::semantic_representat
 use kagari_hir::{
     hir::{
         expr::MatchArmBuffer,
-        ids::{ExprId, PatternId},
+        ids::{ExprId, LocalId as HirLocalId, PatternId},
         pattern::PatternKind,
     },
     types::{TypeId, semantic::lower_type},
 };
 use kagari_mir::{
-    ids::{BlockId, LocalId},
+    ids::BlockId,
     instruction::{Constant, Instruction, MirValue, Terminator},
 };
+use kagari_types::scalar::BuiltinType;
 use std::collections::HashMap;
+
+/// A checked leaf value staged outside lexical locals until extraction succeeds.
+pub(crate) struct PatternBinding {
+    local: HirLocalId,
+    name: String,
+    value: MirValue,
+}
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn lower_match(
@@ -52,15 +60,12 @@ impl FunctionLowerer<'_, '_> {
                 arm.pattern,
                 scrutinee_temp,
                 &scrutinee_ty,
-                next_decision,
+                Some(next_decision),
                 &mut bindings,
             )?;
             self.set_terminator(Terminator::Jump(arm_block));
             self.switch_to_block(arm_block);
-            for (local, value) in bindings {
-                self.emit(Instruction::StoreLocal { local, src: value });
-                self.introduce_debug_local(local);
-            }
+            self.publish_pattern_bindings(bindings)?;
             if let Some(guard) = arm.guard {
                 let predicate = self.lower_expr(guard)?;
                 if !self.current_block_terminated() {
@@ -110,9 +115,19 @@ impl FunctionLowerer<'_, '_> {
         pattern: PatternId,
         value: MirValue,
         expected: &TypeId,
-        fail: BlockId,
-        bindings: &mut Vec<(LocalId, MirValue)>,
+        fail: Option<BlockId>,
+        bindings: &mut Vec<PatternBinding>,
     ) -> Result<(), MirLoweringError> {
+        if fail.is_none()
+            && !self
+                .analyzed
+                .names
+                .pattern_is_irrefutable(&self.analyzed.lowered.module, pattern)
+        {
+            return Err(MirLoweringError::MissingBinding(
+                "irrefutable pattern without failure continuation",
+            ));
+        }
         let semantic = self.semantic_type(expected)?;
         self.function
             .semantic
@@ -126,68 +141,20 @@ impl FunctionLowerer<'_, '_> {
             .pattern_variant(pattern)
             .is_some()
         {
+            let fail = fail.ok_or(MirLoweringError::MissingBinding(
+                "enum pattern failure continuation",
+            ))?;
             return self.lower_enum_pattern(pattern, value, expected, fail, bindings);
         }
         match &self.analyzed.lowered.module.pattern(pattern).kind {
             PatternKind::Wildcard => {}
             PatternKind::Or(alternatives) => {
-                let alternatives = alternatives.clone();
-                let success = self.new_block();
-                let mut canonical = HashMap::<String, MirValue>::new();
-                for (index, alternative) in alternatives.iter().copied().enumerate() {
-                    let locals_before = self.function.locals.len();
-                    let next = if index + 1 == alternatives.len() {
-                        fail
-                    } else {
-                        self.new_block()
-                    };
-                    let mut branch_bindings = Vec::new();
-                    self.lower_pattern_decision(
-                        alternative,
-                        value,
-                        expected,
-                        next,
-                        &mut branch_bindings,
-                    )?;
-                    for (local, value) in branch_bindings {
-                        let name = self.function.locals[local.index()].name.clone();
-                        let merged = if let Some(merged) = canonical.get(&name) {
-                            *merged
-                        } else {
-                            let merged = self.alloc_temp(value.ty);
-                            let semantic = self
-                                .function
-                                .semantic
-                                .locals
-                                .get(&local.index())
-                                .ok_or(MirLoweringError::MissingBinding("pattern binding type"))?
-                                .clone();
-                            self.function
-                                .semantic
-                                .registers
-                                .insert(merged.temp.index(), semantic);
-                            canonical.insert(name, merged);
-                            bindings.push((local, merged));
-                            merged
-                        };
-                        self.emit(Instruction::Move {
-                            dst: merged,
-                            src: value,
-                        });
-                    }
-                    if index > 0 {
-                        self.function.locals.truncate(locals_before);
-                        self.function.debug.locals.truncate(locals_before);
-                        self.locals.retain(|_, local| local.index() < locals_before);
-                    }
-                    self.set_terminator(Terminator::Jump(success));
-                    if index + 1 < alternatives.len() {
-                        self.switch_to_block(next);
-                    }
-                }
-                self.switch_to_block(success);
+                self.lower_or_pattern(alternatives.clone(), value, expected, fail, bindings)?;
             }
             PatternKind::Range { inclusive, .. } => {
+                let fail = fail.ok_or(MirLoweringError::MissingBinding(
+                    "range pattern failure continuation",
+                ))?;
                 let (start, end) = self
                     .analyzed
                     .typed
@@ -224,39 +191,15 @@ impl FunctionLowerer<'_, '_> {
                     self.switch_to_block(next);
                 }
             }
-            PatternKind::Name { local, name } => {
-                let local = *local;
-                let name = name.clone();
-                let local_ty = self
-                    .analyzed
-                    .typed
-                    .type_table
-                    .local_type(local)
-                    .as_ref()
-                    .map(|ty| self.value_type(ty))
-                    .transpose()?
-                    .ok_or(MirLoweringError::MissingLocalType(local))?;
-                let ir_local = self.alloc_local(
-                    name,
-                    local_ty,
-                    self.analyzed.lowered.source_map.local_span(local),
-                );
-                let semantic = self.semantic_type(
-                    &self
-                        .analyzed
-                        .typed
-                        .type_table
-                        .local_type(local)
-                        .ok_or(MirLoweringError::MissingLocalType(local))?,
-                )?;
-                self.function
-                    .semantic
-                    .locals
-                    .insert(ir_local.index(), semantic);
-                self.locals.insert(local, ir_local);
-                bindings.push((ir_local, value));
-            }
+            PatternKind::Name { local, name } => bindings.push(PatternBinding {
+                local: *local,
+                name: name.clone(),
+                value,
+            }),
             PatternKind::Literal(_) => {
+                let fail = fail.ok_or(MirLoweringError::MissingBinding(
+                    "literal pattern failure continuation",
+                ))?;
                 let scalar = self
                     .analyzed
                     .typed
@@ -282,6 +225,9 @@ impl FunctionLowerer<'_, '_> {
                 self.switch_to_block(next);
             }
             PatternKind::Tuple(elements) => {
+                if elements.is_empty() && *expected == TypeId::Builtin(BuiltinType::Unit) {
+                    return Ok(());
+                }
                 let TypeId::Tuple(types) = expected else {
                     return Err(MirLoweringError::MissingBinding("checked tuple pattern"));
                 };
@@ -293,6 +239,9 @@ impl FunctionLowerer<'_, '_> {
                     ));
                 }
                 for (index, (element, ty)) in elements.into_iter().zip(types.iter()).enumerate() {
+                    if !self.pattern_requires_value(element) {
+                        continue;
+                    }
                     let index = i32::try_from(index)
                         .map_err(|_| MirLoweringError::MissingBinding("tuple pattern index"))?;
                     let index = self.lower_constant(Constant::I32(index), ValueType::I32);
@@ -320,6 +269,9 @@ impl FunctionLowerer<'_, '_> {
                     ));
                 }
                 for (field, declaration) in fields.into_iter().zip(resolved.iter()) {
+                    if !self.pattern_requires_value(field.pattern) {
+                        continue;
+                    }
                     let field_ref = self.aggregate_field_ref(declaration, expected)?;
                     let signature = self.analyzed.aggregates.field(declaration).ok_or(
                         MirLoweringError::MissingBinding("struct pattern field signature"),
@@ -357,13 +309,216 @@ impl FunctionLowerer<'_, '_> {
         Ok(())
     }
 
+    fn lower_or_pattern(
+        &mut self,
+        mut alternatives: Vec<PatternId>,
+        value: MirValue,
+        expected: &TypeId,
+        fail: Option<BlockId>,
+        bindings: &mut Vec<PatternBinding>,
+    ) -> Result<(), MirLoweringError> {
+        if alternatives.is_empty() {
+            return Err(MirLoweringError::MissingBinding(
+                "checked pattern alternatives",
+            ));
+        }
+        let irrefutable = alternatives.iter().position(|alternative| {
+            self.analyzed
+                .names
+                .pattern_is_irrefutable(&self.analyzed.lowered.module, *alternative)
+        });
+        if let Some(index) = irrefutable {
+            alternatives.truncate(index + 1);
+        } else if fail.is_none() {
+            return Err(MirLoweringError::MissingBinding(
+                "alternative pattern failure continuation",
+            ));
+        }
+
+        let success = self.new_block();
+        let mut canonical = HashMap::<String, MirValue>::new();
+        for (index, alternative) in alternatives.iter().copied().enumerate() {
+            let last = index + 1 == alternatives.len();
+            let next = if last {
+                if irrefutable.is_some() { None } else { fail }
+            } else {
+                Some(self.new_block())
+            };
+            let mut branch_bindings = Vec::new();
+            self.lower_pattern_decision(alternative, value, expected, next, &mut branch_bindings)?;
+
+            if index > 0 && branch_bindings.len() != canonical.len() {
+                return Err(MirLoweringError::MissingBinding(
+                    "checked alternative bindings",
+                ));
+            }
+            for PatternBinding { local, name, value } in branch_bindings {
+                let merged = if let Some(merged) = canonical.get(&name) {
+                    *merged
+                } else {
+                    if index > 0 {
+                        return Err(MirLoweringError::MissingBinding(
+                            "checked alternative binding",
+                        ));
+                    }
+
+                    let ty = self
+                        .analyzed
+                        .typed
+                        .type_table
+                        .local_type(local)
+                        .ok_or(MirLoweringError::MissingLocalType(local))?;
+                    let semantic = self.semantic_type(&ty)?;
+                    let merged = self.alloc_temp(value.ty);
+                    self.function
+                        .semantic
+                        .registers
+                        .insert(merged.temp.index(), semantic);
+                    canonical.insert(name.clone(), merged);
+                    bindings.push(PatternBinding {
+                        local,
+                        name,
+                        value: merged,
+                    });
+                    merged
+                };
+                self.emit(Instruction::Move {
+                    dst: merged,
+                    src: value,
+                });
+            }
+            self.set_terminator(Terminator::Jump(success));
+            if !last {
+                self.switch_to_block(
+                    next.ok_or(MirLoweringError::MissingBinding("alternative continuation"))?,
+                );
+            }
+        }
+        self.switch_to_block(success);
+        Ok(())
+    }
+
+    /// Ignored children need no projection, but checked names that denote variants
+    /// still require a decision. Static field/access validation remains HIR-owned.
+    fn pattern_requires_value(&self, pattern: PatternId) -> bool {
+        if self
+            .analyzed
+            .typed
+            .type_table
+            .pattern_variant(pattern)
+            .is_some()
+        {
+            return true;
+        }
+        match &self.analyzed.lowered.module.pattern(pattern).kind {
+            PatternKind::Wildcard => false,
+            PatternKind::Tuple(elements) => elements
+                .iter()
+                .any(|element| self.pattern_requires_value(*element)),
+            PatternKind::Struct { fields, .. } => fields
+                .iter()
+                .any(|field| self.pattern_requires_value(field.pattern)),
+            PatternKind::Or(alternatives) => {
+                for alternative in alternatives {
+                    if self.pattern_requires_value(*alternative) {
+                        return true;
+                    }
+                    if self
+                        .analyzed
+                        .names
+                        .pattern_is_irrefutable(&self.analyzed.lowered.module, *alternative)
+                    {
+                        break;
+                    }
+                }
+                false
+            }
+            PatternKind::Name { .. }
+            | PatternKind::Literal(_)
+            | PatternKind::Range { .. }
+            | PatternKind::EnumVariant { .. } => true,
+        }
+    }
+
+    pub(crate) fn publish_declaration_bindings(
+        &mut self,
+        pattern: PatternId,
+        bindings: Vec<PatternBinding>,
+    ) -> Result<(), MirLoweringError> {
+        let mut values = bindings
+            .into_iter()
+            .map(|binding| (binding.local, binding.value))
+            .collect::<HashMap<_, _>>();
+        let bindings = self
+            .analyzed
+            .lowered
+            .module
+            .body
+            .pattern_bindings(pattern)
+            .into_iter()
+            .map(|(local, name)| {
+                let value = values
+                    .remove(&local)
+                    .ok_or(MirLoweringError::MissingBinding(
+                        "checked declaration binding value",
+                    ))?;
+                Ok(PatternBinding {
+                    local,
+                    name: name.to_owned(),
+                    value,
+                })
+            })
+            .collect::<Result<Vec<_>, MirLoweringError>>()?;
+        if !values.is_empty() {
+            return Err(MirLoweringError::MissingBinding(
+                "checked declaration bindings",
+            ));
+        }
+        self.publish_pattern_bindings(bindings)
+    }
+
+    /// Finish extraction before allocating capture cells or making any new debug
+    /// binding visible. Or alternatives have already merged their raw leaf values.
+    pub(crate) fn publish_pattern_bindings(
+        &mut self,
+        bindings: Vec<PatternBinding>,
+    ) -> Result<(), MirLoweringError> {
+        let mut staged = Vec::with_capacity(bindings.len());
+        for PatternBinding {
+            local: hir_local,
+            name,
+            value,
+        } in bindings
+        {
+            let local = self.bind_local(hir_local, name)?;
+            let value = if self.cell_locals.contains(&hir_local) {
+                let cell = self.alloc_temp(ValueType::HeapObject);
+                self.emit(Instruction::MakeCell { dst: cell, value });
+                cell
+            } else {
+                value
+            };
+            staged.push((local, value));
+        }
+        for (local, value) in &staged {
+            self.emit(Instruction::StoreLocal {
+                local: *local,
+                src: *value,
+            });
+        }
+        for (local, _) in staged {
+            self.introduce_debug_local(local);
+        }
+        Ok(())
+    }
+
     fn lower_enum_pattern(
         &mut self,
         pattern: PatternId,
         value: MirValue,
         expected: &TypeId,
         fail: BlockId,
-        bindings: &mut Vec<(LocalId, MirValue)>,
+        bindings: &mut Vec<PatternBinding>,
     ) -> Result<(), MirLoweringError> {
         let fields = match &self.analyzed.lowered.module.pattern(pattern).kind {
             PatternKind::EnumVariant { fields, .. } => fields.clone(),
@@ -425,8 +580,11 @@ impl FunctionLowerer<'_, '_> {
         });
         self.switch_to_block(next);
         for (index, (field, ty)) in fields.into_iter().zip(payload.iter()).enumerate() {
+            if !self.pattern_requires_value(field) {
+                continue;
+            }
             let member = self.read_enum_field(expected, value, slot, index)?;
-            self.lower_pattern_decision(field, member, ty, fail, bindings)?;
+            self.lower_pattern_decision(field, member, ty, Some(fail), bindings)?;
         }
         Ok(())
     }

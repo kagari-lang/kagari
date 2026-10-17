@@ -10,13 +10,14 @@ use crate::{
     },
     resolver::resolved::ResolvedName,
     typeck::{BodyTypeEnv, body::BodyChecker, scalar::ScalarValue, ty::display_type_id},
-    types::TypeId,
+    types::{NominalType, TypeId},
 };
 use kagari_common::span::Span;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{declaration::names::NameNamespace, scalar::BuiltinType};
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+mod declarations;
 mod enums;
 
 impl<'a> BodyChecker<'a> {
@@ -51,6 +52,8 @@ impl<'a> BodyChecker<'a> {
         expected: &TypeId,
         env: &mut BodyTypeEnv,
     ) {
+        let context = self.diverging_pattern_context(pattern, expected);
+        let expected = context.as_ref().unwrap_or(expected);
         let span = self.lowered.source_map.pattern_span(pattern);
         match &self.lowered.module.pattern(pattern).kind {
             PatternKind::Wildcard => {}
@@ -164,6 +167,9 @@ impl<'a> BodyChecker<'a> {
                 ),
             },
             PatternKind::Tuple(elements) => {
+                if elements.is_empty() && *expected == TypeId::Builtin(BuiltinType::Unit) {
+                    return;
+                }
                 let TypeId::Tuple(types) = expected else {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::PatternTypeMismatch {
@@ -275,6 +281,46 @@ impl<'a> BodyChecker<'a> {
                 let fields = fields.clone();
                 self.check_enum_pattern(pattern, &path, &fields, expected, env);
             }
+        }
+    }
+
+    /// A diverging input constrains no field type. Retain structural context so
+    /// checking still validates nominal identity, access and completeness.
+    /// Unconstrained leaves/arguments stay uninhabited, not fabricated runtime values.
+    pub(super) fn diverging_pattern_context(
+        &self,
+        pattern: PatternId,
+        expected: &TypeId,
+    ) -> Option<TypeId> {
+        if !expected.is_never() {
+            return None;
+        }
+        match &self.lowered.module.pattern(pattern).kind {
+            PatternKind::Tuple(elements) if elements.is_empty() => {
+                Some(TypeId::Builtin(BuiltinType::Unit))
+            }
+            PatternKind::Tuple(elements) => Some(TypeId::Tuple(
+                elements
+                    .iter()
+                    .map(|element| {
+                        self.diverging_pattern_context(*element, expected)
+                            .unwrap_or_else(|| expected.clone())
+                    })
+                    .collect(),
+            )),
+            PatternKind::Struct { path, .. } => {
+                let declaration = self.resolve_struct_id(path)?;
+                let structure = self.aggregates.structure(&declaration)?;
+                Some(TypeId::Struct(NominalType {
+                    declaration,
+                    arguments: vec![expected.clone(); structure.generic_params.len()],
+                    associated_types: Default::default(),
+                }))
+            }
+            PatternKind::Or(alternatives) => alternatives
+                .first()
+                .and_then(|alternative| self.diverging_pattern_context(*alternative, expected)),
+            _ => None,
         }
     }
 

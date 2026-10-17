@@ -107,17 +107,20 @@ impl FileAnalysis {
             }
             match &statement.kind {
                 StmtKind::Binding {
-                    local,
+                    pattern,
                     writeability,
                     initializer,
                     ..
                 } => {
-                    if let Some(binding) = usage.get_mut(&ResolvedName::Local(*local)) {
-                        binding.mutable = *writeability == Writeability::Var;
-                        binding.initialized = !matches!(
-                            facts.lowered.module.expr(*initializer).kind,
-                            ExprKind::Missing
-                        );
+                    for (local, _) in facts.lowered.module.body.pattern_bindings(*pattern) {
+                        cancel.check()?;
+                        if let Some(binding) = usage.get_mut(&ResolvedName::Local(local)) {
+                            binding.mutable = *writeability == Writeability::Var;
+                            binding.initialized = !matches!(
+                                facts.lowered.module.expr(*initializer).kind,
+                                ExprKind::Missing
+                            );
+                        }
                     }
                 }
                 StmtKind::Assign { target, op, .. } => {

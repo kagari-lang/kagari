@@ -194,7 +194,7 @@ stmt                ::= binding_stmt
                       | continue_stmt
                       | block ;
 
-binding_stmt        ::= binding_kind IDENT type_annotation? init_expr? ";" ;
+binding_stmt        ::= binding_kind range_pattern type_annotation? init_expr? ";" ;
 
 binding_kind        ::= "val"
                       | "var" ;

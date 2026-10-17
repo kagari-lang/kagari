@@ -190,14 +190,16 @@ fn lowers_function_body_expressions_and_statements() {
     let stmt = lowered.module.stmt(block.statements[0]);
     match &stmt.kind {
         StmtKind::Binding {
-            local: _,
+            pattern,
             writeability,
-            name,
             ty,
             initializer,
         } => {
             assert_eq!(*writeability, Writeability::Val);
-            assert_eq!(name, "next");
+            assert!(matches!(
+                &lowered.module.pattern(*pattern).kind,
+                PatternKind::Name { name, .. } if name == "next"
+            ));
             assert!(matches!(
                 ty.map(|ty| &lowered.module.type_ref(ty).kind),
                 Some(TypeKind::Named(name)) if name == "i32"
@@ -270,10 +272,15 @@ fn lowers_var_binding() {
 
     match &stmt.kind {
         StmtKind::Binding {
-            writeability, name, ..
+            writeability,
+            pattern,
+            ..
         } => {
             assert_eq!(*writeability, Writeability::Var);
-            assert_eq!(name, "value");
+            assert!(matches!(
+                &lowered.module.pattern(*pattern).kind,
+                PatternKind::Name { name, .. } if name == "value"
+            ));
         }
         other => panic!("unexpected stmt kind: {other:?}"),
     }

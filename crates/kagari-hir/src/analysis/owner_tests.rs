@@ -12,7 +12,7 @@ use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 #[test]
 fn lowering_records_owners_for_interleaved_functions_and_constants() {
-    let text = "const N: i32 = 2; fn first(x: i32) -> i32 { var local = x; local += N; match local { 2 => 3, other => other } } fn second() -> i32 { 4 }";
+    let text = "const N: i32 = 2; fn first(x: i32) -> i32 { var (local, ignored) = (x, true); local += N; match local { 2 => 3, other => other } } fn second() -> i32 { 4 }";
     let mut sources = SourceDatabase::default();
     let id = sources
         .set("owners.kgr", text.into(), SourceLayer::Base)
@@ -39,9 +39,14 @@ fn lowering_records_owners_for_interleaved_functions_and_constants() {
             assert_eq!(statement.owner(), expected);
             match &module.stmt(*statement).kind {
                 StmtKind::Binding {
-                    local, initializer, ..
+                    pattern,
+                    initializer,
+                    ..
                 } => {
-                    assert_eq!(local.owner(), expected);
+                    assert_eq!(pattern.owner(), expected);
+                    for (local, _) in module.body.pattern_bindings(*pattern) {
+                        assert_eq!(local.owner(), expected);
+                    }
                     assert_eq!(initializer.owner(), expected);
                 }
                 StmtKind::Assign { target, value, .. } => {

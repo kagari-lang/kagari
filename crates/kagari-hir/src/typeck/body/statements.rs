@@ -28,11 +28,10 @@ impl<'a> BodyChecker<'a> {
         let stmt = self.lowered.module.stmt(stmt_id);
         match &stmt.kind {
             StmtKind::Binding {
-                local,
+                pattern,
                 writeability,
                 ty,
                 initializer,
-                ..
             } => {
                 let annotation = ty.map(|ty| {
                     self.prepare_annotation_holes(ty);
@@ -82,7 +81,12 @@ impl<'a> BodyChecker<'a> {
                 });
                 let initializer_ty =
                     self.infer_expr_with_coercion(*initializer, env, annotation.as_ref());
-                let local_ty = annotation.unwrap_or_else(|| initializer_ty.clone());
+                let local_ty = self
+                    .solver
+                    .resolve(&annotation.unwrap_or_else(|| initializer_ty.clone()));
+                let local_ty = self
+                    .diverging_pattern_context(*pattern, &local_ty)
+                    .unwrap_or(local_ty);
                 interfaces::validate_type(
                     self.declarations.definitions(),
                     &local_ty,
@@ -124,9 +128,7 @@ impl<'a> BodyChecker<'a> {
                         .with_span(self.lowered.source_map.expr_span(*initializer)),
                     );
                 }
-                env.locals.insert(*local, local_ty.clone());
-                env.local_writeability.insert(*local, *writeability);
-                self.type_table.insert_local(*local, local_ty);
+                self.check_declaration_pattern(*pattern, &local_ty, *writeability, env);
             }
             StmtKind::Assign { target, value, op } => {
                 let target_ty = self.resolve_assignment_target_type(*target, env);

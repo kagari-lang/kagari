@@ -646,7 +646,7 @@ stmt            ::= binding_stmt
                   | continue_stmt
                   | block ;
 
-binding_stmt    ::= binding_kind IDENT type_annotation? init_expr? ";" ;
+binding_stmt    ::= binding_kind range_pattern type_annotation? init_expr? ";" ;
 
 binding_kind    ::= "val"
                   | "var" ;
@@ -696,6 +696,40 @@ Kagari keeps Rust-like blocks and control-flow shape while using Kotlin-like `va
 - `const` declares a compile-time immutable value.
 - writeability of fields, host paths, and host APIs is controlled by `val`/`var`, type rules, and host policy.
 - `for` syntax is Rust-like and iterates over values accepted by the language iterable protocol.
+
+Ordinary declarations use one pattern, including simple names, `_`, tuples and
+owned structs. An initializer is required; its optional omission in the recoverable
+grammar does not permit delayed initialization. For example:
+
+```text
+val Point { x: coordinate, .. } = make_point();
+var (left, right): (i32, i32) = make_pair();
+```
+
+The annotation describes the whole initializer and supplies its inference/coercion
+context. Leaf types come from checked projections, without per-leaf conversions.
+The initializer resolves in the previous lexical scope and executes exactly once;
+all new leaves become visible together after declaration completion. Thus RHS `x`
+in `val (x, y) = (x + 1, 3);` denotes the previous binding. Bare names and shorthand
+always bind in ordinary declarations, even when shadowing constants or constructors
+such as `None`; match and conditional patterns retain their constructor precedence.
+`_` creates no local. The outer `val`/`var` controls every real leaf; rebinding an
+extracted leaf does not write back to the source object. Object leaves retain shared
+identity, and captured `var` leaves use shared cells.
+
+A declaration pattern must be type-valid and conservatively irrefutable. Literal,
+range and explicit variant patterns are rejected, including single-variant enums.
+Top-level alternatives are excluded; grouped/nested alternatives retain existing
+binding-consistency and conservative irrefutability rules, not general exhaustiveness
+analysis. Accepted declarations have no runtime match-failure path.
+Decomposition supports owned tuples and structs, not host objects, scoped references,
+path views or interface values. This restriction does not exclude otherwise valid
+simple name/wildcard bindings of those values. Required extraction follows pattern
+source order; `_`, rest and nested subpatterns needing neither a binding nor a
+runtime decision cause no projection. Static field-access checks still apply.
+Initializer effects, traps, cancellation and temporary/capture-cell cleanup retain
+the ordinary execution contract. See the runnable
+[binding example](../../examples/syntax/binding-patterns.kgr).
 
 Function return checking distinguishes normal completion from explicit `return`.
 The tail expression (or Unit when absent) must match the declared result only when
@@ -1023,12 +1057,13 @@ For `Point { x, y }`, `Point { x, .. }` and `Point { .. }` explicitly omit field
 `Point { x }` is incomplete. Rest may omit zero fields and permits a trailing comma.
 Unknown/duplicate-field, nominal type, generic substitution and field-access checks
 still apply. An inaccessible field can be omitted with rest, but cannot be listed
-even as `_`. The same rule applies recursively in match, for and binding conditions.
+even as `_`. The same rule applies recursively in match, for, binding conditions
+and ordinary declarations.
 The marker is not a range and introduces neither bindings nor field reads.
 
 Kagari does not accept Rust's reference/slice patterns or tuple/slice rest patterns.
-Ordinary local declaration destructuring is tracked separately in the active
-[pattern-binding plan](../pattern-binding-plan.md).
+Ordinary local declarations use these patterns under the irrefutability and scope
+rules in [Blocks and Statements](#blocks-and-statements).
 
 ### Place Expressions
 
