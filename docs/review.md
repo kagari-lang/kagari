@@ -493,13 +493,11 @@ owner instead. This is a deferred cleanup, not activated implementation.
 `family` duplicates facts already available through
 [BuiltinType::number_type and integer_layout](../crates/kagari-types/src/scalar.rs).
 Its current consumers in [HIR scalar checks](../crates/kagari-hir/src/builtin/surface.rs)
-only classify numeric types and signed-integer/float negation. Meanwhile,
-`StandardTypeConstraint::accepts_builtin_number` already uses the scalar methods
-for those predicates. Reuse scalar-owned facts for primitive checks and remove
-`BuiltinTypeFamily` when it has no remaining consumers. The separate
-[trait-constraint cleanup](#sa24-replace-special-standard-constraints-with-trait-bounds)
-owns removal of the special generic constraints; SA23 does not require retaining
-them or moving their source-level semantics into scalar classification methods.
+only classify numeric types and signed-integer/float negation. Reuse scalar-owned
+facts for primitive checks and remove `BuiltinTypeFamily` when it has no remaining
+consumers. Generic operation requirements already use
+[ordinary trait bounds](spec/traits.md#operation-specific-bounds); do not move
+their source-level semantics into scalar classification methods.
 
 For the current builtin types, only `String` is heap-backed. Constant eligibility
 is a separate language policy: `Never` and `String` are not const-safe, while the
@@ -522,54 +520,6 @@ and constant-check contracts, with focused numeric/negation and builtin
 name/display coverage. Verify all consumers migrate without changing accepted
 programs or diagnostics; add coverage only for distinct missing rules.
 
-## SA24 Replace special standard constraints with trait bounds
-
-The agreed direction is to remove `StandardTypeConstraint` and the separate
-`Constraint::Standard` branch, expressing operation requirements through ordinary
-standard-library trait declarations and bounds. This records requested future
-work only; implementation is not activated.
-
-[HIR bound resolution](../crates/kagari-hir/src/typeck/constraints.rs) currently
-recognizes the otherwise unresolved names `SignedNumber` and `OrderedNumber`
-as sealed engine constraints. [Operator checking](../crates/kagari-hir/src/typeck/body/operators.rs)
-uses those constraints alongside the existing trait path. The shared
-[constraint model](../crates/kagari-types/src/ty.rs) and its wire form retain a
-separate Standard case, and [source-free proof checking](../crates/kagari-contract/src/types/proofs/structural.rs)
-has dedicated branches. `HashKey` and `Comparable` already delegate to canonical
-standard trait proofs, so their special representation duplicates that mechanism.
-
-Use the existing [core trait registrations](../crates/kagari-stdlib/src/catalog/roles.rs)
-as the semantic owners. For example, a generic negate function should require
-`Neg<Output = T>`; comparison requires `PartialOrd` or `Ord` as appropriate, and
-arithmetic requires the particular operator traits and associated outputs used
-by the function. Replace `HashKey` with `Eq + Hash` and `Comparable` with
-`PartialEq`. Do not replace `OrderedNumber` with one overly broad bound without
-checking each consumer's actual operations. Additional numeric abstractions,
-when concretely needed, belong to ordinary standard-library traits and helpers.
-
-This deliberately removes the sealed numeric-only generic requirements: a user
-type with the required trait implementation may satisfy the operation contract.
-Do not preserve special name recognition, compatibility aliases or a renamed
-builtin-constraint branch. Compiler recognition of validated language roles such
-as Neg remains necessary to connect operators to the declared core traits; an
-unrelated same-named application trait must not acquire that role. Primitive
-execution still uses checked numeric operations, preserving overflow, comparison
-semantics, evaluation order, completed effects and failure behavior.
-
-Follow-up owner: standard-library declarations, HIR resolution/type checking,
-shared type/wire contracts, compiler lowering and source-free proof verification.
-Migrate declarations, consumers, fixtures and documentation together, carrying
-checked trait applications and associated-output facts to backends. Reuse the
-existing proof and operator paths instead of adding a second semantic checker.
-Keep SA23's scalar-property cleanup separate; this does not activate collection
-storage migration, interface-construction witnesses or runtime reflection work.
-
-When activated, select existing generic/operator and contract verification tests
-for builtin and custom receivers, missing implementations, associated-output
-mismatches, trait identity/shadowing and source-free rejection of forged or
-missing proofs. Include representative shared generic execution and pinned reload;
-source typing alone does not establish executable support. Full workspace and
-feature/backend acceptance remain CI-owned. No performance benefit is measured.
 
 ## SA25 Standard-library method authoring scatters contracts across name-based passes
 
@@ -647,8 +597,8 @@ must keep their existing checked forwarding path, not become runtime trait searc
 
 Follow-up owner: `kagari-stdlib` declaration/binding authoring, with narrowly scoped
 shared registration or operation-handle support only where required. Keep this
-separate from SA24's constraint semantics, Host API facade changes and collection
-storage redesign. Start with the list/default/Vec path and hash-key dependencies;
+separate from the implemented [ordinary trait-bound semantics](spec/traits.md#operation-specific-bounds),
+Host API facade changes and collection storage redesign. Start with the list/default/Vec path and hash-key dependencies;
 remove superseded name-based attachment passes instead of retaining a second
 source of method policy. No performance improvement has been measured.
 

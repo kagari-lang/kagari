@@ -15,7 +15,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{callable::NativeDefaultApplication, scalar::BuiltinType};
+use kagari_types::{callable::NativeDefaultApplication, scalar::BuiltinType, ty::NominalTy};
 
 fn insert(sources: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     sources
@@ -248,19 +248,29 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         .unwrap();
     assert!(Arc::ptr_eq(native, retained.file(native_file).unwrap()));
 
-    // Signatures stay usable when an unused forwarding body has an invalid bound.
+    // Hash is a valid rendered trait requirement, but NativeRead's default body
+    // cannot prove it for Self. Signature queries must not check that body.
     let (definitions, mut invalid) = fixture::module().as_ref().clone().into_parts();
+    let additional_bound = invalid
+        .functions
+        .iter()
+        .find(|function| function.name == "choose")
+        .unwrap()
+        .bounds[0]
+        .constraints[0]
+        .clone();
     let helper = invalid
         .functions
         .iter_mut()
         .find(|function| function.name == "default_read")
         .unwrap();
-    helper.bounds[0]
-        .constraints
-        .push(kagari_types::ty::Constraint::Standard(
-            kagari_types::surface::StandardTypeConstraint::SignedNumber,
-        ));
-    helper.bounds[0].constraints.sort();
+    helper.bounds[0].constraints.push(additional_bound);
+    helper.bounds[0].constraints = NominalTy::normalize_bounds(
+        helper.bounds[0].constraints.clone(),
+        &definitions,
+        &Default::default(),
+    )
+    .unwrap();
     db.set_native_modules(
         foundation_catalog::shared()
             .unwrap()
@@ -301,7 +311,18 @@ fn native_default_bodies_are_checked_without_synthesizing_impl_bodies() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let failed = failed.file(native_file).unwrap();
-    assert!(!failed.result().diagnostics().is_empty());
+    assert!(
+        failed
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(
+                &diagnostic.kind,
+                DiagnosticKind::GenericBoundNotSatisfied { trait_name, .. } if trait_name == "Hash"
+            )),
+        "{:?}",
+        failed.result().diagnostics()
+    );
     assert!(defaults().all(|function| {
         failed
             .result()
@@ -383,7 +404,6 @@ fn changing_a_requirement_to_a_script_default_invalidates_contract_reuse() {
 
 #[test]
 fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
-    use crate::typeck::table::ConstraintTarget;
     let mut sources = SourceDatabase::default();
     let root = insert(
         &mut sources,
@@ -416,7 +436,7 @@ fn method_catalog_preserves_checked_bounds_beside_an_invalid_constraint() {
     for parameter in &method.generic_params {
         assert!(matches!(
             method.bounds[&crate::types::TypeId::Generic(parameter.clone())].as_slice(),
-            [ConstraintTarget::Trait(_), ConstraintTarget::Trait(_)]
+            [_, _]
         ));
     }
     assert_ne!(

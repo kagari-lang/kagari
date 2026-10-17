@@ -194,34 +194,45 @@ fn boolean_operator_recovery_keeps_result_types_and_known_operand_conflicts() {
 }
 
 #[test]
-fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
+fn unary_negation_uses_declared_neg_bounds_and_known_recovery_shapes() {
     for (source, valid, unary_error) in [
         (
-            "fn negate<T: SignedNumber>(value: T) -> T { -value }",
+            "fn negate<T: Neg<Output = T>>(value: T) -> T { -value }",
             true,
             false,
         ),
         (
-            "fn negate<T>(value: T) -> T where T: SignedNumber { -value }",
+            "fn negate<T>(value: T) -> T where T: Neg<Output = T> { -value }",
             true,
             false,
         ),
         ("fn negate<T>(value: T) -> T { -value }", false, true),
         (
-            "fn negate<T: OrderedNumber>(value: T) -> T { -value }",
+            "fn negate<T: PartialOrd>(value: T) -> T { -value }",
             false,
             true,
         ),
         (
-            "fn negate<T: SignedNumber>(value: T) -> T { -value } fn call(value: u32) -> u32 { negate(value) }",
+            "fn negate<T: Neg<Output = T>>(value: T) -> T { -value } fn call(value: u32) -> u32 { negate(value) }",
             false,
             false,
         ),
+        (
+            "struct Value {} impl Neg for Value { type Output = Value; fn neg(self) -> Value { self } } fn negate<T: Neg<Output = T>>(value: T) -> T { -value } fn call(value: Value) -> Value { negate(value) }",
+            true,
+            false,
+        ),
+        (
+            "struct Value {} impl Neg for Value { type Output = i32; fn neg(self) -> i32 { 1 } } fn negate<T: Neg<Output = T>>(value: T) -> T { -value } fn call(value: Value) -> Value { negate(value) }",
+            false,
+            false,
+        ),
+        ("fn negate<T: Neg>(value: T) -> T { -value }", false, false),
         ("fn bad() { -missing; }", false, false),
         ("fn bad() { -(1, missing); }", false, true),
     ] {
         let analysis = crate::analyze_source(
-            &SourceFile::new("unary-bounds.kgr", source),
+            &SourceFile::new("unary-bounds.kgr", format!("use std::ops::Neg; {source}")),
             foundation_catalog::shared().unwrap(),
         )
         .expect("installed declaration analysis");
@@ -247,7 +258,8 @@ fn unary_negation_uses_declared_signed_bounds_and_known_recovery_shapes() {
 fn declared_math_and_equality_check_each_known_operand_after_recovery() {
     for (body, extra) in [
         ("ordered_pair(missing, 7);", 0),
-        ("ordered_pair(missing, true);", 1),
+        ("ordered_pair(missing, view);", 1),
+        ("signed_value((missing, true));", 1),
         // The ordinary declaration infers T = i32 from the known operand.
         // Its bound holds once; the conflicting max argument is still checked.
         ("ordered_three(missing, 7, true);", 1),

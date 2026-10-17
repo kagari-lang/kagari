@@ -22,10 +22,7 @@ use kagari_hir::{
     declarations::DeclarationId,
     hir::ids::{ExprId, FunctionId},
     resolver::resolved::ResolvedName,
-    typeck::{
-        FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue,
-        table::ConstraintTarget,
-    },
+    typeck::{FunctionImplementation, GenericBounds, TypedFunction, scalar::ScalarValue},
     types::{
         GenericParameterType, NominalType, TypeId, TypeSubstitution,
         semantic::{lower_nominal_type, lower_type},
@@ -367,8 +364,19 @@ impl<'a> InstancePlanner<'a> {
             protocol,
             ty,
             span,
-            (protocol.iteration() || matches!(protocol, Protocol::Fn | Protocol::From))
-                .then_some(interface),
+            (protocol.iteration()
+                || matches!(
+                    protocol,
+                    Protocol::Fn
+                        | Protocol::From
+                        | Protocol::Neg
+                        | Protocol::Add
+                        | Protocol::Sub
+                        | Protocol::Mul
+                        | Protocol::Div
+                        | Protocol::Rem
+                ))
+            .then_some(interface),
             shared_tuple,
         )
     }
@@ -720,14 +728,7 @@ impl<'a> InstancePlanner<'a> {
                             ty.instantiate(&substitution),
                             constraints
                                 .iter()
-                                .map(|constraint| match constraint {
-                                    ConstraintTarget::Standard(kind) => {
-                                        ConstraintTarget::Standard(*kind)
-                                    }
-                                    ConstraintTarget::Trait(parent) => {
-                                        ConstraintTarget::Trait(parent.instantiate(&substitution))
-                                    }
-                                })
+                                .map(|parent| parent.instantiate(&substitution))
                                 .collect(),
                         )
                     })

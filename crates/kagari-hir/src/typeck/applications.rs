@@ -9,9 +9,7 @@ use crate::{
     typeck::{
         GenericBounds, ModuleSignatures,
         check::{self, MethodComparison},
-        constraints::{self, type_satisfies_standard_constraint},
-        families, interfaces,
-        table::ConstraintTarget,
+        constraints, families, interfaces,
     },
     types::{TypeId, TypeSubstitution},
 };
@@ -22,7 +20,6 @@ use kagari_common::{
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     declaration::native::NativeStorageLayout, language::Protocol, range::RangeKind,
-    surface::StandardTypeConstraint,
 };
 
 /// Checked declaration sources and their retained identity scope for application validation.
@@ -75,15 +72,7 @@ pub(super) fn validate(
             _ => None,
         };
         if let Some(key) = key {
-            check::validate_standard_constraint_type(
-                definitions,
-                key,
-                StandardTypeConstraint::HashKey,
-                bounds,
-                span,
-                diagnostics,
-                catalog,
-            );
+            check::validate_hash_key_type(definitions, key, bounds, span, diagnostics, catalog);
         }
         match ty {
             TypeId::Reference { target, .. } => {
@@ -148,21 +137,19 @@ pub(super) fn validate(
                     for (parameter, constraints) in &inputs.bounds {
                         let actual = parameter.instantiate(&substitution);
                         for constraint in constraints {
-                            let satisfied = match constraint {
-                                ConstraintTarget::Standard(required) => {
-                                    type_satisfies_standard_constraint(
-                                        definitions,
-                                        &actual,
-                                        *required,
-                                        bounds,
-                                        Some(catalog),
-                                    )
-                                }
-                                ConstraintTarget::Trait(required) => {
-                                    let required = required.instantiate(&substitution);
-                                    bounds.get(&actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&required))))
-                                        || catalog.intrinsic_implementation(definitions, &required, &actual, bounds) || catalog.implementation_count(definitions, &required, &actual) == 1
-                                }
+                            let satisfied = {
+                                let required = constraint.instantiate(&substitution);
+                                bounds.get(&actual).is_some_and(|bounds| {
+                                    bounds
+                                        .iter()
+                                        .any(|available| available.satisfies(&required))
+                                }) || catalog.intrinsic_implementation(
+                                    definitions,
+                                    &required,
+                                    &actual,
+                                    bounds,
+                                ) || catalog.implementation_count(definitions, &required, &actual)
+                                    == 1
                             };
                             if !satisfied && !actual.is_unresolved() {
                                 diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedType { name: definitions.resolve(*member).expect("scoped associated member").last().expect("associated member").name.to_owned(), reason: "generic associated type input does not satisfy its bound".into() }).with_span(span));
@@ -228,54 +215,49 @@ pub(super) fn validate(
                             .into_iter()
                             .flatten()
                         {
-                            // Trait implementation identity needs complete members;
-                            // standard constraint recovery belongs to the shared checker.
-                            if actual.is_unresolved()
-                                && matches!(constraint, ConstraintTarget::Trait(t) if Protocol::from_definition(&t.declaration, definitions).is_none())
+                            // Ordinary implementation identity needs complete members;
+                            // intrinsic rules can still reject known outer shapes/siblings.
+                            if matches!(actual, TypeId::Unknown | TypeId::Error)
+                                || actual.is_unresolved()
+                                    && Protocol::from_definition(
+                                        &constraint.declaration,
+                                        definitions,
+                                    )
+                                    .is_none()
                             {
                                 continue;
                             }
-                            match constraint {
-                                ConstraintTarget::Standard(constraint) => {
-                                    check::validate_standard_constraint_type(
-                                        definitions,
-                                        actual,
-                                        *constraint,
-                                        bounds,
-                                        span,
-                                        diagnostics,
-                                        catalog,
-                                    )
+
+                            let id = constraint;
+                            let applied = id.instantiate(&substitution);
+                            let satisfied = catalog.intrinsic_implementation(
+                                definitions,
+                                &applied,
+                                actual,
+                                bounds,
+                            ) || bounds.get(actual).is_some_and(|bounds| {
+                                bounds.iter().any(|available| available.satisfies(&applied))
+                            }) || match actual {
+                                TypeId::Generic(parameter) => bounds
+                                    .get(&TypeId::Generic(parameter.clone()))
+                                    .is_some_and(|bounds| bounds.contains(&applied)),
+                                _ => {
+                                    catalog.implementation_count(definitions, &applied, actual) == 1
                                 }
-                                ConstraintTarget::Trait(id) => {
-                                    let applied = id.instantiate(&substitution);
-                                    let satisfied = catalog.intrinsic_implementation(definitions, &applied, actual, bounds) || bounds.get(actual).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(available) if available.satisfies(&applied)))) || match actual {
-                                        TypeId::Generic(parameter) => bounds
-                                            .get(&TypeId::Generic(parameter.clone()))
-                                            .is_some_and(|bounds| {
-                                                bounds.contains(&ConstraintTarget::Trait(
-                                                    applied.clone(),
-                                                ))
-                                            }),
-                                        _ => catalog.implementation_count(definitions, &applied, actual) == 1,
-                                    };
-                                    if !satisfied {
-                                        diagnostics.push(
-                                            Diagnostic::error(
-                                                DiagnosticKind::GenericBoundNotSatisfied {
-                                                    type_name: actual.display_name(definitions),
-                                                    trait_name: catalog
-                                                        .trait_(&id.declaration)
-                                                        .expect("checked trait contract")
-                                                        .declaration
-                                                        .name
-                                                        .clone(),
-                                                },
-                                            )
-                                            .with_span(span),
-                                        );
-                                    }
-                                }
+                            };
+                            if !satisfied {
+                                diagnostics.push(
+                                    Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                                        type_name: actual.display_name(definitions),
+                                        trait_name: catalog
+                                            .trait_(&id.declaration)
+                                            .expect("checked trait contract")
+                                            .declaration
+                                            .name
+                                            .clone(),
+                                    })
+                                    .with_span(span),
+                                );
                             }
                         }
                     }
@@ -296,31 +278,30 @@ pub(super) fn validate(
                         for constraint in
                             contract.associated_types.get(member).into_iter().flatten()
                         {
-                            let satisfied = match constraint {
-                                ConstraintTarget::Standard(standard) => {
-                                    constraints::type_satisfies_standard_constraint(
-                                        definitions,
-                                        actual,
-                                        *standard,
-                                        bounds,
-                                        Some(catalog),
-                                    )
-                                }
-                                ConstraintTarget::Trait(required) => {
-                                    let TypeId::Trait(required) =
-                                        TypeId::Trait(required.instantiate(&substitution))
-                                            .with_associated_types(
-                                                instance,
-                                                receiver.unwrap_or(&TypeId::SelfType(
-                                                    instance.declaration,
-                                                )),
-                                            )
-                                    else {
-                                        unreachable!()
-                                    };
-                                    bounds.get(actual).is_some_and(|constraints| constraints.iter().any(|constraint| matches!(constraint, ConstraintTarget::Trait(available) if available.satisfies(&required))))
-                                        || catalog.intrinsic_implementation(definitions, &required, actual, bounds) || catalog.implementation_count(definitions, &required, actual) == 1
-                                }
+                            let satisfied = {
+                                let required = constraint;
+
+                                let TypeId::Trait(required) =
+                                    TypeId::Trait(required.instantiate(&substitution))
+                                        .with_associated_types(
+                                            instance,
+                                            receiver
+                                                .unwrap_or(&TypeId::SelfType(instance.declaration)),
+                                        )
+                                else {
+                                    unreachable!()
+                                };
+                                bounds.get(actual).is_some_and(|constraints| {
+                                    constraints
+                                        .iter()
+                                        .any(|available| available.satisfies(&required))
+                                }) || catalog.intrinsic_implementation(
+                                    definitions,
+                                    &required,
+                                    actual,
+                                    bounds,
+                                ) || catalog.implementation_count(definitions, &required, actual)
+                                    == 1
                             };
                             if !satisfied && !actual.is_unresolved() {
                                 diagnostics.push(
@@ -427,9 +408,7 @@ pub(crate) fn validate_signatures(
         let Some(trait_ref) = &impl_block.trait_ref else {
             continue;
         };
-        let Some(ConstraintTarget::Trait(instance)) =
-            signatures.type_table().constraint(trait_ref.ty)
-        else {
+        let Some(instance) = signatures.type_table().constraint(trait_ref.ty) else {
             continue;
         };
         let Some(contract) = catalog.trait_(&instance.declaration) else {

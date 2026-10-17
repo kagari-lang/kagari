@@ -13,10 +13,7 @@ use kagari_mir::{
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{
-    scalar::BuiltinType,
-    ty::{Constraint, Ty},
-};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn script_target(target: CallableTarget) -> FunctionRef {
     let CallableTarget::Script(function) = target else {
@@ -43,8 +40,7 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
                 _ => None,
             })
             .unwrap();
-        assert!(matches!(&bag.bounds[0].constraints[0],
-            Constraint::Trait(ty) if ty.arguments.len() == 1));
+        assert_eq!(bag.bounds[0].constraints[0].arguments.len(), 1);
         let artifact =
             KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
         artifact
@@ -75,10 +71,8 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
             _ => None,
         })
         .unwrap();
-    let kagari_types::ty::Constraint::Trait(ty) = &mut bag.bounds[0].constraints[0] else {
-        panic!("trait bound");
-    };
-    let kagari_types::ty::Ty::Parameter { owner, .. } = &mut ty.arguments[0] else {
+    let ty = &mut bag.bounds[0].constraints[0];
+    let Ty::Parameter { owner, .. } = &mut ty.arguments[0] else {
         panic!("template argument");
     };
     *owner = ty.declaration;

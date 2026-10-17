@@ -11,7 +11,7 @@ use kagari_types::{
         native::NativeStorageLayout,
     },
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 use std::collections::BTreeMap;
 
@@ -171,11 +171,7 @@ pub(super) fn declare(
         let mut method = contracts::method(name, vec![receiver.clone()], parameter.as_type());
         method.bounds.push(GenericBound {
             ty: parameter.as_type(),
-            constraints: vec![Constraint::Trait(key::applied(
-                ids,
-                protocol,
-                vec![item.clone()],
-            )?)],
+            constraints: vec![key::applied(ids, protocol, vec![item.clone()])?],
         });
         method.generic_params.push(parameter);
         iterable_defaults::apply(ids, module, &item, &mut method)?;
@@ -271,11 +267,11 @@ pub(super) fn declare(
         if paired {
             method.bounds.push(GenericBound {
                 ty: parameter.clone(),
-                constraints: vec![Constraint::Trait(if name == "chain" {
+                constraints: vec![if name == "chain" {
                     contracts::applied_item(ids, RegistrationTrait::Iterable, item.clone())?
                 } else {
                     key::applied(ids, RegistrationTrait::Iterable, vec![])?
-                })],
+                }],
             });
         }
         let argument = match name {

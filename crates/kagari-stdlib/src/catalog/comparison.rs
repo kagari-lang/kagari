@@ -13,7 +13,7 @@ use kagari_types::{
         module::{DeclarationError, ImplDecl, ModuleDecl},
         requirement::NativeCallableRequirement,
     },
-    ty::{Constraint, GenericBound, GenericParam, Ty},
+    ty::{GenericBound, GenericParam, Ty},
 };
 
 pub(super) fn declare(
@@ -78,7 +78,7 @@ fn bound(
 ) -> Result<GenericBound, DeclarationError> {
     Ok(GenericBound {
         ty,
-        constraints: vec![Constraint::Trait(key::applied(ids, protocol, vec![])?)],
+        constraints: vec![key::applied(ids, protocol, vec![])?],
     })
 }
 

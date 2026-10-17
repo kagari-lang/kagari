@@ -5,7 +5,7 @@ use kagari_types::{
     declaration::TypeDefKind,
     declaration::{TraitDef, applications::ApplicationValidator},
     ty::{
-        Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
     },
 };
@@ -175,19 +175,14 @@ pub(super) fn associated_bounds_match(
         let constraints = member
             .bounds
             .iter()
-            .map(|constraint| {
-                Ok(match constraint {
-                    Constraint::Standard(value) => Constraint::Standard(*value),
-                    Constraint::Trait(required) => {
-                        let ty = substitution.apply(&Ty::Trait(required.clone()), cancel)?;
-                        let Ty::Trait(required) =
-                            resolve_associated_outputs(&ty, interface, &table.for_type, cancel)?
-                        else {
-                            return Err(TypeTransformError::InvalidContract);
-                        };
-                        Constraint::Trait(required)
-                    }
-                })
+            .map(|required| {
+                let ty = substitution.apply(&Ty::Trait(required.clone()), cancel)?;
+                let Ty::Trait(required) =
+                    resolve_associated_outputs(&ty, interface, &table.for_type, cancel)?
+                else {
+                    return Err(TypeTransformError::InvalidContract);
+                };
+                Ok(required)
             })
             .collect::<Result<Vec<_>, TypeTransformError>>()?;
         if !catalog.constraints_hold(&actual, &constraints, &available, cancel)? {

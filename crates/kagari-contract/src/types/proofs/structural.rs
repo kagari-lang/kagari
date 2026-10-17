@@ -6,8 +6,7 @@ use {
     kagari_types::{
         language::{Protocol, binding},
         scalar::BuiltinType,
-        surface::StandardTypeConstraint,
-        ty::{Constraint, GenericBound, Ty, substitution::TypeTransformError},
+        ty::{GenericBound, Ty, substitution::TypeTransformError},
     },
 };
 
@@ -37,7 +36,12 @@ impl ProofCatalog<'_> {
                 .iter()
                 .filter(|bound| bound.ty == *receiver)
                 .flat_map(|bound| &bound.constraints)
-                .any(|bound| matches!(bound, Constraint::Trait(interface) if Protocol::from_definition(&interface.declaration, &self.definitions) == Some(Protocol::Eq) && interface.arguments.is_empty() && interface.associated_types.is_empty()))
+                .any(|interface| {
+                    Protocol::from_definition(&interface.declaration, &self.definitions)
+                        == Some(Protocol::Eq)
+                        && interface.arguments.is_empty()
+                        && interface.associated_types.is_empty()
+                })
         {
             return Ok(true);
         }
@@ -80,54 +84,5 @@ impl ProofCatalog<'_> {
         })();
         search.defaults.remove(&key);
         result
-    }
-
-    pub(super) fn standard_constraint(
-        &self,
-        actual: &Ty,
-        required: StandardTypeConstraint,
-        assumptions: &[GenericBound],
-        search: &mut Search,
-        budget: &Budget<'_>,
-        depth: usize,
-    ) -> Result<bool, TypeTransformError> {
-        budget.step(depth)?;
-        match required {
-            StandardTypeConstraint::HashKey => Ok(self.prove(
-                &intrinsic::applied(Protocol::Eq, vec![], &self.definitions)?,
-                actual,
-                assumptions,
-                search,
-                budget,
-                depth,
-            )? && self.prove(
-                &intrinsic::applied(Protocol::Hash, vec![], &self.definitions)?,
-                actual,
-                assumptions,
-                search,
-                budget,
-                depth,
-            )?),
-            StandardTypeConstraint::Comparable => self.prove(
-                &intrinsic::applied(Protocol::PartialEq, vec![], &self.definitions)?,
-                actual,
-                assumptions,
-                search,
-                budget,
-                depth,
-            ),
-            _ if matches!(actual, Ty::Parameter { .. } | Ty::Projection { .. }) => {
-                Ok(assumptions.iter().any(|bound| {
-                    bound.ty == *actual
-                        && bound.constraints.contains(&Constraint::Standard(required))
-                }))
-            }
-            StandardTypeConstraint::OrderedNumber => {
-                Ok(matches!(actual, Ty::Builtin(ty) if required.accepts_builtin_number(*ty)))
-            }
-            StandardTypeConstraint::SignedNumber => {
-                Ok(matches!(actual, Ty::Builtin(ty) if required.accepts_builtin_number(*ty)))
-            }
-        }
     }
 }

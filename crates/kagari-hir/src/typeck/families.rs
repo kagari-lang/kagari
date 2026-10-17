@@ -6,8 +6,7 @@ use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     declarations::Declarations,
     lower::LoweredModule,
-    typeck::{constraints::type_satisfies_standard_constraint, table::ConstraintTarget},
-    types::{TypeId, TypeSubstitution},
+    types::{NominalType, TypeId, TypeSubstitution},
 };
 
 use {
@@ -56,12 +55,7 @@ pub(super) fn validate(
                 )
                 .collect();
             substitution.insert_receiver(contract.id, implementation.for_type.clone());
-            let normalize_bound = |constraint: &ConstraintTarget| match constraint {
-                ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
-                ConstraintTarget::Trait(value) => {
-                    ConstraintTarget::Trait(value.instantiate(&substitution))
-                }
-            };
+            let normalize_bound = |bound: &NominalType| bound.instantiate(&substitution);
             let required = inputs
                 .bounds
                 .iter()
@@ -129,12 +123,30 @@ pub(super) fn validate(
                 );
             }
             for required in contract.associated_types.get(member).into_iter().flatten() {
-                let satisfies = match normalize_bound(required) {
-                    ConstraintTarget::Standard(required) => type_satisfies_standard_constraint(declarations.definitions(), &output, required, &available, Some(catalog)),
-                    ConstraintTarget::Trait(required) => {
-                        available.get(&output).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(actual) if actual.satisfies(&required))))
-                            || catalog.intrinsic_implementation(declarations.definitions(), &required, &output, &available) || catalog.concrete_interface_implementation(declarations.definitions(), &required, &output, &available, ImplementationSearchLimits { max_checks: 100_000, max_depth: 64 }, cancel).ok().flatten().is_some()
-                    }
+                let satisfies = {
+                    let required = normalize_bound(required);
+                    available.get(&output).is_some_and(|bounds| {
+                        bounds.iter().any(|actual| actual.satisfies(&required))
+                    }) || catalog.intrinsic_implementation(
+                        declarations.definitions(),
+                        &required,
+                        &output,
+                        &available,
+                    ) || catalog
+                        .concrete_interface_implementation(
+                            declarations.definitions(),
+                            &required,
+                            &output,
+                            &available,
+                            ImplementationSearchLimits {
+                                max_checks: 100_000,
+                                max_depth: 64,
+                            },
+                            cancel,
+                        )
+                        .ok()
+                        .flatten()
+                        .is_some()
                 };
                 if !satisfies {
                     diagnostics.push(

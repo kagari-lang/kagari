@@ -112,9 +112,9 @@ fn generic_binder_shadows_trait() {
 }
 
 #[test]
-fn standard_constraint_cannot_be_implemented() {
+fn eq_implementation_requires_partial_eq() {
     run_routes(&Case::new(
-        "standard-constraint-cannot-be-implemented",
+        "eq-implementation-requires-partial-eq",
         "struct Point {} impl Eq for Point {} fn main() {}",
         Expected::Diagnostic("KG_TYPE_INVALID_TRAIT_IMPL"),
     ));
@@ -587,7 +587,7 @@ fn generic_parameter_order() {
 fn generic_numeric_instances() {
     run_routes(&Case::new(
         "generic-numeric-instances",
-        "fn add<T: OrderedNumber>(a: T, b: T) -> T { a + b } fn main() -> (i32, f32) { (add(1, 2), add(1.5, 2.5)) }",
+        "use std::ops::Add; fn add<T: Add<T, Output = T>>(a: T, b: T) -> T { a + b } fn main() -> (i32, f32) { (add(1, 2), add(1.5, 2.5)) }",
         Expected::Value(|heap| {
             heap.alloc_tuple(vec![Value::I32(3), Value::F32(4.0)])
                 .unwrap()
@@ -609,7 +609,7 @@ fn generic_same_storage_distinct_types() {
 
 #[test]
 fn generic_numeric_overflow() {
-    run_routes(&Case::new("generic-numeric-overflow", "fn add<T: OrderedNumber>(a: T, b: T) -> T { a + b } fn main() -> i32 { print(\"before\"); add(2147483647, 1) }", Expected::ScriptTrap("integer overflow")).effects(&["before"], &["before"]));
+    run_routes(&Case::new("generic-numeric-overflow", "use std::ops::Add; fn add<T: Add<T, Output = T>>(a: T, b: T) -> T { a + b } fn main() -> i32 { print(\"before\"); add(2147483647, 1) }", Expected::ScriptTrap("integer overflow")).effects(&["before"], &["before"]));
 }
 
 #[test]

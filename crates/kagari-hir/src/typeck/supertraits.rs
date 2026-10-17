@@ -8,7 +8,7 @@ use crate::{
     lower::LoweredModule,
     typeck::{
         applications,
-        table::{ConstraintTarget, TypeTable},
+        table::TypeTable,
         ty::{self, TypeContext},
     },
     types::{NominalType, TypeId},
@@ -52,27 +52,10 @@ pub(crate) fn validate(
     lowered: &LoweredModule,
     declarations: &Declarations,
     catalog: &AggregateCatalog,
-    table: &TypeTable,
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
     let identity = lowered.source.module_identity();
-    for item in &lowered.module.traits {
-        for reference in &item.supertraits {
-            if matches!(
-                table.constraint(reference.ty),
-                Some(ConstraintTarget::Standard(_))
-            ) {
-                diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::InvalidTraitReference {
-                        trait_name: ty::display_type(&lowered.module, reference.ty),
-                        reason: "a supertrait must name a declared user trait",
-                    })
-                    .with_span(lowered.source_map.type_span(reference.ty)),
-                );
-            }
-        }
-    }
     for contract in catalog.traits().filter(|contract| {
         declarations
             .definitions()
@@ -96,7 +79,7 @@ pub(crate) fn validate(
         assumptions
             .entry(receiver.clone())
             .or_default()
-            .push(ConstraintTarget::Trait(applied.clone()));
+            .push(applied.clone());
         if let Ok(assumptions) = catalog.expanded_bounds(&assumptions, cancel) {
             for parent in &contract.supertraits {
                 applications::validate(

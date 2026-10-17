@@ -9,7 +9,7 @@ use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication, Signature},
     declaration::verify::types_in_scope,
     ty::{
-        Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -98,7 +98,7 @@ impl ProofCatalog<'_> {
                 }
                 assumptions.push(GenericBound {
                     ty: Ty::SelfType(*owner),
-                    constraints: vec![Constraint::Trait(interface)],
+                    constraints: vec![interface],
                 });
                 for bound in substitution.apply_bounds(
                     &template.function.bounds,

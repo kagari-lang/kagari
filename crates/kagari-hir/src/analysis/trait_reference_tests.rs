@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     hir::{ids::HirOwner, ty::TypeKind},
     tests::test_analysis,
-    typeck::table::{ConstraintTarget, TypeTarget},
+    typeck::table::TypeTarget,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_source::{
@@ -53,10 +53,7 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
         nominal.target,
         Some(TypeTarget::Trait(facts.lowered.module.traits[0].id))
     );
-    assert!(matches!(
-        facts.typed.type_table.constraint(valid.ty),
-        Some(ConstraintTarget::Trait(_))
-    ));
+    assert!(facts.typed.type_table.constraint(valid.ty).is_some());
     let invalid = facts.typed.type_table.type_ref(applied.ty).unwrap();
     assert_eq!(invalid.ty, TypeId::Error);
     assert_eq!(invalid.target, nominal.target);
@@ -87,7 +84,24 @@ fn impl_headers_keep_trait_targets_arguments_and_exact_source_positions() {
 }
 
 #[test]
-fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
+fn generic_binders_and_explicit_traits_use_ordinary_constraint_names() {
+    for name in ["SignedNumber", "OrderedNumber"] {
+        let mut sources = SourceDatabase::default();
+        let file = sources
+            .set(
+                "unknown.kgr",
+                format!("fn take<T: {name}>(value: T) {{}}"),
+                SourceLayer::Base,
+            )
+            .unwrap();
+        let snapshot = analyze(&mut test_analysis(), &sources);
+        let result = snapshot.file(file).unwrap().result();
+        assert!(result.diagnostics().iter().any(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::UnknownTrait { trait_name } if trait_name == name
+        )));
+        assert!(result.clone().into_codegen().is_err());
+    }
     for text in [
         "trait View {} struct Point {} impl<View> View for Point {}",
         "trait View {} fn bad<View, T: View>(x: T) {}",
@@ -115,7 +129,7 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
         assert!(analysis.result().clone().into_codegen().is_err());
     }
     let mut sources = SourceDatabase::default();
-    let text = "trait Eq {} struct Point {} impl Eq for Point {} fn pass<T: Eq>(x: T) -> T { x } fn identity<Eq>(value: Eq) -> Eq { value }";
+    let text = "trait Eq {} trait SignedNumber {} trait OrderedNumber {} struct Point {} impl Eq for Point {} impl SignedNumber for Point {} impl OrderedNumber for Point {} fn pass<T: Eq>(x: T) -> T { x } fn signed<T: SignedNumber>(x: T) -> T { x } fn ordered<T: OrderedNumber>(x: T) -> T { x } fn identity<Eq>(value: Eq) -> Eq { value }";
     let file = sources
         .set("valid.kgr", text.into(), SourceLayer::Base)
         .unwrap();
@@ -130,14 +144,14 @@ fn generic_binders_and_explicit_traits_shadow_standard_constraint_names() {
         .iter()
         .find(|f| f.name == "pass")
         .unwrap();
-    assert!(matches!(
+    assert!(
         facts
             .facts()
             .typed
             .type_table
-            .constraint(function.generic_params[0].bounds[0].ty),
-        Some(ConstraintTarget::Trait(_))
-    ));
+            .constraint(function.generic_params[0].bounds[0].ty)
+            .is_some()
+    );
 }
 
 #[test]

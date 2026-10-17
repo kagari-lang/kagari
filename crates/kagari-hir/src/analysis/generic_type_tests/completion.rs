@@ -165,7 +165,7 @@ fn binding_and_assignment_values_require_types_only_when_they_complete() {
 fn terminating_function_arguments_supply_no_value_or_generic_constraint() {
     for signature in [
         "fn take(value: i32) -> i32 { value }",
-        "fn take<T: SignedNumber>(value: T) -> i32 { 0 }",
+        "use std::ops::Neg; fn take<T: Neg<Output = T>>(value: T) -> i32 { 0 }",
     ] {
         for (argument, valid) in [
             ("if true { return 42; } else { return 7; }", true),
@@ -271,9 +271,29 @@ fn declared_operand_constraints_require_normally_produced_values() {
     }
     let analysis = analyze_contracts(&SourceFile::new(
         "standard-completion-invalid.kgr",
-        "fn main() -> i32 { ordered_pair(if true { return 42; } else { return 7; }, false); 0 }",
+        "trait View {} fn bad(view: View) -> i32 { ordered_pair(if true { return 42; } else { return 7; }, view); 0 }",
     ));
-    assert!(!analysis.diagnostics().is_empty());
+    let diagnostic = analysis
+        .diagnostics()
+        .iter()
+        .find(|diagnostic| matches!(
+            &diagnostic.kind,
+            DiagnosticKind::GenericBoundNotSatisfied { type_name, trait_name }
+                if type_name == "View" && trait_name == "PartialOrd"
+        ))
+        .expect("the known sibling must satisfy the outer call's bound even if another argument diverges");
+    let span = diagnostic.span.unwrap();
+    let callee_start = analysis
+        .facts()
+        .lowered
+        .source
+        .text()
+        .rfind("ordered_pair")
+        .unwrap();
+    assert_eq!(
+        (span.start, span.end),
+        (callee_start, callee_start + "ordered_pair".len())
+    );
     assert!(analysis.into_codegen().is_err());
 }
 

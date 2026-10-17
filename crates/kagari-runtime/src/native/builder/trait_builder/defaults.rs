@@ -7,7 +7,7 @@ use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_types::{
     callable::{CallableImplementation, NativeDefaultApplication, Signature},
     declaration::module::ModuleDecl,
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
+    ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeSubstitution},
 };
 use std::collections::BTreeMap;
 
@@ -46,7 +46,7 @@ impl TraitBuilder<'_> {
         }
         assumptions.push(GenericBound {
             ty: receiver.clone(),
-            constraints: vec![Constraint::Trait(interface)],
+            constraints: vec![interface],
         });
         let mut lowered = vec![];
         for (index, method) in self.declaration.methods.iter().enumerate() {

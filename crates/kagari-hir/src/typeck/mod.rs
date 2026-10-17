@@ -27,12 +27,8 @@ use crate::{
     },
     imports::functions::ImportedFunctions,
     native::NativeBinding,
-    typeck::{
-        const_budget::ConstLimits,
-        scalar::ScalarValue,
-        table::{ConstraintTarget, TypeTable},
-    },
-    types::{GenericParameterType, TypeId},
+    typeck::{const_budget::ConstLimits, scalar::ScalarValue, table::TypeTable},
+    types::{GenericParameterType, NominalType, TypeId},
 };
 #[cfg(test)]
 use crate::{hir::ids::HirArenaId, tests::common::import_facts};
@@ -74,8 +70,8 @@ pub(crate) type TypedFunctionBuffer = SmallVec<[TypedFunction; 8]>;
 /// Checked parameters with four inline slots before heap allocation.
 pub(crate) type TypedParameterBuffer = SmallVec<[TypedParameter; 4]>;
 
-/// Semantic subject type to required standard/trait constraints; keys retain binder identity.
-pub type GenericBounds = HashMap<TypeId, Vec<ConstraintTarget>>;
+/// Semantic subject type to required applied traits; keys retain binder identity.
+pub type GenericBounds = HashMap<TypeId, Vec<NominalType>>;
 
 /// Reusable signature-stage facts before checking function bodies.
 ///
@@ -163,7 +159,7 @@ pub struct TypedFunction {
     pub generic_params: Vec<GenericParameterType>,
     /// Checked constraints keyed by the declaring parameter, including inherited
     /// impl parameters shadowed by a method parameter with the same name.
-    pub bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
+    pub bounds: HashMap<TypeId, Vec<NominalType>>,
     /// Local function slot in the matching lowered module.
     pub id: FunctionId,
     /// Diagnostic name of the function/method.
@@ -252,7 +248,7 @@ pub(crate) struct BodyTypeEnv {
     pub(crate) exprs: HashMap<ExprId, TypeId>,
     pub(crate) generics: Vec<GenericParam>,
     /// Assumed constraints for generic parameters and associated projections.
-    pub(crate) generic_bounds: HashMap<TypeId, Vec<ConstraintTarget>>,
+    pub(crate) generic_bounds: HashMap<TypeId, Vec<NominalType>>,
 }
 
 mod mapping;

@@ -424,6 +424,27 @@ acceptance. Arbitrary trait queries, SA22 construction witnesses, NC, broader
 reload redesign and native interface expansion remain separate. Recording this
 plan does not activate those tracks or imply executable downcast support.
 
+## Standard trait bounds
+
+SA24's implementation is complete within its bounded scope as of 2026-10-17.
+[Operation-specific bounds](spec/traits.md#operation-specific-bounds) and
+[native declarations](spec/standard-declarations.md#explicit-registration) own the
+language/registration contracts; [architecture](architecture.md#library-identities-and-representation-boundaries)
+owns nominal bound storage and checked adapter identities. Special standard
+constraints and their wire wrappers are removed without compatibility aliases.
+
+Focused local evidence covers ordinary/custom and shared primitive operations,
+bound/unbound associated outputs, malformed proofs/callables, canonical portable
+records, native declaration installation, recovery, checked numeric traps/effects,
+root cleanup, pinned reload and six-operator artifact execution in a build without
+the source feature. Representative existing arithmetic tests require actual native
+execution, not fallback. Full workspace tests and the complete feature/backend/
+platform matrix remain unrun locally and CI-owned.
+
+SA22 construction witnesses, SA23 scalar cleanup, SA25 method authoring, native
+collection storage and broader native-backend work remain separate. No performance
+improvement or completion of those tracks is implied.
+
 ## Review follow-up order
 
 The following is the proposed default order for the unresolved [SA review](review.md)

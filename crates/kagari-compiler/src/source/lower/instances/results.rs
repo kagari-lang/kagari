@@ -7,10 +7,10 @@ use kagari_contract::{
 };
 use kagari_hir::{
     aggregates::implementations::ImplementationSearchLimits,
-    typeck::{GenericBounds, table::ConstraintTarget},
+    typeck::GenericBounds,
     types::semantic::{raise_nominal_type, raise_type},
 };
-use kagari_types::ty::{Constraint, Ty, substitution::TypeSubstitution};
+use kagari_types::ty::{Ty, substitution::TypeSubstitution};
 
 impl InstancePlanner<'_> {
     pub(crate) fn native_result_adapter(
@@ -52,16 +52,7 @@ impl InstancePlanner<'_> {
             .map(|bound| {
                 (
                     raise_type(&bound.ty),
-                    bound
-                        .constraints
-                        .iter()
-                        .map(|constraint| match constraint {
-                            Constraint::Standard(kind) => ConstraintTarget::Standard(*kind),
-                            Constraint::Trait(interface) => {
-                                ConstraintTarget::Trait(raise_nominal_type(interface))
-                            }
-                        })
-                        .collect(),
+                    bound.constraints.iter().map(raise_nominal_type).collect(),
                 )
             })
             .collect();

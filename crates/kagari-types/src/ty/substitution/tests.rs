@@ -192,16 +192,16 @@ fn applied_bounds_merge_equal_receivers_and_keep_canonical_order() {
     let outer = owner(&context, "Outer");
     let target = Ty::Builtin(BuiltinType::I32);
     // Allocate the later spelling first so ID order differs from canonical order.
-    let second = Constraint::Trait(NominalTy {
+    let second = NominalTy {
         declaration: owner(&context, "Second"),
         arguments: vec![],
         associated_types: Default::default(),
-    });
-    let first = Constraint::Trait(NominalTy {
+    };
+    let first = NominalTy {
         declaration: owner(&context, "First"),
         arguments: vec![],
         associated_types: Default::default(),
-    });
+    };
     let mut substitution = TypeSubstitution::default();
     substitution.bind(&outer, 0, &target);
     substitution.bind(&outer, 1, &target);

@@ -14,8 +14,7 @@ use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::{
     declaration::{AssociatedTypeDef, AssociatedTypeFamily},
     scalar::BuiltinType,
-    surface::StandardTypeConstraint,
-    ty::{Constraint, GenericBound, GenericParam, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 
 fn execute(source: &str) {
@@ -259,7 +258,7 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
 #[test]
 fn unused_family_metadata_is_verified_before_loading() {
     let engine = KagariEngine::default();
-    let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"),  Default::default()).unwrap();
+    let artifact = engine.compile_to_artifact(SourceFile::new("families.kgr", "pub trait Extra {} pub trait Family { type Item<T: PartialEq>: PartialEq; fn make<T: PartialEq>(self, value:T)->Self::Item<T>; } struct N {} impl Family for N { type Item<U> = U; fn make<V: PartialEq>(self, value:V)->V { value } } fn main()->i32 { 42 }"),  Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
     let artifact = artifact
         .import_into(&context, &Default::default())
@@ -271,6 +270,18 @@ fn unused_family_metadata_is_verified_before_loading() {
     )
     .unwrap();
     verify_program(&artifact.program, &table).unwrap();
+    let root = table
+        .lookup_root(&artifact.program.modules[artifact.program.root.index()].identity)
+        .unwrap();
+    // Use a carried ordinary trait, so rejection tests a stronger family
+    // requirement rather than an unknown or incorrectly scoped declaration.
+    let stronger = NominalTy {
+        declaration: table
+            .lookup_child(root, DefinitionKind::Trait, "Extra", 0)
+            .unwrap(),
+        arguments: vec![],
+        associated_types: Default::default(),
+    };
     for mutation in 0..10 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -280,7 +291,7 @@ fn unused_family_metadata_is_verified_before_loading() {
                 .iter_mut()
                 .find_map(|item| {
                     if let PublicItem::Trait(record) = item {
-                        Some(record)
+                        (record.name == "Family").then_some(record)
                     } else {
                         None
                     }
@@ -323,7 +334,7 @@ fn unused_family_metadata_is_verified_before_loading() {
                         owner: family.generic_params[0].owner,
                         position: 0,
                     },
-                    constraints: vec![Constraint::Standard(StandardTypeConstraint::HashKey)],
+                    constraints: vec![stronger.clone()],
                 }),
                 8 => {
                     let definitions = context.snapshot();

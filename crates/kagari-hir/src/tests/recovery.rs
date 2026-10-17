@@ -1,4 +1,4 @@
-use crate::{analyze_source, typeck::table::ConstraintTarget, types::TypeId};
+use crate::{analyze_source, types::TypeId};
 use kagari_source::{diagnostic::DiagnosticKind, source::SourceFile};
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::scalar::BuiltinType;
@@ -209,7 +209,7 @@ fn applied_constraints_preserve_type_arguments() {
         .unwrap();
     assert!(
         matches!(facts.typed.type_table.constraint(read.generic_params[0].bounds[0].ty),
-        Some(ConstraintTarget::Trait(instance))
+        Some(instance)
             if instance.arguments == [crate::types::TypeId::Builtin(kagari_types::scalar::BuiltinType::I32)])
     );
     assert!(analysis.into_codegen().is_ok());

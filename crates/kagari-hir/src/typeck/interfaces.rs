@@ -3,7 +3,7 @@
 use crate::{
     DiagnosticBuffer,
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
-    typeck::{GenericBounds, table::ConstraintTarget},
+    typeck::GenericBounds,
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{
@@ -173,17 +173,14 @@ fn bounds_depend_on_self(
     bounds.iter().any(|(subject, constraints)| {
         let subject = apply(subject);
         constraints.iter().any(|constraint| {
-            let required = match constraint {
-                ConstraintTarget::Trait(required) => Some(apply(&TypeId::Trait(required.clone()))),
-                ConstraintTarget::Standard(_) => None,
-            };
+            let required = apply(&TypeId::Trait(constraint.clone()));
             // Membership in this interface is already carried by the receiver.
             if subject == TypeId::SelfType(interface.declaration)
-                && matches!(&required, Some(TypeId::Trait(required)) if interface.satisfies(required))
+                && matches!(&required, TypeId::Trait(required) if interface.satisfies(required))
             {
                 return false;
             }
-            subject.contains_self_type() || required.is_some_and(|ty| ty.contains_self_type())
+            subject.contains_self_type() || required.contains_self_type()
         })
     })
 }

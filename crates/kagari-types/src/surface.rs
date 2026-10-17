@@ -21,41 +21,6 @@ pub struct BuiltinTypeSpec {
     pub heap_backed: bool,
 }
 
-// Operation predicates for intrinsic signatures. HashKey and Comparable delegate
-// to canonical standard traits and are not source-level bound names.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
-)]
-pub enum StandardTypeConstraint {
-    HashKey,
-    OrderedNumber,
-    SignedNumber,
-    Comparable,
-}
-
-impl StandardTypeConstraint {
-    /// Closed numeric predicates do not consult user trait implementations.
-    pub fn accepts_builtin_number(self, ty: BuiltinType) -> bool {
-        match self {
-            Self::OrderedNumber => ty.number_type().is_some(),
-            Self::SignedNumber => {
-                ty.integer_layout().is_some_and(|(_, signed)| signed)
-                    || matches!(ty, BuiltinType::F32 | BuiltinType::F64)
-            }
-            Self::HashKey | Self::Comparable => false,
-        }
-    }
-
-    /// Sealed engine predicates that can be written as source bounds.
-    pub fn source_bound_name(self) -> Option<&'static str> {
-        match self {
-            Self::OrderedNumber => Some("OrderedNumber"),
-            Self::SignedNumber => Some("SignedNumber"),
-            Self::HashKey | Self::Comparable => None,
-        }
-    }
-}
-
 const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
     BuiltinTypeSpec {
         ty: BuiltinType::Never,
@@ -184,13 +149,4 @@ pub fn builtin_type(name: &str) -> Option<BuiltinType> {
 
 pub fn builtin_type_spec(ty: BuiltinType) -> Option<&'static BuiltinTypeSpec> {
     builtin_types().iter().find(|spec| spec.ty == ty)
-}
-
-pub fn standard_constraint_name(constraint: StandardTypeConstraint) -> &'static str {
-    match constraint {
-        StandardTypeConstraint::HashKey => "Eq + Hash",
-        StandardTypeConstraint::OrderedNumber => "OrderedNumber",
-        StandardTypeConstraint::SignedNumber => "SignedNumber",
-        StandardTypeConstraint::Comparable => "PartialEq",
-    }
 }

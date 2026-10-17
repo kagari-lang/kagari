@@ -9,7 +9,7 @@ use crate::{
         BodyTypeEnv,
         body::BodyChecker,
         completion, inference,
-        table::{CallTarget, ConstraintTarget, ResolvedCall, propagation::ResolvedPropagation},
+        table::{CallTarget, ResolvedCall, propagation::ResolvedPropagation},
     },
     types::{NominalType, TypeId, TypeSubstitution},
 };
@@ -312,9 +312,9 @@ impl BodyChecker<'_> {
         };
         for (target, constraints) in &implementation.bounds {
             for constraint in constraints {
-                if let ConstraintTarget::Trait(bound) = constraint
-                    && Some(bound.declaration)
-                        == Protocol::From.definition(self.declarations.definitions())
+                let bound = constraint;
+                if Some(bound.declaration)
+                    == Protocol::From.definition(self.declarations.definitions())
                     && let [input] = bound.arguments.as_slice()
                 {
                     let source = input.instantiate(substitution);

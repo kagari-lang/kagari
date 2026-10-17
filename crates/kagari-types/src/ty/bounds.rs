@@ -1,5 +1,5 @@
 //! Canonical native bound merging uses exact scoped identities, never slot order.
-use crate::ty::{Constraint, GenericBound, Ty, substitution::TypeTransformError};
+use crate::ty::{GenericBound, NominalTy, Ty, substitution::TypeTransformError};
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
 use std::{
     cmp::Ordering,
@@ -16,7 +16,7 @@ impl GenericBound {
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<Vec<Self>, TypeTransformError> {
-        let mut merged = BTreeMap::<Ty, BTreeSet<Constraint>>::new();
+        let mut merged = BTreeMap::<Ty, BTreeSet<NominalTy>>::new();
         for bound in bounds {
             bound.ty.canonical_cmp(&bound.ty, definitions, cancel)?;
             let constraints = merged.entry(bound.ty).or_default();
@@ -36,18 +36,23 @@ impl GenericBound {
             left.ty.canonical_cmp(&right.ty, definitions, cancel)
         })?;
         for bound in &mut result {
-            bound.constraints =
-                Constraint::normalize(mem::take(&mut bound.constraints), definitions, cancel)?;
+            bound.constraints = NominalTy::normalize_bounds(
+                mem::take(&mut bound.constraints),
+                definitions,
+                cancel,
+            )?;
         }
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         Ok(result)
     }
 }
 
-impl Constraint {
+impl NominalTy {
     /// Deduplicate constraints and order them by exact identity in the supplied scope.
     /// Associated outputs and ordinary generic bounds share this normalization.
-    pub fn normalize(
+    /// Foreign identities, bounded type-shape violations and cancellation return an error.
+    /// This checks scoped type shape, not linked trait contracts or implementations.
+    pub fn normalize_bounds(
         constraints: impl IntoIterator<Item = Self>,
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
@@ -55,25 +60,14 @@ impl Constraint {
         let mut unique = BTreeSet::new();
         for constraint in constraints {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            if let Self::Trait(interface) = &constraint {
-                let ty = Ty::Trait(interface.clone());
-                ty.canonical_cmp(&ty, definitions, cancel)?;
-            }
+            let ty = Ty::Trait(constraint.clone());
+            ty.canonical_cmp(&ty, definitions, cancel)?;
             unique.insert(constraint);
         }
         let mut result = unique.into_iter().collect::<Vec<_>>();
         sort(&mut result, &|left, right| {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            match (left, right) {
-                (Self::Standard(left), Self::Standard(right)) => Ok(left.cmp(right)),
-                (Self::Standard(_), Self::Trait(_)) => Ok(Ordering::Less),
-                (Self::Trait(_), Self::Standard(_)) => Ok(Ordering::Greater),
-                (Self::Trait(left), Self::Trait(right)) => Ty::Trait(left.clone()).canonical_cmp(
-                    &Ty::Trait(right.clone()),
-                    definitions,
-                    cancel,
-                ),
-            }
+            Ty::Trait(left.clone()).canonical_cmp(&Ty::Trait(right.clone()), definitions, cancel)
         })?;
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         Ok(result)

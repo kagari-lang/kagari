@@ -7,7 +7,7 @@ use crate::{
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, GenericBounds, ModuleSignatures, table::ConstraintTarget},
+    typeck::{FunctionImplementation, GenericBounds, ModuleSignatures},
     types::{AssociatedTypeParameters, GenericParameterType, NominalType, TypeId},
 };
 use kagari_common::{
@@ -110,7 +110,7 @@ pub struct TraitSignature {
     /// Semantic identity and authoritative source navigation site.
     pub declaration: Declaration,
     /// Associated output identities to their required constraints.
-    pub associated_types: BTreeMap<DefinitionId, Vec<ConstraintTarget>>,
+    pub associated_types: BTreeMap<DefinitionId, Vec<NominalType>>,
 }
 
 /// An associated constant contract and optional canonical default initializer.
@@ -156,14 +156,11 @@ impl AggregateCatalog {
     ) -> Result<GenericBounds, ImplementationSearchError> {
         let mut result = bounds.clone();
         for (receiver, constraints) in bounds {
-            for constraint in constraints {
-                if let ConstraintTarget::Trait(interface) = constraint {
-                    for parent in self.trait_closure(interface, receiver, cancel)? {
-                        let bound = ConstraintTarget::Trait(parent);
-                        let available = result.entry(receiver.clone()).or_default();
-                        if !available.contains(&bound) {
-                            available.push(bound);
-                        }
+            for interface in constraints {
+                for bound in self.trait_closure(interface, receiver, cancel)? {
+                    let available = result.entry(receiver.clone()).or_default();
+                    if !available.contains(&bound) {
+                        available.push(bound);
                     }
                 }
             }
@@ -303,12 +300,7 @@ impl AggregateCatalog {
                     supertraits: item
                         .supertraits
                         .iter()
-                        .filter_map(|reference| {
-                            match signatures.type_table().constraint(reference.ty)? {
-                                ConstraintTarget::Trait(interface) => Some(interface),
-                                _ => None,
-                            }
-                        })
+                        .filter_map(|reference| signatures.type_table().constraint(reference.ty))
                         .collect(),
                     associated_types: item
                         .associated_types

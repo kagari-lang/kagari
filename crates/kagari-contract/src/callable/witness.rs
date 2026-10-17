@@ -10,7 +10,7 @@ use {
         callable::{CallableImplementation, Signature},
         declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope},
         ty::{
-            Constraint, GenericBound, GenericParam, Ty, inheritance,
+            GenericBound, GenericParam, Ty, inheritance,
             substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
         },
     },
@@ -232,10 +232,7 @@ pub fn required_operations<'a>(
     // particular Iterable supplies the selected next for its Iter projection.
     let mut expanded = bounds.to_vec();
     for bound in bounds {
-        for constraint in &bound.constraints {
-            let Constraint::Trait(interface) = constraint else {
-                continue;
-            };
+        for interface in &bound.constraints {
             for interface in inheritance::trait_closure(interface, &bound.ty, cancel, lookup)? {
                 let contract =
                     lookup(&interface.declaration).ok_or(TypeTransformError::InvalidContract)?;
@@ -267,15 +264,11 @@ pub fn required_operations<'a>(
                     let constraints = member
                         .bounds
                         .iter()
-                        .map(|constraint| match constraint {
-                            Constraint::Standard(kind) => Ok(Constraint::Standard(*kind)),
-                            Constraint::Trait(required) => {
-                                let Ty::Trait(required) = apply(&Ty::Trait(required.clone()))?
-                                else {
-                                    return Err(TypeTransformError::InvalidContract);
-                                };
-                                Ok(Constraint::Trait(required))
-                            }
+                        .map(|required| {
+                            let Ty::Trait(required) = apply(&Ty::Trait(required.clone()))? else {
+                                return Err(TypeTransformError::InvalidContract);
+                            };
+                            Ok(required)
                         })
                         .collect::<Result<_, _>>()?;
                     expanded.push(GenericBound {
@@ -291,10 +284,7 @@ pub fn required_operations<'a>(
     }
     let mut operations = vec![];
     for bound in &expanded {
-        for constraint in &bound.constraints {
-            let Constraint::Trait(interface) = constraint else {
-                continue;
-            };
+        for interface in &bound.constraints {
             for interface in inheritance::trait_closure(interface, &bound.ty, cancel, lookup)? {
                 let contract =
                     lookup(&interface.declaration).ok_or(TypeTransformError::InvalidContract)?;

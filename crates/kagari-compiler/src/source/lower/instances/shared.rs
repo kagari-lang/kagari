@@ -14,7 +14,7 @@ use kagari_contract::callable::{
 use kagari_hir::{
     aggregates::AggregateCatalog,
     resolver::resolved::ResolvedName,
-    typeck::{GenericBounds, TypedFunction, table::ConstraintTarget},
+    typeck::{GenericBounds, TypedFunction},
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
 use kagari_types::{
@@ -103,10 +103,7 @@ impl InstancePlanner<'_> {
         if matches!(receiver, TypeId::Trait(_))
             && let Some(targets) = bounds.get_mut(&TypeId::SelfType(interface.declaration))
         {
-            targets.retain(|target| {
-                let ConstraintTarget::Trait(required) = target else {
-                    return true;
-                };
+            targets.retain(|required| {
                 let TypeId::Trait(required) = TypeId::Trait(required.clone())
                     .instantiate(&substitution)
                     .with_associated_types(interface, receiver)
@@ -123,19 +120,16 @@ impl InstancePlanner<'_> {
                     ty.with_associated_types(interface, &TypeId::SelfType(interface.declaration)),
                     targets
                         .into_iter()
-                        .map(|target| match target {
-                            ConstraintTarget::Trait(required) => {
-                                let TypeId::Trait(required) = TypeId::Trait(required)
-                                    .with_associated_types(
-                                        interface,
-                                        &TypeId::SelfType(interface.declaration),
-                                    )
-                                else {
-                                    unreachable!()
-                                };
-                                ConstraintTarget::Trait(required)
-                            }
-                            target => target,
+                        .map(|required| {
+                            let TypeId::Trait(required) = TypeId::Trait(required)
+                                .with_associated_types(
+                                    interface,
+                                    &TypeId::SelfType(interface.declaration),
+                                )
+                            else {
+                                unreachable!()
+                            };
+                            required
                         })
                         .collect(),
                 )
@@ -154,10 +148,7 @@ impl InstancePlanner<'_> {
         let mut requirements = vec![];
         for (receiver, constraints) in bounds {
             let receiver = receiver.instantiate(substitution);
-            for constraint in constraints {
-                let ConstraintTarget::Trait(interface) = constraint else {
-                    continue;
-                };
+            for interface in constraints {
                 let interface = interface.instantiate(substitution);
                 let closure = self
                     .catalog
@@ -191,10 +182,7 @@ impl InstancePlanner<'_> {
                             arguments: vec![],
                         }
                         .with_associated_types(&interface, &receiver);
-                        for constraint in constraints {
-                            let ConstraintTarget::Trait(required) = constraint else {
-                                continue;
-                            };
+                        for required in constraints {
                             let TypeId::Trait(required) =
                                 TypeId::Trait(required.instantiate(&applied))
                                     .with_associated_types(&interface, &receiver)
@@ -437,12 +425,7 @@ impl Instance {
                     ty.instantiate(&self.substitution),
                     targets
                         .iter()
-                        .map(|target| match target {
-                            ConstraintTarget::Standard(kind) => ConstraintTarget::Standard(*kind),
-                            ConstraintTarget::Trait(interface) => {
-                                ConstraintTarget::Trait(interface.instantiate(&self.substitution))
-                            }
-                        })
+                        .map(|interface| interface.instantiate(&self.substitution))
                         .collect(),
                 )
             })

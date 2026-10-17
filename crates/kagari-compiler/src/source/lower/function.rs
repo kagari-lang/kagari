@@ -11,7 +11,7 @@ use kagari_hir::{
     hir::{expr::ExprKind, ids::ExprId, item::function::Function},
     language::semantics::{ProtocolSemantics, callable_signature, ordering_type},
     resolver::resolved::ResolvedName,
-    typeck::{FunctionImplementation, TypedFunction, table::ConstraintTarget},
+    typeck::{FunctionImplementation, TypedFunction},
     types::TypeId,
 };
 use kagari_mir::{
@@ -136,12 +136,28 @@ pub(crate) fn lower_protocol<'a>(
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
     let (protocol, receiver) = instance.protocol.clone().expect("protocol instance");
+    let arithmetic = matches!(
+        protocol,
+        Protocol::Neg
+            | Protocol::Add
+            | Protocol::Sub
+            | Protocol::Mul
+            | Protocol::Div
+            | Protocol::Rem
+    );
     let binary = matches!(
         protocol,
         Protocol::PartialEq | Protocol::Ord | Protocol::PartialOrd | Protocol::Fn
-    );
+    ) || (arithmetic && protocol.binary_operator());
+    // Arithmetic markers must retain the selected application, including an
+    // omitted Output binding, rather than reconstruct a stronger intrinsic view.
     let interface = match instance.key.arguments.get(1) {
         Some(TypeId::Trait(interface)) => interface.clone(),
+        _ if arithmetic => {
+            return Err(MirLoweringError::MissingBinding(
+                "primitive arithmetic adapter interface",
+            ));
+        }
         _ => protocol
             .nominal(&planner.definitions())
             .expect("registered protocol identity"),
@@ -180,12 +196,7 @@ pub(crate) fn lower_protocol<'a>(
     };
     let bounds = generic_params
         .iter()
-        .map(|parameter| {
-            (
-                TypeId::Generic(parameter.clone()),
-                vec![ConstraintTarget::Trait(interface.clone())],
-            )
-        })
+        .map(|parameter| (TypeId::Generic(parameter.clone()), vec![interface.clone()]))
         .collect();
     let typed = TypedFunction {
         implementation: FunctionImplementation::Script,
@@ -198,7 +209,13 @@ pub(crate) fn lower_protocol<'a>(
             Protocol::Iterable | Protocol::Iterator | Protocol::Fn => {
                 iteration_result.expect("protocol result")
             }
-            Protocol::From => receiver.clone(),
+            Protocol::Neg
+            | Protocol::Add
+            | Protocol::Sub
+            | Protocol::Mul
+            | Protocol::Div
+            | Protocol::Rem
+            | Protocol::From => receiver.clone(),
             Protocol::PartialOrd => ordering_type(&planner.definitions(), true),
             Protocol::Ord => ordering_type(&planner.definitions(), false),
             _ => TypeId::Builtin(match protocol {
@@ -219,6 +236,12 @@ pub(crate) fn lower_protocol<'a>(
         Protocol::PartialOrd => "partial_cmp",
         Protocol::Fn => "call",
         Protocol::From => "from",
+        Protocol::Neg => "neg",
+        Protocol::Add => "add",
+        Protocol::Sub => "sub",
+        Protocol::Mul => "mul",
+        Protocol::Div => "div",
+        Protocol::Rem => "rem",
         Protocol::Hash => "hash",
         Protocol::Debug => "debug",
         Protocol::Display => "display",
@@ -307,7 +330,16 @@ pub(crate) fn lower_protocol<'a>(
         args.push(value);
     }
     let value = match protocol {
-        Protocol::Iterable | Protocol::Iterator | Protocol::Fn | Protocol::From => {
+        Protocol::Neg
+        | Protocol::Add
+        | Protocol::Sub
+        | Protocol::Mul
+        | Protocol::Div
+        | Protocol::Rem
+        | Protocol::Iterable
+        | Protocol::Iterator
+        | Protocol::Fn
+        | Protocol::From => {
             if protocol == Protocol::Iterable && typed.return_type == receiver {
                 args[0]
             } else {

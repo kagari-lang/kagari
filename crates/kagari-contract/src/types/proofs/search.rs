@@ -6,7 +6,7 @@ use kagari_common::cancellation::CancellationToken;
 use kagari_types::{
     language::Protocol,
     ty::{
-        Constraint, GenericBound, NominalTy, Ty, inheritance,
+        GenericBound, NominalTy, Ty, inheritance,
         matching::match_pattern,
         substitution::{
             MAX_TYPE_NODES, TypeSubstitution, TypeTransformError, normalize_projections,
@@ -45,7 +45,7 @@ impl ProofCatalog<'_> {
     pub fn constraints_hold(
         &self,
         receiver: &Ty,
-        constraints: &[Constraint],
+        constraints: &[NominalTy],
         assumptions: &[GenericBound],
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
@@ -65,14 +65,7 @@ impl ProofCatalog<'_> {
             ty: copier.apply(receiver, cancel)?,
             constraints: constraints
                 .iter()
-                .map(|constraint| {
-                    Ok(match constraint {
-                        Constraint::Standard(kind) => Constraint::Standard(*kind),
-                        Constraint::Trait(interface) => {
-                            Constraint::Trait(copier.apply_nominal(interface, cancel)?)
-                        }
-                    })
-                })
+                .map(|interface| copier.apply_nominal(interface, cancel))
                 .collect::<Result<_, TypeTransformError>>()?,
         };
         self.obligations(
@@ -198,12 +191,16 @@ impl ProofCatalog<'_> {
         depth: usize,
     ) -> Result<bool, TypeTransformError> {
         budget.step(depth)?;
-        if assumptions.iter().filter(|bound| bound.ty == *receiver).flat_map(|bound| &bound.constraints).any(|bound| matches!(bound, Constraint::Trait(available) if satisfies(available, interface))) { return Ok(true); }
+        if assumptions
+            .iter()
+            .filter(|bound| bound.ty == *receiver)
+            .flat_map(|bound| &bound.constraints)
+            .any(|available| satisfies(available, interface))
+        {
+            return Ok(true);
+        }
         for bound in assumptions.iter().filter(|bound| bound.ty == *receiver) {
-            for constraint in &bound.constraints {
-                let Constraint::Trait(available) = constraint else {
-                    continue;
-                };
+            for available in &bound.constraints {
                 budget.step(depth)?;
                 if self
                     .ancestry(available, receiver, budget.cancel)?
@@ -234,10 +231,7 @@ impl ProofCatalog<'_> {
             for (parameter, argument) in output.generic_params.iter().zip(arguments) {
                 substitution.bind(&parameter.owner, parameter.position, argument);
             }
-            for constraint in &output.bounds {
-                let Constraint::Trait(bound) = constraint else {
-                    continue;
-                };
+            for bound in &output.bounds {
                 let bound = substitution.apply(&Ty::Trait(bound.clone()), budget.cancel)?;
                 // Resolve outputs from the projection owner's checked assumption.
                 // For I: Iterable<Item = T>, I::Iter inherits Iterator<Item = T>,
@@ -256,10 +250,7 @@ impl ProofCatalog<'_> {
                         }
                         let mut selected = None;
                         for bound in assumptions.iter().filter(|bound| bound.ty == *receiver) {
-                            for constraint in &bound.constraints {
-                                let Constraint::Trait(available) = constraint else {
-                                    continue;
-                                };
+                            for available in &bound.constraints {
                                 for parent in self.ancestry(available, receiver, budget.cancel)? {
                                     if satisfies(&parent, interface)
                                         && let Some(value) = parent.associated_types.get(member)
@@ -422,21 +413,8 @@ impl ProofCatalog<'_> {
         for bound in obligations {
             budget.step(depth)?;
             let actual = self.normalize_with(&bound.ty, budget, depth)?;
-            for constraint in &bound.constraints {
-                let holds = match constraint {
-                    Constraint::Standard(required) => self.standard_constraint(
-                        &actual,
-                        *required,
-                        assumptions,
-                        search,
-                        budget,
-                        depth,
-                    )?,
-                    Constraint::Trait(required) => {
-                        self.prove(required, &actual, assumptions, search, budget, depth)?
-                    }
-                };
-                if !holds {
+            for required in &bound.constraints {
+                if !self.prove(required, &actual, assumptions, search, budget, depth)? {
                     return Ok(false);
                 }
             }

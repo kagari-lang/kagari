@@ -18,7 +18,7 @@ use kagari_types::{
     language as identities,
     language::Protocol,
     scalar::BuiltinType,
-    ty::{Constraint, NominalTy, Ty, inheritance},
+    ty::{NominalTy, Ty, inheritance},
 };
 
 #[test]
@@ -81,7 +81,7 @@ fn portable_language_catalog_has_complete_contracts() {
         })
         .unwrap();
     assert!(
-        matches!(&iter.bounds[..], [Constraint::Trait(required)] if Protocol::from_definition(&required.declaration, definitions) == Some(Protocol::Iterator))
+        matches!(&iter.bounds[..], [required] if Protocol::from_definition(&required.declaration, definitions) == Some(Protocol::Iterator))
     );
     for kind in ["Map", "Set", "MutableMap", "MutableSet"] {
         assert!(
@@ -98,11 +98,7 @@ fn portable_language_catalog_has_complete_contracts() {
             types.iter().find(|t| t.name == kind).unwrap().bounds[0]
                 .constraints
                 .iter()
-                .map(|bound| match bound {
-                    Constraint::Trait(interface) =>
-                        Protocol::from_definition(&interface.declaration, definitions),
-                    _ => None,
-                })
+                .map(|interface| Protocol::from_definition(&interface.declaration, definitions))
                 .collect::<Vec<_>>(),
             vec![
                 Some(Protocol::Eq),

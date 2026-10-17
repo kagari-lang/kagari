@@ -2,10 +2,10 @@
 
 use crate::identity_mapping::map_hash_entries;
 use crate::typeck::table::{
-    CallTarget, ConstraintTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor,
-    ResolvedHostPath, ResolvedHostPlacePath, ResolvedInterfaceCoercion,
-    ResolvedInterfaceImplementation, ResolvedIteration, ResolvedStructInit, ResolvedTypeRef,
-    TraitImplementation, TypeTable, TypeTarget,
+    CallTarget, ResolvedAssociatedConst, ResolvedCall, ResolvedEnumConstructor, ResolvedHostPath,
+    ResolvedHostPlacePath, ResolvedInterfaceCoercion, ResolvedInterfaceImplementation,
+    ResolvedIteration, ResolvedStructInit, ResolvedTypeRef, TraitImplementation, TypeTable,
+    TypeTarget,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -15,36 +15,6 @@ use kagari_common::{
         table::DefinitionId,
     },
 };
-
-impl RemapDefinitions for ConstraintTarget {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_>,
-    ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(match self {
-            Self::Standard(field0) => ConstraintTarget::Standard(*(field0)),
-            Self::Trait(field0) => ConstraintTarget::Trait((field0).remap_definitions(mapper)?),
-        })
-    }
-}
-
-impl DefinitionReferences for ConstraintTarget {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        match self {
-            Self::Standard(_) => {}
-            Self::Trait(field0) => {
-                (field0).visit_definition_ids(visit, cancel)?;
-            }
-        }
-        Ok(())
-    }
-}
 
 impl RemapDefinitions for TypeTarget {
     fn remap_definitions(

@@ -11,7 +11,7 @@ use crate::{
             type_definition_valid, validate_native_declarations,
         },
     },
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 
 use kagari_common::{
@@ -616,18 +616,10 @@ fn supported_parameter(ty: &Ty, definitions: &DefinitionTable) -> Result<(), Dec
 }
 
 fn supported_constraint(
-    constraint: &Constraint,
+    constraint: &NominalTy,
     definitions: &DefinitionTable,
 ) -> Result<(), DeclarationError> {
-    match constraint {
-        Constraint::Trait(trait_type) => {
-            supported_type(&Ty::Trait(trait_type.clone()), definitions)
-        }
-        Constraint::Standard(kind) if kind.source_bound_name().is_some() => Ok(()),
-        _ => Err(DeclarationError(
-            "native declaration has no source-level constraint".into(),
-        )),
-    }
+    supported_type(&Ty::Trait(constraint.clone()), definitions)
 }
 
 fn identifier(name: &str) -> bool {

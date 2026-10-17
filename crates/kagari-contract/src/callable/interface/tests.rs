@@ -123,7 +123,7 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
     let key = contract.methods[0].generic_params[0].as_type();
     contract.methods[0].bounds.push(GenericBound {
         ty: key,
-        constraints: vec![Constraint::Trait(marker.clone())],
+        constraints: vec![marker.clone()],
     });
     let parameter = GenericParam {
         owner: id(&context, "caller.kgr", DefinitionKind::Function, "forward"),
@@ -132,7 +132,7 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
     call.arguments = vec![parameter.as_type()];
     let evidence = GenericBound {
         ty: parameter.as_type(),
-        constraints: vec![Constraint::Trait(marker.clone())],
+        constraints: vec![marker.clone()],
     };
     let marker_contract = TraitDef {
         conversion_adapter: None,
@@ -260,7 +260,7 @@ fn partial_associated_outputs_require_scoped_receiver_evidence() {
     );
     let evidence = GenericBound {
         ty: parameter.as_type(),
-        constraints: vec![Constraint::Trait(call.interface.clone())],
+        constraints: vec![call.interface.clone()],
     };
     let catalog = ProofCatalog::new(
         vec![],
@@ -341,7 +341,7 @@ fn static_constraint_calls_do_not_invent_a_receiver_argument() {
     assert_eq!(signature.result, parameter.as_type());
     let evidence = GenericBound {
         ty: parameter.as_type(),
-        constraints: vec![Constraint::Trait(call.interface.clone())],
+        constraints: vec![call.interface.clone()],
     };
     let catalog = ProofCatalog::new(
         vec![],
@@ -412,11 +412,11 @@ fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
             0 => changed.methods[0].params[1].ty = Ty::Array(Box::new(self_type)),
             1 => changed.methods[0].bounds.push(GenericBound {
                 ty: key,
-                constraints: vec![Constraint::Trait(NominalTy {
+                constraints: vec![NominalTy {
                     declaration: call.interface.declaration,
                     arguments: vec![self_type],
                     associated_types: BTreeMap::new(),
-                })],
+                }],
             }),
             2 => {
                 let mut other = changed.methods[0].clone();
@@ -436,17 +436,17 @@ fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
             }
             3 => changed.methods[0].bounds.push(GenericBound {
                 ty: self_type,
-                constraints: vec![Constraint::Trait(call.interface.clone())],
+                constraints: vec![call.interface.clone()],
             }),
             4 => {
                 changed.methods.clear();
                 changed.bounds.push(GenericBound {
                     ty: changed.generic_params[0].as_type(),
-                    constraints: vec![Constraint::Trait(NominalTy {
+                    constraints: vec![NominalTy {
                         declaration: call.interface.declaration,
                         arguments: vec![self_type],
                         associated_types: BTreeMap::new(),
-                    })],
+                    }],
                 });
             }
             5 | 6 => {
@@ -465,7 +465,7 @@ fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
                     declaration: member,
                     generic_params: vec![],
                     parameter_bounds: vec![],
-                    bounds: vec![Constraint::Trait(NominalTy {
+                    bounds: vec![NominalTy {
                         declaration: call.interface.declaration,
                         arguments: vec![if mutation == 5 {
                             self_type
@@ -473,7 +473,7 @@ fn dynamic_admission_checks_uncalled_members_and_call_constraints() {
                             Ty::Builtin(BuiltinType::I32)
                         }],
                         associated_types: BTreeMap::new(),
-                    })],
+                    }],
                 });
             }
             _ => unreachable!(),

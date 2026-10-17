@@ -17,7 +17,7 @@ use kagari_types::{
     },
     language::{Protocol, role::LangRole},
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
 };
 use std::{collections::BTreeMap, ops::Deref, sync::Arc};
@@ -830,7 +830,7 @@ impl Renderer<'_> {
         Ok(sites)
     }
 
-    fn constraints(&mut self, constraints: &[Constraint]) -> Result<Vec<Span>, DeclarationError> {
+    fn constraints(&mut self, constraints: &[NominalTy]) -> Result<Vec<Span>, DeclarationError> {
         let mut spans = vec![];
         if !constraints.is_empty() {
             self.text.push_str(": ");
@@ -839,13 +839,7 @@ impl Renderer<'_> {
             if index != 0 {
                 self.text.push_str(" + ");
             }
-            let name = match constraint {
-                Constraint::Trait(trait_type) => self.module.nominal_spelling(trait_type)?,
-                Constraint::Standard(kind) => kind
-                    .source_bound_name()
-                    .ok_or_else(|| DeclarationError("native bound has no source name".into()))?
-                    .into(),
-            };
+            let name = self.module.nominal_spelling(constraint)?;
             spans.push(self.name(&name));
         }
         Ok(spans)

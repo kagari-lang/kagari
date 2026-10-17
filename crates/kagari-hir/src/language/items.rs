@@ -10,7 +10,6 @@ use crate::{
     lower::{AttributeValue, LoweredModule},
     native::NativeBinding,
     resolver::resolved::ResolvedName,
-    typeck::table::ConstraintTarget,
     types::semantic::{lower_nominal_type, lower_type},
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId, span::Span};
@@ -19,12 +18,8 @@ use kagari_source::{
     literal::decode_string_literal,
 };
 use kagari_types::{
-    callable::CallableImplementation,
-    declaration::TraitDef,
-    language,
-    language::role::LangRole,
-    ty::{Constraint, GenericBound},
-    visibility::Visibility,
+    callable::CallableImplementation, declaration::TraitDef, language, language::role::LangRole,
+    ty::GenericBound, visibility::Visibility,
 };
 use std::collections::{BTreeMap, btree_map::Entry};
 
@@ -152,17 +147,7 @@ pub(crate) fn validate_shapes(
                         .associated_types
                         .get(&member.declaration)
                         .is_some_and(|bounds| {
-                            bounds
-                                .iter()
-                                .map(|bound| match bound {
-                                    ConstraintTarget::Standard(bound) => {
-                                        Constraint::Standard(*bound)
-                                    }
-                                    ConstraintTarget::Trait(bound) => {
-                                        Constraint::Trait(lower_nominal_type(bound))
-                                    }
-                                })
-                                .collect::<Vec<_>>()
+                            bounds.iter().map(lower_nominal_type).collect::<Vec<_>>()
                                 == member.bounds
                         })
                 })
@@ -192,17 +177,8 @@ pub(crate) fn validate_shapes(
                                     .iter()
                                     .filter(|(_, bounds)| !bounds.is_empty())
                                     .map(|(ty, bounds)| {
-                                        let constraints = bounds
-                                            .iter()
-                                            .map(|bound| match bound {
-                                                ConstraintTarget::Standard(bound) => {
-                                                    Constraint::Standard(*bound)
-                                                }
-                                                ConstraintTarget::Trait(bound) => {
-                                                    Constraint::Trait(lower_nominal_type(bound))
-                                                }
-                                            })
-                                            .collect();
+                                        let constraints =
+                                            bounds.iter().map(lower_nominal_type).collect();
                                         GenericBound {
                                             ty: lower_type(ty),
                                             constraints,

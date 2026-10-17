@@ -199,7 +199,6 @@ mod tests {
 
     #[test]
     fn collection_implementation_catalog_retains_constraints_and_source_members() {
-        use crate::typeck::table::ConstraintTarget;
         let mut sources = SourceDatabase::default();
         let root = sources
             .set("contracts.kgr", "fn main() {}".into(), SourceLayer::Base)
@@ -248,10 +247,7 @@ mod tests {
             .1;
         let mut names = constraints
             .iter()
-            .map(|constraint| {
-                let ConstraintTarget::Trait(bound) = constraint else {
-                    panic!("declared trait bound")
-                };
+            .map(|bound| {
                 definitions
                     .resolve(bound.declaration)
                     .unwrap()

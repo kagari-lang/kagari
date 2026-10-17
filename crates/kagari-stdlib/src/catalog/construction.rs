@@ -11,7 +11,7 @@ use kagari_types::{
         module::{DeclarationError, ModuleDecl},
     },
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, Ty},
+    ty::{GenericBound, GenericParam, Ty},
 };
 
 pub(super) fn declare(
@@ -153,11 +153,11 @@ pub(super) fn declare(
         method.params[0].name = "source".into();
         method.bounds.push(GenericBound {
             ty: source.as_type(),
-            constraints: vec![Constraint::Trait(contracts::applied_item(
+            constraints: vec![contracts::applied_item(
                 ids,
                 RegistrationTrait::Iterable,
                 declaration.generic_params[0].as_type(),
-            )?)],
+            )?],
         });
         method.generic_params.push(source);
         declaration.methods.push(method);

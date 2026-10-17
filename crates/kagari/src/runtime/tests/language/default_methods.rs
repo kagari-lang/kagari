@@ -19,6 +19,7 @@ use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty
 use crate::test_support::execution;
 
 mod default_method_contracts;
+mod shared_arithmetic;
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();

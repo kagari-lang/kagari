@@ -12,7 +12,6 @@ use crate::{
         BodyTypeEnv,
         body::BodyChecker,
         completion, inference,
-        table::ConstraintTarget,
         ty::{TypeContext, display_type, resolve_type_in},
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
@@ -247,16 +246,16 @@ impl BodyChecker<'_> {
             );
             for (target, bounds) in &implementation.bounds {
                 for bound in bounds {
-                    if let ConstraintTarget::Trait(required) = bound {
-                        pending.push((
-                            self.aggregates.normalize_type(
-                                self.declarations.definitions(),
-                                &target.instantiate(substitution),
-                            ),
-                            required.instantiate(substitution),
-                            depth + 1,
-                        ));
-                    }
+                    let required = bound;
+
+                    pending.push((
+                        self.aggregates.normalize_type(
+                            self.declarations.definitions(),
+                            &target.instantiate(substitution),
+                        ),
+                        required.instantiate(substitution),
+                        depth + 1,
+                    ));
                 }
             }
         }

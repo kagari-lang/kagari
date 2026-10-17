@@ -273,18 +273,22 @@ Parser depth, const-evaluation and full semantic diagnostic-output limits are
 available through `KagariEngine` setters. These are logical compile-time budgets;
 whole-process memory and wall-clock quotas are outside this checkpoint.
 
-`TypeTable::constraint` distinguishes standard constraint identities from user
-trait identities. Bounds are resolved once in their declaring context; inherited
-copies share their reference and diagnostic. A `where` target must resolve to a
-generic parameter (`KG_TYPE_INVALID_BOUND_TARGET` otherwise). Impl bounds apply
+`TypeTable::constraint` returns a resolved nominal trait application, with the
+same representation for standard-library and user traits. Declaration identity,
+ordered type arguments and associated-output bindings are retained. Bounds are
+resolved once in their declaring context; inherited copies share their reference
+and diagnostic. Invalid `where` targets report `KG_TYPE_INVALID_BOUND_TARGET`;
+[static bounds](traits.md#static-trait-bounds) define supported targets. Impl bounds apply
 to methods, while a method's own bounds do not affect sibling methods. Shadowing
 an inherited parameter gives the method parameter its own identity and constraints;
 the implicit receiver can still contain and use the outer parameter's identity.
 Type checking and bound ABI metadata consume these facts.
 Static trait constraints do not require interface-value permission.
 Unknown bounds retain precise reference diagnostics and do not remove nearby
-navigation targets. Applied trait constraints currently reject code generation;
-their arguments are retained for analysis pending R07 concrete instantiation.
+navigation targets. Applied trait bounds lower through checked specialization or
+shared callable requirements, preserving their arguments, associated outputs and
+supplying generations. Loading verifies portable proofs and executable witnesses
+without source analysis.
 
 Declaration identity consists of the logical module plus typed owner/name path
 segments. A same-kind, same-name occurrence distinguishes duplicate declarations;

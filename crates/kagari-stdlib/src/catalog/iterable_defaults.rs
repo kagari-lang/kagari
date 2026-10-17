@@ -12,7 +12,7 @@ use kagari_types::{
         requirement::NativeCallableRequirement,
     },
     ty::{
-        Constraint, GenericBound, GenericParam, Ty,
+        GenericBound, GenericParam, Ty,
         substitution::{TypeSubstitution, normalize_projections},
     },
 };
@@ -202,14 +202,11 @@ pub(super) fn apply(
             constraints: bound
                 .constraints
                 .iter()
-                .map(|constraint| match constraint {
-                    Constraint::Standard(value) => Constraint::Standard(*value),
-                    Constraint::Trait(value) => {
-                        let Ty::Trait(value) = normalize(&Ty::Trait(value.clone())) else {
-                            unreachable!("bound interface")
-                        };
-                        Constraint::Trait(value)
-                    }
+                .map(|interface| {
+                    let Ty::Trait(interface) = normalize(&Ty::Trait(interface.clone())) else {
+                        unreachable!("bound interface")
+                    };
+                    interface
                 })
                 .collect(),
         })
@@ -217,11 +214,11 @@ pub(super) fn apply(
     if destination.is_some() {
         bounds.push(GenericBound {
             ty: types[0].clone(),
-            constraints: vec![Constraint::Trait(contracts::applied_item(
+            constraints: vec![contracts::applied_item(
                 ids,
                 RegistrationTrait::Iterable,
                 types[1].clone(),
-            )?)],
+            )?],
         });
     }
     for source in &sources {
@@ -234,15 +231,15 @@ pub(super) fn apply(
         bounds.extend([
             GenericBound {
                 ty: source.receiver.clone(),
-                constraints: vec![Constraint::Trait(iterable)],
+                constraints: vec![iterable],
             },
             GenericBound {
                 ty: source.cursor.clone(),
-                constraints: vec![Constraint::Trait(contracts::applied_item(
+                constraints: vec![contracts::applied_item(
                     ids,
                     RegistrationTrait::Iterator,
                     source.item.clone(),
-                )?)],
+                )?],
             },
         ]);
     }

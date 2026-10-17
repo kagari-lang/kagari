@@ -272,10 +272,11 @@ and outer parameters cannot exchange values merely because their names match.
 Implicit `Self` is identified by its trait; substitution in impl signatures and
 trait calls replaces only that trait's `Self` throughout composite types.
 
-The current foundation implementation records standard constraint identities and
-user trait declaration targets in HIR. It retains navigation in invalid bounds
-and reports inherited invalid references once. Applied bounds such as `Show<i32>`
-retain their trait declaration and ordered type arguments in HIR and ABI. Local impl
+All bounds resolve to ordinary nominal trait applications in HIR and portable
+contracts, retaining declaration identity, ordered type arguments and associated
+output bindings. Invalid bounds retain navigation and inherited invalid references
+are reported once. Applied bounds such as `Show<i32>` use the same representation
+for standard-library and application traits. Local impl
 headers may apply a generic trait to concrete types or impl parameters; the
 checked method contract substitutes those arguments, validates declared
 trait-parameter bounds and retains them in the
@@ -292,6 +293,36 @@ bounds, and specialize reachable local or dependency-defined implementations.
 The method's arguments follow the implementation's type arguments in the
 concrete instance key. Interface calls retain method arguments separately and
 use the shared generic entry specified below.
+
+### Operation-specific bounds
+
+Generic functions declare the operations their bodies require, including operand
+and associated result types. For example:
+
+```text
+use std::ops::{Add, Neg};
+fn negative<T: Neg<Output = T>>(value: T) -> T { -value }
+fn add<T: Add<T, Output = T>>(left: T, right: T) -> T { left + right }
+fn negate_to_output<T: Neg>(value: T) -> T::Output { -value }
+```
+
+These bounds admit user-defined implementations, not just primitive numbers.
+Comparison requires PartialOrd, or Ord when a total order is required; hashing
+requires Eq + Hash, and equality requires PartialEq. No broad numeric bound
+implicitly grants unrelated arithmetic or comparison operations. SignedNumber and
+OrderedNumber have no special meaning: without a declaration they are unknown
+traits, and user declarations with those names are ordinary traits. Operators
+still select validated core language-role identities, not same-spelled traits.
+
+Shared generic calls carry checked operations for these requirements, including
+primitive Neg/Add/Sub/Mul/Div/Rem adapters. Binding Output and leaving it as a
+projection are both supported; neither permits a mismatched executable result.
+Primitive execution retains [checked numeric and failure semantics](failure-semantics.md),
+including source-width overflow checks and once-only ordered evaluation. A user
+implementation executes its own checked body. Shared dispatch does not search for
+traits at runtime or require constructing an interface value for a bound receiver.
+
+### Generic aggregates
 
 Struct and enum declarations retain generic binders and inline bounds in checked
 signatures. Type applications such as `Cell<i32>` resolve those binders, check

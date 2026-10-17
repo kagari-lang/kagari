@@ -21,7 +21,7 @@ use kagari_types::{
         requirement::NativeCallableRequirement,
     },
     reference::ReferenceAccess,
-    ty::{Constraint, GenericBound, GenericParam, Ty},
+    ty::{GenericBound, GenericParam, Ty},
 };
 use std::collections::BTreeMap;
 
@@ -339,7 +339,7 @@ impl FunctionBuilder<'_> {
         };
         self.signature.bounds.push(GenericBound {
             ty,
-            constraints: vec![Constraint::Trait(contract)],
+            constraints: vec![contract],
         });
         Ok(())
     }

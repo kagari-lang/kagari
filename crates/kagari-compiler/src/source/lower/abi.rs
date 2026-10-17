@@ -17,13 +17,9 @@ use kagari_hir::{
     },
     native::{NativeBinding, NativeTypeKind},
     resolver::resolved::ResolvedName,
-    typeck::{
-        FunctionImplementation, GenericBounds,
-        scalar::ScalarValue,
-        table::{CallTarget, ConstraintTarget},
-    },
+    typeck::{FunctionImplementation, GenericBounds, scalar::ScalarValue, table::CallTarget},
     types::{
-        GenericParameterType, TypeId,
+        GenericParameterType, NominalType, TypeId,
         semantic::{lower_nominal_type, lower_type, raise_type},
     },
 };
@@ -34,7 +30,7 @@ use kagari_types::{
         NativeDeclaration, Param, TraitDef, TypeDef, TypeDefKind, VariantDef,
     },
     scalar::IntegerType,
-    ty::{Constraint, GenericBound, GenericParam, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
 };
 
@@ -251,11 +247,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                         .supertraits
                         .iter()
                         .filter_map(|reference| {
-                            let ConstraintTarget::Trait(parent) =
-                                module.typed.type_table.constraint(reference.ty)?
-                            else {
-                                return None;
-                            };
+                            let parent = module.typed.type_table.constraint(reference.ty)?;
                             Some(lower_nominal_type(
                                 &module.aggregates.canonical_interface_application(
                                     module.declarations.definitions(),
@@ -326,7 +318,7 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
                                             )
                                         })
                                         .collect::<Vec<_>>();
-                                    Constraint::normalize(
+                                    NominalTy::normalize_bounds(
                                         bounds,
                                         module.declarations.definitions(),
                                         &Default::default(),
@@ -442,15 +434,13 @@ pub(crate) fn collect_module_abi(module: &AnalyzedModule) -> ModuleContract {
             }
             continue;
         };
-        let trait_type = match module
-            .typed
-            .type_table
-            .constraint(reference.ty)
-            .expect("checked impl trait")
-        {
-            ConstraintTarget::Trait(ty) => TypeId::Trait(ty),
-            _ => unreachable!("user trait impl"),
-        };
+        let trait_type = TypeId::Trait(
+            module
+                .typed
+                .type_table
+                .constraint(reference.ty)
+                .expect("checked impl trait"),
+        );
         let for_type = &impl_block
             .for_type
             .and_then(|ty| module.typed.type_table.type_ref(ty))
@@ -699,21 +689,14 @@ fn implementation_methods_abi(module: &AnalyzedModule, item: &Impl) -> Vec<FnDec
                             .get(ty)
                             .is_some_and(|inherited| inherited.contains(constraint))
                     })
-                    .map(|constraint| match constraint {
-                        ConstraintTarget::Standard(value) => Constraint::Standard(*value),
-                        ConstraintTarget::Trait(ty) => {
-                            let TypeId::Trait(ty) = module.aggregates.normalize_type(
-                                module.declarations.definitions(),
-                                &apply(&TypeId::Trait(ty.clone())),
-                            ) else {
-                                unreachable!("trait bound");
-                            };
-                            constraint_abi(
-                                &module.aggregates,
-                                module.declarations.definitions(),
-                                ConstraintTarget::Trait(ty),
-                            )
-                        }
+                    .map(|constraint| {
+                        let TypeId::Trait(ty) = module.aggregates.normalize_type(
+                            module.declarations.definitions(),
+                            &apply(&TypeId::Trait(constraint.clone())),
+                        ) else {
+                            unreachable!("trait bound");
+                        };
+                        constraint_abi(&module.aggregates, module.declarations.definitions(), ty)
                     })
                     .collect(),
             })
@@ -940,14 +923,9 @@ fn generic_param_abi(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec
 fn constraint_abi(
     catalog: &AggregateCatalog,
     definitions: &DefinitionTable,
-    target: ConstraintTarget,
-) -> Constraint {
-    match target {
-        ConstraintTarget::Standard(constraint) => Constraint::Standard(constraint),
-        ConstraintTarget::Trait(ty) => Constraint::Trait(lower_nominal_type(
-            &catalog.canonical_interface_application(definitions, &ty),
-        )),
-    }
+    target: NominalType,
+) -> NominalTy {
+    lower_nominal_type(&catalog.canonical_interface_application(definitions, &target))
 }
 
 fn parameter_bounds(module: &AnalyzedModule, params: &[HirGenericParam]) -> Vec<GenericBound> {

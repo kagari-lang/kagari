@@ -29,7 +29,7 @@ use kagari_types::{
         verify::{DeclarationValidationError, validate_native_declarations},
     },
     ty::{
-        Constraint, GenericBound, GenericParam, NominalTy, Ty, inheritance,
+        GenericBound, GenericParam, NominalTy, Ty, inheritance,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -297,17 +297,12 @@ impl<'a> ProofCatalog<'a> {
         let budget = Budget::new(cancel);
         for bound in &mut expanded {
             let mut additional = Vec::new();
-            for constraint in &bound.constraints {
+            for interface in &bound.constraints {
                 budget.step(0)?;
-                if let Constraint::Trait(interface) = constraint {
-                    for parent in self.ancestry(interface, &bound.ty, cancel)? {
-                        budget.step(0)?;
-                        let inherited = Constraint::Trait(parent);
-                        if !bound.constraints.contains(&inherited)
-                            && !additional.contains(&inherited)
-                        {
-                            additional.push(inherited);
-                        }
+                for inherited in self.ancestry(interface, &bound.ty, cancel)? {
+                    budget.step(0)?;
+                    if !bound.constraints.contains(&inherited) && !additional.contains(&inherited) {
+                        additional.push(inherited);
                     }
                 }
             }

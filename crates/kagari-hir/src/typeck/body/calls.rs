@@ -6,22 +6,20 @@ use crate::{
     callable::{AppliedCallSignature, CallableSignature},
     hir::{expr::ExprKind, ids::ExprId},
     imports::functions::ImportedFunction,
-    language::{semantics as traits, semantics::intrinsic_holds},
+    language::semantics as traits,
     resolver::resolved::ResolvedName,
     typeck::{
         BodyTypeEnv, GenericBounds,
         body::BodyChecker,
-        check, completion, constraints, inference, members,
+        completion, inference, members,
         scalar::ScalarValue,
-        table::{CallTarget, ConstraintTarget},
+        table::CallTarget,
         ty::{TypeContext, display_type_id, resolve_named_type},
     },
     types::{GenericParameterType, TypeId, TypeSubstitution},
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    language::Protocol, surface as standard_surface, surface::StandardTypeConstraint,
-};
+use kagari_types::language::Protocol;
 use std::iter;
 
 impl<'a> BodyChecker<'a> {
@@ -421,66 +419,69 @@ impl<'a> BodyChecker<'a> {
                 &target.instantiate(substitution),
             );
             let actual = &actual_owned;
-            for constraint in constraints.iter().cloned() {
-                match constraint {
-                    ConstraintTarget::Standard(constraint) => {
-                        self.check_standard_constraint(actual, constraint, env, callee)
-                    }
-                    ConstraintTarget::Trait(trait_type) => {
-                        let mut trait_type = trait_type.instantiate(substitution);
-                        for ty in trait_type
-                            .arguments
-                            .iter_mut()
-                            .chain(trait_type.associated_types.values_mut())
-                        {
-                            *ty = self
-                                .aggregates
-                                .normalize_type(self.declarations.definitions(), ty);
-                        }
-                        self.constrain_declared_bound(actual, &trait_type, env);
-                        let satisfied = self.aggregates.intrinsic_implementation(
+            // A diverging argument produces no value that must satisfy a bound.
+            if actual.is_never() {
+                continue;
+            }
+            for constraint in constraints {
+                let mut trait_type = constraint.instantiate(substitution);
+                for ty in trait_type
+                    .arguments
+                    .iter_mut()
+                    .chain(trait_type.associated_types.values_mut())
+                {
+                    *ty = self
+                        .aggregates
+                        .normalize_type(self.declarations.definitions(), ty);
+                }
+                self.constrain_declared_bound(actual, &trait_type, env);
+                let satisfied = self.aggregates.intrinsic_implementation(
+                    self.declarations.definitions(),
+                    &trait_type,
+                    actual,
+                    &env.generic_bounds,
+                ) || match actual {
+                    TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. } => self
+                        .trait_bounds_for(actual, env)
+                        .iter()
+                        .any(|bound| bound.satisfies_for(&trait_type, actual)),
+                    _ => {
+                        self.aggregates.implementation_count(
                             self.declarations.definitions(),
                             &trait_type,
                             actual,
-                            &env.generic_bounds,
-                        ) || match actual {
-                            TypeId::Generic(_)
-                            | TypeId::SelfType(_)
-                            | TypeId::Projection { .. } => self
-                                .trait_bounds_for(actual, env)
-                                .iter()
-                                .any(|bound| bound.satisfies_for(&trait_type, actual)),
-                            _ => {
-                                self.aggregates.implementation_count(
-                                    self.declarations.definitions(),
-                                    &trait_type,
-                                    actual,
-                                ) == 1
-                            }
-                        };
-                        if !satisfied && !actual.is_unresolved() {
-                            let trait_name = self
-                                .aggregates
-                                .trait_(&trait_type.declaration)
-                                .map(|contract| contract.declaration.name.clone())
-                                .or_else(|| {
-                                    self.declarations
-                                        .definitions()
-                                        .resolve(trait_type.declaration)
-                                        .expect("scoped trait")
-                                        .last()
-                                        .map(|segment| segment.name.to_owned())
-                                })
-                                .unwrap_or_default();
-                            self.diagnostics.push(
-                                Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
-                                    type_name: actual.display_name(self.declarations.definitions()),
-                                    trait_name,
-                                })
-                                .with_span(self.lowered.source_map.expr_span(callee)),
-                            );
-                        }
+                        ) == 1
                     }
+                };
+                if !satisfied
+                    && !matches!(actual, TypeId::Unknown | TypeId::Error)
+                    && (!actual.is_unresolved()
+                        || Protocol::from_definition(
+                            &trait_type.declaration,
+                            self.declarations.definitions(),
+                        )
+                        .is_some())
+                {
+                    let trait_name = self
+                        .aggregates
+                        .trait_(&trait_type.declaration)
+                        .map(|contract| contract.declaration.name.clone())
+                        .or_else(|| {
+                            self.declarations
+                                .definitions()
+                                .resolve(trait_type.declaration)
+                                .expect("scoped trait")
+                                .last()
+                                .map(|segment| segment.name.to_owned())
+                        })
+                        .unwrap_or_default();
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                            type_name: actual.display_name(self.declarations.definitions()),
+                            trait_name,
+                        })
+                        .with_span(self.lowered.source_map.expr_span(callee)),
+                    );
                 }
             }
         }
@@ -577,55 +578,6 @@ impl<'a> BodyChecker<'a> {
         );
     }
 
-    pub(super) fn check_standard_constraint(
-        &mut self,
-        ty: &TypeId,
-        constraint: StandardTypeConstraint,
-        env: &BodyTypeEnv,
-        span_expr: ExprId,
-    ) {
-        if matches!(
-            constraint,
-            StandardTypeConstraint::HashKey | StandardTypeConstraint::Comparable
-        ) {
-            let protocols: &[Protocol] = if constraint == StandardTypeConstraint::HashKey {
-                &[Protocol::Eq, Protocol::Hash]
-            } else {
-                &[Protocol::PartialEq]
-            };
-            if !ty.is_unresolved()
-                && protocols.iter().any(|p| {
-                    !intrinsic_holds(
-                        self.declarations.definitions(),
-                        *p,
-                        ty,
-                        Some(self.aggregates),
-                        &env.generic_bounds,
-                    )
-                })
-            {
-                self.diagnostics.push(
-                    Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
-                        type_name: ty.display_name(self.declarations.definitions()),
-                        constraint: standard_surface::standard_constraint_name(constraint).into(),
-                        reason: constraints::standard_constraint_reason(constraint).into(),
-                    })
-                    .with_span(self.lowered.source_map.expr_span(span_expr)),
-                );
-            }
-        } else {
-            check::validate_standard_constraint_type(
-                self.declarations.definitions(),
-                ty,
-                constraint,
-                &env.generic_bounds,
-                self.lowered.source_map.expr_span(span_expr),
-                self.diagnostics,
-                self.aggregates,
-            );
-        }
-    }
-
     pub(super) fn string_literal_value(&self, expr_id: ExprId) -> Option<String> {
         match self.type_table.scalar_value(expr_id)? {
             ScalarValue::String(value) => Some(value.clone()),
@@ -704,10 +656,10 @@ impl<'a> BodyChecker<'a> {
         bounds: &GenericBounds,
         substitution: &mut TypeSubstitution,
     ) {
-        if !bounds.values().flatten().any(|bound| {
-            matches!(bound, ConstraintTarget::Trait(interface)
-                if Protocol::from_definition(&interface.declaration, self.declarations.definitions()) == Some(Protocol::Fn)
-                    || !interface.associated_types.is_empty())
+        if !bounds.values().flatten().any(|interface| {
+            Protocol::from_definition(&interface.declaration, self.declarations.definitions())
+                == Some(Protocol::Fn)
+                || !interface.associated_types.is_empty()
         }) {
             return;
         }
@@ -743,11 +695,8 @@ impl<'a> BodyChecker<'a> {
                 .as_ref()
                 .and_then(|parameter| bounds.get(parameter))
                 .and_then(|constraints| {
-                    constraints.iter().find_map(|constraint| match constraint {
-                        ConstraintTarget::Trait(interface) => {
-                            traits::callable_signature(self.declarations.definitions(), interface)
-                        }
-                        _ => None,
+                    constraints.iter().find_map(|interface| {
+                        traits::callable_signature(self.declarations.definitions(), interface)
                     })
                 });
             let expected = callable.as_ref().or(parameter.as_ref()).map(|ty| {

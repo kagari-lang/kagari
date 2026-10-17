@@ -14,7 +14,7 @@ use kagari_types::{
     language::Protocol,
     scalar::BuiltinType,
     ty::{
-        Constraint, GenericBound, NominalTy, Ty,
+        GenericBound, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -50,7 +50,7 @@ pub fn requirements(
     {
         return Ok(Some(vec![GenericBound {
             ty: target,
-            constraints: vec![Constraint::Trait(interface)],
+            constraints: vec![interface],
         }]));
     }
     if Protocol::from_definition(&interface.declaration, definitions) == Some(Protocol::From)
@@ -80,7 +80,7 @@ pub fn requirements(
         identity_iterator(interface, receiver, definitions).map(|required| {
             vec![GenericBound {
                 ty: receiver.clone(),
-                constraints: vec![Constraint::Trait(required)],
+                constraints: vec![required],
             }]
         }),
     )

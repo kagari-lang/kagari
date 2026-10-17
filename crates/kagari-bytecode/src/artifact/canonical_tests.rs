@@ -17,13 +17,13 @@ use kagari_contract::native_import::NativeImport;
 use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::{
-        AssociatedConstDef, ConstDef, FieldDef, FnDecl, NativeDeclaration, TraitDef, TypeDef,
-        TypeDefKind,
+        AssociatedConstDef, AssociatedTypeDef, ConstDef, FieldDef, FnDecl, NativeDeclaration,
+        TraitDef, TypeDef, TypeDefKind,
         host::PathAccess,
         path::{HostPathDeclaration, HostPathSegmentDeclaration},
     },
     scalar::BuiltinType,
-    ty::Ty,
+    ty::{GenericBound, NominalTy, Ty},
     visibility::Visibility,
 };
 
@@ -410,6 +410,58 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
             callable_requirements: vec![],
             concrete_result: None,
         });
+    let interface = context
+        .intern_child(root, DefinitionKind::Trait, "Bound", 0)
+        .unwrap();
+    let output = context
+        .intern_child(interface, DefinitionKind::AssociatedType, "Output", 0)
+        .unwrap();
+    let mut bound_programs = Vec::new();
+    for associated in [false, true] {
+        let required = NominalTy {
+            declaration: interface,
+            arguments: if associated {
+                vec![]
+            } else {
+                vec![deep.clone()]
+            },
+            associated_types: if associated {
+                [(output, deep.clone())].into_iter().collect()
+            } else {
+                Default::default()
+            },
+        };
+        let mut generic = valid.clone();
+        let mut function = native.modules[0].native_declarations[0].function.clone();
+        function.return_type = Ty::Builtin(BuiltinType::I32);
+        function.bounds.push(GenericBound {
+            ty: Ty::Builtin(BuiltinType::I32),
+            constraints: vec![required.clone()],
+        });
+        generic.modules[0]
+            .public_items
+            .push(PublicItem::Function(function));
+        bound_programs.push(generic);
+        let mut member = valid.clone();
+        member.modules[0]
+            .public_items
+            .push(PublicItem::Trait(TraitDef {
+                conversion_adapter: None,
+                name: "Bound".into(),
+                generic_params: vec![],
+                bounds: vec![],
+                methods: vec![],
+                associated_consts: vec![],
+                associated_types: vec![AssociatedTypeDef {
+                    declaration: output,
+                    generic_params: vec![],
+                    parameter_bounds: vec![],
+                    bounds: vec![required],
+                }],
+                supertraits: vec![],
+            }));
+        bound_programs.push(member);
+    }
     let mut import = valid.clone();
     import.modules[0].native_imports.push(NativeImport {
         receiver_access: None,
@@ -427,7 +479,7 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
         requirements: vec![],
         callables: vec![],
     });
-    for program in [constant, native, import] {
+    for program in [constant, native, import].into_iter().chain(bound_programs) {
         assert!(matches!(
             KbcArtifact::from_program(program.clone(), Default::default(), &context),
             Err(ArtifactValidationError::ResourceLimit(

@@ -278,7 +278,6 @@ impl PreparedAnalysis {
             &self.lowered,
             &self.declarations,
             aggregates,
-            self.signatures.facts().type_table(),
             &mut diagnostics,
             cancel,
         );

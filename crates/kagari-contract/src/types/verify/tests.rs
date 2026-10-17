@@ -292,9 +292,11 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
             owner: trait_method,
             position: 0,
         },
-        constraints: vec![Constraint::Standard(
-            kagari_types::surface::StandardTypeConstraint::HashKey,
-        )],
+        constraints: vec![NominalTy {
+            declaration: owner(&context, &module, DefinitionKind::Trait, "Key"),
+            arguments: vec![],
+            associated_types: Default::default(),
+        }],
     });
     implemented.bounds.push(GenericBound {
         ty: Ty::Parameter {
@@ -319,15 +321,13 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &cancel
     ));
     let marker = owner(&context, &module, DefinitionKind::Trait, "Marker");
-    let applied = |parameter_owner| {
-        Constraint::Trait(NominalTy {
-            associated_types: Default::default(),
-            declaration: marker,
-            arguments: vec![Ty::Array(Box::new(Ty::Parameter {
-                owner: parameter_owner,
-                position: 0,
-            }))],
-        })
+    let applied = |parameter_owner| NominalTy {
+        associated_types: Default::default(),
+        declaration: marker,
+        arguments: vec![Ty::Array(Box::new(Ty::Parameter {
+            owner: parameter_owner,
+            position: 0,
+        }))],
     };
     declared.bounds[0].constraints = vec![applied(trait_method)];
     implemented.bounds[0].constraints = vec![applied(impl_method)];
@@ -338,9 +338,7 @@ fn interface_method_contract_substitutes_self_and_method_binders_inside_containe
         &make_table(),
         &cancel
     ));
-    let Constraint::Trait(instance) = &mut implemented.bounds[0].constraints[0] else {
-        unreachable!()
-    };
+    let instance = &mut implemented.bounds[0].constraints[0];
     instance.arguments[0] = Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool)));
     assert!(!same_method_contract(
         &declared,

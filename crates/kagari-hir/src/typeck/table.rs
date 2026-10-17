@@ -9,7 +9,7 @@ use crate::{
     },
     language::semantics as traits,
     source_map::SourceMap,
-    typeck::{constraints, scalar::ScalarValue, table::propagation::ResolvedPropagation},
+    typeck::{scalar::ScalarValue, table::propagation::ResolvedPropagation},
     types::{
         AssociatedTypeFamily, AssociatedTypeParameters, GenericParameterType, NominalType, TypeId,
         TypeSubstitution,
@@ -26,18 +26,8 @@ use kagari_common::{
 use kagari_types::{
     declaration::path::{HostPathContract, HostPathDeclaration},
     language::Protocol,
-    surface::StandardTypeConstraint,
 };
 use std::collections::{HashMap, HashSet};
-
-/// A checked standard capability or applied nominal trait requirement.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConstraintTarget {
-    /// An intrinsic standard capability constraint.
-    Standard(StandardTypeConstraint),
-    /// A nominal trait application, including arguments and associated constraints.
-    Trait(NominalType),
-}
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -192,7 +182,7 @@ pub struct TypeTable {
     /// Active type-resolution recursion guard; an ID here is being resolved, not a published type fact.
     pub(super) resolving_types: HashSet<TypeRefId>,
     /// Associated member identities mapped to declared constraint targets.
-    pub(crate) associated_bounds: HashMap<DefinitionId, Vec<ConstraintTarget>>,
+    pub(crate) associated_bounds: HashMap<DefinitionId, Vec<NominalType>>,
     /// Associated family identities mapped to their generic parameter/constraint metadata.
     pub(crate) associated_type_parameters: HashMap<DefinitionId, AssociatedTypeParameters>,
     /// Checked associated type family definitions keyed by member identity.
@@ -200,7 +190,7 @@ pub struct TypeTable {
     host_place_paths: HashMap<PlaceId, ResolvedHostPlacePath>,
     host_paths: HashMap<ExprId, ResolvedHostPath>,
     implementations: HashMap<(NominalType, TypeId), TraitImplementation>,
-    constraints: HashMap<TypeRefId, Option<ConstraintTarget>>,
+    constraints: HashMap<TypeRefId, Option<NominalType>>,
     type_refs: HashMap<TypeRefId, ResolvedTypeRef>,
     field_types: HashMap<FieldId, TypeId>,
     expr_fields: HashMap<ExprId, DefinitionId>,
@@ -570,28 +560,19 @@ impl TypeTable {
             .iter()
             .all(|(parameter, constraints)| {
                 let actual = parameter.instantiate(matched);
-                constraints.iter().all(|constraint| match constraint {
-                    ConstraintTarget::Standard(standard) => {
-                        constraints::type_satisfies_standard_constraint(
-                            definitions,
-                            &actual,
-                            *standard,
-                            &Default::default(),
-                            None,
-                        )
-                    }
-                    ConstraintTarget::Trait(trait_type) => self.implements_with_guard(
+                constraints.iter().all(|trait_type| {
+                    self.implements_with_guard(
                         definitions,
                         &trait_type.instantiate(matched),
                         &actual,
                         visiting,
-                    ),
+                    )
                 })
             })
     }
 
     /// Records/replaces the resolved constraint target under the matching node ID.
-    pub(crate) fn insert_constraint(&mut self, id: TypeRefId, target: Option<ConstraintTarget>) {
+    pub(crate) fn insert_constraint(&mut self, id: TypeRefId, target: Option<NominalType>) {
         self.constraints.insert(id, target);
     }
 
@@ -1137,7 +1118,7 @@ impl TypeTable {
     }
 
     /// Returns the recorded resolved constraint target, or `None` when no such fact was recorded.
-    pub fn constraint(&self, id: TypeRefId) -> Option<ConstraintTarget> {
+    pub fn constraint(&self, id: TypeRefId) -> Option<NominalType> {
         self.constraints.get(&id).cloned().flatten()
     }
 

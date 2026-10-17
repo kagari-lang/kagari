@@ -125,6 +125,18 @@ requirements. `TypeBuilder` declares a nominal native type and its storage.
 `implement` introduces scoped implementation parameters; `inherent_impl` and
 `trait_impl` declare the appropriate method groups. Native implementations
 reference complete checked trait contracts instead of redeclaring them.
+Generic and associated bounds contain ordinary applied trait records, including
+their exact identities, arguments and associated outputs; there is no separate
+builtin-constraint variant. Bound normalization preserves complete applications
+and canonical identity order, and declaration/loading checks still enforce trait
+kind, arity, member ownership and binder scope. Source operators use the same
+[operation-specific bounds](traits.md#operation-specific-bounds).
+
+A bound is not a callable dependency. For example, a hash key requires Eq + Hash,
+while a selected equality callback names PartialEq::eq. Native declarations keep
+both the admission requirement and the exact executable dependency; shared callers
+forward checked operations without runtime trait lookup.
+
 Collection interfaces use ordinary methods and parent traits. There is no
 storage-access marker on trait declarations. Installed implementations can supply
 protocols for nominal interface values; type-owned protocols belong to that

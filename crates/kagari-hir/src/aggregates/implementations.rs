@@ -11,10 +11,8 @@ use crate::{
     native::NativeBinding,
     resolver::resolved::ResolvedName,
     typeck::{
-        GenericBounds, ModuleSignatures, associated,
-        check::possibly_overlapping_impls,
-        constraints::type_satisfies_standard_constraint,
-        table::{ConstraintTarget, match_implementation},
+        GenericBounds, ModuleSignatures, associated, check::possibly_overlapping_impls,
+        table::match_implementation,
     },
     types::{AssociatedTypeFamily, GenericParameterType, NominalType, TypeId, TypeSubstitution},
 };
@@ -281,10 +279,10 @@ impl AggregateCatalog {
         }
         if let Some(constraints) = budget.assumptions.get(ty) {
             for constraint in constraints {
-                if let ConstraintTarget::Trait(nominal) = constraint
-                    && (Some(nominal) == interface.as_ref()
-                        || protocol == Protocol::PartialEq
-                            && Protocol::Eq.nominal(budget.definitions).as_ref() == Some(nominal))
+                let nominal = constraint;
+                if Some(nominal) == interface.as_ref()
+                    || protocol == Protocol::PartialEq
+                        && Protocol::Eq.nominal(budget.definitions).as_ref() == Some(nominal)
                 {
                     return Ok(true);
                 }
@@ -855,96 +853,86 @@ impl AggregateCatalog {
                         .cancel
                         .check()
                         .map_err(|_| ImplementationSearchError::Cancelled)?;
-                    let satisfied = match constraint {
-                        ConstraintTarget::Standard(standard) => type_satisfies_standard_constraint(
+                    let satisfied = {
+                        let required = constraint;
+
+                        if budget.depth >= budget.max_depth {
+                            return Err(ImplementationSearchError::LimitExceeded);
+                        }
+                        let required = required.instantiate(&matched);
+                        if budget.assumptions.get(&actual).is_some_and(|bounds| {
+                            bounds
+                                .iter()
+                                .any(|available| available.satisfies(&required))
+                        }) {
+                            continue;
+                        }
+                        if required.arguments.is_empty()
+                            && required.associated_types.is_empty()
+                            && let Some(protocol) =
+                                Protocol::from_definition(&required.declaration, budget.definitions)
+                            && protocol.equality_protocol()
+                        {
+                            // Equality depends on explicit implementations
+                            // and core enum payloads. A catalog-free
+                            // intrinsic answer cannot establish this bound.
+                            if self.standard_holds(protocol, &actual, visiting, budget)? {
+                                continue;
+                            }
+                            return Ok(false);
+                        }
+                        if traits::intrinsic_applies(
                             budget.definitions,
+                            &required,
                             &actual,
-                            *standard,
+                            None,
                             budget.assumptions,
-                            Some(self),
-                        ),
-                        ConstraintTarget::Trait(required) => {
-                            if budget.depth >= budget.max_depth {
-                                return Err(ImplementationSearchError::LimitExceeded);
-                            }
-                            let required = required.instantiate(&matched);
-                            if budget.assumptions.get(&actual).is_some_and(|bounds| {
-                                bounds.iter().any(|bound| {
-                                    matches!(bound, ConstraintTarget::Trait(available)
-                                        if available.satisfies(&required))
-                                })
-                            }) {
-                                continue;
-                            }
-                            if required.arguments.is_empty()
-                                && required.associated_types.is_empty()
-                                && let Some(protocol) = Protocol::from_definition(
-                                    &required.declaration,
-                                    budget.definitions,
-                                )
-                                && protocol.equality_protocol()
-                            {
-                                // Equality depends on explicit implementations
-                                // and core enum payloads. A catalog-free
-                                // intrinsic answer cannot establish this bound.
-                                if self.standard_holds(protocol, &actual, visiting, budget)? {
-                                    continue;
+                        ) {
+                            continue;
+                        }
+                        if required.arguments.is_empty()
+                            && required.associated_types.is_empty()
+                            && let Some(protocol) =
+                                Protocol::from_definition(&required.declaration, budget.definitions)
+                            && self.standard_holds(protocol, &actual, visiting, budget)?
+                        {
+                            continue;
+                        }
+                        budget.depth += 1;
+                        let found = (|| {
+                            for candidate in self.implementations.values() {
+                                if self
+                                    .implementation_matches(
+                                        candidate, &required, &actual, visiting, budget,
+                                    )?
+                                    .is_some()
+                                {
+                                    return Ok(true);
                                 }
-                                return Ok(false);
                             }
-                            if traits::intrinsic_applies(
-                                budget.definitions,
-                                &required,
-                                &actual,
-                                None,
-                                budget.assumptions,
-                            ) {
-                                continue;
-                            }
-                            if required.arguments.is_empty()
-                                && required.associated_types.is_empty()
-                                && let Some(protocol) = Protocol::from_definition(
-                                    &required.declaration,
-                                    budget.definitions,
-                                )
-                                && self.standard_holds(protocol, &actual, visiting, budget)?
+                            if let Some(iterator) =
+                                traits::iterator_requirement(budget.definitions, &required, &actual)
                             {
-                                continue;
-                            }
-                            budget.depth += 1;
-                            let found = (|| {
+                                if budget.assumptions.get(&actual).is_some_and(|bounds| {
+                                    bounds.iter().any(|n| n.satisfies(&iterator))
+                                }) {
+                                    return Ok(true);
+                                }
                                 for candidate in self.implementations.values() {
                                     if self
                                         .implementation_matches(
-                                            candidate, &required, &actual, visiting, budget,
+                                            candidate, &iterator, &actual, visiting, budget,
                                         )?
                                         .is_some()
                                     {
                                         return Ok(true);
                                     }
                                 }
-                                if let Some(iterator) = traits::iterator_requirement(
-                                    budget.definitions,
-                                    &required,
-                                    &actual,
-                                ) {
-                                    if budget.assumptions.get(&actual).is_some_and(|bounds| bounds.iter().any(|b|matches!(b,ConstraintTarget::Trait(n) if n.satisfies(&iterator)))) {return Ok(true);}
-                                    for candidate in self.implementations.values() {
-                                        if self
-                                            .implementation_matches(
-                                                candidate, &iterator, &actual, visiting, budget,
-                                            )?
-                                            .is_some()
-                                        {
-                                            return Ok(true);
-                                        }
-                                    }
-                                }
-                                Ok(false)
-                            })();
-                            budget.depth -= 1;
-                            found?
-                        }
+                            }
+                            Ok(false)
+                        })();
+                        budget.depth -= 1;
+                        found?
                     };
                     if !satisfied {
                         return Ok(false);
@@ -1010,7 +998,7 @@ fn implementation_member(
 #[cfg(test)]
 mod search_tests {
     use super::*;
-    use crate::{typeck::table::ConstraintTarget, types::TypeId};
+    use crate::types::TypeId;
     use kagari_common::identity::{
         DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
     };
@@ -1097,11 +1085,11 @@ mod search_tests {
         let next = definition(&context, DefinitionKind::Trait, "Next");
         chained.bounds.insert(
             TypeId::Generic(parameter.clone()),
-            vec![ConstraintTarget::Trait(NominalType {
+            vec![NominalType {
                 associated_types: Default::default(),
                 declaration: next,
                 arguments: vec![TypeId::Generic(parameter.clone())],
-            })],
+            }],
         );
         let next_parameter = GenericParameterType {
             owner: definition(&context, DefinitionKind::Impl, "next"),

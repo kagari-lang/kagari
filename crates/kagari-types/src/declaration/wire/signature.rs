@@ -4,7 +4,7 @@ use crate::{
     declaration::{
         FnDecl, Param,
         host::HostCallPolicy,
-        wire::leaf::{CallableImplementationRecord, ConstraintRecord},
+        wire::leaf::{CallableImplementationRecord, NominalTyRecord},
     },
     decode_limits,
     ty::{GenericBound, GenericParam, wire::WireType},
@@ -60,7 +60,7 @@ impl GenericParamRecord {
 pub struct GenericBoundRecord {
     ty: WireType,
     #[serde(deserialize_with = "decode_limits::nested")]
-    constraints: Vec<ConstraintRecord>,
+    constraints: Vec<NominalTyRecord>,
 }
 
 impl GenericBoundRecord {
@@ -77,7 +77,7 @@ impl GenericBoundRecord {
             constraints: value
                 .constraints
                 .iter()
-                .map(|value| ConstraintRecord::encode(value, encoding, cancel))
+                .map(|value| NominalTyRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
         })
     }

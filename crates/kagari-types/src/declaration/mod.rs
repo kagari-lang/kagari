@@ -22,7 +22,7 @@ use crate::{
         native::{NativeStorageLayout, NativeTypeConstructor},
         requirement::NativeCallableRequirement,
     },
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
 };
 use kagari_common::identity::{DefinitionKind, table::DefinitionId};
@@ -151,7 +151,7 @@ pub struct AssociatedTypeDef {
     pub generic_params: Vec<GenericParam>,
     pub parameter_bounds: Vec<GenericBound>,
     pub declaration: DefinitionId,
-    pub bounds: Vec<Constraint>,
+    pub bounds: Vec<NominalTy>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

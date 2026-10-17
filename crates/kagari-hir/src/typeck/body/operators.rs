@@ -13,15 +13,12 @@ use crate::{
         ids::ExprId,
     },
     language::{semantics as traits, semantics::callable_signature},
-    typeck::{
-        BodyTypeEnv, body::BodyChecker, completion, constraints, table::CallTarget,
-        ty::display_type_id,
-    },
+    typeck::{BodyTypeEnv, body::BodyChecker, completion, table::CallTarget, ty::display_type_id},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{cancellation::Cancelled, identity::DefinitionKind};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{language::Protocol, scalar::BuiltinType, surface::StandardTypeConstraint};
+use kagari_types::{language::Protocol, scalar::BuiltinType};
 
 impl BodyChecker<'_> {
     pub(super) fn infer_prefix_operator(
@@ -64,12 +61,8 @@ impl BodyChecker<'_> {
         match op {
             PrefixOp::Neg => {
                 if completes
-                    && constraints::known_type_violates_constraint(
-                        self.declarations.definitions(),
-                        &inner,
-                        StandardTypeConstraint::SignedNumber,
-                        &env.generic_bounds,
-                    )
+                    && !matches!(inner, TypeId::Unknown | TypeId::Error)
+                    && !surface::supports_unary_negation(&inner)
                 {
                     self.diagnostics.push(
                         Diagnostic::error(DiagnosticKind::UnaryOperandTypeMismatch {
@@ -385,7 +378,7 @@ impl<'a> BodyChecker<'a> {
         let rhs_ty = rhs_ty.unwrap_or(TypeId::Unknown);
         match op {
             BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul | BinaryOp::Div | BinaryOp::Rem => {
-                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty, env) {
+                if !self.matching_numeric_operands(&lhs_ty, &rhs_ty) {
                     self.emit_binary_operand_type_mismatch(
                         op,
                         "matching numeric",
@@ -484,13 +477,6 @@ impl<'a> BodyChecker<'a> {
                             .language_trait(Protocol::PartialOrd)
                             .and_then(|requested| self.select_operator(ty, requested, env))
                             .is_some()
-                        || constraints::type_satisfies_standard_constraint(
-                            self.declarations.definitions(),
-                            ty,
-                            StandardTypeConstraint::OrderedNumber,
-                            &env.generic_bounds,
-                            Some(self.aggregates),
-                        )
                 };
                 if lhs_ty.conflicts_with(&rhs_ty)
                     || !supports_ordering(&lhs_ty)
@@ -517,34 +503,15 @@ impl<'a> BodyChecker<'a> {
         }
     }
 
-    pub(super) fn matching_numeric_operands(
-        &self,
-        lhs: &TypeId,
-        rhs: &TypeId,
-        env: &BodyTypeEnv,
-    ) -> bool {
+    pub(super) fn matching_numeric_operands(&self, lhs: &TypeId, rhs: &TypeId) -> bool {
         if matches!(lhs, TypeId::Unknown | TypeId::Error)
             || matches!(rhs, TypeId::Unknown | TypeId::Error)
         {
-            return ![lhs, rhs].into_iter().any(|ty| {
-                constraints::known_type_violates_constraint(
-                    self.declarations.definitions(),
-                    ty,
-                    StandardTypeConstraint::OrderedNumber,
-                    &env.generic_bounds,
-                )
+            return [lhs, rhs].into_iter().all(|ty| {
+                matches!(ty, TypeId::Unknown | TypeId::Error) || surface::is_numeric(ty)
             });
         }
         surface::supports_arithmetic(lhs, rhs)
-            || (lhs == rhs
-                && matches!(lhs, TypeId::Generic(_))
-                && constraints::type_satisfies_standard_constraint(
-                    self.declarations.definitions(),
-                    lhs,
-                    StandardTypeConstraint::OrderedNumber,
-                    &env.generic_bounds,
-                    Some(self.aggregates),
-                ))
     }
 
     pub(super) fn emit_binary_operand_type_mismatch(

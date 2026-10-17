@@ -16,7 +16,7 @@ use kagari_types::{
     callable::{CallableImplementation, Signature},
     declaration::requirement::NativeCallableRequirement,
     language::{Protocol, adapter::adapter_contract},
-    ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeTransformError},
+    ty::{GenericBound, GenericParam, Ty, substitution::TypeTransformError},
 };
 
 /// A tuple operation composed from independently checked element operations.
@@ -67,7 +67,7 @@ impl SharedAdapterWitness {
             .iter()
             .map(|parameter| GenericBound {
                 ty: parameter.as_type(),
-                constraints: vec![Constraint::Trait(self.requirement.interface.clone())],
+                constraints: vec![self.requirement.interface.clone()],
             })
             .collect();
         let required = NativeCallableRequirement {

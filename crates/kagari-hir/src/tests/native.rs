@@ -15,7 +15,7 @@ use kagari_types::{
     language,
     language::Protocol,
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 use std::sync::Arc;
 
@@ -49,9 +49,9 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             bounds: if name == "choose" {
                 vec![GenericBound {
                     ty: parameter.as_type(),
-                    constraints: vec![Constraint::Trait(
+                    constraints: vec![
                         primitive::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap(),
-                    )],
+                    ],
                 }]
             } else {
                 vec![]
@@ -96,7 +96,7 @@ pub(crate) fn module() -> Arc<DefinitionMetadata<ModuleDecl>> {
             generic_params: vec![parameter.clone()],
             bounds: vec![GenericBound {
                 ty: parameter.as_type(),
-                constraints: vec![Constraint::Trait(interface.clone())],
+                constraints: vec![interface.clone()],
             }],
             params: vec![Param {
                 name: "value".into(),
@@ -267,7 +267,7 @@ pub(crate) fn text_items_module(
             generic_params: vec![],
             bounds: vec![GenericBound {
                 ty: Ty::SelfType(owner),
-                constraints: vec![Constraint::Trait(required.clone())],
+                constraints: vec![required.clone()],
             }],
             params: vec![Param {
                 name: "self".into(),
@@ -317,7 +317,7 @@ pub(crate) fn text_items_module(
             generic_params: vec![parameter.clone()],
             bounds: vec![GenericBound {
                 ty: receiver.clone(),
-                constraints: vec![Constraint::Trait(required.clone())],
+                constraints: vec![required.clone()],
             }],
             params: vec![Param {
                 name: "self".into(),

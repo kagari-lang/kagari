@@ -10,7 +10,7 @@ use kagari_types::{
         module::{DeclarationError, ImplDecl, ModuleDecl},
         requirement::NativeCallableRequirement,
     },
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 
 fn projection(ids: &DefinitionContext, name: &str) -> Result<Ty, DeclarationError> {
@@ -146,7 +146,7 @@ pub(super) fn implementations(
             let implementation = module.implementations.last_mut().unwrap();
             let bound = GenericBound {
                 ty: arguments[1].clone(),
-                constraints: vec![Constraint::Trait(interface.clone())],
+                constraints: vec![interface.clone()],
             };
             implementation.bounds.push(bound.clone());
             let member = identities::method(

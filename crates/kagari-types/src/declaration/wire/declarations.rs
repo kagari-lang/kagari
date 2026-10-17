@@ -5,7 +5,7 @@ use crate::{
         TypeDeclaration, TypeDef, TypeDefKind, VariantDef,
         host::HostFieldPolicy,
         wire::{
-            leaf::{ConstraintRecord, ConversionAdapterRecord, NominalTyRecord},
+            leaf::{ConversionAdapterRecord, NominalTyRecord},
             signature::{FnDeclRecord, GenericBoundRecord, GenericParamRecord},
         },
     },
@@ -407,7 +407,7 @@ struct AssociatedTypeDefRecord {
     parameter_bounds: Vec<GenericBoundRecord>,
     declaration: PortableDefinitionRef,
     #[serde(deserialize_with = "decode_limits::nested")]
-    bounds: Vec<ConstraintRecord>,
+    bounds: Vec<NominalTyRecord>,
 }
 
 impl AssociatedTypeDefRecord {
@@ -434,7 +434,7 @@ impl AssociatedTypeDefRecord {
             bounds: value
                 .bounds
                 .iter()
-                .map(|value| ConstraintRecord::encode(value, encoding, cancel))
+                .map(|value| NominalTyRecord::encode(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
         })
     }

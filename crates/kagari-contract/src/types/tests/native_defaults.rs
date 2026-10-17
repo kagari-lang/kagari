@@ -18,7 +18,7 @@ use kagari_types::{
     },
     scalar::BuiltinType,
     ty::{
-        Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        GenericBound, GenericParam, NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError},
     },
 };
@@ -90,7 +90,7 @@ impl Fixture {
         body.generic_params.push(parameter.clone());
         body.bounds.push(GenericBound {
             ty: parameter.as_type(),
-            constraints: vec![Constraint::Trait(interface(&owner, vec![]))],
+            constraints: vec![interface(&owner, vec![])],
         });
         let application = NativeDefaultApplication {
             declaration,
@@ -241,11 +241,10 @@ fn default_contracts_reject_missing_templates_wrong_shapes_and_stronger_bounds()
                 application.arguments.clear();
             }
             4 => {
-                fixture.template.function.bounds[0].constraints =
-                    vec![Constraint::Trait(interface(
-                        &identity(&fixture.context, DefinitionKind::Trait, "Other"),
-                        vec![],
-                    ))]
+                fixture.template.function.bounds[0].constraints = vec![interface(
+                    &identity(&fixture.context, DefinitionKind::Trait, "Other"),
+                    vec![],
+                )]
             }
             _ => unreachable!(),
         }
@@ -298,8 +297,7 @@ fn default_template_obligations_include_declared_parent_traits() {
         .contract
         .supertraits
         .push(interface(&parent_owner, vec![]));
-    fixture.template.function.bounds[0].constraints =
-        vec![Constraint::Trait(interface(&parent_owner, vec![]))];
+    fixture.template.function.bounds[0].constraints = vec![interface(&parent_owner, vec![])];
     let cancel = CancellationToken::default();
     assert!(
         ProofCatalog::new(
@@ -433,10 +431,7 @@ fn trait_arguments_and_self_follow_the_declared_template_order() {
     fixture.template.function.return_type = value.as_type();
     fixture.template.function.bounds[0] = GenericBound {
         ty: receiver.as_type(),
-        constraints: vec![Constraint::Trait(interface(
-            &fixture.owner,
-            vec![value.as_type()],
-        ))],
+        constraints: vec![interface(&fixture.owner, vec![value.as_type()])],
     };
     let boolean = Ty::Builtin(BuiltinType::Bool);
     fixture.table.trait_type = Ty::Trait(interface(&fixture.owner, vec![scalar()]));
@@ -512,10 +507,7 @@ fn associated_output_maps_to_the_registered_template_result() {
         .generic_params
         .push(parameter.clone());
     fixture.template.function.return_type = parameter.as_type();
-    let Constraint::Trait(required) = &mut fixture.template.function.bounds[0].constraints[0]
-    else {
-        unreachable!()
-    };
+    let required = &mut fixture.template.function.bounds[0].constraints[0];
     required
         .associated_types
         .insert(output, parameter.as_type());
@@ -640,7 +632,7 @@ fn registered_generic_impl_checks_nested_obligations_before_selecting_its_defaul
         generic_params: vec![parameter.clone()],
         bounds: vec![GenericBound {
             ty: parameter.as_type(),
-            constraints: vec![Constraint::Trait(applied.clone())],
+            constraints: vec![applied.clone()],
         }],
         trait_type: Some(applied.clone()),
         for_type: Ty::Array(Box::new(parameter.as_type())),
@@ -818,7 +810,7 @@ fn unspecified_associated_output_proves_only_its_own_projection() {
     let available = interface(&fixture.owner, vec![]);
     let assumptions = [GenericBound {
         ty: receiver.clone(),
-        constraints: vec![Constraint::Trait(available.clone())],
+        constraints: vec![available.clone()],
     }];
     let projection = Ty::Projection {
         receiver: Box::new(receiver.clone()),
@@ -858,7 +850,7 @@ fn unspecified_associated_output_proves_only_its_own_projection() {
     constrained.associated_types.insert(output, scalar());
     let concrete_assumption = [GenericBound {
         ty: receiver.clone(),
-        constraints: vec![Constraint::Trait(constrained.clone())],
+        constraints: vec![constrained.clone()],
     }];
     assert!(
         catalog

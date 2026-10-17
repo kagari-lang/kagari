@@ -94,7 +94,7 @@ impl Take for Count { fn take(self, input: bool) -> i32 { self.value += 100; 0 }
 fn tick(count: Count) -> bool { count.value += 1; true }
 fn later(count: Count) -> i32 { count.value += 100; 99 }
 fn take(count: Count, value: i32) -> i32 { count.value += 100; value }
-fn generic_take<T: SignedNumber>(count: Count, value: T) -> i32 { count.value += 100; 0 }
+fn generic_take<T: Take>(count: Count, value: T) -> i32 { count.value += 100; value.take(true) }
 fn bound_take<T: Take>(value: T, count: Count) -> i32 {
     value.take(if tick(count) { return 40; } else { return 0; })
 }

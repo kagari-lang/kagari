@@ -8,7 +8,7 @@ use kagari_common::identity::map::DefinitionContext;
 use kagari_types::{
     declaration::{TraitDef, module::DeclarationError},
     scalar::BuiltinType,
-    ty::{Constraint, NominalTy, Ty},
+    ty::{NominalTy, Ty},
 };
 use std::collections::BTreeMap;
 
@@ -91,7 +91,7 @@ pub(super) fn declarations(ids: &DefinitionContext) -> Result<Vec<TraitDef>, Dec
         ids,
         &key::identity(ids, iterable_kind)?,
         "Iter",
-        vec![Constraint::Trait(iter_bound)],
+        vec![iter_bound],
     )?);
     iterable.methods.push(contracts::method(
         "iter",

@@ -1,5 +1,5 @@
 //! Bounded binder substitution over executable types, without source inference.
-use crate::ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty};
+use crate::ty::{GenericBound, GenericParam, NominalTy, Ty};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::table::{DefinitionId, DefinitionTable},
@@ -72,15 +72,7 @@ impl<'a> TypeSubstitution<'a> {
                     constraints: bound
                         .constraints
                         .iter()
-                        .map(|constraint| {
-                            Ok(match constraint {
-                                Constraint::Standard(value) => Constraint::Standard(*value),
-                                Constraint::Trait(value) => {
-                                    let value = self.apply_nominal(value, cancel)?;
-                                    Constraint::Trait(value)
-                                }
-                            })
-                        })
+                        .map(|constraint| self.apply_nominal(constraint, cancel))
                         .collect::<Result<_, _>>()?,
                 })
             })

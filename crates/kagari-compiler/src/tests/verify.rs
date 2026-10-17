@@ -24,13 +24,13 @@ use kagari_mir::{
     function::{MirModule, MirTemp},
     ids::{BlockId, InstanceId, LocalId, TempId},
     instruction::{CallTarget, Constant, Instruction, MirValue, PathRef, Terminator},
+    program::{ProgramErrorKind, verify_program as verify_mir_program},
     verify::{MirVerificationErrorKind as Error, verify_mir},
 };
 use kagari_types::{
     declaration::{FieldDef, TypeDefKind, VariantDef},
     scalar::BuiltinType,
-    surface::StandardTypeConstraint,
-    ty::{Constraint, GenericBound, NominalTy, Ty, identity::PortableTypes},
+    ty::{GenericBound, NominalTy, Ty, identity::PortableTypes},
     visibility::Visibility,
 };
 use std::slice;
@@ -398,7 +398,10 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
 #[test]
 fn conflicting_native_contracts_cannot_be_hidden_by_import_interning() {
     let context = DefinitionContext::new().unwrap();
-    let checked = common::mir_ok(r#"fn main() { print("one"); print("two"); }"#);
+    let checked = common::mir_ok(
+        r#"trait Marker {} impl Marker for i32 {}
+        fn main() { print("one"); print("two"); }"#,
+    );
     let mut program = checked
         .into_unverified()
         .import_into(&context, &Default::default())
@@ -409,6 +412,13 @@ fn conflicting_native_contracts_cannot_be_hidden_by_import_interning() {
         .iter_mut()
         .find(|module| module.identity == program.root)
         .unwrap();
+    let marker = root
+        .abi
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Marker")
+        .expect("declared marker trait")
+        .declaration;
     let mut calls = root
         .functions
         .iter_mut()
@@ -425,9 +435,21 @@ fn conflicting_native_contracts_cannot_be_hidden_by_import_interning() {
     // The per-call application cannot replace its defining provider's signature.
     calls.next().unwrap().requirements.push(GenericBound {
         ty: Ty::Builtin(BuiltinType::I32),
-        constraints: vec![Constraint::Standard(StandardTypeConstraint::SignedNumber)],
+        constraints: vec![NominalTy {
+            declaration: marker,
+            arguments: vec![],
+            associated_types: Default::default(),
+        }],
     });
-    assert!(kagari_mir::program::verify_program(program, &context, &Default::default()).is_err());
+    // The added bound has a real declaration and an implementation for i32;
+    // its local shape is valid, but the provider never declared this requirement.
+    common::verify_edited(&context, root.clone()).unwrap();
+    assert!(matches!(
+        verify_mir_program(program, &context, &Default::default())
+            .unwrap_err()
+            .kind,
+        ProgramErrorKind::InvalidGraph,
+    ));
 }
 
 fn reject(context: &DefinitionContext, module: MirModule) -> Error {

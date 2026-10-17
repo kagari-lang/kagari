@@ -19,7 +19,7 @@ use kagari_types::{
     declaration::{FnDecl, TraitDef, ownership::ReceiverOwners},
     decode_limits,
     ty::{
-        Constraint, GenericParam, NominalTy, Ty,
+        GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
         substitution::{TypeSubstitution, TypeTransformError, normalize_projections},
     },
@@ -664,7 +664,7 @@ fn method_contract_matches(
             })
 }
 
-type NormalizedBounds = BTreeMap<Ty, Vec<Constraint>>;
+type NormalizedBounds = BTreeMap<Ty, Vec<NominalTy>>;
 
 fn normalized_bounds(
     function: &FnDecl,
@@ -677,17 +677,11 @@ fn normalized_bounds(
             let mut constraints = bound
                 .constraints
                 .iter()
-                .map(|constraint| {
-                    Some(match constraint {
-                        Constraint::Standard(value) => Constraint::Standard(*value),
-                        Constraint::Trait(value) => {
-                            let Ty::Trait(value) = normalize(&Ty::Trait(value.clone())).ok()?
-                            else {
-                                return None;
-                            };
-                            Constraint::Trait(value)
-                        }
-                    })
+                .map(|value| {
+                    let Ty::Trait(value) = normalize(&Ty::Trait(value.clone())).ok()? else {
+                        return None;
+                    };
+                    Some(value)
                 })
                 .collect::<Option<Vec<_>>>()?;
             constraints.sort();

@@ -8,7 +8,6 @@ use kagari_types::{
     declaration::{AssociatedTypeDef, AssociatedTypeFamily},
     language,
     scalar::BuiltinType,
-    ty::Constraint,
 };
 
 fn id(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> DefinitionId {
@@ -89,9 +88,7 @@ fn linked_associated_bounds_reject_corrupted_outputs_and_missing_parent_implemen
         declaration: member,
         generic_params: vec![],
         parameter_bounds: vec![],
-        bounds: vec![Constraint::Trait(
-            primitive::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap(),
-        )],
+        bounds: vec![primitive::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap()],
     });
     interface
         .associated_types
@@ -146,8 +143,7 @@ fn linked_family_bounds_use_declared_input_assumptions_and_check_unused_projecti
         owner: member,
         position: 0,
     };
-    let hash =
-        Constraint::Trait(primitive::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap());
+    let hash = primitive::applied(Protocol::Hash, vec![], &context.snapshot()).unwrap();
     let mut declaration = record("Family");
     declaration.associated_types.push(AssociatedTypeDef {
         declaration: member,

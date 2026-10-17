@@ -12,7 +12,7 @@ use kagari_types::{
     declaration::path::HostPathSegmentDeclaration,
     declaration::{FnDecl, NativeDeclaration, TypeDef, TypeDefKind, module::ModuleDecl},
     ty::{
-        Constraint, GenericBound, NominalTy, Ty,
+        GenericBound, NominalTy, Ty,
         matching::{ImplementationPattern, match_pattern},
     },
 };
@@ -112,11 +112,9 @@ impl References {
         Ok(())
     }
 
-    fn constraints(&mut self, constraints: &[Constraint]) -> Result<(), RuntimeError> {
-        for constraint in constraints {
-            if let Constraint::Trait(nominal) = constraint {
-                self.nominal(nominal)?;
-            }
+    fn constraints(&mut self, constraints: &[NominalTy]) -> Result<(), RuntimeError> {
+        for interface in constraints {
+            self.nominal(interface)?;
         }
         Ok(())
     }
@@ -125,11 +123,9 @@ impl References {
         for bound in bounds {
             self.ty(&bound.ty)?;
             self.constraints(&bound.constraints)?;
-            for constraint in &bound.constraints {
-                if let Constraint::Trait(interface) = constraint {
-                    self.pending
-                        .push(Reference::Obligation(bound.ty.clone(), interface.clone()));
-                }
+            for interface in &bound.constraints {
+                self.pending
+                    .push(Reference::Obligation(bound.ty.clone(), interface.clone()));
             }
         }
         Ok(())

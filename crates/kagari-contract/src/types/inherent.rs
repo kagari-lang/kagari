@@ -15,11 +15,7 @@ use kagari_common::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, NativeDeclaration},
-    ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
-};
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
+    ty::{GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 
 /// Only publicly callable members are exported. Private and parent-visible
@@ -111,50 +107,15 @@ pub fn native_signatures_match(
                 .chain(&method.generic_params)
                 .cloned()
                 .collect();
-            let mut bounds = BTreeMap::<Ty, BTreeSet<Constraint>>::new();
-            for bound in table.bounds.iter().chain(&method.bounds) {
-                bounds
-                    .entry(bound.ty.clone())
-                    .or_default()
-                    .extend(bound.constraints.clone());
-            }
-            function.bounds = bounds
-                .into_iter()
-                .map(|(ty, constraints)| GenericBound {
-                    ty,
-                    constraints: constraints.into_iter().collect(),
-                })
-                .collect();
-            let cancel = CancellationToken::default();
-            let mut valid = true;
-            function.bounds.sort_by(|left, right| {
-                left.ty
-                    .canonical_cmp(&right.ty, definitions, &cancel)
-                    .unwrap_or_else(|_| {
-                        valid = false;
-                        Ordering::Equal
-                    })
-            });
-            for bound in &mut function.bounds {
-                bound
-                    .constraints
-                    .sort_by(|left, right| match (left, right) {
-                        (Constraint::Standard(left), Constraint::Standard(right)) => {
-                            left.cmp(right)
-                        }
-                        (Constraint::Standard(_), Constraint::Trait(_)) => Ordering::Less,
-                        (Constraint::Trait(_), Constraint::Standard(_)) => Ordering::Greater,
-                        (Constraint::Trait(left), Constraint::Trait(right)) => {
-                            Ty::Trait(left.clone())
-                                .canonical_cmp(&Ty::Trait(right.clone()), definitions, &cancel)
-                                .unwrap_or_else(|_| {
-                                    valid = false;
-                                    Ordering::Equal
-                                })
-                        }
-                    });
-            }
-            valid && function == declaration.function
+            let Ok(bounds) = GenericBound::normalize(
+                table.bounds.iter().chain(&method.bounds).cloned(),
+                definitions,
+                &CancellationToken::default(),
+            ) else {
+                return false;
+            };
+            function.bounds = bounds;
+            function == declaration.function
         })
     })
 }

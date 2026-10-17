@@ -1,5 +1,5 @@
 //! Explicit scoped identity traversal of semantic types and generic constraints.
-use crate::ty::{Constraint, GenericBound, GenericParam, NominalTy};
+use crate::ty::{GenericBound, GenericParam, NominalTy};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -100,36 +100,6 @@ impl DefinitionReferences for GenericBound {
         self.ty.visit_definition_ids(visit, cancel)?;
         for value0 in &self.constraints {
             (value0).visit_definition_ids(visit, cancel)?;
-        }
-        Ok(())
-    }
-}
-
-impl RemapDefinitions for Constraint {
-    fn remap_definitions(
-        &self,
-        mapper: &mut DefinitionMapper<'_>,
-    ) -> Result<Self, DefinitionMappingError> {
-        mapper.check()?;
-        Ok(match self {
-            Self::Standard(field0) => Constraint::Standard(*(field0)),
-            Self::Trait(field0) => Constraint::Trait((field0).remap_definitions(mapper)?),
-        })
-    }
-}
-
-impl DefinitionReferences for Constraint {
-    fn visit_definition_ids(
-        &self,
-        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
-        cancel: &CancellationToken,
-    ) -> Result<(), DefinitionMappingError> {
-        check_cancel(cancel)?;
-        match self {
-            Self::Standard(_) => {}
-            Self::Trait(field0) => {
-                (field0).visit_definition_ids(visit, cancel)?;
-            }
         }
         Ok(())
     }

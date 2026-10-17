@@ -7,11 +7,7 @@ use kagari_common::identity::{
 };
 use kagari_contract::types::PublicItem;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_types::{
-    scalar::BuiltinType,
-    surface::StandardTypeConstraint,
-    ty::{Constraint, Ty},
-};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn execute_artifact(engine: &KagariEngine, artifact: DefinitionMetadata<BytecodeArtifact>) {
     execution::assert_returns_i32(
@@ -241,10 +237,8 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
                     }
                 }
                 PublicItem::Trait(contract) if mutation == 2 => {
-                    contract.associated_types[0].bounds = vec![
-                        Constraint::Standard(StandardTypeConstraint::HashKey),
-                        Constraint::Standard(StandardTypeConstraint::HashKey),
-                    ];
+                    let bounds = &mut contract.associated_types[0].bounds;
+                    bounds.push(bounds[0].clone());
                 }
                 _ => {}
             }

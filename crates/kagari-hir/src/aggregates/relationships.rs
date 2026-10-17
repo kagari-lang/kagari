@@ -5,7 +5,7 @@ use crate::{
         AggregateCatalog,
         implementations::{ImplementationSearchError, ImplementationSearchLimits},
     },
-    typeck::{GenericBounds, inference, table::ConstraintTarget},
+    typeck::{GenericBounds, inference},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
@@ -88,9 +88,8 @@ impl AggregateCatalog {
             && let Some(contract) = self.trait_(&interface.declaration)
         {
             let mut applied = (**interface).clone();
-            for bound in assumptions.get(receiver.as_ref()).into_iter().flatten() {
-                if let ConstraintTarget::Trait(available) = bound
-                    && available.declaration == applied.declaration
+            for available in assumptions.get(receiver.as_ref()).into_iter().flatten() {
+                if available.declaration == applied.declaration
                     && available.arguments == applied.arguments
                 {
                     applied
@@ -120,24 +119,18 @@ impl AggregateCatalog {
                     .get(member)
                     .into_iter()
                     .flatten()
-                    .map(|bound| match bound {
-                        ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
-                        ConstraintTarget::Trait(value) => {
-                            let TypeId::Trait(value) = TypeId::Trait(value.clone())
-                                .instantiate(&substitution)
-                                .with_associated_types(&applied, receiver)
-                            else {
-                                unreachable!("associated trait bound");
-                            };
-                            ConstraintTarget::Trait(value)
-                        }
+                    .map(|value| {
+                        let TypeId::Trait(value) = TypeId::Trait(value.clone())
+                            .instantiate(&substitution)
+                            .with_associated_types(&applied, receiver)
+                        else {
+                            unreachable!("associated trait bound");
+                        };
+                        value
                     }),
             );
         }
-        roots.extend(bounds.into_iter().filter_map(|bound| match bound {
-            ConstraintTarget::Trait(ty) => Some(ty),
-            ConstraintTarget::Standard(_) => None,
-        }));
+        roots.extend(bounds);
         let mut expanded = Vec::new();
         for root in roots {
             for parent in self.trait_closure(&root, ty, cancel)? {

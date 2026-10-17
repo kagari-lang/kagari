@@ -19,7 +19,7 @@ use kagari_types::{
         module::{DeclarationError, ModuleDecl},
         names::{ExportName, NameNamespace},
     },
-    ty::{Constraint, GenericBound, Ty},
+    ty::{GenericBound, NominalTy, Ty},
 };
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
@@ -385,11 +385,14 @@ pub(super) fn finish(
         for item in &mut module.traits {
             bounds(&mut item.bounds, &definitions)?;
             for member in &mut item.associated_types {
-                member.bounds =
-                    Constraint::normalize(mem::take(&mut member.bounds), &definitions, &cancel)
-                        .map_err(|error| {
-                            DeclarationError(format!("foundation associated bounds: {error:?}"))
-                        })?;
+                member.bounds = NominalTy::normalize_bounds(
+                    mem::take(&mut member.bounds),
+                    &definitions,
+                    &cancel,
+                )
+                .map_err(|error| {
+                    DeclarationError(format!("foundation associated bounds: {error:?}"))
+                })?;
             }
             for method in &mut item.methods {
                 function(method, &definitions)?;

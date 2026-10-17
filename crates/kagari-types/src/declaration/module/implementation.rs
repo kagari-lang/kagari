@@ -7,7 +7,7 @@ use crate::{
         verify::trait_valid,
     },
     ty::{
-        Constraint, GenericBound, GenericParam, Ty,
+        GenericBound, GenericParam, Ty,
         substitution::{TypeSubstitution, resolve_associated_outputs},
     },
 };
@@ -346,15 +346,12 @@ fn implementation_methods(
                     constraints: bound
                         .constraints
                         .iter()
-                        .map(|constraint| match constraint {
-                            Constraint::Standard(kind) => Ok(Constraint::Standard(*kind)),
-                            Constraint::Trait(interface) => {
-                                let Ty::Trait(interface) = resolve(&Ty::Trait(interface.clone()))?
-                                else {
-                                    unreachable!("trait substitution");
-                                };
-                                Ok(Constraint::Trait(interface))
-                            }
+                        .map(|constraint| {
+                            let Ty::Trait(interface) = resolve(&Ty::Trait(constraint.clone()))?
+                            else {
+                                unreachable!("trait substitution");
+                            };
+                            Ok(interface)
                         })
                         .collect::<Result<_, DeclarationError>>()?,
                 })

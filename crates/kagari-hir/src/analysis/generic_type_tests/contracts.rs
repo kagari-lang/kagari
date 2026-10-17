@@ -6,11 +6,12 @@ use kagari_stdlib::catalog as foundation_catalog;
 
 const CONTRACTS: &str = r#"use std::collections::{HashMap, List, Map, Set};
 use std::hash::{Hash};
+use std::ops::Neg;
 
 fn take_bool(value: bool, message: String) {}
-fn ordered_pair<T: OrderedNumber>(left: T, right: T) -> T { left }
-fn ordered_three<T: OrderedNumber>(value: T, min: T, max: T) -> T { value }
-fn signed_value<T: SignedNumber>(value: T) -> T { value }
+fn ordered_pair<T: PartialOrd>(left: T, right: T) -> T { if left < right { left } else { right } }
+fn ordered_three<T: PartialOrd>(value: T, min: T, max: T) -> T { if value < min { min } else if value > max { max } else { value } }
+fn signed_value<T: Neg<Output = T>>(value: T) -> T { -value }
 fn check_equal<T: PartialEq>(left: T, right: T, message: String) -> bool { left == right }
 fn put<T>(values: Vec<T>, value: T) { values.push(value); }
 fn list_count<T>(values: List<T>) -> usize { values.len() }

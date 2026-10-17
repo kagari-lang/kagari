@@ -2,7 +2,6 @@
 
 use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
-    typeck::table::ConstraintTarget,
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{
@@ -98,9 +97,7 @@ impl AggregateCatalog {
             let Some(contract) = self.trait_(&parent.declaration) else {
                 continue;
             };
-            let Some([ConstraintTarget::Trait(bound)]) =
-                contract.associated_types.get(&iter).map(Vec::as_slice)
-            else {
+            let Some([bound]) = contract.associated_types.get(&iter).map(Vec::as_slice) else {
                 continue;
             };
             if Some(bound.declaration) != Protocol::Iterator.definition(definitions) {

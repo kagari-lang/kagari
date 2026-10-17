@@ -14,7 +14,7 @@ use kagari_common::identity::table::DefinitionTable;
 use kagari_types::{
     collection::CollectionAccess,
     declaration::module::{DeclarationError, ModuleDecl},
-    ty::{Constraint, GenericBound, Ty},
+    ty::{GenericBound, NominalTy, Ty},
 };
 
 pub(super) fn attach(
@@ -257,11 +257,9 @@ fn bounds(
 fn constraints(
     pending: &mut Vec<(TypeRefId, Ty)>,
     syntax: &[TraitRef],
-    declarations: &[Constraint],
+    declarations: &[NominalTy],
 ) {
     for (syntax, declaration) in syntax.iter().zip(declarations) {
-        if let Constraint::Trait(ty) = declaration {
-            pending.push((syntax.ty, Ty::Trait(ty.clone())));
-        }
+        pending.push((syntax.ty, Ty::Trait(declaration.clone())));
     }
 }

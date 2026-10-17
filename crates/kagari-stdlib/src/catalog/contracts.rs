@@ -12,7 +12,7 @@ use kagari_types::{
         module::{DeclarationError, ModuleDecl},
     },
     scalar::BuiltinType,
-    ty::{Constraint, GenericParam, NominalTy, Ty},
+    ty::{GenericParam, NominalTy, Ty},
 };
 
 pub(super) fn contract(
@@ -48,7 +48,7 @@ pub(super) fn associated(
     ids: &DefinitionContext,
     owner: &DefinitionId,
     name: &str,
-    bounds: Vec<Constraint>,
+    bounds: Vec<NominalTy>,
 ) -> Result<AssociatedTypeDef, DeclarationError> {
     Ok(AssociatedTypeDef {
         declaration: identities::associated(ids, owner, name)?,

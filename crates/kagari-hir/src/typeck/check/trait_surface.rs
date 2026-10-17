@@ -9,7 +9,7 @@ use crate::{
     typeck::{
         check::possibly_overlapping_impls,
         constraints,
-        table::{ConstraintTarget, TypeTable},
+        table::TypeTable,
         ty::{display_type, display_type_id},
     },
     types::{NominalType, TypeId},
@@ -33,16 +33,7 @@ pub(super) fn validate_trait_surface(
         let Some(target) = table.constraint(reference.ty) else {
             continue;
         };
-        let ConstraintTarget::Trait(id) = target else {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::InvalidTraitReference {
-                    trait_name: trait_name.clone(),
-                    reason: "standard constraints cannot be implemented by a trait impl",
-                })
-                .with_span(lowered.source_map.type_span(reference.ty)),
-            );
-            continue;
-        };
+        let id = target;
         let trait_def = declarations
             .definition_target(&id.declaration)
             .and_then(|target| match target {

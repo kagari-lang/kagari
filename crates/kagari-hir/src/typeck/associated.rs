@@ -8,7 +8,7 @@ use crate::{
     resolver::resolved::ResolvedName,
     typeck::{
         constraints,
-        table::{ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget, match_implementation},
+        table::{ResolvedTypeRef, TypeTable, TypeTarget, match_implementation},
         ty::{self, TypeContext, resolve_named_type, resolve_type_in},
     },
     types::{AssociatedTypeFamily, AssociatedTypeParameters, NominalType, TypeId},
@@ -125,7 +125,7 @@ pub(super) fn prepare(
             }
             continue;
         };
-        let Some(ConstraintTarget::Trait(mut interface)) = table.constraint(reference.ty) else {
+        let Some(mut interface) = table.constraint(reference.ty) else {
             continue;
         };
         let declared = members(&lowered.module, declarations, &interface.declaration);
@@ -251,7 +251,7 @@ pub(super) fn prepare(
                 );
             }
         }
-        table.insert_constraint(reference.ty, Some(ConstraintTarget::Trait(interface)));
+        table.insert_constraint(reference.ty, Some(interface));
     }
 }
 
@@ -451,18 +451,12 @@ pub(super) fn resolve_projection_name(
             }
         }
         for reference in references {
-            let resolved = table
-                .constraint(reference.ty)
-                .and_then(|constraint| match constraint {
-                    ConstraintTarget::Trait(ty) => Some(ty),
+            let resolved = table.constraint(reference.ty).or_else(|| {
+                match resolve_type_in(module, reference.ty, context, table, cancel) {
+                    TypeId::Trait(ty) => Some(ty),
                     _ => None,
-                })
-                .or_else(
-                    || match resolve_type_in(module, reference.ty, context, table, cancel) {
-                        TypeId::Trait(ty) => Some(ty),
-                        _ => None,
-                    },
-                );
+                }
+            });
             if let Some(interface) = resolved
                 && !candidates.contains(&interface)
             {
@@ -575,7 +569,7 @@ pub(super) fn qualified_projection(
         let mut justified = None;
         for reference in references {
             let bound = match table.constraint(reference.ty) {
-                Some(ConstraintTarget::Trait(bound)) => Some(bound),
+                Some(bound) => Some(bound),
                 _ => match resolve_type_in(module, reference.ty, context, table, cancel) {
                     TypeId::Trait(bound) => Some(bound),
                     _ => None,
@@ -744,7 +738,7 @@ fn inherited_traits(
                 .filter_map(|reference| {
                     let mut table = table.borrow_mut();
                     match table.constraint(reference.ty) {
-                        Some(ConstraintTarget::Trait(parent)) => Some(parent),
+                        Some(parent) => Some(parent),
                         _ => match resolve_type_in(
                             module,
                             reference.ty,

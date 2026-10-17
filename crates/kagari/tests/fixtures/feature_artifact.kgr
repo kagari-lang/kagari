@@ -104,3 +104,26 @@ pub fn fixed_array_construction() -> i32 {
     if alias.len() != 2usize || data.len() != 1usize || vector.len() != 3usize || unique.len() != 2usize { return 0; }
     vector[0] + alias[1]
 }
+
+use std::ops::{Neg, Add, Sub, Mul, Div, Rem};
+trait SharedArithmetic {
+    fn negate<T: Neg<Output = T>>(self, value: T) -> T { -value }
+    fn add<T: Add<T, Output = T>>(self, left: T, right: T) -> T { left + right }
+    fn subtract<T: Sub<T, Output = T>>(self, left: T, right: T) -> T { left - right }
+    fn multiply<T: Mul<T, Output = T>>(self, left: T, right: T) -> T { left * right }
+    fn divide<T: Div<T, Output = T>>(self, left: T, right: T) -> T { left / right }
+    fn remainder<T: Rem<T, Output = T>>(self, left: T, right: T) -> T { left % right }
+}
+struct ArithmeticSource {}
+impl SharedArithmetic for ArithmeticSource {}
+
+pub fn shared_operator_values() -> i32 {
+    val arithmetic: SharedArithmetic = ArithmeticSource {};
+    if arithmetic.negate(-42) != 42 { return 0; }
+    if arithmetic.add(20, 22) != 42 { return 0; }
+    if arithmetic.subtract(65, 23) != 42 { return 0; }
+    if arithmetic.multiply(6, 7) != 42 { return 0; }
+    if arithmetic.divide(126, 3) != 42 { return 0; }
+    if arithmetic.remainder(127, 85) != 42 { return 0; }
+    42
+}

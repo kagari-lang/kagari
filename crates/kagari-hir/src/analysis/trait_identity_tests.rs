@@ -1,9 +1,7 @@
 use super::*;
 use crate::{
-    declarations::DeclarationId,
-    resolver::resolved::ResolvedName,
-    tests::test_analysis,
-    typeck::table::{CallTarget, ConstraintTarget},
+    declarations::DeclarationId, resolver::resolved::ResolvedName, tests::test_analysis,
+    typeck::table::CallTarget,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -113,7 +111,7 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
             .unwrap();
         assert_eq!(
             table.constraint(read.generic_params[0].bounds[0].ty),
-            Some(ConstraintTarget::Trait(interface(own_trait)))
+            Some(interface(own_trait))
         );
         let method = facts
             .lowered
@@ -192,7 +190,7 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         .unwrap();
     assert_eq!(
         table.constraint(read.generic_params[0].bounds[0].ty),
-        Some(ConstraintTarget::Trait(interface(&trait_id)))
+        Some(interface(&trait_id))
     );
     assert_eq!(
         after

@@ -172,8 +172,8 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
         ("Eq + Hash", "[Missing]", 2),
         ("Eq + Hash", "Vec<Missing>", 0),
         ("Eq + Hash", "Missing", 0),
-        ("OrderedNumber", "[Missing]", 1),
-        ("SignedNumber", "HashMap<i32, Missing>", 1),
+        ("PartialOrd", "[Missing]", 1),
+        ("Neg", "HashMap<i32, Missing>", 1),
         ("Iterable", "[Missing]", 0),
         ("Iterable", "(Missing, i32)", 1),
         ("PartialEq", "(Missing, i32)", 0),
@@ -181,7 +181,7 @@ fn partial_nominal_arguments_check_known_outer_standard_constraints() {
         let source = SourceFile::new(
             "partial-bound.kgr",
             format!(
-                "use std::collections::HashMap; use std::hash::Hash; struct Restricted<T: {bound}> {{ val value: i32 }} fn take(value: Restricted<{argument}>) {{}}"
+                "use std::collections::HashMap; use std::hash::Hash; use std::ops::Neg; struct Restricted<T: {bound}> {{ val value: i32 }} fn take(value: Restricted<{argument}>) {{}}"
             ),
         );
         let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap())

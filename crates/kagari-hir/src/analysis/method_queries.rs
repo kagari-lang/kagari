@@ -4,10 +4,7 @@ use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
     analysis::FileAnalysis,
     declarations::DeclarationId,
-    typeck::{
-        GenericBounds, constraints::type_satisfies_standard_constraint, members,
-        table::ConstraintTarget,
-    },
+    typeck::{GenericBounds, members},
     types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
@@ -195,51 +192,42 @@ impl MemberQuery<'_> {
             if actual.is_unresolved() {
                 return true;
             }
-            constraints.iter().all(|constraint| match constraint {
-                ConstraintTarget::Standard(standard) => type_satisfies_standard_constraint(
-                    self.definitions,
-                    &actual,
-                    *standard,
-                    self.assumptions,
-                    Some(self.aggregates),
-                ),
-                ConstraintTarget::Trait(required) => {
-                    let required = instantiate(&TypeId::Trait(required.clone()));
-                    if required.is_unresolved() {
-                        return true;
-                    }
-                    let TypeId::Trait(required) = required else {
-                        return false;
-                    };
-                    self.aggregates.intrinsic_implementation(
-                        self.definitions,
-                        &required,
-                        &actual,
-                        self.assumptions,
-                    ) || members::interfaces(
-                        self.definitions,
-                        self.aggregates,
-                        &actual,
-                        self.assumptions,
-                        self.cancel,
-                    )
-                    .iter()
-                    .any(|available| available.satisfies(&required))
-                        || self
-                            .aggregates
-                            .concrete_interface_implementation(
-                                self.definitions,
-                                &required,
-                                &actual,
-                                self.assumptions,
-                                ImplementationSearchLimits {
-                                    max_checks: 4096,
-                                    max_depth: 64,
-                                },
-                                self.cancel,
-                            )
-                            .is_ok_and(|selected| selected.is_some())
+            constraints.iter().all(|required| {
+                let required = instantiate(&TypeId::Trait(required.clone()));
+                if required.is_unresolved() {
+                    return true;
                 }
+                let TypeId::Trait(required) = required else {
+                    return false;
+                };
+                self.aggregates.intrinsic_implementation(
+                    self.definitions,
+                    &required,
+                    &actual,
+                    self.assumptions,
+                ) || members::interfaces(
+                    self.definitions,
+                    self.aggregates,
+                    &actual,
+                    self.assumptions,
+                    self.cancel,
+                )
+                .iter()
+                .any(|available| available.satisfies(&required))
+                    || self
+                        .aggregates
+                        .concrete_interface_implementation(
+                            self.definitions,
+                            &required,
+                            &actual,
+                            self.assumptions,
+                            ImplementationSearchLimits {
+                                max_checks: 4096,
+                                max_depth: 64,
+                            },
+                            self.cancel,
+                        )
+                        .is_ok_and(|selected| selected.is_some())
             })
         })
     }

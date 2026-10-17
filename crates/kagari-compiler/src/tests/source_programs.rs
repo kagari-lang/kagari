@@ -35,10 +35,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
-use kagari_types::{
-    scalar::BuiltinType,
-    ty::{Constraint, Ty},
-};
+use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn insert(db: &mut SourceDatabase, name: &str, text: &str) -> FileId {
     let path = format!("mem://{name}");
@@ -287,9 +284,11 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
     else {
         panic!("trait")
     };
-    assert!(
-        matches!(&interface.methods[0].bounds[0].constraints[0], Constraint::Trait(id) if context.snapshot().resolve(id.declaration).unwrap().module().path == ["root"] && context.snapshot().resolve(id.declaration).unwrap().last().unwrap().name == "LeftMarker")
-    );
+    let bound = &interface.methods[0].bounds[0].constraints[0];
+    let definitions = context.snapshot();
+    let declaration = definitions.resolve(bound.declaration).unwrap();
+    assert_eq!(declaration.module().path, ["root"]);
+    assert_eq!(declaration.last().unwrap().name, "LeftMarker");
 }
 
 #[test]

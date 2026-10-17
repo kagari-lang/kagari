@@ -16,7 +16,7 @@ use kagari_types::{
         AssociatedTypeDef, FnDecl, path::HostPathSegmentDeclaration,
         requirement::NativeCallableRequirement,
     },
-    ty::{Constraint, GenericBound, Ty},
+    ty::{GenericBound, Ty},
 };
 
 pub(super) fn within_table_limit(lengths: impl IntoIterator<Item = usize>) -> bool {
@@ -315,25 +315,19 @@ fn add_function_contract(function: &FnDecl, add: &mut impl FnMut(usize) -> bool)
 pub(super) fn add_abi_bounds(bounds: &[GenericBound], add: &mut impl FnMut(usize) -> bool) -> bool {
     bounds.iter().all(|bound| {
         add(bound.constraints.len())
-            && bound.constraints.iter().all(|constraint| match constraint {
-                Constraint::Trait(ty) => add(ty.arguments.len()),
-                _ => true,
-            })
+            && bound
+                .constraints
+                .iter()
+                .all(|ty| add(ty.arguments.len()) && add(ty.associated_types.len()))
     })
 }
 
 pub(super) fn bounds_type_limit(bounds: &[GenericBound]) -> bool {
     bounds.iter().all(|bound| {
         bound.ty.within_wire_limits()
-            && bound.constraints.iter().all(|constraint| match constraint {
-                Constraint::Standard(_) => true,
-                Constraint::Trait(ty) => {
-                    ty.arguments.iter().all(|arg| arg.within_wire_limits())
-                        && ty
-                            .associated_types
-                            .values()
-                            .all(|value| value.within_wire_limits())
-                }
+            && bound.constraints.iter().all(|ty| {
+                ty.arguments.iter().all(Ty::within_wire_limits)
+                    && ty.associated_types.values().all(Ty::within_wire_limits)
             })
     })
 }
@@ -341,10 +335,10 @@ pub(super) fn bounds_type_limit(bounds: &[GenericBound]) -> bool {
 pub(super) fn associated_type_limit(members: &[AssociatedTypeDef]) -> bool {
     members.iter().all(|member| {
         bounds_type_limit(&member.parameter_bounds)
-            && member.bounds.iter().all(|bound| match bound {
-                Constraint::Standard(_) => true,
-                Constraint::Trait(ty) => Ty::Trait(ty.clone()).within_wire_limits(),
-            })
+            && member
+                .bounds
+                .iter()
+                .all(|ty| Ty::Trait(ty.clone()).within_wire_limits())
     })
 }
 

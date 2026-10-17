@@ -3,7 +3,7 @@
 use crate::builtin::surface;
 use crate::{
     aggregates::{AggregateCatalog, implementations::ImplementationSearchLimits},
-    typeck::{GenericBounds, table::ConstraintTarget},
+    typeck::GenericBounds,
     types::{NominalType, TypeId},
 };
 use kagari_common::identity::{
@@ -208,8 +208,24 @@ pub fn intrinsic_applies(
     }
     if let Some((required, target)) = conversion_requirement(interface, receiver, catalog) {
         return intrinsic_applies(definitions, &required, &target, catalog, bounds)
-            || bounds.get(&target).is_some_and(|available| available.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(bound) if bound.satisfies(&required))))
-            || catalog.is_some_and(|catalog| catalog.concrete_interface_implementation(definitions, &required, &target, bounds, ImplementationSearchLimits { max_checks: 100_000, max_depth: 64 }, &Default::default()).is_ok_and(|found| found.is_some()));
+            || bounds
+                .get(&target)
+                .is_some_and(|available| available.iter().any(|bound| bound.satisfies(&required)))
+            || catalog.is_some_and(|catalog| {
+                catalog
+                    .concrete_interface_implementation(
+                        definitions,
+                        &required,
+                        &target,
+                        bounds,
+                        ImplementationSearchLimits {
+                            max_checks: 100_000,
+                            max_depth: 64,
+                        },
+                        &Default::default(),
+                    )
+                    .is_ok_and(|found| found.is_some())
+            });
     }
     let Some(kind) = Protocol::from_definition(&interface.declaration, definitions) else {
         return false;
@@ -301,7 +317,15 @@ pub fn intrinsic_holds(
             .is_some_and(|interface| intrinsic_output(definitions, &interface, ty).is_some());
     }
     if matches!(protocol, Protocol::PartialOrd | Protocol::Ord) {
-        if bounds.get(ty).is_some_and(|constraints| constraints.iter().any(|c| matches!(c, ConstraintTarget::Trait(n) if Some(n.declaration) == protocol.definition(definitions) || protocol == Protocol::PartialOrd && Some(n.declaration) == Protocol::Ord.definition(definitions)))) {return true;}
+        if bounds.get(ty).is_some_and(|constraints| {
+            constraints.iter().any(|n| {
+                Some(n.declaration) == protocol.definition(definitions)
+                    || protocol == Protocol::PartialOrd
+                        && Some(n.declaration) == Protocol::Ord.definition(definitions)
+            })
+        }) {
+            return true;
+        }
         if let Some(catalog) = catalog
             && let Some(interface) = protocol.nominal(definitions)
             && matches!(
@@ -350,7 +374,15 @@ pub fn intrinsic_holds(
         if !seen.insert(ty.clone()) {
             continue;
         }
-        if bounds.get(&ty).is_some_and(|bounds| bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(n) if Protocol::from_definition(&n.declaration, definitions).is_some_and(|p| p == protocol || p == Protocol::Eq && protocol == Protocol::PartialEq)))) { continue; }
+        if bounds.get(&ty).is_some_and(|bounds| {
+            bounds.iter().any(|n| {
+                Protocol::from_definition(&n.declaration, definitions).is_some_and(|p| {
+                    p == protocol || p == Protocol::Eq && protocol == Protocol::PartialEq
+                })
+            })
+        }) {
+            continue;
+        }
         match ty {
             // Recovery holes cannot disprove a protocol; code generation rejects them.
             TypeId::Unknown | TypeId::Error => {}
@@ -498,7 +530,7 @@ pub fn iteration_outputs(
         .get(receiver)
         .into_iter()
         .flatten()
-        .any(|b| matches!(b,ConstraintTarget::Trait(n) if n.declaration==iterator.declaration))
+        .any(|n| n.declaration == iterator.declaration)
         || catalog.is_some_and(|c| {
             c.concrete_interface_implementation(
                 definitions,
@@ -527,9 +559,7 @@ pub fn iteration_outputs(
         .into_iter()
         .flatten()
         .find_map(|b| match b {
-            ConstraintTarget::Trait(n) if n.declaration == iterator.declaration => {
-                n.associated_types.get(&member).cloned()
-            }
+            n if n.declaration == iterator.declaration => n.associated_types.get(&member).cloned(),
             _ => None,
         })
         .unwrap_or_else(|| {

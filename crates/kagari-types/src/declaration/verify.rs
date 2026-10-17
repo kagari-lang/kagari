@@ -8,7 +8,7 @@ use crate::{
     language::Protocol,
     range::RangeKind,
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -194,24 +194,16 @@ fn bounds_with(
 }
 
 fn constraints_with(
-    constraints: &[Constraint],
+    constraints: &[NominalTy],
     valid: &impl Fn(&Ty) -> bool,
     before: &impl Fn(&Ty, &Ty) -> bool,
 ) -> bool {
     constraints
         .windows(2)
-        .all(|pair| match (&pair[0], &pair[1]) {
-            (Constraint::Standard(left), Constraint::Standard(right)) => left < right,
-            (Constraint::Standard(_), Constraint::Trait(_)) => true,
-            (Constraint::Trait(_), Constraint::Standard(_)) => false,
-            (Constraint::Trait(left), Constraint::Trait(right)) => {
-                before(&Ty::Trait(left.clone()), &Ty::Trait(right.clone()))
-            }
-        })
-        && constraints.iter().all(|constraint| match constraint {
-            Constraint::Standard(_) => true,
-            Constraint::Trait(ty) => valid(&Ty::Trait(ty.clone())),
-        })
+        .all(|pair| before(&Ty::Trait(pair[0].clone()), &Ty::Trait(pair[1].clone())))
+        && constraints
+            .iter()
+            .all(|constraint| valid(&Ty::Trait(constraint.clone())))
 }
 
 /// Check an exact source-trait expectation without granting native adapter authority.
@@ -437,7 +429,7 @@ pub fn native_bounds_valid(
 }
 
 fn constraints_valid(
-    constraints: &[Constraint],
+    constraints: &[NominalTy],
     params: &Parameters,
     self_owner: Option<&DefinitionId>,
     cancel: &CancellationToken,

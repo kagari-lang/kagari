@@ -301,7 +301,6 @@ fn imported_applied_bound_changes_invalidate_signature_diagnostics() {
 
 #[test]
 fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
-    use crate::typeck::table::ConstraintTarget;
     for header in [
         "impl<T: Eq + Hash> HashSet<T>",
         "impl<T> HashSet<T> where T: Eq + Hash",
@@ -334,11 +333,11 @@ fn signatures_own_constraints_for_shadowed_parameters_before_body_analysis() {
         assert_ne!(outer, inner);
         assert!(matches!(
             method.bounds[&crate::types::TypeId::Generic(outer.clone())].as_slice(),
-            [ConstraintTarget::Trait(_), ConstraintTarget::Trait(_)]
+            [_, _]
         ));
         assert!(matches!(
             method.bounds[&crate::types::TypeId::Generic(inner.clone())].as_slice(),
-            [ConstraintTarget::Trait(_)]
+            [_]
         ));
         assert_eq!(method.bounds.len(), 2);
         assert!(db.files.is_empty());

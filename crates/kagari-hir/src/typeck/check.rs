@@ -14,6 +14,7 @@ use crate::{
         },
         writeability::Writeability,
     },
+    language::semantics::intrinsic_holds,
     lower::LoweredModule,
     native::NativeBinding,
     resolver::resolved::{ResolvedName, ResolvedNames},
@@ -31,7 +32,7 @@ use crate::{
         const_budget::ConstBudget,
         const_eval, constraints,
         reuse::BodyReuse,
-        table::{ConstraintTarget, TypeTable},
+        table::TypeTable,
         ty::{TypeContext, display_type, display_type_id, resolve_type, resolve_type_in},
     },
     types::{GenericParameterType, NominalType, TypeId, TypeSubstitution},
@@ -42,9 +43,7 @@ use kagari_common::{
     span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind, Severity, TypePosition};
-use kagari_types::{
-    scalar::BuiltinType, surface as standard_surface, surface::StandardTypeConstraint,
-};
+use kagari_types::{language::Protocol, scalar::BuiltinType};
 use smallvec::SmallVec;
 use std::collections::{HashMap, HashSet};
 
@@ -670,7 +669,7 @@ pub(crate) fn check_bodies_controlled(
                         env.generic_bounds
                             .entry(receiver)
                             .or_default()
-                            .extend(parents.into_iter().map(ConstraintTarget::Trait));
+                            .extend(parents);
                     }
                 }
                 for param in &typed_function.params {
@@ -855,36 +854,26 @@ pub(super) fn validate_reference_position(
     }
 }
 
-pub(super) fn validate_standard_constraint_type(
+/// Validate collection admission through the ordinary Eq and Hash trait contracts.
+pub(super) fn validate_hash_key_type(
     definitions: &DefinitionTable,
     ty: &TypeId,
-    constraint: StandardTypeConstraint,
-    generic_bounds: &HashMap<TypeId, Vec<ConstraintTarget>>,
+    generic_bounds: &super::GenericBounds,
     span: Span,
     diagnostics: &mut SmallVec<[Diagnostic; 4]>,
     catalog: &AggregateCatalog,
 ) {
-    if matches!(ty, TypeId::Unknown | TypeId::Error) {
+    if [Protocol::Eq, Protocol::Hash]
+        .into_iter()
+        .all(|protocol| intrinsic_holds(definitions, protocol, ty, Some(catalog), generic_bounds))
+    {
         return;
     }
-    if constraint == StandardTypeConstraint::Comparable && ty.is_unresolved() {
-        return;
-    }
-    if constraints::type_satisfies_standard_constraint(
-        definitions,
-        ty,
-        constraint,
-        generic_bounds,
-        Some(catalog),
-    ) {
-        return;
-    }
-
     diagnostics.push(
         Diagnostic::error(DiagnosticKind::StandardConstraintNotSatisfied {
             type_name: display_type_id(definitions, ty),
-            constraint: standard_surface::standard_constraint_name(constraint).to_owned(),
-            reason: constraints::standard_constraint_reason(constraint).to_owned(),
+            constraint: "Eq + Hash".into(),
+            reason: "key type must implement std::cmp::Eq + std::hash::Hash".into(),
         })
         .with_span(span),
     );
@@ -1037,12 +1026,7 @@ pub(super) fn compare_method_contract(
             .unwrap_or_default();
         let substituted = required
             .iter()
-            .map(|constraint| match constraint {
-                ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
-                ConstraintTarget::Trait(instance) => {
-                    ConstraintTarget::Trait(instance.instantiate(&substitution))
-                }
-            })
+            .map(|instance| instance.instantiate(&substitution))
             .collect::<Vec<_>>();
         if substituted.len() != provided.len()
             || !substituted
@@ -1082,12 +1066,7 @@ pub(super) fn compare_method_contract(
                 ),
                 constraints
                     .iter()
-                    .map(|constraint| match constraint {
-                        ConstraintTarget::Standard(value) => ConstraintTarget::Standard(*value),
-                        ConstraintTarget::Trait(instance) => {
-                            ConstraintTarget::Trait(instance.instantiate(&substitution))
-                        }
-                    })
+                    .map(|instance| instance.instantiate(&substitution))
                     .collect::<Vec<_>>(),
             )
         })

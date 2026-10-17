@@ -101,7 +101,7 @@ fn table(
 fn bound(ty: Ty, required: NominalTy) -> GenericBound {
     GenericBound {
         ty,
-        constraints: vec![Constraint::Trait(required)],
+        constraints: vec![required],
     }
 }
 

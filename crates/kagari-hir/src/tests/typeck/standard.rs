@@ -6,10 +6,7 @@ use crate::{
     native::{NativeBinding, adoption},
     resolver::resolved::ResolvedName,
     tests::test_analysis,
-    typeck::{
-        FunctionImplementation,
-        table::{CallTarget, ConstraintTarget},
-    },
+    typeck::{FunctionImplementation, table::CallTarget},
     types::NominalType,
 };
 use kagari_common::identity::{
@@ -230,7 +227,8 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
     let map_get = signature("$foundation_map_get");
     let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
     for kind in [Protocol::Eq, Protocol::Hash] {
-        assert!(key_bounds.iter().any(|bound| matches!(bound, ConstraintTarget::Trait(interface) if interface.declaration == kind.nominal(snapshot.definitions()).unwrap().declaration)));
+        assert!(key_bounds.iter().any(|interface| interface.declaration
+            == kind.nominal(snapshot.definitions()).unwrap().declaration));
     }
     assert_eq!(map_get.params.len(), 2);
     for binding in [

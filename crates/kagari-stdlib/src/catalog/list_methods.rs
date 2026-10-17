@@ -11,7 +11,7 @@ use kagari_types::{
         module::{DeclarationError, ModuleDecl},
         requirement::NativeCallableRequirement,
     },
-    ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
+    ty::{GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 
 pub(super) fn declare(
@@ -71,7 +71,7 @@ pub(super) fn declare(
             if let Some(kind) = comparison(name) {
                 method.bounds.push(GenericBound {
                     ty: key.clone(),
-                    constraints: vec![Constraint::Trait(key::applied(ids, kind, vec![])?)],
+                    constraints: vec![key::applied(ids, kind, vec![])?],
                 });
             }
             let callback = if name.ends_with("_by_key") {
@@ -302,11 +302,7 @@ fn default(
     template.implementation = CallableImplementation::Native(id);
     template.bounds.push(GenericBound {
         ty: arguments[0].clone(),
-        constraints: vec![Constraint::Trait(key::applied(
-            ids,
-            protocol,
-            vec![item.clone()],
-        )?)],
+        constraints: vec![key::applied(ids, protocol, vec![item.clone()])?],
     });
     let mut bounds = substitution
         .apply_bounds(&template.bounds, &ids.snapshot(), &cancel)
@@ -318,15 +314,15 @@ fn default(
     );
     bounds.push(GenericBound {
         ty: types[0].clone(),
-        constraints: vec![Constraint::Trait(iterable)],
+        constraints: vec![iterable],
     });
     bounds.push(GenericBound {
         ty: types.last().unwrap().clone(),
-        constraints: vec![Constraint::Trait(contracts::applied_item(
+        constraints: vec![contracts::applied_item(
             ids,
             RegistrationTrait::Iterator,
             types[1].clone(),
-        )?)],
+        )?],
     });
     template.bounds = GenericBound::normalize(bounds, &ids.snapshot(), &Default::default())
         .map_err(|error| DeclarationError(format!("foundation bounds: {error:?}")))?;

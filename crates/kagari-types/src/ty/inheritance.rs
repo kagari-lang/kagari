@@ -3,7 +3,7 @@ use crate::{
     declaration::TraitDef,
     language::Protocol,
     ty::{
-        Constraint, NominalTy, Ty,
+        NominalTy, Ty,
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
     },
 };
@@ -103,7 +103,7 @@ pub fn interface_views<'a>(
         else {
             continue;
         };
-        let [Constraint::Trait(bound)] = output.bounds.as_slice() else {
+        let [bound] = output.bounds.as_slice() else {
             continue;
         };
         if !output.generic_params.is_empty()

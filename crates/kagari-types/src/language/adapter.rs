@@ -90,6 +90,49 @@ pub fn adapter_contract(
             )
         });
     }
+    if let Some(member) = match kind {
+        Protocol::Neg => Some("neg"),
+        Protocol::Add => Some("add"),
+        Protocol::Sub => Some("sub"),
+        Protocol::Mul => Some("mul"),
+        Protocol::Div => Some("div"),
+        Protocol::Rem => Some("rem"),
+        _ => None,
+    } {
+        // This describes the primitive callable shape, not primitive eligibility.
+        // Selection and source-free verification must also prove the application.
+        let operands = if kind == Protocol::Neg { 0 } else { 1 };
+        let output = member_id("Output")?;
+        return (matches!(required.receiver, Ty::Builtin(_))
+            && Some(required.member)
+                == definitions.lookup_child(
+                    required.interface.declaration,
+                    DefinitionKind::Method,
+                    member,
+                    0,
+                )
+            && required.arguments.is_empty()
+            && required.interface.arguments.len() == operands
+            && required
+                .interface
+                .arguments
+                .iter()
+                .all(|operand| operand == &required.receiver)
+            && required
+                .interface
+                .associated_types
+                .iter()
+                .all(|(member, ty)| *member == output && ty == &required.receiver))
+        .then(|| {
+            (
+                kind,
+                Signature {
+                    params: vec![required.receiver.clone(); operands + 1],
+                    result: required.receiver.clone(),
+                },
+            )
+        });
+    }
     let (member, result, count) = match kind {
         Protocol::Iterable => (
             "iter",

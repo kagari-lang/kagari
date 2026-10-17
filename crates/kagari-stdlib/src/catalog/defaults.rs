@@ -17,7 +17,7 @@ use kagari_types::{
     range::RangeKind,
     reference::ReferenceAccess,
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
+    ty::{GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
 };
 
 fn define_type(
@@ -61,11 +61,11 @@ pub(super) fn hash_bounds(
     Ok(vec![GenericBound {
         ty: key,
         constraints: vec![
-            Constraint::Trait(key::applied(ids, RegistrationTrait::Eq, vec![])?),
-            Constraint::Trait(key::applied(ids, RegistrationTrait::Hash, vec![])?),
+            key::applied(ids, RegistrationTrait::Eq, vec![])?,
+            key::applied(ids, RegistrationTrait::Hash, vec![])?,
             // The selected equality member belongs to PartialEq. Carry its
             // inherited obligation explicitly in the portable callback template.
-            Constraint::Trait(key::applied(ids, RegistrationTrait::PartialEq, vec![])?),
+            key::applied(ids, RegistrationTrait::PartialEq, vec![])?,
         ],
     }])
 }

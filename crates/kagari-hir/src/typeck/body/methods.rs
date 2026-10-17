@@ -10,7 +10,7 @@ use crate::{
         body::BodyChecker,
         completion, inference, members,
         table::{
-            CallTarget, ConstraintTarget, ResolvedAssociatedConst, ResolvedInterfaceCoercion,
+            CallTarget, ResolvedAssociatedConst, ResolvedInterfaceCoercion,
             ResolvedInterfaceImplementation,
         },
         ty,
@@ -703,29 +703,24 @@ impl<'a> BodyChecker<'a> {
                         .with_associated_types(interface, &self_ty),
                     constraints
                         .iter()
-                        .map(|constraint| match constraint {
-                            ConstraintTarget::Standard(standard) => {
-                                ConstraintTarget::Standard(*standard)
-                            }
-                            ConstraintTarget::Trait(bound) => {
-                                let TypeId::Trait(bound) = self.aggregates.normalize_type(
-                                    self.declarations.definitions(),
-                                    &TypeId::Trait(bound.clone())
-                                        .with_self(self_owner, &self_ty)
-                                        .instantiate(&substitution)
-                                        .with_associated_types(interface, &self_ty),
-                                ) else {
-                                    unreachable!("trait method bound");
-                                };
-                                ConstraintTarget::Trait(bound)
-                            }
+                        .map(|bound| {
+                            let TypeId::Trait(bound) = self.aggregates.normalize_type(
+                                self.declarations.definitions(),
+                                &TypeId::Trait(bound.clone())
+                                    .with_self(self_owner, &self_ty)
+                                    .instantiate(&substitution)
+                                    .with_associated_types(interface, &self_ty),
+                            ) else {
+                                unreachable!("trait method bound");
+                            };
+                            bound
                         })
                         .filter(|constraint| {
                             // Dynamic dispatch already carries the selected interface's
                             // own receiver evidence; this grants no bound to other values.
                             !(matches!(&self_ty, TypeId::Trait(_))
                                 && ty == &TypeId::SelfType(*self_owner)
-                                && matches!(constraint, ConstraintTarget::Trait(required) if interface.satisfies(required)))
+                                && interface.satisfies(constraint))
                         })
                         .collect(),
                 )

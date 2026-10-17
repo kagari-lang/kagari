@@ -17,8 +17,7 @@ use kagari_types::{
         host::HostCallPolicy,
     },
     scalar::BuiltinType,
-    surface::StandardTypeConstraint,
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty},
+    ty::{GenericBound, GenericParam, NominalTy, Ty},
     visibility::Visibility,
 };
 use std::collections::{BTreeMap, HashSet};
@@ -37,6 +36,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
     let mut declarations = vec![
         (DefinitionKind::Trait, "View"),
         (DefinitionKind::Trait, "Parent"),
+        (DefinitionKind::Trait, "Key"),
         (DefinitionKind::Function, "factory"),
         (DefinitionKind::Impl, "Impl"),
     ];
@@ -93,8 +93,12 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
             position: 0,
         },
         constraints: vec![
-            Constraint::Standard(StandardTypeConstraint::HashKey),
-            Constraint::Trait(nominal.clone()),
+            NominalTy {
+                declaration: ids["Key"],
+                arguments: vec![],
+                associated_types: BTreeMap::new(),
+            },
+            nominal.clone(),
         ],
     };
     let function = FnDecl {
@@ -118,7 +122,7 @@ fn items(context: &DefinitionContext, reverse: bool) -> Vec<PublicItem> {
         generic_params: vec![],
         parameter_bounds: vec![],
         declaration: item,
-        bounds: vec![Constraint::Trait(nominal.clone())],
+        bounds: vec![nominal.clone()],
     };
     let trait_def = TraitDef {
         associated_consts: vec![AssociatedConstDef {

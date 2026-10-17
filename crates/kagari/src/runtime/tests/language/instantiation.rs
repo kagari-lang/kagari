@@ -345,9 +345,9 @@ fn container_context_executes_through_native_methods() {
 }
 
 #[test]
-fn generic_negation_executes_using_checked_signed_number_bounds() {
+fn generic_negation_forwards_checked_trait_and_output_bounds() {
     execute_contextual_source(
-        "fn negate<T: SignedNumber>(value: T) -> T { -value } fn forward<T>(value: T) -> T where T: SignedNumber { negate(value) } fn main() -> i32 { forward(-20) + negate(-22) }",
+        "use std::ops::Neg; fn negate<T: Neg<Output = T>>(value: T) -> T { -value } fn forward<T>(value: T) -> T where T: Neg<Output = T> { negate(value) } fn main() -> i32 { forward(-20) + negate(-22) }",
         42,
     );
 }

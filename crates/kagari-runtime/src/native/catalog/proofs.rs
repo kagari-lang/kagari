@@ -2,7 +2,8 @@
 use crate::{error::RuntimeError, native::catalog::DeclarationCatalog};
 use kagari_common::cancellation::CancellationToken;
 use kagari_contract::types::proofs::{ProofCatalog, implementation::Implementation};
-use kagari_types::ty::{Constraint, Ty};
+use kagari_types::ty::Ty;
+use std::slice;
 
 impl DeclarationCatalog {
     pub(crate) fn validate_callable_contracts(&self) -> Result<(), RuntimeError> {
@@ -40,7 +41,7 @@ impl DeclarationCatalog {
                 if !catalog
                     .constraints_hold(
                         receiver,
-                        &[Constraint::Trait(interface.clone())],
+                        slice::from_ref(interface),
                         &declaration.function.bounds,
                         &CancellationToken::default(),
                     )

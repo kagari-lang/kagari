@@ -9,7 +9,7 @@ use crate::{
         },
     },
     scalar::BuiltinType,
-    ty::{Constraint, GenericBound, GenericParam, NominalTy, Ty, substitution::TypeTransformError},
+    ty::{GenericBound, GenericParam, NominalTy, Ty, substitution::TypeTransformError},
 };
 use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::{
@@ -225,12 +225,10 @@ fn native_declarations_validate_scoped_binders_and_canonical_constraints() {
                 ty: argument.clone(),
                 constraints: [a, z]
                     .into_iter()
-                    .map(|declaration| {
-                        Constraint::Trait(NominalTy {
-                            declaration,
-                            arguments: vec![],
-                            associated_types: Default::default(),
-                        })
+                    .map(|declaration| NominalTy {
+                        declaration,
+                        arguments: vec![],
+                        associated_types: Default::default(),
                     })
                     .collect(),
             }],

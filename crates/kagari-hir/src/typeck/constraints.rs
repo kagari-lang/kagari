@@ -1,9 +1,6 @@
-//! Resolve written generic bounds into semantic constraint targets and test standard
-//! constraints against known types, explicit generic assumptions and aggregate facts.
+//! Resolve written generic bounds into ordinary applied trait requirements.
 
 use crate::{
-    aggregates::AggregateCatalog,
-    builtin::surface,
     declarations::Declarations,
     hir::{
         item::{
@@ -13,21 +10,17 @@ use crate::{
         },
         ty::TypeKind,
     },
-    language::semantics::intrinsic_holds,
     lower::LoweredModule,
     typeck::{
         check::function_type_context,
-        table::{ConstraintTarget, ResolvedTypeRef, TypeTable, TypeTarget},
+        table::{TypeTable, TypeTarget},
         ty,
         ty::{TypeContext, resolve_type_in},
     },
     types::TypeId,
 };
-use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
+use kagari_common::cancellation::CancellationToken;
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
-use kagari_types::{
-    declaration::names::NameNamespace, language::Protocol, surface::StandardTypeConstraint,
-};
 use smallvec::SmallVec;
 
 /// Resolve bounds once in their declaring context, before signatures and bodies.
@@ -253,38 +246,22 @@ pub(super) fn resolve_constraint(
             }
         }
     }
-    // The two sealed numeric predicates are language bounds, not traits from
-    // a source catalog. A binder or explicit declaration still shadows them.
-    let standard = (resolved.target.is_none()
-        && context
-            .declarations
-            .names
-            .lookup(name, NameNamespace::Type)
-            .is_none())
-    .then_some(match name.as_str() {
-        "OrderedNumber" => Some(StandardTypeConstraint::OrderedNumber),
-        "SignedNumber" => Some(StandardTypeConstraint::SignedNumber),
-        _ => None,
-    })
-    .flatten();
-    let target = standard
-        .map(ConstraintTarget::Standard)
-        .or(match &resolved.ty {
-            TypeId::Trait(instance)
-                if context
+    let target = match &resolved.ty {
+        TypeId::Trait(instance)
+            if context
+                .declarations
+                .definition_target(&instance.declaration)
+                .is_some()
+                || context
                     .declarations
-                    .definition_target(&instance.declaration)
-                    .is_some()
-                    || context
-                        .declarations
-                        .imported_types()
-                        .by_declaration(&instance.declaration)
-                        .is_some() =>
-            {
-                Some(ConstraintTarget::Trait(instance.clone()))
-            }
-            _ => None,
-        });
+                    .imported_types()
+                    .by_declaration(&instance.declaration)
+                    .is_some() =>
+        {
+            Some(instance.clone())
+        }
+        _ => None,
+    };
     let reason = if applied && !matches!(resolved.ty, TypeId::Trait(_)) {
         Some("invalid generic trait application")
     } else if !applied
@@ -296,21 +273,10 @@ pub(super) fn resolve_constraint(
     } else {
         None
     };
-    if standard.is_none() || applied {
-        table.insert_type_ref(reference.ty, resolved);
-    }
+    table.insert_type_ref(reference.ty, resolved);
     let target = target.filter(|_| reason.is_none());
     table.insert_constraint(reference.ty, target.clone());
     if target.is_none() {
-        if table.type_ref(reference.ty).is_none() {
-            table.insert_type_ref(
-                reference.ty,
-                ResolvedTypeRef {
-                    ty: TypeId::Error,
-                    target: None,
-                },
-            );
-        }
         diagnostics.push(
             Diagnostic::error(if let Some(reason) = reason {
                 DiagnosticKind::InvalidTraitReference {
@@ -404,63 +370,4 @@ pub(super) fn parameter_bounds(
             ))
         })
         .collect()
-}
-
-/// Returns whether a semantic type satisfies a builtin surface constraint.
-///
-/// Generic/projection types can use explicit `bounds`; equality/hash checks can consult
-/// `catalog` for declared implementations. This predicate does not emit diagnostics.
-pub fn type_satisfies_standard_constraint(
-    definitions: &DefinitionTable,
-    ty: &TypeId,
-    constraint: StandardTypeConstraint,
-    bounds: &super::GenericBounds,
-    catalog: Option<&AggregateCatalog>,
-) -> bool {
-    match constraint {
-        StandardTypeConstraint::HashKey => {
-            intrinsic_holds(definitions, Protocol::Eq, ty, catalog, bounds)
-                && intrinsic_holds(definitions, Protocol::Hash, ty, catalog, bounds)
-        }
-        StandardTypeConstraint::Comparable => {
-            intrinsic_holds(definitions, Protocol::PartialEq, ty, catalog, bounds)
-        }
-        _ if matches!(ty, TypeId::Generic(_) | TypeId::Projection { .. }) => bounds
-            .get(ty)
-            .is_some_and(|bounds| bounds.contains(&ConstraintTarget::Standard(constraint))),
-        StandardTypeConstraint::OrderedNumber => surface::supports_ordering(ty, ty),
-        StandardTypeConstraint::SignedNumber => surface::supports_unary_negation(ty),
-    }
-}
-
-/// Recovery holes do not decide a constraint, but known siblings still can fail it.
-pub(super) fn known_type_violates_constraint(
-    definitions: &DefinitionTable,
-    ty: &TypeId,
-    constraint: StandardTypeConstraint,
-    bounds: &super::GenericBounds,
-) -> bool {
-    let mut pending = vec![ty];
-    while let Some(ty) = pending.pop() {
-        match ty {
-            TypeId::Unknown | TypeId::Error => {}
-            TypeId::Tuple(members) if constraint == StandardTypeConstraint::Comparable => {
-                pending.extend(members)
-            }
-            _ if !type_satisfies_standard_constraint(definitions, ty, constraint, bounds, None) => {
-                return true;
-            }
-            _ => {}
-        }
-    }
-    false
-}
-
-pub(super) fn standard_constraint_reason(constraint: StandardTypeConstraint) -> &'static str {
-    match constraint {
-        StandardTypeConstraint::HashKey => "key type must implement std::cmp::Eq + std::hash::Hash",
-        StandardTypeConstraint::OrderedNumber => "type is not an ordered numeric type",
-        StandardTypeConstraint::SignedNumber => "type is not a signed numeric type",
-        StandardTypeConstraint::Comparable => "type does not have standard equality semantics",
-    }
 }

@@ -17,7 +17,7 @@ use kagari_types::{
     declaration::{
         AssociatedTypeDef, TraitDef, module::ModuleDecl, requirement::NativeCallableRequirement,
     },
-    ty::{Constraint, GenericParam, NominalTy, Ty},
+    ty::{GenericParam, NominalTy, Ty},
 };
 use std::{collections::BTreeMap, fmt, sync::Arc};
 
@@ -189,7 +189,7 @@ impl<'module> TraitBuilder<'module> {
                     let Ty::Trait(bound) = bound.ty().adopt(self.module.context())? else {
                         unreachable!("trait input")
                     };
-                    Ok(Constraint::Trait(bound))
+                    Ok(bound)
                 })
                 .collect::<NativeResult<_>>()?,
         });

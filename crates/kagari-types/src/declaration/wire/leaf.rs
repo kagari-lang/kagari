@@ -1,10 +1,9 @@
-//! Nonrecursive wire identities, constraints and callable implementation selectors.
+//! Nominal wire applications and callable implementation selectors.
 use crate::{
     callable::CallableImplementation,
     declaration::{conversion::ConversionAdapter, wire::signature::NativeDefaultApplicationRecord},
     decode_limits,
-    surface::StandardTypeConstraint,
-    ty::{Constraint, NominalTy, wire::WireType},
+    ty::{NominalTy, wire::WireType},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -73,40 +72,6 @@ impl NominalTyRecord {
                 .map(|ty| ty.decode(decoding, cancel))
                 .collect::<Result<_, _>>()?,
             associated_types,
-        })
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub(super) enum ConstraintRecord {
-    Standard(StandardTypeConstraint),
-    Trait(NominalTyRecord),
-}
-
-impl ConstraintRecord {
-    pub(super) fn encode(
-        value: &Constraint,
-        encoding: &DefinitionEncoding,
-        cancel: &CancellationToken,
-    ) -> Result<Self, DefinitionMappingError> {
-        check_cancel(cancel)?;
-        Ok(match value {
-            Constraint::Standard(value) => Self::Standard(*value),
-            Constraint::Trait(value) => {
-                Self::Trait(NominalTyRecord::encode(value, encoding, cancel)?)
-            }
-        })
-    }
-
-    pub(super) fn decode(
-        self,
-        decoding: &DefinitionDecoding,
-        cancel: &CancellationToken,
-    ) -> Result<Constraint, DefinitionMappingError> {
-        check_cancel(cancel)?;
-        Ok(match self {
-            Self::Standard(value) => Constraint::Standard(value),
-            Self::Trait(value) => Constraint::Trait(value.decode(decoding, cancel)?),
         })
     }
 }

@@ -6,7 +6,7 @@ use crate::{
     callable::CallableImplementation,
     declaration::{FnDecl, TraitDef, TypeDefKind, native::NativeStorageLayout},
     ty::{
-        Constraint, GenericBound, NominalTy, Ty,
+        GenericBound, NominalTy, Ty,
         substitution::{MAX_TYPE_NODES, TypeTransformError},
     },
 };
@@ -175,11 +175,9 @@ where
         Ok(())
     }
 
-    fn constraints(&self, constraints: &[Constraint]) -> Result<(), TypeTransformError> {
+    fn constraints(&self, constraints: &[NominalTy]) -> Result<(), TypeTransformError> {
         for constraint in constraints {
-            if let Constraint::Trait(applied) = constraint {
-                self.trait_application(applied)?;
-            }
+            self.trait_application(constraint)?;
         }
         Ok(())
     }

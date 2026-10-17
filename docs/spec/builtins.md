@@ -52,6 +52,8 @@ an explicit operator trait bound or implementation requires that name in scope.
 Hash, Debug, Display, operator traits other than Fn, collection interfaces,
 HashMap/HashSet, Ordering, ranges and error types require explicit imports.
 New public library declarations do not automatically enter the prelude.
+Generic operation requirements use [ordinary trait bounds](traits.md#operation-specific-bounds),
+not compiler-recognized numeric constraint names.
 
 ## Foundation trait inventory
 

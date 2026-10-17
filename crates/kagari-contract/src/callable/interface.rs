@@ -16,7 +16,7 @@ use kagari_common::{
 use kagari_types::{
     declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope},
     ty::{
-        Constraint, GenericBound, GenericParam, NominalTy, Ty,
+        GenericBound, GenericParam, NominalTy, Ty,
         inheritance::{interface_views, trait_closure},
         substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
     },
@@ -298,15 +298,13 @@ impl InterfaceCallContract {
         }
         for bound in &mut signature.bounds {
             bound.ty = catalog.normalize(&bound.ty, cancel)?;
-            for constraint in &mut bound.constraints {
-                if let Constraint::Trait(interface) = constraint {
-                    let Ty::Trait(resolved) =
-                        catalog.normalize(&Ty::Trait(interface.clone()), cancel)?
-                    else {
-                        unreachable!()
-                    };
-                    *interface = resolved;
-                }
+            for interface in &mut bound.constraints {
+                let Ty::Trait(resolved) =
+                    catalog.normalize(&Ty::Trait(interface.clone()), cancel)?
+                else {
+                    unreachable!()
+                };
+                *interface = resolved;
             }
             if !bounds_in_scope(slice::from_ref(bound), parameters, cancel, definitions)
                 || !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)?
@@ -486,29 +484,26 @@ fn resolve_interface_bounds(
 ) -> Result<Vec<GenericBound>, TypeTransformError> {
     for bound in &mut bounds {
         bound.ty = resolve_associated_outputs(&bound.ty, interface, receiver, cancel)?;
-        for constraint in &mut bound.constraints {
-            if let Constraint::Trait(required) = constraint {
-                let Ty::Trait(resolved) = resolve_associated_outputs(
-                    &Ty::Trait(required.clone()),
-                    interface,
-                    receiver,
-                    cancel,
-                )?
-                else {
-                    return Err(TypeTransformError::InvalidContract);
-                };
-                *required = resolved;
-            }
+        for required in &mut bound.constraints {
+            let Ty::Trait(resolved) = resolve_associated_outputs(
+                &Ty::Trait(required.clone()),
+                interface,
+                receiver,
+                cancel,
+            )?
+            else {
+                return Err(TypeTransformError::InvalidContract);
+            };
+            *required = resolved;
         }
     }
     if dynamic {
         // A boxed receiver already proves membership in its own interface.
         for bound in &mut bounds {
             if &bound.ty == receiver {
-                bound.constraints.retain(|constraint| {
-                    !matches!(constraint,
-                        Constraint::Trait(required) if interface.satisfies(required))
-                });
+                bound
+                    .constraints
+                    .retain(|required| !interface.satisfies(required));
             }
         }
         bounds.retain(|bound| !bound.constraints.is_empty());
@@ -524,14 +519,13 @@ fn bounds_in_scope(
 ) -> bool {
     bounds.iter().all(|bound| {
         types_in_scope([&bound.ty], parameters, cancel, definitions)
-            && bound.constraints.iter().all(|constraint| match constraint {
-                Constraint::Standard(_) => true,
-                Constraint::Trait(required) => types_in_scope(
+            && bound.constraints.iter().all(|required| {
+                types_in_scope(
                     [&Ty::Trait(required.clone())],
                     parameters,
                     cancel,
                     definitions,
-                ),
+                )
             })
     })
 }

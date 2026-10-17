@@ -1802,6 +1802,13 @@ static trait use. HIR's applied catalog and source-independent contract validati
 share this structural policy. Generic methods remain supported; no role blacklist,
 member omission or name exemption supplies eligibility.
 
+Generic and associated bounds directly contain nominal trait applications:
+`NominalType` in HIR and `NominalTy` in portable declarations. There is no separate
+builtin-constraint representation or wire tag. Shared canonical normalization
+preserves scoped identities, arguments and associated bindings; it does not grant
+trait proof authority. HIR resolves and selects operations, while source-free
+contract checking independently validates their applications and witnesses.
+
 Implementation-header bounds are proved after the complete aggregate catalog is
 available. Dynamic admission also checks associated-output constraints. Contract's
 application validation distinguishes static trait references from interface value
@@ -1857,6 +1864,11 @@ applied protocol contract. Encoding Iterable's contract as an interface value wo
 invent an erased Iter output and change the adapter identity. Lowering encodes that
 application as declaration metadata; executable validation requires an exact match
 between identity arguments, signature and the checked protocol requirement.
+Primitive Neg/Add/Sub/Mul/Div/Rem adapters also retain their original applied
+interface in that identity. Bound and unbound associated Output applications can
+coexist without marker collisions. Their bodies reuse ordinary checked primitive
+operator lowering; proving a trait requirement alone never supplies a callable
+witness or authorizes unchecked arithmetic.
 
 Builtin Array typing and MakeArray/RepeatArray lowering own fixed-length syntax
 and element context. Array indexing and indexed assignment carry intrinsic checked

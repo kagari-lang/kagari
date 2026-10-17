@@ -13,7 +13,7 @@ pub mod wire;
 
 use crate::{
     collection::CollectionAccess, range::RangeKind, reference::ReferenceAccess,
-    scalar::BuiltinType, surface::StandardTypeConstraint, ty::substitution::TypeSubstitution,
+    scalar::BuiltinType, ty::substitution::TypeSubstitution,
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use std::collections::BTreeMap;
@@ -146,13 +146,7 @@ pub struct GenericParam {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct GenericBound {
     pub ty: Ty,
-    pub constraints: Vec<Constraint>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Constraint {
-    Standard(StandardTypeConstraint),
-    Trait(NominalTy),
+    pub constraints: Vec<NominalTy>,
 }
 
 impl Ty {}
