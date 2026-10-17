@@ -1,17 +1,15 @@
 # Interpreter performance execution plan
 
 Status: activated on 2026-10-16. IP01 froze the original baseline at 60bfaacb.
-IP02/IP03 are implemented as buildable checkpoints; selected local correctness and
-memory checks pass. IP04-IP07 are unstarted. On 2026-10-17 the user authorized the
-simplified fixed before/after workflow below, with setup/Lua timings diagnostic.
-Fresh comparisons against the original runtime now pass 60/61 execution/lifecycle
-gates, including all four required call targets. Only collection after 256 forward
-cancellations fails (1.06870 versus the 1.05 limit); IP02/IP03 remain unaccepted
-pending attribution of that result. Their projection/publication architecture
-follow-up is complete, with bounded existing hints retained and no production
-change. Session storage and specialization reviews remain in their owning phases.
-Earlier independent Lua setup failures remain historical evidence, not reclassified
-passes. See the final ledger entries for current measurements and the next action.
+IP02/IP03 have completed local acceptance at f070a092: all 61 fresh simplified
+execution/lifecycle gates pass, along with selected correctness and memory checks.
+External program leases now count live registrations instead of retaining expired
+weak-registration lists. Their projection/publication architecture review is also
+complete. IP04-IP06 are explicitly deferred after attribution and architecture
+review; IP07 integration and documentation handoff are active. The user-authorized
+fixed before/after workflow treats setup/Lua timings as diagnostics. Earlier failures
+remain historical evidence, not reclassified passes; complete CI and Lua parity
+are not established. See the final ledger entries for measurements and next steps.
 The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns
 activation. This plan owns interpreter implementation decisions, acceptance and
 the progress ledger.
@@ -508,16 +506,16 @@ commands are historical, not instructions to restore the deleted tooling.
 
 - [x] Planning: owners, phase order, finite experiments and acceptance recorded.
 - [x] IP01: fresh baseline, attribution, frozen controls, gate checker and test selection.
-- [ ] IP02: explicit window-slot reuse and local acceptance.
-- [ ] IP03: unified prepared calls, transfer and return with measured acceptance.
-- [ ] IP04: session storage decision and accepted implementation or deferral.
-- [ ] IP05: typed instruction decision and accepted implementation or deferral.
-- [ ] IP06: selected library transition decision and implementation or deferral.
+- [x] IP02: explicit window-slot reuse and local acceptance.
+- [x] IP03: unified prepared calls, transfer and return with measured local acceptance.
+- [x] IP04: retain global banks; measured and architectural deferral.
+- [x] IP05: retain common scalar kernels; typed/fused additions deferred.
+- [x] IP06: retain existing fixed bodies; allocating/reentrant additions deferred.
 - [ ] IP07: integrated local acceptance and documentation handoff.
 
 The architecture follow-up above is required work within IP03-IP06, not a new
 phase. The projection/publication review is complete in the final ledger entry;
-IP04-IP06 still own the remaining reference comparisons and decisions.
+IP04-IP06 reference comparisons and decisions are recorded in the final ledger.
 
 Current decisions: OM retains object-storage scope; IP02/IP03 are required once
 activated; IP04-IP06 are conditional. No new production cache, second semantic
@@ -3571,3 +3569,123 @@ targets and 1.05 common gates; stop for a failed gate, without extending its rep
 Keep code fixed and run no builds, tests or diagnostics during timing. The earlier
 60/61 report and its unresolved cause remain recorded; this is a new implementation
 comparison, not a retry of that unchanged candidate. Phase acceptance remains open.
+
+Conditional next-step preparation for IP04: once this ordinary sequence passes,
+sample each of the four fixed 256-root forward/random complete/cancel cases for
+five seconds at one-millisecond intervals, inside a ten-second warmed lifecycle
+loop. Use one temporary benchmark-only selector and non-inlined park/retire wrappers
+to distinguish the two stages; restore the harness after building and retain the
+ordinary image. Count nested samples inclusively without adding overlapping stacks.
+This attributes work, not ordinary latency or a segmentation speedup. Current
+diagnostic movement is 2,350,080 bytes per forward cycle and 1,237,464 per random
+cycle (18,432 initialized bytes and 256 windows in each); retained-session drain
+scans remain a separate mechanism. Do not begin sampling during acceptance timing.
+
+### 2026-10-17 IP02/IP03 local acceptance and IP04 attribution
+
+The fixed sequence completes on f070a092 with every checksum/image/workload check
+passing and 61/61 timing gates passing: controls 24/24 (UTC 20261017T072149Z),
+forms 12/12 (20261017T072334Z), windows 18/18 (20261017T072510Z), and original
+7/7 (20261017T072624Z). Machine, toolchain, feature/profile and cache settings are
+unchanged from the preceding simplified comparison. No run is extended, and no
+test, build or diagnostic overlaps ordinary timing. The runtime code remains fixed
+throughout; only planning prose is updated while processes run.
+
+Required paired ratios are calls 0.770502, fibonacci 0.774058, interface 0.767535
+and shared_generic 0.750595. Field is 0.966744. The formerly failing 256-forward-
+cancel collection row is 0.515312; admission and retirement are 0.809541/0.982578.
+The largest ratio across each of controls/forms/windows is respectively
+1.026663/0.984530/1.034768. Retiring the lease registration on last drop reduces
+later collection work; the separately timed admission/retirement gates ensure it
+does not conceal a regression in those stages. These are comparisons against IP01,
+not isolated marginal estimates for the token change. The old 1.068697 observation
+is retained without claiming that its precise cause has been proven.
+
+Together with the recorded focused semantic, memory/plateau/teardown and local
+code-quality checks, this closes IP02/IP03 local acceptance. Earlier applicable
+window, call-transfer, scoped host/reentry and cleanup evidence remains in force.
+Exhaustive CI and broader Lua parity remain separate: current original matched
+workloads still take 2.66-42.17 times Lua execution time (entry excluded).
+Preserve the accepted ordinary and private-window images before diagnostic builds.
+IP04 now runs only the predeclared four-case attribution; no segmentation or session
+notification mechanism has been selected or implemented.
+
+### 2026-10-17 IP04-IP06 conditional dispositions
+
+IP04 retains the existing banks. The predeclared four profiles completed with
+checked results on the accepted runtime and a temporary benchmark-only stage
+wrapper. Sampling used macOS `sample <pid> 5 1` inside ten-second warmed loops,
+sequentially and after ordinary timing. Sources were restored after the diagnostic
+build. The shares below use retirement samples as denominator; nested inclusive
+stacks are counted only once. Movement is a subset of release, not additive to it.
+
+| 256-root retirement | Retirement samples | Storage release | Release memmove | Abandoned-owner scan |
+| --- | ---: | ---: | ---: | ---: |
+| Forward complete | 2,137 | 20.82% | 8.33% | 28.64% |
+| Forward cancel | 2,107 | 23.78% | 8.88% | 32.99% |
+| Random complete | 1,876 | 14.02% | 5.38% | 31.56% |
+| Random cancel | 1,822 | 15.20% | 5.60% | 36.94% |
+
+Even the entire observed release path in random completion is below the required
+15% reduction, and segmentation cannot remove every release responsibility. These
+samples are not a hard speedup bound: sampling error, wrapper code generation and
+cost redistribution remain unknown. They do not justify a migration that adds
+per-session banks, capacities and GC/reentry lifetime obligations under the same
++5% retained-byte gate. Lua 5.4.9's per-state stack and JVM SE 25's private execution
+stacks remain relevant ownership examples, not measured substitutes. Defer the
+segmentation prototype; do not hide the separate full-slot owner scan behind this
+phase. A later lifecycle review must distinguish terminal retirement from abandoned
+owner discovery and retain prompt cleanup, rather than merely adding more scans,
+indexes or caches. No storage or owner-notification implementation is added.
+
+IP05 retains the common prepared scalar kernel model. The finite candidates were
+i32 Add/Mul/Rem/Eq/Lt on arithmetic and branches. A fresh ordinary-image profile
+uses the existing `--profile=arithmetic` / `--profile=branches` routes, three warmups,
+a ten-second execution window and five-second/one-millisecond sampling. Logical
+counting runs afterward. All result checks pass; Value/prepared instruction sizes
+remain 16/24 bytes and logical counts remain 550,015/600,022. Arithmetic has
+273/3,602 samples in numeric kernels (7.58%) and 2,934/3,602 directly in the scalar
+loop (81.45%); branches has 341/3,653 (9.33%) and 2,959/3,653 (81.00%). The loop
+includes fetching, operand access, publication and polling; these samples do not
+isolate indirect-call overhead or establish a 10% gain from typed variants.
+
+The [Rust MIR guide](https://rustc-dev-guide.rust-lang.org/mir/index.html), read on
+2026-10-17, keeps explicit operands/control flow and lowering ownership. JVM SE 25
+uses typed instruction families, but its
+[integer addition](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-6.html#jvms-6.5.iadd)
+does not trap on overflow. Rust's
+[overflow behavior](https://doc.rust-lang.org/reference/expressions/operator-expr.html#overflow)
+also depends on compilation policy. Neither permits replacing Kagari's shared,
+checked payload semantics with host operators. The current preparation already
+selects type/operation-specific Rust functions; adding five i32 variants beside
+that model primarily duplicates dispatch selection, not missing type knowledge.
+Under the user's architecture-first constraint, reject that narrow addition before
+prototyping. A coherent future instruction-representation review must attribute the
+whole loop and compare uniform encoding/transfer costs across numeric domains.
+No typed opcode, alternative semantic body or additional retained product is added;
+no speedup or product/setup improvement is claimed. Fusion is also deferred: no
+accepted interior-PC/resumption/managed-intermediate model exists. One logical
+instruction must remain one observation/slice/trap boundary.
+
+IP06 retains the four installed bodies and rejects two candidate additions before
+implementation. The inventory is finite:
+
+| Body | Disposition and authority/effect reason |
+| --- | --- |
+| StringByteLength | Retain exact installed body/signature; immutable UTF-8 read, scalar result, common native/cursor kernel. No overlapping stdlib implementation remains. |
+| VecIndex | Retain exact element signature and checked storage read; common SDK/native storage owner, no heap growth or script callback. |
+| VecSet / VecSetFluent | Retain the shared preflight/commit kernel, mutable-view/element checks, revision update and pre/post cancellation order; only their result differs. |
+| Vec push (arrays) | Defer: growth changes heap units and can make collection due after the cursor's entry snapshot. A safe allocating transition must release bank borrows and publish roots/PC before reentering GC. |
+| Map lookup (maps) | Defer: selected hash/equality can execute script, and the ordinary Option result allocates. Keep the existing callback/return protocol and common table implementation. |
+
+Lua 5.4.9's [VM implementation](https://www.lua.org/source/5.4/lvm.c.html) explicitly
+saves execution state around reentrant operations and uses `checkGC` after relevant
+allocations, with live stack limits and hook refresh. This supports preserving an
+effect boundary; it does not authorize treating allocating Kagari operations as
+closed primitives. Kagari additionally requires checked handles, pinned applications,
+scoped host borrowing and cooperative cancellation. Its existing native transition
+already owns these guarantees. No name recognition, purity annotation, new cache,
+Option shortcut or second collection engine is introduced. The NC migration remains
+separate. These architectural deferrals close the conditional decisions, not Lua
+parity. IP07 retains the already completed 61-gate evaluation for unchanged runtime
+code and adds only a small composition selection and documentation handoff.
