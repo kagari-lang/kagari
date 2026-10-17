@@ -299,8 +299,10 @@ rest patterns.
 When activated, reuse existing pattern contracts and add focused coverage where
 absent for complete fields, explicit omission, missing-field diagnostics, empty
 and nested rest patterns, and malformed duplicate/nonterminal markers. Check
-accepted examples through executable lowering as well as analysis. This entry
-records the future rule alignment only; implementation remains deferred.
+accepted examples through executable lowering as well as analysis. The combined
+[pattern-binding execution plan](pattern-binding-plan.md) owns PB01-PB04 for SA16
+and SA17, including shared model decisions and acceptance. Implementation is
+active under that plan; the finding remains open until its acceptance completes.
 
 ## SA17 Ordinary `val`/`var` declarations should support destructuring patterns
 
@@ -388,8 +390,10 @@ writeability forms, refutability diagnostics, duplicate names, shadowing and
 once-only initializer effects. Validate shared identity, ignored fields and
 checked host reads where applicable through execution, with navigation/capture
 coverage at their existing owners. Coordinate with SA16 without expanding into
-slice patterns, tuple rest syntax or unrelated pattern features. This entry records
-the agreed future design only; implementation remains deferred.
+slice patterns, tuple rest syntax or unrelated pattern features. The combined
+[pattern-binding execution plan](pattern-binding-plan.md) owns the shared phase
+order, frozen declaration-name/refutability/host boundaries and acceptance with
+SA16. Implementation is active under that plan, not yet accepted as complete.
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 

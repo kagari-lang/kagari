@@ -459,10 +459,11 @@ improvement or completion of those tracks is implied.
 
 The following is the proposed default order for the unresolved [SA review](review.md)
 work, chosen to reduce replacement of newly implemented models. It does not
-activate implementation, settle open language/API choices or merge these findings
-into one migration. Each activated task retains a finite scope and focused gates.
-SA21 registration/interop is implemented as described above; the other entries
-remain queued until separately selected.
+activate implementation, settle open language/API choices or combine unrelated
+findings into one migration. Explicitly grouped scopes below share one plan; each
+activated task retains a finite scope and focused gates.
+SA21 registration/interop is implemented as described above. SA16/SA17 are now
+selected for the combined pattern-binding plan; other entries remain queued.
 
 Ordinary collection-interface ownership is implemented. Current contracts live in
 [collection semantics](spec/collection-access.md), [value semantics](spec/value-semantics.md)
@@ -484,15 +485,19 @@ host-registration scope.
 | 1 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
 | 2 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
 | 3 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
-| 4 | [SA16](review.md#sa16-struct-patterns-should-require-explicit-omission-with-): explicit struct-pattern omission | Establish the rest marker and field-completeness checking once, for existing patterns and subsequent declarations. |
-| 5 | [SA17](review.md#sa17-ordinary-valvar-declarations-should-support-destructuring-patterns): pattern-based declarations | Replace simple bindings with the unified pattern model using SA16 rules; establish local visibility, writeability and checked extraction before local functions consume the binding/capture model. |
-| 6 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 7 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 4 | [SA16 + SA17](pattern-binding-plan.md): struct patterns and destructuring declarations | Active PB01-PB04 plan; PB01 froze the shared contract and focused acceptance. PB02 establishes explicit rest/completeness before unified declarations, captures, checked extraction and tooling. |
+| 5 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 6 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
 Important ordering constraints and limits:
 
-- SA16 rules must be established before SA17 struct destructuring is accepted.
-  SA14's declaration ownership/allocation design must be settled before SA11
+- The combined [pattern-binding plan](pattern-binding-plan.md) is active with
+  user-authorized phase commits. It owns the sole PB01-PB04 ledger and frozen name/refutability/host
+  boundaries. SA16 rules must be established before SA17 declarations are accepted;
+  this is an internal phase dependency, not two independent migrations. Existing
+  host/scoped simple bindings remain supported; direct host/view decomposition is
+  not silently added. Default/struct update (SA26) remains separate.
+- SA14's declaration ownership/allocation design must be settled before SA11
   changes function identity storage; the proposed default completes SA14 first.
 - SA15 -> SA9 -> SA1 is a preferred sequence for overlapping import/graph/lowering
   code, not a semantic requirement. These tasks can be implemented independently
@@ -502,8 +507,9 @@ Important ordering constraints and limits:
   Collection readonly views and Rust host borrow capabilities remain distinct
   contracts; the removed trait marker must not be recreated by host adaptation.
 - Frontend pattern/local-function work need not wait for the complete host track.
-  Host-read destructuring must preserve the implemented checked access contract
-  and consume prepared field facts rather than resolving/extracting patterns again.
+  Checked host initializers preserve their access contract; any future direct
+  host/view destructuring requires an explicit scope decision and checked field
+  projections rather than resolving/extracting patterns again in a backend.
 - [Native collections](native-collections-plan.md) remain a separate NC01-NC06
   task. NC01 reuses the implemented content protocols/helpers and ordinary interface
   contracts while replacing concrete storage. Reconcile the shared
