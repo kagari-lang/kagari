@@ -1,5 +1,9 @@
 //! Compiler-free host for a trusted bundle built by `kg build-aot`.
-use kagari::{aot::AotBundle, context::ExecutionContext, engine::KagariEngine};
+use kagari::{
+    aot::AotBundle,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+};
 use kagari_runtime::{
     host::{HostCallContext, HostError},
     native::builder::ModuleBuilder,
@@ -17,7 +21,10 @@ fn main() {
     )
     .canonicalize()
     .expect("bundle directory");
-    let context = ExecutionContext::default();
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    };
     // SAFETY: this example only accepts host-approved immutable bundles produced
     // by the matching Kagari build; it is not a loader for arbitrary uploaded DLLs.
     let bundle = unsafe { AotBundle::load(&path, &context.cancellation) }.expect("trusted bundle");

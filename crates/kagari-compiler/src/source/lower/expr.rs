@@ -5,19 +5,20 @@ use crate::source::lower::{
     support::lower_scalar,
 };
 use kagari_abi::representation::ValueType;
+use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
     numeric::NumericConversion, operations::UnaryOp, representation::semantic_representation,
     standard::RuntimePrimitive,
 };
 use kagari_hir::{
-    aggregates::implementations::ImplementationSearchLimits,
+    aggregates::implementations::{ImplementationSearchContext, ImplementationSearchLimits},
     hir::{
         expr::{Condition, ExprKind, ops::BinaryOp as HirBinaryOp},
         ids::{BlockId, ExprId},
     },
     resolver::resolved::ResolvedName,
     typeck::table::ResolvedInterfaceImplementation,
-    types::{TypeId, TypeSubstitution},
+    types::{NominalType, TypeId, TypeSubstitution},
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
@@ -38,6 +39,32 @@ mod operators;
 mod standard;
 
 impl FunctionLowerer<'_, '_> {
+    fn implementation_search_context(&self) -> ImplementationSearchContext<'_> {
+        ImplementationSearchContext {
+            assumptions: &self.implementation_bounds,
+            limits: ImplementationSearchLimits {
+                max_checks: self.planner.options.max_type_nodes,
+                max_depth: self.planner.options.max_type_depth,
+            },
+            cancel: &self.planner.options.cancel,
+        }
+    }
+
+    fn find_implementation_method(
+        &self,
+        method: &DefinitionId,
+        interface: &NominalType,
+        ty: &TypeId,
+    ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, MirLoweringError> {
+        Ok(self.planner.catalog.implementation_method(
+            &self.planner.definitions(),
+            method,
+            interface,
+            ty,
+            self.implementation_search_context(),
+        )?)
+    }
+
     fn lower_closure(&mut self, expr_id: ExprId) -> Result<MirValue, MirLoweringError> {
         let mut captures = ValueBuffer::new();
         for resolved in self.analyzed.names.closure_captures(expr_id) {
@@ -358,15 +385,13 @@ impl FunctionLowerer<'_, '_> {
                     &self.planner.definitions(),
                     interface,
                     &types[0],
-                    &Default::default(),
+                    &self.implementation_bounds,
                     ImplementationSearchLimits {
-                        max_checks: 100_000,
-                        max_depth: 64,
+                        max_checks: self.planner.options.max_type_nodes,
+                        max_depth: self.planner.options.max_type_depth,
                     },
                     &self.planner.options.cancel,
-                )
-                .ok()
-                .flatten()
+                )?
                 .ok_or(MirLoweringError::MissingBinding("constant implementation"))?;
             let declaration = self
                 .planner

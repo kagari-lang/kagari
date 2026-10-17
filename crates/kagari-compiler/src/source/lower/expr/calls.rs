@@ -211,9 +211,7 @@ impl FunctionLowerer<'_, '_> {
             }
             if matches!(ty, TypeId::Trait(_))
                 || self
-                    .planner
-                    .catalog
-                    .implementation_method(&self.planner.definitions(), method, interface, &ty)
+                    .find_implementation_method(method, interface, &ty)?
                     .is_some()
             {
                 return self.lower_applied_method(
@@ -336,11 +334,15 @@ impl FunctionLowerer<'_, '_> {
                         },
                     ))),
                 )
-            } else if let Some((implementation, impl_arguments)) = self
-                .analyzed
-                .typed
-                .type_table
-                .implementation_method(&self.planner.definitions(), &method, &interface, &ty)
+            } else if let Some((implementation, impl_arguments)) =
+                self.analyzed.typed.type_table.implementation_method(
+                    self.planner.catalog,
+                    &self.planner.definitions(),
+                    &method,
+                    &interface,
+                    &ty,
+                    self.implementation_search_context(),
+                )?
             {
                 (
                     TypeckCallTarget::Function(implementation),
@@ -348,9 +350,7 @@ impl FunctionLowerer<'_, '_> {
                     None,
                 )
             } else if self
-                .planner
-                .catalog
-                .implementation_method(&self.planner.definitions(), &method, &interface, &ty)
+                .find_implementation_method(&method, &interface, &ty)?
                 .is_none()
                 && let Some(protocol) =
                     Protocol::from_definition(&interface.declaration, &self.planner.definitions())
@@ -379,9 +379,7 @@ impl FunctionLowerer<'_, '_> {
                 )
             } else {
                 let (implementation, impl_arguments) = self
-                    .planner
-                    .catalog
-                    .implementation_method(&self.planner.definitions(), &method, &interface, &ty)
+                    .find_implementation_method(&method, &interface, &ty)?
                     .ok_or(MirLoweringError::UnsupportedExpr(
                         "interface dispatch requires linked implementation tables",
                     ))?;

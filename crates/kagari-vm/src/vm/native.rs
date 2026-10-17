@@ -26,14 +26,32 @@ pub enum PreparedNativeEntry {
     },
 }
 
+/// A prepared entry and an optional host request to interpret this invocation.
+/// The VM validates the original native handle before honoring `fallback_reason`,
+/// and includes that reason in the interpreter fallback report.
+#[derive(Debug, Clone, Copy)]
+pub struct PreparedNativeExecution<'a> {
+    pub prepared: &'a PreparedNativeEntry,
+    pub fallback_reason: Option<&'a str>,
+}
+
+impl<'a> From<&'a PreparedNativeEntry> for PreparedNativeExecution<'a> {
+    fn from(prepared: &'a PreparedNativeEntry) -> Self {
+        Self {
+            prepared,
+            fallback_reason: None,
+        }
+    }
+}
+
 impl Vm {
     /// Execute already-prepared code or an explicit pre-entry fallback decision.
     /// This method never compiles and never restarts a partially executed native call.
-    pub fn execute_prepared<'a>(
+    pub fn execute_prepared<'a, 'p>(
         &self,
         module: &LoadedModule,
         entry: impl Into<ProgramEntry<'a>>,
-        prepared: &PreparedNativeEntry,
+        prepared: impl Into<PreparedNativeExecution<'p>>,
     ) -> Result<ExecutionReport, VmError> {
         let session = self.begin_execution(module)?;
         self.runtime.validate_loaded_module(module)?;
@@ -44,14 +62,18 @@ impl Vm {
         self.execute_prepared_selected(&owner, function, entry.label(), prepared, &session)
     }
 
-    pub(super) fn execute_prepared_selected(
+    pub(super) fn execute_prepared_selected<'p>(
         &self,
         module: &LoadedModule,
         function: FunctionRef,
         label: &str,
-        prepared: &PreparedNativeEntry,
+        prepared: impl Into<PreparedNativeExecution<'p>>,
         session: &ExecutionSession<'_>,
     ) -> Result<ExecutionReport, VmError> {
+        let PreparedNativeExecution {
+            prepared,
+            fallback_reason,
+        } = prepared.into();
         let (backend, artifact, mut diagnostics) = match prepared {
             PreparedNativeEntry::Native(installed) => {
                 self.runtime.validate_loaded_module(installed.module())?;
@@ -74,7 +96,11 @@ impl Vm {
                 diagnostics,
             } => (backend.clone(), None, diagnostics.clone()),
         };
+        if let Some(reason) = fallback_reason {
+            diagnostics.push(reason.to_owned());
+        }
         let native = match prepared {
+            PreparedNativeEntry::Native(_) if fallback_reason.is_some() => None,
             PreparedNativeEntry::Native(installed) => {
                 if let Err(error) = self.runtime.resources().ensure_execution_allowed() {
                     diagnostics.push(format!("JIT disabled by runtime policy: {error}"));

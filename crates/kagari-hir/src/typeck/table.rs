@@ -1,6 +1,10 @@
 //! Node-keyed types and selected semantic operations, shared by tooling and compiler lowering.
 
 use crate::{
+    aggregates::{
+        AggregateCatalog,
+        implementations::{ImplementationSearchContext, ImplementationSearchError},
+    },
     builtin::BuiltinFunction,
     callable::AppliedCallSignature,
     hir::ids::{
@@ -23,10 +27,7 @@ use kagari_common::{
     identity::table::{DefinitionId, DefinitionTable},
     span::Span,
 };
-use kagari_types::{
-    declaration::path::{HostPathContract, HostPathDeclaration},
-    language::Protocol,
-};
+use kagari_types::declaration::path::{HostPathContract, HostPathDeclaration};
 use std::collections::{HashMap, HashSet};
 
 /// Declaration/binder identity selected for a source type reference, separate from its resulting type.
@@ -461,114 +462,38 @@ impl TypeTable {
             })
     }
 
-    /// Checks intrinsic or matching recorded trait implementations with a cycle guard and bound validation.
-    pub fn implements(
-        &self,
-        definitions: &DefinitionTable,
-        trait_type: &NominalType,
-        ty: &TypeId,
-    ) -> bool {
-        self.implements_with_guard(definitions, trait_type, ty, &mut HashSet::new())
-    }
-
-    /// Finds a matching implementation method plus substituted arguments; absent if no method/bounds match.
+    /// Maps a uniquely selected catalog implementation to its recorded local method.
+    /// Returns `None` for no unique implementation or no local method record.
+    ///
+    /// # Errors
+    ///
+    /// Propagates caller cancellation and candidate/depth exhaustion from catalog search.
     pub fn implementation_method(
         &self,
+        catalog: &AggregateCatalog,
         definitions: &DefinitionTable,
         method: &DefinitionId,
         trait_type: &NominalType,
         ty: &TypeId,
-    ) -> Option<(FunctionId, Vec<TypeId>)> {
-        self.implementations
-            .iter()
-            .find_map(|((implemented_trait, pattern), implementation)| {
-                let function = *implementation.methods.get(method)?;
-                let matched = match_implementation(
-                    implemented_trait,
-                    trait_type,
-                    pattern,
-                    ty,
-                    &implementation.parameters,
-                )?;
-                if !self.implementation_bounds_hold(
-                    definitions,
-                    implementation,
-                    &matched,
-                    &mut HashSet::new(),
-                ) {
-                    return None;
-                }
-                let arguments = implementation
-                    .parameters
-                    .iter()
-                    .map(|parameter| matched.get(parameter).cloned())
-                    .collect::<Option<Vec<_>>>()?;
-                Some((function, arguments))
-            })
-    }
-
-    fn implements_with_guard(
-        &self,
-        definitions: &DefinitionTable,
-        trait_type: &NominalType,
-        ty: &TypeId,
-        visiting: &mut HashSet<(NominalType, TypeId)>,
-    ) -> bool {
-        if trait_type.arguments.is_empty()
-            && trait_type.associated_types.is_empty()
-            && let Some(kind) = Protocol::from_definition(&trait_type.declaration, definitions)
-        {
-            return traits::intrinsic_holds(definitions, kind, ty, None, &Default::default());
-        }
-        let key = (trait_type.clone(), ty.clone());
-        if !visiting.insert(key.clone()) {
-            return false;
-        }
-        let found =
-            self.implementations
-                .iter()
-                .any(|((implemented_trait, pattern), implementation)| {
-                    match_implementation(
-                        implemented_trait,
-                        trait_type,
-                        pattern,
-                        ty,
-                        &implementation.parameters,
-                    )
-                    .is_some_and(|matched| {
-                        self.implementation_bounds_hold(
-                            definitions,
-                            implementation,
-                            &matched,
-                            visiting,
-                        )
-                    })
-                });
-        visiting.remove(&key);
-        found
-    }
-
-    fn implementation_bounds_hold(
-        &self,
-        definitions: &DefinitionTable,
-        implementation: &TraitImplementation,
-        matched: &TypeSubstitution,
-        visiting: &mut HashSet<(NominalType, TypeId)>,
-    ) -> bool {
-        implementation
-            .bounds
-            .iter()
-            .all(|(parameter, constraints)| {
-                let actual = parameter.instantiate(matched);
-                constraints.iter().all(|trait_type| {
-                    self.implements_with_guard(
-                        definitions,
-                        &trait_type.instantiate(matched),
-                        &actual,
-                        visiting,
-                    )
-                })
-            })
+        context: ImplementationSearchContext<'_>,
+    ) -> Result<Option<(FunctionId, Vec<TypeId>)>, ImplementationSearchError> {
+        let Some((declaration, arguments)) = catalog.concrete_interface_implementation(
+            definitions,
+            trait_type,
+            ty,
+            context.assumptions,
+            context.limits,
+            context.cancel,
+        )?
+        else {
+            return Ok(None);
+        };
+        Ok(self
+            .implementations
+            .values()
+            .find(|implementation| implementation.declaration == declaration)
+            .and_then(|implementation| implementation.methods.get(method).copied())
+            .map(|function| (function, arguments)))
     }
 
     /// Records/replaces the resolved constraint target under the matching node ID.

@@ -3,6 +3,9 @@
 //! so downstream lowering need not repeat overload or generic argument selection.
 
 use crate::{
+    aggregates::implementations::{
+        ImplementationSearchContext, ImplementationSearchError, ImplementationSearchLimits,
+    },
     callable::{AppliedCallSignature, CallableSignature},
     hir::{expr::ExprKind, ids::ExprId},
     imports::functions::ImportedFunction,
@@ -435,22 +438,45 @@ impl<'a> BodyChecker<'a> {
                         .normalize_type(self.declarations.definitions(), ty);
                 }
                 self.constrain_declared_bound(actual, &trait_type, env);
-                let satisfied = self.aggregates.intrinsic_implementation(
-                    self.declarations.definitions(),
-                    &trait_type,
-                    actual,
-                    &env.generic_bounds,
-                ) || match actual {
-                    TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. } => self
-                        .trait_bounds_for(actual, env)
-                        .iter()
-                        .any(|bound| bound.satisfies_for(&trait_type, actual)),
-                    _ => {
-                        self.aggregates.implementation_count(
+                let satisfied = match actual {
+                    TypeId::Generic(_) | TypeId::SelfType(_) | TypeId::Projection { .. } => {
+                        self.aggregates.intrinsic_implementation(
                             self.declarations.definitions(),
                             &trait_type,
                             actual,
-                        ) == 1
+                            &env.generic_bounds,
+                        ) || self
+                            .trait_bounds_for(actual, env)
+                            .iter()
+                            .any(|bound| bound.satisfies_for(&trait_type, actual))
+                    }
+                    _ => {
+                        match self.aggregates.implementation_count_bounded(
+                            self.declarations.definitions(),
+                            &trait_type,
+                            actual,
+                            ImplementationSearchContext {
+                                assumptions: &env.generic_bounds,
+                                limits: ImplementationSearchLimits {
+                                    max_checks: 4096,
+                                    max_depth: 64,
+                                },
+                                cancel: self.cancel,
+                            },
+                        ) {
+                            Ok(count) => count == 1,
+                            Err(ImplementationSearchError::Cancelled) => return,
+                            Err(ImplementationSearchError::LimitExceeded) => {
+                                self.diagnostics.push(
+                                    Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                                        resource: "trait implementation search",
+                                        limit: 4096,
+                                    })
+                                    .with_span(self.lowered.source_map.expr_span(callee)),
+                                );
+                                return;
+                            }
+                        }
                     }
                 };
                 if !satisfied

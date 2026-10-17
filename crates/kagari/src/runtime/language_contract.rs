@@ -1,6 +1,10 @@
 //! One observable suite for source, artifacts and the existing JIT/fallback.
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
-use crate::{program::PreparedProgram, runtime::KagariRuntime};
+use crate::{
+    context::{ExecutionContext, JitPolicy},
+    program::PreparedProgram,
+    runtime::KagariRuntime,
+};
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
     native_input::PortableMir,
@@ -531,7 +535,14 @@ fn run(
             })
             .unwrap();
     }
-    let vm = KagariRuntime::new(runtime, Default::default());
+    let context = ExecutionContext {
+        jit_policy: match route {
+            Route::Jit | Route::ArtifactJit => JitPolicy::Enabled,
+            Route::Source | Route::Artifact => JitPolicy::Disabled,
+        },
+        ..Default::default()
+    };
+    let vm = KagariRuntime::new(runtime, context);
     let session = (case.cancel_call.is_some() || case.cancel_at.is_some()).then(|| {
         let mut options = vm.runtime().execution_options();
         options.cancellation = cancellation.clone();

@@ -9,6 +9,7 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::{identity::map::DefinitionContext, span::Span};
 use kagari_contract::{operations::BinaryOp, types::PublicItem};
+use kagari_hir::aggregates::implementations::ImplementationSearchError;
 use kagari_mir::{
     function::MirFunction,
     ids::TempId,
@@ -535,6 +536,14 @@ fn recursive_type_growth_is_bounded_before_execution() {
 
 #[test]
 fn lowering_honors_instruction_limits_and_cancellation() {
+    assert!(matches!(
+        MirLoweringError::from(ImplementationSearchError::Cancelled),
+        MirLoweringError::Cancelled
+    ));
+    assert!(matches!(
+        MirLoweringError::from(ImplementationSearchError::LimitExceeded),
+        MirLoweringError::ImplementationSearchLimitExceeded
+    ));
     let analyzed = common::program_ok("fn main() -> i32 { 7 }");
     assert!(matches!(
         lower_to_mir(

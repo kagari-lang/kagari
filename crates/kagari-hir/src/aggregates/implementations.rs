@@ -51,6 +51,17 @@ pub struct ImplementationSearchLimits {
     pub max_depth: usize,
 }
 
+/// Caller-owned assumptions, resource limits and cancellation for one implementation search.
+#[derive(Clone, Copy)]
+pub struct ImplementationSearchContext<'a> {
+    /// Bounds available at the query site, including open generic receivers.
+    pub assumptions: &'a GenericBounds,
+    /// Candidate and recursive requirement limits for this query.
+    pub limits: ImplementationSearchLimits,
+    /// Cancellation shared with the calling analysis or lowering operation.
+    pub cancel: &'a CancellationToken,
+}
+
 /// Per-search candidate/depth accounting, caller assumptions and guarded intrinsic-default exploration.
 struct SearchBudget<'a> {
     definitions: &'a DefinitionTable,
@@ -62,7 +73,26 @@ struct SearchBudget<'a> {
     defaults: HashSet<(Protocol, TypeId)>,
 }
 
-impl SearchBudget<'_> {
+impl<'a> SearchBudget<'a> {
+    fn new(
+        definitions: &'a DefinitionTable,
+        context: ImplementationSearchContext<'a>,
+    ) -> Result<Self, ImplementationSearchError> {
+        context
+            .cancel
+            .check()
+            .map_err(|_| ImplementationSearchError::Cancelled)?;
+        Ok(Self {
+            definitions,
+            checks_left: context.limits.max_checks,
+            depth: 0,
+            max_depth: context.limits.max_depth,
+            cancel: context.cancel,
+            assumptions: context.assumptions,
+            defaults: HashSet::new(),
+        })
+    }
+
     fn check_candidate(&mut self) -> Result<(), ImplementationSearchError> {
         self.cancel
             .check()
@@ -591,49 +621,56 @@ impl AggregateCatalog {
         Ok(())
     }
 
-    /// Finds a matching method identity and implementation arguments, including applicable defaults.
+    /// Finds a unique matching method and implementation arguments, including script defaults.
     /// `definitions` must retain the catalog's scope and its registered implementation members.
+    /// Returns `None` for no matching method or ambiguity.
+    ///
+    /// # Errors
+    ///
+    /// Returns caller cancellation or candidate/depth exhaustion, including cancellation
+    /// when the catalog has no candidates.
     pub fn implementation_method(
         &self,
         definitions: &DefinitionTable,
         method: &DefinitionId,
         trait_type: &NominalType,
         receiver: &TypeId,
-    ) -> Option<(DefinitionId, Vec<TypeId>)> {
-        let cancel = CancellationToken::default();
-        let mut budget = SearchBudget {
-            definitions,
-            checks_left: usize::MAX,
-            depth: 0,
-            max_depth: usize::MAX,
-            cancel: &cancel,
-            assumptions: &Default::default(),
-            defaults: HashSet::new(),
-        };
-        let mut matches = self.implementations.values().filter_map(|implementation| {
-            let matched = self
-                .implementation_matches(
-                    implementation,
-                    trait_type,
-                    receiver,
-                    &mut HashSet::new(),
-                    &mut budget,
-                )
-                .ok()??;
-            let arguments = implementation
+        context: ImplementationSearchContext<'_>,
+    ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
+        let mut budget = SearchBudget::new(definitions, context)?;
+        let mut selected = None;
+        for implementation in self.implementations.values() {
+            let Some(matched) = self.implementation_matches(
+                implementation,
+                trait_type,
+                receiver,
+                &mut HashSet::new(),
+                &mut budget,
+            )?
+            else {
+                continue;
+            };
+            let Some(arguments) = implementation
                 .generic_params
                 .iter()
                 .map(|parameter| matched.get(parameter).cloned())
-                .collect::<Option<Vec<_>>>()?;
-            let target = implementation.methods.get(method).cloned().or_else(|| {
+                .collect::<Option<Vec<_>>>()
+            else {
+                continue;
+            };
+            let Some(target) = implementation.methods.get(method).cloned().or_else(|| {
                 self.trait_method(method)
                     .filter(|method| method.default == Some(MethodDefault::Script))
                     .map(|_| implementation_member(definitions, implementation.id, *method))
-            })?;
-            Some((target, arguments))
-        });
-        let result = matches.next()?;
-        matches.next().is_none().then_some(result)
+            }) else {
+                continue;
+            };
+            if selected.is_some() {
+                return Ok(None);
+            }
+            selected = Some((target, arguments));
+        }
+        Ok(selected)
     }
 
     /// An omitted method has the same impl-owned identity as an explicit method;
@@ -690,24 +727,6 @@ impl AggregateCatalog {
             .collect()
     }
 
-    /// Counts matching implementations using maximal size/depth bounds and default cancellation; search failure maps to zero.
-    pub fn implementation_count(
-        &self,
-        definitions: &DefinitionTable,
-        trait_type: &NominalType,
-        receiver: &TypeId,
-    ) -> usize {
-        self.implementation_count_bounded(
-            definitions,
-            trait_type,
-            receiver,
-            usize::MAX,
-            usize::MAX,
-            &CancellationToken::default(),
-        )
-        .unwrap_or(0)
-    }
-
     /// Selects a concrete implementation identity and applied arguments under explicit search limits.
     ///
     /// Returns `None` when no unique admissible concrete implementation is selected.
@@ -724,15 +743,14 @@ impl AggregateCatalog {
         limits: ImplementationSearchLimits,
         cancel: &CancellationToken,
     ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, ImplementationSearchError> {
-        let mut budget = SearchBudget {
+        let mut budget = SearchBudget::new(
             definitions,
-            checks_left: limits.max_checks,
-            depth: 0,
-            max_depth: limits.max_depth,
-            cancel,
-            assumptions,
-            defaults: HashSet::new(),
-        };
+            ImplementationSearchContext {
+                assumptions,
+                limits,
+                cancel,
+            },
+        )?;
         let mut selected = None;
         for implementation in self.implementations.values() {
             if let Some(matched) = self.implementation_matches(
@@ -769,19 +787,9 @@ impl AggregateCatalog {
         definitions: &DefinitionTable,
         trait_type: &NominalType,
         receiver: &TypeId,
-        max_checks: usize,
-        max_depth: usize,
-        cancel: &CancellationToken,
+        context: ImplementationSearchContext<'_>,
     ) -> Result<usize, ImplementationSearchError> {
-        let mut budget = SearchBudget {
-            definitions,
-            checks_left: max_checks,
-            depth: 0,
-            max_depth,
-            cancel,
-            assumptions: &Default::default(),
-            defaults: HashSet::new(),
-        };
+        let mut budget = SearchBudget::new(definitions, context)?;
         let mut count = 0;
         for implementation in self.implementations.values() {
             if self
@@ -800,17 +808,29 @@ impl AggregateCatalog {
                 }
             }
         }
-        if count == 0
-            && traits::intrinsic_applies(
-                definitions,
-                trait_type,
-                receiver,
-                Some(self),
-                &Default::default(),
-            )
-        {
-            count = 1;
+        if count == 0 {
+            let intrinsic = if trait_type.arguments.is_empty()
+                && trait_type.associated_types.is_empty()
+                && let Some(protocol) =
+                    Protocol::from_definition(&trait_type.declaration, definitions)
+                && protocol.equality_protocol()
+            {
+                self.standard_holds(protocol, receiver, &mut HashSet::new(), &mut budget)?
+            } else {
+                traits::intrinsic_applies(
+                    definitions,
+                    trait_type,
+                    receiver,
+                    Some(self),
+                    context.assumptions,
+                )
+            };
+            count = usize::from(intrinsic);
         }
+        context
+            .cancel
+            .check()
+            .map_err(|_| ImplementationSearchError::Cancelled)?;
         Ok(count)
     }
 
@@ -996,151 +1016,7 @@ fn implementation_member(
 }
 
 #[cfg(test)]
-mod search_tests {
-    use super::*;
-    use crate::types::TypeId;
-    use kagari_common::identity::{
-        DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext,
-    };
-    use kagari_types::scalar::BuiltinType;
-
-    fn definition(context: &DefinitionContext, kind: DefinitionKind, name: &str) -> DefinitionId {
-        let root = context
-            .intern_root(&ModuleIdentity {
-                package: PackageId("pkg".into()),
-                path: vec!["module".into()],
-            })
-            .unwrap();
-        context.intern_child(root, kind, name, 0).unwrap()
-    }
-
-    #[test]
-    fn bounded_trait_search_reuses_generic_matching_and_stops_growth() {
-        let context = DefinitionContext::new().unwrap();
-        let marker = definition(&context, DefinitionKind::Trait, "Marker");
-        let owner = definition(&context, DefinitionKind::Impl, "");
-        let parameter = GenericParameterType {
-            owner,
-            position: 0,
-            name: "T".into(),
-        };
-        let applied = |argument| NominalType {
-            associated_types: Default::default(),
-            declaration: marker,
-            arguments: vec![argument],
-        };
-        let signature = ImplementationSignature {
-            engine_owned: false,
-            associated_type_families: Default::default(),
-            id: owner,
-            trait_type: applied(TypeId::Generic(parameter.clone())),
-            for_type: TypeId::Generic(parameter.clone()),
-            generic_params: vec![parameter.clone()],
-            bounds: Default::default(),
-            methods: Default::default(),
-        };
-        let catalog = AggregateCatalog {
-            implementations: [(signature.id, Arc::new(signature.clone()))].into(),
-            ..Default::default()
-        };
-        let actual = TypeId::Builtin(BuiltinType::I32);
-        let required = applied(actual.clone());
-        let cancel = CancellationToken::default();
-        assert_eq!(
-            catalog.implementation_count_bounded(
-                &context.snapshot(),
-                &required,
-                &actual,
-                1,
-                4,
-                &cancel
-            ),
-            Ok(1)
-        );
-        assert_eq!(
-            catalog.implementation_count_bounded(
-                &context.snapshot(),
-                &required,
-                &actual,
-                0,
-                4,
-                &cancel
-            ),
-            Err(ImplementationSearchError::LimitExceeded)
-        );
-        cancel.cancel();
-        assert_eq!(
-            catalog.implementation_count_bounded(
-                &context.snapshot(),
-                &required,
-                &actual,
-                1,
-                4,
-                &cancel
-            ),
-            Err(ImplementationSearchError::Cancelled)
-        );
-
-        let mut chained = signature;
-        let next = definition(&context, DefinitionKind::Trait, "Next");
-        chained.bounds.insert(
-            TypeId::Generic(parameter.clone()),
-            vec![NominalType {
-                associated_types: Default::default(),
-                declaration: next,
-                arguments: vec![TypeId::Generic(parameter.clone())],
-            }],
-        );
-        let next_parameter = GenericParameterType {
-            owner: definition(&context, DefinitionKind::Impl, "next"),
-            position: 0,
-            name: "U".into(),
-        };
-        let next_signature = ImplementationSignature {
-            engine_owned: false,
-            associated_type_families: Default::default(),
-            id: next_parameter.owner,
-            trait_type: NominalType {
-                associated_types: Default::default(),
-                declaration: next,
-                arguments: vec![TypeId::Generic(next_parameter.clone())],
-            },
-            for_type: TypeId::Generic(next_parameter.clone()),
-            generic_params: vec![next_parameter.clone()],
-            bounds: Default::default(),
-            methods: Default::default(),
-        };
-        let catalog = AggregateCatalog {
-            implementations: [chained, next_signature]
-                .into_iter()
-                .map(|signature| (signature.id, Arc::new(signature)))
-                .collect(),
-            ..Default::default()
-        };
-        assert_eq!(
-            catalog.implementation_count_bounded(
-                &context.snapshot(),
-                &required,
-                &actual,
-                100,
-                0,
-                &CancellationToken::default(),
-            ),
-            Err(ImplementationSearchError::LimitExceeded)
-        );
-        assert_eq!(
-            catalog.implementation_count_bounded(
-                &context.snapshot(),
-                &required,
-                &actual,
-                100,
-                1,
-                &CancellationToken::default(),
-            ),
-            Ok(1)
-        );
-    }
-}
+mod search_tests;
 
 mod mapping;
 

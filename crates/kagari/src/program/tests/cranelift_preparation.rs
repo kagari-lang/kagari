@@ -47,23 +47,52 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
                 &context.cancellation,
             )
             .unwrap();
-        assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
+        let PreparedNativeEntry::Native(installed) = &prepared else {
+            panic!("scalar entry should compile to native code");
+        };
 
         drop(program);
-        let report = runtime
-            .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &prepared)
-            .unwrap();
-        assert_eq!(
-            report
-                .return_value
-                .value(runtime.runtime().gc())
-                .expect("retained execution result"),
-            Value::I32(42)
-        );
-        assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
-        drop(report.return_value);
-
-        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        for policy in [
+            JitPolicy::Enabled,
+            JitPolicy::Disabled,
+            JitPolicy::Enabled,
+            JitPolicy::CompileOnLoad,
+            JitPolicy::CompileOnFirstCall,
+            JitPolicy::CompileAfterThreshold(10),
+        ] {
+            // Scheduling variants still consume explicitly prepared code only.
+            let execution = ExecutionContext {
+                jit_policy: policy,
+                ..Default::default()
+            };
+            let report = runtime
+                .execute_prepared(&loaded, ProgramEntry::Main, &[], &execution, &prepared)
+                .unwrap();
+            assert_eq!(
+                report
+                    .return_value
+                    .value(runtime.runtime().gc())
+                    .expect("retained execution result"),
+                Value::I32(42)
+            );
+            let jit = report.jit.unwrap();
+            assert_eq!(jit.backend, installed.artifact().code.backend);
+            assert_eq!(jit.function, installed.artifact().function);
+            if policy == JitPolicy::Disabled {
+                assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
+                assert!(jit.artifact.is_none());
+                assert_eq!(
+                    jit.diagnostics,
+                    ["JIT disabled by execution context policy"]
+                );
+            } else {
+                assert_eq!(jit.status, JitExecutionStatus::Native);
+                assert!(jit.artifact.is_some());
+                assert!(jit.diagnostics.is_empty());
+            }
+            drop(report.return_value);
+            assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        }
     }
 }
 

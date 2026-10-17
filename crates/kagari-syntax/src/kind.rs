@@ -4,10 +4,35 @@
 //! Shift operators are combined by the parser; declaration/expression kinds
 //! describe grouping nodes and have no single lexer token.
 
+// Keep discriminants and checked raw decoding in one declaration. The macro only
+// accepts implicit, contiguous discriminants, and decoding never constructs an enum
+// from an unchecked integer.
+macro_rules! syntax_kinds {
+    (
+        $(#[$enum_attribute:meta])*
+        pub enum SyntaxKind {
+            $($(#[$variant_attribute:meta])* $variant:ident,)*
+        }
+    ) => {
+        $(#[$enum_attribute])*
+        pub enum SyntaxKind {
+            $($(#[$variant_attribute])* $variant,)*
+        }
+
+        impl SyntaxKind {
+            pub(crate) fn from_raw(raw: u16) -> Option<Self> {
+                const KINDS: &[SyntaxKind] = &[$(SyntaxKind::$variant,)*];
+                KINDS.get(usize::from(raw)).copied()
+            }
+        }
+    };
+}
+
+syntax_kinds! {
 /// The tag of a concrete syntax node or token, independent of resolved meaning.
 ///
 /// Token variants give their spelling; node variants link to their typed views.
-/// Raw Rowan kinds must be valid discriminants of this enum.
+/// Raw Rowan kinds are checked against this declaration before conversion.
 #[repr(u16)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SyntaxKind {
@@ -365,6 +390,7 @@ pub enum SyntaxKind {
     Interpolation,
     /// A recovery node retaining unexpected tokens or a limit-exhausted suffix.
     Error,
+}
 }
 
 impl SyntaxKind {

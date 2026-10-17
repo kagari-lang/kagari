@@ -384,6 +384,17 @@ parent applications under caller bounds. If/match inference intersects candidate
 across all normally completing arms before choosing a unique most-specific result;
 ambiguous intermediate pairs cannot discard a candidate needed by a later arm.
 
+Method selection and implementation counts use the catalog's shared bounded search.
+`ImplementationSearchContext` carries the caller's generic assumptions, candidate/
+depth limits and cancellation token. Searches check cancellation even when there
+are no candidates, and distinguish no unique match from cancellation or exhaustion.
+Application/body checking reports exhaustion as a compilation limit, while analysis
+owners reject cancellation before publishing signatures, snapshots or body caches.
+Lowering retains instantiated caller assumptions and propagates cancellation and
+search exhaustion as distinct errors. Local method lookup in `TypeTable` maps the
+catalog's selected implementation to a local function; it does not run another
+recursive solver or substitute a fresh uncancellable context.
+
 [TypeTable](../../crates/kagari-hir/src/typeck/table.rs) records interface
 construction/upcast decisions and the exact applied interface/setter identity for
 indexed writes. For `values[0] = next`, checking resolves Index's output and the

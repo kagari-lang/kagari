@@ -1,7 +1,7 @@
 //! Deployment-specific boundaries; scalar arithmetic remains covered by backend tests.
 use super::*;
 use crate::{
-    context::ExecutionContext,
+    context::{ExecutionContext, JitPolicy},
     engine::{
         KagariEngine,
         source::{ArtifactOptions, NativeInputExport},
@@ -99,6 +99,13 @@ fn bundle(engine: &KagariEngine, directory: &Path, source: &str) -> AotBundle {
     unsafe { AotBundle::load(directory, &Default::default()) }.unwrap()
 }
 
+fn native_context() -> ExecutionContext {
+    ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    }
+}
+
 fn result(
     runtime: &KagariRuntime,
     loaded: &LoadedModule,
@@ -106,13 +113,7 @@ fn result(
     expected: i32,
 ) {
     let report = runtime
-        .execute_prepared(
-            loaded,
-            ProgramEntry::Main,
-            &[],
-            &Default::default(),
-            prepared,
-        )
+        .execute_prepared(loaded, ProgramEntry::Main, &[], &native_context(), prepared)
         .unwrap();
     assert_eq!(
         report.jit.as_ref().unwrap().status,
@@ -140,8 +141,8 @@ fn installed_images_pin_versions_share_bindings_and_release_after_last_owner() {
     );
     let old_owner = Arc::downgrade(&old_bundle.product.owner);
     let new_owner = Arc::downgrade(&new_bundle.product.owner);
-    let mut first = engine.runtime(Default::default());
-    let mut second = engine.runtime(Default::default());
+    let mut first = engine.runtime(native_context());
+    let mut second = engine.runtime(native_context());
     let old = first
         .load_program(old_bundle.program(), Default::default())
         .unwrap();
@@ -207,7 +208,7 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         &directory.0.join("overflow"),
         "fn main() -> i32 { 2147483647 + 1 }",
     );
-    let mut runtime = engine.runtime(Default::default());
+    let mut runtime = engine.runtime(native_context());
     let loaded = runtime
         .load_program(overflow.program(), Default::default())
         .unwrap();
@@ -218,7 +219,7 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
             &loaded,
             ProgramEntry::Main,
             &[],
-            &Default::default(),
+            &native_context(),
             &prepared,
         )
         .unwrap_err();
@@ -249,7 +250,7 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         .load_program(good.program(), Default::default())
         .unwrap();
     let prepared = good.install(&runtime, &loaded).unwrap();
-    let context = ExecutionContext::default();
+    let context = native_context();
     context.cancellation.cancel();
     assert!(
         runtime
@@ -275,7 +276,7 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
             &loaded,
             ProgramEntry::Main,
             &[],
-            &Default::default(),
+            &native_context(),
             &prepared,
         )
         .unwrap();
@@ -417,13 +418,13 @@ fn publication_is_complete_and_build_errors_preserve_existing_deployments() {
     );
     assert_eq!(manifest, fs::read(destination.join(MANIFEST_FILE)).unwrap());
     let loaded = unsafe { AotBundle::load(&destination, &Default::default()) }.unwrap();
-    let mut runtime = engine.runtime(Default::default());
+    let mut runtime = engine.runtime(native_context());
     let module = runtime
         .load_program(loaded.program(), Default::default())
         .unwrap();
     let prepared = loaded.install(&runtime, &module).unwrap();
     let report = runtime
-        .execute_prepared(&module, loaded.entry(), &[], &Default::default(), &prepared)
+        .execute_prepared(&module, loaded.entry(), &[], &native_context(), &prepared)
         .unwrap();
     assert_eq!(
         report.jit.as_ref().unwrap().status,

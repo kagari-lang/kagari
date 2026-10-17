@@ -13,7 +13,7 @@ use kagari_contract::{
 };
 use kagari_hir::{
     AnalyzedModule, CheckedAnalysis,
-    aggregates::AggregateCatalog,
+    aggregates::{AggregateCatalog, implementations::ImplementationSearchError},
     hir::{
         ids::{ExprId, FunctionId, LocalId, PlaceId},
         item::function::FunctionKind,
@@ -50,6 +50,8 @@ pub enum MirLoweringError {
     Verification(MirVerificationError),
     Diagnostic(Box<Diagnostic>),
     Cancelled,
+    /// Candidate or recursive requirement limits exhausted implementation selection.
+    ImplementationSearchLimitExceeded,
     Identity(DefinitionMappingError),
     MissingTypedFunction(FunctionId),
     MissingExprType(ExprId),
@@ -66,6 +68,15 @@ pub enum MirLoweringError {
 impl MirLoweringError {
     pub(crate) fn diagnostic(diagnostic: Diagnostic) -> Self {
         Self::Diagnostic(Box::new(diagnostic))
+    }
+}
+
+impl From<ImplementationSearchError> for MirLoweringError {
+    fn from(error: ImplementationSearchError) -> Self {
+        match error {
+            ImplementationSearchError::Cancelled => Self::Cancelled,
+            ImplementationSearchError::LimitExceeded => Self::ImplementationSearchLimitExceeded,
+        }
     }
 }
 

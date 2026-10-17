@@ -104,6 +104,13 @@ Tooling may inspect a tree with diagnostics, but must handle absent AST children
 Compilation must carry syntax diagnostics into the semantic acceptance gate;
 constructing an AST view or receiving `Ok(Parse)` does not establish validity.
 
+Raw Rowan kinds are checked against the same declaration that defines `SyntaxKind`;
+conversion never constructs an enum from an unchecked integer. The infallible Rowan
+language adapter panics on an invalid raw kind. `syntax_node_from_green` checks its
+root immediately, while descendant kinds are checked on access without eagerly
+walking the tree. This is raw-kind admission, not grammar validation: malformed
+source still produces ordinary valid recovery kinds and diagnostics.
+
 The `Parse` representation does not record whether ordinary or declaration mode
 produced it. The caller owns that distinction. Offline declaration acceptance
 must not be used to bypass the ordinary executable-source checks.

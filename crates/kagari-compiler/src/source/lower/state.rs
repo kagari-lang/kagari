@@ -16,7 +16,7 @@ use kagari_hir::{
         writeability::Writeability,
     },
     resolver::resolved::ResolvedName,
-    typeck::TypedFunction,
+    typeck::{GenericBounds, TypedFunction},
     types::TypeId,
 };
 use kagari_mir::{
@@ -41,6 +41,7 @@ pub(crate) struct LoopScope {
 pub(crate) struct FunctionLowerer<'a, 'p> {
     pub(crate) analyzed: &'a AnalyzedModule,
     pub(crate) instance: Instance,
+    pub(crate) implementation_bounds: GenericBounds,
     pub(crate) planner: &'p mut InstancePlanner<'a>,
     pub(crate) function: MirFunction,
     pub(crate) current_block: BlockId,
@@ -185,9 +186,25 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             function.semantic.params.insert(index, concrete(&param.ty)?);
             function.semantic.locals.insert(index, concrete(&param.ty)?);
         }
+        let mut bounds = GenericBounds::new();
+        for (ty, constraints) in &scope.bounds {
+            let actual = planner.catalog.normalize_type(
+                &planner.definitions(),
+                &ty.instantiate(&instance.substitution),
+            );
+            bounds.entry(actual).or_default().extend(
+                constraints
+                    .iter()
+                    .map(|interface| interface.instantiate(&instance.substitution)),
+            );
+        }
+        let implementation_bounds = planner
+            .catalog
+            .expanded_bounds(&bounds, &planner.options.cancel)?;
         Ok(Self {
             analyzed,
             instance,
+            implementation_bounds,
             planner,
             function,
             current_block: entry,

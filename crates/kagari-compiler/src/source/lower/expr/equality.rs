@@ -4,9 +4,8 @@ use kagari_abi::representation::ValueType;
 use kagari_common::identity::{mapping::DefinitionMappingError, scoped::DefinitionReferences};
 use kagari_contract::{operations::BinaryOp, standard::RuntimePrimitive};
 use kagari_hir::{
-    aggregates::implementations::{ImplementationSearchError, ImplementationSearchLimits},
-    language::semantics::ProtocolSemantics,
-    types::TypeId,
+    aggregates::implementations::ImplementationSearchLimits,
+    language::semantics::ProtocolSemantics, types::TypeId,
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
@@ -49,21 +48,13 @@ impl FunctionLowerer<'_, '_> {
                                 .nominal(&self.planner.definitions())
                                 .expect("registered protocol identity"),
                             &ty,
-                            &Default::default(),
+                            &self.implementation_bounds,
                             ImplementationSearchLimits {
                                 max_checks: self.planner.options.max_type_nodes,
                                 max_depth: self.planner.options.max_type_depth,
                             },
                             &self.planner.options.cancel,
-                        )
-                        .map_err(|error| match error {
-                            ImplementationSearchError::Cancelled => MirLoweringError::Cancelled,
-                            ImplementationSearchError::LimitExceeded => {
-                                MirLoweringError::UnsupportedExpr(
-                                    "protocol implementation search exceeds type limits",
-                                )
-                            }
-                        })?
+                        )?
                         .is_some()
                     {
                         return Ok(true);
@@ -116,16 +107,13 @@ impl FunctionLowerer<'_, '_> {
         if matches!(ty, TypeId::Tuple(_) | TypeId::Enum(_))
             && self.has_custom_protocol(ty)?
             && self
-                .planner
-                .catalog
-                .implementation_method(
-                    &self.planner.definitions(),
+                .find_implementation_method(
                     &self.protocol_method(protocol, 0)?,
                     &protocol
                         .nominal(&self.planner.definitions())
                         .expect("registered protocol identity"),
                     ty,
-                )
+                )?
                 .is_none()
         {
             let function = self.planner.enqueue_protocol(
@@ -216,9 +204,7 @@ impl FunctionLowerer<'_, '_> {
             .nominal(&self.planner.definitions())
             .expect("registered protocol identity");
         if self
-            .planner
-            .catalog
-            .implementation_method(&self.planner.definitions(), method, &interface, ty)
+            .find_implementation_method(method, &interface, ty)?
             .is_some()
         {
             return self.lower_applied_method(interface, ty.clone(), method, &[], args);

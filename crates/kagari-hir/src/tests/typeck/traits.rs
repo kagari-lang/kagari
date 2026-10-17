@@ -63,6 +63,44 @@ fn forward<T: Carrier, U: Carrier>(value: T) {{ take::<T, {projection}>(value); 
 }
 
 #[test]
+fn applied_impl_bounds_reuse_the_callers_generic_assumptions() {
+    for (bound, valid) in [(": Marker", true), ("", false)] {
+        let source = SourceFile::new(
+            "applied-impl-bounds.kgr",
+            format!(
+                r#"
+trait Marker {{}}
+trait Ready {{}}
+struct Wrap<T> {{ val value: T }}
+impl<T: Marker> Ready for Wrap<T> {{}}
+struct Needs<T: Ready> {{ val value: T }}
+fn take<T: Ready>(value: T) {{}}
+fn forward<T{bound}>(value: Wrap<T>) {{
+    val checked: Needs<Wrap<T>> = Needs {{ value: value }};
+    take(value);
+}}
+"#
+            ),
+        );
+        let result = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        if valid {
+            result
+                .into_checked()
+                .expect("application and call searches retain the caller's Marker bound");
+        } else {
+            assert!(
+                result.diagnostics().iter().any(|diagnostic| matches!(
+                    diagnostic.kind,
+                    DiagnosticKind::GenericBoundNotSatisfied { .. }
+                )),
+                "{:?}",
+                result.diagnostics()
+            );
+        }
+    }
+}
+
+#[test]
 fn trait_name_is_not_a_self_parameter_in_where_bounds() {
     let context = DefinitionContext::new().unwrap();
     let lowered = common::lower_ok("trait Sequence { fn size(self) -> usize where Sequence: Eq; }");

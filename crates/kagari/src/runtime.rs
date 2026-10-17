@@ -17,7 +17,10 @@ use kagari_runtime::{
 };
 use kagari_vm::{
     error::VmError,
-    vm::{ExecutionReport, Vm, native::PreparedNativeEntry},
+    vm::{
+        ExecutionReport, Vm,
+        native::{PreparedNativeEntry, PreparedNativeExecution},
+    },
 };
 
 #[derive(Debug)]
@@ -133,7 +136,14 @@ impl KagariRuntime {
             .begin_execution(module, context.runtime_options())
             .map_err(|error| EmbeddingError::vm(VmError::RuntimeError(error)))?;
         self.vm
-            .execute_prepared(module, entry, prepared)
+            .execute_prepared(
+                module,
+                entry,
+                PreparedNativeExecution {
+                    prepared,
+                    fallback_reason: context.jit_policy.fallback_reason(),
+                },
+            )
             .map_err(EmbeddingError::vm)
     }
 }

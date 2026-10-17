@@ -6,7 +6,11 @@ use kagari_runtime::module::entry::ProgramEntry;
 use kagari_stdlib::catalog as foundation_catalog;
 mod memory;
 
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
+};
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_codegen::{BackendFunctionInput, CodegenBackend};
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -180,7 +184,11 @@ fn main() {
     );
     drop(products);
     let context = context();
-    let mut runtime = engine.runtime(context.clone());
+    let native_context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..context.clone()
+    };
+    let mut runtime = engine.runtime(native_context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     let before_native = live_bytes();
     let native = runtime
@@ -230,7 +238,13 @@ fn main() {
             || {
                 let report = if use_native {
                     runtime
-                        .execute_prepared(&loaded, ProgramEntry::Main, &[], &context, &native)
+                        .execute_prepared(
+                            &loaded,
+                            ProgramEntry::Main,
+                            &[],
+                            &native_context,
+                            &native,
+                        )
                         .unwrap()
                 } else {
                     runtime

@@ -1,5 +1,6 @@
 use super::*;
 use crate::{
+    aggregates::implementations::{ImplementationSearchContext, ImplementationSearchLimits},
     declarations::DeclarationId,
     resolver::{resolved::ResolvedName, table::NameResolution},
     tests::test_analysis,
@@ -99,23 +100,35 @@ fn duplicate_declarations_have_no_winner_in_any_semantic_consumer() {
                 .find(|item| item.declaration.name == "Valid")
                 .unwrap();
             for item in &facts.lowered.module.traits {
-                assert!(
-                    !facts.typed.type_table.implements(
-                        analysis.definitions(),
-                        &crate::types::NominalType {
-                            associated_types: Default::default(),
-                            declaration: *facts
-                                .declarations
-                                .definition(ResolvedName::Trait(item.id))
-                                .unwrap(),
-                            arguments: Vec::new(),
-                        },
-                        &TypeId::Struct(crate::types::NominalType {
-                            associated_types: Default::default(),
-                            declaration: valid.id,
-                            arguments: Vec::new()
-                        })
-                    )
+                assert_eq!(
+                    facts
+                        .aggregates
+                        .implementation_count_bounded(
+                            analysis.definitions(),
+                            &crate::types::NominalType {
+                                associated_types: Default::default(),
+                                declaration: *facts
+                                    .declarations
+                                    .definition(ResolvedName::Trait(item.id))
+                                    .unwrap(),
+                                arguments: Vec::new(),
+                            },
+                            &TypeId::Struct(crate::types::NominalType {
+                                associated_types: Default::default(),
+                                declaration: valid.id,
+                                arguments: Vec::new()
+                            }),
+                            ImplementationSearchContext {
+                                assumptions: &Default::default(),
+                                limits: ImplementationSearchLimits {
+                                    max_checks: 4096,
+                                    max_depth: 64,
+                                },
+                                cancel: &Default::default(),
+                            },
+                        )
+                        .unwrap(),
+                    0
                 );
             }
             assert!(

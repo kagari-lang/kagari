@@ -1,4 +1,6 @@
 //! The same portable artifact is consumed with source, native, or neither feature.
+#[cfg(feature = "native")]
+use kagari::context::JitPolicy;
 use kagari::{
     context::ExecutionContext,
     engine::{EngineConfig, KagariEngine},
@@ -421,6 +423,7 @@ mod native {
                 .unwrap();
         assert!(program.has_native_input());
         let context = ExecutionContext {
+            jit_policy: JitPolicy::Enabled,
             ..Default::default()
         };
         let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
@@ -456,7 +459,10 @@ fn real_cranelift_compiles_portable_artifact_without_source() {
     let program =
         PreparedProgram::from_artifact(artifact(), &Default::default(), &Default::default())
             .unwrap();
-    let context = ExecutionContext::default();
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    };
 
     let mut runtime = engine(Default::default(), Default::default()).runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

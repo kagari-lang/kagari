@@ -12,7 +12,9 @@ mod workloads;
 use std::{env, hint::black_box, time::Instant};
 
 use kagari::{
-    context::ExecutionContext, engine::KagariEngine, program::PreparedProgram,
+    context::{ExecutionContext, JitPolicy},
+    engine::KagariEngine,
+    program::PreparedProgram,
     runtime::KagariRuntime,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -150,6 +152,7 @@ struct ExecutionRoutes {
     runtime: KagariRuntime,
     module: LoadedModule,
     context: ExecutionContext,
+    native_context: ExecutionContext,
     lua_entry: Function,
     native: Option<PreparedNativeEntry>,
 }
@@ -161,7 +164,7 @@ impl ExecutionRoutes {
                 &self.module,
                 ProgramEntry::Main,
                 &[],
-                &self.context,
+                &self.native_context,
                 self.native.as_ref().expect("prepared native entry"),
             )
         } else {
@@ -272,8 +275,17 @@ fn run(workload: &Workload, options: &Options) {
             .expect("artifact verification")
     });
     let context = ExecutionContext::default();
+    let native_context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..context.clone()
+    };
+    let default_context = if options.interpreter_only {
+        &context
+    } else {
+        &native_context
+    };
     let mut runtime = record.setup("runtime_init", "kagari_vm", || {
-        engine.runtime(context.clone())
+        engine.runtime(default_context.clone())
     });
     let module = record.setup("program_link", "kagari_vm", || {
         runtime
@@ -329,6 +341,7 @@ fn run(workload: &Workload, options: &Options) {
         runtime,
         module,
         context,
+        native_context,
         lua_entry,
         native,
     }

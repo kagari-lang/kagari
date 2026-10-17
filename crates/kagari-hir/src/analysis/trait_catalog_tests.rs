@@ -1,6 +1,9 @@
 use super::*;
 use crate::{
-    aggregates::traits::MethodDefault,
+    aggregates::{
+        implementations::{ImplementationSearchContext, ImplementationSearchLimits},
+        traits::MethodDefault,
+    },
     declarations::DeclarationId,
     native::{NativeBinding, render::declaration_source},
     tests::{native as fixture, test_analysis},
@@ -164,15 +167,39 @@ fn native_and_script_defaults_keep_source_identity_and_override_policy() {
         arguments: vec![],
         associated_types: Default::default(),
     };
+    let assumptions = Default::default();
+    let cancel = Default::default();
+    let search = ImplementationSearchContext {
+        assumptions: &assumptions,
+        limits: ImplementationSearchLimits {
+            max_checks: 4096,
+            max_depth: 64,
+        },
+        cancel: &cancel,
+    };
     let (default, _) = catalog
-        .implementation_method(definitions, &local.methods[1].id, &interface, &point)
+        .implementation_method(
+            definitions,
+            &local.methods[1].id,
+            &interface,
+            &point,
+            search,
+        )
+        .unwrap()
         .unwrap();
     assert_eq!(
         catalog.default_method(definitions, &default).unwrap().1.id,
         local.methods[1].id
     );
     let (overridden, _) = catalog
-        .implementation_method(definitions, &local.methods[2].id, &interface, &point)
+        .implementation_method(
+            definitions,
+            &local.methods[2].id,
+            &interface,
+            &point,
+            search,
+        )
+        .unwrap()
         .unwrap();
     assert!(catalog.default_method(definitions, &overridden).is_none());
 }

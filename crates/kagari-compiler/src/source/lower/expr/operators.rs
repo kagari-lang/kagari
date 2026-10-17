@@ -324,9 +324,7 @@ impl FunctionLowerer<'_, '_> {
 
         if native_default.is_some()
             && self
-                .planner
-                .catalog
-                .implementation_method(&self.planner.definitions(), method, &interface, &ty)
+                .find_implementation_method(method, &interface, &ty)?
                 .is_none()
         {
             return self.lower_native_default(&ty, &interface, method, &method_arguments, args);
@@ -401,10 +399,8 @@ impl FunctionLowerer<'_, '_> {
                 .with_associated_types(&interface, &ty),
         );
         let result_ty = self.value_type(&result)?;
-        let callee = if let Some((declaration, mut arguments)) = self
-            .planner
-            .catalog
-            .implementation_method(&self.planner.definitions(), method, &interface, &ty)
+        let callee = if let Some((declaration, mut arguments)) =
+            self.find_implementation_method(method, &interface, &ty)?
         {
             arguments.extend(method_arguments);
             if self.planner.native_function(&declaration).is_some() {

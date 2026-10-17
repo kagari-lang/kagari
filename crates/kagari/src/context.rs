@@ -17,6 +17,18 @@ pub enum JitPolicy {
     CompileAfterThreshold(u32),
 }
 
+impl JitPolicy {
+    pub(crate) fn fallback_reason(self) -> Option<&'static str> {
+        match self {
+            Self::Disabled => Some("JIT disabled by execution context policy"),
+            Self::Enabled
+            | Self::CompileOnLoad
+            | Self::CompileOnFirstCall
+            | Self::CompileAfterThreshold(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PanicPolicy {
     Propagate,

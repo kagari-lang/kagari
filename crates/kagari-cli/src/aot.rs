@@ -7,7 +7,7 @@ use crate::{
 #[cfg(feature = "aot")]
 use kagari::{
     aot::{AotBundle, AotError},
-    context::ExecutionContext,
+    context::{ExecutionContext, JitPolicy},
     program::aot::AotBuild,
 };
 #[cfg(feature = "aot")]
@@ -70,7 +70,10 @@ pub(super) fn build(source: &Path, output: &Path) -> Result<(), CliError> {
 
 #[cfg(feature = "aot")]
 pub(super) fn run(directory: &Path) -> Result<(), CliError> {
-    let context = ExecutionContext::default();
+    let context = ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
+        ..Default::default()
+    };
     // SAFETY: run-aot is explicitly a trusted-native-code command. Its documented
     // host contract requires an authenticated, immutable deployment directory.
     let bundle = unsafe {

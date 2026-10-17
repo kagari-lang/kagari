@@ -1,9 +1,14 @@
 use super::*;
 use crate::{
-    declarations::DeclarationId, resolver::resolved::ResolvedName, tests::test_analysis,
+    aggregates::implementations::{
+        ImplementationSearchContext, ImplementationSearchError, ImplementationSearchLimits,
+    },
+    declarations::DeclarationId,
+    resolver::resolved::ResolvedName,
+    tests::test_analysis,
     typeck::table::CallTarget,
 };
-use kagari_common::identity::table::DefinitionId;
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
 
 const SOURCE: &str = "trait Get { fn get(self) -> i32; } struct Point { val n: i32 } impl Get for Point { fn get(self) -> i32 { self.n } } fn read<T: Get>(p: T) -> i32 { p.get() } fn main() -> i32 { read(Point { n: 7 }) }";
@@ -80,27 +85,97 @@ fn matching_local_slots_from_other_modules_never_match_trait_contracts() {
     let (tb, mb, pb) = targets(fb);
     assert_ne!(ta, tb);
     assert_ne!(ma, mb);
+    let assumptions = Default::default();
+    let cancel = Default::default();
+    let search = ImplementationSearchContext {
+        assumptions: &assumptions,
+        limits: ImplementationSearchLimits {
+            max_checks: 4096,
+            max_depth: 64,
+        },
+        cancel: &cancel,
+    };
     for (facts, own_trait, own_method, point, foreign_trait, foreign_method) in
         [(fa, &ta, &ma, &pa, &tb, &mb), (fb, &tb, &mb, &pb, &ta, &ma)]
     {
         let definitions = facts.declarations.definitions();
         let table = &facts.typed.type_table;
-        assert!(table.implements(definitions, &interface(own_trait), point));
-        assert!(!table.implements(definitions, &interface(foreign_trait), point));
+        assert_eq!(
+            facts.aggregates.implementation_count_bounded(
+                definitions,
+                &interface(own_trait),
+                point,
+                search,
+            ),
+            Ok(1)
+        );
+        assert_eq!(
+            facts.aggregates.implementation_count_bounded(
+                definitions,
+                &interface(foreign_trait),
+                point,
+                search,
+            ),
+            Ok(0)
+        );
         assert!(
             table
-                .implementation_method(definitions, own_method, &interface(own_trait), point)
+                .implementation_method(
+                    &facts.aggregates,
+                    definitions,
+                    own_method,
+                    &interface(own_trait),
+                    point,
+                    search,
+                )
+                .unwrap()
                 .is_some()
         );
         assert!(
             table
                 .implementation_method(
+                    &facts.aggregates,
                     definitions,
                     foreign_method,
                     &interface(foreign_trait),
-                    point
+                    point,
+                    search,
                 )
+                .unwrap()
                 .is_none()
+        );
+        let cancelled = CancellationToken::default();
+        cancelled.cancel();
+        assert_eq!(
+            table.implementation_method(
+                &facts.aggregates,
+                definitions,
+                foreign_method,
+                &interface(foreign_trait),
+                point,
+                ImplementationSearchContext {
+                    cancel: &cancelled,
+                    ..search
+                },
+            ),
+            Err(ImplementationSearchError::Cancelled)
+        );
+        assert_eq!(
+            table.implementation_method(
+                &facts.aggregates,
+                definitions,
+                own_method,
+                &interface(own_trait),
+                point,
+                ImplementationSearchContext {
+                    limits: ImplementationSearchLimits {
+                        max_checks: 0,
+                        max_depth: 64,
+                    },
+                    ..search
+                },
+            ),
+            Err(ImplementationSearchError::LimitExceeded)
         );
         let read = facts
             .lowered
@@ -151,15 +226,28 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
         .unwrap();
     let before = authoring_before.records().facts();
     let (trait_id, method_id, point) = targets(before);
+    let assumptions = Default::default();
+    let cancel = Default::default();
+    let search = ImplementationSearchContext {
+        assumptions: &assumptions,
+        limits: ImplementationSearchLimits {
+            max_checks: 4096,
+            max_depth: 64,
+        },
+        cancel: &cancel,
+    };
     let previous_impl = before
         .typed
         .type_table
         .implementation_method(
+            &before.aggregates,
             before.declarations.definitions(),
             &method_id,
             &interface(&trait_id),
             &point,
+            search,
         )
+        .unwrap()
         .unwrap();
     let edited = format!("trait Earlier {{ fn other(self); }} fn earlier() {{}} {SOURCE}");
     sources
@@ -176,9 +264,25 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
     let facts = authoring_facts.records().facts();
     let definitions = facts.declarations.definitions();
     let table = &facts.typed.type_table;
-    assert!(table.implements(definitions, &interface(&trait_id), &point));
+    assert_eq!(
+        facts.aggregates.implementation_count_bounded(
+            definitions,
+            &interface(&trait_id),
+            &point,
+            search,
+        ),
+        Ok(1)
+    );
     let next_impl = table
-        .implementation_method(definitions, &method_id, &interface(&trait_id), &point)
+        .implementation_method(
+            &facts.aggregates,
+            definitions,
+            &method_id,
+            &interface(&trait_id),
+            &point,
+            search,
+        )
+        .unwrap()
         .unwrap();
     assert_ne!(previous_impl, next_impl);
     let read = facts
@@ -209,12 +313,14 @@ fn declaration_reordering_preserves_trait_and_method_identities() {
     );
     assert_eq!(
         before.typed.type_table.implementation_method(
+            &before.aggregates,
             before.declarations.definitions(),
             &targets(before).1,
             &interface(&trait_id),
-            &point
+            &point,
+            search,
         ),
-        Some(previous_impl)
+        Ok(Some(previous_impl))
     );
 }
 

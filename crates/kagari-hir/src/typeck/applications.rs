@@ -2,7 +2,12 @@
 
 use crate::{
     DiagnosticBuffer,
-    aggregates::AggregateCatalog,
+    aggregates::{
+        AggregateCatalog,
+        implementations::{
+            ImplementationSearchContext, ImplementationSearchError, ImplementationSearchLimits,
+        },
+    },
     declarations::Declarations,
     lower::LoweredModule,
     native::NativeTypeKind,
@@ -11,7 +16,7 @@ use crate::{
         check::{self, MethodComparison},
         constraints, families, interfaces,
     },
-    types::{TypeId, TypeSubstitution},
+    types::{NominalType, TypeId, TypeSubstitution},
 };
 
 use kagari_common::{
@@ -38,20 +43,52 @@ pub(super) fn validate(
     diagnostics: &mut DiagnosticBuffer,
     cancel: &CancellationToken,
 ) {
+    // Signature completion and body-query publication recheck this same token;
+    // cancellation is returned there, not converted into a semantic diagnostic here.
+    if let Err(ImplementationSearchError::LimitExceeded) =
+        validate_inner(context, ty, bounds, span, diagnostics, cancel)
+    {
+        diagnostics.push(
+            Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                resource: "trait implementation search",
+                limit: 4096,
+            })
+            .with_span(span),
+        );
+    }
+}
+
+fn validate_inner(
+    context: ApplicationContext<'_>,
+    ty: &TypeId,
+    bounds: &GenericBounds,
+    span: Span,
+    diagnostics: &mut DiagnosticBuffer,
+    cancel: &CancellationToken,
+) -> Result<(), ImplementationSearchError> {
     let ApplicationContext {
         definitions,
         catalog,
         receiver,
     } = context;
-    let expanded = catalog
-        .expanded_bounds(bounds, cancel)
-        .unwrap_or_else(|_| bounds.clone());
+    let expanded = catalog.expanded_bounds(bounds, cancel)?;
     let bounds = &expanded;
+    let search = ImplementationSearchContext {
+        assumptions: bounds,
+        limits: ImplementationSearchLimits {
+            max_checks: 4096,
+            max_depth: 64,
+        },
+        cancel,
+    };
+    let implementation_count = |interface: &NominalType, receiver: &TypeId| {
+        catalog.implementation_count_bounded(definitions, interface, receiver, search)
+    };
     let mut pending = vec![(ty, receiver)];
     while let Some((ty, receiver)) = pending.pop() {
-        if cancel.check().is_err() {
-            return;
-        }
+        cancel
+            .check()
+            .map_err(|_| ImplementationSearchError::Cancelled)?;
         if let TypeId::Range(element, kind) = ty
             && *kind != RangeKind::Full
             && element.is_concrete()
@@ -143,13 +180,7 @@ pub(super) fn validate(
                                     bounds
                                         .iter()
                                         .any(|available| available.satisfies(&required))
-                                }) || catalog.intrinsic_implementation(
-                                    definitions,
-                                    &required,
-                                    &actual,
-                                    bounds,
-                                ) || catalog.implementation_count(definitions, &required, &actual)
-                                    == 1
+                                }) || implementation_count(&required, &actual)? == 1
                             };
                             if !satisfied && !actual.is_unresolved() {
                                 diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidAssociatedType { name: definitions.resolve(*member).expect("scoped associated member").last().expect("associated member").name.to_owned(), reason: "generic associated type input does not satisfy its bound".into() }).with_span(span));
@@ -157,9 +188,7 @@ pub(super) fn validate(
                         }
                     }
                 }
-                if receiver.is_concrete()
-                    && catalog.implementation_count(definitions, interface, receiver) != 1
-                {
+                if receiver.is_concrete() && implementation_count(interface, receiver)? != 1 {
                     diagnostics.push(
                         Diagnostic::error(DiagnosticKind::InvalidAssociatedType {
                             name: definitions
@@ -230,20 +259,16 @@ pub(super) fn validate(
 
                             let id = constraint;
                             let applied = id.instantiate(&substitution);
-                            let satisfied = catalog.intrinsic_implementation(
-                                definitions,
-                                &applied,
-                                actual,
-                                bounds,
-                            ) || bounds.get(actual).is_some_and(|bounds| {
+                            let satisfied = bounds.get(actual).is_some_and(|bounds| {
                                 bounds.iter().any(|available| available.satisfies(&applied))
                             }) || match actual {
-                                TypeId::Generic(parameter) => bounds
-                                    .get(&TypeId::Generic(parameter.clone()))
-                                    .is_some_and(|bounds| bounds.contains(&applied)),
-                                _ => {
-                                    catalog.implementation_count(definitions, &applied, actual) == 1
-                                }
+                                TypeId::Generic(_) => catalog.intrinsic_implementation(
+                                    definitions,
+                                    &applied,
+                                    actual,
+                                    bounds,
+                                ),
+                                _ => implementation_count(&applied, actual)? == 1,
                             };
                             if !satisfied {
                                 diagnostics.push(
@@ -295,13 +320,7 @@ pub(super) fn validate(
                                     constraints
                                         .iter()
                                         .any(|available| available.satisfies(&required))
-                                }) || catalog.intrinsic_implementation(
-                                    definitions,
-                                    &required,
-                                    actual,
-                                    bounds,
-                                ) || catalog.implementation_count(definitions, &required, actual)
-                                    == 1
+                                }) || implementation_count(&required, actual)? == 1
                             };
                             if !satisfied && !actual.is_unresolved() {
                                 diagnostics.push(
@@ -342,6 +361,7 @@ pub(super) fn validate(
             _ => {}
         }
     }
+    Ok(())
 }
 
 pub(crate) fn validate_signatures(

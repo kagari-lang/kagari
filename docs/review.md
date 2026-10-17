@@ -716,20 +716,11 @@ runtime reproduction, cancellation stress test or performance measurement.
 
 | ID | Current finding | Focused follow-up and acceptance |
 | --- | --- | --- |
-| R1 / P1 | Safe public `KagariLanguage::kind_from_raw` still uses unchecked `u16`-to-`SyntaxKind` transmute; the public green-tree wrapper also performs no kind validation. | Validate raw kinds before constructing the enum. Cover valid round trips and invalid-input rejection through the public API. The audit did not execute an invalid discriminant. |
-| R2 / P2 | SDK `execute_prepared` passes `context.runtime_options()` but does not consult `context.jit_policy`; those runtime options contain no JIT selection policy. The native path can proceed despite `Disabled`, contrary to the documented fallback rule. | Enforce the [JIT policy contract](spec/jit.md#preparation-and-fallback) consistently across preparation and execution; assert actual native/interpreter reports under enabled/disabled contexts. No fallback after entry. |
-| R5 / P2 | `implementation_method` still creates a default cancellation token with maximal search/depth bounds and discards search errors; `implementation_count` uses the same unbounded/default-cancellation wrapper pattern. | Propagate the caller's fallible search context. Cover pre-cancelled queries and tiny depth/candidate limits. No source hang was reproduced by this audit. |
 | R7 / P2 | `lower_program_to_mir` still loops over all authoring modules for each new specialization-request round. | Measure a bounded generic chain/fan-out before choosing an instance work queue or input-keyed reuse. Preserve foreign defaults/witnesses, compilation limits and final verification. Current scaling cost is unmeasured. |
 | R8 / P2 | Body reuse compares imported functions using derived equality, including source/navigation identity; aggregate equality also compares inherent methods with their source sites. Signature-preserving edits can therefore prevent semantic reuse. | Separate semantic contracts from navigation identities. Validate signature-preserving versus contract-changing dependency edits without dropping source revision/arena validation. This is conservative invalidation, not evidence of a stale result. |
 
 Evidence owners:
 
-- R1: [syntax conversion](../crates/kagari-syntax/src/syntax_node.rs).
-- R2: [SDK execution](../crates/kagari/src/runtime.rs),
-  [context options](../crates/kagari/src/context.rs),
-  [native dispatch](../crates/kagari-vm/src/vm/native.rs) and
-  [SDK native tests](../crates/kagari/src/program/tests/cranelift_preparation.rs).
-- R5: [trait searches](../crates/kagari-hir/src/aggregates/implementations.rs).
 - R7: [program lowering](../crates/kagari-compiler/src/source/program.rs).
 - R8: [body reuse](../crates/kagari-hir/src/analysis/body_queries.rs),
   [imported functions](../crates/kagari-hir/src/imports/functions.rs),

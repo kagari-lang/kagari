@@ -66,6 +66,19 @@ Hosts explicitly call `KagariRuntime::prepare_native`, then `execute_prepared`.
 Preparation performs no script execution. It checks the exact loaded/prepared version
 and policy, builds links, compiles or reuses a cached product, and installs it for the
 runtime. Source and artifact routes share this flow. `execute` remains interpreter-only.
+Preparation uses the runtime's default `ExecutionContext.jit_policy`; each prepared
+invocation independently uses the context passed to `execute_prepared`. A disabled
+preparation returns an explicit fallback decision without compiling. Enabling a later
+invocation does not retroactively compile that decision. Conversely, disabling an
+invocation interprets even a previously native-prepared function, without changing
+or consuming the prepared handle.
+
+Policy fallback does not authorize invalid input. Preparation still validates
+cancellation, loaded-program ownership, exact version and entry before skipping
+compilation. Execution retains the original prepared handle and validates its
+runtime, function and supplying version before policy can select interpretation.
+Reports identify interpreter fallback and its policy reason; the same valid handle
+can subsequently execute natively under an enabled context.
 
 Missing portable MIR, unsupported valid operations, disabled JIT policy and an
 attached execution observer select pre-entry interpreter fallback. Compiler/link

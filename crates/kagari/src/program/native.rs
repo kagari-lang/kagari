@@ -64,6 +64,8 @@ pub enum NativePreparationError {
 impl KagariRuntime {
     /// Preparation performs no script execution. Trusted backend implementations
     /// supply products; runtime installation binds them to this runtime's versions.
+    /// The runtime's default JIT policy controls preparation; each execution also
+    /// checks its own context policy before entering a prepared native function.
     pub fn prepare_native<'a>(
         &self,
         program: &PreparedProgram,
@@ -95,6 +97,9 @@ impl KagariRuntime {
             return Ok(unsupported(
                 "resume bodies require the owned interpreter driver".into(),
             ));
+        }
+        if let Some(reason) = self.default_context().jit_policy.fallback_reason() {
+            return Ok(unsupported(reason.into()));
         }
         if let Err(error) = self.runtime().resources().ensure_execution_allowed() {
             return Ok(unsupported(format!(

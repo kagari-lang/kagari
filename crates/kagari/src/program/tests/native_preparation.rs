@@ -1,13 +1,20 @@
 use kagari_bytecode::artifact::{ArtifactBuildOptions, KbcArtifact};
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-use kagari_runtime::module::entry::ProgramEntry;
+use kagari_runtime::{
+    Runtime,
+    error::RuntimeError,
+    frame::ExecutionFrame,
+    module::entry::ProgramEntry,
+    session::{ExecutionEvent, ExecutionObserver},
+    value::Value,
+};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
 
 use crate::{
-    context::ExecutionContext,
+    context::{ExecutionContext, JitPolicy},
     engine::{
         KagariEngine,
         source::{ArtifactOptions, NativeInputExport},
@@ -24,7 +31,9 @@ use kagari_vm::vm::{JitExecutionStatus, native::PreparedNativeEntry};
 use {
     kagari_abi::{
         native::{BackendId, BackendTarget, ExecutableEntryPoint, NativeCodeOwner},
-        native_call::{JIT_STATUS_OK, JitValue, NativeInvocationContext},
+        native_call::{
+            JIT_STATUS_INTEGER_OVERFLOW, JIT_STATUS_OK, JitValue, NativeInvocationContext,
+        },
     },
     kagari_contract::{
         ids::FunctionRef,
@@ -57,6 +66,15 @@ unsafe extern "C" fn unit(runtime: *const NativeInvocationContext, result: *mut 
     JIT_STATUS_OK
 }
 
+unsafe extern "C" fn trap(runtime: *const NativeInvocationContext, _: *mut JitValue) -> i32 {
+    let status = unsafe { ((*(*runtime).helpers).poll_execution)((*runtime).runtime, 0) };
+    if status == JIT_STATUS_OK {
+        JIT_STATUS_INTEGER_OVERFLOW
+    } else {
+        status
+    }
+}
+
 #[derive(Default)]
 struct Backend {
     calls: usize,
@@ -67,8 +85,9 @@ struct Backend {
 }
 
 // SAFETY: the success path accepts exactly the two-point unit function and returns
-// a process-lifetime ABI fixture implementing its charges and result. Other modes
-// return errors and never executable products.
+// a process-lifetime ABI fixture implementing its polls and result. Mode 3 uses
+// the same input with a deliberate trap to detect native entry and interpreter
+// restarts. Other modes return errors and never executable products.
 unsafe impl CodegenBackend for Backend {
     fn configuration(&self) -> BackendConfiguration {
         BackendConfiguration {
@@ -121,7 +140,11 @@ unsafe impl CodegenBackend for Backend {
         );
         artifact.code.entry = ExecutableEntryPoint::Native {
             symbol: "unit".into(),
-            address: unit as *const () as usize,
+            address: if self.mode == 3 {
+                trap as *const () as usize
+            } else {
+                unit as *const () as usize
+            },
         };
         Ok(NativeCompilationProduct {
             artifact,
@@ -132,6 +155,7 @@ unsafe impl CodegenBackend for Backend {
 
 fn context() -> ExecutionContext {
     ExecutionContext {
+        jit_policy: JitPolicy::Enabled,
         ..Default::default()
     }
 }
@@ -155,6 +179,191 @@ fn prepare_source(
         )
         .unwrap();
     PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+}
+
+#[test]
+fn disabled_preparation_validates_before_skipping_compilation() {
+    let engine = KagariEngine::default();
+    let program = prepare(&engine, NativeInputExport::PortableMir);
+    let mut runtime = engine.runtime(Default::default());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let mut backend = Backend::default();
+    let prepared = runtime
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
+        .unwrap();
+    let PreparedNativeEntry::Unsupported { diagnostics, .. } = &prepared else {
+        panic!("disabled preparation must not install native code");
+    };
+    assert_eq!(diagnostics, &["JIT disabled by execution context policy"]);
+    // Enabling execution cannot compile or replace a prior preparation decision.
+    let report = runtime
+        .execute_prepared(&loaded, ProgramEntry::Main, &[], &context(), &prepared)
+        .unwrap();
+    let jit = report.jit.unwrap();
+    assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
+    assert!(jit.artifact.is_none());
+    assert_eq!(&jit.diagnostics, diagnostics);
+    drop(report.return_value);
+
+    let other = prepare(&engine, NativeInputExport::PortableMir);
+    assert!(matches!(
+        runtime.prepare_native(
+            &other,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        ),
+        Err(NativePreparationError::WrongVersion)
+    ));
+    assert!(matches!(
+        runtime.prepare_native(
+            &program,
+            &loaded,
+            "missing",
+            &mut backend,
+            &Default::default(),
+        ),
+        Err(NativePreparationError::MissingEntry(_))
+    ));
+    let mut foreign = engine.runtime(context());
+    let foreign_module = foreign.load_program(&program, Default::default()).unwrap();
+    assert!(matches!(
+        runtime.prepare_native(
+            &program,
+            &foreign_module,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        ),
+        Err(NativePreparationError::Runtime(_))
+    ));
+    assert_eq!(backend.calls, 0);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+}
+
+#[derive(Debug)]
+struct Observer(Arc<AtomicUsize>);
+
+impl ExecutionObserver for Observer {
+    fn observe(
+        &mut self,
+        _: &Runtime,
+        _: ExecutionEvent,
+        _: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+#[test]
+fn execution_policy_preserves_cancellation_observers_and_native_failures() {
+    let engine = KagariEngine::default();
+    let program = prepare(&engine, NativeInputExport::PortableMir);
+    let enabled = context();
+    let mut runtime = engine.runtime(enabled.clone());
+    let loaded = runtime.load_program(&program, Default::default()).unwrap();
+    let mut backend = Backend {
+        mode: 3,
+        ..Default::default()
+    };
+    let prepared = runtime
+        .prepare_native(
+            &program,
+            &loaded,
+            ProgramEntry::Main,
+            &mut backend,
+            &Default::default(),
+        )
+        .unwrap();
+    assert!(matches!(prepared, PreparedNativeEntry::Native(_)));
+    // The fixture traps on native entry; the interpreter body simply returns Unit.
+    let report = runtime
+        .execute_prepared(
+            &loaded,
+            ProgramEntry::Main,
+            &[],
+            &Default::default(),
+            &prepared,
+        )
+        .unwrap();
+    assert_eq!(
+        report.return_value.value(runtime.runtime().gc()),
+        Some(Value::Unit)
+    );
+    let jit = report.jit.unwrap();
+    assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
+    assert_eq!(
+        jit.diagnostics,
+        ["JIT disabled by execution context policy"]
+    );
+    assert!(jit.artifact.is_none());
+    drop(report.return_value);
+    let error = runtime
+        .execute_prepared(&loaded, ProgramEntry::Main, &[], &enabled, &prepared)
+        .unwrap_err();
+    assert_eq!(error.error_trace().unwrap().frames[0].instruction_offset, 0);
+    assert!(matches!(
+        error,
+        EmbeddingError::Runtime {
+            kind: RuntimeFailureKind::ScriptTrap,
+            ..
+        }
+    ));
+
+    for jit_policy in [JitPolicy::Enabled, JitPolicy::Disabled] {
+        let cancelled = ExecutionContext {
+            jit_policy,
+            ..Default::default()
+        };
+        cancelled.cancellation.cancel();
+        let error = runtime
+            .execute_prepared(&loaded, ProgramEntry::Main, &[], &cancelled, &prepared)
+            .unwrap_err();
+        assert!(matches!(
+            error,
+            EmbeddingError::Runtime {
+                kind: RuntimeFailureKind::Cancelled,
+                ..
+            }
+        ));
+    }
+    let observed = Arc::new(AtomicUsize::new(0));
+    runtime
+        .runtime_mut()
+        .set_execution_observer(Observer(observed.clone()))
+        .unwrap();
+    let session = runtime
+        .runtime()
+        .begin_execution(&loaded, enabled.runtime_options())
+        .unwrap();
+    runtime.runtime().attach_execution_observer().unwrap();
+    let report = runtime
+        .execute_prepared(&loaded, ProgramEntry::Main, &[], &enabled, &prepared)
+        .unwrap();
+    let jit = report.jit.unwrap();
+    assert_eq!(jit.status, JitExecutionStatus::InterpreterFallback);
+    assert!(jit.artifact.is_none());
+    assert!(
+        jit.diagnostics
+            .iter()
+            .any(|reason| reason.contains("observer"))
+    );
+    assert!(observed.load(Ordering::SeqCst) > 0);
+    drop(report.return_value);
+    drop(session);
+    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    assert_eq!(
+        runtime.runtime().resources().counters().current_call_depth,
+        0
+    );
 }
 
 #[test]
@@ -198,12 +407,22 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
         Err(NativePreparationError::MissingEntry(name)) if name == "main"
     ));
     assert_eq!(backend.calls, 1);
-    let mismatch = a
-        .execute_prepared(&ma, ProgramEntry::Main, &[], &context, &pa)
-        .unwrap_err();
-    assert!(
-        matches!(mismatch, EmbeddingError::Runtime { kind: RuntimeFailureKind::BytecodeVerification, message, .. } if message.contains("different function or execution version"))
-    );
+    for jit_policy in [JitPolicy::Enabled, JitPolicy::Disabled] {
+        let execution = ExecutionContext {
+            jit_policy,
+            ..Default::default()
+        };
+        let mismatch = a
+            .execute_prepared(&ma, ProgramEntry::Main, &[], &execution, &pa)
+            .unwrap_err();
+        assert!(
+            matches!(mismatch, EmbeddingError::Runtime { kind: RuntimeFailureKind::BytecodeVerification, message, .. } if message.contains("different function or execution version"))
+        );
+        assert!(
+            b.execute_prepared(&mb, "again::run", &[], &execution, &pa)
+                .is_err()
+        );
+    }
     backend.option = "alternate".into();
     let alternate = a
         .prepare_native(
@@ -225,10 +444,6 @@ fn caches_products_across_runtimes_and_retains_them_after_backend_drop() {
             .unwrap();
         assert_eq!(report.jit.unwrap().status, JitExecutionStatus::Native);
     }
-    assert!(
-        b.execute_prepared(&mb, "again::run", &[], &context, &pa)
-            .is_err()
-    );
     drop(pa);
     assert_eq!(dropped.load(Ordering::SeqCst), 0);
     drop(pb);
@@ -514,11 +729,18 @@ fn reload_reuses_candidate_code_and_keeps_old_native_entries_version_pinned() {
         ),
         Err(NativePreparationError::WrongVersion)
     ));
-    assert!(
-        runtime
-            .execute_prepared(&published, ProgramEntry::Main, &[], &context, &old_native)
-            .is_err()
-    );
+    for jit_policy in [JitPolicy::Enabled, JitPolicy::Disabled] {
+        let execution = ExecutionContext {
+            jit_policy,
+            ..Default::default()
+        };
+        let mismatch = runtime
+            .execute_prepared(&published, ProgramEntry::Main, &[], &execution, &old_native)
+            .unwrap_err();
+        assert!(
+            matches!(mismatch, EmbeddingError::Runtime { kind: RuntimeFailureKind::BytecodeVerification, message, .. } if message.contains("different function or execution version"))
+        );
+    }
     for (module, native) in [(&old, &old_native), (&published, &new_native)] {
         assert_eq!(
             runtime
