@@ -6,11 +6,13 @@ queue placement. This plan owns DC01-DC04, remaining design decisions, acceptanc
 and the progress ledger. Recording this plan does not start implementation.
 Examples below are proposed behavior, not currently executable APIs.
 
-Predecessor update, 2026-10-16: the prioritized
-[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) is locally complete.
-DC01 remains queued and unstarted.
-The inventory below now reflects shared descriptions, compact directory entries
-and packed field storage; reuse these mechanisms without per-receiver metadata. Downcast semantics and DC01's remaining design gates are unchanged.
+Storage inventory refresh, 2026-10-18: the prioritized
+[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) and
+[object overhead work](implementation-roadmap.md#object-storage-overhead) are locally complete.
+DC01 remains queued and unstarted. The inventory reflects runtime `65bbf477`:
+shared descriptions, compact directory entries, packed fields and direct snapshot
+locations. Reuse these owners without recreating wrapper records or per-receiver
+descriptions. Downcast semantics and DC01's remaining design gates are unchanged.
 
 ## Outcome and bounded scope
 
@@ -42,6 +44,7 @@ No implementation changes or Cargo validation were performed during planning.
 | --- | --- |
 | [Trait specification](spec/traits.md#planned-downcast) | Already proposes concrete type tests and recovery, explicitly unimplemented. This plan completes the execution contract without treating the sketch as a shipped API. |
 | [Interface metadata](../crates/kagari-runtime/src/gc/interfaces.rs) | InterfaceValueSnapshot retains data and receiver-specific parent-view cells; its shared InterfaceDescription retains the concrete type/expression, generic environment and implementation version. Reuse these facts without copying description or receiver caches; interface identity alone is not the payload type. |
+| [Snapshot store](../crates/kagari-runtime/src/execution_metadata/interfaces.rs) | Heap wrappers locate snapshots directly; full metadata IDs remain separately checked. Multiple heap aliases and metadata-only roots have distinct lifetimes. Recover through the checked live snapshot, never an obsolete wrapper payload or unrooted slot index. |
 | [Interface construction and upcasts](../crates/kagari-runtime/src/objects/interfaces.rs) | Construction and parent views validate payloads and retain supplying metadata. Reuse receiver admission and lifetime rules on extraction, including mutable host liveness checks. |
 | [Type compatibility](../crates/kagari-runtime/src/frame/types/compatibility.rs) | TypeView carries lexical provenance, normalizes applied types and compares compatible layout graphs. Audit its exact suitability for extraction; a scoped ID, closed spelling or Rust TypeId alone is insufficient. |
 | [Checked storage](../crates/kagari-runtime/src/gc/directory.rs), [field codec](../crates/kagari-runtime/src/gc/fields.rs) | Stable full identities locate typed payloads and packed struct bytes. Downcast returns the same checked payload, not a field copy or arena address; preserve owner/generation and scoped-view exclusion. |
@@ -296,6 +299,8 @@ No performance claim or speculative matching cache is part of this task.
 
 - [x] Planning: accepted semantics, finite scope, owner inventory and DC01-DC04
   recorded on 2026-10-16; roadmap and specification cross-links added.
+- [x] Refresh the storage inventory after locally accepted OM, 2026-10-18;
+  no downcast implementation or design-gate waiver is implied.
 - [ ] DC01: resolution, target eligibility and cross-version call audit.
 - [ ] DC02: executable contracts, runtime and interpreter.
 - [ ] DC03: source and tooling integration.

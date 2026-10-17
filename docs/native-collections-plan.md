@@ -5,11 +5,15 @@ Status: agreed direction recorded; implementation has not started. The
 placement. This plan owns NC01-NC06, the bounded API design, migration acceptance
 and progress ledger. API sketches are proposals, not currently callable APIs.
 
-Predecessor update, 2026-10-16: the prioritized
-[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) is locally complete.
-NC01 remains queued and unstarted.
-The shared storage inventory now includes the compact directory, typed native
-payload store, packed script-struct arena and weak shared interface descriptions.
+Storage inventory refresh, 2026-10-18: the prioritized
+[runtime storage redesign](implementation-roadmap.md#runtime-storage-redesign) and
+[object overhead work](implementation-roadmap.md#object-storage-overhead) are locally complete.
+NC01 remains queued and unstarted. The inventory reflects runtime `65bbf477`:
+compact directory, typed native payload store, packed script-struct arena, weak
+shared interface descriptions and direct snapshot locations. Mutation revisions
+belong to runtime-owned NativeObject records, not the common directory or a
+library-controlled payload field. NC must reuse that owner and define checked
+public edit/commit access instead of creating another revision counter.
 Full owner/slot/generation handles, native tracing, extraction, revision checks and
 panic-contained disposal remain the contracts NC must reuse. NC still owns
 library collection storage/algorithms; the predecessor does not perform NC's
@@ -91,8 +95,8 @@ Recheck implementation at NC01 without reopening the completed Iterable API work
 | --- | --- |
 | [Stdlib declarations](../crates/kagari-stdlib/src/catalog/defaults.rs) | Vec is nominal but declares Sequence storage; HashMap/HashSet still use special native constructors. Move all three to ordinary native declarations. |
 | [Shared native declarations](../crates/kagari-types/src/declaration/native.rs), [HIR application](../crates/kagari-hir/src/native.rs) | Collection constructor/layout variants leak implementation families into semantic modeling. Remove these dependencies coherently rather than rename them. |
-| [Heap directory](../crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](../crates/kagari-runtime/src/gc/interfaces.rs) | Native payloads have a focused store behind stable full identities; shared descriptions do not own receivers. Script struct field bytes are separately packed and do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
-| [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Extend these owners only for proven gaps. |
+| [Heap directory](../crates/kagari-runtime/src/gc/directory.rs), [shared interfaces](../crates/kagari-runtime/src/gc/interfaces.rs) | The directory owns generation/locator; native records own mutation revisions. Interfaces locate metadata snapshots directly, preserving distinct checked heap/metadata identities and roots; shared descriptions do not own receivers. Packed script fields do not reinterpret Rust payload memory. No public raw arena/ownerless-token API was added. |
+| [Native storage](../crates/kagari-runtime/src/native/storage.rs), [type builder](../crates/kagari-runtime/src/native/builder/type_builder.rs) | Factories, payload bindings, tracing and scoped type arguments already exist. Native revision initialization/reset/replacement/exhaustion has one runtime owner; checked public mutation access remains NC01 work. Extend these owners only for proven gaps. |
 | [Managed fields](../crates/kagari-runtime/src/native/payload/managed/mod.rs), [fixed native data](../crates/kagari-runtime/src/native/payload/data.rs) | Safe edits separate fixed Rust data from checked script edges. Dynamic storage must preserve that boundary; arbitrary mutable payload access is not a solution. |
 | [Sequences](../crates/kagari-runtime/src/native/sequence.rs), [hash payloads](../crates/kagari-runtime/src/native/hashed.rs), [tables](../crates/kagari-runtime/src/native/hash_storage.rs) | Runtime owns concrete storage and optimizations. Relocate collection policy while preserving useful storage foundations and checks. |
 | [Hash bindings](../crates/kagari-stdlib/src/bindings/hash.rs), [codecs](../crates/kagari-runtime/src/native/binding.rs) | Methods depend on special value tags, heap operations and layout admission. Replace these with checked nominal access. |
@@ -138,7 +142,7 @@ Allocation copies the chosen selected calls into object metadata slots, in the
 supplied order. StoredSelection stays runtime-private; libraries do not construct
 owning metadata roots inside payloads. StoredCallable remains the mechanism for
 traced script closure values. These are existing capabilities, not new NC APIs.
-They do not by themselves provide checked resizing, library-owned cursor revisions or a
+They do not by themselves provide checked resizing, public revision/commit access or a
 public factory-level key-call registration contract.
 
 ## Ownership and representation
@@ -241,7 +245,7 @@ only gaps required by these collections and the external proof.
 | Scoped access | References cannot escape; no storage borrow spans GC or callback/reentry. Safe APIs cannot overwrite traced slots with unchecked values. |
 | GC edges/roots | Trace stored values and call dependencies; root reads/removals/candidates across allocations or callbacks; deterministically release failed-construction and temporary roots. |
 | Retained calls | Reuse allocate_result_payload selected slots and call_stored_values. Preserve signatures/generations and metadata edges versus external roots. Complete only constructor/host-path gaps; no borrowed CallContext or repeated name lookup. |
-| Operation guards and iterator validity | Preserve short native borrow, hashing and mutation-commit guards. Libraries own cursor revision checks: structural writes commit and stale reads trap. Generalize revision ownership beyond builtin storage without reintroducing lifetime iteration leases. Source/callback retention uses ordinary GC tracing and pinned calls. |
+| Operation guards and iterator validity | Preserve short native borrow, hashing and mutation-commit guards. Libraries own structural-edit/cursor policy through checked access to the runtime-owned native revision; writes commit and stale reads trap. Define public edit/commit capabilities without a second counter or lifetime iteration leases. Source/callback retention uses ordinary GC tracing and pinned calls. |
 
 Do not expose arbitrary safe &mut P for reference-bearing or variable-allocation
 payloads. Reuse/extend managed storage or define a bounded audited storage-provider
@@ -312,8 +316,8 @@ borrowing; the roadmap owns subsequent activation changes.
 
 | Phase | Scope and exit condition |
 | --- | --- |
-| NC01: inventory and API contract | Trace dynamic edits, source revisions, factories, key calls, host conversions and artifacts against 9cd90557. Record exact reuse of retained slots/revision checks, constructor evidence, builtin cursor disposition, optimization review and baseline commands. Establish the external fixture and only the missing public capabilities. |
-| NC02: general storage capabilities | Complete checked dynamic edits, allocation/accounting and nominal revision ownership. Extend retention only for proven constructor/host gaps. Demonstrate public-API-only reference-bearing storage participating in existing nested/paired adapters with invalidation and callback failure cleanup. No second guard or selected-call subsystem. |
+| NC01: inventory and API contract | Trace dynamic edits, source revisions, factories, key calls, host conversions and artifacts against a fresh activation baseline, including the accepted OM owners. Record exact reuse of retained slots/revision checks, constructor evidence, builtin cursor disposition, optimization review and baseline commands. Establish the external fixture and only the missing public capabilities. |
+| NC02: general storage capabilities | Complete checked dynamic edits, allocation/accounting and public native revision/commit access under the existing owner. Extend retention only for proven constructor/host gaps. Demonstrate public-API-only reference-bearing storage participating in existing nested/paired adapters with invalidation and callback failure cleanup. No second guard or selected-call subsystem. |
 | NC03: Vec migration | Move concrete storage/operation policy and its base cursor to the library; replace Sequence admission and consumers while retaining builtin Array support. Preserve defaults, indexing, sorting, existing FromIterator/pipelines, host adapters and compact buffers. Remove the obsolete parallel Vec path. |
 | NC04: HashMap/HashSet migration | Register both as nominal objects; move table/key policy and base cursors to the library, replace special type/value/layout branches and migrate host/contract/backend consumers. Rebind existing FromIterator insert/iter/next requirements to nominal types. Preserve collisions, last-value-wins/dedup rules, custom Hash/Eq, cleanup and pinned calls. |
 | NC05: external extensibility and cursors | Close remaining collection cursor consumers and prove a public-API-only BTreeMap<i32, T> fixture implements Map/MutableMap/Iterable with reference-bearing values and source revision checks. Exercise existing adapters and collection terminals without core enum changes or new default algorithms. Separately prove retained script comparison calls, not only Hash/Eq. No production ordered collection required. |
@@ -388,6 +392,8 @@ CI acceptance. Planning-only edits need content/link/diff checks, not builds.
 - [x] Record direction, concrete API examples, scope and acceptance.
 - [x] Rebase planning on 9cd90557 and distinguish completed IA capabilities from
   remaining collection storage/constructor/source-protection gaps.
+- [x] Refresh native revision and interface storage owners after accepted OM,
+  2026-10-18; NC implementation and activation remain separate.
 - [ ] NC01: Inventory and API contract.
 - [ ] NC02: General storage capabilities.
 - [ ] NC03: Vec migration.

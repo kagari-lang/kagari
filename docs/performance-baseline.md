@@ -16,6 +16,222 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Object storage overhead, 2026-10-18
+
+OM01-OM05 completed local acceptance. Native mutation revisions now belong to
+runtime-owned native records; the common directory entry is 12 bytes rather than
+24 on this target. Interface heap identities locate metadata snapshots directly,
+removing the intermediate 40-byte wrapper record. Full checked identities, 16-byte
+Value transport, packed struct fields, shared descriptions and the collector are
+preserved. Per-layout struct groups were explicitly deferred after a sparse-cost
+projection failed the declared limit. Current contracts live in
+[architecture](architecture.md#runtime-model) and the [runtime specification](spec/runtime.md);
+Git history owns the completed execution ledger.
+
+### Environment and matched procedure
+
+Apple M1 Max, 32 GiB, 10 logical CPUs, arm64 macOS 26.6.2; rustc/Cargo 1.98.1,
+LLVM 22.1.8. Workspace release profile (opt-level 3), default target/build
+parallelism, warm Cargo cache, SDK source/native features and vendored PUC Lua
+5.4.9 through mlua 0.12.2. Execution is single-threaded and interpreter-only.
+No build, test, sampler, allocation instrumentation or other measurement overlapped
+ordinary timing. Desktop scheduling/power were uncontrolled.
+
+The frozen OM01 runtime is `51ca855d` plus the probe-only changes committed at
+`b5ab2bb9`. Native revision migration is `1788d94b`; final runtime is `65bbf477`.
+The additional interface-call control was frozen on accepted OM02 before OM04
+production edits. All OM comparisons use the same lockfile/toolchain/workload.
+Inherited RS comparison uses `afec4a3b` with only equivalent raw-sample output added:
+its original script is byte-identical and shared external dependency versions
+match; its lock predates unrelated, unused LSP dependency additions.
+
+Each comparison uses seven fixed alternating baseline/candidate process pairs,
+three warmups and eleven checked samples per row. The sole threshold estimator
+is median(C_i / B_i), where each term is one process's sample median. Preserve raw
+samples and paired ranges; ranges are not confidence intervals. No second estimator,
+calibration, report extension, discarded pair or unchanged favorable retry is used.
+Compilation, verification, preparation and linking are outside execution timers;
+setup and Lua are diagnostics. This is regression acceptance and measured storage
+reduction, not a general execution speedup or Lua-parity claim.
+
+The [storage probe](../benchmarks/lua-comparison/examples/runtime_storage/main.rs)
+keeps the original 26 rows: eight execution cases and construction/live-GC/release-GC
+for six 512-object populations. Scalar/field loops use 50,000 iterations; traversal
+uses 512 elements. Three separately compiled 2,000-element controls cover sequence
+growth, iteration and callback-driven retain/reverse; their preparation follows
+the original rows. Build and save each ordinary image before timing:
+
+```text
+cargo build --locked --release -p kagari-lua-benchmark --example runtime_storage
+```
+
+Run the saved before/after images sequentially for the seven alternating pairs,
+checking identical counts/results and all eleven samples, then compute each row's
+paired ratio. Build separately with `--features diagnostics` for counting-allocator
+and backing-store attribution; never overwrite the saved ordinary images with
+diagnostic builds. The existing forms driver/checker reproduces the call control:
+
+```text
+uv run python scripts/benchmark_lua.py --source-forms --interpreter-only --freeze-baseline target/om-before
+uv run python scripts/benchmark_lua.py --source-forms --interpreter-only --baseline-executable target/om-before
+uv run python scripts/check_benchmark.py <paired-results.json>
+```
+
+Freeze on the baseline checkout, then compare on the candidate checkout. Methods
+and results here do not depend on ignored local reports or orchestration scripts.
+
+### Total requested-byte storage
+
+The separate diagnostic probe measures eight populations at one and 512 objects,
+each through setup, construction, live GC, sparse/released roots, empty GC and
+three equal create/release/reuse cycles. Values below are net requested-byte
+increments above each loaded runtime's setup; they include capacity, roots and
+metadata, and are neither per-object sizes nor RSS.
+
+| Population (512) | OM01 live | Final live | OM01 empty | Final empty | OM01 reused | Final reused |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Point | 57,036 | 44,780 | 39,460 | 27,172 | 65,644 | 53,388 |
+| Pair<i32> | 57,812 | 45,556 | 39,500 | 27,212 | 66,004 | 53,748 |
+| Narrow interfaces | 127,584 | 82,560 | 100,704 | 76,128 | 148,064 | 103,040 |
+| Wide interfaces | 128,808 | 83,784 | 100,704 | 76,128 | 149,288 | 104,264 |
+| Generic interfaces | 128,960 | 83,936 | 101,120 | 76,544 | 149,472 | 104,448 |
+| Repeated interface copy | 17,544 | 17,368 | 6,848 | 6,800 | 17,608 | 17,432 |
+| Cyclic nodes | 413,380 | 396,996 | 71,828 | 47,252 | 429,764 | 413,380 |
+| Numeric buffer | 9,176 | 9,160 | 5,896 | 5,848 | 9,208 | 9,192 |
+
+OM02 lowers Point/Pair live increments by 21.49%/21.20% and empty increments by
+31.14%/31.11%, clearing the 10% targets. Dense native entries grow from 136 to
+144 bytes. With 1,024 reserved directory slots and four reserved native entries,
+12,288 saved directory bytes minus 32 extra native bytes explain the 12,256-byte
+live reduction. Struct records remain 24 bytes and Point fields remain eight bytes.
+
+OM01 Point live backing attribution is 49,816 bytes: directory 24,576, struct
+records 12,288, field bytes 4,096, native entries 544, native payload box 120 and
+sequence capacity 8,192. The remaining 7,220 bytes include roots/frame capacity,
+shared layout/type/codec and lookup metadata not individually attributed by the
+shallow store view. Pair's remainder is 7,996. Interface/node metadata and native
+children also require their own owners; an unattributed remainder is not available
+payload savings. Diagnostic accounting allocates no result buffer or permanent
+counters and reports actual interface snapshot-slot backing (48-byte slots).
+
+OM04 further lowers narrow/wide/generic live increments from OM02's
+103,040/104,264/104,416 by exactly 20,480 bytes each (512 x 40):
+19.88%/19.64%/19.61%, above the 15% targets. Snapshot roots and checked heap aliases
+remain independent. Empty interface wrapper capacity had already been released
+under OM02, so OM04 does not claim another empty-capacity saving.
+
+Both final 96-row comparisons pass: all setup/construction/live/released/empty/reused
+increments meet the OM01 common +5% budget and Point/Pair targets, and the three
+interface targets meet OM02's additional 15% reduction. Loaded setup moves from
+5,251,635 to 5,251,827 net bytes (+192, within 5%). All sixteen runtime teardowns
+are zero, all three reuse cycles plateau, and warmed field loops retain
+98 allocation requests/6,928 requested bytes/zero net bytes.
+
+Construction allocation totals below subtract setup; these are requested bytes
+over the operation, distinct from retained bytes above.
+
+| Population (512) | Requests, before → after | Requested bytes, before → after |
+| --- | ---: | ---: |
+| Point | 654 → 654 | 143,208 → 118,712 |
+| Pair<i32> | 682 → 682 | 144,608 → 120,112 |
+| Narrow interfaces | 3,761 → 3,753 | 520,745 → 430,873 |
+| Wide interfaces | 3,794 → 3,786 | 525,377 → 435,505 |
+| Generic interfaces | 31,435 → 31,427 | 2,743,915 → 2,654,043 |
+| Repeated interface copy | 1,167 → 1,166 | 41,077 → 40,901 |
+| Cyclic nodes | 7,324 → 7,324 | 972,743 → 939,991 |
+| Numeric buffer | 102 → 102 | 15,240 → 15,224 |
+
+Live/empty GC allocation requests and requested bytes are unchanged in these
+512-object cases. Release GC requests are unchanged; Point requests eight extra
+bytes, all four interface populations request 48 fewer bytes each, and the other
+cases are unchanged. Retained storage wins do not conceal repeated preparation.
+
+### Timing gates and rejected candidate
+
+All 29 final OM01 gates pass at <=1.05. The following maxima cover every row in
+each group; ranges are the seven individual paired ratios.
+
+| Rows | Maximum median ratio | Workload | Paired range |
+| --- | ---: | --- | --- |
+| Eleven execution/control rows | 1.009081 | read_fields | 0.973097–1.025891 |
+| Six construction rows | 1.018304 | nodes | 0.997398–1.048227 |
+| Six live-GC rows | 1.016003 | points | 0.997858–1.038660 |
+| Six release-GC rows | 0.990580 | interfaces | 0.965156–1.004211 |
+
+Growth/iterator/callback ratios are 1.005592/0.997324/1.001721. All 26 inherited
+pre-RS gates also pass without compounding OM allowances: fields/float/read/write
+ratios are 0.597290/0.615716/0.615961/0.793797 (limit 0.90); other execution maxima
+remain <=1.05. Node release GC is the maximum lifecycle ratio, 1.049002
+(1.017606–1.075983), within the original 1.10 limit.
+
+All twelve forms rows pass <=1.05 against accepted OM02. Maximum is direct
+recurrence 1.014041 (0.980426–1.027427); interface is 0.999405
+(0.980566–1.002674), shared generic 0.996589 (0.985080–1.001047), and the remaining
+rows range from 0.989149 to 1.003984. This covers byte state, captures, concrete
+generics, fields, helpers, host callbacks, native calls and strings as well.
+
+The first OM04 prototype at `90342034` passed 28/29 OM01 rows but failed growth:
+1.062032 (1.042037–1.069698), above 1.05. Its pre-RS/forms comparisons did not run.
+Diagnosis found that copying interface method count into every transient object
+view widened shared/exclusive views to 40 bytes. `65bbf477` moves count lookup to
+accounting boundaries and restores those views to 32 bytes while retaining full
+metadata IDs and the same unit formula. The complete new comparisons above follow
+that production change; the failed result is retained, not reclassified. Layout
+size alone does not isolate the cause of the full timing delta. No inline hints,
+name-based specialization, cache or alternate semantic implementation was added.
+
+### Layout grouping decision and reference fit
+
+OM03 measured one/64 exact eight-byte scalar layouts with one/four rooted rows.
+An optimistic group model uses a 56-byte group (description Arc, byte Vec and
+reverse-owner Vec), eight-byte global row and four-byte per-row directory backref,
+excluding lookup/slack/control allocation costs in its favor.
+
+| Layouts / rows each | Current live bytes | Current empty bytes | Projected byte change | Projected live ratio |
+| --- | ---: | ---: | ---: | ---: |
+| 1 / 1 | 924 | 700 | -4 | 0.995671 |
+| 1 / 4 | 1,044 | 700 | +8 | 1.007663 |
+| 64 / 1 | 29,064 | 16,264 | +2,816 | 1.096890 |
+| 64 / 4 | 55,944 | 33,928 | +512 | 1.009152 |
+
+All four diagnostic teardowns were zero. The sparse 64-layout case exceeds +5%
+even before omitted costs. A projected 6,088-byte homogeneous Point saving cannot
+override that gate. Keep the single packed arena; do not add a second sparse
+fallback. This rejects the evaluated model, not every possible grouping design.
+The temporary probe was removed; no grouping implementation or speedup is claimed.
+
+Reference review used OpenJDK `jdk-25-ga`
+[AbstractList](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/java.base/share/classes/java/util/AbstractList.java),
+[markWord](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/oops/markWord.hpp)
+and [InstanceKlass](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/oops/instanceKlass.hpp),
+Go `go1.25.2` [mheap](https://github.com/golang/go/blob/go1.25.2/src/runtime/mheap.go),
+and Rust's [trait objects](https://doc.rust-lang.org/reference/types/trait-object.html)
+and [dyn compatibility](https://doc.rust-lang.org/reference/items/traits.html#dyn-compatibility).
+Adopt the split between collection mutation state, identity and shared type/dispatch
+metadata. Java's optional int fail-fast counter/header bits, Go's concurrent span
+allocator and Rust's exclusion of dispatchable type-generic methods do not replace
+Kagari's u64 exhaustion, checked nominal generations, GC roots, scalar/generic
+interface receivers or pinned reload. No new collector follows from those sources.
+
+### Local correctness and remaining scope
+
+The final 28 selected contracts cover fourteen interface metadata/alias boundaries,
+revision relocation/replacement/exhaustion, two lease/error/unwind cases, three
+bulk edits, sparse relocation, layout budget, iterator GC/failure, concrete identity,
+ordered traps/root cleanup, host GC/reentry/reload, retained generic reload and
+native-enabled source-free payloads. Earlier OM02 native data/managed-field/extraction
+checks remain evidence for unaffected paths. Initial disposable-fixture and
+intermediate unit-signature build errors were resolved before acceptance.
+
+Workspace all-target Clippy, diagnostics-example Clippy, formatting, structure
+(1,307 Rust files, no findings or exceptions) and diff checks pass. OM05 reuses the
+final unchanged runtime's composition and measurement evidence; documentation edits
+need content/link/diff checks. Full workspace/feature/backend/platform acceptance
+remains pending CI. DC/NC inventories are refreshed without activating either;
+Lua parity and the separate interpreter lifecycle acceptance remain unresolved.
+Handoff checks cover balanced fences and 280 local links/anchors across six changed
+Markdown documents; no findings or deleted-plan references remain.
+
 ## Interpreter follow-up evaluation, Windows, 2026-10-17
 
 **Outcome: measured interpreter gains; final lifecycle performance acceptance is

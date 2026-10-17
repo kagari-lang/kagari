@@ -196,28 +196,33 @@ expansion were outside scope; interpreter/Lua throughput goals remain independen
 
 ## Object storage overhead
 
-The [object storage overhead execution plan](object-storage-overhead-plan.md)
-records OM01-OM05; activated on 2026-10-18, with OM01/OM02/OM04 locally accepted,
-OM03 grouping explicitly deferred after its sparse-cost projection,
-OM05 integrated validation/documentation handoff active. It follows the completed local
-RS storage work. The required next change attributes total storage and moves native
-mutation revisions out of the common identity directory. Layout-grouped structs
-and interface-record consolidation are conditional on additional measured savings,
-sparse-layout capacity, unchanged semantics and non-compounding latency gates.
-Value and full owner/slot/generation handles remain unchanged.
+OM01-OM05 completed local acceptance on 2026-10-18 at runtime `65bbf477`.
+Native mutation revisions now belong to runtime-owned native records; the measured
+common directory entry falls from 24 to 12 bytes. Interface heap identities locate
+the snapshot store directly while preserving independent checked heap/metadata
+identities, metadata-only roots and alias lifetimes. Value, full handles and packed
+field storage are unchanged. Current contracts live in
+[architecture](architecture.md#runtime-model) and [runtime](spec/runtime.md).
 
-OM01 will freeze the coherent current implementation at activation, including
-accepted IP work and subsequent accepted changes. Historical RS/IP observations
-remain reference evidence, not the new baseline. Measurements use fixed seven-pair
-before/after runs and one median paired-ratio gate; original RS regression
-obligations and OM storage targets remain unchanged. No report extension or
-independent calibration is required.
+The [matched evaluation](performance-baseline.md#object-storage-overhead-2026-10-18)
+records Point/Pair live storage down 21.49%/21.20% against OM01, and interface live
+storage down a further 19.61-19.88% against OM02. All 29 OM01 timing, 26 inherited RS
+and twelve additional forms gates pass, alongside memory/teardown/reuse checks,
+28 focused contracts and required local quality checks. The failed first interface
+prototype remains documented. These results do not establish Lua parity or the
+unrun complete workspace/feature/backend/platform CI matrix; that acceptance stays
+pending CI.
 
-This activation does not add a dependency that blocks DC/NC. Before activating
-another storage-dependent track, refresh its
-inventory against whichever OM checkpoints have actually been accepted. OM owns
-its decisions and ledger; downcast, collection-library migration and call-lifecycle
-optimization remain separate scopes.
+Per-layout groups are deferred: the optimistic sparse model adds 9.69% live bytes,
+exceeding the +5% budget. Keep one packed arena. Revisit only with a concrete group
+model that bounds sparse overhead without a second fallback engine; no grouping
+implementation is queued automatically. The measured model does not prove all
+future designs impossible.
+
+DC/NC inventories reflect the accepted storage owners without activating either.
+Their activation must still recheck current APIs and freeze their own relevant
+baseline. Downcast, collection-library migration, collector changes and call-lifecycle
+optimization remain separate scopes. Git history owns the completed OM ledger.
 
 ## Library-owned native collections
 
@@ -321,10 +326,10 @@ localized projection/publication inline hints remain supported by their recorded
 assembly evidence; revisit ownership and footprint if those transfers regress,
 not by spreading hints to unrelated handlers.
 
-The [OM plan](object-storage-overhead-plan.md) remains the sole owner of object
-storage changes and remains queued. IP preserved the accepted RS layout and its
-memory savings. NC collection migration, enum unboxing, a new collector and native
-backend expansion were outside IP scope.
+The separate [object storage evaluation](performance-baseline.md#object-storage-overhead-2026-10-18)
+records the locally accepted OM changes; IP's measurements retain their original
+storage baseline and are not rerun by that handoff. NC collection migration, enum
+unboxing, a new collector and native backend expansion were outside IP scope.
 
 Shared generic Add failed MIR lowering with
 `MissingBinding("checked callable requirement")` at the measured revision. Its

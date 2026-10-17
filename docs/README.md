@@ -29,7 +29,8 @@ behavior; queued designs do not imply implemented APIs.
 - [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
   syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
 - [Performance measurements](performance-baseline.md), including the completed
-  [runtime storage evaluation](performance-baseline.md#runtime-storage-2026-10-16), and
+  [runtime storage evaluation](performance-baseline.md#runtime-storage-2026-10-16) and
+  [object overhead evaluation](performance-baseline.md#object-storage-overhead-2026-10-18), and
   [Kagari/Lua benchmark instructions](../benchmarks/lua-comparison/README.md).
 - [Repository and architecture review](review.md): unresolved findings and native
   expansion requirements, with historical measurements linked at their owner.
@@ -38,9 +39,6 @@ behavior; queued designs do not imply implemented APIs.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Object storage overhead](object-storage-overhead-plan.md): OM01/OM02/OM04 are
-  locally accepted; OM03 defers layout grouping after its sparse-cost screen, and
-  OM05 owns integrated validation and documentation handoff.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11

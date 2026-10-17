@@ -33,7 +33,7 @@ transport, and bounded collection check/commit ownership. It does not activate:
 - JIT/AOT expansion, automatic tiering or benchmark substitution.
 - A new GC, universal eight-byte Value, enum unboxing or special Option semantics.
 - Per-session storage segmentation or abandoned-owner notification queues.
-- The separate [object storage](object-storage-overhead-plan.md),
+- Further [object storage work](implementation-roadmap.md#object-storage-overhead),
   [native collection migration](native-collections-plan.md) or
   [host API](host-api-refactor.md) plans.
 - Unrelated compiler/language changes, including the roadmap's shared-generic Add
