@@ -130,7 +130,8 @@ restrictions; syntactic recognition is not executable support.
   `associated_type`, `associated_const`, `field_declaration`, `visibility`,
   `attribute`, `attribute_arguments`, `attribute_argument`.
 - Names: `identifier`, `type_identifier`, `path`, `type_path`, `generic_path`.
-  Declaration/member/binding names have `name` fields. `function_item` and
+  Declaration/member names have `name` fields; ordinary bindings have a `pattern`
+  field, including a `path` for a simple name. `function_item` and
   `method_item` have `parameters` and `body`; calls have `function`/`arguments`;
   field access has `value`/`field`. Constructor expressions use field `type`.
 - Types: `generic_type`, `generic_parameters`, `type_parameter`,
@@ -146,7 +147,8 @@ restrictions; syntactic recognition is not executable support.
   `closure_parameters`, `closure_parameter`, `if_expression`, `loop_expression`,
   `match_expression`, `match_arm`, `match_guard`, `struct_expression`.
 - Patterns: `or_pattern`, `range_pattern`, `wildcard_pattern`, `tuple_pattern`,
-  `parenthesized_pattern`, `tuple_struct_pattern`, `struct_pattern`, `field_pattern`.
+  `parenthesized_pattern`, `tuple_struct_pattern`, `struct_pattern`, `field_pattern`,
+  `rest_pattern`.
 - Lexical nodes: `integer_literal`, `float_literal`, `boolean_literal`,
   `string_literal`, `string_content`, `escape_sequence`, `interpolated_string`,
   `format_text`, `interpolation`, `interpolation_format`, the four comment kinds,
@@ -162,6 +164,35 @@ before another statement remain statements. Unparenthesized range endpoints do
 not recursively accept another range. An open range before a `for` body does not
 consume that body's brace as its endpoint.
 
+### Declaration patterns and struct rest
+
+Ordinary `val`/`var` declarations share the existing pattern nodes used by match,
+for and binding conditions. The declaration root excludes an unparenthesized
+alternative; grouped and nested alternatives still use `or_pattern`. Named-field
+struct patterns permit one final `rest_pattern` (`..`), optionally followed by a
+comma. Tuple/slice rest remains unsupported. Complete field coverage, binding
+consistency and irrefutability belong to static checking, not this editor grammar.
+
+For `val (left, Point { x: renamed, .. }) = pair;`, the query tree is:
+
+```text
+binding_statement
+  pattern: tuple_pattern
+    path(identifier: left)
+    struct_pattern
+      type: path(identifier: Point)
+      field_pattern
+        name: identifier: x
+        pattern: path(identifier: renamed)
+      rest_pattern: ..
+  value: path(identifier: pair)
+```
+
+The sketch omits anonymous punctuation except the rest token. `field_pattern`
+without a `pattern` child is shorthand. The same nodes recover during incomplete
+edits; recovery is not a claim that malformed patterns are valid declarations.
+See the runnable [binding example](../../examples/syntax/binding-patterns.kgr).
+
 ## Validation scope
 
 The corpus establishes concrete tree shapes at lexical/recovery boundaries. Native
@@ -169,7 +200,8 @@ unit tests load the actual Node addon, compile queries, parse seven
 selected shared syntax examples and a small representative set, assert ambiguity
 and unsupported-syntax boundaries, and compare complete incremental/fresh trees
 (including anonymous tokens, fields, errors, ranges and positions) through quote,
-hole/block-brace and nested-comment-terminator edits with LF and CRLF.
+hole/block-brace, pattern delimiter/rest and nested-comment-terminator edits with
+LF and CRLF.
 
 The complete examples inventory, adapter capture contracts, Zed integration and
 platform matrix belong to the parent/CI. They are not run by this package's local
