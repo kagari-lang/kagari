@@ -233,40 +233,66 @@ is claimed.
 
 ## Interpreter performance follow-up
 
-The finite compact-value and execution-architecture migrations are complete.
-[The latest retained evaluation](performance-baseline.md#execution-architecture-evaluation-hp06-2026-10-10)
-reports 2.57-51.11x Lua time across 16 matched workloads; parity remains unmet.
-Acceptance requires interpreter/Lua median <=1.0 for every unchanged matched
-workload on one machine, with uncertainty analysis near parity. Entry, adapters,
-alternate numeric diagnostics and JIT results cannot replace that gate.
+The finite compact-value, execution-architecture and IP01-IP07 interpreter work
+have completed local acceptance. The [current matched evaluation](performance-baseline.md#interpreter-call-lifecycle-2026-10-17)
+uses runtime f070a092 against IP01 60bfaacb and passes all 61 execution/lifecycle
+gates. Calls, recursion, interface and shared-generic time fall approximately
+23.0%, 22.6%, 23.2% and 24.9%. Selected correctness, allocation/teardown and required
+local code-quality checks pass. Complete workspace and feature/backend/platform
+validation remain pending CI; local acceptance does not establish that result.
 
-The [interpreter performance execution plan](interpreter-performance-plan.md)
-owns active IP01-IP07 work as of 2026-10-16. IP01 has frozen the fresh baseline
-and acceptance tooling at 60bfaacb. IP02 window-slot reuse and IP03 call transitions
-have completed local acceptance at f070a092: 61/61 simplified execution/lifecycle
-gates and selected correctness/memory checks pass. External program leases now
-count live registrations instead of retaining expired weak-registration lists.
-Setup/Lua timings remain diagnostics; historical failures are not reclassified.
-The projection/publication architecture review is complete. IP04-IP06 explicitly
-defer session segmentation, typed/fused instructions and allocating/reentrant library
-shortcuts after attribution and reference review. IP07 integration and documentation
-handoff are active.
-Exhaustive CI and Lua parity remain outstanding. The plan's
-[architecture follow-up](interpreter-performance-plan.md#architecture-follow-up-from-the-2026-10-17-review)
-requires reference-first review of fragile inlining, session storage ownership and
-specialized paths within the existing phases before further affected optimization.
-Required work freezes a fresh baseline, replaces window-slot scanning and carries prepared invocation contracts
-through parameter transfer, frame admission and return. Session-owned banks,
-typed instructions and at most two installed library transitions are separate
-conditional decisions under measured gates, not assumed implementations.
+The retained architecture has explicit reusable window identities, one prepared
+call/argument/return lifecycle, shared checked operand decoding and live program
+lease registrations. The [architecture](architecture.md#runtime-model) owns these
+contracts and the [benchmark guide](../benchmarks/lua-comparison/README.md#beforeafter-workflow)
+owns the fixed before/after procedure. The completed phase ledger is in Git history.
+Setup and Lua times are diagnostics, with no independent calibration or report
+extension. Historical failures are not reclassified as passes.
+
+Interpreter/Lua parity remains unmet: the 16 matched workloads take 2.66-43.68
+times Lua time. Acceptance still requires <=1.0 for every unchanged matched
+workload on one machine, with uncertainty analysis near parity. Entry, host adapters,
+unmatched native rows and JIT cannot replace that gate. Further implementation
+requires a concrete architecture review, not another list of benchmark exceptions.
+The bounded remaining questions are:
+
+- **Session lifecycle:** IP04 defers segmentation. Non-tail retirement still moves
+  another session's banks, but storage release accounts for only 14.02% of random
+  completion samples, below the proposed 15% total improvement. The separate
+  abandoned-owner scan accounts for 28.64-36.94% across four cases. Review terminal
+  retirement versus abandoned-owner discovery before choosing notification/storage
+  ownership; retain prompt cleanup, suspended/reentrant roots, generation checks
+  and bounded capacity. Do not substitute an index/cache for that ownership decision.
+- **Instruction representation:** IP05 defers five i32 fast variants and fusion.
+  Numeric kernels account for 7.58-9.33% of the two sampled scalar workloads;
+  roughly 81% is directly in the broader loop, without isolating dispatch cost.
+  Compare uniform prepared encoding, operand transport and polling with Rust MIR,
+  JVM typed instructions and mature register interpreters. Reuse Kagari's checked
+  numeric owner across domains. Fusion additionally needs explicit interior logical
+  PCs, resumption, observations and intermediate roots before any prototype.
+- **Library effects:** IP06 retains exact installed StringByteLength, VecIndex and
+  VecSet/VecSetFluent bodies, sharing existing semantic/storage owners. Vec push
+  and Map lookup remain ordinary native transitions: growth can make GC due;
+  selected hash/equality can reenter script and Option construction allocates.
+  Any future change must define effect/PC/root transitions and preserve scoped
+  borrows, mutation commits and cancellation. Do not add method-name recognition,
+  duplicate collection algorithms or special Option representation.
+- **Projection/publication code generation:** the reviewed shared decoder and
+  consuming window insertion retain localized inline hints. Rust Option/Vec
+  ownership patterns support those boundaries; Kagari's assembly evidence supports
+  the current hints, not spreading them to handlers. Revisit ownership and product
+  footprint if a later compiler/change reintroduces transfer costs.
+
+The [measurement record](performance-baseline.md#conditional-decisions-and-remaining-attribution)
+contains the reference versions, concrete evidence and limitations for those
+decisions. Future work starts with the affected mature implementation, explains
+Kagari's GC/host/reload differences and validates the shared model before tuning.
+These are deferred questions, not automatically activated migrations.
 
 The [OM plan](object-storage-overhead-plan.md) remains the sole owner of object
-storage changes and remains queued. IP01 explicitly starts from the accepted RS
-implementation at 35077323, keeping heap storage fixed during interpreter work.
-Preserve changing receiver/type/version,
-roots, cancellation, host/reentry, logical observation and trap order; include
-setup, retirement and retained memory in acceptance. NC collection migration,
-enum unboxing and new GC/native backends remain outside IP scope.
+storage changes and remains queued. IP preserved the accepted RS layout and its
+memory savings. NC collection migration, enum unboxing, a new collector and native
+backend expansion were outside IP scope.
 
 Shared generic Add failed MIR lowering with
 `MissingBinding("checked callable requirement")` at the measured revision. Its

@@ -25,9 +25,10 @@ native storage. Do not change language value/alias semantics, introduce inline
 value-type collections, compress owners, replace the GC algorithm, expand native
 backends, implement downcast or perform the NC collection-library migration.
 General arithmetic and call-lifecycle optimization belong to the separate
-[interpreter performance plan](interpreter-performance-plan.md). That plan reuses
-accepted OM ownership and measurements; it does not duplicate this ledger or
-require conditional storage changes to be implemented.
+[interpreter follow-up](implementation-roadmap.md#interpreter-performance-follow-up).
+IP01-IP07 completed local acceptance without activating OM. Future interpreter work
+must reuse the accepted storage ownership and measurements rather than duplicate
+this ledger or require conditional storage changes to be implemented.
 
 ## Evidence and cost ownership
 
@@ -65,7 +66,7 @@ per-object saving from shallow sizes alone.
 ## Ownership changes
 
 Before selecting an ownership change, follow the
-[reference-first design review](interpreter-performance-plan.md#reference-designs-and-applicability).
+[architecture-first repository policy](../AGENTS.md#architecture-before-optimization-and-feature-changes).
 OM01 must compare relevant Java/OpenJDK, Go or other established storage/GC
 mechanisms with Kagari's checked handles, exact nominal layouts, host state and
 pinned reload roots. Record source/version, applicable mechanism and reasons for

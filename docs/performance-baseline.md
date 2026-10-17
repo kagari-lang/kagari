@@ -16,6 +16,244 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Interpreter call lifecycle, 2026-10-17
+
+IP01-IP07 completed local implementation/decision acceptance with runtime f070a092.
+Baseline runtime is 60bfaacb, rebuilt with the same simplified benchmark harness
+from b1d20e87. Earlier Windows runs and earlier macOS candidates are separate
+historical evidence; they are not pooled into this result. Required window-slot
+reuse and prepared calls are retained. Conditional session segmentation, typed/fused
+instructions and additional library shortcuts are deferred for the reasons below.
+Complete workspace/feature/backend/platform CI and interpreter/Lua parity remain
+outstanding. The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up)
+owns further work; [architecture](architecture.md#runtime-model) owns current contracts.
+
+Environment: Apple M1 Max, 32 GiB, 10 logical CPUs, arm64 macOS 26.6.2;
+rustc 1.98.1 (48a229cea, LLVM 22.1.8), Cargo 1.98.1, workspace release profile
+(opt-level 3), default target/build parallelism. Benchmark features are SDK
+source/native and vendored Lua 5.4.9; native execution is excluded. Private-window
+controls use the runtime's ordinary release test harness. Builds reuse Cargo cache;
+workers run sequentially on one thread in fresh processes. No compilation, tests,
+allocation instrumentation or sampling overlaps ordinary timing.
+
+Each suite uses seven fixed process pairs, alternating B/C and C/B. Workload/engine
+order reverses every two pairs. Every worker prepares once, then runs three warmups
+and eleven execution samples per row, checking results outside timers. The sole
+gate statistic is median(C_i/B_i), where each input is a process median after batch
+normalization. Ranges below are min/max paired ratios, not confidence intervals.
+Setup and Lua timings are diagnostics, outside regression gating. Workload, binary,
+lockfile and build identities are checked; there are no per-source-file manifests,
+reference calibration, report extensions or second acceptance estimator.
+
+All **61/61** gates pass: 19 execution rows (16 matched language workloads plus
+entry, host-callback and unmatched-native controls), 24 owned-root lifecycle rows
+and 18 private-window rows. Calls, Fibonacci, interface and shared-generic targets
+require <=0.90; every other row requires <=1.05. The four reports were collected at
+UTC 20261017T072149Z (owned roots), 072334Z (forms), 072510Z (private windows) and
+072624Z (original). They remain the final evaluation because the later conditional
+reviews and documentation handoff change no production code. No rerun was used to
+replace an unfavorable result from the same candidate.
+
+Medians below are microseconds; the paired ratio is not the ratio of these two
+aggregate medians. Lua ratios use candidate process medians for diagnostic context.
+
+| Matched workload | IP01 us | Final us | Paired ratio | Pair range | Final / Lua |
+| --- | ---: | ---: | ---: | --- | ---: |
+| arithmetic | 1793.291 | 1731.458 | 0.972187 | 0.947320-0.980760 | 4.44 |
+| arrays | 2611.166 | 2043.375 | 0.777376 | 0.772635-0.798497 | 28.70 |
+| branches | 2212.666 | 2174.709 | 0.977975 | 0.973450-0.983599 | 2.66 |
+| calls | 5119.458 | 3938.125 | 0.770502 | 0.762498-0.782246 | 17.28 |
+| fibonacci | 10408.667 | 8067.459 | 0.774058 | 0.765708-0.781639 | 22.62 |
+| maps | 3683.958 | 3020.375 | 0.826254 | 0.770090-0.851394 | 42.17 |
+| byte_state | 3792.667 | 3210.500 | 0.846110 | 0.831384-0.858971 | 27.39 |
+| capture_cell | 6214.166 | 5231.916 | 0.838625 | 0.827451-0.851557 | 35.96 |
+| concrete_generic | 2579.916 | 1930.500 | 0.746617 | 0.736781-0.763291 | 18.42 |
+| direct | 246.166 | 241.333 | 0.984530 | 0.965304-1.024987 | 3.15 |
+| field | 724.208 | 698.458 | 0.966744 | 0.930720-0.989838 | 7.60 |
+| helper | 2521.667 | 1940.708 | 0.770671 | 0.764262-0.782624 | 13.49 |
+| interface | 4503.750 | 3452.209 | 0.767535 | 0.763770-0.791600 | 24.94 |
+| shared_generic | 6434.917 | 4818.042 | 0.750595 | 0.732977-0.758593 | 43.68 |
+| string_calls | 3151.958 | 2500.083 | 0.796388 | 0.775182-0.809549 | 19.52 |
+| string_constants | 693.084 | 649.500 | 0.938492 | 0.910989-0.960564 | 9.59 |
+
+The 16 matched workloads still take **2.66-43.68 times Lua time**. This work improves
+call transitions; it does not meet parity. Additional control ratios are entry 0.876029, host_callback 0.629000, native 0.626827.
+The largest accepted ratio in owned roots/private windows is 1.026663/1.034768.
+The 256-forward-cancel collection ratio is 0.515312 (range 0.460761-0.559034),
+with admission/retirement 0.809541/0.982578.
+
+The earlier b1d20e87 comparison passed 60/61 and observed 1.068697 on that collection
+row, with pair range 0.89118-1.28109. Identical temporary baseline/current GC probes
+found equal graph work in 112 corresponding records: no value/metadata roots,
+active windows, linked calls or live/reclaimed objects, and one 35-member program.
+They also exposed 1/32/256 expired weak lease registrations in one member table,
+matching the preceding session population. This was a shared bookkeeping cost;
+it does not prove the precise cause of the isolated 6.9% observation.
+
+The retained change counts live registrations with lazy per-kind Arc ownership
+tokens. Clones share a registration, and only last drop releases it; whole-program
+registrations belong to the program root, with local/member counts composed on
+read. Collection no longer prunes expired registration lists. Complete member
+validation, foreign/stale identity checks, generation-pinned dependencies and
+cross-thread final drop are preserved. No custom atomic counter, finalizer queue,
+unsafe storage or workload recognition is added. The new comparison above is a
+changed implementation, not reclassification or extension of the earlier failure.
+
+Allocation instrumentation runs separately. Seven original and 36 forms/protocol
+warm records have no increased request count/bytes. All eight owned-root cases keep
+identical warmed requests/bytes; their live/empty/reused increments are below IP01
+(ratios 0.99618-0.99730), reuse plateaus are bounded and teardowns return to zero.
+Eight artifacts over three setup cycles pass every +5% gate: prepared retained
+1.00123-1.00208, additional loaded retained 1.00113-1.00138, preparation requested
+0.99752-1.00335, additional load requested 0.81564-0.82255. Warmed teardowns are zero;
+cold shared preparation is accounted separately. Unchanged IP01 setup observations
+are reused; execution/root observations were collected for the new implementation.
+The named registration wrapper preserves the measured single-Arc layout/allocation.
+
+Ordinary original-suite setup ratios are source-to-artifact 1.0001-1.0042,
+artifact preparation 0.9997-1.0063, runtime initialization 0.7264-0.9499 and linking
+0.7414-0.8345. Forms-module ratios are 1.0015/1.0044/0.9066/0.7810 respectively.
+These prepare-once diagnostics can mix first-workload and reused process state;
+they establish no cold-start guarantee. Prepared instructions remain 24 bytes and
+Value remains 16 bytes. Whole-image Mach-O __TEXT is 17,874,944 bytes at IP01 and
+17,891,328 bytes at f070a092 (+0.092%); this is not isolated handler footprint.
+
+The projection/publication review retains one shared operand decoder and window
+allocator. Scalar operands require a temporary Value while managed operands can
+be borrowed; a closure keeps both within the admitted borrow. The existing
+with_value/with_operand inline boundary avoids materializing that projection
+across calls. Windows::insert consumes publication after reserve; earlier MSVC
+assembly showed an outlined 176-byte temporary. Existing hints remain localized
+to these boundaries, with no struct-only decoder or handler-specific hint added.
+Rust 1.90.0 [Option](https://github.com/rust-lang/rust/blob/1.90.0/library/core/src/option.rs)
+and [Vec](https://github.com/rust-lang/rust/blob/1.90.0/library/alloc/src/vec/mod.rs)
+illustrate borrowing/consuming ownership, but their ordinary inline hints are not
+proof of Kagari's stronger hint requirements. ARM64 field assembly confirms the
+projected path has no calls to either decoder layer; this is platform-specific.
+
+### Conditional decisions and remaining attribution
+
+Session segmentation is deferred. Four existing 256-root controls were sampled
+sequentially for five seconds at one-millisecond intervals inside ten-second warmed
+lifecycle loops, using temporary non-inlined park/retire wrappers. Results were
+checked and sources restored. The denominator is retirement samples; movement is
+a subset of release, and nested inclusive samples are not added twice.
+
+| Retirement | Samples | Storage release | Release memmove | Abandoned-owner scan |
+| --- | ---: | ---: | ---: | ---: |
+| Forward complete | 2,137 | 20.82% | 8.33% | 28.64% |
+| Forward cancel | 2,107 | 23.78% | 8.88% | 32.99% |
+| Random complete | 1,876 | 14.02% | 5.38% | 31.56% |
+| Random cancel | 1,822 | 15.20% | 5.60% | 36.94% |
+
+Forward/random cycles move 2,350,080/1,237,464 bytes, with 18,432 initialized bytes
+and 256 windows. The entire random-completion release share is below the proposed
+15% retirement gain; segmentation cannot remove all release duties. Sampling and
+compiler effects prevent a hard upper-bound claim, but the evidence does not justify
+per-session banks, retained capacities and GC/reentry migration under the +5% memory
+gate. The separate owner scan visits 131,328 slots during 256 terminal retirements
+and the final drain (source-derived count). No owner-notification queue is added.
+[Lua 5.4.9 state stacks](https://www.lua.org/source/5.4/lstate.h.html) and
+[JVM SE 25 private stacks/shared heap](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-2.html#jvms-2.5.2)
+are useful ownership references; Kagari sessions additionally require suspension,
+host reentry, explicit roots and pinned reload. They are not Java threads.
+
+Typed/fused additions are deferred. Existing ordinary-image `--profile=arithmetic`
+and `--profile=branches` runs use three warmups and a ten-second execution window;
+five-second/one-millisecond sampling precedes independent logical counting.
+Numeric kernels account for 273/3,602 samples (7.58%) and 341/3,653 (9.33%);
+the scalar loop directly accounts for 81.45%/81.00%. Logical counts are
+550,015/600,022. The loop includes fetch, operand access, publication and polling;
+the profile does not isolate indirect dispatch or predict a typed-opcode gain.
+The five candidate i32 Add/Mul/Rem/Eq/Lt variants would add dispatch selection
+beside already type-selected shared kernels. A uniform representation review is
+preferred over that narrow addition; no prototype or speed claim is retained.
+Fusion has no accepted interior-PC/resumption/root model and remains deferred.
+
+The [Rust MIR guide](https://rustc-dev-guide.rust-lang.org/mir/index.html) informs
+explicit operand/control-flow ownership. JVM SE 25
+[iadd](https://docs.oracle.com/javase/specs/jvms/se25/html/jvms-6.html#jvms-6.5.iadd)
+wraps instead of trapping; [Rust overflow behavior](https://doc.rust-lang.org/reference/expressions/operator-expr.html#overflow)
+depends on compilation policy. Both differ from Kagari's checked numeric contract.
+These sources, read on 2026-10-17, support design comparison, not copying host
+operators or an unmeasured speedup.
+
+Existing StringByteLength, VecIndex and VecSet/VecSetFluent bodies remain installed
+by exact identity/signature and share their native/SDK semantic owners. No duplicate
+stdlib body remains. Vec push is deferred because heap growth invalidates the
+closed cursor's entry collection snapshot. Map lookup is deferred because selected
+hash/equality may call script and the ordinary Option result allocates. The existing
+native transition owns these effects; no name-based shortcut or second collection
+engine is added. Lua 5.4.9's [VM](https://www.lua.org/source/5.4/lvm.c.html) saves state
+around reentry and publishes live stack limits before relevant GC checks. Kagari
+also preserves scoped host borrowing, checked handles, pinned calls and cancellation.
+
+### Local validation and reproduction
+
+The implementation passes eleven selected retention/generation, generic reload,
+async lifecycle and source-free tests, plus post-wrapper clone/count checks.
+Structure (1,284 Rust files, zero violations), formatting, workspace all-target
+Clippy and diff checks pass. Earlier applicable window reuse, transfer, trap/cleanup,
+scoped host/reentry and allocation checks remain evidence for unchanged code.
+Final composition adds four passing tests: two deterministic frame isolation/depth
+cases, nested host breakpoint/trap reentry, and the public owned native-wait contract.
+The existing runtime-storage diagnostic also passes all sixteen zero-net teardowns.
+Its 512-object live/empty/reused increments remain below the recorded RS values:
+
+| Population | Live bytes | Empty bytes | Reused bytes |
+| --- | ---: | ---: | ---: |
+| Point | 57,036 | 39,460 | 65,644 |
+| Pair<i32> | 57,812 | 39,500 | 66,004 |
+| Narrow interface | 127,584 | 100,704 | 148,064 |
+| Wide interface | 128,808 | 100,704 | 149,288 |
+| Generic interface | 128,960 | 101,120 | 149,472 |
+| One copied interface | 17,544 | 6,848 | 17,608 |
+| Cyclic nodes | 413,380 | 71,828 | 429,764 |
+| Numeric buffer | 9,176 | 5,896 | 9,208 |
+
+Loaded setup is 5,196,147 requested bytes (+0.193% against the recorded RS setup).
+The three 50,000-iteration field loops retain 98 requests/6,928 bytes/zero net bytes.
+These are allocation observations, not fresh RS timing claims. They preserve the
+RS savings; no OM heap-layout implementation has been introduced. Exhaustive CI is
+not run locally and is not claimed passed.
+
+The final selected commands are:
+
+```text
+cargo test --locked -p kagari-vm --lib -- tests::execution::frames::deterministic_frames_
+cargo test --locked -p kagari-vm --lib -- tests::reentry_debug::nested_breakpoints_
+cargo test --locked -p kagari --test async_execution -- sdk_owned_native_wait_contract
+cargo run --locked --release -p kagari-lua-benchmark --example runtime_storage --features diagnostics
+```
+
+The [benchmark guide](../benchmarks/lua-comparison/README.md#beforeafter-workflow)
+owns the simplified procedure. To reproduce this historical comparison, build the
+same current harness on the baseline runtime before saving each suite's executable
+and companion report, then compare the candidate on the same machine. Do not use
+an old report format or freeze the candidate as its own baseline. For example:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --freeze-baseline <baseline>
+uv run python scripts/benchmark_lua.py --source-forms --interpreter-only --freeze-baseline <baseline>
+uv run python scripts/benchmark_lua.py --execution-controls --freeze-baseline <baseline>
+uv run python scripts/benchmark_lua.py --window-controls --freeze-baseline <window-baseline>
+uv run python scripts/benchmark_lua.py --interpreter-only --baseline-executable <baseline>
+uv run python scripts/check_benchmark.py <original-results.json> --target calls=0.90 --target fibonacci=0.90
+uv run python scripts/benchmark_lua.py --source-forms --interpreter-only --baseline-executable <baseline>
+uv run python scripts/check_benchmark.py <forms-results.json> --target forms_interface=0.90 --target forms_shared_generic=0.90
+uv run python scripts/benchmark_lua.py --execution-controls --baseline-executable <baseline>
+uv run python scripts/check_benchmark.py <controls-results.json>
+uv run python scripts/benchmark_lua.py --window-controls --baseline-executable <window-baseline>
+uv run python scripts/check_benchmark.py <windows-results.json>
+```
+
+Freeze commands run on the baseline checkout; comparison commands run on the
+candidate. Keep saved binaries unchanged throughout a comparison. For scalar
+attribution, use the ordinary benchmark's `--profile=<workload>` and attach the
+sampler only after PROFILE_READY. Allocation and temporary ownership probes are
+separate diagnostics; their timing is not throughput evidence. Git history owns
+the completed phase ledger and rejected implementation history.
+
 ## Runtime storage, 2026-10-16
 
 Baseline runtime: 159c74ef, with the probe frozen in afec4a3b. Storage checkpoints:

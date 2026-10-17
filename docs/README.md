@@ -39,11 +39,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Object storage overhead](object-storage-overhead-plan.md): OM01-OM05 are
   unstarted; attribute total costs, relocate native revisions, then conditionally
   group struct layouts and consolidate interface records under measured gates.
-- [Interpreter performance](interpreter-performance-plan.md): IP01-IP07 are
-  active with the IP01 baseline/tooling frozen, IP02 window-slot reuse implemented
-  with carried timing gates, and IP03 prepared call transitions in progress;
-  then conditionally evaluate session storage, typed instructions and selected
-  library transitions. Object storage remains under OM.
+- [Interpreter performance follow-up](implementation-roadmap.md#interpreter-performance-follow-up):
+  IP01-IP07 completed local acceptance; required call/window work is retained and
+  conditional storage/instruction/library additions are deferred. The roadmap owns
+  remaining architecture questions, pending CI and the unmet Lua-parity objective.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and
