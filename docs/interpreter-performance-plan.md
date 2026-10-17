@@ -2955,6 +2955,31 @@ warm execution allocation evidence remains applicable because those paths and
 retained representations are unchanged. The field code-generation boundary and
 new-image ordinary original/lifecycle comparisons still block timing acceptance.
 
+The field follow-up is limited to the already diagnosed projection abstraction.
+Its wrapper and shared decoder currently allow separate machine calls transporting
+Option<R>; for the field receiver R is itself Option<HeapObjectId>. Requiring both
+small generic layers to inline lets the caller consume that projection directly.
+Replace the wrapper's opportunistic hint with an always-inline contract and apply
+the same contract to its sole decoding owner. This is one transitive projection
+boundary, not independent hints on field/GC/numeric handlers. Keep copied reads,
+initialization/bounds checks, scalar decoding and managed borrowing in that same
+owner; no specialized struct-reader or duplicate semantic path is introduced.
+Inspect the release field call site before ordinary measurement, then compare all
+forms with existing targets. Reuse the unchanged memory evidence and run the cursor
+borrow/quarantine and nominal/scoped field contracts plus local checks. Do not
+extend the preceding failed experiment or infer a pass from assembly alone.
+
+The transitive projection boundary passes the three selected cursor/field contracts,
+structure, fmt, workspace all-target Clippy and diff checks. The new ARM64 field
+handler has no call to either projection layer; general copied reads and field/GC
+handlers retain their owners. The change adds no representation or allocation.
+Run a new seven-pair forms comparison first; if it passes, continue sequentially
+with seven-pair private windows, owned-root controls and original/reference matrices.
+Each driver/checker must complete before the next starts; stop that sequence for
+any failing/inconclusive gate and record it. No concurrent production edits, tests,
+builds or diagnostics occur during ordinary timing. Original reference batching and
+all numerical thresholds are unchanged.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does

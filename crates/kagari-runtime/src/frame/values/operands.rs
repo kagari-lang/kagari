@@ -79,8 +79,8 @@ impl OperandView<'_> {
 }
 
 impl OperandWindow<'_> {
-    // Let the caller consume its projection without a separate transport result.
-    #[inline]
+    // Consume the projection in its caller, including the shared decoder below.
+    #[inline(always)]
     pub(crate) fn with_value<R>(
         &self,
         location: Location,
@@ -119,6 +119,9 @@ pub(super) fn read_operand(
     with_operand(managed, payloads, initialized, location, |value| *value)
 }
 
+// Projection is a compile-time abstraction: do not transport its generic result
+// across an extra call before the caller can eliminate unused Value variants.
+#[inline(always)]
 fn with_operand<R>(
     managed: &[Value],
     payloads: &[u64],
