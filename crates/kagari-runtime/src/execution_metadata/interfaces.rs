@@ -108,17 +108,14 @@ impl InterfaceStore {
     /// A published directory binding cannot outlive this slot: live wrappers mark
     /// metadata, and collection invalidates dead heap IDs before detaching snapshots.
     /// Independent metadata tokens still validate their complete owner/generation.
-    pub(crate) fn directory_binding(&self, index: u32) -> Option<(InterfaceSnapshotId, usize)> {
+    pub(crate) fn directory_binding(&self, index: u32) -> Option<InterfaceSnapshotId> {
         let slot = self.slots.get(index as usize)?;
-        let interface = slot.interface.as_ref()?;
-        Some((
-            InterfaceSnapshotId {
-                owner: self.owner,
-                slot: index as usize,
-                generation: slot.generation,
-            },
-            interface.description.methods.len(),
-        ))
+        slot.interface.as_ref()?;
+        Some(InterfaceSnapshotId {
+            owner: self.owner,
+            slot: index as usize,
+            generation: slot.generation,
+        })
     }
 
     #[cfg(feature = "execution-diagnostics")]

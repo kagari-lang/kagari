@@ -382,14 +382,11 @@ impl ObjectStorage {
                 storage: self.structure(location).expect("struct location"),
             },
             PayloadKind::Interface => {
-                let (snapshot, method_count) = interfaces
+                let snapshot = interfaces
                     .try_borrow()
                     .ok()?
                     .directory_binding(location.index)?;
-                HeapObject::Interface {
-                    snapshot,
-                    method_count,
-                }
+                HeapObject::Interface { snapshot }
             }
             PayloadKind::Closure => {
                 let value = &self.payloads.closures[index].payload;
@@ -448,14 +445,11 @@ impl ObjectStorage {
                 storage: self.structure_mut(location).expect("struct location"),
             },
             PayloadKind::Interface => {
-                let (snapshot, method_count) = interfaces
+                let snapshot = interfaces
                     .try_borrow()
                     .ok()?
                     .directory_binding(location.index)?;
-                HeapObject::Interface {
-                    snapshot,
-                    method_count,
-                }
+                HeapObject::Interface { snapshot }
             }
             PayloadKind::Closure => {
                 let value = &mut self.payloads.closures[index].payload;

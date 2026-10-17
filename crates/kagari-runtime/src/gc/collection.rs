@@ -189,7 +189,10 @@ impl GcHeap {
                 if !live.contains(&id)
                     && let Some(location) = slot.location
                 {
-                    dead.push((index, objects.get(location, &self.interfaces)?.units()));
+                    let units = objects
+                        .get(location, &self.interfaces)?
+                        .units(&self.interfaces)?;
+                    dead.push((index, units));
                 }
             }
             dead

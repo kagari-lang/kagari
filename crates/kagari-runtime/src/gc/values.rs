@@ -171,7 +171,11 @@ impl GcHeap {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gc::{ObjectSlot, roots::RootedValue};
+    use crate::gc::{
+        ObjectSlot,
+        roots::RootedValue,
+        storage::{Exclusive, Shared},
+    };
     use std::mem::size_of;
 
     #[test]
@@ -185,10 +189,12 @@ mod tests {
         assert!(size_of::<Value>() <= 16);
         assert_eq!(size_of::<HeapObjectId>(), 12);
         eprintln!(
-            "Value={} HeapObjectId={} HeapObject={} ObjectSlot={} TupleData={} String={} Range={} Ephemeral={} RootedValue={} HostRoot={} HostPath={} HostBorrow={}",
+            "Value={} HeapObjectId={} HeapObject={} SharedObject={} ExclusiveObject={} ObjectSlot={} TupleData={} String={} Range={} Ephemeral={} RootedValue={} HostRoot={} HostPath={} HostBorrow={}",
             size_of::<Value>(),
             size_of::<HeapObjectId>(),
             size_of::<HeapObject>(),
+            size_of::<HeapObject<Shared<'_>>>(),
+            size_of::<HeapObject<Exclusive<'_>>>(),
             size_of::<ObjectSlot>(),
             size_of::<TupleData>(),
             size_of::<String>(),

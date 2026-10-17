@@ -51,7 +51,7 @@ impl GcHeap {
         }
         let input_payload = buffer_object.payload::<SequencePayload>()?;
         let input = &input_payload.values;
-        let before = source.units();
+        let before = source.units(&self.interfaces).ok_or_else(invalid)?;
         let _temporary = self.resources.reserve_temporary_heap(before)?;
         self.resources.poll_execution()?;
         let revision = match &source {
@@ -150,7 +150,7 @@ impl GcHeap {
                 _ => return Err(invalid()),
             }
         };
-        let after = prepared.units();
+        let after = prepared.units(&self.interfaces).ok_or_else(invalid)?;
         drop(objects);
         self.ensure_execution_allowed()?;
         let mut objects = self.objects_mut()?;

@@ -426,16 +426,12 @@ impl GcHeap {
                 "invalid interface receiver",
             ));
         }
-        let method_count = view.description.methods.len();
         snapshot
             .directory_index()
             .ok_or_else(|| self.resource_limit("interface snapshot locator"))?;
         drop(view);
-        self.alloc_object(HeapObject::Interface {
-            snapshot,
-            method_count,
-        })
-        .map(InterfaceObjectId)
+        self.alloc_object(HeapObject::Interface { snapshot })
+            .map(InterfaceObjectId)
     }
 
     pub(crate) fn alloc_closure(
@@ -651,7 +647,10 @@ impl GcHeap {
     }
 
     fn alloc_object(&self, object: HeapObject) -> Result<HeapObjectId, RuntimeError> {
-        let growth = self.resources.prepare_heap_growth(object.units())?;
+        let units = object.units(&self.interfaces).ok_or_else(|| {
+            RuntimeError::module_validation("invalid or borrowed interface accounting")
+        })?;
+        let growth = self.resources.prepare_heap_growth(units)?;
         let initialization_owner = self
             .resources
             .active_session()

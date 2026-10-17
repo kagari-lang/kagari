@@ -1146,8 +1146,10 @@ validate their complete identities. Multiple wrappers may share a snapshot while
 keeping distinct heap identities, and a metadata-only root can outlive every wrapper.
 Rewrapping that snapshot publishes a fresh heap identity. Publication validates the
 full token and receiver, and rejects a snapshot slot that cannot fit the u32 locator.
-Access borrows the metadata owner only long enough to copy immutable ID/unit facts;
-receiver/description storage is neither cloned nor rooted by the transient view.
+Access borrows the metadata owner only long enough to copy the complete ID;
+allocation and sweep obtain logical units from the immutable description through
+that checked ID, rather than widening every transient object view with a count.
+Receiver/description storage is neither cloned nor rooted by the transient view.
 Shared metadata views and mutable heap storage retain their separate borrow owners.
 
 The storage and scalar-transfer kernels use safe Rust. Any future bounded unsafe

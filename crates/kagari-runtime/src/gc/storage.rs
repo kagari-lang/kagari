@@ -17,7 +17,7 @@ use crate::{
     value::{EnumValueSnapshot, EphemeralValue, Value},
 };
 use kagari_abi::representation::ValueType;
-use std::{borrow::Borrow, fmt::Debug, marker::PhantomData, sync::Arc};
+use std::{borrow::Borrow, cell::RefCell, fmt::Debug, marker::PhantomData, sync::Arc};
 
 /// One object shape for owned transfer and scoped shared/exclusive views. The
 /// heap stores typed payloads; this enum is only a transient access/transfer value.
@@ -80,11 +80,10 @@ pub(super) enum HeapObject<A: ObjectAccess = Owned> {
     Struct {
         storage: A::Structure,
     },
-    /// Immutable facts copied from the separately borrowed metadata owner. Even
+    /// Checked identity copied from the separately borrowed metadata owner. Even
     /// exclusive heap access cannot replace a snapshot or its receiver here.
     Interface {
         snapshot: InterfaceSnapshotId,
-        method_count: usize,
     },
     Closure {
         snapshot: A::Field<ClosureValueSnapshot>,
@@ -104,19 +103,24 @@ impl Clone for HeapObject<Shared<'_>> {
 }
 
 impl<A: ObjectAccess> HeapObject<A> {
-    pub(super) fn units(&self) -> usize {
-        1 + match self {
-            Self::String(text) => text.borrow().len(),
-            Self::Tuple(tuple) => tuple.borrow().members.len(),
-            Self::HostPath(path) => path.borrow().retained_values().count(),
-            Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => 0,
-            Self::Native(object) => object.borrow().units(),
-            Self::Enum(value, _) => value.borrow().fields.len(),
-            Self::Struct { storage } => A::field_count(storage),
-            Self::Interface { method_count, .. } => 1 + *method_count,
-            Self::Closure { snapshot, .. } => 1 + snapshot.borrow().captures.len(),
-            Self::Cell { .. } => 2,
-        }
+    pub(super) fn units(&self, interfaces: &RefCell<InterfaceStore>) -> Option<usize> {
+        Some(
+            1 + match self {
+                Self::String(text) => text.borrow().len(),
+                Self::Tuple(tuple) => tuple.borrow().members.len(),
+                Self::HostPath(path) => path.borrow().retained_values().count(),
+                Self::Range(_) | Self::HostRoot(_) | Self::Ephemeral(_) => 0,
+                Self::Native(object) => object.borrow().units(),
+                Self::Enum(value, _) => value.borrow().fields.len(),
+                Self::Struct { storage } => A::field_count(storage),
+                Self::Interface { snapshot } => {
+                    let interfaces = interfaces.try_borrow().ok()?;
+                    1 + interfaces.get(*snapshot)?.description.methods.len()
+                }
+                Self::Closure { snapshot, .. } => 1 + snapshot.borrow().captures.len(),
+                Self::Cell { .. } => 2,
+            },
+        )
     }
 }
 

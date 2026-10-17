@@ -472,7 +472,7 @@ this unpaired freeze. Diagnostic builds enable execution-diagnostics and the
 counting allocator, separately from ordinary timing.
 
 All sixteen one/512-object diagnostic lifecycles pass zero-net teardown, and all
-three equal reuse cycles plateau. Loaded setup is 5,251,827 requested bytes for
+three equal reuse cycles plateau. Loaded setup is 5,251,635 requested bytes for
 this workload/standard declarations, not a universal empty-runtime size. Field
 loops retain 98 requests/6,928 requested bytes/zero net bytes. The Point/Pair
 attribution below includes reserved capacity, not just occupied records:
@@ -735,3 +735,50 @@ format/ABI identifier change is introduced. Commit the coherent prototype while
 ordinary acceptance remains open. Next run fixed seven-pair current/OM01 storage,
 current/pre-RS storage and current/OM02 forms comparisons sequentially; preserve
 both target savings and earlier common gates, with no other workload overlapping.
+
+The first fixed OM04/OM01 timing run at 90342034 passes 28/29 gates but fails
+revision_growth: 1.062032 (paired range 1.042037-1.069698), above 1.05. The sequential
+pipeline stops there; pre-RS and forms were not run. Keep this complete run as a
+failed candidate, without extending it or discarding pairs. Memory savings alone
+do not accept the prototype.
+
+Renewed architecture diagnosis: the interface access variant copies both a full
+metadata ID and method count into the shared HeapObject representation, although
+the count is used only by allocation/sweep accounting. Thus an interface-only
+accounting fact changes the transient representation used by every native access,
+including collection growth. Measure its actual size, then move immutable count
+lookup to allocation/sweep accounting; native prepared replacement keeps using
+the same unit calculation. Keep the full ID and all admission,
+borrow and pre-detachment checks; introduce no inline hints, type-name fast path,
+cache or second unit formula. This is one bounded representation follow-up. Repeat
+the original fixed comparison only after that production change; if it still
+fails, defer OM04 rather than accumulating local tuning. All limits remain fixed.
+
+Allocation ledger correction during integration: the frozen OM01/OM02 setup is
+5,251,635 net requested bytes, while the OM04 prototype is 5,251,827 (+192, within
+5%). The earlier OM01 prose used the latter value; original logs and comparison
+inputs were correct. Population increments and target savings are unchanged.
+
+The release layout probe confirms shared/exclusive HeapObject views are 40 bytes
+in the failed prototype. Moving method count out preserves the full 24-byte metadata
+ID. The first follow-up build identified two additional callers in prepared native
+replacement (E0061/E0308/E0369); both now propagate invalid accounting through their
+existing rejection path, before effects. No known failing check is accepted as a pass.
+
+The corrected release view is 32 bytes for both shared/exclusive access (was 40);
+owned transfer remains 136, Value 16 and checked heap ID 12. Fourteen interface
+metadata/alias contracts and fourteen selected layout/native/SDK composition cases
+pass: revision relocation/replacement/exhaustion, two leases, three bulk edits,
+sparse relocation, layout budget, iterator GC/failure, identity, ordered traps,
+host reentry/reload, retained generic reload and native-enabled source-free payloads.
+The earlier compile errors are resolved. Structure reports 1,307 files/no findings;
+fmt and diff checks pass. Workspace/diagnostic Clippy and new matched memory/timing
+validation remain in progress. Do not infer latency causality from layout size alone.
+
+Follow-up workspace all-target Clippy and diagnostics-example Clippy pass. Fresh
+ordinary/diagnostic builds succeed, both 96-row memory comparisons pass, all sixteen
+teardowns remain zero, three equal reuse cycles plateau and field requests/bytes
+remain 98/6,928. The 20,480-byte interface savings and OM02 Point/Pair savings are
+unchanged. Commit this coherent accounting-boundary correction before running a
+new fixed seven-pair OM01 comparison; only a passing result advances to inherited
+pre-RS and OM02 forms comparisons. No unchanged favorable retry is authorized.
