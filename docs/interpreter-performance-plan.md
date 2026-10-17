@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status: active, authorized on 2026-10-17; IP08-IP10 complete, IP11 next.** The user
+**Status: active, authorized on 2026-10-17; IP08-IP11 evaluated, IP12 next.** The user
 requested autonomous execution and coherent phase commits. The
 [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) owns activation
 and dependencies. This document owns the finite phase order, decisions, acceptance
@@ -440,7 +440,7 @@ Documentation-only preparation needs link/content/diff checks, not workspace bui
 - [x] IP08: baseline, attribution and predeclared scoped gates.
 - [x] IP09: shared internal call admission/return model and evaluation.
 - [x] IP10: instruction/operand decision and justified local implementation.
-- [ ] IP11: collection transactions and explicit enum-boundary decision.
+- [x] IP11: collection candidates evaluated/rejected; enum work deferred.
 - [ ] IP12: integrated evaluation, acceptance report and documentation handoff.
 
 ### IP08 — 2026-10-17
@@ -624,3 +624,53 @@ The selected common subscription test and both VM cancellation/effect/cleanup te
 passed. Required structure, format, workspace all-target Clippy and diff checks
 passed. IP09 evidence still covers unaffected admission, roots/reentry and reload;
 complete CI and integrated IP12 acceptance remain outstanding.
+
+### IP11 — first candidate diagnosis, 2026-10-17
+
+The combined map/Vec candidate passed the eight selected collection tests (including
+new storage abandonment/key-retention contracts), structure, formatting, workspace
+Clippy and diff checks. Performance acceptance **failed**, despite passing checksums:
+seven pairs against IP10 gave maps 0.97634 (0.94243-1.02052), arrays 0.98290
+(0.93066-0.99940), and forms_interface 1.07466 (1.04050-1.09801). Reports started
+11:53:49, 11:55:51 and 11:57:26 UTC. The arrays target was 0.98 and the interface
+regression limit 1.05; neither is reclassified as a pass.
+
+Architectural diagnosis: the sealed Vec path already retains its checked late write
+and cursor publication; this candidate removes only repeated nominal/contract and
+mutation checks. That bounded saving did not meet the workload target. Interface
+calls do not execute map insertion or Vec assignment, so source inspection cannot
+attribute their regression to extra semantic work on that route. Code-generation/
+layout interaction or machine effects remain unpartitioned; no CPU share is claimed.
+Do not add more shortcuts or loosen thresholds. Reject the independent Vec candidate
+and restore its three files, then evaluate the map-only transaction as the already
+predeclared independent branch. The earlier failed report remains evidence. The
+map-only candidate must independently pass maps, arrays and forms gates before
+retention; if its controls still fail, reject it rather than tune unrelated calls.
+
+The independent map-only evaluation also **missed** its target: maps 0.98530
+(0.95087-1.01100). Arrays 0.98599 passed the 1.05 regression gate (range
+0.94364-1.63870); interface 1.00075 and all source-form median controls passed.
+The very wide arrays/direct pair ranges further limit small-gain interpretation.
+Reports started 11:59:55, 12:01:54 and 12:03:30 UTC. Reject this candidate too;
+all seven production/test files are restored to the accepted IP10 state. There is
+no retained IP11 implementation and no claimed collection speedup.
+
+The prototype used a scoped occupied/vacant storage decision: std Entry only with
+spare capacity; full-table vacant selection postponed fallible reserve until after
+mutation/accounting admission. Occupied full-table selection still needed two
+lookups, so this was never a universal one-probe insertion. This adapts Rust 1.90
+[HashMap::entry](https://github.com/rust-lang/rust/blob/1.90.0/library/std/src/collections/hash/map.rs)
+and hashbrown 0.15.4
+[rustc_entry](https://github.com/rust-lang/hashbrown/blob/v0.15.4/src/rustc_entry.rs):
+unconditional Entry or pre-reserve can introduce infallible growth or make replacing
+an existing key fail allocation. The transaction is architecturally coherent, but
+its measured benefit does not justify retaining the additional variants/complexity
+under this checkpoint's gate. Custom-key reentry, SDK conversion gaps and final
+checked Vec assignment remain required. Allocation-failure injection was not added;
+passing tests were not an OOM-failure proof. Enum in-region work remains deferred,
+without changing ordinary enum/Option representation. Future collection work needs
+new attribution, not another near-threshold rerun of these candidates.
+
+IP12 now evaluates only retained IP09/IP10 against the original IP08 baseline,
+including original/forms and owned lifecycle suites. Run ordinary timing before
+separate `diagnostics` feature builds; never mix their execution measurements.

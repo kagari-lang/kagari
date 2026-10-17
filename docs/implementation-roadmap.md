@@ -283,8 +283,9 @@ freeze/attribute remaining costs, review shared call admission/return, select a
 bounded instruction/operand decision, consolidate collection transactions and evaluate
 the retained changes together. IP08 froze the ordinary baseline and declared scoped
 gates; IP09 consolidated admission/return and IP10 retained a measured cancellation
-code-generation correction. IP11 is next. Both passed scoped local gates, not CI
-or Lua parity. The plan carries the design constraints,
+code-generation correction. Both passed scoped local gates, not CI or Lua parity.
+IP11 rejected map/Vec candidates after measured gates failed; IP12 integrated
+evaluation is next. The plan carries the design constraints,
 versioned Lua/Rust/JVM references, applicability decisions, phase-specific gates and
 the sole follow-up ledger rather than maintaining another decision list here. Keep existing prepared calls, direct
 transfers and exact installed primitives; do not add workload recognition, a second
