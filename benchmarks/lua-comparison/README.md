@@ -32,9 +32,12 @@ uv run python scripts/benchmark_lua.py --check --runs 1
 cargo test -p kagari-lua-benchmark -- --test-threads=1
 ```
 
-The [latest retained interpreter evaluation](../../docs/performance-baseline.md#execution-architecture-evaluation-hp06-2026-10-10)
-records 16 unchanged matched workloads at 2.57-51.11x Lua time. Parity remains
-unmet; full GitHub CI acceptance was unverified. The report records environment,
+The [latest Windows interpreter investigation](../../docs/performance-baseline.md#interpreter-attribution-windows-2026-10-17)
+at `88e87fd4` records 16 matched workloads at 2.48-41.94x PUC Lua 5.4.9 time,
+with independent instruction/protocol counts and release-object inspection. It is
+a diagnosis, not a measured optimization. The [macOS call-lifecycle evaluation](../../docs/performance-baseline.md#interpreter-call-lifecycle-2026-10-17)
+records the previous matched optimization checkpoint separately. Parity remains
+unmet; full GitHub CI acceptance was unverified. Each report records its environment,
 revision and measurement limits. [The roadmap](../../docs/implementation-roadmap.md#interpreter-performance-follow-up)
 owns proposed follow-up work; completed execution plans live in Git history.
 

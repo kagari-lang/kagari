@@ -268,45 +268,34 @@ owns the fixed before/after procedure. The completed phase ledger is in Git hist
 Setup and Lua times are diagnostics, with no independent calibration or report
 extension. Historical failures are not reclassified as passes.
 
-Interpreter/Lua parity remains unmet: the 16 matched workloads take 2.66-43.68
-times Lua time. Acceptance still requires <=1.0 for every unchanged matched
-workload on one machine, with uncertainty analysis near parity. Entry, host adapters,
-unmatched native rows and JIT cannot replace that gate. Further implementation
-requires a concrete architecture review, not another list of benchmark exceptions.
-The bounded remaining questions are:
+Interpreter/Lua parity remains unmet. The [Windows investigation](performance-baseline.md#interpreter-attribution-windows-2026-10-17)
+at `88e87fd4` records 16 matched workloads at 2.48-41.94 times PUC Lua 5.4.9 time;
+the preceding macOS evaluation is separate evidence. Acceptance still requires
+<=1.0 for every unchanged matched workload on one machine, with uncertainty analysis
+near parity. Entry, host adapters, unmatched native rows and JIT cannot replace that
+gate. The investigation identifies excess logical transport, heavy warm call
+transitions and repeated collection/result work, not measured CPU shares or a
+promised speedup.
 
-- **Session lifecycle:** IP04 defers segmentation. Non-tail retirement still moves
-  another session's banks, but storage release accounts for only 14.02% of random
-  completion samples, below the proposed 15% total improvement. The separate
-  abandoned-owner scan accounts for 28.64-36.94% across four cases. Review terminal
-  retirement versus abandoned-owner discovery before choosing notification/storage
-  ownership; retain prompt cleanup, suspended/reentrant roots, generation checks
-  and bounded capacity. Do not substitute an index/cache for that ownership decision.
-- **Instruction representation:** IP05 defers five i32 fast variants and fusion.
-  Numeric kernels account for 7.58-9.33% of the two sampled scalar workloads;
-  roughly 81% is directly in the broader loop, without isolating dispatch cost.
-  Compare uniform prepared encoding, operand transport and polling with Rust MIR,
-  JVM typed instructions and mature register interpreters. Reuse Kagari's checked
-  numeric owner across domains. Fusion additionally needs explicit interior logical
-  PCs, resumption, observations and intermediate roots before any prototype.
-- **Library effects:** IP06 retains exact installed StringByteLength, VecIndex and
-  VecSet/VecSetFluent bodies, sharing existing semantic/storage owners. Vec push
-  and Map lookup remain ordinary native transitions: growth can make GC due;
-  selected hash/equality can reenter script and Option construction allocates.
-  Any future change must define effect/PC/root transitions and preserve scoped
-  borrows, mutation commits and cancellation. Do not add method-name recognition,
-  duplicate collection algorithms or special Option representation.
-- **Projection/publication code generation:** the reviewed shared decoder and
-  consuming window insertion retain localized inline hints. Rust Option/Vec
-  ownership patterns support those boundaries; Kagari's assembly evidence supports
-  the current hints, not spreading them to handlers. Revisit ownership and product
-  footprint if a later compiler/change reintroduces transfer costs.
+The active [interpreter performance plan](interpreter-performance-plan.md) owns
+IP08-IP12, authorized for autonomous execution and phase commits on 2026-10-17:
+freeze/attribute remaining costs, review shared call admission/return, select a
+bounded instruction/operand decision, consolidate collection transactions and evaluate
+the retained changes together. IP08 froze the ordinary baseline and declared scoped
+gates; IP09 is next. The plan carries the design constraints,
+versioned Lua/Rust/JVM references, applicability decisions, phase-specific gates and
+the sole follow-up ledger rather than maintaining another decision list here. Keep existing prepared calls, direct
+transfers and exact installed primitives; do not add workload recognition, a second
+semantic path or unchecked boundaries.
 
-The [measurement record](performance-baseline.md#conditional-decisions-and-remaining-attribution)
-contains the reference versions, concrete evidence and limitations for those
-decisions. Future work starts with the affected mature implementation, explains
-Kagari's GC/host/reload differences and validates the shared model before tuning.
-These are deferred questions, not automatically activated migrations.
+Independent-session segmentation and abandoned-owner discovery remain deferred
+outside IP08-IP12. The [earlier attribution](performance-baseline.md#conditional-decisions-and-remaining-attribution)
+records non-tail retirement and owner-scan costs; that is not an explanation for
+ordinary nested tail-window calls. A future lifecycle decision must preserve prompt
+cleanup, suspended/reentrant roots, generation checks and bounded capacity. Existing
+localized projection/publication inline hints remain supported by their recorded
+assembly evidence; revisit ownership and footprint if those transfers regress,
+not by spreading hints to unrelated handlers.
 
 The [OM plan](object-storage-overhead-plan.md) remains the sole owner of object
 storage changes and remains queued. IP preserved the accepted RS layout and its

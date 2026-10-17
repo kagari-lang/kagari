@@ -16,6 +16,313 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Interpreter attribution, Windows, 2026-10-17
+
+This is a read-only execution investigation at `88e87fd4`, not a new optimization
+checkpoint. It combines fresh pure-interpreter timing, independent logical/protocol
+counts, source inspection and ordinary release-object disassembly. No production
+code or workload was changed. The earlier macOS results below are not pooled into
+this measurement; their sampling percentages are not current Windows attribution.
+The [roadmap](implementation-roadmap.md#interpreter-performance-follow-up) continues
+to own the bounded unresolved work, not a second optimization queue.
+
+### Environment and method
+
+- Intel Core i9-12900K, 24 logical CPUs, approximately 64 GiB RAM; Windows 11
+  10.0.26300, x86_64-pc-windows-msvc.
+- rustc 1.99.0 (`b940084d7`, LLVM 23.1.1), Cargo 1.99.0. Workspace release defaults
+  (opt-level 3, no LTO override), default target and build parallelism, no RUSTFLAGS,
+  jobs, target, CFLAGS or CC overrides. SDK source/native features are enabled;
+  native preparation/execution is excluded through `--interpreter-only`.
+- mlua 0.12.2, lua-src 551.0.2, vendored PUC Lua 5.4.9, not LuaJIT. The resolved
+  dependency's `lua-5.4.9/lua.h` reports release 9.
+- Two sequential fresh processes per suite, second reversing workload/initial engine
+  order; three warmups and eleven execution samples per row/engine/process. Tables
+  report the median of the two process medians, normalized by batch. Ranges are the
+  two process medians, not confidence intervals. All checksums pass.
+- Compilation, verification, preparation and linking are outside execution timing.
+  Cargo cache was reused where available; the original release build took 103.110 s
+  and the forms no-change build 0.396 s. Execution is warmed; these are not cold-start
+  observations. No agent-started build, test, diagnostic or profiling command overlaps
+  ordinary timing. CPU affinity, P/E-core selection, clocks and desktop load are not
+  controlled. Two processes support diagnosis, not a small-change significance claim.
+- Both suites use the same ordinary executable SHA-256:
+  `4098796eb2770062ecb7ffe20fcd9e02696836fb2fe95e6dc7670c418c905237`.
+  The Cargo.lock SHA-256 is
+  `1a18e39bd7312c9ca332af0ebeb81aabb3aca293256f75c85b028a3873b7ba06`.
+  Reports were collected at UTC 20261017T103032Z and 20261017T103359Z.
+
+The paired sources use matching successful algorithms, not identical runtime
+contracts. Kagari retains checked numeric behavior, typed results, scoped handles
+and pinned executable dependencies. Vec is compared with dense Lua tables; map
+lookup returns an ordinary Option versus Lua's value/nil. No semantic difference
+is assigned an assumed fraction of the measured gap.
+
+### Fresh execution observations
+
+Microseconds per complete workload; entry is normalized per public call.
+
+| Original workload | Kagari us | Kagari process range | Lua us | Lua process range | VM/Lua |
+| --- | ---: | --- | ---: | --- | ---: |
+| entry | 1.242 | 1.238-1.246 | 0.035 | 0.034-0.035 | 35.68 |
+| arithmetic, 50,000 iterations | 1422.850 | 1420.100-1425.600 | 384.250 | 377.400-391.100 | 3.70 |
+| branches, 30,000 iterations | 1690.150 | 1680.500-1699.800 | 681.700 | 679.200-684.200 | 2.48 |
+| calls, 10,000 iterations | 3609.300 | 3561.500-3657.100 | 202.950 | 199.700-206.200 | 17.78 |
+| fibonacci, n=20 | 7601.100 | 7484.300-7717.900 | 280.700 | 280.500-280.900 | 27.08 |
+| arrays, 2,000 elements | 1975.350 | 1966.200-1984.500 | 76.050 | 75.800-76.300 | 25.97 |
+| maps, 1,000 keys | 3033.200 | 3008.200-3058.200 | 74.800 | 72.200-77.400 | 40.55 |
+
+The source forms each run 5,000 iterations. The matched rows are:
+
+| Source form | Kagari us | Kagari process range | Lua us | Lua process range | VM/Lua |
+| --- | ---: | --- | ---: | --- | ---: |
+| direct | 194.800 | 193.200-196.400 | 57.100 | 57.100-57.100 | 3.41 |
+| helper | 1819.050 | 1781.000-1857.100 | 110.550 | 109.100-112.000 | 16.45 |
+| concrete_generic | 1833.100 | 1818.700-1847.500 | 105.800 | 105.400-106.200 | 17.33 |
+| interface | 3469.650 | 3442.900-3496.400 | 122.550 | 122.500-122.600 | 28.31 |
+| shared_generic | 4854.400 | 4833.300-4875.500 | 115.750 | 114.300-117.200 | 41.94 |
+| capture_cell | 4721.250 | 4697.500-4745.000 | 126.450 | 124.200-128.700 | 37.34 |
+| field | 743.950 | 741.800-746.100 | 103.650 | 103.200-104.100 | 7.18 |
+| byte_state | 3191.450 | 3175.600-3207.300 | 138.000 | 137.100-138.900 | 23.13 |
+| string_constants | 691.000 | 675.700-706.300 | 79.000 | 78.500-79.500 | 8.75 |
+| string_calls | 2616.200 | 2593.500-2638.900 | 133.950 | 133.600-134.300 | 19.53 |
+
+Separate controls are host_callback 914.300/257.800 us (3.55x) and unmatched native
+917.450/110.400 us (8.31x). The former calls the same Rust helper through both host
+adapters; the latter compares a Rust helper with a Lua script helper. Neither is
+substitute evidence for script-call or interpreter parity. The 16 matched rows take
+2.48-41.94 times Lua time on this machine.
+
+### Instruction stream and scalar execution
+
+Independent observer/hook counts, outside ordinary timing:
+
+| Workload | Kagari logical instructions | Lua hook-counted instructions |
+| --- | ---: | ---: |
+| arithmetic | 550,015 | 250,007 |
+| calls | 210,015 | 110,007 |
+| fibonacci | 240,801 | 120,400 |
+| arrays | 82,030 | 42,012 |
+| maps | 63,030 | 24,012 |
+| direct | 75,015 | 40,006 |
+| helper | 105,012 | 65,007 |
+| interface | 110,014 | 65,009 |
+| shared_generic | 95,017 | 60,009 |
+
+These count language VM operations, not CPU instructions or equally costly units.
+Observer attachment changes Kagari's execution route, so its elapsed time is not
+throughput evidence. Lua skips successful arithmetic's encoded metamethod fallback;
+its comparison consumes/skips the following jump without a separate dispatch.
+
+For `sum += i % 97; i += 1`, the successful Kagari iteration executes three local
+loads, two local stores, four numeric/comparison operations, one branch and one
+backedge: eleven logical operations. Lua executes five handlers: comparison,
+constant remainder, addition, immediate increment and backedge. Both fixtures use
+while, not Lua's specialized numeric-for. Kagari's 250,005 local loads/stores are
+about 45.5% of this complete logical stream, not 45.5% of elapsed time.
+
+[Copy propagation](../crates/kagari-mir/src/passes/copies.rs) already reuses and
+hoists scalar constants; they are not loaded every loop iteration. Loop-header
+forwarding declines an unprocessed backedge, and local stores retain debugger
+availability. [Physical preparation](../crates/kagari-runtime/src/module/execution.rs)
+turns local reads/writes into moves while
+[register allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
+reuses temporary slots but keeps named locals separate. Thus better slot allocation
+does not itself eliminate local traffic or the comparison-result/branch pair.
+
+The ordinary, unbounded
+[scalar loop](../crates/kagari-runtime/src/frame/cursor/scalars.rs) was disassembled
+from its release runtime object using llvm-objdump. It confirms that:
+
+- Rust match already lowers to a jump table; dispatch is not a linear opcode chain.
+- Fetch checks instruction range, publishes executing-PC state and advances the PC.
+- Operand initialization/range checks and result initialization writes survive.
+- The normal logical-boundary path calls the out-of-line
+  [`CancellationToken::check`](../crates/kagari-common/src/cancellation.rs), then
+  checks observer/collection/abandonment state. The cancellation check is not merely
+  an inlined atomic load on this build. There is no active unbounded countdown.
+- Numeric execution performs an indirect call through the prepared kernel pointer.
+  The Windows ABI returns its Result through a stack-addressed output; the loop
+  tests the status and reloads the payload. This is in addition to opcode dispatch.
+
+The i32 Add, Rem and Lt
+[kernels](../crates/kagari-types/src/payload.rs) were inspected separately. Carrier
+range validation remains; addition uses native 32-bit add plus an overflow branch,
+and remainder uses 32-bit idiv, not an i128 division helper. Source-level overlapping
+numeric checks must not be counted twice without machine-code evidence. Prepared
+instructions are 24 bytes, Value is 16 and canonical BytecodeInstruction is 136 on
+this target; only the prepared representation describes the hot instruction stream.
+Lua's regular instruction is four bytes. These are layout facts, not cache-miss or
+speedup measurements.
+
+This separates excess logical work from per-operation machinery, but does not assign
+a fraction of time to dispatch, cancellation, initialization, ABI traffic or cache
+behavior. The old macOS broader-loop attribution cannot supply those missing fractions.
+
+### Calls: warm preparation is not a cheap transition
+
+The [forms source](../benchmarks/lua-comparison/src/forms.rs) places the same
+recurrence directly in a loop or in `step(i32) -> i32`. Helper takes about 9.34 times
+direct time, while its logical instruction count rises only about 1.40 times.
+Lua's corresponding time ratio is about 1.94. This is strong evidence to inspect
+call execution, not a precise isolated per-call latency or a proof that all of the
+difference is frame setup. Helper also executes more moves and callee constants.
+
+Fresh warmed diagnostics record:
+
+| Workload | Rust allocation requests | Script objects | GC collections | Frame admissions/returns | Initialized bank bytes | Moved bank bytes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| calls | 7 | 0 | 0 | 10,002 / 10,002 | 360,090 | 0 |
+| fibonacci | 7 | 0 | 0 | 21,892 / 21,892 | 1,182,132 | 0 |
+| helper | 7 | 0 | 0 | 5,001 / 5,001 | 180,072 | 0 |
+| interface | 11 | 1 | 0 | 5,001 / 5,001 | 225,120 | 0 |
+| shared_generic | 11 | 1 | 0 | 5,001 / 5,001 | 205,147 | 0 |
+
+Warm method/interface/shared/native/operation preparation, environment allocation
+and layout-comparison counters are zero in these cases. No per-call eight-byte
+allocation from the historical HP06 observation remains. Metadata-validation counters
+exclude cheap availability/ownership checks. Zero preparation does not imply zero
+application-key lookup, argument validation or program/environment admission.
+
+The current concrete path is: end cursor borrow ->
+[`push_prepared_call`](../crates/kagari-runtime/src/frame/calls.rs) ->
+[frame admission](../crates/kagari-runtime/src/frame.rs) ->
+[transactional window allocation/transfer](../crates/kagari-runtime/src/frame/values.rs)
+-> driver and new admitted region ->
+[return/window retirement](../crates/kagari-runtime/src/frame/returns.rs) -> caller
+region. Arguments still participate in candidate-value admission, heap-value
+admission, physical admission and transfer. Scalar arguments avoid heap graph walks,
+but source-window/initialization work remains. Reserve and zero-initialization can
+cost work without a warmed allocator request. Ordinary nested calls retire tail
+windows; independent-session compaction is not their bottleneck explanation.
+
+Interface calls additionally select the current receiver/method and validate typed
+arguments/results. The shared_generic fixture is a generic method through an
+interface, not the separate statically selected Shared-call branch.
+[Application processing](../crates/kagari-runtime/src/objects/application.rs) checks
+arguments and builds/looks up a key even on a warm hit. Generic values use tagged
+Value transport rather than the concrete all-scalar route; an i32 Value is not a
+heap box. Shared_generic has fewer logical instructions than helper but about 2.67
+times its elapsed time. This identifies materially different operation costs, not
+an exact application-lookup percentage.
+
+### Collections: concrete repeated work
+
+Warmed arrays record 51 Rust allocation requests, 19,828 requested bytes, one script
+object and two GCs. Maps record 2,216 requests, 1,490,978 requested bytes, 2,001 script
+objects and five GCs. These are per-invocation allocation traffic, not RSS or retained
+memory. Independent ordinary ten-second windows also observe one script object and two
+GCs per array invocation, and 2,001 objects and five GCs per map invocation.
+
+**Vec:** this fixture already uses compact `Vec<i32>` backing storage, not one heap
+object per element. Index/set use the installed in-region primitive, not a general
+native callback for every access. Push remains an allocating callback transition.
+The 2,001 slow-boundary count corresponds to construction and 2,000 pushes; calls
+and returns through the prepared script path are not counted as slow boundaries.
+
+The [sealed Vec setter](../crates/kagari-runtime/src/native/primitive.rs) still uses
+preflight followed by a separately checked commit through
+[buffer operations](../crates/kagari-runtime/src/gc/buffers.rs): mutation exclusion,
+bounds and element admission overlap. The general SDK separation permits conversion
+and reentry; this particular sealed path has no such gap. Source shows five explicit
+execution-poll call sites across primitive entry/exit, setter and preflight, in
+addition to surrounding interpreter polling. This is a candidate for one checked
+transaction owner, not authorization to delete dynamic validation or polls.
+
+**Map insertion:**
+[`GcHeap::map_insert`](../crates/kagari-runtime/src/gc/maps_sets.rs) calls contains_key
+for growth/accounting, then
+[`HashMapStorage::insert`](../crates/kagari-runtime/src/native/hash_storage.rs)
+calls contains_key again before HashMap::insert. Each successful insertion or
+replacement therefore makes three explicit table-search API calls, not one. The
+fixture's 2,000 inserts issue 6,000 such calls, plus 2,000 gets; rehash work is extra.
+This is verified duplicate membership work across accounting/storage ownership,
+not a required language semantic. Its elapsed share is not measured.
+
+**Map lookup and match:** the i32-key fixture takes the
+[builtin-key branch](../crates/kagari-stdlib/src/bindings/hash.rs); it does not call
+script Hash/Eq per lookup or allocate a key vector. Each get nevertheless constructs
+an ordinary heap-backed Some with a payload buffer. The 2,000 successful gets explain
+2,000 enum objects in addition to the map. They then execute exactly 2,000
+TestEnumVariant and 2,000 ReadEnumPayload instructions. These remain canonical
+[VM boundary handlers](../crates/kagari-vm/src/executor/aggregate_ops.rs), separately
+borrowing/validating the enum. They are not in-region prepared enum operations.
+Maps' 8,001 slow boundaries cover 4,001 native operations and 4,000 enum operations;
+GC transitions add their own duties. This is a multi-stage result protocol, not
+merely a slower hash function.
+
+### Mature implementation comparison and follow-up limits
+
+Primary reference is PUC Lua 5.4.9, consulted on 2026-10-17:
+
+- [Instruction encoding](https://www.lua.org/source/5.4/lopcodes.h.html) and
+  [VM](https://www.lua.org/source/5.4/lvm.c.html): compact register instructions,
+  constant/immediate arithmetic and comparison-controlled jumps; dynamic numeric
+  labels remain, but common arithmetic lives directly in handlers.
+- [Call implementation](https://www.lua.org/source/5.4/ldo.c.html): supplied arguments
+  already occupy the callee's stack area; CallInfo is reused when available. Lua-to-Lua
+  execution switches frames within luaV_execute. The usual single-result return has
+  a hook-disabled direct path. Lua still checks capacity and handles growth/errors.
+- [Table helpers](https://www.lua.org/source/5.4/lvm.h.html) and
+  [storage](https://www.lua.org/source/5.4/ltable.c.html): dense integer access can
+  directly address the array part; sparse integer lookup uses a specialized hash
+  path. Replacement reuses the found slot, and successful get returns its TValue
+  without a separately allocated Option. New-key/growth/metamethod paths remain.
+
+Lua's live stack/closure graph owns roots and code retention; it does not implement
+Kagari's typed host loans, checked stale handles, versioned publication or method
+application contracts. Numeric overflow/remainder rules differ too. Copying its
+unchecked pointer access or dropping Kagari's boundaries is not an equivalent
+implementation. Conversely, these differences do not prove the present amount of
+repeated admission, polling, transport or result allocation is necessary.
+
+The proposed [interpreter performance plan](interpreter-performance-plan.md) owns
+the finite follow-up sequence, model constraints, attribution questions and acceptance:
+internal call admission/return, uniform instruction/local/PC representation, then
+bounded collection transactions and the enum-boundary decision. Its phases are
+unstarted. This measurement section owns the evidence, not a parallel implementation
+or decision ledger.
+
+No current-HEAD CPU-stack/hardware-counter profile or removal experiment was collected.
+The remaining time shares, branch/cache effects and achievable speedups are unknown.
+The investigation establishes actual excess logical work, surviving machine-code
+mechanisms and repeated source-level operations; it does not prove that one change
+will close the whole gap or that dispatch is 81% of current Windows time.
+
+### Reproduction and validation
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --runs 2
+uv run python scripts/benchmark_lua.py --source-forms --interpreter-only --runs 2
+cargo run --release --locked -p kagari-lua-benchmark -- --interpreter-only --profile=arithmetic
+cargo run --release --locked -p kagari-lua-benchmark -- --interpreter-only --profile=calls
+cargo run --release --locked -p kagari-lua-benchmark -- --interpreter-only --profile=fibonacci
+cargo run --release --locked -p kagari-lua-benchmark -- --interpreter-only --profile=arrays
+cargo run --release --locked -p kagari-lua-benchmark -- --interpreter-only --profile=maps
+cargo run --release --locked -p kagari-lua-benchmark -- --source-forms --interpreter-only --profile=direct
+cargo run --release --locked -p kagari-lua-benchmark -- --source-forms --interpreter-only --profile=helper
+cargo run --release --locked -p kagari-lua-benchmark -- --source-forms --interpreter-only --profile=interface
+cargo run --release --locked -p kagari-lua-benchmark -- --source-forms --interpreter-only --profile=shared_generic
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --diagnostics
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --source-forms --profile=helper --diagnostics
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --source-forms --profile=interface --diagnostics
+cargo run --release --locked -p kagari-lua-benchmark --features diagnostics -- --source-forms --profile=shared_generic --diagnostics
+```
+
+Actual counting runs invoked one saved ordinary executable serially, using the same
+arguments as the commands above; diagnostic runs used the separately built diagnostics
+image. Profile mode supplies ten-second execution-only windows and counts afterward;
+no sampler was attached. Diagnostic timings and hook/observer timings are excluded.
+For assembly, run llvm-objdump --syms on the ordinary release runtime/type rlibs,
+select ExecutionCursor::execute_slice<Unbounded> and the signed 32-bit Add/Rem/Lt
+payload monomorphizations, then disassemble those symbols with relocations and Intel
+syntax. Keep the ordinary object identity distinct from diagnostic artifacts.
+
+All timing/counting/diagnostic results passed their existing independent result
+assertions. Only documentation is changed; documentation link/content and diff
+checks apply, not workspace builds/tests or new correctness acceptance. No production
+performance improvement or full CI acceptance is claimed.
+
 ## Interpreter call lifecycle, 2026-10-17
 
 IP01-IP07 completed local implementation/decision acceptance with runtime f070a092.
