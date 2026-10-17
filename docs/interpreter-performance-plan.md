@@ -2824,6 +2824,67 @@ Before another ordinary forms comparison, attribute linking separately; preserve
 this report and the initial failure rather than declaring the scatter harmless.
 The predeclared fixed-reference bracketing diagnostic proceeds next.
 
+For the remaining forms linking uncertainty, source review locates the timer around
+the SDK load_program boundary: definition normalization, native/host bindings,
+staging, closed signatures and execution links, then publication. Operand projection
+is outside that path. Predeclare one five-second sampled window per baseline/current
+image inside a ten-second repeated-load diagnostic, using the unchanged forms source
+and one prepared artifact but a fresh runtime per iteration. Archive the current
+ordinary image before rebuilding. Apply the same temporary benchmark-only loop to
+both source revisions, record its source/image hashes, then restore the sources.
+Runtime initialization and teardown remain visible as separate call-stack families;
+reused preparation/cache state differs from cold acceptance. This diagnostic can
+locate work but cannot establish the +5% cold gate or justify dropping its samples.
+No ordinary timing, reference worker, build or test overlaps sampling.
+
+The reference bracketing diagnostic completes 14 subjects, 28 fresh workers and
+336 complete reference records; subject schema/frozen checksums and reference
+provenance all pass. Before-subject aggregate/paired ratios are engine_init
+0.97995/1.00540, source_to_chunk 0.98449/1.04351 (inconclusive), and module_init
+1.01879/1.06588 (fail). After-subject ratios are respectively 0.96563/0.99502,
+0.98110/0.98126 and 0.94737/1.03782 (all pass). Within-subject median after/before
+ratios for baseline are 1.07105, 1.09065 and 1.07539; candidate ratios are
+1.03457, 1.04968 and 1.04918 in the same order. Reference variability is present
+before the subject too; this experiment does not identify a candidate-runtime cause
+or establish an adequate correction for the original failed controls. Preserve both
+positions and all failures at target/interpreter-performance/macos-reference-bracketing.
+No gate, batching, reference protocol or runtime semantic change follows from it.
+
+The declared repeated-load profiles finish with restored benchmark sources and
+successful post-window field checksums (569840). Baseline/current main-thread
+samples are 3,932/3,912. Inclusive SDK loading is 3,711/3,683; normalization
+2,385/2,396; native-module linking 953/930; staging 242/230. These families nest
+and must not be summed. Inside normalization, collecting explicit referenced IDs
+accounts for 722/729 samples, remapping for 802/817, identity validation/implicit
+name collection for 805/803, and importing IDs for 48/47. The repeated-loop counts
+are not ordinary timing evidence. Both images have the same dominant architecture;
+this does not establish that added prepared calls caused the cold-link uncertainty.
+Diagnostics and exact patch/source/image identities are retained under
+target/interpreter-performance/macos-link-attribution. The ordinary candidate is
+archived as macos-field-inline-candidate, SHA256
+2d2987570b45a744961333dc56ab1c57a546efcab64b0b46171ecd39ba283f71.
+
+The source walk exposes a concrete preparation ownership issue on this path:
+every runtime load rebuilds the same referenced-ID set by recursively traversing
+sealed modules and exports before importing them. The set depends only on the
+immutable verified program, not the destination runtime. Evaluate one bounded
+prepared-fact correction: VerifiedProgram owns a shared immutable referenced-ID
+slice prepared once; normalization imports that slice and remaps it into the
+normalized program's exact scope. Original version identity, bytecode remapping,
+post-remap identity validation/name collection, native checks and publication stay
+unchanged. No runtime-wide cache, mutable result cache or source-analysis dependency
+is introduced. This addresses work visible in both images, not a claimed cause of
+the uncertain ratio. Keep the normalization implementation in its module owner.
+
+Before retaining this prototype, run existing independent-runtime/version identity,
+source-free linking and foreign/scoped identity contracts plus local implementation
+checks. Recheck prepared and loaded requested bytes because the retained slice adds
+storage; retain zero warm allocations/teardown rules. Compare all forms against IP01
+with the same targets and common gates, then the ordinary original and lifecycle
+matrices for the changed candidate. Record added preparation time and bytes; moving
+work into preparation does not exempt that stage from its gate. If the fact's
+ownership or memory cost is unsuitable, remove it rather than grow another cache.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
