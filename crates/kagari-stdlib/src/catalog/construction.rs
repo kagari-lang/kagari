@@ -1,4 +1,4 @@
-//! Foundational conversion, parsing and aggregation contracts. Algorithms are
+//! Foundational default construction, conversion, parsing and aggregation contracts. Algorithms are
 //! supplied by ordinary implementations, independently of declaration ownership.
 use crate::catalog::{
     contracts, identities,
@@ -18,6 +18,14 @@ pub(super) fn declare(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
 ) -> Result<(), DeclarationError> {
+    let mut default = contracts::contract(ids, RegistrationTrait::Default, &[])?;
+    default.methods.push(contracts::method(
+        "default",
+        vec![],
+        contracts::receiver(ids, RegistrationTrait::Default)?,
+    ));
+    module.traits.push(default);
+
     for (kind, name, parameters, error) in [
         (RegistrationTrait::Into, "into", &["Target"][..], None),
         (

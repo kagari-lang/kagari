@@ -325,6 +325,7 @@ pub(super) fn finish(
         "Iterator",
         "Iterable",
         "FromIterator",
+        "Default",
         "PartialEq",
         "Eq",
         "PartialOrd",

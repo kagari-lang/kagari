@@ -468,7 +468,8 @@ ahead of the default review queue on 2026-10-17. The
 [Default and struct update execution plan](default-construction-plan.md) owns
 DF01-DF05, the sole progress ledger, design decisions and focused acceptance.
 Implementation and one commit per phase are authorized. DF01 froze the contract
-and focused acceptance; DF02 ordinary registration/contextual calls are next.
+and focused acceptance; DF02 ordinary registration/contextual calls passed focused
+local checks. DF03 standard implementations are next.
 
 Deliver ordinary `core::default::Default` and prelude publication, contextual
 static associated-call Self inference, a finite standard implementation inventory,

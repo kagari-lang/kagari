@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one coherent commit per phase authorized on
-2026-10-17. DF01 is complete; DF02 is next. Remote publication is not authorized. The [roadmap](implementation-roadmap.md#default-and-struct-update)
+2026-10-17. DF01-DF02 are complete; DF03 is next. Remote publication is not authorized. The [roadmap](implementation-roadmap.md#default-and-struct-update)
 owns activation and queue placement. This is the single execution plan for
 [SA26](review.md#sa26-add-ordinary-default-construction-and-struct-update-expressions),
 including DF01-DF05, design decisions, focused acceptance and the progress ledger.
@@ -335,7 +335,7 @@ use Conventional Commits and `Plan-Phase: DF0N`; mark actual breaking APIs expli
 ## Progress ledger
 
 - [x] DF01: freeze contracts, consumer inventory and focused acceptance selection.
-- [ ] DF02: ordinary declaration and general contextual static-call inference.
+- [x] DF02: ordinary declaration and general contextual static-call inference.
 - [ ] DF03: finite standard implementation inventory and bindings.
 - [ ] DF04: struct update vertical slice, source tools and editor syntax.
 - [ ] DF05: focused boundary acceptance, disposable products and documentation handoff.
@@ -385,3 +385,24 @@ Focused phase selection (only affected/failing checks are repeated):
 DF01 is documentation-only. Content/link/diff checks precede its commit; no Cargo
 build/test is needed. No new carried implementation failures or performance claims.
 Required local implementation checks remain as specified above.
+
+### DF02 — ordinary declaration and contextual factory calls
+
+Registered required static Default under core::default with ordinary std/prelude
+publication and documentation. Language roles remain unchanged (26); the ordinary
+foundation inventory is now 41. Contextual trait-qualified factories constrain a
+trait-owned Self variable from declared results, then prove the receiver through
+existing bounded selection and publish normal static call facts only on success.
+Custom Factory, aliases, structural results, generic bounds, missing/ambiguous
+context and static-only admission are covered without spelling-based behavior.
+
+Passed: 2 selected stdlib registration/documentation contracts; 29 HIR trait and
+inference/constructor/namespace regressions; compiler foundational static calls;
+SDK static_calls_share_ordinary_trait_dispatch (source/artifact/artifact-JIT, forced
+GC) and explicit prelude/shadowing. SDK covers concrete, qualified, generic,
+return/parameter/field/assignment and annotated factory/default calls. Structure
+checked 1,299 Rust files, zero violations/exceptions; formatting, workspace all-target
+Clippy and diff checks passed. Manual import/visibility/LOC review added no
+exceptions. No carried failures. Standard Default implementations remain DF03;
+updates/editors and combined source-free/reload acceptance remain DF04/DF05.
+Complete feature/backend/platform tests are CI-only and unrun locally.

@@ -138,6 +138,10 @@ fn trait_docs(name: &str) -> (&'static str, &'static str) {
             "Parses a string into a value, returning the declared `Err` on invalid input. Built-in numeric parsing validates the complete input and representable range.",
             "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
         ),
+        "Default" => (
+            "Constructs an implementation-defined value through the required static `default() -> Self` method, with no receiver or arguments. The canonical trait is `core::default::Default`; the prelude and `std::default::Default` expose the same declaration. Implementations are explicit: this contract neither zeroes storage nor recursively initializes fields, and user structs receive no automatic implementation. It is static-only and cannot be used as an interface value type. Calls use ordinary trait selection, including concrete, qualified and generic bound forms; a trait-qualified call needs result context to determine Self, not merely an available implementation.",
+            "struct Player { val health: i32 }\nimpl Default for Player { fn default() -> Self { Player { health: 100 } } }\nfn player() -> Player { Player::default() }\nfn qualified() -> Player { <Player as core::default::Default>::default() }\nfn make<T: Default>() -> T { T::default() }",
+        ),
         "FromIterator" => (
             "Constructs a value by consuming an iterable in order. Each item is read once. A failure retains already completed source and callback effects.",
             "fn collect(values: Vec<i32>) -> Vec<i32> { Vec<i32>::from_iter(values) }",
@@ -204,6 +208,9 @@ fn member_docs(trait_name: &str, name: &str, overview: &str) -> String {
         "branch" => "Consume the carrier once and return Continue(Output) or Break(Residual).",
         "from_output" => "Construct a successful carrier from Output.",
         "from_residual" => "Construct the enclosing early-return value from a compatible Residual.",
+        "default" if trait_name == "Default" => {
+            "Return the value chosen by the explicit implementation. This required static method has no receiver or arguments and no fallback body. Its result is the implementing Self type."
+        }
         _ => overview,
     };
     format!("{behavior}\n\nSee `{trait_name}` for the behavioral contract and examples.")
@@ -295,6 +302,9 @@ pub(super) fn complete(
         "convert" => {
             "Explicit infallible and checked conversions, including reverse adapters and error conversion."
         }
+        "default" => {
+            "Explicit implementation-defined construction through the ordinary Default trait. No automatic struct, field or enum initialization is implied."
+        }
         "num" => {
             "Numeric parsing and aggregation. Numeric failures use checked traps or the declared Result error."
         }
@@ -331,6 +341,7 @@ pub(super) fn complete(
         "task" => "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
         "host" => "struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }",
         "convert" => trait_docs("From").1,
+        "default" => trait_docs("Default").1,
         "num" | "str" => trait_docs("FromStr").1,
         "string" => "fn clean(text: String) -> String { text.trim() }",
         "option" => "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",

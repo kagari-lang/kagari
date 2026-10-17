@@ -332,7 +332,7 @@ or changed inputs are bounded, validated and sealed again. See
 
 ## Language contracts and native implementations
 
-The installed `core`/`alloc`/`std` foundation defines all 40 foundation
+The installed `core`/`alloc`/`std` foundation defines all 41 foundation
 traits, primitive/value declarations, standard enums, range forms, String and the
 canonical Vec/HashMap/HashSet types. See [the current trait inventory](spec/builtins.md#foundation-trait-inventory).
 These declarations remain available independently of optional libraries.
@@ -352,7 +352,7 @@ dependencies and publishes atomically. Runtime construction starts empty. Engine
 construction explicitly installs standard modules through the same builder path
 as application modules, retaining independent heaps, host state and generations.
 
-All 40 standard traits are explicit registrations owned by `kagari-stdlib`.
+All 41 standard traits are explicit registrations owned by `kagari-stdlib`.
 Complete generated modules pass through the declaration parser and ordinary HIR
 lowering. The renderer records identity/range mappings while producing source;
 parsed attribute nodes identify language roles on their owning declarations.
@@ -1724,7 +1724,7 @@ Ordinary library traits require no global protocol enum.
 
 #### Core trait inventory
 
-The installed foundation retains 26 of its 40 traits as language items:
+The installed foundation retains 26 of its 41 traits as language items:
 Try/FromResidual supply propagation; From supplies checked implicit identity and
 lossless conversion adapters. Other roles select syntax or implicit value implementations. Their declarations are ordinary foundation source, analyzed
 through parser/HIR. Language roles select those declarations; builtin or native
@@ -1754,7 +1754,7 @@ Explicit implementations take precedence where specified. The subsequent
 changes equality eligibility separately; it does not require moving every
 remaining intrinsic protocol implementation into a library.
 
-The other 14 traits use ordinary native-library declaration/implementation records:
+The other 15 traits use ordinary native-library declaration/implementation records:
 
 | Library traits | Count | Ownership reason |
 | --- | --- | --- |
@@ -1762,9 +1762,9 @@ The other 14 traits use ordinary native-library declaration/implementation recor
 | RangeBounds | 1 | Range syntax constructs a value; its bounds interface is a registered implementation |
 | Into, TryFrom, TryInto | 3 | Ordinary conversion APIs; Result FromResidual selects From |
 | FromStr | 1 | Parsing API |
-| FromIterator, Sum, Product | 3 | Construction and aggregation APIs |
+| Default, FromIterator, Sum, Product | 4 | Construction and aggregation APIs |
 
-All 40 traits remain mandatory and available without optional modules. Compiler
+All 41 traits remain mandatory and available without optional modules. Compiler
 recognition and library availability are separate decisions. Preserve current
 Into/From and TryInto/TryFrom derivation and checked numeric conversions through
 checked implementation/adaptation records. Relocating their declarations alone

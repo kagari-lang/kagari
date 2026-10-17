@@ -1,6 +1,9 @@
 //! Scoped foundation declarations and storage admission require no source compiler.
-use crate::{catalog, declarations::StandardDeclarations};
-use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
+use crate::{catalog, declarations::StandardDeclarations, namespaces};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, map::DefinitionContext},
+};
 use kagari_runtime::{
     Runtime,
     native::{
@@ -9,6 +12,11 @@ use kagari_runtime::{
         storage::{NativePayload, NativeStorage},
     },
     value::Value,
+};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::names::{ExportName, NameNamespace},
+    ty::Ty,
 };
 
 #[derive(Debug)]
@@ -90,6 +98,53 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             left.native_declarations(&comparison.snapshot()).unwrap(),
             right.native_declarations(&comparison.snapshot()).unwrap()
         );
+    }
+    let default = first
+        .iter()
+        .find(|module| module.records().identity == namespaces::module("core", "default"))
+        .unwrap();
+    let owner = default.records();
+    let id = owner
+        .definition(DefinitionKind::Trait, "Default", default.definitions())
+        .unwrap();
+    let [contract] = owner.traits.as_slice() else {
+        panic!("core::default must own exactly the Default declaration");
+    };
+    assert_eq!(contract.name, "Default");
+    assert!(contract.conversion_adapter.is_none());
+    assert!(contract.supertraits.is_empty());
+    assert!(contract.generic_params.is_empty());
+    assert!(contract.bounds.is_empty());
+    assert!(contract.associated_consts.is_empty());
+    assert!(contract.associated_types.is_empty());
+    let [method] = contract.methods.as_slice() else {
+        panic!("Default must have exactly one required static method");
+    };
+    assert_eq!(method.name, "default");
+    assert_eq!(method.implementation, CallableImplementation::Required);
+    assert!(method.params.is_empty());
+    assert!(method.generic_params.is_empty());
+    assert!(method.bounds.is_empty());
+    assert_eq!(method.return_type, Ty::SelfType(id));
+    assert!(!namespaces::is_language_module(&owner.identity));
+    assert_eq!(
+        first
+            .iter()
+            .flat_map(|module| &module.records().traits)
+            .filter(|contract| contract.name == "Default")
+            .count(),
+        1
+    );
+    for facade in [namespaces::module("std", "default"), namespaces::prelude()] {
+        let facade = first
+            .iter()
+            .find(|module| module.records().identity == facade)
+            .unwrap();
+        assert_eq!(
+            facade.records().exports[&ExportName::new(NameNamespace::Type, "Default")],
+            id
+        );
+        assert!(facade.records().dependencies.contains(&owner.identity));
     }
     let modules = crate::modules().unwrap();
     let mut first = Runtime::default();

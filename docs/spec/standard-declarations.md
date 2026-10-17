@@ -3,7 +3,7 @@
 Kagari declarations describe Kagari types, functions, traits and implementations.
 Rust entries implement those declarations. Registration is explicit: a Rust
 function's signature does not define a Kagari API, and no declaration attribute
-macro is involved. `kagari-stdlib` owns all 40 standard trait registrations,
+macro is involved. `kagari-stdlib` owns all 41 standard trait registrations,
 including the 26 reserved language traits. Source-free runtime installation uses
 these same declarations and local Rust bindings without a binary declaration product.
 

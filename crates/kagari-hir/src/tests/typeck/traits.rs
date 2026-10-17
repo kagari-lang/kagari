@@ -1,7 +1,286 @@
 use super::*;
+use crate::{hir::expr::ExprKind, typeck::table::CallTarget};
 use kagari_common::identity::map::DefinitionContext;
 use kagari_source::diagnostic::DiagnosticKind;
 use kagari_stdlib::catalog as foundation_catalog;
+
+const FACTORY: &str = r#"
+trait Factory { fn make() -> Self; }
+struct Player { val health: i32 }
+impl Factory for Player { fn make() -> Self { Player { health: 100 } } }
+"#;
+
+#[test]
+fn contextual_trait_static_calls_share_checked_dispatch_and_expected_boundaries() {
+    let source = SourceFile::new(
+        "factory.kgr",
+        format!(
+            r#"
+{FACTORY}
+use self::Factory as Maker;
+use self::Factory as Default;
+struct Holder {{ val player: Player }}
+fn consume(player: Player) {{}}
+fn contextual() -> Player {{ Factory::make() }}
+fn concrete() -> Player {{ Player::make() }}
+fn qualified() -> Player {{ <Player as Factory>::make() }}
+fn generic<T: Factory>() -> T {{ Factory::make() }}
+fn generic_owner<T: Factory>() -> T {{ T::make() }}
+fn alias() -> Player {{ Maker::make() }}
+fn shadowed_prelude() -> Player {{ Default::make() }}
+fn value_shadow(Factory: i32) -> Player {{ Factory::make() }}
+fn local_shadow() -> Player {{ val Factory = 42; Factory::make() }}
+fn returned() -> Player {{ return Factory::make(); }}
+fn boundaries() {{
+    var player: Player = Factory::make();
+    player = Factory::make();
+    consume(Factory::make());
+    val holder = Holder {{ player: Factory::make() }};
+    val delayed = Factory::make();
+    consume(delayed);
+}}
+"#
+        ),
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    let checked = analysis
+        .into_codegen()
+        .expect("ordinary static trait calls");
+    for name in [
+        "contextual",
+        "concrete",
+        "qualified",
+        "generic",
+        "generic_owner",
+        "alias",
+        "shadowed_prelude",
+        "value_shadow",
+        "local_shadow",
+    ] {
+        let function = checked
+            .lowered
+            .module
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap();
+        let call = checked
+            .lowered
+            .module
+            .block(function.body.unwrap())
+            .tail_expr
+            .unwrap();
+        let resolution = checked
+            .typed
+            .type_table
+            .call_resolution(call)
+            .expect("selected static call");
+        assert!(
+            matches!(resolution.target, CallTarget::TraitMethod { .. }),
+            "{name}"
+        );
+        assert!(resolution.receiver.is_none(), "{name}");
+        let signature = checked
+            .typed
+            .functions
+            .iter()
+            .find(|function| function.name == name)
+            .unwrap();
+        assert_eq!(
+            checked.typed.type_table.protocol_receiver(call),
+            Some(&signature.return_type),
+            "{name}"
+        );
+    }
+}
+
+#[test]
+fn contextual_trait_static_calls_constrain_general_declared_results() {
+    let source = SourceFile::new(
+        "factory-result.kgr",
+        r#"
+trait Factory<A> { fn make<B>(value: B) -> (Self, A, B); }
+struct Player {}
+impl Factory<i32> for Player {
+    fn make<B>(value: B) -> (Self, i32, B) { (Player {}, 42, value) }
+}
+fn explicit() -> (Player, i32, bool) { Factory<i32>::make::<bool>(true) }
+fn inferred() -> (Player, i32, bool) { Factory<i32>::make(true) }
+trait Nested { fn make() -> Option<Self>; }
+impl Nested for Player { fn make() -> Option<Self> { Some(Player {}) } }
+fn nested() -> Option<Player> { Nested::make() }
+"#,
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(
+        analysis.diagnostics().is_empty(),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    analysis
+        .into_codegen()
+        .expect("structural result constraints");
+}
+
+#[test]
+fn contextual_trait_static_calls_do_not_invent_self_from_implementations() {
+    for extra in [
+        "",
+        "struct Other {} impl Factory for Other { fn make() -> Self { Other {} } }",
+    ] {
+        let source = SourceFile::new(
+            "factory-context.kgr",
+            format!("{FACTORY} {extra} fn main() {{ val player = Factory::make(); }}"),
+        );
+        let analysis =
+            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+            &diagnostic.kind, DiagnosticKind::CannotInferGenericArgument { parameter, .. } if parameter == "Self"
+        )), "{:?}", analysis.diagnostics());
+        assert!(analysis.into_codegen().is_err());
+    }
+    let source = SourceFile::new(
+        "factory-projection.kgr",
+        r#"
+trait Factory { type Item; fn make() -> Self::Item; }
+struct Player {}
+impl Factory for Player { type Item = i32; fn make() -> i32 { 42 } }
+fn main() -> i32 { Factory::make() }
+"#,
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+        &diagnostic.kind, DiagnosticKind::CannotInferGenericArgument { parameter, .. } if parameter == "Self"
+    )), "{:?}", analysis.diagnostics());
+    assert!(analysis.into_codegen().is_err());
+}
+
+#[test]
+fn contextual_trait_static_calls_require_proven_bounds_and_preserve_ambiguity() {
+    for declaration in [
+        "fn missing<T>() -> T { Factory::make() }",
+        "fn incompatible() -> bool { Factory::make() }",
+    ] {
+        let source = SourceFile::new("factory-bound.kgr", format!("{FACTORY} {declaration}"));
+        let analysis =
+            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        assert!(
+            analysis.diagnostics().iter().any(|diagnostic| matches!(
+                diagnostic.kind,
+                DiagnosticKind::GenericBoundNotSatisfied { .. }
+            )),
+            "{:?}",
+            analysis.diagnostics()
+        );
+        let facts = analysis.facts();
+        for (call, expression) in facts.lowered.module.body.expressions() {
+            if matches!(expression.kind, ExprKind::Call { .. }) {
+                assert!(facts.typed.type_table.call_resolution(call).is_none());
+                assert!(facts.typed.type_table.protocol_receiver(call).is_none());
+            }
+        }
+        assert!(analysis.into_codegen().is_err());
+    }
+    let source = SourceFile::new(
+        "factory-ambiguity.kgr",
+        format!(
+            r#"
+{FACTORY}
+trait Other {{ fn make() -> Self; }}
+impl Other for Player {{ fn make() -> Self {{ Player {{ health: 1 }} }} }}
+fn main() -> Player {{ Player::make() }}
+"#
+        ),
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    assert!(
+        analysis
+            .diagnostics()
+            .iter()
+            .any(|diagnostic| matches!(diagnostic.kind, DiagnosticKind::AmbiguousMethod { .. })),
+        "{:?}",
+        analysis.diagnostics()
+    );
+    assert!(analysis.into_codegen().is_err());
+}
+
+#[test]
+fn contextual_trait_static_calls_preserve_static_only_admission() {
+    for declaration in [
+        "fn dynamic(value: Factory) {}",
+        "fn dynamic() { val value: Factory = Factory::make(); }",
+    ] {
+        let source = SourceFile::new("factory-shadow.kgr", format!("{FACTORY} {declaration}"));
+        let analysis =
+            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        assert!(!analysis.diagnostics().is_empty(), "{declaration}");
+        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+            diagnostic.kind,
+            DiagnosticKind::InvalidInterfaceType { .. }
+        )));
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
+fn contextual_trait_static_calls_recovery_and_never_do_not_prove_a_receiver() {
+    for declaration in [
+        "fn diverges() -> never { Factory::make() }",
+        "fn recovery() -> Missing { Factory::make() }",
+    ] {
+        let source = SourceFile::new("factory-recovery.kgr", format!("{FACTORY} {declaration}"));
+        let analysis =
+            crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+        assert!(analysis.diagnostics().iter().any(|diagnostic| matches!(
+            &diagnostic.kind, DiagnosticKind::CannotInferGenericArgument { parameter, .. } if parameter == "Self"
+        )), "{:?}", analysis.diagnostics());
+        let facts = analysis.facts();
+        for (call, expression) in facts.lowered.module.body.expressions() {
+            if matches!(expression.kind, ExprKind::Call { .. }) {
+                assert!(facts.typed.type_table.call_resolution(call).is_none());
+                assert!(facts.typed.type_table.protocol_receiver(call).is_none());
+            }
+        }
+        assert!(analysis.into_codegen().is_err());
+    }
+}
+
+#[test]
+fn contextual_trait_static_calls_keep_independent_argument_diagnostics() {
+    let source = SourceFile::new(
+        "factory-arguments.kgr",
+        r#"
+trait Factory { fn make(seed: i32) -> Self; }
+struct Player {}
+impl Factory for Player { fn make(seed: i32) -> Self { Player {} } }
+fn main() { Factory::make(false, unknown); }
+"#,
+    );
+    let analysis = crate::analyze_source(&source, foundation_catalog::shared().unwrap()).unwrap();
+    for expected in ["Self", "arity", "argument", "name"] {
+        assert!(
+            analysis
+                .diagnostics()
+                .iter()
+                .any(|diagnostic| match (&diagnostic.kind, expected) {
+                    (DiagnosticKind::CannotInferGenericArgument { parameter, .. }, "Self") =>
+                        parameter == "Self",
+                    (DiagnosticKind::CallArityMismatch { .. }, "arity") => true,
+                    (DiagnosticKind::ArgumentTypeMismatch { .. }, "argument") => true,
+                    (DiagnosticKind::UnknownName { .. }, "name") => true,
+                    _ => false,
+                }),
+            "{expected}: {:?}",
+            analysis.diagnostics()
+        );
+    }
+    assert!(analysis.into_codegen().is_err());
+}
 
 #[test]
 fn trait_method_where_bounds_keep_self_and_associated_output_owners() {

@@ -47,7 +47,7 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
             }
         }
     }
-    assert_eq!(traits, 40);
+    assert_eq!(traits, 41);
     let mut baseline = AnalysisDatabase::default();
     baseline.set_native_modules(providers);
     let native = baseline

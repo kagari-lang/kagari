@@ -33,6 +33,7 @@ pub fn trait_owner(name: &str) -> ModuleIdentity {
         "Debug" | "Display" => module("core", "fmt"),
         "From" | "Into" | "TryFrom" | "TryInto" => module("core", "convert"),
         "FromStr" => module("core", "str"),
+        "Default" => module("core", "default"),
         "Add" | "Sub" | "Mul" | "Div" | "Rem" | "BitAnd" | "BitOr" | "BitXor" | "Shl" | "Shr"
         | "Neg" | "Not" | "Index" | "Fn" | "RangeBounds" | "Try" | "FromResidual" => {
             module("core", "ops")

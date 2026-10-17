@@ -426,12 +426,27 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> Option<TypeId> {
-        let site = self.trait_call_site(callee, env)?;
+        let mut site = self.trait_call_site(callee, env)?;
+        let contextual = site.receiver.is_none() && matches!(site.receiver_type, TypeId::Trait(_));
+        if let TypeId::Trait(interface) = &site.receiver_type
+            && contextual
+        {
+            let interface = interface.clone();
+            site.receiver_type =
+                self.infer_trait_owned_self(callee, &interface, &site.name, expected)?;
+            site.interface = Some(interface);
+        }
         let receiver = site.receiver;
         let receiver_ty = site.receiver_type;
         let name = &site.name;
-        let mut trait_types = self.trait_bounds_for(&receiver_ty, env);
-        if let Some(requested) = &site.interface {
+        let mut trait_types = if contextual {
+            vec![site.interface.clone().expect("trait-qualified owner")]
+        } else {
+            self.trait_bounds_for(&receiver_ty, env)
+        };
+        if let Some(requested) = &site.interface
+            && !contextual
+        {
             if let Some((applied, _)) = self.select_operator(&receiver_ty, requested.clone(), env)
                 && applied.satisfies(requested)
             {
@@ -439,7 +454,7 @@ impl<'a> BodyChecker<'a> {
             } else {
                 trait_types.clear();
             }
-        } else if receiver.is_none() && args.len() == 1 {
+        } else if !contextual && receiver.is_none() && args.len() == 1 {
             let input = self.infer_expr_type(args[0], env);
             let candidates = self
                 .aggregates
@@ -584,7 +599,20 @@ impl<'a> BodyChecker<'a> {
             .trait_method(&candidates[0].0)
             .expect("catalog method")
             .clone();
-        let interface = &candidates[0].1;
+        let mut interface = candidates[0].1.clone();
+        let proven = if contextual {
+            if let Some(applied) =
+                self.select_contextual_trait_interface(callee, &receiver_ty, &interface, env, name)
+            {
+                interface = applied;
+                true
+            } else {
+                false
+            }
+        } else {
+            true
+        };
+        let interface = &interface;
         let trait_contract = self
             .aggregates
             .trait_(&interface.declaration)
@@ -623,24 +651,27 @@ impl<'a> BodyChecker<'a> {
         {
             return Some(TypeId::Unknown);
         }
-        self.type_table.insert_call(
-            call_expr,
-            CallTarget::TraitMethod {
-                method: method.id,
-                interface: interface.clone(),
-            },
-            receiver,
-        );
-        if receiver.is_none()
-            || self
-                .aggregates
-                .trait_(&interface.declaration)
-                .is_some_and(|contract| {
-                    matches!(
-                        contract.conversion_adapter,
-                        Some(ConversionAdapter::Reverse { .. })
-                    )
-                })
+        if proven {
+            self.type_table.insert_call(
+                call_expr,
+                CallTarget::TraitMethod {
+                    method: method.id,
+                    interface: interface.clone(),
+                },
+                receiver,
+            );
+        }
+        if proven
+            && (receiver.is_none()
+                || self
+                    .aggregates
+                    .trait_(&interface.declaration)
+                    .is_some_and(|contract| {
+                        matches!(
+                            contract.conversion_adapter,
+                            Some(ConversionAdapter::Reverse { .. })
+                        )
+                    }))
         {
             self.type_table
                 .insert_protocol_receiver(call_expr, self_ty.clone());
@@ -691,8 +722,10 @@ impl<'a> BodyChecker<'a> {
             callee,
             suppress_missing,
         );
-        self.type_table
-            .insert_type_arguments(call_expr, type_arguments);
+        if proven {
+            self.type_table
+                .insert_type_arguments(call_expr, type_arguments);
+        }
         let method_bounds = method
             .bounds
             .iter()
@@ -754,7 +787,13 @@ impl<'a> BodyChecker<'a> {
             self.declarations.definitions(),
             &return_pattern.instantiate(&substitution),
         );
-        self.record_protocol_application(call_expr, &self_ty, return_type.clone());
-        Some(return_type)
+        if proven {
+            self.record_protocol_application(call_expr, &self_ty, return_type.clone());
+        }
+        Some(if proven || self.solving {
+            return_type
+        } else {
+            TypeId::Error
+        })
     }
 }

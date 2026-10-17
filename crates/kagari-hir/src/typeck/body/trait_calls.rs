@@ -6,8 +6,9 @@ use crate::{
         body::BodyChecker,
         ty::{self, TypeContext, resolve_type_in},
     },
-    types::{NominalType, TypeId},
+    types::{NominalType, TypeId, TypeSubstitution},
 };
+use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 
 pub(super) struct TraitCallSite {
     pub receiver: Option<ExprId>,
@@ -17,6 +18,94 @@ pub(super) struct TraitCallSite {
 }
 
 impl BodyChecker<'_> {
+    /// Constrain trait-owned Self from the declared result, without consulting impls.
+    pub(super) fn infer_trait_owned_self(
+        &mut self,
+        callee: ExprId,
+        interface: &NominalType,
+        name: &str,
+        expected: Option<&TypeId>,
+    ) -> Option<TypeId> {
+        let contract = self.aggregates.trait_(&interface.declaration)?;
+        let method = contract.methods.iter().find(|method| {
+            method.name == name
+                && !method
+                    .params
+                    .first()
+                    .is_some_and(|param| param.name == "self")
+        })?;
+        let method_generics = &method.generic_params[contract.generic_params.len()..];
+        let mut substitution: TypeSubstitution = contract
+            .generic_params
+            .iter()
+            .cloned()
+            .zip(interface.arguments.iter().cloned())
+            .collect();
+        for (index, parameter) in method_generics.iter().enumerate() {
+            let variable = self.inference_variable(callee, index + 1024);
+            substitution.insert(parameter.clone(), variable);
+        }
+        if let Some(arguments) = self.explicit_arguments.get(&callee) {
+            substitution.extend(
+                method_generics
+                    .iter()
+                    .cloned()
+                    .zip(arguments.iter().cloned()),
+            );
+        }
+        // This slot belongs to the static callee, not the call result or a method binder.
+        let self_ty = self.inference_variable(callee, 2);
+        let result = method
+            .return_type
+            .with_self(&method.owner, &self_ty)
+            .instantiate(&substitution)
+            .with_associated_types(interface, &self_ty);
+        if let Some(expected) = expected
+            && !expected.is_never()
+        {
+            let _ = self.solver.constrain(&result, expected, self.cancel);
+        }
+        Some(self.solver.resolve(&self_ty))
+    }
+
+    /// Expected types identify a receiver; only ordinary selection proves its bound.
+    pub(super) fn select_contextual_trait_interface(
+        &mut self,
+        callee: ExprId,
+        receiver: &TypeId,
+        interface: &NominalType,
+        env: &BodyTypeEnv,
+        name: &str,
+    ) -> Option<NominalType> {
+        if receiver.is_unresolved() || receiver.is_never() {
+            if !self.solving {
+                self.diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::CannotInferGenericArgument {
+                        function_name: name.to_owned(),
+                        parameter: "Self".into(),
+                    })
+                    .with_span(self.lowered.source_map.expr_span(callee)),
+                );
+            }
+            return None;
+        }
+        if !matches!(receiver, TypeId::Trait(_))
+            && let Some((applied, _)) = self.select_operator(receiver, interface.clone(), env)
+            && applied.satisfies(interface)
+        {
+            return Some(applied);
+        }
+        self.diagnostics.push(
+            Diagnostic::error(DiagnosticKind::GenericBoundNotSatisfied {
+                type_name: receiver.display_name(self.declarations.definitions()),
+                trait_name: TypeId::Trait(interface.clone())
+                    .display_name(self.declarations.definitions()),
+            })
+            .with_span(self.lowered.source_map.expr_span(callee)),
+        );
+        None
+    }
+
     pub(super) fn trait_call_site(
         &mut self,
         callee: ExprId,
@@ -80,13 +169,14 @@ impl BodyChecker<'_> {
                         (receiver, member.to_owned(), None)
                     }
                 };
-                (!receiver_type.is_unresolved() && !matches!(receiver_type, TypeId::Trait(_)))
-                    .then_some(TraitCallSite {
-                        receiver: None,
-                        receiver_type,
-                        name,
-                        interface,
-                    })
+                (!receiver_type.is_unresolved()
+                    && (interface.is_none() || !matches!(receiver_type, TypeId::Trait(_))))
+                .then_some(TraitCallSite {
+                    receiver: None,
+                    receiver_type,
+                    name,
+                    interface,
+                })
             }
             _ => None,
         }

@@ -51,6 +51,7 @@ pub(super) enum RegistrationTrait {
     TryFrom,
     TryInto,
     FromStr,
+    Default,
     FromIterator,
     Sum,
     Product,
@@ -64,7 +65,7 @@ pub(super) fn identity(
 }
 
 impl RegistrationTrait {
-    const ALL: [Self; 40] = [
+    const ALL: [Self; 41] = [
         Self::List,
         Self::MutableList,
         Self::Map,
@@ -102,6 +103,7 @@ impl RegistrationTrait {
         Self::TryFrom,
         Self::TryInto,
         Self::FromStr,
+        Self::Default,
         Self::FromIterator,
         Self::Sum,
         Self::Product,
@@ -146,6 +148,7 @@ impl RegistrationTrait {
             Self::TryFrom => "TryFrom",
             Self::TryInto => "TryInto",
             Self::FromStr => "FromStr",
+            Self::Default => "Default",
             Self::FromIterator => "FromIterator",
             Self::Sum => "Sum",
             Self::Product => "Product",

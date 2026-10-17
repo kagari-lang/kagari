@@ -1,7 +1,7 @@
 # Language Foundation and Native Libraries
 
 The installed `core`/`alloc`/`std` foundation defines complete language types and
-protocols. Its 26 language traits and 14 other foundation traits are explicit
+protocols. Its 26 language traits and 15 other foundation traits are explicit
 standard-library registrations. Their generated source is parsed and checked
 against the installed declarations and validated language roles. Runtime supplies their basic checked native implementations. Optional
 library modules and application modules use the same explicit registration API;
@@ -31,6 +31,7 @@ constructors and tooling navigation.
 | `core::convert` | From, Into, TryFrom, TryInto and Infallible |
 | `core::iter` | Iterator, Iterable, FromIterator, Sum, Product, CollectionCursor and eight lazy adapter types |
 | `core::str` | FromStr |
+| `core::default` | Default |
 | `core::num` | ParseError, TryFromIntError and numeric native implementations |
 | `core::option`, `core::result` | Option and Result |
 | `core::future` | Cold single-drive Future |
@@ -38,13 +39,13 @@ constructors and tooling navigation.
 | `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap and HashSet |
 
 Corresponding `std::ops`, `std::cmp`, `std::hash`, `std::fmt`, `std::convert`,
-`std::iter`, `std::str`, `std::num`, `std::option`, `std::result`, `std::future`, `std::string`
+`std::iter`, `std::str`, `std::default`, `std::num`, `std::option`, `std::result`, `std::future`, `std::string`
 and `std::vec` expose the canonical declarations through checked re-exports.
 The package/module spelling does not change Kagari's GC or shared-object semantics.
 There is no installed `core::language` module or ArrayList declaration.
 
 `std::prelude` explicitly exports Iterator, Iterable, FromIterator, PartialEq,
-Eq, PartialOrd, Ord, From, Into, TryFrom, TryInto, Fn, Option, Result, Some, None,
+Eq, PartialOrd, Ord, From, Into, TryFrom, TryInto, Default, Fn, Option, Result, Some, None,
 Ok, Err, String, Vec and Future. Iterable is a retained Kagari extension. Local declarations
 and explicit imports take precedence over these implicit imports.
 Operators use their checked language roles independently of name imports; writing
@@ -57,7 +58,7 @@ not compiler-recognized numeric constraint names.
 
 ## Foundation trait inventory
 
-The installed foundation contains these 40 traits. All remain
+The installed foundation contains these 41 traits. All remain
 available without optional libraries. This is the implemented inventory, not a
 decision that every trait needs a compiler language role.
 
@@ -76,15 +77,34 @@ decision that every trait needs a compiler language role.
 | Conversion | From, Into, TryFrom, TryInto |
 | Propagation | Try, FromResidual |
 | Parsing | FromStr |
-| Construction and aggregation | FromIterator, Sum, Product |
+| Construction and aggregation | Default, FromIterator, Sum, Product |
 
 The [ownership partition](../architecture.md#core-trait-inventory) has 26
-language items and 14 ordinary native-library traits, retaining mandatory
-availability of all 40. Parser/HIR analyzes their generated declarations; checked
+language items and 15 ordinary native-library traits, retaining mandatory
+availability of all 41. Parser/HIR analyzes their generated declarations; checked
 role identities select syntax semantics, and library policy follows installed
 declaration/implementation records. Algorithms and additional containers remain
 separate from trait declarations. Try, FromResidual and ControlFlow require
 explicit imports; they are not prelude additions.
+
+## Default construction
+
+`core::default::Default` is an ordinary core-library trait, also exported through
+`std::default` and the prelude. It declares required static `fn default() -> Self`;
+it has no language role, implicit implementation or special runtime constructor.
+User types implement it explicitly and use ordinary static calls:
+
+```text
+struct Count { val value: i32 }
+impl Default for Count { fn default() -> Self { Count { value: 42 } } }
+val direct = Count::default();
+val contextual: Count = Default::default();
+fn make<T: Default>() -> T { T::default() }
+```
+
+The trait is static-only, not an interface value type. Standard implementations
+are introduced separately; declaring Default does not zero-initialize arbitrary
+types or enable derive, enum default selection or struct update expressions.
 
 ## Core Builtin Types
 

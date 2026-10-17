@@ -294,6 +294,22 @@ The method's arguments follow the implementation's type arguments in the
 concrete instance key. Interface calls retain method arguments separately and
 use the shared generic entry specified below.
 
+### Contextual static factories
+
+A trait-qualified associated function can infer its implementing Self from the
+expected result type using its declared result shape. For a trait declaring
+`fn make() -> Self`, `val item: Item = Factory::make()` constrains Self to Item,
+then ordinary implementation selection must prove Item implements that actual
+Factory declaration. This is not interface construction or a name-based intrinsic.
+The same rule applies to [Default](builtins.md#default-construction), aliases and
+generic expected types with matching bounds. Existing annotation, assignment,
+parameter, return and field contexts supply constraints. Structural results use
+the existing bounded solver; inverse associated-result projection solving is not
+added. Without sufficient constraints, Self remains uninferred even if only one
+implementation exists. Incompatible or unproven receivers remain diagnostics.
+Concrete `Item::make()`, generic `T::make()` and qualified
+`<Item as Factory>::make()` retain ordinary static dispatch and ambiguity rules.
+
 ### Operation-specific bounds
 
 Generic functions declare the operations their bodies require, including operand
