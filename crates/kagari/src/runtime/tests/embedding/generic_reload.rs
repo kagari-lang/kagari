@@ -23,8 +23,7 @@ fn prepare(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodePr
 
 #[test]
 fn retained_generic_default_and_override_closures_pin_types_and_operations_after_reload() {
-    let method =
-        "fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool { || a.cmp(b) == Ordering::Less }";
+    let method = "fn keep<T: Ord + Default>(self, a: T, b: T) -> fn(bool) -> bool { |select_default| if select_default { T::default() == a } else { a.cmp(b) == Ordering::Less } }";
     for implementation in [String::new(), method.to_owned()] {
         let source = format!(
             r#"use std::cmp::{{Ordering}};
@@ -32,13 +31,17 @@ fn retained_generic_default_and_override_closures_pin_types_and_operations_after
 trait Keep {{ {method} }}
 impl Keep for i32 {{ {implementation} }}
 struct Rank {{ val value: i32 }}
+impl Default for Rank {{ fn default() -> Self {{ Rank {{ value: 1 }} }} }}
 impl PartialEq for Rank {{ fn eq(self, other: Self) -> bool {{ self.value == other.value }} }}
 impl Eq for Rank {{}}
 impl PartialOrd for Rank {{ fn partial_cmp(self, other: Self) -> Option<Ordering> {{ self.value.partial_cmp(other.value) }} }}
 impl Ord for Rank {{ fn cmp(self, other: Self) -> Ordering {{ self.value.cmp(other.value) }} }}
-trait Run {{ fn run(self) -> bool; }}
-struct Saved {{ val callback: fn() -> bool }}
-impl Run for Saved {{ fn run(self) -> bool {{ (self.callback)() }} }}
+trait Run {{ fn run(self) -> bool; fn selected_default(self) -> bool; }}
+struct Saved {{ val callback: fn(bool) -> bool }}
+impl Run for Saved {{
+    fn run(self) -> bool {{ (self.callback)(false) }}
+    fn selected_default(self) -> bool {{ (self.callback)(true) }}
+}}
 pub fn make() -> Run {{
     val keeper: Keep = 0;
     Saved {{ callback: keeper.keep(Rank {{ value: 1 }}, Rank {{ value: 2 }}) }}
@@ -49,7 +52,12 @@ pub fn make() -> Run {{
         let program = prepare(&engine, &source);
         let replacement = prepare(
             &engine,
-            &source.replace("self.value.cmp(other.value)", "other.value.cmp(self.value)"),
+            &source
+                .replace("self.value.cmp(other.value)", "other.value.cmp(self.value)")
+                .replace(
+                    "fn default() -> Self { Rank { value: 1 } }",
+                    "fn default() -> Self { Rank { value: 2 } }",
+                ),
         );
         let mut config = RuntimeConfig::default();
         config.gc.collection_threshold = Some(1);
@@ -70,6 +78,9 @@ pub fn make() -> Run {{
             .find(|contract| contract.abi.name == "Run")
             .unwrap();
         let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
+        let selected_default =
+            ModuleDecl::method_id(contract.declaration, "selected_default", old.definitions())
+                .unwrap();
         let old_key = old.key();
         let vm = Vm::new(runtime);
         let saved = vm
@@ -98,6 +109,16 @@ pub fn make() -> Run {{
         );
         assert_eq!(
             vm.invoke_interface_method(&fresh, &run, &[]).unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            vm.invoke_interface_method(&saved, &selected_default, &[])
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm.invoke_interface_method(&fresh, &selected_default, &[])
+                .unwrap(),
             Value::Bool(false)
         );
         drop((root, fresh_root));

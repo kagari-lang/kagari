@@ -12,6 +12,32 @@ pub fn declaration_patterns() -> i32 {
     advance() + offset
 }
 
+struct FeatureDefault<T> { var value: T, val values: Vec<T> }
+impl<T: Default> Default for FeatureDefault<T> {
+    fn default() -> Self {
+        FeatureDefault { value: T::default(), values: Default::default() }
+    }
+}
+
+pub fn default_update_values() -> i32 {
+    val zero: i32 = core::default::Default::default();
+    val empty: Vec<FeatureBinding<i32>> = Default::default();
+    val absent: Option<FeatureBinding<i32>> = Default::default();
+    match absent { None => {}, Some(_) => { return 0; } };
+    val base = FeatureDefault<i32> { ..Default::default() };
+    val fresh: FeatureDefault<i32> = Default::default();
+    if zero != 0 || base.value != 0 || empty.len() != 0usize
+        || base.values.len() != 0usize { return 0; }
+    base.values.push(20);
+    val updated = FeatureDefault { value: 20, ..base };
+    updated.value += 2;
+    updated.values.push(20);
+    if base.value != 0 || fresh.value != 0 || fresh.values.len() != 0usize
+        || base.values.len() != 2usize || base.values[0] != 20
+        || updated.values[1] != 20 { return 0; }
+    updated.value + base.values[1]
+}
+
 use external::enums;
 pub fn native_enum_values() -> i32 {
     val nested = enums::make(enums::make(Vec::from([38]), 2), 2);

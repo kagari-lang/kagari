@@ -1054,6 +1054,11 @@ retain shared identity and the base remains usable. Earlier exits skip later eff
 and final construction while preserving completed effects and ordinary root cleanup.
 See [value semantics](value-semantics.md#struct-update-construction) and the runnable
 [update example](../../examples/syntax/struct-update.kgr).
+The reference is Rust 1.90's
+[struct expressions](https://doc.rust-lang.org/1.90.0/reference/expressions/struct-expr.html#functional-update-syntax)
+and [operand order](https://doc.rust-lang.org/1.90.0/reference/expressions.html#evaluation-order-of-operands).
+Kagari retains its GC/shared-value model rather than Rust moves, partial invalidation,
+Copy/Drop restrictions or borrow semantics.
 
 ### Patterns
 

@@ -463,33 +463,44 @@ improvement or completion of those tracks is implied.
 
 ## Default and struct update
 
-The user selected [SA26](review.md#sa26-add-ordinary-default-construction-and-struct-update-expressions)
-ahead of the default review queue on 2026-10-17. The
-[Default and struct update execution plan](default-construction-plan.md) owns
-DF01-DF05, the sole progress ledger, design decisions and focused acceptance.
-Implementation and one commit per phase are authorized. DF01 froze the contract
-and focused acceptance; DF02 ordinary registration/contextual calls passed focused
-local checks. DF03 standard implementations passed focused value/fresh-storage
-acceptance. DF04 struct update, source/editor syntax and static bound-call
-integration passed focused local checks; DF05 final acceptance/handoff is next.
-Actual updated Zed WASM loading/rendering remains unverified: pinned SDK 34 download
-attempts failed with connection errors; native parser/capture tests are not host
-rendering evidence.
+Ordinary core-library [Default](spec/builtins.md#default-construction),
+[contextual static factories](spec/traits.md#contextual-static-factories) and
+[struct update expressions](spec/syntax.md#struct-update-expressions) are implemented.
+[Value semantics](spec/value-semantics.md#struct-update-construction) owns evaluation
+order, fresh outer identity and shared members; the [HIR guide](architecture/hir.md#struct-update-facts)
+owns base/omitted-field facts. The completed plan is retired; Git history owns its
+phase decisions and local validation ledger.
 
-Deliver ordinary `core::default::Default` and prelude publication, contextual
-static associated-call Self inference, a finite standard implementation inventory,
-and general `Struct { field: value, ..base }` construction. The update base is
-independent of Default. Keep nominal/generic/all-field visibility checks, once-only
-source-order effects, a fresh outer struct with shared member identity, cleanup
-and generation-pinned calls. Include source tooling and editor syntax in the
-construction checkpoint; no compiler-only syntax acceptance.
+Focused local checks passed for registration/prelude, the finite scalar/String/Vec/
+Option implementation inventory, generic/contextual calls, nominal/generic/access
+rejection, recovery/navigation/reuse, source/editor syntax, effects/traps/cancellation,
+GC cleanup, retained generic Default calls after reload and source-free artifact
+execution. Scalar fixture entries still require actual native execution; new object
+and library cases may fall back before entry and do not claim native expansion.
+Structure, formatting, workspace all-target Clippy and diff checks passed. Full
+workspace and complete feature/backend/platform/editor inventory remain CI-owned.
 
-Default is not a language protocol or special runtime constructor. Derive, automatic
-enum selection, field declaration initializers, SA22, SA25, host/view decomposition,
-new native instructions and collection storage remain separate. The pre-existing
-SA16/SA17 editor-grammar gap was independently resolved before activation; reuse
-that merged support rather than reimplementing it. Focused source/artifact/source-free and lifecycle evidence belongs
-to this plan; complete feature/backend/platform/editor inventory remains CI-owned.
+Updated Zed WASM loading/rendering remains unverified: the fixed official SDK 34
+Windows archive failed to download twice with curl 56 connection errors. Native
+parser/capture/incremental tests and staging passed, but are not host rendering
+evidence. Retry the [existing pinned build/host workflow](../editors/README.md#syntax-change-workflow)
+when SDK acquisition is available; do not substitute SDK 29 or infer host acceptance.
+
+Derive, automatic enum selection, field declaration initializers, SA22, SA25,
+host/view update, new native instructions and broader standard Default implementations
+remain separate. Default is not a language protocol or special runtime constructor.
+
+Two bounded investigation probes need separate triage, not silent feature expansion.
+On the DF04 working tree, a direct closure call with projected parameter
+`<Tag as Pick>::Item = Cell<i32>` rejected a concrete Cell<i32> argument with
+ArgumentTypeMismatch; the checked Fn::call path passed. HIR's direct function-value
+argument normalization is the follow-up owner; independence from update syntax was
+inferred from that path, not established on a historical baseline. A generic identity
+closure in `duplicate<T>(base: Cell<T>) -> Cell<T>` also reached MIR InvalidGraph
+with no update expression; unused generic associated-type declarations remained in
+the reproduction. Compiler generic-closure/environment lowering and whole-program
+MIR graph validation own initial triage. Neither introduction revision nor precise
+root cause was isolated; ordinary generic update functions passed.
 
 ## Review follow-up order
 
@@ -497,9 +508,9 @@ The following is the proposed default order for the unresolved [SA review](revie
 work, chosen to reduce replacement of newly implemented models. It does not
 activate implementation, settle open language/API choices or combine unrelated
 findings into one migration. Explicitly grouped scopes below share one plan; each
-activated task retains a finite scope and focused gates. SA26 is explicitly
-selected next under its [own plan](#default-and-struct-update); the table below
-retains the default order for the other queued findings.
+activated task retains a finite scope and focused gates. Default/struct update is
+implemented [above](#default-and-struct-update); the table below retains the default
+order for the other queued findings.
 SA21 registration/interop is implemented as described above. Struct-pattern rest
 and ordinary destructuring declarations are implemented; their current contracts
 live in [syntax](spec/syntax.md#blocks-and-statements),

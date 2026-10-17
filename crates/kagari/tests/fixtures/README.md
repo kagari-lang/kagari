@@ -10,8 +10,15 @@ artifact-only, `source`, `native`, and `source,native`.
 fixture and real Cranelift compilation. Keep heap operations and calls out of this
 entry: the static backend accepts only its exact constant/return contract.
 `declaration_patterns` separately exercises nested generic struct/tuple bindings,
-explicit rest omission and captured mutable leaves. The portable execution test
-calls both entries, including in builds without source support.
+explicit rest omission and captured mutable leaves.
+`default_update_values` separately exercises ordinary core scalar, Vec and Option
+Default calls (including Vec/Option elements without Default), a scripted generic
+Default implementation, and contextual Default in a base-only struct update.
+An overriding update checks independent outer scalar slots, shared inherited Vec
+storage, continued base usability and fresh storage from separate Default calls.
+The portable execution test calls all three entries and requires 42 from each,
+including in builds without source support. It forces GC at allocation and checks
+root/call-depth cleanup and non-quarantined runtime state after each entry.
 `library_and_object` exercises trait sorting,
 an external native object retaining a callback, and lazy map.
 `required_methods` exercises checked MutableList methods, Vec FromIterator,
@@ -33,9 +40,13 @@ changes from the repository root:
 
 ```text
 cargo run -p kagari --example regenerate_feature_artifact
-cargo test -p kagari --test artifact_features
-uv run python scripts/check_features.py
+cargo test -p kagari --test artifact_features portable_fixture_matches_source_emission
+cargo test -p kagari --no-default-features --test artifact_features portable_artifact_executes_without_source_compilation
+cargo test -p kagari --no-default-features --features native --test artifact_features native_artifact_preparation_and_execution_need_no_frontend
+cargo test -p kagari --no-default-features --features native --test artifact_features real_cranelift_compiles_portable_artifact_without_source
 ```
 
+The focused commands preserve both native scalar-entry contracts without running
+the complete feature matrix, which remains CI-owned.
 Regeneration replaces the current fixture; it does not add a compatibility reader
 or relax version checks. Keep canonical-byte, rejection and execution assertions.

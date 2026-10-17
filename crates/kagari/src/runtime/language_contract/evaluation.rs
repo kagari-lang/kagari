@@ -95,6 +95,42 @@ fn heap_cancellation_preserves_earlier_write() {
     ).vector(&[1], &[42]).effects(&["cancel"], &["cancel"]);
     heap_cancel.cancel_call = Some(2);
     run_routes(&heap_cancel);
+
+    let mut update_cancel = Case::new(
+        "struct-update-default-cancellation-preserves-base-write",
+        r#"
+use observe as test;
+struct Pending { val ready: Vec<i32>, val spare: Vec<i32> }
+impl Default for Pending {
+    fn default() -> Self {
+        val spare = Vec::from([2]);
+        print("default-cancel");
+        loop {}
+    }
+}
+fn explicit() -> Vec<i32> { print("explicit"); Vec::from([1]) }
+fn base(a: Vec<i32>) -> Pending {
+    a[0] = 42;
+    print("base");
+    Default::default()
+}
+fn main() {
+    val a = test::vector();
+    val pending = Pending { ready: explicit(), ..base(a) };
+    print("unreachable");
+    pending.ready[0];
+}
+"#,
+        Expected::Cancelled,
+    )
+    .vector(&[1], &[42])
+    .effects(
+        &["explicit", "base", "default-cancel"],
+        &["explicit", "base", "default-cancel"],
+    );
+    // The observer Vec call precedes the three logs; cancel inside Default, not before the base.
+    update_cancel.cancel_call = Some(4);
+    run_routes(&update_cancel);
 }
 
 #[test]
@@ -223,6 +259,49 @@ fn return_discards_following_effects() {
         "fn main() -> i32 { return 7; print(\"unreachable\"); 42 }",
         Expected::Value(|_| Value::I32(7)),
     ));
+    for (name, initializer, effects) in [
+        (
+            "struct-update-explicit-return-skips-later-field-and-default",
+            r#"Pending {
+                ready: { a[0] = 42; print("committed"); return 7; Vec::from([1]) },
+                spare: { print("unreachable-field"); Vec::from([2]) },
+                ..Default::default()
+            }"#,
+            &["committed"][..],
+        ),
+        (
+            "struct-update-base-return-discards-pending-heap-field",
+            r#"Pending {
+                ready: { print("explicit"); Vec::from([1]) },
+                ..{ a[0] = 42; print("committed"); return 7; Default::default() }
+            }"#,
+            &["explicit", "committed"][..],
+        ),
+    ] {
+        let source = format!(
+            r#"
+use observe as test;
+struct Pending {{ val ready: Vec<i32>, val spare: Vec<i32> }}
+impl Default for Pending {{
+    fn default() -> Self {{
+        print("unreachable-default");
+        Pending {{ ready: Vec::new(), spare: Vec::new() }}
+    }}
+}}
+fn main() -> i32 {{
+    val a = test::vector();
+    val pending = {initializer};
+    print("unreachable");
+    pending.ready[0]
+}}
+"#
+        );
+        run_routes(
+            &Case::new(name, &source, Expected::Value(|_| Value::I32(7)))
+                .vector(&[1], &[42])
+                .effects(effects, effects),
+        );
+    }
 }
 
 #[test]
@@ -259,6 +338,59 @@ fn main() -> i32 {
         .effects(
             &["discarded", "initializer", "right", "left", "left", "right"],
             &["discarded", "initializer", "right", "left", "left", "right"],
+        ),
+    );
+    run_routes(
+        &Case::new(
+            "struct-update-fields-precede-once-only-default-even-when-all-overridden",
+            r#"
+struct P { val left: i32, val right: i32 }
+impl Default for P {
+    fn default() -> Self { print("default"); P { left: 10, right: 20 } }
+}
+fn left() -> i32 { print("left"); 1 }
+fn right() -> i32 { print("right"); 2 }
+fn main() -> i32 {
+    val base = P { ..Default::default() };
+    val changed = P { right: right(), left: left(), ..P::default() };
+    base.left + base.right + changed.left * 10 + changed.right
+}
+"#,
+            Expected::Value(|_| Value::I32(42)),
+        )
+        .effects(
+            &["default", "right", "left", "default"],
+            &["default", "right", "left", "default"],
+        ),
+    );
+    // The shared harness keeps the default 1024-unit GC threshold; churn past it
+    // inside Default while the explicit Vec exists only as a pending field value.
+    run_routes(
+        &Case::new(
+            "struct-update-pending-explicit-heap-value-survives-collecting-default",
+            r#"
+struct Pending { val ready: Vec<i32>, val spare: Vec<i32> }
+impl Default for Pending {
+    fn default() -> Self {
+        print("default-enter");
+        var last: Vec<i32> = Default::default();
+        var n = 0;
+        while n < 2048 { last = Vec::from([n]); n += 1; }
+        print("default-exit");
+        Pending { ready: Vec::new(), spare: last }
+    }
+}
+fn explicit() -> Vec<i32> { print("explicit"); Vec::from([41]) }
+fn main() -> i32 {
+    val pending = Pending { ready: explicit(), ..Default::default() };
+    pending.ready[0] + pending.spare[0]
+}
+"#,
+            Expected::Value(|_| Value::I32(2088)),
+        )
+        .effects(
+            &["explicit", "default-enter", "default-exit"],
+            &["explicit", "default-enter", "default-exit"],
         ),
     );
 }
@@ -746,6 +878,41 @@ fn alias() {
         "struct P { var n: i32 } fn main() -> i32 { val a = P { n: 1 }; val b = a; b.n = 7; a.n }",
         Expected::Value(|_| Value::I32(7)),
     ));
+    run_routes(
+        &Case::new(
+            "struct-update-reads-omitted-fields-after-alias-effects-and-shares-inner-values",
+            r#"
+struct P { var n: i32, var items: Vec<i32> }
+impl Default for P {
+    fn default() -> Self { P { n: 1, items: Vec::from([2]) } }
+}
+fn explicit(base: P) -> i32 {
+    print("explicit");
+    base.items = Vec::from([3]);
+    7
+}
+fn base(alias: P) -> P {
+    print("base");
+    alias.n = 5;
+    alias.items = Vec::from([4]);
+    alias
+}
+fn main() -> bool {
+    val original = P::default();
+    val old_items = original.items;
+    val changed = P { n: explicit(original), ..base(original) };
+    changed.items.push(9);
+    changed.n += 1;
+    changed !== original && changed.items === original.items &&
+        changed.items !== old_items && old_items[0] == 2 &&
+        original.items[0] == 4 && original.items[1] == 9 &&
+        original.n == 5 && changed.n == 8
+}
+"#,
+            Expected::Value(|_| Value::Bool(true)),
+        )
+        .effects(&["explicit", "base"], &["explicit", "base"]),
+    );
 }
 
 #[test]
@@ -820,6 +987,63 @@ fn main() {
         .vector(&[1], &[42])
         .effects(&["committed"], &["committed"]),
     );
+    for (name, initializer, effects) in [
+        (
+            "struct-update-explicit-trap-skips-later-field-and-default",
+            r#"Pending {
+                ready: {
+                    a[0] = 42;
+                    print("committed");
+                    val invalid = [1];
+                    invalid[9];
+                    Vec::from([1])
+                },
+                spare: { print("unreachable-field"); Vec::from([2]) },
+                ..Default::default()
+            }"#,
+            &["committed"][..],
+        ),
+        (
+            "struct-update-default-trap-releases-pending-heap-field",
+            r#"Pending {
+                ready: { print("explicit"); Vec::from([1]) },
+                ..base(a)
+            }"#,
+            &["explicit", "committed", "default-trap"][..],
+        ),
+    ] {
+        let source = format!(
+            r#"
+use observe as test;
+struct Pending {{ val ready: Vec<i32>, val spare: Vec<i32> }}
+impl Default for Pending {{
+    fn default() -> Self {{
+        val spare = Vec::from([2]);
+        print("default-trap");
+        val invalid = [1];
+        invalid[9];
+        Pending {{ ready: Vec::new(), spare: spare }}
+    }}
+}}
+fn base(a: Vec<i32>) -> Pending {{
+    a[0] = 42;
+    print("committed");
+    Default::default()
+}}
+fn main() {{
+    val a = test::vector();
+    val pending = {initializer};
+    print("unreachable");
+    pending.ready[0];
+}}
+"#
+        );
+        run_routes(
+            &Case::new(name, &source, Expected::IndexTrap)
+                .vector(&[1], &[42])
+                .effects(effects, effects),
+        );
+    }
 }
 
 #[test]
