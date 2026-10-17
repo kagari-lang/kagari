@@ -54,6 +54,13 @@ inherit the outer string. Declaration names and simple explicit type positions
 are contextual captures; comments/newlines between declaration tokens may prevent
 those captures. Arbitrary capitalized identifiers, constructors, generic arguments,
 parameter types and generic/comparison angle brackets are not semantically resolved.
+Binding patterns reuse lexical identifier, separator, operator and recursive brace
+scopes: `val`/`var` destructuring, grouped/nested alternatives, renamed/shorthand
+struct fields and final `..` (with or without a trailing comma) need no pattern
+parser. Pattern names remain variables, not guessed types or constructors. The
+highlighter does not validate pattern legality, including the ban on bare top-level
+alternatives and tuple/slice rest; the language parser/checker owns those rules.
+
 `///` and `/** ... */` receive documentation comment presentation, not additional
 language semantics. Unsupported Rust strings/lifetimes/keywords are not added.
 

@@ -61,7 +61,30 @@ const casesForEol = (eol, label) => [
     ],
   },
 ];
-export const cases = [lexical, interpolation, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
+const bindingPatterns = {
+  name: 'destructuring and struct rest inside an interpolation block',
+  text: `fn main() { val rendered = f"before { {
+    val ((0, left) | (left, _), model::Point { x: renamed, .., }) = pair;
+    /* rest .. and braces { } stay comments */ f"inner {renamed}"
+  } } after"; val next = 42; }`,
+  expected: [
+    { needle: 'before', category: 'string' },
+    { needle: 'val ((0', category: 'code' },
+    { needle: 'left', category: 'code', capture: 'variable' },
+    { needle: '|', category: 'code', capture: 'operator' },
+    { needle: '_', category: 'code', capture: 'variable' },
+    { needle: 'Point', category: 'code', capture: 'type' },
+    { needle: 'x', category: 'code', capture: 'property' },
+    { needle: 'renamed', category: 'code', capture: 'variable' },
+    { needle: '..', category: 'code', capture: 'operator' },
+    { needle: 'rest .. and braces { }', category: 'comment' },
+    { needle: 'inner ', category: 'string' },
+    { needle: 'renamed', occurrence: 1, category: 'code', capture: 'variable' },
+    { needle: 'after', category: 'string' },
+    { needle: 'next', category: 'code', capture: 'variable' },
+  ],
+};
+export const cases = [lexical, interpolation, bindingPatterns, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
   name: 'unterminated block comment really extends to EOF',
   text: 'fn main() {} /* outer /* inner */ fn hidden() {}',
   expected: [

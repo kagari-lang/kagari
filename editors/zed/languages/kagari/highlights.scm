@@ -1,6 +1,7 @@
 ; General names precede structural overrides. No symbol-resolution guesses.
 (identifier) @variable
 (type_identifier) @type
+(wildcard_pattern) @variable
 
 (function_item name: (identifier) @function)
 (method_item name: (identifier) @function)
@@ -17,6 +18,8 @@
 (field_expression field: (identifier) @property)
 (field_initializer name: (identifier) @property)
 (field_pattern name: (identifier) @property)
+(struct_pattern type: (path (identifier) @type .))
+(struct_pattern type: (generic_path name: (identifier) @type))
 (attribute name: (path (identifier) @attribute))
 (attribute_argument name: (identifier) @property)
 

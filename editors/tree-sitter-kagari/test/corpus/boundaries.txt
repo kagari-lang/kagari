@@ -80,7 +80,7 @@ fn main() { f"before { {
         (format_text)
         (interpolation
           (block
-            (binding_statement (identifier) (string_literal (string_content)))
+            (binding_statement (path (identifier)) (string_literal (string_content)))
             (block_comment)
             (path (identifier))))
         (format_text)))))
@@ -102,7 +102,7 @@ fn main() {
     (parameters)
     (block
       (expression_statement (string_literal (string_content) (unterminated_string_end)))
-      (binding_statement (identifier) (integer_literal)))))
+      (binding_statement (path (identifier)) (integer_literal)))))
 
 ==================
 Physical line boundary exits interpolated text
@@ -121,7 +121,7 @@ fn main() {
     (parameters)
     (block
       (expression_statement (interpolated_string (format_text) (unterminated_string_end)))
-      (binding_statement (identifier) (integer_literal)))))
+      (binding_statement (path (identifier)) (integer_literal)))))
 
 ==================
 Unterminated nested comment has no invented line boundary

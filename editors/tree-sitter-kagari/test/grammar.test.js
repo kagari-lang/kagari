@@ -53,6 +53,38 @@ for (const name of [...selected, ...representative]) {
   });
 }
 
+test('ordinary declarations retain complete patterns from the shared binding example', () => {
+  const file = path.join(__dirname, '../../../examples/syntax/binding-patterns.kgr');
+  const tree = valid(fs.readFileSync(file, 'utf8'));
+  const declarations = nodes(tree.rootNode, 'binding_statement');
+  assert.ok(declarations.every(node => node.childForFieldName('pattern')));
+  const annotated = declarations.find(node => node.childForFieldName('pattern').text === '(reader, wide)');
+  assert.equal(annotated.childForFieldName('pattern').type, 'tuple_pattern');
+  assert.equal(annotated.namedChildren.find(node => node.type === 'type_annotation').text, ': (Read, i64)');
+  assert.ok(declarations.some(node => node.childForFieldName('pattern').type === 'wildcard_pattern'));
+  assert.ok(declarations.some(node => node.childForFieldName('pattern').type === 'parenthesized_pattern'));
+  const struct = nodes(tree.rootNode, 'struct_pattern').find(node => node.text.startsWith('Pair'));
+  assert.equal(struct.childForFieldName('type').text, 'Pair');
+  assert.equal(nodes(struct, 'field_pattern')[0].childForFieldName('pattern').text, 'alias');
+  assert.equal(nodes(struct, 'rest_pattern')[0].text, '..');
+});
+
+test('struct rest is final and shared by declarations, matches, loops and conditions', () => {
+  valid(`fn main() {
+    val Point { x, child: Point { y: renamed, .., }, .. } = value;
+    var ((left, _) | (_, left), unit): ((i32, i32), ()) = input;
+    val () = unit; val (single,) = input; val (grouped) = value;
+    if val Point { .. } = value {}
+    while val Point { x, .., } = next() {}
+    for Point { x, .. } in points {}
+    match value { Point { child: Point { .. }, .. } => x, _ => 0 }
+  }`);
+  for (const pattern of ['Point { .., x }', 'Point { .., .. }', 'Point { x, ..= }',
+    '(first, ..)', '[first, ..]', 'left | right']) {
+    assert.ok(parse(`fn main() { val ${pattern} = value; }`).rootNode.hasError, pattern);
+  }
+});
+
 test('numbers, adjacency, identity and generic angles remain distinct', () => {
   const tree = valid(`fn main() {
     val range = 1..2;
@@ -119,7 +151,7 @@ for (const eol of ['\n', '\r\n']) {
     test(`string text recovers at physical line boundary: ${JSON.stringify(start)}, ${JSON.stringify(eol)}`, () => {
       const tree = parse(`fn main() {${eol}val broken = ${start}${eol}val after = 42;${eol}}`);
       assert.ok(nodes(tree.rootNode, 'unterminated_string_end').length > 0, tree.rootNode.toString());
-      assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('name')?.text === 'after'),
+      assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
         tree.rootNode.toString());
       for (const node of [...nodes(tree.rootNode, 'string_content'), ...nodes(tree.rootNode, 'format_text')]) {
         assert.doesNotMatch(node.text, /[\r\n]/);
@@ -130,7 +162,7 @@ for (const eol of ['\n', '\r\n']) {
     for (const start of ['"text\\', 'f"text\\', '"text\\u{', 'f"text\\u{']) {
       const tree = parse(`fn main() {${eol}val broken = ${start}${eol}val after = 42;${eol}}`);
       assert.ok(tree.rootNode.hasError, tree.rootNode.toString());
-      assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('name')?.text === 'after'),
+      assert.ok(nodes(tree.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'),
         tree.rootNode.toString());
       for (const node of [...nodes(tree.rootNode, 'string_content'), ...nodes(tree.rootNode, 'format_text')]) {
         assert.doesNotMatch(node.text, /[\r\n]/);
@@ -222,6 +254,10 @@ test('incremental quotes, hole/block braces and nested comment terminators agree
       ['文🙂"', '文🙂'], ['文🙂', '文🙂"'], ['"文🙂"', 'f"文🙂 {after}"'],
       ['{after}', '{{after}'], ['{{after}', '{after}'],
       ['{after}', '{ { val x = 1; x } }'], ['x } }', 'x }'], ['x }"', 'x } }"'],
+    ]);
+    editSequence(`fn main() {${eol}val (left, Point { x: renamed, .. }) = input;${eol}val after = 42; }`, [
+      ['.. }', '. }'], ['. }', '.. }'], ['.. })', '.. )'], ['.. )', '.. })'],
+      ['(left, Point', '((left, _) | (_, left), Point'],
     ]);
     editSequence(`/* outer /* inner */ end */${eol}fn main() { 42 }`, [
       ['inner */', 'inner'], ['inner', 'inner */'], ['end */', 'end'], ['end', 'end */'],

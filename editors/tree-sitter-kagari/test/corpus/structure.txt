@@ -75,7 +75,7 @@ fn main() {
     (parameters)
     (block
       (binding_statement
-        (identifier)
+        (path (identifier))
         (closure_expression
           (closure_parameters
             (closure_parameter (identifier) (type_annotation (type_path (type_identifier)))))
@@ -105,7 +105,7 @@ fn main() {
     (parameters)
     (block
       (binding_statement
-        (identifier)
+        (path (identifier))
         (type_annotation
           (generic_type
             (type_path (type_identifier))

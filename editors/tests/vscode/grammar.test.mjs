@@ -29,6 +29,15 @@ function region(text, spans, needle, type, scope, occurrence = 1) {
   return selected;
 }
 
+function regionsIn(text, spans, context, expected) {
+  const start = occurrenceOffset(text, context);
+  const local = spans.filter((span) => span.start < start + context.length && span.end > start)
+    .map((span) => ({ ...span, start: span.start - start, end: span.end - start }));
+  for (const [needle, scope, occurrence] of expected) {
+    region(context, local, needle, 'code', scope, occurrence);
+  }
+}
+
 test('recursive comments, documentation and Unicode survive LF and CRLF', async () => {
   for (const newline of ['\n', '\r\n']) {
     const text = ['/// 中文😀', '/** doc /* nested /** deeper */ nested */ doc */',
@@ -175,6 +184,79 @@ test('reserved Kagari words, conservative declarations/types, attributes and no 
   region(text, spans, 'Model', 'code', 'variable.other.kagari', 3);
 });
 
+test('runnable binding patterns retain lexical scopes without guessing types or constructors', async () => {
+  const text = await readFile(new URL('../../../examples/syntax/binding-patterns.kgr', import.meta.url), 'utf8');
+  const spans = await tokenize(text);
+  const storage = 'storage.type.kagari';
+  const variable = 'variable.other.kagari';
+  const separator = 'punctuation.separator.kagari';
+  const operator = 'keyword.operator.kagari';
+  const bindings = [
+    ['val (x, Pair { first: alias, .. })', [
+      ['val', storage], ['(', separator], ['x', variable], [',', separator], ['Pair', variable],
+      ['{', 'punctuation.section.block.begin.kagari'], ['first', variable], [':', separator],
+      ['alias', variable], ['..', operator], ['}', 'punctuation.section.block.end.kagari'], [')', separator],
+    ]],
+    ['var (total, step)', [ ['var', storage], ['total', variable], [',', separator], ['step', variable] ]],
+    ['val ((0, first) | (first, _))', [
+      ['val', storage], ['((', separator], ['0', 'constant.numeric.integer.kagari'],
+      ['first', variable], ['|', operator], ['first', variable, 2], ['_', variable], ['))', separator],
+    ]],
+    ['var ((Choice { first: chosen, second: 0 } | Choice { first: _, second: chosen }), _)', [
+      ['var', storage], ['Choice', variable], ['chosen', variable], ['|', operator],
+      ['Choice', variable, 2], ['_', variable], ['chosen', variable, 2], ['_', variable, 2],
+    ]],
+    ['val (reader, wide): (Read, i64)', [
+      ['reader', variable], ['wide', variable], [':', separator], ['Read', variable], ['i64', variable],
+    ]],
+    ['val _ =', [ ['val', storage], ['_', variable], ['=', operator] ]],
+    ['val (None, LIMIT)', [ ['None', variable], ['LIMIT', variable] ]],
+  ];
+  for (const [binding, expected] of bindings) regionsIn(text, spans, binding, expected);
+});
+
+test('grouped/unit/singleton and struct rest patterns balance inside nested interpolation', async () => {
+  const source = [
+    'val s = f"before { {',
+    '  val (grouped) = source;',
+    '  var (single,) = (grouped,);',
+    '  val () = ();',
+    '  val Point { x, nested: Pair { first: renamed, .., }, .. } = source;',
+    '  var Point { /* } | /* { */ .. */ .., } = source;',
+    '  f"inner {renamed}"',
+    '} } after";',
+    'val after = 1;',
+  ];
+  for (const newline of ['\n', '\r\n']) {
+    const text = source.join(newline);
+    const spans = await tokenize(text);
+    region(text, spans, 'before ', 'string');
+    const variable = 'variable.other.kagari';
+    const separator = 'punctuation.separator.kagari';
+    const operator = 'keyword.operator.kagari';
+    for (const [context, expected] of [
+      ['val (grouped)', [ ['val', 'storage.type.kagari'], ['(', separator], ['grouped', variable], [')', separator] ]],
+      ['var (single,)', [ ['var', 'storage.type.kagari'], ['single', variable], [',)', separator] ]],
+      ['val ()', [ ['()', separator] ]],
+      ['val Point { x, nested: Pair { first: renamed, .., }, .. }', [
+        ['Point', variable], ['x', variable], [',', separator], ['nested', variable], [':', separator],
+        ['Pair', variable], ['renamed', variable], ['..', operator], [',', separator, 3],
+        ['}', 'punctuation.section.block.end.kagari'], ['..', operator, 2],
+      ]],
+      ['.., } = source;', [ ['..', operator], [',', separator], ['}', 'punctuation.section.block.end.kagari'],
+        ['=', operator], ['source', variable], [';', separator] ]],
+    ]) regionsIn(text, spans, context, expected);
+    region(text, spans, '/* } | /* { */ .. */', 'comment', 'comment.block.kagari');
+    region(text, spans, 'inner ', 'string');
+    region(text, spans, 'renamed', 'code', 'meta.embedded.expression.kagari', 2);
+    region(text, spans, ' after', 'string');
+    region(text, spans, 'val after', 'code');
+    for (const span of spans.filter((span) => span.type === 'code')) {
+      assert.ok(!span.scopes.some((scope) => scope.startsWith('string.')), span.scopes.join(' '));
+    }
+  }
+});
+
 test('operators preserve adjacency without claiming generic/comparison resolution', async () => {
   const operators = ['===', '!==', '<<', '>>', '<<=', '>>=', '&=', '|=', '^=', '%=', '?', '|', '||',
     '&&', '=>', '->', '::', '..', '..=', '+', '-', '*', '/', '%', '<=', '>='];
@@ -232,8 +314,8 @@ test('incremental retokenization from valid preceding stacks agrees with fresh t
   const documents = [
     { text: 'val s = f"{\n "closed";\n value\n} tail";\nval after = 1;',
       from: '"closed";', to: '"open', needle: 'value', type: 'code' },
-    { text: 'val s = f"{\n { value }\n} tail";\nval after = 1;',
-      from: '{ value }', to: '{ value', needle: 'tail', type: 'code' },
+    { text: 'val s = f"{\n val Point { x, .. } = point;\n} tail";\nval after = 1;',
+      from: '.. }', to: '..', needle: 'tail', type: 'code' },
     { text: 'val s = f"{\n /* outer\n /* inner */\n end */ value\n} tail";\nval after = 1;',
       from: 'end */ value', to: 'end value', needle: 'val after', type: 'comment' },
     { text: '/* header\n end */\nval s = "closed";\nval after = 1;',
