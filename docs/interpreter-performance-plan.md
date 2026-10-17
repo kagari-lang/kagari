@@ -3014,6 +3014,87 @@ no performance acceptance is inferred from starting it. No production change or
 diagnostic/build/test runs concurrently. Conditional IP04-IP06 decisions remain
 sequenced after the required combined acceptance.
 
+The original/reference comparison at UTC 20261017T034422Z completes all 4,508
+subject and 1,176 reference records, with unchanged subject hashes and all
+checksums/provenance passing. Strict timing checks pass 62/70 gates: every Kagari
+and embedded Lua execution row passes, including calls 0.77089/0.77406 and
+fibonacci 0.78338/0.78243. Eight independent Lua setup controls fail:
+
+| Phase | Workload | Aggregate | Paired |
+| --- | --- | ---: | ---: |
+| engine_init | arrays | 1.12075 | 1.09371 |
+| engine_init | calls | 1.06956 | 1.07423 |
+| module_init | arrays | 1.07835 | 1.04918 |
+| module_init | entry | 1.06996 | 1.01309 |
+| module_init | fibonacci | 1.01879 | 1.07991 |
+| source_to_chunk | branches | 1.05014 | 0.99840 |
+| source_to_chunk | calls | 1.10840 | 1.14235 |
+| source_to_chunk | entry | 1.07416 | 0.96460 |
+
+IP02/IP03 remain unaccepted. Do not modify the runtime to compensate for these
+fixed-image reference differences. Repeated complete reports now isolate the
+remaining failures to this independent control. The worker schedule separates
+the two reference observations for each row by a full subject process, roughly
+two minutes; fixed code identity does not remove time-dependent machine state.
+This is a measurement-boundary uncertainty, not proof of a specific OS cause.
+
+Predeclare one all-workload adjacent A/A diagnostic: seven alternating pairs for
+each of the seven original inputs, with two fresh fixed-image workers adjacent
+within each workload pair. Keep three samples, batch 32, all 98 workers and all
+1,176 records/checksums. Use saved frozen input contracts, explicitly record that
+no subject runs, and inspect all 21 reference gates once. The earlier fibonacci-only
+A/A result does not cover this complete matrix. This new diagnostic cannot replace
+the failed report or itself change any acceptance gate, sampling or worker schedule.
+If adjacency is inadequate too, do not keep repeating the experiment for a pass.
+No build, ordinary timing or other diagnostic overlaps it.
+
+The full adjacent A/A diagnostic completes all 98 workers and 1,176 records with
+checksums/provenance passing. It passes only 17/21 reference gates. Fibonacci
+module_init fails at 1.02678/1.07759 and source_to_chunk at 1.00562/1.05116;
+entry engine_init is inconclusive at 1.04587/1.01929 and fibonacci engine_init at
+0.98017/1.04192. No Kagari subject ran, so adjacency alone is not an adequate
+measurement repair. Do not change worker scheduling from this result or repeat
+the same A/A experiment to seek favorable samples.
+
+Predeclare one finite sampling calibration, separate from acceptance: three samples
+of 1,024 independent states/chunks/entries per worker, seven alternating adjacent
+A/A pairs for every original workload, with all results validated. This single
+alternative is chosen before measurement to lengthen the few-microsecond module
+initialization windows by 32x, not selected after trying multiple batch counts.
+Keep numerical gates, input sizes, execution validation batches, compiler/profile
+and independent-image ownership unchanged. Make only a temporary batch-constant
+change in the reference example, freeze a separate diagnostic image/manifest and
+record the exact source; restore it afterward. The isolated diagnostic validator
+uses the same completeness/provenance rules with the explicitly declared 1,024
+batch. The production driver/checker and existing 32-batch image remain unchanged.
+All cold and warm sample records remain visible; no runtime timing runs concurrently.
+If this alternative also fails, do not keep increasing batches or add runtime work.
+A successful calibration would still require an explicit new protocol decision,
+updated strict contracts/tests and a new complete comparison; no old report or
+extension can change its frozen batch or be reclassified as accepted.
+
+The single 1,024-batch calibration completes all 98 workers/1,176 records and
+validations, but passes only 19/21 gates. Fibonacci module_init is
+1.16014/1.05393 (fail); arrays module_init is 0.93007/1.04557 (inconclusive).
+The alternative is rejected: the reference source is restored, production remains
+three-by-32, and no scheduling/batching/checker change is retained. Do not keep
+enlarging batches, repeating A/A pilots, or changing the runtime to compensate.
+The 32-batch adjacent diagnostic's module-initialization process-median windows
+were 2,792-7,666 ns; longer windows alone did not establish adequate repeatability.
+
+Predeclare the current original experiment's one finite extension from seven to
+21 total pairs. Unlike further sampling-protocol experiments, this retains its
+complete existing evidence, original absolute paths/hashes, three-by-32 reference,
+all workloads and both mandatory estimators. Fixed-image A/A failures establish
+uncertainty in assigning the observed differences to a runtime change; the larger
+matched sample tests that uncertainty without waiving any gate. This is the first
+and only extension of UTC 20261017T034422Z. Do not combine any other experiment's
+samples. At the measured 114.8-116.0 seconds per subject, the extra 28 subjects
+require approximately 54 minutes, excluding their short reference workers. If any
+gate remains open at 21, do not add pairs or launch another batch/schedule pilot;
+record the unresolved measurement boundary before considering a scope/environment
+decision. Keep all code/images fixed and avoid other CPU workloads throughout.
+
 Planning validation: repository-relative links/anchors across this plan and its
 three companion documents, Markdown fences, whitespace, all seven phase/checklist
 entries and roadmap/index/OM links pass. This documentation-only checkpoint does
