@@ -400,7 +400,7 @@ fn altered_binding(context: &DefinitionContext, id: DefinitionId, change: usize)
             if change == 1 {
                 format!("{}-unknown", segment.name)
             } else {
-                "$foundation_list_new".to_owned()
+                "is_empty".to_owned()
             }
         } else {
             segment.name.to_owned()

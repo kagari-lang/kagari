@@ -411,10 +411,12 @@ fn main() -> () {
             .iter()
             .any(|instruction| matches!(instruction, BytecodeInstruction::MakeStruct { .. }))
     );
+    let expected_index = common::standard_array_index_binding();
     assert!(
         function.instructions.iter().any(|instruction| matches!(
             instruction,
-            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. } if context.snapshot().resolve(bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding).unwrap().last().is_some_and(|part| part.name == "$foundation_array_index")
+            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. }
+                if context.snapshot().resolve(bytecode.modules[bytecode.root.index()].native_imports[import.index()].binding).unwrap().to_path() == expected_index
         ))
     );
     assert!(
@@ -773,15 +775,36 @@ fn main() -> u64 {
         .find(|function| function.name == "main")
         .expect("expected main function");
 
-    for expected in [
-        "$foundation_list_push_fluent",
-        "$foundation_list_pop",
-        "$foundation_list_len",
-    ] {
+    for member in ["push", "pop", "len"] {
+        let expected = common::standard_vec_binding(member);
         let imports = &bytecode.modules[bytecode.root.index()].native_imports;
-        assert_eq!(function.instructions.iter().filter(|instruction| matches!(instruction,
-            BytecodeInstruction::Call { callee: CallTarget::Native(import), .. }
-                if context.snapshot().resolve(imports[import.index()].binding).unwrap().last().is_some_and(|part| part.name == expected)
-        )).count(), 1, "{expected:?}");
+        let calls = function
+            .instructions
+            .iter()
+            .filter_map(|instruction| {
+                let BytecodeInstruction::Call {
+                    callee: CallTarget::Native(import),
+                    ..
+                } = instruction
+                else {
+                    return None;
+                };
+                let import = &imports[import.index()];
+                (context
+                    .snapshot()
+                    .resolve(import.binding)
+                    .unwrap()
+                    .to_path()
+                    == expected)
+                    .then_some(import)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1, "{expected:?}");
+        if member == "push" {
+            assert_eq!(
+                calls[0].signature.result, calls[0].signature.params[0],
+                "Vec::push must return its receiver, not Unit"
+            );
+        }
     }
 }

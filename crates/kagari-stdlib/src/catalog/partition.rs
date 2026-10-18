@@ -17,7 +17,6 @@ use kagari_types::{
     declaration::{
         FnDecl,
         module::{DeclarationError, ModuleDecl},
-        names::{ExportName, NameNamespace},
     },
     ty::{GenericBound, NominalTy, Ty},
 };
@@ -42,23 +41,8 @@ fn entry<'a>(
 }
 
 fn function_owner(name: &str) -> ModuleIdentity {
-    match name {
-        "$foundation_default_Unit"
-        | "$foundation_default_Bool"
-        | "$foundation_default_I8"
-        | "$foundation_default_I16"
-        | "$foundation_default_I32"
-        | "$foundation_default_I64"
-        | "$foundation_default_U8"
-        | "$foundation_default_U16"
-        | "$foundation_default_U32"
-        | "$foundation_default_U64"
-        | "$foundation_default_F32"
-        | "$foundation_default_F64" => return namespaces::module("core", "num"),
-        "$foundation_default_String" => return namespaces::type_owner("String"),
-        "$foundation_default_Vec" => return namespaces::type_owner("Vec"),
-        "$foundation_default_Option" => return namespaces::type_owner("Option"),
-        _ => {}
+    if name == "$foundation_default_Vec" {
+        return namespaces::type_owner("Vec");
     }
     if matches!(
         name,
@@ -75,33 +59,14 @@ fn function_owner(name: &str) -> ModuleIdentity {
     if name.starts_with("$foundation_task_") {
         return namespaces::type_owner("Task");
     }
-    if let Some(name) = name.strip_prefix("$foundation_propagation_") {
-        let carrier = name.split('_').next().expect("propagation carrier binding");
-        return namespaces::type_owner(carrier);
-    }
     if name.starts_with("__default_") || name.starts_with("$foundation_interface_") {
         return namespaces::module("std", "collections");
-    }
-    if name.starts_with("$foundation_string_") {
-        return namespaces::type_owner("String");
-    }
-    if name.starts_with("$foundation_array_") {
-        return namespaces::module("core", "array");
     }
     if name.starts_with("$foundation_list_") {
         return namespaces::type_owner("Vec");
     }
     if name.starts_with("$foundation_map_") || name.starts_with("$foundation_set_") {
         return namespaces::module("std", "collections");
-    }
-    if name.starts_with("$foundation_Range") {
-        return namespaces::module("core", "ops");
-    }
-    if matches!(
-        name,
-        "$foundation_from_str" | "$foundation_try_from" | "$foundation_sum" | "$foundation_product"
-    ) {
-        return namespaces::module("core", "num");
     }
     assert!(
         matches!(name, "$foundation_cursor_next"),
@@ -304,98 +269,6 @@ pub(super) fn finish(
         module.collect_definitions(&context)?;
     }
     let definitions = context.snapshot();
-    // std exposes the same declarations, while canonical definitions remain in core/alloc.
-    let owners: Vec<_> = modules
-        .values()
-        .filter(|module| module.identity.package.0 != "std")
-        .cloned()
-        .collect();
-    for owner in owners {
-        let facade = entry(
-            &mut modules,
-            &namespaces::module("std", &owner.identity.path.join("::")),
-        );
-        for item in &owner.traits {
-            facade.exports.insert(
-                ExportName::new(NameNamespace::Type, item.name.clone()),
-                owner.definition(DefinitionKind::Trait, &item.name, &definitions)?,
-            );
-        }
-        for ty in &owner.types {
-            let kind = ty.kind.definition_kind();
-            facade.exports.insert(
-                ExportName::new(NameNamespace::Type, ty.name.clone()),
-                owner.definition(kind, &ty.name, &definitions)?,
-            );
-        }
-    }
-    let foundation_owners: Vec<_> = modules
-        .keys()
-        .filter(|id| id.package.0 != "std" || id.path == ["collections"])
-        .cloned()
-        .collect();
-    let prelude = entry(&mut modules, &namespaces::prelude());
-    prelude.prelude = true;
-    // Syntax and implicit implementations need the complete installed foundation,
-    // independently of which declaration names the prelude brings into scope.
-    prelude.dependencies.extend(foundation_owners);
-    for name in [
-        "Iterator",
-        "Iterable",
-        "FromIterator",
-        "Default",
-        "PartialEq",
-        "Eq",
-        "PartialOrd",
-        "Ord",
-        "From",
-        "Into",
-        "TryFrom",
-        "TryInto",
-        "Fn",
-    ] {
-        prelude.exports.insert(
-            ExportName::new(NameNamespace::Type, name),
-            ModuleDecl::new(namespaces::trait_owner(name)).definition(
-                DefinitionKind::Trait,
-                name,
-                &definitions,
-            )?,
-        );
-    }
-    for (name, kind) in [
-        ("String", DefinitionKind::AssociatedType),
-        ("Ref", DefinitionKind::AssociatedType),
-        ("RefMut", DefinitionKind::AssociatedType),
-        ("Vec", DefinitionKind::AssociatedType),
-        ("Option", DefinitionKind::Enum),
-        ("Result", DefinitionKind::Enum),
-        ("Future", DefinitionKind::AssociatedType),
-        ("Task", DefinitionKind::AssociatedType),
-        ("TaskScope", DefinitionKind::AssociatedType),
-        ("SpawnError", DefinitionKind::Enum),
-    ] {
-        prelude.exports.insert(
-            ExportName::new(NameNamespace::Type, name),
-            ModuleDecl::new(namespaces::type_owner(name)).definition(kind, name, &definitions)?,
-        );
-    }
-    for (owner, variant) in [
-        ("Option", "Some"),
-        ("Option", "None"),
-        ("Result", "Ok"),
-        ("Result", "Err"),
-    ] {
-        let owner_id = ModuleDecl::new(namespaces::type_owner(owner)).definition(
-            DefinitionKind::Enum,
-            owner,
-            &definitions,
-        )?;
-        let id = ModuleDecl::variant_id(owner_id, variant, &definitions)?;
-        prelude
-            .exports
-            .insert(ExportName::new(NameNamespace::Value, variant), id);
-    }
     for module in modules.values_mut() {
         // Publication changes owner identities; restore canonical semantic ordering.
         for ty in &mut module.types {
@@ -440,11 +313,8 @@ pub(super) fn finish(
             )
             .map_err(identities::invalid)?;
         module.dependencies.extend(dependencies);
-        let definitions = module.collect_definitions(&context)?;
-        module.validate(
-            &|ty| namespaces::receiver_owner(ty, &definitions),
-            &definitions,
-        )?;
+        module.collect_definitions(&context)?;
+        // Complete validation belongs to the shared batch seal, after new owners join.
     }
     Ok((context, modules.into_values().collect()))
 }

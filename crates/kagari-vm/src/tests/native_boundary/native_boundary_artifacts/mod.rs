@@ -80,12 +80,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         .iter()
         .flat_map(|module| &module.native_imports)
         .collect();
-    for expected in [
-        "$foundation_list_new",
-        "$foundation_list_push_fluent",
-        "$foundation_list_len",
-        "$foundation_list_index",
-    ] {
+    for expected in ["new", "push", "len", "index"] {
         assert!(
             imports.iter().any(|import| definitions
                 .resolve(import.binding)
@@ -147,7 +142,7 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
                         .resolve(import.binding)
                         .unwrap()
                         .last()
-                        .is_some_and(|part| part.name == "$foundation_set_contains")
+                        .is_some_and(|part| part.name == "contains")
                 })
                 .map(|slot| (member, slot))
         })
@@ -364,7 +359,7 @@ fn native_storage_writes_reject_element_type_forgery() {
                     .resolve(import.binding)
                     .unwrap()
                     .last()
-                    .is_some_and(|part| part.name == "$foundation_list_push_fluent")
+                    .is_some_and(|part| part.name == "push")
             })
         })
         .unwrap();
@@ -384,7 +379,7 @@ fn native_storage_writes_reject_element_type_forgery() {
                 .then_some(Register::new(*index))
         })
         .unwrap();
-    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if definitions.resolve(imports[id.index()].binding).unwrap().last().is_some_and(|part| part.name == "$foundation_list_push_fluent") && matches!(&imports[id.index()].signature.params[0], Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::NativeObject(_)])))).unwrap();
+    let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if definitions.resolve(imports[id.index()].binding).unwrap().last().is_some_and(|part| part.name == "push") && matches!(&imports[id.index()].signature.params[0], Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::NativeObject(_)])))).unwrap();
     let BytecodeInstruction::Call { args, .. } = instruction else {
         unreachable!()
     };

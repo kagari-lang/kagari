@@ -6,18 +6,22 @@
 //! Factories consume the supplied sealed preparation view, not global declaration
 //! entrypoints. They must not spawn and join work that initializes the same bundle.
 //!
-//! SR01 exercises this implementation with representative recipes. SR02-SR04 wire
-//! migrated contributors to it; SR05 removes the old independent declaration,
-//! module and enum caches. There is no fallback to those caches from this owner.
+//! Production recipes and remaining raw seeds share one seal and this cache.
+//! Declaration-only consumers never prepare adapters. SR05 removes the remaining
+//! raw seed bridge and symbolic enum caches; no separate declaration producer runs.
+mod composition;
 mod initialization;
-mod semantic;
+pub(crate) mod semantic;
 
 #[cfg(test)]
 mod tests;
 
-use crate::assembly::{
-    initialization::{Phase, check_reentry, run},
-    semantic::Semantic,
+use crate::{
+    assembly::{
+        initialization::{Phase, check_reentry, run},
+        semantic::Semantic,
+    },
+    bindings,
 };
 use kagari_runtime::{
     error::RuntimeError,
@@ -108,6 +112,18 @@ impl<F: FnOnce() -> NativeResult<ModuleAssembly>> Bundle<F> {
             .as_ref()
             .map_err(Clone::clone)
     }
+}
+
+static STANDARD: Bundle<fn() -> NativeResult<ModuleAssembly>> =
+    Bundle::new("standard", composition::collect);
+
+pub(crate) fn semantic() -> NativeResult<Arc<Semantic>> {
+    STANDARD.semantic()
+}
+
+pub(crate) fn modules() -> NativeResult<Vec<NativeModule>> {
+    bindings::initialize(semantic()?.as_ref())?;
+    STANDARD.modules().map(|modules| modules.to_vec())
 }
 
 fn take<T>(slot: &Mutex<Option<T>>, bundle: &str, item: &str) -> NativeResult<T> {

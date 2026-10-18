@@ -1,8 +1,11 @@
 use crate::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_bytecode::program::{BytecodeProgram, identity};
 use kagari_common::identity::{
-    DefinitionPath, map::DefinitionContext, metadata::DefinitionMetadata, scoped::RemapDefinitions,
-    table::DefinitionId,
+    DefinitionKind, DefinitionPath, ModuleIdentity,
+    map::DefinitionContext,
+    metadata::DefinitionMetadata,
+    scoped::RemapDefinitions,
+    table::{DefinitionId, DefinitionTable},
 };
 use kagari_hir::{
     CheckedAnalysis, analysis::AnalysisDatabase, analyze_source, program::CheckedProgram,
@@ -16,7 +19,132 @@ use kagari_source::{
     source::SourceFile,
     source_database::{SourceDatabase, SourceLayer},
 };
-use kagari_stdlib::catalog as foundation_catalog;
+use kagari_stdlib::{catalog as foundation_catalog, identity as library, namespaces};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{FnDecl, module::ImplDecl},
+    scalar::BuiltinType,
+    ty::Ty,
+};
+
+/// Resolve the provider's checked target by semantic contract, never impl occurrence.
+fn standard_method_binding(
+    owner: ModuleIdentity,
+    name: &str,
+    matches: impl Fn(&ImplDecl, &FnDecl, &DefinitionTable) -> bool,
+) -> DefinitionPath {
+    let providers = foundation_catalog::declarations().unwrap();
+    let provider = providers
+        .iter()
+        .find(|module| module.records().identity == owner)
+        .unwrap();
+    let definitions = provider.definitions();
+    let mut candidates = Vec::new();
+    for implementation in &provider.records().implementations {
+        for method in &implementation.methods {
+            if method.name == name && matches(implementation, method, definitions) {
+                let CallableImplementation::Native(binding) = method.implementation else {
+                    panic!("expected a direct native binding for {owner}::{name}");
+                };
+                let path = definitions.resolve(binding).unwrap().to_path();
+                assert_eq!(path.module, owner);
+                candidates.push(path);
+            }
+        }
+    }
+    assert_eq!(
+        candidates.len(),
+        1,
+        "unique semantic target for {owner}::{name}"
+    );
+    candidates.pop().unwrap()
+}
+
+pub fn standard_array_index_binding() -> DefinitionPath {
+    standard_method_binding(
+        namespaces::module("core", "array"),
+        "index",
+        |implementation, method, definitions| {
+            let [parameter] = implementation.generic_params.as_slice() else {
+                return false;
+            };
+            let item = parameter.as_type();
+            let Some(interface) = &implementation.trait_type else {
+                return false;
+            };
+            if implementation.for_type != Ty::Array(Box::new(item.clone()))
+                || definitions
+                    .resolve(interface.declaration)
+                    .unwrap()
+                    .to_path()
+                    != library::trait_id("Index")
+                || interface.arguments != [Ty::Builtin(BuiltinType::U64)]
+            {
+                return false;
+            }
+            let output = definitions
+                .lookup_child(
+                    interface.declaration,
+                    DefinitionKind::AssociatedType,
+                    "Output",
+                    0,
+                )
+                .unwrap();
+            assert_eq!(interface.associated_types.len(), 1);
+            assert_eq!(interface.associated_types[&output], item);
+            assert_eq!(method.return_type, item);
+            true
+        },
+    )
+}
+
+pub fn standard_vec_binding(name: &str) -> DefinitionPath {
+    let contract = match name {
+        "push" => None,
+        "pop" => Some("MutableList"),
+        "len" => Some("List"),
+        _ => panic!("unexpected Vec member"),
+    };
+    standard_method_binding(
+        namespaces::module("alloc", "vec"),
+        name,
+        |implementation, method, definitions| {
+            let [parameter] = implementation.generic_params.as_slice() else {
+                return false;
+            };
+            let Ty::NativeObject(receiver) = &implementation.for_type else {
+                return false;
+            };
+            if definitions.resolve(receiver.declaration).unwrap().to_path()
+                != library::type_id("Vec", DefinitionKind::AssociatedType)
+                || receiver.arguments != [parameter.as_type()]
+                || !receiver.associated_types.is_empty()
+            {
+                return false;
+            }
+            let matches_interface = match (contract, &implementation.trait_type) {
+                (None, None) => true,
+                (Some(name), Some(interface)) => {
+                    definitions
+                        .resolve(interface.declaration)
+                        .unwrap()
+                        .to_path()
+                        == library::trait_id(name)
+                        && interface.arguments == [parameter.as_type()]
+                        && interface.associated_types.is_empty()
+                }
+                _ => false,
+            };
+            if matches_interface && name == "push" {
+                assert_eq!(
+                    method.return_type, implementation.for_type,
+                    "inherent Vec::push must be fluent, not the unit-returning capability method"
+                );
+            }
+            matches_interface
+        },
+    )
+}
 
 pub fn analyze_ok(text: &str) -> Box<CheckedAnalysis> {
     let source = SourceFile::new("test.kg", text);

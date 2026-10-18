@@ -53,7 +53,14 @@ fn slice(value: String, start: u64, end: u64) -> String { value.slice(start, end
         .enumerate()
         .map(|(slot, import)| {
             let name = program.definitions().resolve(import.binding).unwrap();
-            (name.last().unwrap().name.to_owned(), slot)
+            let name = name.last().unwrap().name;
+            let key =
+                if name == "insert" && import.signature.result == Ty::Builtin(BuiltinType::Unit) {
+                    "insert_unit"
+                } else {
+                    name
+                };
+            (key.to_owned(), slot)
         })
         .collect();
     let mut runtime = Runtime::default();
@@ -77,7 +84,7 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
         .unwrap();
     let array = runtime.root_value(Value::Array(array)).unwrap();
     for index in [1, 1u64 << 32, u64::MAX] {
-        for name in ["$foundation_list_get", "$foundation_list_remove"] {
+        for name in ["get", "remove"] {
             let result =
                 invoke(&runtime, &owner, slots[name], &[value, Value::U64(index)]).unwrap();
             let result = runtime.root_value(result).unwrap();
@@ -90,7 +97,7 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
         let error = invoke(
             &runtime,
             &owner,
-            slots["$foundation_array_index"],
+            slots["index"],
             &[array.value(runtime.gc()).unwrap(), Value::U64(index)],
         )
         .unwrap_err();
@@ -98,7 +105,7 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
         assert!(error.to_string().contains(&index.to_string()));
     }
     for index in [2, 1u64 << 32, u64::MAX] {
-        for name in ["$foundation_list_insert", "$foundation_list_insert_fluent"] {
+        for name in ["insert_unit", "insert"] {
             let error = invoke(
                 &runtime,
                 &owner,
@@ -114,7 +121,7 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
     let result = invoke(
         &runtime,
         &owner,
-        slots["$foundation_list_insert"],
+        slots["insert_unit"],
         &[value, Value::U64(1), Value::U64(42)],
     )
     .unwrap();
@@ -122,7 +129,7 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
     let result = invoke(
         &runtime,
         &owner,
-        slots["$foundation_list_insert_fluent"],
+        slots["insert"],
         &[value, Value::U64(2), Value::U64(43)],
     )
     .unwrap();
@@ -131,13 +138,7 @@ fn wide_collection_indices_preserve_absence_traps_and_mutation() {
         cx.decode::<Vec<u64>>(&values).unwrap(),
         [1u64 << 32, 42, 43]
     );
-    let result = invoke(
-        &runtime,
-        &owner,
-        slots["$foundation_list_remove"],
-        &[value, Value::U64(0)],
-    )
-    .unwrap();
+    let result = invoke(&runtime, &owner, slots["remove"], &[value, Value::U64(0)]).unwrap();
     let result = runtime.root_value(result).unwrap();
     assert_eq!(cx.decode::<Option<u64>>(&result).unwrap(), Some(1u64 << 32));
     assert_eq!(cx.decode::<Vec<u64>>(&values).unwrap(), [42, 43]);
@@ -149,7 +150,7 @@ fn string_slice_preserves_wide_range_and_utf8_errors() {
     let mut cx = ConversionContext::new(&runtime, &owner).unwrap();
     let text = cx.encode("a火".to_owned()).unwrap();
     let value = text.value(runtime.gc()).unwrap();
-    let slot = slots["$foundation_string_slice"];
+    let slot = slots["slice"];
     for (start, end) in [
         (0, 1u64 << 32),
         (0, u64::MAX),

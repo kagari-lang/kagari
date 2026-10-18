@@ -12,13 +12,16 @@ use kagari_types::declaration::TypeDefKind;
 use std::collections::BTreeMap;
 
 /// Independently retained declarations and enum members from one sealed snapshot.
-/// Future StandardDeclarations consumers keep this value, not the parent Bundle.
+/// StandardDeclarations queries this value, not pending work in the parent Bundle.
 /// Handles contain only declaration identity/metadata; allocation still resolves
 /// the invoking runtime's generation-pinned layout through its checked call API.
 #[derive(Debug)]
 pub struct Semantic {
     snapshot: DeclarationSnapshot,
     enumerations: BTreeMap<DefinitionPath, Enumeration>,
+    // Preserve the existing short-name API without scanning modules on enum calls.
+    // Ambiguous names remain valid declarations, but cannot use this convenience index.
+    enum_names: BTreeMap<String, Option<DefinitionPath>>,
 }
 
 #[derive(Debug)]
@@ -30,6 +33,7 @@ struct Enumeration {
 impl Semantic {
     pub(super) fn new(snapshot: DeclarationSnapshot) -> NativeResult<Self> {
         let mut enumerations = BTreeMap::new();
+        let mut enum_names = BTreeMap::new();
         for module in snapshot.modules() {
             for ty in &module.records().types {
                 if ty.kind != TypeDefKind::Enum {
@@ -54,6 +58,10 @@ impl Semantic {
                             .map(|handle| (variant.name.clone(), handle))
                     })
                     .collect::<NativeResult<_>>()?;
+                enum_names
+                    .entry(ty.name.clone())
+                    .and_modify(|entry| *entry = None)
+                    .or_insert_with(|| Some(path.clone()));
                 enumerations.insert(
                     path,
                     Enumeration {
@@ -66,6 +74,7 @@ impl Semantic {
         Ok(Self {
             snapshot,
             enumerations,
+            enum_names,
         })
     }
 
@@ -79,6 +88,16 @@ impl Semantic {
             .get(path)
             .map(|enumeration| &enumeration.declaration)
             .ok_or_else(|| conflict("stdlib enum is not declared by this semantic snapshot"))
+    }
+
+    /// Resolve an unambiguous short enum name from this immutable snapshot.
+    pub fn enumeration_named(&self, name: &str) -> NativeResult<&TypeRef> {
+        let path = self
+            .enum_names
+            .get(name)
+            .and_then(Option::as_ref)
+            .ok_or_else(|| conflict("unknown or ambiguous standard enum"))?;
+        self.enumeration(path)
     }
 
     /// Borrow a symbolic variant; this does not select or retain a runtime layout.

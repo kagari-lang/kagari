@@ -48,20 +48,35 @@ impl ModuleDraft<'_> {
                 "generic inherent receiver requires a type reference",
             ));
         }
+        let result = self.inherent_with(
+            reference.arity,
+            |arguments| reference.apply(arguments.to_vec()),
+            configure,
+        )?;
+        self.state.references.push(reference.clone());
+        Ok(result)
+    }
+
+    /// Author a structural generic receiver such as `[T]` under the group's
+    /// actual implementation binder. Signature/fact substitution and ownership
+    /// checks are the same as for nominal generic inherent groups.
+    pub fn inherent_with<T>(
+        &mut self,
+        arity: usize,
+        receiver: impl FnOnce(&[Type]) -> NativeResult<Type>,
+        configure: impl FnOnce(&[Type], &mut MethodDraft) -> NativeResult<T>,
+    ) -> NativeResult<T> {
         let owner = self.next_implementation_id()?;
-        let parameters = (0..reference.arity)
+        let parameters = (0..arity)
             .map(|position| GenericParam { owner, position })
             .collect::<Vec<_>>();
         let arguments = parameters
             .iter()
             .map(|parameter| Type::from_semantic(parameter.as_type(), &self.definitions()))
             .collect::<NativeResult<Vec<_>>>()?;
-        let receiver = reference.apply(arguments.clone())?;
-        let result = self.inherent_group(owner, receiver, &parameters, |methods| {
+        self.inherent_group(owner, receiver(&arguments)?, &parameters, |methods| {
             configure(&arguments, methods)
-        })?;
-        self.state.references.push(reference.clone());
-        Ok(result)
+        })
     }
 
     fn inherent_group<T>(

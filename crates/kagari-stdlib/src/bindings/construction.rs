@@ -31,7 +31,7 @@ fn result_item(cx: &CallContext<'_>) -> NativeResult<BuiltinType> {
     Ok(*target)
 }
 
-pub(super) fn from_str(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn from_str(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let Value::Str(text) = cx.argument(0)? else {
         return Err(invalid());
     };
@@ -82,7 +82,7 @@ fn result(
     )
 }
 
-pub(super) fn try_from(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn try_from(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let Ty::Builtin(source) = cx.argument_type(0)? else {
         return Err(invalid());
     };
@@ -127,11 +127,11 @@ pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(result)
 }
 
-pub(super) fn sum(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn sum(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     aggregate(cx, false)
 }
 
-pub(super) fn product(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn product(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     aggregate(cx, true)
 }
 

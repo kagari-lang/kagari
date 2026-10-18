@@ -1,5 +1,5 @@
 //! Standard-library Markdown lives with the registrations that define the API.
-use crate::catalog::identities;
+use crate::{catalog::identities, foundation::string};
 use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_types::{
     declaration::module::{DeclarationError, ModuleDecl},
@@ -268,7 +268,7 @@ fn inherent_example(receiver: &Ty, name: &str) -> String {
     }
 }
 
-pub(super) fn complete(
+pub(crate) fn complete(
     definitions: &DefinitionTable,
     module: &mut ModuleDecl,
 ) -> Result<(), DeclarationError> {
@@ -382,94 +382,7 @@ pub(super) fn complete(
     for ty in &module.types {
         let kind = ty.kind.definition_kind();
         let id = module.definition(kind, &ty.name, definitions)?;
-        let (description, code) = match ty.name.as_str() {
-            "Ref" => (
-                "A shared host location valid only within its execution scope. It cannot be returned, captured, stored in owning values or retained across suspension. The target schema does not grant a Rust reference without an installed host capability.",
-                "struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }",
-            ),
-            "RefMut" => (
-                "A mutable host location valid only within its execution scope. Exclusive access uses checked loans; holding a view neither transfers ownership nor creates an active Rust reference. A shared view cannot upgrade to this capability.",
-                "struct Player {} fn inspect(value: RefMut<Player>) -> i32 { 1 }",
-            ),
-            "SpawnError" => (
-                "A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.",
-                "fn closed() -> SpawnError { SpawnError::ScopeClosed }",
-            ),
-            "Task" => (
-                "A scope-owned execution handle. Dropping a handle does not cancel the task. Completed values are retained by live handles and pending host reports.",
-                "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
-            ),
-            "TaskScope" => (
-                "A host-created capability for admitting independent tasks into one host-owned scope. Only the host owner controls driving and scope closure.",
-                "fn retain(value: TaskScope) -> core::task::TaskScope { value }",
-            ),
-            "Future" => (
-                "A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.",
-                "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
-            ),
-            "Vec" => (
-                "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.",
-                "fn append(values: Vec<i32>) -> u64 { values.push(3); values.len() }",
-            ),
-            "String" => (
-                "An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver.",
-                "fn greeting() -> String { \"  hello  \".trim() }",
-            ),
-            "HashMap" => (
-                "A shared hash map with invariant key and value types. Equal keys must hash equally. Insert replaces an existing value; get returns None for an absent key.",
-                "fn find(values: std::collections::HashMap<i32, String>) -> Option<String> { values.get(1) }",
-            ),
-            "HashSet" => (
-                "A shared hash set. Equal members occupy one entry, and must hash equally. Lookup and structural mutation use checked synchronous guards.",
-                "fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }",
-            ),
-            "CollectionCursor" => (
-                "A shared built-in cursor. Copies share progress. next returns None when exhausted; structural source edits invalidate subsequent reads.",
-                "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
-            ),
-            "MapIterator" | "FilterIterator" | "TakeIterator" | "FilterMapIterator"
-            | "SkipIterator" | "EnumerateIterator" | "ZipIterator" | "ChainIterator" => (
-                "A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.",
-                "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }",
-            ),
-            "Option" => (
-                "An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.",
-                "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",
-            ),
-            "ControlFlow" => (
-                "Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.",
-                "fn success() -> core::ops::ControlFlow<String, i32> { core::ops::ControlFlow::Continue(42) }",
-            ),
-            "Result" => (
-                "A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.",
-                "fn read(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
-            ),
-            "Ordering" => (
-                "The result of a total comparison: Less, Equal or Greater.",
-                "fn compare(left: i32, right: i32) -> core::cmp::Ordering { left.cmp(right) }",
-            ),
-            "Bound" => (
-                "A range endpoint: Included(value), Excluded(value) or Unbounded.",
-                "fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }",
-            ),
-            "TryFromIntError" => (
-                "A checked numeric conversion error. Its variants distinguish the declared failure conditions.",
-                "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { i32::try_from(value) }",
-            ),
-            "Infallible" => (
-                "An uninhabited error type for conversions that cannot fail. It has no constructible variants.",
-                "fn widen(value: i32) -> i64 { i64::from(value) }",
-            ),
-            "ParseError" => (
-                "A numeric parsing error. Invalid input and out-of-range values are reported through Result.",
-                "fn number(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
-            ),
-            name if name.starts_with("Range") => (
-                "A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.",
-                "fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }",
-            ),
-            name => unreachable!("standard type documentation inventory: {name}"),
-        };
+        let (description, code) = type_docs(&ty.name);
         module.documentation.insert(id, example(description, code));
         for variant in &ty.variants {
             let member = ModuleDecl::variant_id(id, &variant.name, definitions)?;
@@ -537,4 +450,113 @@ pub(super) fn inherit(
     }
 
     Ok(())
+}
+
+pub(crate) fn type_docs(name: &str) -> (&'static str, &'static str) {
+    match name {
+        "Ref" => (
+            "A shared host location valid only within its execution scope. It cannot be returned, captured, stored in owning values or retained across suspension. The target schema does not grant a Rust reference without an installed host capability.",
+            "struct Player {} fn inspect(value: Ref<Player>) -> i32 { 1 }",
+        ),
+        "RefMut" => (
+            "A mutable host location valid only within its execution scope. Exclusive access uses checked loans; holding a view neither transfers ownership nor creates an active Rust reference. A shared view cannot upgrade to this capability.",
+            "struct Player {} fn inspect(value: RefMut<Player>) -> i32 { 1 }",
+        ),
+        "SpawnError" => (
+            "A failed Task admission: ScopeClosed, CapacityExceeded or DispatchUnavailable. No task is admitted on Err. Failures after successful admission belong to the Task outcome.",
+            "fn closed() -> SpawnError { SpawnError::ScopeClosed }",
+        ),
+        "Task" => (
+            "A scope-owned execution handle. Dropping a handle does not cancel the task. Completed values are retained by live handles and pending host reports.",
+            "fn retain(value: Task<i32>) -> core::task::Task<i32> { value }",
+        ),
+        "TaskScope" => (
+            "A host-created capability for admitting independent tasks into one host-owned scope. Only the host owner controls driving and scope closure.",
+            "fn retain(value: TaskScope) -> core::task::TaskScope { value }",
+        ),
+        "Future" => (
+            "A cold runtime-local operation with one invariant result type. Creation does not submit work. Await drives once and returns the result; repeated awaiting through any alias traps. Cancellation terminates execution rather than wrapping the result in Result.",
+            "fn retain(value: Future<i32>) -> core::future::Future<i32> { value }",
+        ),
+        "Vec" => (
+            "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.",
+            "fn append(values: Vec<i32>) -> u64 { values.push(3); values.len() }",
+        ),
+        "String" => string::TYPE_DOCS,
+        "HashMap" => (
+            "A shared hash map with invariant key and value types. Equal keys must hash equally. Insert replaces an existing value; get returns None for an absent key.",
+            "fn find(values: std::collections::HashMap<i32, String>) -> Option<String> { values.get(1) }",
+        ),
+        "HashSet" => (
+            "A shared hash set. Equal members occupy one entry, and must hash equally. Lookup and structural mutation use checked synchronous guards.",
+            "fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }",
+        ),
+        "CollectionCursor" => (
+            "A shared built-in cursor. Copies share progress. next returns None when exhausted; structural source edits invalidate subsequent reads.",
+            "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
+        ),
+        "MapIterator" | "FilterIterator" | "TakeIterator" | "FilterMapIterator"
+        | "SkipIterator" | "EnumerateIterator" | "ZipIterator" | "ChainIterator" => (
+            "A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.",
+            "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }",
+        ),
+        "Option" => (
+            "An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.",
+            "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",
+        ),
+        "ControlFlow" => (
+            "Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.",
+            "fn success() -> core::ops::ControlFlow<String, i32> { core::ops::ControlFlow::Continue(42) }",
+        ),
+        "Result" => (
+            "A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.",
+            "fn read(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+        ),
+        "Ordering" => (
+            "The result of a total comparison: Less, Equal or Greater.",
+            "fn compare(left: i32, right: i32) -> core::cmp::Ordering { left.cmp(right) }",
+        ),
+        "Bound" => (
+            "A range endpoint: Included(value), Excluded(value) or Unbounded.",
+            "fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }",
+        ),
+        "TryFromIntError" => (
+            "A checked numeric conversion error. Its variants distinguish the declared failure conditions.",
+            "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { i32::try_from(value) }",
+        ),
+        "Infallible" => (
+            "An uninhabited error type for conversions that cannot fail. It has no constructible variants.",
+            "fn widen(value: i32) -> i64 { i64::from(value) }",
+        ),
+        "ParseError" => (
+            "A numeric parsing error. Invalid input and out-of-range values are reported through Result.",
+            "fn number(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+        ),
+        name if name.starts_with("Range") => (
+            "A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.",
+            "fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }",
+        ),
+        name => unreachable!("standard type documentation inventory: {name}"),
+    }
+}
+
+pub(crate) fn implementation_docs(contract: &str, member: &str) -> String {
+    let (overview, code) = trait_docs(contract);
+    example(&member_docs(contract, member, overview), code)
+}
+
+pub(crate) fn inherent_docs(receiver: &Ty, name: &str) -> String {
+    example(
+        &member_docs(
+            "collection",
+            name,
+            "Creates or accesses checked shared collection storage. Structural mutation honors active borrow and callback guards.",
+        ),
+        &inherent_example(receiver, name),
+    )
+}
+
+pub(crate) fn type_markdown(name: &str) -> String {
+    let (text, code) = type_docs(name);
+    example(text, code)
 }

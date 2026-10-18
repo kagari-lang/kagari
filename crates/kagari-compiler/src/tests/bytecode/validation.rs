@@ -55,7 +55,7 @@ fn verifier_rejects_vec_get_scalar_result_and_wrong_arity() {
                     .resolve(import.binding)
                     .unwrap()
                     .last()
-                    .is_some_and(|part| part.name == "$foundation_list_get")
+                    .is_some_and(|part| part.name == "get")
             })
             .unwrap(),
     );
@@ -560,7 +560,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
                 .resolve(import.binding)
                 .unwrap()
                 .last()
-                .is_some_and(|part| part.name == "$foundation_Range_start_bound")
+                .is_some_and(|part| part.name == "start_bound")
         })
         .unwrap();
     for mutation in 0..4 {

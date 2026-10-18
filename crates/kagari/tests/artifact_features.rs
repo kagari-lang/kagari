@@ -255,7 +255,7 @@ fn source_free_native_imports_reject_forged_signatures() {
                     .resolve(import.binding)
                     .unwrap()
                     .last()
-                    .is_some_and(|part| part.name == "$foundation_list_push_fluent"),
+                    .is_some_and(|part| part.name == "push"),
                 _ => {
                     matches!(import.signature.params.as_slice(), [Ty::Array(_)])
                         && matches!(import.signature.result, Ty::NativeObject(_))
@@ -565,16 +565,13 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
     let mut changed = false;
     contracts::alter_bindings(&mut artifact, |id| {
         let view = definitions.resolve(*id).unwrap();
-        if view
-            .last()
-            .is_some_and(|part| part.name == "$foundation_list_sort")
-        {
+        if view.last().is_some_and(|part| part.name == "sort") {
             let segment = view.last().unwrap();
             *id = context
                 .intern_child(
                     definitions.parent(*id).unwrap().unwrap(),
                     segment.kind,
-                    "$foundation_list_sort_by",
+                    "sort_by",
                     segment.occurrence,
                 )
                 .unwrap();
@@ -587,7 +584,7 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
                 .resolve(import.binding)
                 .unwrap()
                 .last()
-                .is_some_and(|part| part.name == "$foundation_list_sort_by")
+                .is_some_and(|part| part.name == "sort_by")
                 && import.signature.params.len() == 1
         });
     }

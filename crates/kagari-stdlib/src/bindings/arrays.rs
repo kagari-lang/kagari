@@ -21,18 +21,18 @@ fn source(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
     Ok(id)
 }
 
-pub(super) fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .array_len(source(cx)?)
         .map(NativeScalar::encode)
         .ok_or_else(invalid)
 }
 
-pub(super) fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(u64::decode(length(cx)?)? == 0))
 }
 
-pub(super) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let source = source(cx)?;
     let index = index_argument(cx, 1)?;
     let out_of_bounds = || {
@@ -108,7 +108,7 @@ pub(super) fn set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 /// Compare fixed arrays in order through the checked element operation.
-pub(super) fn equal(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn equal(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let left = source(cx)?;
     let Value::Array(right) = cx.checked_argument(1)? else {
         return Err(invalid());

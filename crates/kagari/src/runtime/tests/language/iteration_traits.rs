@@ -508,7 +508,7 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 .resolve(import.binding)
                 .unwrap()
                 .last()
-                .is_some_and(|part| part.name == "$foundation_array_iter")
+                .is_some_and(|part| part.name == "iter")
         })
         .unwrap();
     for corrupt in 0..3 {

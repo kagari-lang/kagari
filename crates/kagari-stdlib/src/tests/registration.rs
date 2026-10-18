@@ -147,11 +147,9 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
             let CallableImplementation::Native(binding) = method.implementation else {
                 panic!("standard defaults require explicit native bindings");
             };
-            let binding = definitions.resolve(binding).unwrap();
-            assert_eq!(binding.module(), &expected_owner);
             assert_eq!(
-                binding.last().unwrap().name,
-                format!("$foundation_default_{name}")
+                definitions.resolve(binding).unwrap().module(),
+                &expected_owner
             );
             let method_id = ModuleDecl::method_id(
                 module.implementation_id(index, definitions).unwrap(),
@@ -159,6 +157,10 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
                 definitions,
             )
             .unwrap();
+            assert_eq!(
+                binding, method_id,
+                "each declaration owns its checked target"
+            );
             assert!(!module.documentation[&method_id].is_empty());
         }
     }
@@ -178,13 +180,99 @@ fn standard_default_inventory_has_owned_bindings_and_unbounded_elements() {
 fn canonical_foundation_contracts_survive_scoped_publication_and_installation() {
     let first = catalog::declarations().unwrap();
     let second = catalog::declarations().unwrap();
-    assert_ne!(first[0].definitions().id(), second[0].definitions().id());
+    assert_eq!(first.len(), 36);
+    assert_eq!(
+        first
+            .iter()
+            .map(|module| module.records().types.len())
+            .sum::<usize>(),
+        33
+    );
+    assert_eq!(
+        first
+            .iter()
+            .map(|module| module.records().traits.len())
+            .sum::<usize>(),
+        41
+    );
+    assert_eq!(
+        first
+            .iter()
+            .map(|module| module.records().implementations.len())
+            .sum::<usize>(),
+        226
+    );
+    assert_eq!(
+        first
+            .iter()
+            .map(|module| module.records().exports.len())
+            .sum::<usize>(),
+        93
+    );
+    assert_eq!(
+        first
+            .iter()
+            .map(|module| module
+                .records()
+                .callable_requirements
+                .values()
+                .filter(|requirements| !requirements.is_empty())
+                .count())
+            .sum::<usize>(),
+        // SR01 had 92 entries, five empty; fluent inherent methods add fourteen
+        // empty entries, not new selected-call obligations.
+        87
+    );
+    assert_eq!(
+        first
+            .iter()
+            .map(|module| module.records().concrete_results.len())
+            .sum::<usize>(),
+        11
+    );
+    for module in &first {
+        let owner = &module.records().identity;
+        assert_ne!(owner.path, ["__foundation"]);
+        if owner.package.0 == "std" {
+            continue;
+        }
+        let facade = first
+            .iter()
+            .find(|candidate| {
+                candidate.records().identity == namespaces::module("std", &owner.path.join("::"))
+            })
+            .unwrap();
+        let public = module
+            .records()
+            .types
+            .iter()
+            .map(|ty| (&ty.name, ty.kind.definition_kind()))
+            .chain(
+                module
+                    .records()
+                    .traits
+                    .iter()
+                    .map(|contract| (&contract.name, DefinitionKind::Trait)),
+            );
+        for (name, kind) in public {
+            let id = module
+                .records()
+                .definition(kind, name, module.definitions())
+                .unwrap();
+            assert_eq!(
+                facade.records().exports[&ExportName::new(NameNamespace::Type, name)],
+                id
+            );
+        }
+    }
+    assert_eq!(first[0].definitions().id(), second[0].definitions().id());
     let comparison = DefinitionContext::new().unwrap();
     let cancel = CancellationToken::default();
     assert_eq!(first.len(), second.len());
     for (first, second) in first.iter().zip(&second) {
         let left = first.import_into(&comparison, &cancel).unwrap();
         let right = second.import_into(&comparison, &cancel).unwrap();
+        assert_ne!(left.definitions().id(), first.definitions().id());
         let (left, right) = (left.records(), right.records());
         assert_eq!(left.identity, right.identity);
         assert_eq!(left.types, right.types);

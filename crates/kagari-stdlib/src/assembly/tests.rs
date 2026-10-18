@@ -146,6 +146,27 @@ fn representative(
 }
 
 #[test]
+fn enum_short_names_reject_ambiguity_without_rejecting_canonical_owners() {
+    let cache = bundle(|| {
+        let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default())?;
+        for name in ["data", "other"] {
+            set.add(ModuleDefinition::new(owner(name), |module| {
+                module.define_type("Maybe", TypeDefKind::Enum, 0, |_, _| Ok(()))?;
+                Ok(())
+            }))?;
+        }
+        set.finish()
+    });
+    let semantic = cache.semantic().unwrap();
+    assert!(semantic.enumeration_named("Maybe").is_err());
+    let mut path = enum_path();
+    let first = semantic.enumeration(&path).unwrap().id();
+    path.module = owner("other");
+    assert_ne!(first, semantic.enumeration(&path).unwrap().id());
+    cache.modules().unwrap();
+}
+
+#[test]
 fn semantic_first_then_concurrent_executable_use_prepares_once_on_another_thread() {
     let counts = Arc::new(Counts::default());
     let recipe_counts = counts.clone();
@@ -176,6 +197,11 @@ fn semantic_first_then_concurrent_executable_use_prepares_once_on_another_thread
     assert_eq!(counts.factories.load(Ordering::SeqCst), 0);
     assert!(Arc::ptr_eq(&semantic, &cache.semantic().unwrap()));
     let enumeration = semantic.enumeration(&enum_path()).unwrap();
+    assert_eq!(
+        semantic.enumeration_named("Maybe").unwrap().id(),
+        enumeration.id()
+    );
+    assert!(semantic.enumeration_named("Absent").is_err());
     let variant = semantic.variant(&enum_path(), "None").unwrap();
     let metadata = &semantic.snapshot().modules()[0];
     assert_eq!(enumeration.definitions().id(), metadata.definitions().id());

@@ -6,67 +6,18 @@ use crate::catalog::{
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
 use kagari_types::{
     collection::CollectionAccess,
-    conversion::checked_conversion_fallible,
     declaration::{
         module::{DeclarationError, ImplDecl, ModuleDecl},
         requirement::NativeCallableRequirement,
     },
-    scalar::BuiltinType,
     ty::{GenericParam, NominalTy, Ty},
 };
-
-const SCALARS: [BuiltinType; 11] = [
-    BuiltinType::Bool,
-    BuiltinType::I8,
-    BuiltinType::I16,
-    BuiltinType::I32,
-    BuiltinType::I64,
-    BuiltinType::U8,
-    BuiltinType::U16,
-    BuiltinType::U32,
-    BuiltinType::U64,
-    BuiltinType::F32,
-    BuiltinType::F64,
-];
 
 pub(super) fn declare(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
 ) -> Result<(), DeclarationError> {
     default_implementations(ids, module)?;
-    checked_conversions(ids, module)?;
-    for target in SCALARS {
-        let mut interface = key::applied(ids, RegistrationTrait::FromStr, vec![])?;
-        interface.associated_types.insert(
-            identities::associated(ids, &interface.declaration, "Err")?,
-            contracts::enum_type(ids, "ParseError", vec![])?,
-        );
-        implement(
-            ids,
-            module,
-            interface,
-            Ty::Builtin(target),
-            vec![],
-            "$foundation_from_str",
-        )?;
-        if target.number_type().is_some() {
-            for (kind, binding) in [
-                (RegistrationTrait::Sum, "$foundation_sum"),
-                (RegistrationTrait::Product, "$foundation_product"),
-            ] {
-                let item = Ty::Builtin(target);
-                implement(
-                    ids,
-                    module,
-                    key::applied(ids, kind, vec![item.clone()])?,
-                    item.clone(),
-                    vec![],
-                    binding,
-                )?;
-                iteration_calls(ids, module, item)?;
-            }
-        }
-    }
     let parameter = GenericParam {
         owner: identities::implementation(ids, module.implementations.len())?,
         position: 0,
@@ -90,106 +41,18 @@ fn default_implementations(
     ids: &DefinitionContext,
     module: &mut ModuleDecl,
 ) -> Result<(), DeclarationError> {
-    for (target, binding, description) in [
-        (
-            BuiltinType::Unit,
-            "$foundation_default_Unit",
-            "Return the Unit value ().",
-        ),
-        (
-            BuiltinType::Bool,
-            "$foundation_default_Bool",
-            "Return false.",
-        ),
-        (
-            BuiltinType::I8,
-            "$foundation_default_I8",
-            "Return zero of type i8.",
-        ),
-        (
-            BuiltinType::I16,
-            "$foundation_default_I16",
-            "Return zero of type i16.",
-        ),
-        (
-            BuiltinType::I32,
-            "$foundation_default_I32",
-            "Return zero of type i32.",
-        ),
-        (
-            BuiltinType::I64,
-            "$foundation_default_I64",
-            "Return zero of type i64.",
-        ),
-        (
-            BuiltinType::U8,
-            "$foundation_default_U8",
-            "Return zero of type u8.",
-        ),
-        (
-            BuiltinType::U16,
-            "$foundation_default_U16",
-            "Return zero of type u16.",
-        ),
-        (
-            BuiltinType::U32,
-            "$foundation_default_U32",
-            "Return zero of type u32.",
-        ),
-        (
-            BuiltinType::U64,
-            "$foundation_default_U64",
-            "Return zero of type u64.",
-        ),
-        (
-            BuiltinType::F32,
-            "$foundation_default_F32",
-            "Return positive zero of type f32.",
-        ),
-        (
-            BuiltinType::F64,
-            "$foundation_default_F64",
-            "Return positive zero of type f64.",
-        ),
-        (
-            BuiltinType::String,
-            "$foundation_default_String",
-            "Return an empty immutable String.",
-        ),
-    ] {
-        implement_default(
-            ids,
-            module,
-            Ty::Builtin(target),
-            vec![],
-            binding,
-            description,
-        )?;
-    }
-    for (name, binding, description) in [
-        (
-            "Vec",
-            "$foundation_default_Vec",
-            "Return a fresh empty Vec<T>. Every call creates independent mutable storage; T need not implement Default.",
-        ),
-        (
-            "Option",
-            "$foundation_default_Option",
-            "Return Option<T>::None using the checked Option enum identity. T need not implement Default.",
-        ),
-    ] {
-        let parameter = GenericParam {
-            owner: identities::implementation(ids, module.implementations.len())?,
-            position: 0,
-        };
-        let receiver = if name == "Vec" {
-            contracts::vec_type(ids, parameter.as_type())?
-        } else {
-            contracts::option(ids, parameter.as_type())?
-        };
-        implement_default(ids, module, receiver, vec![parameter], binding, description)?;
-    }
-    Ok(())
+    let parameter = GenericParam {
+        owner: identities::implementation(ids, module.implementations.len())?,
+        position: 0,
+    };
+    implement_default(
+        ids,
+        module,
+        contracts::vec_type(ids, parameter.as_type())?,
+        vec![parameter],
+        "$foundation_default_Vec",
+        "Return a fresh empty Vec<T>. Every call creates independent mutable storage; T need not implement Default.",
+    )
 }
 
 fn implement_default(
@@ -213,43 +76,6 @@ fn implement_default(
         identities::method(ids, &owner, "default")?,
         format!("{description}\n\nSee `core::default::Default` for the construction contract."),
     );
-    Ok(())
-}
-
-fn checked_conversions(
-    ids: &DefinitionContext,
-    module: &mut ModuleDecl,
-) -> Result<(), DeclarationError> {
-    for source in SCALARS {
-        for target in SCALARS {
-            let Some(fallible) = checked_conversion_fallible(source, target) else {
-                continue;
-            };
-            let mut interface =
-                key::applied(ids, RegistrationTrait::TryFrom, vec![Ty::Builtin(source)])?;
-            interface.associated_types.insert(
-                identities::associated(ids, &interface.declaration, "Error")?,
-                contracts::enum_type(
-                    ids,
-                    if fallible {
-                        "TryFromIntError"
-                    } else {
-                        "Infallible"
-                    },
-                    vec![],
-                )?,
-            );
-            implement(
-                ids,
-                module,
-                interface,
-                Ty::Builtin(target),
-                vec![],
-                "$foundation_try_from",
-            )?;
-        }
-    }
-
     Ok(())
 }
 

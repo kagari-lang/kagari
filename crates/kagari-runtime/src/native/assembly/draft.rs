@@ -1,5 +1,6 @@
 //! Owner-scoped collection using the existing signature and implementation lowerers.
 pub mod defaults;
+mod imported;
 mod inherent;
 pub mod traits;
 use crate::native::{
@@ -85,6 +86,14 @@ impl<'a> ModuleDraft<'a> {
 
     pub fn documentation(&mut self, text: impl Into<String>) {
         self.state.declaration.module_documentation = text.into();
+    }
+
+    /// Attach Markdown to a local declaration or member identity. Foreign
+    /// scopes and identities owned by another module reject.
+    pub fn document(&mut self, id: DefinitionId, text: impl Into<String>) -> NativeResult<()> {
+        self.check_local(id)?;
+        self.state.declaration.documentation.insert(id, text.into());
+        Ok(())
     }
 
     pub fn package_alias(&mut self, alias: impl Into<String>) {

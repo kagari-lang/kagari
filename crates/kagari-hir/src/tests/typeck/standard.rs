@@ -203,7 +203,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
         &TypeId::Builtin(BuiltinType::F64)
     ));
 
-    let signature = |binding| {
+    let signature = |owner, binding| {
         declarations
             .files()
             .find_map(|source| {
@@ -219,28 +219,26 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
                         function.implementation
                             == FunctionImplementation::Native(NativeBinding::Entry(binding_id(
                                 snapshot.definitions(),
+                                owner,
                                 binding,
                             )))
                     })
             })
             .expect("checked native function signature")
     };
-    let map_get = signature("$foundation_map_get");
+    let map_get = signature("collections", "get");
     let key_bounds = map_get.bounds.get(&map_get.params[1].ty).unwrap();
     for kind in [Protocol::Eq, Protocol::Hash] {
         assert!(key_bounds.iter().any(|interface| interface.declaration
             == kind.nominal(snapshot.definitions()).unwrap().declaration));
     }
     assert_eq!(map_get.params.len(), 2);
-    for binding in [
-        "$foundation_map_insert",
-        "$foundation_list_push",
-        "$foundation_cursor_next",
-    ] {
+    for (owner, binding) in [("collections", "insert"), ("vec", "push"), ("iter", "next")] {
         assert_eq!(
-            signature(binding).implementation,
+            signature(owner, binding).implementation,
             FunctionImplementation::Native(NativeBinding::Entry(binding_id(
                 snapshot.definitions(),
+                owner,
                 binding
             )))
         );
@@ -256,7 +254,7 @@ fn exposes_installed_standard_declarations_and_checked_signatures() {
             .collect::<Vec<_>>(),
         ["len", "is_empty", "contains"]
     );
-    let len = signature("$foundation_list_len");
+    let len = signature("vec", "len");
     assert_eq!(len.params.len(), 1);
     assert_eq!(len.params[0].name, "self");
 }
@@ -709,8 +707,12 @@ fn checks_print_builtin_signature() {
     }));
 }
 
-fn binding_id(definitions: &DefinitionTable, name: &str) -> DefinitionId {
-    for module in catalog::shared().unwrap() {
+fn binding_id(definitions: &DefinitionTable, owner: &str, name: &str) -> DefinitionId {
+    for module in catalog::shared()
+        .unwrap()
+        .into_iter()
+        .filter(|module| module.records().identity.path == [owner])
+    {
         for declaration in module
             .records()
             .native_declarations(module.definitions())

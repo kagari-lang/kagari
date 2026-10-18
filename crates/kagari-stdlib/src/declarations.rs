@@ -1,5 +1,5 @@
 //! Immutable language contracts are available independently of optional modules.
-use crate::{catalog, identity};
+use crate::{assembly, catalog, identity};
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
 use kagari_runtime::{
     error::RuntimeError,
@@ -11,18 +11,11 @@ use kagari_runtime::{
 };
 use kagari_types::{
     collection::CollectionAccess,
-    declaration::{
-        TypeDefKind,
-        module::{DeclarationError, ModuleDecl},
-    },
+    declaration::module::{DeclarationError, ModuleDecl},
     language,
     language::Protocol,
 };
-use std::{cell::OnceCell, collections::BTreeMap, sync::Arc};
-
-thread_local! {
-    static ENUM_TYPES: OnceCell<NativeResult<BTreeMap<String, TypeRef>>> = const { OnceCell::new() };
-}
+use std::{cell::OnceCell, sync::Arc};
 
 #[derive(Debug, Clone)]
 pub struct StandardDeclarations {
@@ -137,40 +130,7 @@ impl StandardDeclarations {
 
     /// Retrieve a library enum's ordinary authoring handle.
     pub fn enumeration(name: &str) -> NativeResult<TypeRef> {
-        ENUM_TYPES.with(|cache| {
-            let declarations = cache
-                .get_or_init(|| {
-                    let standard = Self::default();
-                    let catalog = standard.catalog()?;
-                    standard
-                        .declarations()?
-                        .iter()
-                        .flat_map(|module| {
-                            module
-                                .records()
-                                .types
-                                .iter()
-                                .filter(|ty| ty.kind == TypeDefKind::Enum)
-                                .map(move |ty| (module, ty))
-                        })
-                        .map(|(_, ty)| {
-                            Ok((
-                                ty.name.clone(),
-                                catalog.type_reference(&identity::type_id(
-                                    &ty.name,
-                                    ty.kind.definition_kind(),
-                                ))?,
-                            ))
-                        })
-                        .collect::<NativeResult<_>>()
-                })
-                .as_ref()
-                .map_err(Clone::clone)?;
-            declarations
-                .get(name)
-                .cloned()
-                .ok_or_else(|| RuntimeError::metadata_conflict("unknown standard enum"))
-        })
+        assembly::semantic()?.enumeration_named(name).cloned()
     }
 
     pub fn option(&self, item: Type) -> NativeResult<Type> {

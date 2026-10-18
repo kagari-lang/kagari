@@ -124,6 +124,7 @@ pub struct TraitOverride {
     binding: PendingBinding,
     requirements: Vec<DraftCallableRequirement>,
     concrete_result: Option<Type>,
+    documentation: Option<String>,
 }
 
 impl TraitOverride {
@@ -133,12 +134,19 @@ impl TraitOverride {
             binding,
             requirements: vec![],
             concrete_result: None,
+            documentation: None,
         }
     }
 
     /// Append in selected-call slot order; duplicate obligations retain distinct slots.
     pub fn requires(mut self, requirement: DraftCallableRequirement) -> Self {
         self.requirements.push(requirement);
+        self
+    }
+
+    /// Attach implementation-specific Markdown without changing its trait signature.
+    pub fn documentation(mut self, text: impl Into<String>) -> Self {
+        self.documentation = Some(text.into());
         self
     }
 
@@ -165,6 +173,7 @@ impl TraitOverride {
                 member: self.member,
                 requirements,
                 concrete_result,
+                documentation: self.documentation,
             },
             self.binding,
         ))
@@ -206,6 +215,7 @@ pub(crate) struct OverrideFacts {
     member: DraftMember,
     requirements: Vec<NativeCallableRequirement>,
     concrete_result: Option<Ty>,
+    documentation: Option<String>,
 }
 
 /// Run only after implement_trait has established the actual signatures/binders,
@@ -279,6 +289,9 @@ pub(crate) fn lower_override_facts(
         }
         if let Some(result) = facts.concrete_result {
             module.concrete_results.insert(intent.id, resolve(&result)?);
+        }
+        if let Some(documentation) = facts.documentation {
+            module.documentation.insert(intent.id, documentation);
         }
     }
     Ok(())

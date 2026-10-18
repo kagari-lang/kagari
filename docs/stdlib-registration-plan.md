@@ -1,7 +1,7 @@
 # Module-Owned Standard Library Registration Plan
 
 Status: active; implementation and one commit per completed SR phase are authorized.
-SR01 is locally complete; SR02 is next. This plan owns an overall replacement of
+SR01-SR02 are locally complete; SR03 is next. This plan owns an overall replacement of
 standard-library declaration/binding assembly, not a String-only cleanup. Unimplemented directory
 sketches remain proposals. Current specifications remain authoritative until
 implementation updates them.
@@ -968,13 +968,13 @@ temporary integration bridge has a named SR05 removal point.
 
 ### SR02 — Migrate String and simple foundational modules
 
-- [ ] Move String constructor metadata/signatures/docs/callbacks/primitive
+- [x] Move String constructor metadata/signatures/docs/callbacks/primitive
   associations into its owner.
-- [ ] Migrate scalar, array/range and enum/propagation contributors where applicable,
+- [x] Migrate scalar, array/range and enum/propagation contributors where applicable,
   including their construction, comparison and Default implementations.
-- [ ] Bind implementations directly through checked handles and explicit owners;
+- [x] Bind implementations directly through checked handles and explicit owners;
   remove the migrated entries from old name-routing paths immediately.
-- [ ] Preserve String's Option/List/Vec references and compare len/contains/split
+- [x] Preserve String's Option/List/Vec references and compare len/contains/split
   across bytecode, linked body and runtime adapter categories; retain the primitive
   length path and scoped string inputs.
 
@@ -1162,7 +1162,7 @@ Documentation-only planning requires content/link/diff checks, not Rust builds.
 | Phase | Scope status | Validation / carried errors |
 | --- | --- | --- |
 | SR01 | Locally complete: shared assembly, semantic lowering, identity and lifecycle proofs | Focused assembly/default/cache tests and local gates pass; baseline captured; independent exit review closed; CI matrix unrun |
-| SR02 | Not started | Depends on SR01 |
+| SR02 | Locally complete: String/numeric/array/range/enum/propagation owners and production Bundle | Selected registration/docs/behavior/artifact tests and execution comparison pass; exact target assertions preserved; CI matrix unrun |
 | SR03 | Not started | Depends on SR02 |
 | SR04 | Not started | Depends on SR03 |
 | SR05 | Not started | Depends on SR04; owns bridge removal |
@@ -1374,3 +1374,70 @@ removes the old CONTRACTS/MODULE/OPTION_MEMBERS/ENUM_TYPES owners, not this bund
 This is a finite integration bridge, not a second test-only cache or fallback path.
 The final structure/fmt/workspace Clippy/diff gates passed after these changes.
 No claim is made that stdlib production consumers have already migrated.
+
+### SR02 activation: public projections and intermediate assembly
+
+SR01 checkpoint: `1022b771`. Inspection showed that legacy partitioning also owns
+facade/prelude exports and validates the incomplete old contributor set. Removing
+String/enums/ranges from that set while leaving projection there would lose public
+exports. Therefore SR02 pulls forward only pure facade/prelude composition from
+SR04/SR05: compose the complete explicit public inventory from new and remaining
+legacy contributors, then seal everything once. Collection/Iterable defaults and
+Future/task implementation migration stay in their assigned phases.
+
+Remaining legacy declarations are raw owner-scoped inputs, not externally checked
+providers. `ModuleDraft::import_declaration` adopts an input into the same batch and
+still requires exact binding coverage and final sealing. It rejects foreign or
+nonempty owners; it cannot replace an already authored module. This finite bridge
+is removed with obsolete producers at SR05. Structural generic receivers such as
+arrays reuse the existing inherent lowerer through `inherent_with`; declaration
+prose can be attached through a local scoped `document` operation. Twelve affected
+draft tests and all local lightweight/Clippy gates passed for these additions.
+Those preliminary checks did not claim production acceptance; the completed
+checkpoint evidence follows.
+
+### SR02 completion
+
+Production now uses the SR01 Bundle (its test gate is removed). New module-local
+contributors are `foundation/{string,numeric,arrays,ranges,enumerations,propagation}`.
+They own direct implementations and documentation; corresponding legacy declaration
+producers and name-router cases are removed. `assembly/composition` builds complete
+facades/prelude and combines only remaining raw seeds with these recipes. There is
+no full-foundation-then-filter producer and no fallback on new binding failure.
+
+String retains StringByteLength, scoped exact raw callbacks, and split's declared
+List/concrete Vec result. Numeric conversion/aggregation, arrays/ranges and carrier
+propagation reuse their existing algorithms. Remaining shared execution helpers,
+collection/default/iteration producers and task producers belong to SR03/SR04;
+SR05 removes the remaining seed/partition/cache bridge. `document` and override
+`documentation` attach prose at actual local IDs without changing execution.
+
+Inventory compared to SR01: 36 modules, 33 types, 41 traits, 226 implementations,
+31 functions, 28 private functions, 93 exports, 87 nonempty requirement owners and
+11 concrete results are unchanged. Requirement map entries increase 92 to 106 only
+because fluent inherent authoring adds 14 empty entries, not selected obligations.
+The full normalized semantic comparison remains SR05 work.
+
+The pinned SR01 source/source-free probe was rerun against the migrated producer:
+all five input/result/root assertions passed, and all five wrapper instruction
+sequences plus six linked body/codec/result-adapter records match after scoped-ID
+normalization. String len remains primitive, contains raw scoped, and split uses
+the same concrete-to-interface adapter. No new per-call preparation or speed gain
+is claimed. Temporary outputs remain under target/sr01/execution.
+
+Focused validation passed runtime draft tests (12), stdlib registration and generated
+doc examples, wide-index/UTF-8 boundaries, bundle/enum identity tests, selected SDK
+String/numeric/default/aggregation/Try/FromResidual/array/range behavior, and affected
+compiler/HIR/VM/artifact cases. Review found target assertions had become too weak
+when replacing private names; these now resolve expected canonical owner, receiver,
+member and applied trait, compare full scoped identity, and retain Vec fluent result
+versus Unit. The repair selection passed:
+
+```text
+cargo test -p kagari-compiler --lib -- tests::bytecode::lowering::foundation_calls_lower_to_provider_qualified_native_imports tests::bytecode::lowering::lowers_aggregate_and_access_instructions tests::lower::foundation_calls_lower_to_checked_native_imports tests::lower::lowers_tuple_array_struct_and_access_expressions --exact
+cargo test -p kagari --lib runtime::tests::language::operator_traits::arithmetic_stays_direct_and_indexing_uses_its_checked_native_binding -- --exact
+```
+
+Structure/fmt/workspace Clippy/diff gates passed. A stale build-product configuration
+issue was resolved by invalidating affected runtime/stdlib products, not by changing
+validation. No errors are carried; full workspace/backend/platform CI remains unrun.

@@ -10,12 +10,15 @@ use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget},
     program::{identity, verify_program},
 };
-use kagari_common::identity::{ModuleIdentity, PackageId, map::DefinitionContext};
+use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
 use kagari_contract::types::PublicItem;
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
-use kagari_types::{language::Protocol, ty::Ty};
+use kagari_stdlib::{catalog, identity as library, namespaces};
+use kagari_types::{
+    callable::CallableImplementation, language::Protocol, scalar::BuiltinType, ty::Ty,
+};
 
 fn execute(source: &str) {
     let mut config = EngineConfig::default();
@@ -460,16 +463,69 @@ fn main()->i32 {val a=[40];val b=a[0]+4-2;if b>=42 && !false {-(-b)}else{0}}
     let CallTarget::Native(index) = calls[0] else {
         panic!("native Index binding")
     };
+    let providers = catalog::declarations().unwrap();
+    let provider = providers
+        .iter()
+        .find(|provider| provider.records().identity == namespaces::module("core", "array"))
+        .unwrap();
+    let definitions = provider.definitions();
+    let implementations = provider
+        .records()
+        .implementations
+        .iter()
+        .filter(|implementation| {
+            let [parameter] = implementation.generic_params.as_slice() else {
+                return false;
+            };
+            let Some(interface) = &implementation.trait_type else {
+                return false;
+            };
+            implementation.for_type == Ty::Array(Box::new(parameter.as_type()))
+                && definitions
+                    .resolve(interface.declaration)
+                    .unwrap()
+                    .to_path()
+                    == library::trait_id("Index")
+                && interface.arguments == [Ty::Builtin(BuiltinType::U64)]
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        implementations.len(),
+        1,
+        "unique [T] as core::ops::Index<u64> implementation"
+    );
+    let implementation = implementations[0];
+    let interface = implementation.trait_type.as_ref().unwrap();
+    let output = definitions
+        .lookup_child(
+            interface.declaration,
+            DefinitionKind::AssociatedType,
+            "Output",
+            0,
+        )
+        .unwrap();
+    let item = implementation.generic_params[0].as_type();
+    assert_eq!(interface.associated_types.len(), 1);
+    assert_eq!(interface.associated_types[&output], item);
+    let methods = implementation
+        .methods
+        .iter()
+        .filter(|method| method.name == "index")
+        .collect::<Vec<_>>();
+    assert_eq!(methods.len(), 1);
+    assert_eq!(methods[0].return_type, item);
+    let CallableImplementation::Native(binding) = methods[0].implementation else {
+        panic!("native array Index binding")
+    };
+    let expected = definitions.resolve(binding).unwrap().to_path();
+    assert_eq!(expected.module, namespaces::module("core", "array"));
     assert_eq!(
         artifact
             .definitions()
             .resolve(module.native_imports[index.index()].binding)
             .unwrap()
-            .segments()
-            .last()
-            .unwrap()
-            .name,
-        "$foundation_array_index"
+            .to_path(),
+        expected,
     );
 }
 

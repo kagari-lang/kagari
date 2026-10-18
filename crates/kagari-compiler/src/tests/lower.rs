@@ -919,24 +919,31 @@ fn main() -> u64 {
         .unwrap();
     let function = &ir.functions[0];
 
-    for expected in [
-        "$foundation_list_push_fluent",
-        "$foundation_list_pop",
-        "$foundation_list_len",
-    ] {
-        assert_eq!(
-            function
-                .blocks
-                .iter()
-                .flat_map(|block| &block.instructions)
-                .filter(|instruction| matches!(instruction,
-                    Instruction::Call { callee: CallTarget::Native(import), .. }
-                        if ir.definitions().resolve(import.binding).unwrap().segments().last().is_some_and(|part| part.name == expected)
-                ))
-                .count(),
-            1,
-            "{expected:?}"
-        );
+    for member in ["push", "pop", "len"] {
+        let expected = common::standard_vec_binding(member);
+        let calls = function
+            .blocks
+            .iter()
+            .flat_map(|block| &block.instructions)
+            .filter_map(|instruction| {
+                let Instruction::Call {
+                    callee: CallTarget::Native(import),
+                    ..
+                } = instruction
+                else {
+                    return None;
+                };
+                (ir.definitions().resolve(import.binding).unwrap().to_path() == expected)
+                    .then_some(import)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(calls.len(), 1, "{expected:?}");
+        if member == "push" {
+            assert_eq!(
+                calls[0].signature.result, calls[0].signature.params[0],
+                "Vec::push must return its receiver, not Unit"
+            );
+        }
     }
 }
 
@@ -985,12 +992,14 @@ fn main() -> () {
             .flat_map(|block| block.instructions.iter())
             .any(|instruction| matches!(instruction, Instruction::MakeStruct { .. }))
     );
+    let expected_index = common::standard_array_index_binding();
     assert!(
         function
             .blocks
             .iter()
             .flat_map(|block| block.instructions.iter())
-            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. } if ir.definitions().resolve(import.binding).unwrap().segments().last().is_some_and(|part| part.name == "$foundation_array_index")))
+            .any(|instruction| matches!(instruction, Instruction::Call { callee: CallTarget::Native(import), .. }
+                if ir.definitions().resolve(import.binding).unwrap().to_path() == expected_index))
     );
     assert!(
         function

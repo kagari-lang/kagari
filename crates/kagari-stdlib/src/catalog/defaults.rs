@@ -1,7 +1,7 @@
 //! Canonical concrete declarations and their ordinary native implementation slots.
 use crate::catalog::{
     contracts::{applied_item, method, unit, vec_type},
-    enums, identities,
+    identities,
     key::{self, RegistrationTrait},
 };
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext, table::DefinitionId};
@@ -14,7 +14,6 @@ use kagari_types::{
         native::{NativeStorageLayout, NativeTypeConstructor},
         requirement::NativeCallableRequirement,
     },
-    range::RangeKind,
     reference::ReferenceAccess,
     scalar::BuiltinType,
     ty::{GenericBound, GenericParam, Ty, substitution::TypeSubstitution},
@@ -192,34 +191,6 @@ pub(super) fn declare(
             false,
         )?;
     }
-    define_type(
-        ids,
-        module,
-        "String",
-        NativeTypeConstructor::String,
-        &[],
-        false,
-    )?;
-    enums::declare(ids, module)?;
-    for kind in [
-        RangeKind::Exclusive,
-        RangeKind::Inclusive,
-        RangeKind::From,
-        RangeKind::To,
-        RangeKind::ToInclusive,
-        RangeKind::Full,
-    ] {
-        let names: &[&str] = if kind == RangeKind::Full { &[] } else { &["T"] };
-        define_type(
-            ids,
-            module,
-            kind.name(),
-            NativeTypeConstructor::Range(kind),
-            names,
-            false,
-        )?;
-        range_implementations(ids, module, kind)?;
-    }
     let owner = identities::definition(ids, DefinitionKind::AssociatedType, "Vec")?;
     module.types.push(TypeDef {
         name: "Vec".into(),
@@ -254,11 +225,6 @@ pub(super) fn declare(
         false,
     )?;
     for (family, names, protocols) in [
-        (
-            "array",
-            &["T"][..],
-            &[RegistrationTrait::Index, RegistrationTrait::Iterable][..],
-        ),
         (
             "list",
             &["T"][..],
@@ -363,76 +329,8 @@ pub(super) fn declare(
     Ok(())
 }
 
-fn range_implementations(
-    ids: &DefinitionContext,
-    module: &mut ModuleDecl,
-    kind: RangeKind,
-) -> Result<(), DeclarationError> {
-    let owner = identities::implementation(ids, module.implementations.len())?;
-    let params = parameters(&owner, &["T"]);
-    let item = params[0].as_type();
-    let layout = if kind == RangeKind::Full {
-        Ty::Builtin(BuiltinType::Unit)
-    } else {
-        item.clone()
-    };
-    implement(
-        ids,
-        module,
-        RegistrationTrait::RangeBounds,
-        ImplDecl {
-            generic_params: params,
-            bounds: vec![],
-            trait_type: Some(key::applied(
-                ids,
-                RegistrationTrait::RangeBounds,
-                vec![item],
-            )?),
-            for_type: Ty::Range(Box::new(layout), kind),
-            methods: vec![],
-        },
-        kind.name(),
-    )?;
-    if !kind.has_start() {
-        return Ok(());
-    }
-    for scalar in [
-        BuiltinType::I8,
-        BuiltinType::I16,
-        BuiltinType::I32,
-        BuiltinType::I64,
-        BuiltinType::U8,
-        BuiltinType::U16,
-        BuiltinType::U32,
-        BuiltinType::U64,
-    ] {
-        let item = Ty::Builtin(scalar);
-        let mut applied = applied_item(ids, RegistrationTrait::Iterable, item.clone())?;
-        applied.associated_types.insert(
-            identities::associated(ids, &applied.declaration, "Iter")?,
-            Ty::Iter(Box::new(item.clone())),
-        );
-        implement(
-            ids,
-            module,
-            RegistrationTrait::Iterable,
-            ImplDecl {
-                generic_params: vec![],
-                bounds: vec![],
-                trait_type: Some(applied),
-                for_type: Ty::Range(Box::new(item), kind),
-                methods: vec![],
-            },
-            kind.name(),
-        )?;
-    }
-
-    Ok(())
-}
-
 fn storage(ids: &DefinitionContext, family: &str, items: &[Ty]) -> Result<Ty, DeclarationError> {
     Ok(match family {
-        "array" => Ty::Array(Box::new(items[0].clone())),
         "list" => vec_type(ids, items[0].clone())?,
         "map" => Ty::Map {
             key: Box::new(items[0].clone()),
@@ -462,25 +360,7 @@ fn inherent(
     };
     let mut new = method("new", vec![], receiver.clone());
     new.implementation = CallableImplementation::Native(binding(ids, family, "new")?);
-    let mut methods: Vec<FnDecl> = if family == "array" {
-        [
-            method("len", vec![receiver.clone()], Ty::Builtin(BuiltinType::U64)),
-            method(
-                "is_empty",
-                vec![receiver.clone()],
-                Ty::Builtin(BuiltinType::Bool),
-            ),
-        ]
-        .into_iter()
-        .map(|mut method| {
-            method.implementation =
-                CallableImplementation::Native(binding(ids, family, &method.name)?);
-            Ok(method)
-        })
-        .collect::<Result<_, DeclarationError>>()?
-    } else {
-        vec![new]
-    };
+    let mut methods: Vec<FnDecl> = vec![new];
     if matches!(family, "list" | "set") {
         let mut from = method(
             "from",
