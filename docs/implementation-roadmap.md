@@ -174,6 +174,17 @@ cancellation, roots and pinned generations, without a second interpreter or new
 standalone top-level-statement rule. [Debugger tooling](debugger-design.md) owns its
 separately proposed debug/DAP modes.
 
+## KBC disassembly
+
+The [KBC disassembler plan](kbc-disassembler-plan.md) owns DA01-DA03: offline
+`kg disasm`, complete instruction rendering by module/function, scoped reference
+annotations, a compact function directory/selection, entry-slot/effect summaries
+and optional debug locations. Implementation is authorized; DA01 offline preparation,
+selection and presentation foundations are complete. DA02 rendering/CLI is next. Reuse bounded KBC decoding and full bytecode/envelope
+validation without source files, runtime construction or installed host providers.
+This is instruction inspection, not source decompilation; CFG reconstruction,
+source-like output, MIR/native browsing and editor/web integration are outside scope.
+
 ## Language documentation website
 
 The independent [Astro/Starlight language guide](../site/README.md) is implemented:

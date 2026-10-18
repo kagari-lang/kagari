@@ -75,6 +75,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
   marketplace publication and separately authorized old-repository administration.
   The syntax-adapter implementation and selected local acceptance are complete.
+- [KBC disassembler](kbc-disassembler-plan.md): planned offline `kg disasm`,
+  complete instruction views, function listing/selection and symbol/debug annotations;
+  design only, without source decompilation or runtime execution.
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from
   formatter/checker/linter implementation.
