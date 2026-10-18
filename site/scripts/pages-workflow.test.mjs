@@ -41,7 +41,11 @@ function deployClauses(condition) {
 function canDeploy(clauses, context) {
   return clauses.every(([path, operator, expected]) => {
     const actual = path.split('.').reduce((value, field) => value?.[field], context) ?? '';
-    return operator === '==' ? actual === expected : actual !== expected;
+    // These context fields are strings; GitHub Actions compares strings without case.
+    // https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#operators
+    assert.equal(typeof actual, 'string');
+    const equal = actual.toLowerCase() === expected.toLowerCase();
+    return operator === '==' ? equal : !equal;
   });
 }
 
@@ -99,7 +103,7 @@ test('upload consumes exactly the checked 24-page dist with no rebuild or other 
   // copying/rebuilding output, alternate sources and Rust/WASM/editor workloads.
 });
 
-test('deploy requires successful build, main, non-PR event and explicit lowercase opt-in', () => {
+test('deploy requires successful build, main, non-PR event and explicit Actions string opt-in', () => {
   assert.equal(deploy.needs, 'build');
   const clauses = deployClauses(deploy.if);
   assert.deepEqual(clauses, [
@@ -111,14 +115,14 @@ test('deploy requires successful build, main, non-PR event and explicit lowercas
   for (const result of ['success', 'failure', 'cancelled', 'skipped']) {
     for (const ref of ['refs/heads/main', 'refs/heads/topic', 'refs/pull/7/merge']) {
       for (const event of ['pull_request', 'push', 'workflow_dispatch']) {
-        for (const enabled of [undefined, '', 'false', 'True', 'true']) {
+        for (const enabled of [undefined, '', 'false', 'True', 'TRUE', 'true', ' true ', '1']) {
           const context = {
             needs: { build: { result } },
             github: { ref, event_name: event },
             vars: { PAGES_DEPLOY_ENABLED: enabled },
           };
           assert.equal(canDeploy(clauses, context),
-            result === 'success' && ref === 'refs/heads/main' && event !== 'pull_request' && enabled === 'true',
+            result === 'success' && ref === 'refs/heads/main' && event !== 'pull_request' && ['true', 'True', 'TRUE'].includes(enabled),
             JSON.stringify(context));
         }
       }

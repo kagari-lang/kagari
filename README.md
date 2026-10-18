@@ -19,6 +19,7 @@ This currently means:
 ## Documentation
 
 - [Agent and engineering guidelines](AGENTS.md)
+- [Language guide source and local preview](site/README.md) — 24-page manual; public Pages activation is pending
 - [Documentation index](docs/README.md)
 - [Project goal](docs/project_goal.md)
 - [Architecture](docs/architecture.md)

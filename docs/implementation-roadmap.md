@@ -176,31 +176,38 @@ separately proposed debug/DAP modes.
 
 ## Language documentation website
 
-The user requested a language documentation site similar to Vela's GitHub Pages
-site. The [website execution plan](documentation-site-plan.md) owns DW01-DW05,
-content scope, architecture, focused acceptance and the sole progress ledger.
-Implementation and one commit per phase are authorized. DW01 froze the toolchain,
-24-route manual and validation/publication boundary. DW02 site foundation passed
-locked local build/output checks. DW03's 20 non-host pages passed content/output
-checks. DW04 completed all 24 pages, embedding guidance and default-disabled Pages
-automation; DW05 browser acceptance/handoff is next.
-Pushes, remote settings and public activation remain unauthorized.
+The independent [Astro/Starlight language guide](../site/README.md) is implemented:
+24 substantive English pages, shared editor grammar, canonical source includes,
+static-output checks and a default-disabled least-privilege Pages workflow.
+Specifications remain the semantic authority; site maintenance and publication
+setup belong in its README, not a second execution ledger.
 
-Use an independent static Astro/Starlight project with shared Kagari TextMate
-highlighting, a bounded English user manual, current runnable examples and
-least-privilege Pages automation. Follow Rust's Book/reference/library separation
-and example-led learning sequence, teaching Kagari's shared-value/GC model rather
-than Rust moves or lifetimes. Keep `docs/spec/` as the semantic authority and
-avoid a second manually copied specification/API inventory. The default project
-URL would be `https://kagari-lang.github.io/kagari/`; live Pages settings and
-publication have not been verified or enabled.
+Focused local acceptance passed on Windows with Node 22.21.1/npm 10.9.4 and
+Chrome 155.0.8059.82: fresh 24-page/404 output, links/anchors/assets/base,
+20 source includes, 22 script tests, and the eight-case desktop/mobile browser
+matrix covering real search, themes, code/copy, nested routing and keyboard access.
+Selected CLI and SDK examples/host-boundary tests passed. This is not complete
+cross-browser/platform/accessibility or full Rust workspace acceptance.
 
-Browser Playground/WASM, translation delivery, full API generation, versioned
-release sites, custom domains and analytics remain outside this plan. Source
-build instructions must not present the reservation toolchain package as a
-functional release. PRs validate without deployment privileges; remote settings,
-pushes and public activation require separate authorization. Local site acceptance
-and actual public deployment must be reported separately.
+Open acceptance and follow-ups:
+
+- Run the new workflow on GitHub's Linux/Node 24 environment. Local Windows
+  results do not establish CI acceptance or Linux/macOS browser discovery.
+- Public settings and deployment at the proposed
+  `https://kagari-lang.github.io/kagari/` remain unverified and disabled by default.
+  Pushes, settings changes and activation require separate authorization. After
+  authorization, follow the site README's Pages/environment/opt-in setup and
+  check the live project base, nested routes, assets, search and 404 behavior.
+- Track an upstream-compatible fix for
+  [GHSA-rj75-hqrm-r3gf](https://github.com/advisories/GHSA-rj75-hqrm-r3gf).
+  The current lock has 10 moderate package entries for that single selector-parser
+  advisory; high-threshold audit passes, moderate-threshold audit does not.
+  The narrowly accepted trusted build-time boundary is documented in the site
+  README. Do not force incompatible overrides or treat this as a patched parser;
+  re-review before dynamic CSS, remote theme/plugin or request-time inputs.
+- Browser Playground/WASM, translations, full API generation, versioned release
+  sites, custom domains and analytics require separately scoped work. Source-build
+  instructions remain necessary until a functional toolchain release exists.
 
 ## Runtime storage redesign
 

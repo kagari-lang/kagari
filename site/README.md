@@ -56,6 +56,39 @@ theme, keyboard or mobile behavior. Reuse the canonical examples' owning semanti
 tests for those contracts; browser acceptance is separate. Do not start
 an unbounded server as part of validation.
 
+## Local browser acceptance and preview
+
+After build and output checks:
+
+```sh
+npm run check:browser
+# Optional explicit installed browser:
+npm run check:browser -- --executable-path "C:/Program Files/Google/Chrome/Application/chrome.exe"
+```
+
+The runner tries managed Playwright Chromium, then installed Chrome/Edge/Chromium.
+It does not download a browser; install one separately if none is available. It
+starts its own loopback-only server on an ephemeral port, serves only a
+symlink-free snapshot of `dist` beneath `/kagari/`, blocks external requests and
+closes the browser/server in teardown. The matrix has a 150-second deadline and
+the process a 180-second last-resort bound. Missing browsers, stale inputs,
+changed output and failed assertions return failure, not a skipped acceptance.
+Reports and screenshots go beneath ignored `../target/site-browser/`, never dist.
+
+Checks exercise the homepage, a long chapter/table of contents, Rust highlighting
+and actual clipboard copy, nested navigation/reload, lazy Pagefind search and
+result navigation, persistent dark/light themes, mobile sidebar, keyboard skip
+link/search access and custom 404 recovery. HTTP probes cover base redirects,
+missing routes, methods and traversal rejection. Screenshots support inspection;
+this is not a visual-regression suite, full accessibility audit, cross-browser
+matrix or proof of live Pages behavior. Windows Chrome was used for local
+acceptance; Linux/macOS discovery and Node 24 CI remain separately unverified.
+
+For interactive human review, run `npm run preview` and open
+`http://127.0.0.1:4321/kagari/` (or the port Astro reports). This foreground command
+runs until you stop it with Ctrl+C; automated validation uses the bounded runner
+instead. Do not expose the preview server as a production service.
+
 ## Pages workflow and publication
 
 [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) validates every PR,
@@ -68,7 +101,9 @@ YAML rather than matching permission-related substrings.
 
 Deployment is **disabled by default**. The separate deploy job requires a
 successful build, `refs/heads/main`, a non-PR event, and the repository Actions
-variable `PAGES_DEPLOY_ENABLED` set to the exact string `true`. Only that job gets
+variable `PAGES_DEPLOY_ENABLED` set to `true`. GitHub Actions string comparisons
+are case-insensitive, so `True` and `TRUE` also opt in; unset, `false`, `1` and
+whitespace-padded values do not. Only that job gets
 `pages: write` and `id-token: write`; it executes no checkout or site code.
 Main concurrency cancels superseded runs and a read-only head-SHA check rejects
 manual reruns of old main revisions. Deployment consumes this run's checked

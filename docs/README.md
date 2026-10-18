@@ -4,6 +4,10 @@ Start with [project goals](project_goal.md), [architecture](architecture.md) and
 [the pending roadmap](implementation-roadmap.md). Specifications describe current
 behavior; queued designs do not imply implemented APIs.
 
+The [language guide](../site/README.md) provides a 24-page learning manual and
+local preview/build instructions. It is separate from the normative specifications
+below; the public Pages site has not been activated by this work.
+
 ## Language and execution specifications
 
 | Area | Documents |
@@ -57,11 +61,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   not started; recover concrete values through checked identity and lifetime
   contracts without introducing Any.
 
-
-- [Language documentation website](documentation-site-plan.md): DW01-DW05 are
-  active with phase commits; DW01-DW04 are complete and DW05 browser acceptance/handoff is next.
-  Deliver an Astro/Starlight manual, shared highlighting and Pages automation;
-  Playground/translations and actual public activation remain separate.
+- [Documentation website follow-ups](implementation-roadmap.md#language-documentation-website):
+  CI/live Pages acceptance, upstream dependency patching and separately scoped
+  translations/Playground. Build and content maintenance belong in the
+  [site guide](../site/README.md).
 - [Host API unification](host-api-refactor.md).
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
