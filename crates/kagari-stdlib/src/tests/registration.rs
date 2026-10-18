@@ -181,6 +181,16 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
     let first = catalog::declarations().unwrap();
     let second = catalog::declarations().unwrap();
     assert_eq!(first.len(), 36);
+    let array_facade = first
+        .iter()
+        .find(|module| module.records().identity == namespaces::module("std", "array"))
+        .expect("the empty std::array facade remains published")
+        .records();
+    assert!(array_facade.exports.is_empty());
+    assert!(
+        array_facade.dependencies.is_empty(),
+        "an export-free facade must not acquire its canonical owner's provider closure"
+    );
     assert_eq!(
         first
             .iter()

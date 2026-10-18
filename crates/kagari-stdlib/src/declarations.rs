@@ -1,33 +1,25 @@
 //! Immutable language contracts are available independently of optional modules.
-use crate::{assembly, catalog, identity};
+use crate::{assembly, catalog::semantic::Semantic, identity};
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
-use kagari_runtime::{
-    error::RuntimeError,
-    native::{
-        binding::NativeResult,
-        catalog::DeclarationCatalog,
-        types::{TraitRef, Type, TypeRef},
-    },
+use kagari_runtime::native::{
+    binding::NativeResult,
+    catalog::DeclarationCatalog,
+    types::{TraitRef, Type, TypeRef},
 };
 use kagari_types::{
-    collection::CollectionAccess,
-    declaration::module::{DeclarationError, ModuleDecl},
-    language,
-    language::Protocol,
+    collection::CollectionAccess, declaration::module::ModuleDecl, language, language::Protocol,
 };
-use std::{cell::OnceCell, sync::Arc};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub struct StandardDeclarations {
-    declarations: Result<Vec<Arc<DefinitionMetadata<ModuleDecl>>>, DeclarationError>,
-    providers: OnceCell<NativeResult<DeclarationCatalog>>,
+    semantic: NativeResult<Arc<Semantic>>,
 }
 
 impl Default for StandardDeclarations {
     fn default() -> Self {
         Self {
-            declarations: catalog::shared(),
-            providers: OnceCell::new(),
+            semantic: assembly::semantic(),
         }
     }
 }
@@ -35,17 +27,17 @@ impl Default for StandardDeclarations {
 impl StandardDeclarations {
     /// Borrow the retained scoped inputs, reporting any foundation construction error.
     pub fn declarations(&self) -> NativeResult<&[Arc<DefinitionMetadata<ModuleDecl>>]> {
-        self.declarations
-            .as_deref()
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))
+        self.semantic
+            .as_ref()
+            .map(|semantic| semantic.shared())
+            .map_err(Clone::clone)
     }
 
     pub fn catalog(&self) -> NativeResult<DeclarationCatalog> {
-        self.providers
-            .get_or_init(|| {
-                DeclarationCatalog::from_declarations(self.declarations()?.iter().map(Arc::as_ref))
-            })
-            .clone()
+        self.semantic
+            .as_ref()
+            .map(|semantic| semantic.snapshot().catalog().clone())
+            .map_err(Clone::clone)
     }
 
     pub fn protocol(&self, protocol: Protocol) -> TraitRef {

@@ -1,7 +1,8 @@
 //! String owns its constructor, complete method definitions and scoped UTF-8 bodies.
 use crate::{
-    bindings::{Entry, index_argument},
-    foundation::{default_impl, enumeration, interface, type_docs},
+    foundation::{
+        Entry, arrays::operations::index_argument, default_impl, enumeration, interface, type_docs,
+    },
     identity,
 };
 use kagari_common::identity::DefinitionKind;

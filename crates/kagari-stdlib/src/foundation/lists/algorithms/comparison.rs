@@ -1,6 +1,8 @@
 //! Comparators and key selectors run synchronously, with no key-cache prepass.
-use crate::bindings::enums;
-use crate::bindings::lists::{Algorithm, invalid};
+use crate::foundation::{
+    enumerations::value::{self as enums, EnumSymbols},
+    lists::algorithms::{Algorithm, invalid},
+};
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_runtime::{
     native::{
@@ -16,15 +18,21 @@ use kagari_runtime::{
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::cmp::Ordering;
 
-pub(super) struct Comparison<'call> {
+pub(super) struct Comparison<'call, 'symbols> {
+    symbols: &'symbols EnumSymbols,
     operation: Option<&'call LinkedCallable>,
     callback: Option<CallableHandle<'call>>,
     algorithm: Algorithm,
 }
 
-impl<'call> Comparison<'call> {
-    pub(super) fn prepare(cx: &CallContext<'call>, algorithm: Algorithm) -> NativeResult<Self> {
+impl<'call, 'symbols> Comparison<'call, 'symbols> {
+    pub(super) fn prepare(
+        cx: &CallContext<'call>,
+        algorithm: Algorithm,
+        symbols: &'symbols EnumSymbols,
+    ) -> NativeResult<Self> {
         Ok(Self {
+            symbols,
             operation: algorithm
                 .comparison()
                 .then(|| cx.selected_at(0))
@@ -72,7 +80,7 @@ impl<'call> Comparison<'call> {
                 .as_ref()
                 .ok_or_else(invalid)?
                 .call_values(cx, &[a, b])?;
-            return enums::ordering(cx, &result);
+            return enums::ordering(self.symbols, cx, &result);
         }
         let (a, b, _root) = if matches!(self.algorithm, Algorithm::SortByKey) {
             let selector = self.callback.as_ref().ok_or_else(invalid)?;
@@ -88,7 +96,7 @@ impl<'call> Comparison<'call> {
             return value_semantics::builtin_order(cx.heap(), &a, &b)?.ok_or_else(invalid);
         }
         let result = cx.call_values(operation, &[a, b])?;
-        enums::ordering(cx, &result)
+        enums::ordering(self.symbols, cx, &result)
     }
 
     pub(super) fn sort_scalars(&self, values: &mut SequenceEdit<'_>) -> NativeResult<bool> {

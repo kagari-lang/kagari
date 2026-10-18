@@ -195,7 +195,8 @@ fn recursive_collection_or_preparation_is_terminal_even_if_its_error_is_swallowe
                 cache
                     .semantic()
                     .unwrap()
-                    .variant(&enum_path(), "None")
+                    .enumeration(&enum_path())
+                    .and_then(|enumeration| enumeration.variant("None"))
                     .is_ok()
             );
         } else {
@@ -217,7 +218,9 @@ fn preparation_can_read_published_semantics_without_reentering_collection() {
         representative(Arc::new(Counts::default()), move |preparation| {
             let cache = factory_target.get().unwrap().upgrade().unwrap();
             let semantic = cache.semantic()?;
-            let handle = semantic.variant(&enum_path(), "None")?;
+            let handle = semantic
+                .enumeration(&enum_path())
+                .and_then(|enumeration| enumeration.variant("None"))?;
             assert_eq!(
                 handle.definitions().id(),
                 preparation.declaration().definitions().id()

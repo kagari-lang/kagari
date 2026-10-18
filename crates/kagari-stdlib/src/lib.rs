@@ -2,7 +2,6 @@
 mod assembly;
 mod foundation;
 
-mod bindings;
 pub mod catalog;
 pub mod declarations;
 pub mod identity;

@@ -1,7 +1,10 @@
 //! Scalar construction keeps independent declaration targets for shared Rust bodies.
-use crate::{
-    bindings::{Entry, construction},
-    foundation::{default_impl, enumeration, interface, override_entry, raw},
+pub(super) mod aggregation;
+pub(super) mod conversion;
+use crate::foundation::{
+    default_impl, enumeration,
+    enumerations::value::{self as enums, Entry},
+    interface, override_entry,
 };
 use kagari_runtime::native::{
     assembly::draft::{ModuleDraft, TraitImplementation},
@@ -73,7 +76,11 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 &conversion,
                 "try_from",
                 0,
-                raw(1, construction::try_from),
+                enums::pending(
+                    1,
+                    &[enums::RESULT, enums::CONVERSION_ERROR],
+                    conversion::try_from,
+                ),
             )?;
             module.trait_implementation_with(0, |_| {
                 Ok(TraitImplementation {
@@ -96,7 +103,11 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             &parse,
             "from_str",
             0,
-            raw(1, construction::from_str),
+            enums::pending(
+                1,
+                &[enums::RESULT, enums::PARSE_ERROR],
+                conversion::from_str,
+            ),
         )?;
         module.trait_implementation_with(0, |_| {
             Ok(TraitImplementation {
@@ -109,8 +120,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         })?;
         if target.number_type().is_some() {
             for (contract, method, callback) in [
-                ("Sum", "sum", construction::sum as Entry),
-                ("Product", "product", construction::product),
+                ("Sum", "sum", aggregation::sum as Entry),
+                ("Product", "product", aggregation::product),
             ] {
                 aggregate(module, target, contract, method, callback)?;
             }
@@ -141,9 +152,15 @@ fn aggregate(
     let iterator_item = module.reference_associated_type(&iterator, "Item", 0)?;
     let next = module.reference_method(&iterator, "next", 0)?;
     let iterator = iterator_item.bind(iterator.apply([])?, item.clone())?;
-    let entry = override_entry(module, &aggregate, method, 1, raw(1, callback))?
-        .requires(iter.requirement(source, iterable, [])?)
-        .requires(next.requirement(cursor, iterator, [])?);
+    let entry = override_entry(
+        module,
+        &aggregate,
+        method,
+        1,
+        enums::pending(1, &[enums::OPTION], callback),
+    )?
+    .requires(iter.requirement(source, iterable, [])?)
+    .requires(next.requirement(cursor, iterator, [])?);
     module.trait_implementation_with(0, |_| {
         Ok(TraitImplementation {
             receiver: item.clone(),

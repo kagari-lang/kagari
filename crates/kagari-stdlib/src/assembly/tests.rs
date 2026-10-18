@@ -203,12 +203,20 @@ fn semantic_first_then_concurrent_executable_use_prepares_once_on_another_thread
         enumeration.id()
     );
     assert!(semantic.enumeration_named("Absent").is_err());
-    let variant = semantic.variant(&enum_path(), "None").unwrap();
+    let variant = semantic
+        .enumeration(&enum_path())
+        .and_then(|enumeration| enumeration.variant("None"))
+        .unwrap();
     let metadata = &semantic.snapshot().modules()[0];
     assert_eq!(enumeration.definitions().id(), metadata.definitions().id());
     assert_eq!(variant.definitions().id(), metadata.definitions().id());
     assert_eq!(variant.id(), enumeration.variant("None").unwrap().id());
-    assert!(semantic.variant(&enum_path(), "Absent").is_err());
+    assert!(
+        semantic
+            .enumeration(&enum_path())
+            .and_then(|enumeration| enumeration.variant("Absent"))
+            .is_err()
+    );
     let mut absent = enum_path();
     absent.module = owner("unprovided");
     assert!(semantic.enumeration(&absent).is_err());
@@ -283,6 +291,11 @@ fn retaining_semantics_does_not_retain_unprepared_factories() {
     assert!(lifetime.upgrade().is_some());
     drop(cache);
     assert!(lifetime.upgrade().is_none());
-    assert!(semantic.variant(&enum_path(), "Some").is_ok());
+    assert!(
+        semantic
+            .enumeration(&enum_path())
+            .and_then(|enumeration| enumeration.variant("Some"))
+            .is_ok()
+    );
     assert_eq!(counts.factories.load(Ordering::SeqCst), 0);
 }

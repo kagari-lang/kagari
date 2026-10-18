@@ -1,8 +1,13 @@
 //! Concrete Vec operations borrow call roots; callback algorithms retain SDK handles.
-use crate::bindings::{index_argument, option};
+use crate::foundation::{
+    arrays::operations::{index_argument, invalid as invalid_array, source as array_source},
+    enumerations::value::{EnumSymbols, option},
+    iteration::traversal::for_each,
+};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
+    gc::HeapObjectId,
     native::{
         binding::{NativeBinding, NativeResult},
         collections::vector::ScriptVec,
@@ -15,7 +20,7 @@ use kagari_runtime::{
     },
     value::Value,
 };
-use kagari_types::declaration::NativeDeclaration;
+use kagari_types::{declaration::NativeDeclaration, ty::Ty};
 
 type Vector = ScriptVec<ScriptValue>;
 
@@ -80,8 +85,8 @@ fn element(cx: &CallContext<'_>) -> NativeResult<Option<Value>> {
     cx.heap().sequence_element(id, index_argument(cx, 1)?)
 }
 
-pub(crate) fn get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    option(cx, element(cx)?)
+pub(crate) fn get(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    option(symbols, cx, element(cx)?)
 }
 
 pub(crate) fn insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -121,4 +126,89 @@ pub(crate) fn push(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 pub(crate) fn push_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     push(cx)?;
     cx.argument(0)
+}
+
+pub(crate) fn from_array(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let source = array_source(cx)?;
+    let count = cx.heap().array_len(source).ok_or_else(invalid_array)?;
+    let result = cx.allocate_result()?;
+    let _root = cx.heap().root_value(result).ok_or_else(invalid_array)?;
+    let Value::GcHandle(target) = result else {
+        return Err(invalid_array());
+    };
+    for index in 0..count {
+        cx.poll()?;
+        let value = cx
+            .heap()
+            .array_get(source, index)
+            .ok_or_else(invalid_array)?;
+        cx.heap().sequence_push(target, value)?;
+    }
+    Ok(result)
+}
+
+pub(crate) fn from_iter(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let Ty::NativeObject(_) = cx.result_type() else {
+        return Err(invalid_construction());
+    };
+    let result = cx.allocate_result()?;
+    let _root = cx
+        .heap()
+        .root_value(result)
+        .ok_or_else(invalid_construction)?;
+    let Value::GcHandle(id) = result else {
+        return Err(invalid_construction());
+    };
+    for_each(symbols, cx, 0, |cx, value| {
+        cx.heap().sequence_push(id, value)
+    })?;
+    Ok(result)
+}
+
+fn invalid_construction() -> RuntimeError {
+    RuntimeError::module_validation("foundation construction contract")
+}
+
+pub(crate) fn new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    cx.allocate_result()
+}
+
+fn invalid() -> RuntimeError {
+    RuntimeError::module_validation("invalid foundation receiver")
+}
+
+fn array(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
+    let Value::GcHandle(id) = cx.argument(0)? else {
+        return Err(invalid());
+    };
+    Ok(id)
+}
+
+pub(crate) fn pop(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let id = array(cx)?;
+    cx.ensure_collection_mutable(id)?;
+    let length = cx.heap().sequence_len(id).ok_or_else(invalid)?;
+    let value = length
+        .checked_sub(1)
+        .and_then(|index| cx.heap().sequence_get(id, index));
+    // Allocate the result before committing the write. No callback or safepoint
+    // can invalidate this preparation before the removal.
+    let result = option(symbols, cx, value)?;
+    cx.heap().sequence_pop(id)?;
+    Ok(result)
+}
+
+pub(crate) fn remove(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let id = array(cx)?;
+    let index = usize::try_from(index_argument(cx, 1)?).ok();
+    cx.ensure_collection_mutable(id)?;
+    let result = option(
+        symbols,
+        cx,
+        index.and_then(|index| cx.heap().sequence_get(id, index)),
+    )?;
+    if let Some(index) = index {
+        cx.heap().sequence_remove(id, index)?;
+    }
+    Ok(result)
 }

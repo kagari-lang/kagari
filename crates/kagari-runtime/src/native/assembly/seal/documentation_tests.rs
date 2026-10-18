@@ -11,7 +11,7 @@ use crate::native::{
     types::Type,
 };
 use kagari_common::identity::{
-    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, map::DefinitionContext,
 };
 use kagari_types::declaration::module::ModuleDecl;
 
@@ -149,4 +149,35 @@ fn canonical_member_docs_inherit_in_both_orders_without_overwriting_explicit_pro
             }
         }
     }
+}
+
+#[test]
+fn authored_documentation_rejects_foreign_scope_and_owner() {
+    let foreign = DefinitionContext::new().unwrap();
+    let foreign_id = foreign.intern(&contract_path("consumer")).unwrap();
+    let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
+    set.add(contract("left", "Owner prose.")).unwrap();
+    set.add(ModuleDefinition::new(owner("consumer"), move |module| {
+        module.documentation("Module prose.");
+        let local = module.define_trait("Read", 0, |_, _| Ok(()))?;
+        module.document(local.id(), "Local prose.")?;
+        assert!(module.document(foreign_id, "Foreign scope").is_err());
+        let reference = module.reference_trait(contract_path("left"), 0)?;
+        assert!(module.document(reference.id(), "Foreign owner").is_err());
+        Ok(())
+    }))
+    .unwrap();
+    let assembly = set.finish().unwrap();
+    let snapshot = assembly.declarations();
+    let module = snapshot
+        .modules()
+        .iter()
+        .find(|module| module.records().identity == owner("consumer"))
+        .unwrap();
+    assert_eq!(module.records().module_documentation, "Module prose.");
+    let id = module
+        .records()
+        .definition(DefinitionKind::Trait, "Read", module.definitions())
+        .unwrap();
+    assert_eq!(module.records().documentation[&id], "Local prose.");
 }

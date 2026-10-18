@@ -1,7 +1,8 @@
 //! Range constructors and receiver-owned implementations; iterator algorithms remain shared.
-use crate::{
-    bindings,
-    foundation::{interface, override_entry, raw, type_docs},
+pub(super) mod operations;
+use crate::foundation::{
+    enumerations::value as enums, interface, iteration::operations as iteration, override_entry,
+    raw, type_docs,
 };
 use kagari_runtime::native::{
     assembly::draft::{ModuleDraft, TraitImplementation},
@@ -34,9 +35,15 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             &bounds,
             "start_bound",
             0,
-            raw(1, bindings::start_bound),
+            enums::pending(1, &[enums::BOUND], operations::start_bound),
         )?;
-        let end = override_entry(module, &bounds, "end_bound", 0, raw(1, bindings::end_bound))?;
+        let end = override_entry(
+            module,
+            &bounds,
+            "end_bound",
+            0,
+            enums::pending(1, &[enums::BOUND], operations::end_bound),
+        )?;
         module.trait_implementation_with(1, |arguments| {
             Ok(TraitImplementation {
                 receiver: range.apply(if kind == RangeKind::Full {
@@ -68,7 +75,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 item_member.bind(iterable.apply([])?, item.clone())?,
                 Type::iterator(item.clone())?,
             )?;
-            let entry = override_entry(module, &iterable, "iter", 0, raw(1, bindings::iter))?;
+            let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
             module.trait_implementation_with(0, |_| {
                 Ok(TraitImplementation {
                     receiver: range.apply([item])?,

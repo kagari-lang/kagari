@@ -369,3 +369,60 @@ fn failed_groups_are_atomic_and_parameters_cannot_escape_to_another_group() {
         }
     }
 }
+
+#[test]
+fn structural_receiver_keeps_generic_binder_through_seal_and_preparation() {
+    let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
+    set.add(ModuleDefinition::new(
+        ModuleIdentity {
+            package: PackageId("kagari-core".into()),
+            path: vec!["array".into()],
+        },
+        |module| {
+            module.inherent_with(
+                1,
+                |arguments| {
+                    Type::from_semantic(
+                        Ty::Array(Box::new(arguments[0].abi().clone())),
+                        arguments[0].definitions().unwrap(),
+                    )
+                },
+                |arguments, methods| {
+                    methods.define(
+                        MethodDecl::instance("first")
+                            .returns(arguments[0].clone())
+                            .implementation_send(NativeBinding::new(
+                                vec![Codec::Value],
+                                Codec::Value,
+                                |_| panic!("registration must not invoke callbacks"),
+                            )),
+                    )?;
+                    Ok(())
+                },
+            )
+        },
+    ))
+    .unwrap();
+    let assembly = set.finish().unwrap().try_into_send().unwrap();
+    let snapshot = assembly.declarations();
+    let declaration = &snapshot.modules()[0];
+    let implementation = &declaration.records().implementations[0];
+    let parameter = implementation.generic_params[0].as_type();
+    assert_eq!(
+        implementation.for_type,
+        Ty::Array(Box::new(parameter.clone()))
+    );
+    assert_eq!(implementation.methods[0].return_type, parameter);
+    let before = declaration
+        .records()
+        .compiler_input_bytes(declaration.definitions(), &Default::default())
+        .unwrap();
+    let modules = assembly.into_modules().unwrap();
+    assert_eq!(
+        before,
+        modules[0]
+            .declaration()
+            .compiler_input_bytes(modules[0].definitions(), &Default::default())
+            .unwrap()
+    );
+}

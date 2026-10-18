@@ -1,8 +1,11 @@
 //! Builtin array contracts and direct native associations belong to core::array.
+pub(super) mod operations;
 use crate::{
-    bindings::{self, arrays},
     catalog::documentation,
-    foundation::{bound, interface, map_type, override_entry, raw},
+    foundation::{
+        Entry, arrays::operations as arrays, bound, interface, iteration::operations as iteration,
+        map_type, override_entry, raw,
+    },
 };
 use kagari_runtime::native::{
     assembly::draft::{ModuleDraft, TraitImplementation},
@@ -18,7 +21,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         |arguments| array(arguments[0].clone()),
         |_, methods| {
             for (name, result, callback) in [
-                ("len", Type::u64(), arrays::length as bindings::Entry),
+                ("len", Type::u64(), arrays::length as Entry),
                 ("is_empty", Type::bool(), arrays::is_empty),
             ] {
                 methods.define(
@@ -59,7 +62,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let iterable = interface(module, "Iterable", 0)?;
     let item = module.reference_associated_type(&iterable, "Item", 0)?;
     let cursor = module.reference_associated_type(&iterable, "Iter", 0)?;
-    let entry = override_entry(module, &iterable, "iter", 0, raw(1, bindings::iter))?;
+    let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
     module.trait_implementation_with(1, |arguments| {
         Ok(TraitImplementation {
             receiver: array(arguments[0].clone())?,

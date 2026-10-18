@@ -1,7 +1,7 @@
 # Module-Owned Standard Library Registration Plan
 
 Status: active; implementation and one commit per completed SR phase are authorized.
-SR01-SR04 are locally complete; SR05 is next. This plan owns an overall replacement of
+SR01-SR05 are locally complete; SR06 is next. This plan owns an overall replacement of
 standard-library declaration/binding assembly, not a String-only cleanup. Unimplemented directory
 sketches remain proposals. Current specifications remain authoritative until
 implementation updates them.
@@ -1014,19 +1014,19 @@ Top-level composition contains no per-method or per-storage implementation polic
 
 ### SR05 — Cut over consumers and delete obsolete assembly
 
-- [ ] Switch all production stdlib consumers to the new assembly products and
+- [x] Switch all production stdlib consumers to the new assembly products and
   remove temporary bridges, duplicate caches and legacy recipe entrypoints.
-- [ ] Complete the normalized old/new semantic inventory comparison and the bounded
+- [x] Complete the normalized old/new semantic inventory comparison and the bounded
   execution-path comparison, recording allowed internal identity mappings, public
   contract equivalence and any changes in per-call work.
-- [ ] Delete the transient foundation assembly/name-inferred partition mechanism,
+- [x] Delete the transient foundation assembly/name-inferred partition mechanism,
   callback discovery matches, temporary comparison bridge and obsolete private-name
   dependencies in tests.
-- [ ] Retain semantic ownership/binding assertions when replacing tests that assert
+- [x] Retain semantic ownership/binding assertions when replacing tests that assert
   incidental `$foundation_*` spellings; do not weaken rejection/behavior coverage.
-- [ ] Review helpers, visibility, imports/re-exports, scope remapping and effective
+- [x] Review helpers, visibility, imports/re-exports, scope remapping and effective
   LOC; remove forwarding-only modules introduced by file moves.
-- [ ] Batch regeneration of affected disposable artifacts and execute selected
+- [x] Batch regeneration of affected disposable artifacts and execute selected
   source-free, host-composition and generation-pinned boundary cases.
 
 Exit: one production authoring/assembly path remains. No migration fallback or
@@ -1165,7 +1165,7 @@ Documentation-only planning requires content/link/diff checks, not Rust builds.
 | SR02 | Locally complete: String/numeric/array/range/enum/propagation owners and production Bundle | Selected registration/docs/behavior/artifact tests and execution comparison pass; exact target assertions preserved; CI matrix unrun |
 | SR03 | Locally complete: protocols, defaults, Vec/hash/collection/iteration owners | 30 distinct focused tests passed; shared default fix verified; local gates and independent review pass; CI unrun |
 | SR04 | Locally complete: Future/tasks, owner-authored prose, declaration/navigation projections | Selected task/lifecycle/docs/registration tests and local gates passed; review doc-routing issue fixed; CI unrun |
-| SR05 | Not started | Depends on SR04; owns bridge removal |
+| SR05 | Locally complete: legacy bridges/caches removed, algorithms colocated, full semantic comparison closed | Fresh-product 36-test selection, source-free/execution probes, strict expected-difference comparison and local gates pass; CI unrun |
 | SR06 | Not started | Depends on SR05; full matrix remains CI-owned |
 
 Planning baseline: inspected declaration/binding/partition code, generic builders,
@@ -1538,4 +1538,119 @@ transcript. Structure (1346 files, zero violations/exceptions), fmt, workspace C
 and diff checks passed. Initial fixture type/visibility errors were fixed; none are
 carried. SR05 owns remaining catalog/enum caches, raw module-metadata import, and
 moving shared implementation algorithms from the bindings tree into their actual
-module owners. No complete CI matrix or final semantic comparison is claimed.
+module owners. That checkpoint did not claim complete CI or final semantic comparison.
+
+### SR05 completion: ownership and removed bridges
+
+Checkpoint input: `2d922dd5`. Composition uses checked `dependency` and `export_path`
+operations, not raw metadata import. Missing providers/exports fail before factories;
+empty facades remain published, and the prelude retains its dependency inventory.
+Runtime `import_declaration` and `define_template` are deleted; their meaningful
+structural/default/foreign-scope coverage moved to actual contract owners. Ordinary
+third-party ModuleBuilder declaration APIs remain supported.
+
+The complete bindings tree is deleted. Algorithms now live under their registration
+owner: vector/hash operations, iteration operations/cursor/traversal, list algorithms,
+comparison operations/readers, array/range operations, propagation operations and
+numeric conversion/aggregation. No forwarding facade, duplicate semantic body or new
+re-export was introduced. Catalog owns the immutable Semantic product; StandardDeclarations
+retains that same projection rather than rebuilding its catalog. Enum factories prepare
+binding-local symbolic handles from the sealed catalog, with no global Option initialization,
+Bundle capture, runtime root or per-call catalog reconstruction. Existing generation/layout,
+borrow, cancellation, mutation and result checks stay in their execution owners.
+
+### SR05 strict semantic comparison
+
+The original producer's captured bytes were decoded and round-tripped for every
+module. The schema projection covers all 17 ModuleDecl fields and guards the 19
+wire/schema source files. Scoped ID values alone are normalized; impl identity uses
+canonical owner, receiver, applied trait/associated bindings and generic arity.
+Private defaults map through their authored trait member. Ambiguous mappings fail.
+Each target association retains full signature, bounds, ordered requirements,
+concrete result and documentation; the tool does not discard private records.
+
+Baseline-to-final comparison found 2424 positional differences, or 884 after key
+alignment. Every difference matched an exact audited path/presence/old/new value:
+no unexpected, missing expected or changed expected differences remain. Categories:
+
+| Difference | Accepted mapping / retained contract |
+| --- | --- |
+| Shared scalar targets | 117 applications across TryFrom/FromStr/Sum/Product become independent checked targets; each contract retained |
+| Other shared targets | Three Range iter families (8 integer applications each), seven Map mutable/readonly families, six Set mutable/readonly families: 16 old targets become 50 independent targets, with every edge checked |
+| Requirement maps | 24 empty entries added, 5 empty entries removed; all nonempty requirements and 207 ordered slots identical |
+| Unrendered inherited docs | 510 entries removed only for default method IDs absent from both old/new ImplDecl.methods; original trait-member prose retained |
+| Private template parameter name | 28 receiver parameters renamed receiver to __receiver; public names, types, positions and mutability unchanged |
+| Template assumptions | collect/sum/product explicitly include Iterator<Item=P1>, already implied by their associated cursor contract |
+| Duplicate method bounds | Seven hash-container method bounds removed when exactly identical to retained impl bounds |
+| Dependency edges | Six direct edges added; all 36 owner transitive closures unchanged |
+| Public prose corrections | 15 exact text changes clarify existing constructor/fluent behavior; examples unchanged, no new language behavior |
+
+The prose corrections affect Vec new/from/push/set/insert/clear, Array len/is_empty,
+HashMap new/insert/clear and HashSet new/from/insert/clear. They describe returned
+receiver/fresh construction accurately and fix old set-like Vec/Map insert text;
+Vec.from copying is not a deep-copy promise. These are intentional documentation
+corrections, not identity normalization or a claim of unchanged bytes. The exact
+comparator policy rejected 1768 individual mutations/omissions and 27 full candidate
+regression injections, with additional matcher/normalizer self-checks.
+
+All owners, aliases, exports, prelude, type/storage/enum records, trait/conversion
+contracts, public callable signatures/default selections, hidden List cursors,
+paired Iterable argument order, three public content_equal helpers and 11 concrete
+results were compared. Counts alone were not used as equivalence evidence.
+
+Final current producer source SHA-256:
+`a8965da8ad4b560840da86531e7e7f4b97f0eb0d9e6c44a3e1476e87f592146d`;
+linked stdlib rlib SHA-256:
+`83b5ab2452a8cc21e5d685f30a4139c8fc4f223cc9c9a3d09797ae49a0524ac4`.
+The frozen pre-migration capture has matching independent outputs/digests and pinned
+public fingerprints, but did not retain its original producer rlib hash or full
+artifact/source manifest. This historical provenance limit is not represented as a
+hermetic rebuild proof. Final current capture records actual rlib/executable hashes,
+current dep-info inputs, source hashes and all 36 byte-exact round-trips.
+Temporary comparator/probes remain ignored under target/sr05; no comparison bridge
+or snapshot product is retained in production. The pinned baseline procedure and
+explicit mapping above remain the durable reproduction contract.
+
+### SR05 corrected verification provenance and local acceptance
+
+Review found an accidental dependency on core::array added to empty std::array.
+That would change its standalone provider closure and was not accepted. It was
+removed; the existing registration test now asserts both empty exports and empty
+dependencies. Dependencies for real facade exports are still derived by sealing.
+
+The initial current capture incorrectly reused stale Cargo products after pinned
+archive builds shared target storage; its zero-difference conclusion is withdrawn.
+The compiler-input encoding did include dependencies. Stale dep-info still named
+removed bindings files, and the stale runtime lacked new draft methods. Targeted
+`cargo clean -p kagari-common -p kagari-types -p kagari-runtime -p kagari-stdlib -p kagari`
+followed by the normal source SDK build forced fresh current products. All five
+packages reported fresh:false with current paths; dep-info included the new owners
+and excluded archived/deleted inputs. No special rustflags, profile, target directory
+or parallelism were used for the accepted rebuild. The 36 selected tests and all local
+gates were rerun against these products, not carried from the invalid provenance.
+
+Fresh results: runtime assembly/default/owner/docs 5, stdlib registration/docs/projection/
+lifecycle/numeric 9, language/collections/propagation/task/reload/host 16, source-free
+artifact 5 and allocation contract 1: all 36 passed. Representative commands:
+
+```text
+cargo test -p kagari-runtime --lib -- --exact native::assembly::proof_tests::reciprocal_generic_trait_default_uses_existing_lowering_in_both_orders native::assembly::seal::owner_tests::explicit_dependencies_and_path_exports_keep_empty_provider_owners native::assembly::seal::owner_tests::dependency_and_export_paths_do_not_fabricate_providers_or_members
+cargo test -p kagari --lib -- --exact runtime::tests::embedding::generic_reload::retained_generic_try_calls_keep_the_selected_carrier_generation runtime::tests::embedding::generic_reload::retained_generic_default_and_override_closures_pin_types_and_operations_after_reload runtime::tests::embedding::host_interfaces::rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup
+cargo test --locked --offline -p kagari --no-default-features --test artifact_features -- --exact source_free_algorithms_and_application_payload_share_the_native_boundary source_free_native_bindings_execute_and_release_scopes source_free_try_carriers_execute_with_selected_residual_calls structurally_valid_library_binding_mismatch_is_rejected_on_load async_tasks::source_free_async_execution_contract
+cargo test -p kagari-vm --test allocation_contracts native_allocations::warmed_scalar_and_contiguous_i32_boundaries_add_no_allocations -- --exact --nocapture
+```
+
+Feature and async development artifacts were regenerated together. A fresh source
+producer and independent no-source consumer passed the five SR01 probes, including
+UTF-8/empty split fields and zero roots. Six normalized linked-call records match the
+SR01 baseline, with unchanged instruction/body/codec/result-adapter categories;
+callee/impl identity changes are mapped, not ignored semantically. The no-source
+normal/build dependency graph excludes frontend/compiler/codegen packages.
+
+Warmed scalar and contiguous-i32 allocation counters remain zero in their defined
+windows; split/owned allocation-free behavior and timing improvements are not claimed.
+Environment: Windows 11 x86_64 MSVC, Intel Family 6 Model 151, Rust 1.99.0 / LLVM 23.1.1,
+workspace default profiles/target/parallelism, warm dependency cache. Structure checked
+1347 Rust files with zero violations/exceptions; fmt, workspace all-target Clippy and
+diff checks passed after fresh rebuild. No implementation failures or migration bridges
+remain. Full workspace tests and complete feature/backend/platform CI remain unrun.

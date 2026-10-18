@@ -54,6 +54,123 @@ fn provider_catalogs() -> Vec<DeclarationCatalog> {
     ]
 }
 
+#[test]
+fn explicit_dependencies_and_path_exports_keep_empty_provider_owners() {
+    for reverse in [false, true] {
+        let mut recipes = vec![
+            ModuleDefinition::new(owner("empty"), |_| Ok(())),
+            ModuleDefinition::new(owner("contracts"), |module| {
+                module.define_trait("Marker", 0, |_, _| Ok(()))?;
+                Ok(())
+            }),
+            ModuleDefinition::new(owner("facade"), |module| {
+                module.dependency(owner("empty"))?;
+                module.export_path(
+                    ExportName::new(NameNamespace::Type, "Marker"),
+                    DefinitionPath {
+                        module: owner("contracts"),
+                        path: vec![DefinitionPathSegment {
+                            kind: DefinitionKind::Trait,
+                            name: "Marker".into(),
+                            occurrence: 0,
+                        }],
+                    },
+                )
+            }),
+            ModuleDefinition::new(owner("prelude"), |module| {
+                module.prelude(true);
+                module.dependency(owner("empty"))?;
+                module.dependency(owner("facade"))
+            }),
+        ];
+        if reverse {
+            recipes.reverse();
+        }
+        let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
+        for recipe in recipes {
+            set.add(recipe).unwrap();
+        }
+        let assembly = set.finish().unwrap();
+        let snapshot = assembly.declarations();
+        for name in ["facade", "prelude"] {
+            let module = snapshot
+                .modules()
+                .iter()
+                .find(|module| module.records().identity == owner(name))
+                .unwrap();
+            assert!(module.records().dependencies.contains(&owner("empty")));
+        }
+        let modules = assembly.into_modules().unwrap();
+        assert!(
+            modules
+                .iter()
+                .find(|module| module.declaration().identity == owner("prelude"))
+                .unwrap()
+                .declaration()
+                .dependencies
+                .contains(&owner("empty"))
+        );
+    }
+    let providers = provider_catalogs().remove(0);
+    let mut set = ModuleSetBuilder::new(&providers).unwrap();
+    set.add(ModuleDefinition::new(owner("consumer"), |module| {
+        module.dependency(owner("empty"))
+    }))
+    .unwrap();
+    set.finish().unwrap();
+}
+
+#[test]
+fn dependency_and_export_paths_do_not_fabricate_providers_or_members() {
+    for export in [false, true] {
+        let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
+        set.add(ModuleDefinition::new(owner("consumer"), move |module| {
+            assert!(module.dependency(owner("consumer")).is_err());
+            if export {
+                module.export_path(
+                    ExportName::new(NameNamespace::Type, "Absent"),
+                    DefinitionPath {
+                        module: owner("missing"),
+                        path: vec![DefinitionPathSegment {
+                            kind: DefinitionKind::Trait,
+                            name: "Absent".into(),
+                            occurrence: 0,
+                        }],
+                    },
+                )
+            } else {
+                module.dependency(owner("missing"))
+            }
+        }))
+        .unwrap();
+        assert!(set.finish().is_err());
+    }
+    for namespace in [NameNamespace::Type, NameNamespace::Value] {
+        let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
+        set.add(ModuleDefinition::new(owner("contracts"), |module| {
+            module.define_trait("Marker", 0, |_, _| Ok(()))?;
+            Ok(())
+        }))
+        .unwrap();
+        set.add(ModuleDefinition::new(owner("facade"), move |module| {
+            let path = DefinitionPath {
+                module: owner("contracts"),
+                path: vec![DefinitionPathSegment {
+                    kind: DefinitionKind::Trait,
+                    name: "Marker".into(),
+                    occurrence: 0,
+                }],
+            };
+            let name = ExportName::new(namespace, "Marker");
+            module.export_path(name.clone(), path.clone())?;
+            assert!(module.export_path(name, path).is_err());
+            Ok(())
+        }))
+        .unwrap();
+        assert_eq!(set.finish().is_ok(), namespace == NameNamespace::Type);
+    }
+}
+
 fn assert_owner_rejected(providers: &DeclarationCatalog, name: &str) {
     let mut set = ModuleSetBuilder::new(providers).unwrap();
     let error = set

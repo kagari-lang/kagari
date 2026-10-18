@@ -1,5 +1,5 @@
 //! Library-authored Try and FromResidual bodies use ordinary enum operations.
-use crate::bindings::enums;
+use crate::foundation::enumerations::value::{self as enums, EnumSymbols};
 use kagari_runtime::{
     error::RuntimeError,
     native::{binding::NativeResult, context::CallContext},
@@ -12,13 +12,14 @@ fn invalid() -> RuntimeError {
 }
 
 fn branch(
+    symbols: &EnumSymbols,
     cx: &mut CallContext<'_>,
     name: &str,
     success: &str,
     failure: &str,
 ) -> NativeResult<Value> {
     let original = cx.argument(0)?;
-    let branch = enums::read(cx, &original, name, |member, fields| {
+    let branch = enums::read(symbols, cx, &original, name, |member, fields| {
         match (member, fields) {
             (member, [value]) if member == success => Ok(ControlFlow::Continue(*value)),
             (member, []) if member == failure && name == "Option" => Ok(ControlFlow::Break(None)),
@@ -33,12 +34,13 @@ fn branch(
     let result = cx.result_type_argument()?;
     let payload = match branch? {
         ControlFlow::Continue(value) => {
-            return enums::allocate(cx, &result, "ControlFlow", "Continue", vec![value]);
+            return enums::allocate(symbols, cx, &result, "ControlFlow", "Continue", vec![value]);
         }
         ControlFlow::Break(payload) => payload,
     };
     let residual_type = cx.type_parameter(&result, 0)?;
     let residual = enums::allocate(
+        symbols,
         cx,
         &residual_type,
         name,
@@ -52,11 +54,17 @@ fn branch(
         residual
     };
     let _residual = cx.heap().root_value(residual).ok_or_else(invalid)?;
-    enums::allocate(cx, &result, "ControlFlow", "Break", vec![residual])
+    enums::allocate(symbols, cx, &result, "ControlFlow", "Break", vec![residual])
 }
 
-fn from_output(cx: &mut CallContext<'_>, name: &str, success: &str) -> NativeResult<Value> {
+fn from_output(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+    name: &str,
+    success: &str,
+) -> NativeResult<Value> {
     enums::allocate(
+        symbols,
         cx,
         &cx.result_type_argument()?,
         name,
@@ -65,9 +73,14 @@ fn from_output(cx: &mut CallContext<'_>, name: &str, success: &str) -> NativeRes
     )
 }
 
-fn from_residual(cx: &mut CallContext<'_>, name: &str, failure: &str) -> NativeResult<Value> {
+fn from_residual(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+    name: &str,
+    failure: &str,
+) -> NativeResult<Value> {
     let original = cx.argument(0)?;
-    let mut payload = enums::read(cx, &original, name, |member, fields| {
+    let mut payload = enums::read(symbols, cx, &original, name, |member, fields| {
         match (member, fields) {
             (member, []) if member == failure && name == "Option" => Ok(None),
             (member, [value]) if member == failure && name != "Option" => Ok(Some(*value)),
@@ -86,6 +99,7 @@ fn from_residual(cx: &mut CallContext<'_>, name: &str, failure: &str) -> NativeR
         .map(|value| cx.heap().root_value(*value).ok_or_else(invalid))
         .transpose()?;
     let result = enums::allocate(
+        symbols,
         cx,
         &cx.result_type_argument()?,
         name,
@@ -99,38 +113,65 @@ fn from_residual(cx: &mut CallContext<'_>, name: &str, failure: &str) -> NativeR
     cx.forward_enum_origin(&original, &result)
 }
 
-pub(crate) fn option_branch(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    branch(cx, "Option", "Some", "None")
+pub(crate) fn option_branch(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    branch(symbols, cx, "Option", "Some", "None")
 }
 
-pub(crate) fn result_branch(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    branch(cx, "Result", "Ok", "Err")
+pub(crate) fn result_branch(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    branch(symbols, cx, "Result", "Ok", "Err")
 }
 
-pub(crate) fn control_flow_branch(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    branch(cx, "ControlFlow", "Continue", "Break")
+pub(crate) fn control_flow_branch(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    branch(symbols, cx, "ControlFlow", "Continue", "Break")
 }
 
-pub(crate) fn option_from_output(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    from_output(cx, "Option", "Some")
+pub(crate) fn option_from_output(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    from_output(symbols, cx, "Option", "Some")
 }
 
-pub(crate) fn result_from_output(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    from_output(cx, "Result", "Ok")
+pub(crate) fn result_from_output(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    from_output(symbols, cx, "Result", "Ok")
 }
 
-pub(crate) fn control_flow_from_output(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    from_output(cx, "ControlFlow", "Continue")
+pub(crate) fn control_flow_from_output(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    from_output(symbols, cx, "ControlFlow", "Continue")
 }
 
-pub(crate) fn option_from_residual(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    from_residual(cx, "Option", "None")
+pub(crate) fn option_from_residual(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    from_residual(symbols, cx, "Option", "None")
 }
 
-pub(crate) fn result_from_residual(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    from_residual(cx, "Result", "Err")
+pub(crate) fn result_from_residual(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    from_residual(symbols, cx, "Result", "Err")
 }
 
-pub(crate) fn control_flow_from_residual(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    from_residual(cx, "ControlFlow", "Break")
+pub(crate) fn control_flow_from_residual(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+) -> NativeResult<Value> {
+    from_residual(symbols, cx, "ControlFlow", "Break")
 }

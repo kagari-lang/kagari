@@ -1,7 +1,11 @@
 //! Collection comparison contracts bind the shared algorithms by semantic operation.
+pub(super) mod operations;
 use crate::{
-    bindings::comparison::{self, Operation, Shape},
-    foundation::{bound, conflict, interface, override_entry},
+    foundation::{
+        bound,
+        comparison::operations::{self as comparison, Operation, Shape},
+        conflict, interface, override_entry,
+    },
     identity,
 };
 use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};

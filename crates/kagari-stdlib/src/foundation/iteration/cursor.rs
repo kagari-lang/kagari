@@ -1,5 +1,8 @@
 //! Lazy cursors retain source values and checked targets, never a native borrow.
-use crate::bindings::{enums, option};
+use crate::foundation::{
+    enumerations::value::{self as enums, EnumSymbols, option},
+    iteration::operations::increment,
+};
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
@@ -57,15 +60,6 @@ pub(crate) fn storage() -> NativeStorage {
     NativeStorage::payload::<Adapter>()
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum Terminal {
-    Count,
-    Find,
-    Any,
-    All,
-    ForEach,
-}
-
 pub(crate) fn adapter_binding(operation: Operation) -> NativeBinding {
     let arity = if matches!(operation, Operation::Enumerate) {
         1
@@ -77,94 +71,13 @@ pub(crate) fn adapter_binding(operation: Operation) -> NativeBinding {
     })
 }
 
-pub(crate) fn terminal_binding(terminal: Terminal) -> NativeBinding {
-    let arity = if matches!(terminal, Terminal::Count) {
-        1
-    } else {
-        2
-    };
-    NativeBinding::new(vec![Codec::Value; arity], Codec::Value, move |cx| {
-        consume(cx, terminal)
-    })
-}
-
-pub(crate) fn next_binding() -> NativeBinding {
-    next.binding()
-}
-
-pub(crate) fn identity(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.argument(0)
-}
-
-pub(crate) fn destination(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])
-}
-
-pub(crate) fn fold(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let callback = cx.callable(2)?.store();
-    let mut accumulator = cx.argument(1)?;
-    let root = cx.heap().root_value(accumulator).ok_or_else(invalid)?;
-    let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
-    let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
-    loop {
-        cx.poll()?;
-        let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
-        let Some(item) = enums::option(cx, &result)? else {
-            return Ok(accumulator);
-        };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
-        accumulator = callback.call_values(cx, &[accumulator, item])?;
-        root.set(cx.heap(), accumulator).ok_or_else(invalid)?;
-    }
-}
-
-fn consume(cx: &mut CallContext<'_>, terminal: Terminal) -> NativeResult<Value> {
-    let callback = if matches!(terminal, Terminal::Count) {
-        None
-    } else {
-        Some(cx.callable(1)?.store())
-    };
-    let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
-    let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
-    let mut count = 0u64;
-    loop {
-        cx.poll()?;
-        let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
-        let Some(item) = enums::option(cx, &result)? else {
-            return match terminal {
-                Terminal::Count => Ok(count.encode()),
-                Terminal::Find => option(cx, None),
-                Terminal::Any => Ok(false.encode()),
-                Terminal::All => Ok(true.encode()),
-                Terminal::ForEach => Ok(Value::Unit),
-            };
-        };
-        let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
-        if matches!(terminal, Terminal::Count) {
-            count = increment(count)?;
-            continue;
-        }
-        let result = callback
-            .as_ref()
-            .ok_or_else(invalid)?
-            .call_values(cx, &[item])?;
-        match terminal {
-            Terminal::Find if bool::decode(result)? => return option(cx, Some(item)),
-            Terminal::Any if bool::decode(result)? => return Ok(true.encode()),
-            Terminal::All if !bool::decode(result)? => return Ok(false.encode()),
-            _ => {}
-        }
-    }
+pub(crate) fn next_binding(symbols: EnumSymbols) -> NativeBinding {
+    (move |cx: &mut CallContext<'_>, receiver: ValueHandle<'_>| next(&symbols, cx, receiver))
+        .binding()
 }
 
 fn invalid() -> RuntimeError {
     RuntimeError::module_validation("Iterable adapter contract")
-}
-
-fn increment(value: u64) -> NativeResult<u64> {
-    value
-        .checked_add(1)
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow"))
 }
 
 fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Value> {
@@ -205,7 +118,11 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
     )
 }
 
-fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Value> {
+fn next(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+    receiver: ValueHandle<'_>,
+) -> NativeResult<Value> {
     let Some(_active) = receiver.try_enter_operation()? else {
         return Err(RuntimeError::new(
             RuntimeErrorKind::ScriptTrap,
@@ -224,7 +141,7 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
             ))
         })?;
     if matches!(operation, Operation::Take) && remaining == 0 {
-        return option(cx, None);
+        return option(symbols, cx, None);
     }
     let (mut current, mut slot) = if switched {
         (second.ok_or_else(invalid)?, 1)
@@ -234,7 +151,7 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
     loop {
         cx.poll()?;
         let result = cx.call_stored_values(0, slot, &[current])?;
-        let Some(item) = enums::option(cx, &result)? else {
+        let Some(item) = enums::read_option(symbols, cx, &result)? else {
             if matches!(operation, Operation::Chain) && slot == 0 {
                 receiver.with_payload::<Adapter, _>(|adapter| {
                     adapter.switched.set(true);
@@ -244,7 +161,7 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
                 slot = 1;
                 continue;
             }
-            return option(cx, None);
+            return option(symbols, cx, None);
         };
         let _item = cx.heap().root_value(item).ok_or_else(invalid)?;
         match operation {
@@ -255,10 +172,10 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
                     .call_values(cx, &[item])?;
                 let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
                 if matches!(operation, Operation::Map) {
-                    return option(cx, Some(result));
+                    return option(symbols, cx, Some(result));
                 }
-                if let Some(value) = enums::option(cx, &result)? {
-                    return option(cx, Some(value));
+                if let Some(value) = enums::read_option(symbols, cx, &result)? {
+                    return option(symbols, cx, Some(value));
                 }
             }
             Operation::Filter => {
@@ -268,7 +185,7 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
                         .ok_or_else(invalid)?
                         .call_values(cx, &[item])?,
                 )? {
-                    return option(cx, Some(item));
+                    return option(symbols, cx, Some(item));
                 }
             }
             Operation::Take => {
@@ -276,7 +193,7 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
                     adapter.remaining.set(remaining - 1);
                     Ok(())
                 })?;
-                return option(cx, Some(item));
+                return option(symbols, cx, Some(item));
             }
             Operation::Skip if remaining > 0 => {
                 remaining -= 1;
@@ -293,35 +210,19 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
                 })?;
                 let pair = cx.heap().alloc_tuple(vec![remaining.encode(), item])?;
                 let _pair = cx.heap().root_value(pair).ok_or_else(invalid)?;
-                return option(cx, Some(pair));
+                return option(symbols, cx, Some(pair));
             }
             Operation::Zip => {
                 let result = cx.call_stored_values(0, 1, &[second.ok_or_else(invalid)?])?;
-                let Some(right) = enums::option(cx, &result)? else {
-                    return option(cx, None);
+                let Some(right) = enums::read_option(symbols, cx, &result)? else {
+                    return option(symbols, cx, None);
                 };
                 let _right = cx.heap().root_value(right).ok_or_else(invalid)?;
                 let pair = cx.heap().alloc_tuple(vec![item, right])?;
                 let _pair = cx.heap().root_value(pair).ok_or_else(invalid)?;
-                return option(cx, Some(pair));
+                return option(symbols, cx, Some(pair));
             }
-            Operation::Skip | Operation::Chain => return option(cx, Some(item)),
+            Operation::Skip | Operation::Chain => return option(symbols, cx, Some(item)),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::increment;
-    use kagari_runtime::error::RuntimeErrorKind;
-
-    #[test]
-    fn logical_counts_use_the_full_u64_domain() {
-        assert_eq!(increment(u64::from(u32::MAX)).unwrap(), 1u64 << 32);
-        assert_eq!(increment(u64::MAX - 1).unwrap(), u64::MAX);
-        assert_eq!(
-            increment(u64::MAX).unwrap_err().kind(),
-            RuntimeErrorKind::ScriptTrap
-        );
     }
 }

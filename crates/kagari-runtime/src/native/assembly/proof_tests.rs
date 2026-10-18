@@ -2,7 +2,6 @@
 use crate::native::{
     assembly::{
         ModuleDefinition, ModuleSetBuilder,
-        authoring::PendingBinding,
         draft::{ModuleDraft, TraitImplementation},
     },
     binding::{Codec, NativeBinding, NativeResult},
@@ -15,14 +14,9 @@ use kagari_common::{
     identity::{DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity, PackageId},
 };
 use kagari_types::{
-    callable::{CallableImplementation, NativeDefaultApplication},
-    declaration::{
-        NativeDeclaration, Param, TypeDefKind, VariantDef, native::NativeTypeConstructor,
-    },
+    declaration::{TypeDefKind, VariantDef, native::NativeTypeConstructor},
     scalar::BuiltinType,
-    ty::{GenericBound, GenericParam, NominalTy, Ty},
 };
-use std::collections::BTreeMap;
 
 fn owner(name: &str) -> ModuleIdentity {
     ModuleIdentity {
@@ -69,73 +63,31 @@ fn interface(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         TypeDefKind::Enum,
         1,
     )?;
-    let contract = module.definition(DefinitionKind::Trait, "Provider")?;
-    let template = module.definition(DefinitionKind::Function, "provide_default")?;
-    let parameter = GenericParam {
-        owner: contract,
-        position: 0,
-    };
-    let argument = Type::from_semantic(parameter.as_type(), &module.definitions())?;
-    let mut member = module.trait_method(
-        contract,
-        MethodDecl::instance("get").returns(payload.apply([argument])?),
+    let contract = module.define_trait("Provider", 1, |_, _| Ok(()))?;
+    module.define_trait_default(
+        &contract,
+        MethodDecl::instance("get")
+            .returns(payload.apply([contract.parameter(0)?])?)
+            .implementation_with(|view| {
+                let declaration = view.declaration();
+                let signature = &declaration.records().function;
+                Ok(NativeBinding::new(
+                    signature
+                        .params
+                        .iter()
+                        .map(|parameter| {
+                            Type::from_semantic(parameter.ty.clone(), declaration.definitions())
+                                .map(Codec::Exact)
+                        })
+                        .collect::<NativeResult<Vec<_>>>()?,
+                    Codec::Exact(Type::from_semantic(
+                        signature.return_type.clone(),
+                        declaration.definitions(),
+                    )?),
+                    |_| panic!("default body must not execute"),
+                ))
+            }),
     )?;
-    let mut body = member.clone();
-    body.name = "provide_default".into();
-    body.implementation = CallableImplementation::Native(template);
-    body.generic_params = (0..2)
-        .map(|position| GenericParam {
-            owner: template,
-            position,
-        })
-        .collect();
-    let receiver = body.generic_params[0].as_type();
-    let argument = body.generic_params[1].as_type();
-    body.bounds = vec![GenericBound {
-        ty: receiver.clone(),
-        constraints: vec![NominalTy {
-            declaration: contract,
-            arguments: vec![argument.clone()],
-            associated_types: BTreeMap::new(),
-        }],
-    }];
-    body.params = vec![Param {
-        name: "__receiver".into(),
-        ty: receiver.clone(),
-        mutable: false,
-    }];
-    body.return_type = payload
-        .apply([Type::from_semantic(argument, &module.definitions())?])?
-        .abi()
-        .clone();
-    let binding = NativeBinding::new(
-        vec![Codec::Exact(Type::from_semantic(
-            receiver,
-            &module.definitions(),
-        )?)],
-        Codec::Exact(Type::from_semantic(
-            body.return_type.clone(),
-            &module.definitions(),
-        )?),
-        |_| panic!("default body must not execute"),
-    );
-    module.define_template(
-        NativeDeclaration {
-            declaration: template,
-            function: body,
-            concrete_result: None,
-            callable_requirements: vec![],
-        },
-        PendingBinding::implementation_with(move |_| Ok(binding)),
-    )?;
-    member.implementation = CallableImplementation::NativeDefault(NativeDefaultApplication {
-        declaration: template,
-        arguments: vec![Ty::SelfType(contract), parameter.as_type()],
-    });
-    module.define_trait("Provider", 1, |record, _| {
-        record.methods.push(member);
-        Ok(())
-    })?;
     Ok(())
 }
 

@@ -155,6 +155,11 @@ pub(super) fn seal(
             }
         }
         module.dependencies.extend(edges);
+        for dependency in &module.dependencies {
+            if !catalog.contains_module(dependency) {
+                return Err(conflict(format!("missing module dependency {dependency}")));
+            }
+        }
         catalog.validate_module_shape(module)?;
     }
     catalog.check_implementations(drafts.iter().map(|draft| &draft.declaration))?;

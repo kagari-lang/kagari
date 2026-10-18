@@ -15,7 +15,7 @@ pub(crate) mod string;
 mod tasks;
 mod vector;
 
-use crate::{bindings::Entry, catalog::documentation, identity, namespaces};
+use crate::{catalog::documentation, identity, namespaces};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
 use kagari_runtime::{
     error::RuntimeError,
@@ -26,13 +26,17 @@ use kagari_runtime::{
             references::DraftReference,
         },
         binding::{Codec, NativeBinding, NativeResult},
+        context::CallContext,
         types::Type,
     },
+    value::Value,
 };
 use kagari_types::{
     declaration::TypeDefKind,
     ty::{GenericBound, Ty},
 };
+
+type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
 
 pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     protocols::declare(module)?;

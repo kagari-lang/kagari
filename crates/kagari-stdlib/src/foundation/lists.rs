@@ -1,7 +1,14 @@
 //! List defaults and Vec overrides share one algorithm inventory, not a semantic lowerer.
+pub(super) mod algorithms;
 use crate::{
-    bindings::{Entry, lists, vectors},
-    foundation::{bound, enumeration, interface, override_entry, raw},
+    foundation::{
+        bound, enumeration,
+        enumerations::value::{self as enums, Entry, EnumSymbols},
+        interface,
+        lists::algorithms as lists,
+        override_entry,
+        vector::operations as vectors,
+    },
     identity,
 };
 use kagari_common::identity::DefinitionKind;
@@ -217,18 +224,22 @@ pub(super) fn defaults(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 declaration = declaration.produces(vector.apply([item.clone()])?);
             }
             let definition =
-                DefaultDefinition::new(declaration.implementation_send(NativeBinding::new(
-                    vec![
-                        Codec::Value;
-                        if matches!(method.callback, Callback::None) {
-                            1
-                        } else {
-                            2
-                        }
-                    ],
-                    Codec::Value,
-                    method.entry,
-                )))
+                DefaultDefinition::new(declaration.implementation_with_send(move |view| {
+                    let symbols =
+                        EnumSymbols::new(view.catalog(), &[enums::OPTION, enums::ORDERING])?;
+                    Ok(NativeBinding::new(
+                        vec![
+                            Codec::Value;
+                            if matches!(method.callback, Callback::None) {
+                                1
+                            } else {
+                                2
+                            }
+                        ],
+                        Codec::Value,
+                        move |cx| (method.entry)(&symbols, cx),
+                    ))
+                }))
                 .arguments(arguments)
                 .bounds(bounds)
                 .assumptions([
@@ -257,12 +268,13 @@ pub(super) fn overrides(
             VectorBinding::Dedup => {
                 PendingBinding::implementation_with_send(|view| vectors::dedup(view.declaration()))
             }
-            VectorBinding::Shared => raw(
+            VectorBinding::Shared => enums::pending(
                 if matches!(method.callback, Callback::None) {
                     1
                 } else {
                     2
                 },
+                &[enums::OPTION, enums::ORDERING],
                 method.entry,
             ),
         };

@@ -1,8 +1,16 @@
 //! Vec owns sequence storage, fluent inherent methods and concrete protocol overrides.
+pub(super) mod operations;
 use crate::{
-    bindings::{self, arrays, construction, vectors},
     catalog::documentation,
-    foundation::{arrays::array, interface, lists, override_entry, raw},
+    foundation::{
+        Entry,
+        arrays::array,
+        enumerations::value::{self as enums, EnumSymbols},
+        interface,
+        iteration::operations as iteration,
+        lists, override_entry, raw,
+        vector::operations as vectors,
+    },
 };
 use kagari_runtime::native::{
     assembly::{
@@ -35,11 +43,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 MethodDecl::static_method("new")
                     .returns(receiver.clone())
                     .documentation(inherent_docs("new"))
-                    .implementation_send(NativeBinding::new(
-                        vec![],
-                        Codec::Value,
-                        bindings::list_new,
-                    )),
+                    .implementation_send(NativeBinding::new(vec![], Codec::Value, vectors::new)),
             )?;
             methods.define(
                 MethodDecl::static_method("from")
@@ -49,7 +53,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     .implementation_send(NativeBinding::new(
                         vec![Codec::Value],
                         Codec::Value,
-                        arrays::vector,
+                        vectors::from_array,
                     )),
             )?;
             methods.define(
@@ -99,13 +103,6 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     for (name, binding) in [
         ("len", scoped(vec![Codec::Sequence], vectors::length)),
         ("is_empty", scoped(vec![Codec::Sequence], vectors::is_empty)),
-        (
-            "get",
-            scoped(
-                vec![Codec::Sequence, Codec::Exact(Type::u64())],
-                vectors::get,
-            ),
-        ),
     ] {
         entries.push(override_entry(
             module,
@@ -115,6 +112,20 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             PendingBinding::implementation_send(binding),
         )?);
     }
+    entries.push(override_entry(
+        module,
+        &list,
+        "get",
+        0,
+        PendingBinding::implementation_with_send(|view| {
+            let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?;
+            Ok(NativeBinding::new(
+                vec![Codec::Sequence, Codec::Exact(Type::u64())],
+                Codec::Value,
+                move |cx| vectors::get(&symbols, cx),
+            ))
+        }),
+    )?);
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {
             receiver: vector.apply(items.to_vec())?,
@@ -134,7 +145,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 vectors::push,
             )),
         ),
-        ("pop", raw(1, bindings::list_pop)),
+        ("pop", enums::pending(1, &[enums::OPTION], vectors::pop)),
         (
             "insert",
             PendingBinding::implementation_send(scoped(
@@ -146,7 +157,10 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 vectors::insert,
             )),
         ),
-        ("remove", raw(2, bindings::list_remove)),
+        (
+            "remove",
+            enums::pending(2, &[enums::OPTION], vectors::remove),
+        ),
         (
             "clear",
             PendingBinding::implementation_with_send(|view| Ok(vectors::clear(view.declaration()))),
@@ -188,7 +202,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let iterable = interface(module, "Iterable", 0)?;
     let item = module.reference_associated_type(&iterable, "Item", 0)?;
     let cursor = module.reference_associated_type(&iterable, "Iter", 0)?;
-    let entry = override_entry(module, &iterable, "iter", 0, raw(1, bindings::iter))?;
+    let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {
             receiver: vector.apply(items.to_vec())?,
@@ -202,7 +216,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         .with_overrides([entry]))
     })?;
     let default = interface(module, "Default", 0)?;
-    let entry = override_entry(module, &default, "default", 0, raw(0, bindings::list_new))?.documentation("Return a fresh empty Vec<T>. Every call creates independent mutable storage; T need not implement Default.\n\nSee `core::default::Default` for the construction contract.");
+    let entry = override_entry(module, &default, "default", 0, raw(0, vectors::new))?.documentation("Return a fresh empty Vec<T>. Every call creates independent mutable storage; T need not implement Default.\n\nSee `core::default::Default` for the construction contract.");
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {
             receiver: vector.apply(items.to_vec())?,
@@ -226,7 +240,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         &from,
         "from_iter",
         1,
-        raw(1, construction::list_from_iter),
+        enums::pending(1, &[enums::OPTION], vectors::from_iter),
     )?
     .requires(iter.requirement(source, applied, [])?)
     .requires(next.requirement(
@@ -247,7 +261,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     Ok(())
 }
 
-fn scoped(arguments: Vec<Codec>, entry: bindings::Entry) -> NativeBinding {
+fn scoped(arguments: Vec<Codec>, entry: Entry) -> NativeBinding {
     NativeBinding::new(arguments, Codec::Value, entry)
 }
 

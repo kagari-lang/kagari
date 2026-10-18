@@ -1,6 +1,6 @@
 //! Library-authored collection equality and hashing over checked reads and callbacks.
 mod readers;
-use crate::bindings::comparison::readers::{Cursor, Reader};
+use crate::foundation::comparison::operations::readers::{Cursor, Reader};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     error::RuntimeError,

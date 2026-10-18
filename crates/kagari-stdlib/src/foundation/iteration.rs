@@ -1,11 +1,19 @@
 //! Lazy cursor owners and authored Iterable defaults use the runtime's shared lowerer.
+pub(super) mod cursor;
+pub(super) mod operations;
+pub(super) mod traversal;
 use crate::{
-    bindings::{
-        self,
-        iterable::{self, Operation, Terminal},
-    },
     catalog::documentation,
-    foundation::{bound, enumeration, interface, override_entry, raw},
+    foundation::{
+        bound, enumeration,
+        enumerations::value::{self as enums, EnumSymbols},
+        interface,
+        iteration::{
+            cursor::{self as cursors, Operation},
+            operations::{self as iterable, Terminal},
+        },
+        override_entry, raw,
+    },
     identity,
 };
 use kagari_common::identity::DefinitionKind;
@@ -101,7 +109,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         &iteration.iterator,
         "next",
         0,
-        raw(1, bindings::next),
+        enums::pending(1, &[enums::OPTION], iterable::next),
     )?;
     module.trait_implementation_with(1, |items| {
         Ok(TraitImplementation {
@@ -121,9 +129,9 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             arity,
             |_, _| Ok(()),
         )?;
-        module.bind_storage(&adapter, iterable::storage())?;
+        module.bind_storage(&adapter, cursors::storage())?;
         module.document(adapter.id(), documentation::markdown(ADAPTER_DOCS))?;
-        let entry = override_entry(module, &iteration.iterator, "next", 0, PendingBinding::implementation_send(iterable::next_binding()))?
+        let entry = override_entry(module, &iteration.iterator, "next", 0, PendingBinding::implementation_with_send(|view| Ok(cursors::next_binding(EnumSymbols::new(view.catalog(), &[enums::OPTION])?))))?
             .documentation("Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.");
         module.trait_implementation_with(arity, |items| {
             let item = match operation {
@@ -271,7 +279,7 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
                         }
                         Ok(())
                     })
-                    .implementation_send(iterable::adapter_binding(operation)),
+                    .implementation_send(cursors::adapter_binding(operation)),
             )
             .arguments(arguments)
             .bounds(bounds)
@@ -308,7 +316,7 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
         .returns(accumulator.clone())
         .documentation("Consume in source order, passing the accumulator and each item to the callback. Empty input returns initial; completed source/callback effects survive failure.")
         .configure(move |function| { function.type_parameter("A")?; for requirement in source.requirements { function.requires_draft(requirement)?; } Ok(()) })
-        .implementation_send(NativeBinding::new(vec![Codec::Value; 3], Codec::Value, iterable::fold)))
+        .implementation_with_send(|view| { let symbols = EnumSymbols::new(view.catalog(), &[enums::OPTION])?; Ok(NativeBinding::new(vec![Codec::Value; 3], Codec::Value, move |cx| iterable::fold(&symbols, cx))) }))
         .arguments([receiver.clone(), item.clone(), accumulator, cursor.clone()]).assumptions(source.assumptions))?;
     for (name, terminal, doc) in [
         (
@@ -370,7 +378,12 @@ fn defaults(module: &mut ModuleDraft<'_>, iteration: &Iteration) -> NativeResult
                         }
                         Ok(())
                     })
-                    .implementation_send(iterable::terminal_binding(terminal)),
+                    .implementation_with_send(move |view| {
+                        Ok(iterable::terminal_binding(
+                            terminal,
+                            EnumSymbols::new(view.catalog(), &[enums::OPTION])?,
+                        ))
+                    }),
             )
             .arguments([receiver.clone(), item.clone(), cursor.clone()])
             .assumptions(source.assumptions),

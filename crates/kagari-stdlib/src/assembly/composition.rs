@@ -1,9 +1,8 @@
 //! Pure composition of canonical owners, their std facades and the explicit prelude.
-//! Only exports use the raw metadata import bridge; all declarations are authored recipes.
+//! Paths, explicit dependencies and presentation use the same checked draft as declarations.
 use crate::{catalog::documentation, foundation, identity, namespaces};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata},
+use kagari_common::identity::{
+    DefinitionKind, DefinitionPath, DefinitionPathSegment, ModuleIdentity,
 };
 use kagari_runtime::{
     error::RuntimeError,
@@ -13,20 +12,25 @@ use kagari_runtime::{
         catalog::DeclarationCatalog,
     },
 };
-use kagari_types::declaration::{
-    module::ModuleDecl,
-    names::{ExportName, NameNamespace},
-};
+use kagari_types::declaration::names::{ExportName, NameNamespace};
 use std::collections::BTreeMap;
 
+#[derive(Default)]
+struct Composition {
+    documentation: String,
+    exports: Vec<(ExportName, DefinitionPath)>,
+    dependencies: Vec<ModuleIdentity>,
+    prelude: bool,
+}
+
 pub(super) fn collect() -> NativeResult<ModuleAssembly> {
-    let context = DefinitionContext::new().map_err(conflict)?;
-    let cancel = CancellationToken::default();
     let mut owners = BTreeMap::new();
     for &(package, path, docs) in foundation::MODULES {
         let identity = namespaces::module(package, path);
-        let mut declaration = ModuleDecl::new(identity.clone());
-        declaration.module_documentation = documentation::markdown(docs);
+        let declaration = Composition {
+            documentation: documentation::markdown(docs),
+            ..Default::default()
+        };
         if owners.insert(identity, declaration).is_some() {
             return Err(conflict("duplicate canonical module owner"));
         }
@@ -34,41 +38,44 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
     let canonical = owners.keys().cloned().collect::<Vec<_>>();
     let public = foundation::public_types();
     for owner in &canonical {
-        context.intern_root(owner).map_err(conflict)?;
         if owner.package.0 != "std" {
             let facade = namespaces::module("std", &owner.path.join("::"));
-            let mut declaration = ModuleDecl::new(facade.clone());
-            declaration.module_documentation = owners[owner].module_documentation.clone();
+            let declaration = Composition {
+                documentation: owners[owner].documentation.clone(),
+                ..Default::default()
+            };
             if owners.insert(facade, declaration).is_some() {
                 return Err(conflict("duplicate standard facade"));
             }
         }
     }
     for (owner, kind, name) in public {
-        let root = context.intern_root(&owner).map_err(conflict)?;
-        let id = context
-            .intern_child(root, kind, &name, 0)
-            .map_err(conflict)?;
+        let target = DefinitionPath {
+            module: owner.clone(),
+            path: vec![DefinitionPathSegment {
+                kind,
+                name: name.clone(),
+                occurrence: 0,
+            }],
+        };
         if owner.package.0 != "std" {
             let facade = owners
                 .get_mut(&namespaces::module("std", &owner.path.join("::")))
                 .expect("explicit facade");
-            if facade
+            facade
                 .exports
-                .insert(ExportName::new(NameNamespace::Type, name), id)
-                .is_some()
-            {
-                return Err(conflict("duplicate public contributor"));
-            }
+                .push((ExportName::new(NameNamespace::Type, name), target));
         }
     }
-    let mut prelude = ModuleDecl::new(namespaces::prelude());
-    prelude.prelude = true;
-    prelude.module_documentation = documentation::example(
-        "Automatically imported standard names. Re-exports retain the canonical declaration identity and documentation of their owner.",
-        "fn length(values: Vec<i32>) -> u64 { values.len() }",
-    );
-    prelude.dependencies.extend(canonical);
+    let mut prelude = Composition {
+        prelude: true,
+        documentation: documentation::example(
+            "Automatically imported standard names. Re-exports retain the canonical declaration identity and documentation of their owner.",
+            "fn length(values: Vec<i32>) -> u64 { values.len() }",
+        ),
+        dependencies: canonical,
+        ..Default::default()
+    };
     for name in [
         "Iterator",
         "Iterable",
@@ -84,12 +91,10 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
         "TryInto",
         "Fn",
     ] {
-        prelude.exports.insert(
+        prelude.exports.push((
             ExportName::new(NameNamespace::Type, name),
-            context
-                .intern(&identity::trait_id(name))
-                .map_err(conflict)?,
-        );
+            identity::trait_id(name),
+        ));
     }
     for (name, kind) in [
         ("String", DefinitionKind::AssociatedType),
@@ -103,39 +108,42 @@ pub(super) fn collect() -> NativeResult<ModuleAssembly> {
         ("TaskScope", DefinitionKind::AssociatedType),
         ("SpawnError", DefinitionKind::Enum),
     ] {
-        prelude.exports.insert(
+        prelude.exports.push((
             ExportName::new(NameNamespace::Type, name),
-            context
-                .intern(&identity::type_id(name, kind))
-                .map_err(conflict)?,
-        );
+            identity::type_id(name, kind),
+        ));
     }
     for (name, variants) in [("Option", ["Some", "None"]), ("Result", ["Ok", "Err"])] {
-        let id = context
-            .intern(&identity::type_id(name, DefinitionKind::Enum))
-            .map_err(conflict)?;
+        let enumeration = identity::type_id(name, DefinitionKind::Enum);
         for variant in variants {
-            prelude.exports.insert(
-                ExportName::new(NameNamespace::Value, variant),
-                context
-                    .intern_child(id, DefinitionKind::Variant, variant, 0)
-                    .map_err(conflict)?,
-            );
+            let mut target = enumeration.clone();
+            target.path.push(DefinitionPathSegment {
+                kind: DefinitionKind::Variant,
+                name: variant.into(),
+                occurrence: 0,
+            });
+            prelude
+                .exports
+                .push((ExportName::new(NameNamespace::Value, variant), target));
         }
     }
-    owners.insert(prelude.identity.clone(), prelude);
+    owners.insert(namespaces::prelude(), prelude);
     let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default())?;
-    for (owner, mut seed) in owners {
-        seed.package_alias = match owner.package.0.as_str() {
-            "kagari-core" => Some("core".into()),
-            "kagari-alloc" => Some("alloc".into()),
-            _ => None,
-        };
-        let definitions = seed.collect_definitions(&context).map_err(conflict)?;
-
-        let seed = DefinitionMetadata::checked(definitions, seed, &cancel).map_err(conflict)?;
+    for (owner, composition) in owners {
         set.add(ModuleDefinition::new(owner, move |module| {
-            module.import_declaration(&seed, Default::default())?;
+            match module.identity().package.0.as_str() {
+                "kagari-core" => module.package_alias("core"),
+                "kagari-alloc" => module.package_alias("alloc"),
+                _ => {}
+            }
+            module.documentation(composition.documentation);
+            module.prelude(composition.prelude);
+            for dependency in composition.dependencies {
+                module.dependency(dependency)?;
+            }
+            for (name, target) in composition.exports {
+                module.export_path(name, target)?;
+            }
             foundation::contribute(module)
         }))?;
     }

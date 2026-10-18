@@ -1,6 +1,5 @@
 //! Owner-scoped collection using the existing signature and implementation lowerers.
 pub mod defaults;
-mod imported;
 mod inherent;
 pub mod traits;
 use crate::native::{
@@ -32,7 +31,7 @@ use kagari_common::{
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
-        FnDecl, NativeDeclaration, TraitDef, TypeDef, TypeDefKind,
+        FnDecl, TraitDef, TypeDef, TypeDefKind,
         module::{ImplDecl, ModuleDecl},
         names::ExportName,
         native::NativeTypeConstructor,
@@ -103,6 +102,25 @@ impl<'a> ModuleDraft<'a> {
 
     pub fn prelude(&mut self, enabled: bool) {
         self.state.declaration.prelude = enabled;
+    }
+
+    /// Require a module provider, including an empty or export-only owner. Sealing
+    /// checks that the batch or adopted providers actually supply it; interning a
+    /// path alone does not establish ownership. Self-dependencies reject.
+    pub fn dependency(&mut self, owner: ModuleIdentity) -> NativeResult<()> {
+        if &owner == self.identity() {
+            return Err(conflict("module cannot depend on itself"));
+        }
+        self.context.intern_root(&owner).map_err(conflict)?;
+        self.state.declaration.dependencies.insert(owner);
+        Ok(())
+    }
+
+    /// Export a canonical path, possibly before its owner's recipe runs. The
+    /// ordinary export checks at seal validate existence, namespace and category.
+    pub fn export_path(&mut self, name: ExportName, target: DefinitionPath) -> NativeResult<()> {
+        let target = self.context.intern(&target).map_err(conflict)?;
+        self.export(name, target)
     }
 
     /// Intern a direct local identity, without claiming that it is defined.
@@ -390,40 +408,6 @@ impl<'a> ModuleDraft<'a> {
             id,
             definitions: self.definitions(),
         })
-    }
-
-    /// Collect an already lowered private default template. This advanced entry
-    /// preserves its binder, requirements and concrete-result proof; it does not
-    /// lower defaults or infer a signature from a Rust callback.
-    pub fn define_template(
-        &mut self,
-        declaration: NativeDeclaration,
-        binding: PendingBinding,
-    ) -> NativeResult<()> {
-        let id = self.definition(DefinitionKind::Function, &declaration.function.name)?;
-        if declaration.declaration != id
-            || declaration.function.implementation != CallableImplementation::Native(id)
-            || self
-                .state
-                .declaration
-                .functions
-                .iter()
-                .any(|item| item.name == declaration.function.name)
-        {
-            return Err(conflict("duplicate or foreign default template"));
-        }
-        self.check_scope(&declaration)?;
-        if let Some(ty) = declaration.concrete_result {
-            self.state.declaration.concrete_results.insert(id, ty);
-        }
-        self.state
-            .declaration
-            .callable_requirements
-            .insert(id, declaration.callable_requirements);
-        self.state.declaration.private_functions.insert(id);
-        self.state.declaration.functions.push(declaration.function);
-        self.state.bindings.insert(id, binding);
-        Ok(())
     }
 
     /// Record direct overrides; omitted members keep existing trait defaults.

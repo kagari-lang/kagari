@@ -1,8 +1,10 @@
 //! Prepare custom receiver operations once and traverse through its iterator.
-use crate::bindings::enums;
 use std::slice;
 use {
-    crate::bindings::lists::invalid,
+    crate::foundation::{
+        enumerations::value::{self as enums, EnumSymbols},
+        lists::algorithms::invalid,
+    },
     kagari_runtime::{
         gc::HeapObjectId,
         native::{
@@ -32,7 +34,11 @@ impl<'call> ReceiverCalls<'call> {
         })
     }
 
-    pub(super) fn snapshot(&self, cx: &mut CallContext<'_>) -> NativeResult<HeapObjectId> {
+    pub(super) fn snapshot(
+        &self,
+        symbols: &EnumSymbols,
+        cx: &mut CallContext<'_>,
+    ) -> NativeResult<HeapObjectId> {
         let item = cx.selected_result_parameter(self.next, 0)?;
         let result = cx.allocate_vec(item, vec![])?;
         let _result = cx.heap().root_value(result).ok_or_else(invalid)?;
@@ -44,7 +50,7 @@ impl<'call> ReceiverCalls<'call> {
         loop {
             cx.poll()?;
             let value = cx.call_values(self.next, slice::from_ref(&cursor))?;
-            let Some(value) = enums::option(cx, &value)? else {
+            let Some(value) = enums::read_option(symbols, cx, &value)? else {
                 return Ok(id);
             };
             let _item = cx.heap().root_value(value).ok_or_else(invalid)?;

@@ -6,22 +6,17 @@
 //! Factories consume the supplied sealed preparation view, not global declaration
 //! entrypoints. They must not spawn and join work that initializes the same bundle.
 //!
-//! Production recipes and composition exports share one seal and this cache.
-//! Declaration-only consumers never prepare adapters. SR05 removes the remaining
-//! export import bridge and symbolic enum caches; no separate declaration producer runs.
+//! Production recipes and composition paths share one seal and this cache.
+//! Declaration-only consumers retain the immutable catalog projection, never adapters.
 mod composition;
 mod initialization;
-pub(crate) mod semantic;
 
 #[cfg(test)]
 mod tests;
 
 use crate::{
-    assembly::{
-        initialization::{Phase, check_reentry, run},
-        semantic::Semantic,
-    },
-    bindings,
+    assembly::initialization::{Phase, check_reentry, run},
+    catalog::semantic::Semantic,
 };
 use kagari_runtime::{
     error::RuntimeError,
@@ -122,7 +117,6 @@ pub(crate) fn semantic() -> NativeResult<Arc<Semantic>> {
 }
 
 pub(crate) fn modules() -> NativeResult<Vec<NativeModule>> {
-    bindings::initialize(semantic()?.as_ref())?;
     STANDARD.modules().map(|modules| modules.to_vec())
 }
 

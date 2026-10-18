@@ -1,7 +1,10 @@
 //! Task storage, fluent methods and callbacks share the canonical core::task owner.
 use crate::{
-    bindings::enums,
-    foundation::{enumeration, type_docs},
+    foundation::{
+        enumeration,
+        enumerations::value::{self as enums, EnumSymbols},
+        type_docs,
+    },
     identity,
 };
 use kagari_common::identity::DefinitionKind;
@@ -98,7 +101,14 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 function.returns(result.apply([spawned.apply([output])?, error.apply([])?])?)?;
                 Ok(())
             })
-            .implementation_send(NativeBinding::new(vec![Codec::Value; 2], Codec::Value, spawn)))
+            .implementation_with_send(|view| {
+                let symbols = EnumSymbols::new(view.catalog(), &[
+                    enums::RESULT,
+                    ("SpawnError", &["ScopeClosed", "CapacityExceeded", "DispatchUnavailable"]),
+                ])?;
+                Ok(NativeBinding::new(vec![Codec::Value; 2], Codec::Value,
+                    move |cx| spawn(&symbols, cx)))
+            }))
     })?;
     module.inherent_generic(&task, |_, methods| {
         methods.define(MethodDecl::instance("cancel").returns(Type::unit())
@@ -108,7 +118,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     })
 }
 
-fn spawn(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+fn spawn(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let scope = cx.argument(0)?;
     let factory = cx.argument(1)?;
     let result = cx.result_type_argument()?;
@@ -117,7 +127,7 @@ fn spawn(cx: &mut CallContext<'_>) -> NativeResult<Value> {
             let value = task
                 .value(cx.heap())
                 .ok_or_else(|| RuntimeError::module_validation("spawned Task root"))?;
-            enums::allocate(cx, &result, "Result", "Ok", vec![value])
+            enums::allocate(symbols, cx, &result, "Result", "Ok", vec![value])
         }
         Err(error) => {
             let ty = cx.type_parameter(&result, 1)?;
@@ -126,12 +136,12 @@ fn spawn(cx: &mut CallContext<'_>) -> NativeResult<Value> {
                 SpawnError::CapacityExceeded => "CapacityExceeded",
                 SpawnError::DispatchUnavailable => "DispatchUnavailable",
             };
-            let value = enums::allocate(cx, &ty, "SpawnError", member, vec![])?;
+            let value = enums::allocate(symbols, cx, &ty, "SpawnError", member, vec![])?;
             let _error = cx
                 .heap()
                 .root_value(value)
                 .ok_or_else(|| RuntimeError::module_validation("SpawnError root"))?;
-            enums::allocate(cx, &result, "Result", "Err", vec![value])
+            enums::allocate(symbols, cx, &result, "Result", "Err", vec![value])
         }
     }
 }

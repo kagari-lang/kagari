@@ -1,8 +1,11 @@
 //! Builtin Map/Set constructors and capabilities retain their existing storage model.
+pub(super) mod operations;
 use crate::{
-    bindings::{self, Entry, arrays, construction, hash},
     catalog::documentation,
-    foundation::{arrays::array, conflict, interface, override_entry, raw},
+    foundation::{
+        arrays::array, conflict, enumerations::value as enums, hash::operations as hash, interface,
+        iteration::operations as iteration, override_entry, raw,
+    },
 };
 use kagari_runtime::native::{
     assembly::{
@@ -144,7 +147,7 @@ fn inherent(
                     .implementation_send(NativeBinding::new(
                         vec![Codec::Value],
                         Codec::Value,
-                        arrays::set,
+                        hash::from_array,
                     )),
             )?;
         }
@@ -205,23 +208,27 @@ fn capabilities(
     let item = module.reference_associated_type(&iterable, "Item", 0)?;
     let cursor = module.reference_associated_type(&iterable, "Iter", 0)?;
     for readonly in [false, true] {
-        let methods: &[(&str, usize, Entry, bool)] = if map {
-            &[
-                ("len", 1, hash::map_len, false),
-                ("is_empty", 1, hash::map_is_empty, false),
-                ("contains_key", 2, hash::map_contains, true),
-                ("get", 2, hash::map_get, true),
+        let methods = if map {
+            vec![
+                ("len", raw(1, hash::map_len), false),
+                ("is_empty", raw(1, hash::map_is_empty), false),
+                ("contains_key", raw(2, hash::map_contains), true),
+                (
+                    "get",
+                    enums::pending(2, &[enums::OPTION], hash::map_get),
+                    true,
+                ),
             ]
         } else {
-            &[
-                ("len", 1, hash::set_len, false),
-                ("is_empty", 1, hash::set_is_empty, false),
-                ("contains", 2, hash::set_contains, true),
+            vec![
+                ("len", raw(1, hash::set_len), false),
+                ("is_empty", raw(1, hash::set_is_empty), false),
+                ("contains", raw(2, hash::set_contains), true),
             ]
         };
         let mut entries = vec![];
-        for &(name, count, callback, keyed) in methods {
-            let mut entry = override_entry(module, &read, name, 0, raw(count, callback))?;
+        for (name, binding, keyed) in methods {
+            let mut entry = override_entry(module, &read, name, 0, binding)?;
             if keyed {
                 for call in keys.calls(read.parameter(0)?)? {
                     entry = entry.requires(call);
@@ -238,7 +245,7 @@ fn capabilities(
             }
             .with_overrides(entries))
         })?;
-        let entry = override_entry(module, &iterable, "iter", 0, raw(1, bindings::iter))?;
+        let entry = override_entry(module, &iterable, "iter", 0, raw(1, iteration::iter))?;
         module.trait_implementation_with(arity, |items| {
             let element = if map {
                 Type::tuple(items.to_vec())?
@@ -257,22 +264,26 @@ fn capabilities(
             .with_overrides([entry]))
         })?;
     }
-    let methods: &[(&str, usize, Entry, bool)] = if map {
-        &[
-            ("insert", 3, hash::map_insert, true),
-            ("remove", 2, hash::map_remove, true),
-            ("clear", 1, hash::map_clear, false),
+    let methods = if map {
+        vec![
+            ("insert", raw(3, hash::map_insert), true),
+            (
+                "remove",
+                enums::pending(2, &[enums::OPTION], hash::map_remove),
+                true,
+            ),
+            ("clear", raw(1, hash::map_clear), false),
         ]
     } else {
-        &[
-            ("insert", 2, hash::set_insert, true),
-            ("remove", 2, hash::set_remove, true),
-            ("clear", 1, hash::set_clear, false),
+        vec![
+            ("insert", raw(2, hash::set_insert), true),
+            ("remove", raw(2, hash::set_remove), true),
+            ("clear", raw(1, hash::set_clear), false),
         ]
     };
     let mut entries = vec![];
-    for &(name, count, callback, keyed) in methods {
-        let mut entry = override_entry(module, &write, name, 0, raw(count, callback))?;
+    for (name, binding, keyed) in methods {
+        let mut entry = override_entry(module, &write, name, 0, binding)?;
         if keyed {
             for call in keys.calls(write.parameter(0)?)? {
                 entry = entry.requires(call);
@@ -325,7 +336,7 @@ fn from_iterator(
         &from,
         "from_iter",
         1,
-        raw(1, construction::hash_from_iter),
+        enums::pending(1, &[enums::OPTION], hash::from_iter),
     )?;
     module.trait_implementation_with(arity, |items| {
         let receiver = reference.apply(items.to_vec())?;

@@ -2,7 +2,10 @@
 mod comparison;
 mod receivers;
 use {
-    crate::bindings::lists::{comparison::Comparison, receivers::ReceiverCalls},
+    crate::foundation::{
+        enumerations::value::EnumSymbols,
+        lists::algorithms::{comparison::Comparison, receivers::ReceiverCalls},
+    },
     kagari_runtime::{
         error::RuntimeError,
         gc::HeapObjectId,
@@ -33,7 +36,7 @@ impl Algorithm {
 
 macro_rules! entries {
     ($($name:ident: $algorithm:ident, $copy:literal),+ $(,)?) => {
-        $(pub(crate) fn $name(cx: &mut CallContext<'_>) -> NativeResult<Value> { run(cx, Algorithm::$algorithm, $copy) })+
+        $(pub(crate) fn $name(symbols: &EnumSymbols, cx: &mut CallContext<'_>) -> NativeResult<Value> { run(symbols, cx, Algorithm::$algorithm, $copy) })+
     };
 }
 
@@ -51,10 +54,15 @@ entries!(
     dedup: Dedup, false,
 );
 
-fn run(cx: &mut CallContext<'_>, algorithm: Algorithm, copy: bool) -> NativeResult<Value> {
+fn run(
+    symbols: &EnumSymbols,
+    cx: &mut CallContext<'_>,
+    algorithm: Algorithm,
+    copy: bool,
+) -> NativeResult<Value> {
     cx.poll()?;
     let source = cx.argument(0)?;
-    let mut comparison = Comparison::prepare(cx, algorithm)?;
+    let mut comparison = Comparison::prepare(cx, algorithm, symbols)?;
     let concrete = matches!(source, Value::GcHandle(_));
     let operations = if concrete {
         None
@@ -68,7 +76,10 @@ fn run(cx: &mut CallContext<'_>, algorithm: Algorithm, copy: bool) -> NativeResu
     let target = match source {
         Value::GcHandle(id) if copy => cx.clone_sequence(id)?,
         Value::GcHandle(id) => id,
-        _ => operations.as_ref().ok_or_else(invalid)?.snapshot(cx)?,
+        _ => operations
+            .as_ref()
+            .ok_or_else(invalid)?
+            .snapshot(symbols, cx)?,
     };
     let _root = cx
         .heap()
@@ -89,7 +100,7 @@ fn edit(
     cx: &mut CallContext<'_>,
     target: HeapObjectId,
     algorithm: Algorithm,
-    comparison: &mut Comparison<'_>,
+    comparison: &mut Comparison<'_, '_>,
 ) -> NativeResult<()> {
     cx.edit_sequence(target, |cx, mut values| match algorithm {
         Algorithm::Reverse => {
@@ -124,7 +135,7 @@ fn edit_custom(
     target: HeapObjectId,
     operations: &ReceiverCalls<'_>,
     algorithm: Algorithm,
-    comparison: &mut Comparison<'_>,
+    comparison: &mut Comparison<'_, '_>,
 ) -> NativeResult<Value> {
     let length = cx.heap().sequence_len(target).ok_or_else(invalid)?;
     if matches!(algorithm, Algorithm::Retain | Algorithm::Dedup) {

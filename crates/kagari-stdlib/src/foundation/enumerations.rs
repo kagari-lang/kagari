@@ -1,4 +1,5 @@
 //! Canonical enum owners and their explicit variant/public inventory.
+pub(super) mod value;
 use crate::{foundation::type_docs, namespaces};
 use kagari_runtime::native::{assembly::draft::ModuleDraft, binding::NativeResult};
 use kagari_types::declaration::{TypeDefKind, VariantDef};
