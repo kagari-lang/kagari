@@ -23,6 +23,7 @@ members = [
     "crates/kagari-derive",
     "crates/kagari-syntax",
     "crates/kagari-vm",
+    "crates/kagari-web",
 ]
 resolver = "3"
 

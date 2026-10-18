@@ -41,7 +41,7 @@ use kagari_common::{
 use kagari_source::{
     identity::{FileId, Revision},
     source::SourceFile,
-    source_database::SourceSnapshot,
+    source_database::{SourceDatabase, SourceSnapshot},
 };
 use kagari_syntax::{
     ast::item::SourceFile as AstSourceFile,
@@ -651,6 +651,7 @@ fn member_receiver_type_in(
 /// to the individual database; reuse still checks source revisions and installed declarations.
 #[derive(Debug, Clone)]
 pub struct AnalysisDatabase {
+    source_root: String,
     #[cfg(test)]
     pub(crate) import_solver_limits: Option<SolverLimits>,
     /// Database identity context used to scope portable declaration paths.
@@ -681,8 +682,21 @@ pub struct AnalysisDatabase {
 
 impl Default for AnalysisDatabase {
     fn default() -> Self {
+        Self::new(SourceDatabase::default().root()).expect("captured source root")
+    }
+}
+
+impl AnalysisDatabase {
+    /// Create analysis with an explicit absolute root for native declaration origins.
+    ///
+    /// No filesystem access or working-directory lookup is performed. Relative
+    /// declaration names use this captured root; virtual URI identities are preserved.
+    /// Invalid or relative roots return an error. User snapshots retain their own names.
+    pub fn new(source_root: &str) -> Result<Self, String> {
+        let sources = SourceDatabase::new(source_root)?;
         let definitions = DefinitionContext::new().expect("analysis definition context exhausted");
-        Self {
+        Ok(Self {
+            source_root: sources.root().to_owned(),
             #[cfg(test)]
             import_solver_limits: None,
             definitions: definitions.clone(),
@@ -700,7 +714,7 @@ impl Default for AnalysisDatabase {
             native_sources: None,
             native_files: OnceCell::new(),
             environment_fingerprint: OnceCell::new(),
-        }
+        })
     }
 }
 

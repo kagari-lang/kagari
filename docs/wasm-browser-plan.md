@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one commit per phase authorized on 2026-10-18.
-WB01-WB02 are complete; WB03 is next. Pushes, remote settings changes, dependency
+WB01-WB03 are complete; WB04 is next. Pushes, remote settings changes, dependency
 publication and deployment remain outside this authorization.
 
 The [roadmap](implementation-roadmap.md#browser-wasm-execution) owns activation and
@@ -447,7 +447,7 @@ needed for this planning-only change; check document links/content and whitespac
 - [x] Design selected and baseline inspected; plan recorded.
 - [x] WB01: fixed-width language integer migration.
 - [x] WB02: checked machine boundaries and browser timing.
-- [ ] WB03: linked source-enabled and source-free browser products.
+- [x] WB03: linked source-enabled and source-free browser products.
 - [ ] WB04: Worker scheduling, cancellation and recovery.
 - [ ] WB05: Playground integration, focused acceptance and handoff.
 
@@ -503,3 +503,33 @@ checks failed with the intended diagnostics, not unresolved loader symbols. Earl
 concurrent signature-transition errors were resolved before acceptance. Native
 checks exercise high values but do not substitute for wasm32 execution; WB03 owns
 actual source/source-free browser validation. No full workspace suite ran.
+
+### WB03 — linked browser products and real execution
+
+Added kagari-web, bounded JSON protocol v1, explicit web::print, rooted result
+conversion, UTF-8/UTF-16 diagnostic locations and independent default-source versus
+artifact-only builds. Exact wasm-bindgen crate/CLI 0.2.129, web-time 1.1.0; builds
+use existing dev profile/default target. Product scripts fingerprint Rust inputs,
+lockfiles, toolchain/environment, recipe and output bytes; stale products fail
+verification. Source-free dependency/export guards exclude frontend/native tooling.
+No Worker scheduling or public route is claimed before WB04/WB05.
+
+Actual browser construction uncovered SourceDatabase::default's cwd dependency,
+which cargo check could not detect. Fixed the ownership boundary: source-enabled
+engines accept an explicit lexical root, capture cwd only when none is supplied,
+and retain that root in sessions and generated declaration capture. Browser adapter
+supplies its own root; baseline analysis needs only an empty SourceSnapshot. No
+fake cwd, filesystem emulation or browser-specific typechecker. Four SDK session
+and six HIR native-declaration cases passed, plus adapter Unicode diagnostics.
+
+Native adapter tests passed in source and source-free configurations. Real linked
+products ran on Windows Chrome 155.0.8059.82: all nine source cases passed (full u64,
+collections/logical counts, wide index effects/traps, GC/rooted results, removed
+names, UTF-16/CRLF diagnostics, cancellation/reset and bounds). Source-free product
+executed a current native-generated artifact with exact output/u64 max result;
+malformed/truncated/hash-corrupted artifacts and admission bounds were rejected.
+Products/source hashes stayed unchanged and harness processes shut down. A fixture
+used an invalid bare-return match arm and guessed a specialized SDK index code;
+corrected the fixture and asserted the existing ScriptTrap mapping with exact wide
+index diagnostics and once-only effects. No core semantic weakening or skipped case.
+Workspace Clippy, structure, formatting and diff checks passed. Full CI remains unrun.

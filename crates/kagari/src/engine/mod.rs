@@ -66,7 +66,14 @@ impl KagariEngine {
 
     fn from_builder(builder: KagariEngineBuilder) -> Result<Self, EmbeddingError> {
         #[cfg(feature = "source")]
-        let (analysis, declaration_sources) = declarations::prepare(&builder)?;
+        let sources = match &builder.source_root {
+            Some(root) => {
+                SourceDatabase::new(root).map_err(|message| EmbeddingError::Source { message })?
+            }
+            None => SourceDatabase::default(),
+        };
+        #[cfg(feature = "source")]
+        let (analysis, declaration_sources) = declarations::prepare(&builder, sources.root())?;
         Ok(Self {
             config: builder.config,
             installation: builder.installation,
@@ -75,7 +82,7 @@ impl KagariEngine {
             #[cfg(feature = "source")]
             declaration_sources,
             #[cfg(feature = "source")]
-            sources: RefCell::default(),
+            sources: RefCell::new(sources),
             #[cfg(feature = "source")]
             analysis: RefCell::new(analysis),
         })
@@ -93,7 +100,8 @@ impl KagariEngine {
     /// Start an independent source session with the same sealed native providers.
     ///
     /// Reuses only the native-only baseline checked at engine construction. User
-    /// sources and query-setting changes are not inherited.
+    /// sources and query-setting changes are not inherited. The captured source
+    /// root is retained without consulting the current working directory.
     /// Native callbacks retain their original captures; create a new builder when
     /// those captures or provider declarations must differ.
     pub fn new_session(&self, config: EngineConfig) -> Self {
@@ -105,7 +113,9 @@ impl KagariEngine {
             #[cfg(feature = "source")]
             declaration_sources: self.declaration_sources.clone(),
             #[cfg(feature = "source")]
-            sources: RefCell::default(),
+            sources: RefCell::new(
+                SourceDatabase::new(self.sources.borrow().root()).expect("captured source root"),
+            ),
             #[cfg(feature = "source")]
             analysis: RefCell::new(self.native_analysis.clone()),
         }

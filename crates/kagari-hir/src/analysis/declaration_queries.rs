@@ -195,10 +195,17 @@ impl AnalysisDatabase {
                             module,
                             &modules,
                             &sources[index],
+                            &self.source_root,
                             self.parse_limits,
                             cancel,
                         ),
-                        None => native_api::import(module, &modules, self.parse_limits, cancel),
+                        None => native_api::import(
+                            module,
+                            &modules,
+                            &self.source_root,
+                            self.parse_limits,
+                            cancel,
+                        ),
                     })
                     .collect::<Result<Vec<_>, _>>();
                 cancel.check()?;

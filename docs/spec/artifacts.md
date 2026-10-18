@@ -140,7 +140,12 @@ The additive `web` feature supplies browser/Worker measurement clocks on
 That target requires `web` and a browser Performance clock. Other targets keep the
 standard clock, without web-time dependencies. WASM targets reject `aot-load` and
 `aot-build`, which require native dynamic-library products. Browser bindings and
-execution acceptance are tracked separately in the roadmap.
+execution acceptance are tracked separately in the roadmap. The
+[browser adapter](../../crates/kagari-web/README.md) defaults to source support;
+its no-default-features product omits the frontend and source compilation export.
+Both use the same prepared-program validation and interpreter. Source inputs and
+artifact bytes are bounded before admission; browser-owned results are converted
+while rooted, without exposing heap addresses.
 
 `PreparedProgram::from_artifact` always validates the envelope and bytecode. With
 `native` enabled it additionally checks portable MIR and canonical correspondence;

@@ -22,9 +22,15 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
         .iter()
         .map(|module| {
             let mut generated = declaration_source(module, &modules).unwrap();
-            let (_, original) =
-                api::import_source(module, &modules, &generated, Default::default(), &cancel)
-                    .unwrap();
+            let (_, original) = api::import_source(
+                module,
+                &modules,
+                &generated,
+                "/native-declarations",
+                Default::default(),
+                &cancel,
+            )
+            .unwrap();
             mutate_source(&mut generated.text);
             if generated.text == original.source.text() {
                 return original;

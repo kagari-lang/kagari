@@ -1,0 +1,23 @@
+[package]
+name = "kagari-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = ["source"]
+source = ["kagari/source", "dep:kagari-source"]
+
+[dependencies]
+kagari = { workspace = true, default-features = false, features = ["web"] }
+kagari-runtime.workspace = true
+kagari-types.workspace = true
+kagari-source = { workspace = true, optional = true }
+serde.workspace = true
+serde_json = "1"
+
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+wasm-bindgen = "=0.2.129"

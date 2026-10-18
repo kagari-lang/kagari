@@ -69,6 +69,7 @@ fn native_view_must_match_authoritative_signatures_bounds_members_and_visibility
             &module,
             &providers,
             &source,
+            "/native-declarations",
             Default::default(),
             &Default::default(),
         )
@@ -97,6 +98,7 @@ fn native_view_trivia_does_not_change_checked_binding_and_default_ownership() {
         module,
         &providers,
         &source,
+        "/native-declarations",
         Default::default(),
         &Default::default(),
     )
@@ -151,6 +153,7 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
         module,
         &providers,
         &source,
+        "/native-declarations",
         Default::default(),
         &Default::default(),
     )
@@ -179,6 +182,7 @@ fn core_roles_use_complete_parsed_modules_with_attribute_trivia_and_docs() {
             module,
             &providers,
             &source,
+            "/native-declarations",
             Default::default(),
             &Default::default()
         )
@@ -212,6 +216,7 @@ fn malformed_or_mismatched_core_source_never_installs_a_native_parse() {
                 module,
                 &providers,
                 &source,
+                "/native-declarations",
                 Default::default(),
                 &Default::default()
             )

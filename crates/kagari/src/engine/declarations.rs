@@ -6,7 +6,7 @@ use kagari_hir::{
     analysis::AnalysisDatabase,
     native::render::{DeclarationSource, declaration_source},
 };
-use kagari_source::source_database::{SourceDatabase, normalize_source_name};
+use kagari_source::source_database::{SourceSnapshot, normalize_source_name};
 use kagari_types::declaration::module::ModuleDecl;
 use std::{
     collections::BTreeSet,
@@ -25,6 +25,7 @@ static TEMPORARY_ID: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn prepare(
     builder: &KagariEngineBuilder,
+    source_root: &str,
 ) -> Result<(AnalysisDatabase, Vec<DeclarationSource>), EmbeddingError> {
     let providers = builder
         .modules
@@ -44,7 +45,8 @@ pub(super) fn prepare(
             source.uri = source_name(&cache_path(root, &source.text)?)?;
         }
     }
-    let mut analysis = AnalysisDatabase::default();
+    let mut analysis =
+        AnalysisDatabase::new(source_root).map_err(|message| EmbeddingError::Source { message })?;
     analysis
         .set_native_sources(providers.clone(), sources.clone())
         .map_err(|error| EmbeddingError::Source {
@@ -77,10 +79,7 @@ pub(super) fn prepare(
     let snapshot = validation
         .as_mut()
         .unwrap_or(&mut analysis)
-        .snapshot(
-            SourceDatabase::default().snapshot(),
-            &CancellationToken::default(),
-        )
+        .snapshot(SourceSnapshot::default(), &CancellationToken::default())
         .map_err(|error| EmbeddingError::Source {
             message: format!("{error:?}"),
         })?;

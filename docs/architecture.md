@@ -62,7 +62,14 @@ shows the CLI and SDK handoffs.
 combines workspace discovery, member selection, whole-workspace locking and isolated
 source capture. It returns a candidate lock; filesystem publication remains explicit.
 SDK `KagariEngine::compile_package` publishes one capture to its source session and
-uses the existing checked-program and artifact pipeline. Checked results retain their
+uses the existing checked-program and artifact pipeline. A source-enabled engine
+captures its source root at construction; `builder.source_root(...)` supplies an
+explicit absolute lexical root without filesystem IO. Otherwise native construction
+captures the current directory. Fresh sessions inherit the engine root rather than
+consulting the current directory again. Native-declaration analysis uses an empty
+snapshot and captures generated sources against that same explicit root. Virtual
+`memory://` source identities remain independent of the root. Browser hosts use
+this boundary rather than a fabricated working directory or filesystem emulator. Checked results retain their
 source acquisition provenance; no package acquisition runs during execution.
 CLI project commands use these same inputs, select roots before execution and publish
 one shared workspace lock. Each selected package produces a separate Program.

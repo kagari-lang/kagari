@@ -214,8 +214,8 @@ Open acceptance and follow-ups:
 
 The [fixed-width integer and browser plan](wasm-browser-plan.md) owns WB01-WB05
 and its progress ledger. Implementation and one commit per phase are authorized.
-WB01 fixed-width migration and WB02 checked memory boundaries/web timing passed
-focused local acceptance. WB03 linked browser products are next. Pushes and remote publication remain separately authorized.
+WB01-WB03 passed focused local acceptance, including real source-enabled and
+source-free WASM execution in Chrome. WB04 Worker lifecycle is next. Pushes and remote publication remain separately authorized.
 
 Remove script isize/usize instead of preserving duplicate fixed-width identities.
 Migrate lengths/indices/counts to u64 and signed numeric roles to i64, while retaining
@@ -231,10 +231,11 @@ semantics remain portable; resource limits, external inputs and fatal-instance
 recovery are explicit boundaries. WB05 owns one lazy-loaded Playground route and
 its exact-product build/Pages integration, not remote deployment authorization.
 
-The source-enabled wasm32-unknown-unknown cargo check passed during investigation.
-Actual browser runtime, source-free WASM and cross-platform semantic acceptance
-remain unrun; existing clock calls, machine-sized scalar storage and truncating
-indices are known work, not evidence that compilation implies execution support.
+Source-enabled and source-free browser execution passed selected real Chrome
+contracts after correcting source-root initialization, clocks and wide indices.
+Worker scheduling, complete cross-platform/CI acceptance and public Playground
+integration remain pending; successful target compilation alone is not execution
+acceptance.
 WASM code generation, i128/u128, threads/shared memory, WASI, arbitrary JS callbacks
 and a browser live-reload UI are outside this plan. Existing interpreter/native
 work remains separately owned and must not be silently folded into this migration.

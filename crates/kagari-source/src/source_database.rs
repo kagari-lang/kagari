@@ -112,6 +112,11 @@ impl SourceDatabase {
         })
     }
 
+    /// The normalized absolute root captured at construction; accessing it performs no IO.
+    pub fn root(&self) -> &str {
+        &self.root
+    }
+
     pub fn source_name(&self, name: &str) -> Result<String, String> {
         // Classify before folding: `./untitled:Name` is a relative filesystem path.
         let virtual_source =

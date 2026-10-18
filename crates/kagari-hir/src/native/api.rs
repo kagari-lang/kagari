@@ -50,11 +50,12 @@ use std::{collections::HashSet, sync::Arc};
 pub(crate) fn import(
     metadata: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
+    source_root: &str,
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
     let generated = declaration_source(metadata, providers)?;
-    import_source(metadata, providers, &generated, limits, cancel)
+    import_source(metadata, providers, &generated, source_root, limits, cancel)
 }
 
 /// Validates supplied declaration text against registration, then attaches storage/native/role metadata to ordinary lowering.
@@ -63,6 +64,7 @@ pub(crate) fn import_source(
     metadata: &DefinitionMetadata<ModuleDecl>,
     providers: &[Arc<DefinitionMetadata<ModuleDecl>>],
     generated: &DeclarationSource,
+    source_root: &str,
     limits: ParseLimits,
     cancel: &CancellationToken,
 ) -> Result<(Parse, Arc<LoweredModule>), DeclarationError> {
@@ -75,7 +77,7 @@ pub(crate) fn import_source(
             .flat_map(|module| module.types.iter().map(|ty| (&module.identity, ty))),
     )?;
     definition.validate(&|receiver| owners.owner(receiver, definitions), definitions)?;
-    let mut sources = SourceDatabase::default();
+    let mut sources = SourceDatabase::new(source_root).map_err(DeclarationError)?;
     sources
         .bind_module(&generated.uri, definition.identity.clone())
         .map_err(DeclarationError)?;
