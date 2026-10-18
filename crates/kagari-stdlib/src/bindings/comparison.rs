@@ -17,7 +17,7 @@ use kagari_types::declaration::NativeDeclaration;
 use std::iter;
 
 #[derive(Clone, Copy)]
-enum Shape {
+pub(crate) enum Shape {
     List,
     Set,
     Map,
@@ -32,31 +32,20 @@ impl Shape {
 type Equality = SelectedMethod<(ScriptValue, ScriptValue), bool>;
 type Hash = SelectedMethod<(ScriptValue,), i64>;
 
-pub(super) fn binding(
-    name: &str,
+#[derive(Clone, Copy)]
+pub(crate) enum Operation {
+    InterfaceEqual,
+    Equal,
+    Hash,
+}
+
+pub(crate) fn binding(
+    shape: Shape,
+    operation: Operation,
     declaration: &DefinitionMetadata<NativeDeclaration>,
-) -> NativeResult<Option<NativeBinding>> {
-    match name {
-        name if name.starts_with("$foundation_interface_") && name.ends_with("_debug") => {
-            return Ok(Some(NativeBinding::declared(
-                declaration,
-                |cx, (value,): (Interface,)| value.debug_preview(cx),
-            )));
-        }
-        _ => {}
-    }
-    let (shape, public, hash) = match name {
-        "list_content_equal" => (Shape::List, true, false),
-        "set_content_equal" => (Shape::Set, true, false),
-        "map_content_equal" => (Shape::Map, true, false),
-        "$foundation_list_eq" => (Shape::List, false, false),
-        "$foundation_set_eq" => (Shape::Set, false, false),
-        "$foundation_map_eq" => (Shape::Map, false, false),
-        "$foundation_list_hash" => (Shape::List, false, true),
-        "$foundation_set_hash" => (Shape::Set, false, true),
-        "$foundation_map_hash" => (Shape::Map, false, true),
-        _ => return Ok(None),
-    };
+) -> NativeResult<NativeBinding> {
+    let public = matches!(operation, Operation::InterfaceEqual);
+    let hash = matches!(operation, Operation::Hash);
     let calls = declaration
         .records()
         .callable_requirements
@@ -68,7 +57,7 @@ pub(super) fn binding(
             "collection comparison requirements",
         ));
     }
-    Ok(Some(if public {
+    Ok(if public {
         NativeBinding::declared(
             declaration,
             move |cx, (left, right): (Interface, Interface)| {
@@ -91,7 +80,7 @@ pub(super) fn binding(
                 equal(cx, shape, left, right, &calls[..shape.components()])
             },
         )
-    }))
+    })
 }
 
 fn equal(

@@ -361,12 +361,12 @@ fn unresolved_category_arity_and_missing_exports_reject_before_preparation() {
                     )?;
                 }
             }
-            module.define_function(
+            module.define_function((
                 FunctionDecl::new("unused"),
                 PendingBinding::implementation_with(|_| -> NativeResult<NativeBinding> {
                     panic!("must not prepare an invalid assembly")
                 }),
-            )?;
+            ))?;
             Ok(())
         }))
         .unwrap();
@@ -387,10 +387,10 @@ fn duplicate_owners_members_and_foreign_receiver_are_rejected() {
     set.add(ModuleDefinition::new(owner("local"), |module| {
         enumeration(module, "Node")?;
         assert!(enumeration(module, "Node").is_err());
-        module.define_function(FunctionDecl::new("f"), empty_binding())?;
+        module.define_function((FunctionDecl::new("f"), empty_binding()))?;
         assert!(
             module
-                .define_function(FunctionDecl::new("f"), empty_binding())
+                .define_function((FunctionDecl::new("f"), empty_binding()))
                 .is_err()
         );
         Ok(())
@@ -481,10 +481,10 @@ fn external_providers_are_adopted_but_cannot_be_redefined() {
 fn signature_mismatch_fails_native_projection_without_invalidating_snapshot() {
     let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
     set.add(ModuleDefinition::new(owner("mismatch"), |module| {
-        module.define_function(
+        module.define_function((
             FunctionDecl::new("f").returns(Type::bool()),
             empty_binding(),
-        )?;
+        ))?;
         Ok(())
     }))
     .unwrap();

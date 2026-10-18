@@ -22,6 +22,8 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
+use kagari_stdlib::{catalog as standard_catalog, namespaces};
+use kagari_types::callable::CallableImplementation;
 use std::{
     fs,
     path::PathBuf,
@@ -218,18 +220,49 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
         .iter()
         .find(|source| source.text.contains("pub trait List<"))
         .unwrap();
-    let forwarding =
-        "__default_List_sorted::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)";
+    let declarations = standard_catalog::declarations().unwrap();
+    let owner = declarations
+        .iter()
+        .find(|module| module.records().identity == namespaces::module("std", "collections"))
+        .unwrap();
+    let list = owner
+        .records()
+        .traits
+        .iter()
+        .find(|contract| contract.name == "List")
+        .unwrap();
+    let sorted = list
+        .methods
+        .iter()
+        .find(|method| method.name == "sorted")
+        .unwrap();
+    let CallableImplementation::NativeDefault(application) = &sorted.implementation else {
+        panic!("List::sorted must retain its native default body")
+    };
+    assert_eq!(application.arguments.len(), 3);
     assert!(
-        collections.text.contains(forwarding),
+        owner
+            .records()
+            .private_functions
+            .contains(&application.declaration)
+    );
+    let template = owner
+        .definitions()
+        .resolve(application.declaration)
+        .unwrap();
+    assert_eq!(template.module(), &owner.records().identity);
+    let name = template.last().unwrap().name;
+    let forwarding =
+        format!("{name}::<Self, T, <Self as core::iter::Iterable<Item = T>>::Iter>(self)");
+    assert!(
+        collections.text.contains(&forwarding),
         "{}",
         collections.text
     );
-    assert!(collections.text.contains("\nfn __default_List_sorted<"));
     assert!(
         collections
             .text
-            .contains("\nfn __default_List_sorted<T1, T2, T3>")
+            .contains(&format!("\nfn {name}<T1, T2, T3>"))
     );
     assert_eq!(
         fs::read_to_string(physical_path(&collections.uri)).unwrap(),

@@ -62,7 +62,7 @@ fn later_factory_failure_discards_prepared_modules_and_remaining_factories_not_s
     let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
     let first_events = events.clone();
     set.add(ModuleDefinition::new(owner("prepared"), move |module| {
-        module.define_function(
+        module.define_function((
             FunctionDecl::new("run"),
             PendingBinding::implementation_with(move |_| {
                 first_events.borrow_mut().push("first factory");
@@ -71,14 +71,14 @@ fn later_factory_failure_discards_prepared_modules_and_remaining_factories_not_s
                     events: first_events,
                 })
             }),
-        )?;
+        ))?;
         Ok(())
     }))
     .unwrap();
     let failed_events = events.clone();
     let prepared_binding = first_weak.clone();
     set.add(ModuleDefinition::new(owner("failed"), move |module| {
-        module.define_function(
+        module.define_function((
             FunctionDecl::new("run"),
             PendingBinding::implementation_with(move |_| {
                 assert_eq!(
@@ -92,13 +92,13 @@ fn later_factory_failure_discards_prepared_modules_and_remaining_factories_not_s
                 failed_events.borrow_mut().push("second factory failed");
                 Err::<TrackedAdapter, _>(conflict("deliberate second factory failure"))
             }),
-        )?;
+        ))?;
         Ok(())
     }))
     .unwrap();
     let skipped_events = events.clone();
     set.add(ModuleDefinition::new(owner("skipped"), move |module| {
-        module.define_function(
+        module.define_function((
             FunctionDecl::new("run"),
             PendingBinding::implementation_with(move |_| {
                 skipped_events
@@ -109,7 +109,7 @@ fn later_factory_failure_discards_prepared_modules_and_remaining_factories_not_s
                     events: skipped_events,
                 })
             }),
-        )?;
+        ))?;
         Ok(())
     }))
     .unwrap();

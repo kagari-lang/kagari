@@ -366,16 +366,7 @@ pub(crate) fn complete(
                 .resolve(member.declaration)
                 .map_err(identities::invalid)?;
             let name = view.last().expect("associated type").name;
-            let text = match name {
-                "Item" => "The item yielded by this iterator or iterable.",
-                "Iter" => "The iterator produced by iter; its Item equals this iterable's Item.",
-                "Output" => "The result type of the declared operation.",
-                "Error" | "Err" => "The error returned when this conversion or parse fails.",
-                "Residual" => {
-                    "The distinct early-return type passed to FromResidual; successful Output values are not residuals."
-                }
-                _ => unreachable!("standard associated type documentation: {name}"),
-            };
+            let text = associated_docs(name);
             module.documentation.insert(member.declaration, text.into());
         }
     }
@@ -559,4 +550,22 @@ pub(crate) fn inherent_docs(receiver: &Ty, name: &str) -> String {
 pub(crate) fn type_markdown(name: &str) -> String {
     let (text, code) = type_docs(name);
     example(text, code)
+}
+
+pub(crate) fn trait_markdown(name: &str) -> String {
+    let (text, code) = trait_docs(name);
+    example(text, code)
+}
+
+pub(crate) fn associated_docs(name: &str) -> &'static str {
+    match name {
+        "Item" => "The item yielded by this iterator or iterable.",
+        "Iter" => "The iterator produced by iter; its Item equals this iterable's Item.",
+        "Output" => "The result type of the declared operation.",
+        "Error" | "Err" => "The error returned when this conversion or parse fails.",
+        "Residual" => {
+            "The distinct early-return type passed to FromResidual; successful Output values are not residuals."
+        }
+        _ => unreachable!("standard associated type documentation: {name}"),
+    }
 }

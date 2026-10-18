@@ -58,18 +58,18 @@ fn lookup(cx: &mut CallContext<'_>, key: &Value) -> NativeResult<(i64, i64)> {
     Ok((hash, -1))
 }
 
-pub(super) fn map_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.allocate_result()
 }
 
-pub(super) fn map_len(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_len(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .map_len(map(cx)?)
         .map(NativeScalar::encode)
         .ok_or_else(invalid)
 }
 
-pub(super) fn map_is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .map_len(map(cx)?)
         .map(|len| Value::Bool(len == 0))
@@ -89,16 +89,16 @@ fn map_value(cx: &mut CallContext<'_>) -> NativeResult<Option<Value>> {
     cx.heap().custom_get(&collection, hash, token)
 }
 
-pub(super) fn map_get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let value = map_value(cx)?;
     option(cx, value)
 }
 
-pub(super) fn map_contains(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_contains(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     map_value(cx).map(|value| Value::Bool(value.is_some()))
 }
 
-pub(super) fn map_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let collection = cx.argument(0)?;
     let key = cx.argument(1)?;
     let value = cx.argument(2)?;
@@ -112,12 +112,12 @@ pub(super) fn map_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(Value::Unit)
 }
 
-pub(super) fn map_insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     map_insert(cx)?;
     cx.argument(0)
 }
 
-pub(super) fn map_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let collection = cx.argument(0)?;
     let key = cx.argument(1)?;
     let id = map(cx)?;
@@ -142,35 +142,35 @@ pub(super) fn map_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     }
 }
 
-pub(super) fn map_clear(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_clear(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap().map_clear(map(cx)?)?;
     Ok(Value::Unit)
 }
 
-pub(super) fn map_clear_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn map_clear_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     map_clear(cx)?;
     cx.argument(0)
 }
 
-pub(super) fn set_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.allocate_result()
 }
 
-pub(super) fn set_len(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_len(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .set_len(set(cx)?)
         .map(NativeScalar::encode)
         .ok_or_else(invalid)
 }
 
-pub(super) fn set_is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap()
         .set_len(set(cx)?)
         .map(|len| Value::Bool(len == 0))
         .ok_or_else(invalid)
 }
 
-pub(super) fn set_contains(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_contains(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let key = cx.argument(1)?;
     let result = if builtin(cx)? {
         cx.heap().set_contains(set(cx)?, &key).ok_or_else(invalid)?
@@ -180,7 +180,7 @@ pub(super) fn set_contains(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(result))
 }
 
-pub(super) fn set_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let collection = cx.argument(0)?;
     let key = cx.argument(1)?;
     if builtin(cx)? {
@@ -193,12 +193,12 @@ pub(super) fn set_insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(Value::Unit)
 }
 
-pub(super) fn set_insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     set_insert(cx)?;
     cx.argument(0)
 }
 
-pub(super) fn set_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let collection = cx.argument(0)?;
     let key = cx.argument(1)?;
     let id = set(cx)?;
@@ -217,12 +217,12 @@ pub(super) fn set_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(Value::Bool(result))
 }
 
-pub(super) fn set_clear(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_clear(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.heap().set_clear(set(cx)?)?;
     Ok(Value::Unit)
 }
 
-pub(super) fn set_clear_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set_clear_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     set_clear(cx)?;
     cx.argument(0)
 }

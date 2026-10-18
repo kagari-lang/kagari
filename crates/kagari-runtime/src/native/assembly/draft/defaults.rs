@@ -63,6 +63,9 @@ impl DefaultDefinition {
     }
 
     /// Add authored bounds to the ordinary trait and method assumptions.
+    /// An explicit bound with additional associated equalities replaces the
+    /// weaker implicit bound for that receiver and applied trait. All equalities
+    /// and callable obligations still pass the ordinary sealing proofs.
     /// Raw semantic IDs must belong to this draft's definition table.
     pub fn assumptions(mut self, assumptions: impl IntoIterator<Item = GenericBound>) -> Self {
         self.assumptions.extend(assumptions);
@@ -252,6 +255,24 @@ pub(crate) fn lower_defaults(
                 .collect()
         });
         let mut assumptions = trait_default_assumptions(intent.owner, contract);
+        // A supplied associated-output equality strengthens the implicit trait
+        // assumption. Keep only the stronger obligation: retaining both creates
+        // duplicate operation witnesses when a shared call specializes Self.
+        for implicit in &mut assumptions {
+            implicit.constraints.retain(|required| {
+                !intent.assumptions.iter().any(|explicit| {
+                    explicit.ty == implicit.ty
+                        && explicit.constraints.iter().any(|available| {
+                            available.declaration == required.declaration
+                                && available.arguments == required.arguments
+                                && required.associated_types.iter().all(|(member, ty)| {
+                                    available.associated_types.get(member) == Some(ty)
+                                })
+                        })
+                })
+            });
+        }
+        assumptions.retain(|bound| !bound.constraints.is_empty());
         assumptions.extend(intent.assumptions);
         let name = format!("__default_{}_{}_{}", owner.len(), owner, method_name);
         if draft

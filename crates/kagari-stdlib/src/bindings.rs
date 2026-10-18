@@ -1,15 +1,15 @@
-//! Temporary direct preparation bridge for remaining SR03/SR04 contributors.
+//! Shared algorithms and the temporary preparation bridge for SR04 Future/Task owners.
 //! SR05 removes this routing owner; migrated declarations never enter it.
 pub(crate) mod arrays;
-mod comparison;
+pub(crate) mod comparison;
 pub(crate) mod construction;
 mod enums;
-mod hash;
-mod iterable;
-mod lists;
+pub(crate) mod hash;
+pub(crate) mod iterable;
+pub(crate) mod lists;
 pub(crate) mod propagation;
 mod tasks;
-mod vectors;
+pub(crate) mod vectors;
 use crate::{assembly::semantic::Semantic, identity};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -101,25 +101,9 @@ pub(crate) fn collect(
             ty.generic_params.len(),
         )?;
         let storage = match layout {
-            NativeStorageLayout::Sequence { element } => NativeStorage::sequence(element),
             NativeStorageLayout::Future => NativeStorage::future(),
             NativeStorageLayout::Task => NativeStorage::task(),
             NativeStorageLayout::TaskScope => NativeStorage::task_scope(),
-            NativeStorageLayout::Opaque
-                if matches!(
-                    ty.name.as_str(),
-                    "MapIterator"
-                        | "FilterIterator"
-                        | "TakeIterator"
-                        | "FilterMapIterator"
-                        | "SkipIterator"
-                        | "EnumerateIterator"
-                        | "ZipIterator"
-                        | "ChainIterator"
-                ) =>
-            {
-                iterable::storage()
-            }
             _ => return Err(conflict("unexpected remaining storage contributor")),
         };
         module.bind_storage(&reference, storage)?;
@@ -164,54 +148,14 @@ fn prepare_remaining(
     name: &str,
     preparation: &SealedPreparation<'_>,
 ) -> NativeResult<NativeBinding> {
-    if let Some(binding) = comparison::binding(name, preparation.declaration())? {
-        return Ok(binding);
-    }
-    if name == "$foundation_default_Vec" {
-        return Ok(NativeBinding::new(vec![], Codec::Value, |cx| {
-            cx.allocate_result()
-        }));
-    }
-    if let Some(binding) = vectors::binding(name, preparation.declaration())? {
-        return Ok(binding);
-    }
-    if let Some(binding) = iterable::binding(name) {
-        return Ok(binding);
-    }
     let entry: Entry = match name {
         "$foundation_task_spawn" => tasks::spawn,
         "$foundation_task_cancel" => tasks::cancel,
-        "$foundation_map_from_iter" | "$foundation_set_from_iter" => construction::hash_from_iter,
-        "$foundation_list_from_iter" => construction::list_from_iter,
-        "$foundation_list_from" => arrays::vector,
-        "$foundation_set_from" => arrays::set,
-        "$foundation_list_new" => list_new,
-        "$foundation_list_pop" => list_pop,
-        "$foundation_list_remove" => list_remove,
-        "$foundation_list_iter" | "$foundation_map_iter" | "$foundation_set_iter" => iter,
-        "$foundation_cursor_next" => next,
-        "$foundation_map_new" => hash::map_new,
-        "$foundation_map_len" => hash::map_len,
-        "$foundation_map_is_empty" => hash::map_is_empty,
-        "$foundation_map_contains_key" => hash::map_contains,
-        "$foundation_map_get" => hash::map_get,
-        "$foundation_map_insert" => hash::map_insert,
-        "$foundation_map_insert_fluent" => hash::map_insert_fluent,
-        "$foundation_map_remove" => hash::map_remove,
-        "$foundation_map_clear" => hash::map_clear,
-        "$foundation_map_clear_fluent" => hash::map_clear_fluent,
-        "$foundation_set_new" => hash::set_new,
-        "$foundation_set_len" => hash::set_len,
-        "$foundation_set_is_empty" => hash::set_is_empty,
-        "$foundation_set_contains" => hash::set_contains,
-        "$foundation_set_insert" => hash::set_insert,
-        "$foundation_set_insert_fluent" => hash::set_insert_fluent,
-        "$foundation_set_remove" => hash::set_remove,
-        "$foundation_set_clear" => hash::set_clear,
-        "$foundation_set_clear_fluent" => hash::set_clear_fluent,
-        _ => lists::entry(name).ok_or_else(|| {
-            RuntimeError::metadata_conflict(format!("missing foundation implementation {name}"))
-        })?,
+        _ => {
+            return Err(RuntimeError::metadata_conflict(format!(
+                "missing foundation implementation {name}"
+            )));
+        }
     };
     Ok(NativeBinding::new(
         vec![Codec::Value; preparation.declaration().records().function.params.len()],
@@ -239,7 +183,7 @@ pub(crate) fn index_argument(cx: &CallContext<'_>, slot: usize) -> NativeResult<
     u64::decode(cx.argument(slot)?)
 }
 
-fn list_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn list_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.allocate_result()
 }
 
@@ -262,7 +206,7 @@ fn option_members() -> NativeResult<&'static (VariantRef, VariantRef)> {
         .map_err(Clone::clone)
 }
 
-fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     cx.ensure_collection_mutable(id)?;
     let length = cx.heap().sequence_len(id).ok_or_else(invalid)?;
@@ -276,7 +220,7 @@ fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(result)
 }
 
-fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
     let index = usize::try_from(index_argument(cx, 1)?).ok();
     cx.ensure_collection_mutable(id)?;
@@ -294,7 +238,7 @@ pub(crate) fn iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.iter_operation(0, IterOp::New)
 }
 
-fn next(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn next(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let (some, none) = option_members()?;
     cx.iterator_next_result(0, some, none)
 }

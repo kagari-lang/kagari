@@ -37,13 +37,3 @@ pub(super) fn method(
         .intern_child(*owner, DefinitionKind::Method, name, 0)
         .map_err(invalid)
 }
-
-pub(super) fn associated(
-    context: &DefinitionContext,
-    owner: &DefinitionId,
-    name: &str,
-) -> Result<DefinitionId, DeclarationError> {
-    context
-        .intern_child(*owner, DefinitionKind::AssociatedType, name, 0)
-        .map_err(invalid)
-}

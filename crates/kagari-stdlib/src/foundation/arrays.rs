@@ -81,6 +81,6 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     })
 }
 
-fn array(item: Type) -> NativeResult<Type> {
+pub(super) fn array(item: Type) -> NativeResult<Type> {
     map_type(item, |item| Ty::Array(Box::new(item)))
 }

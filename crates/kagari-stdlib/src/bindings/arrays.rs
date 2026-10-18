@@ -47,7 +47,7 @@ pub(crate) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         .ok_or_else(out_of_bounds)
 }
 
-pub(super) fn vector(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn vector(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let source = source(cx)?;
     let count = cx.heap().array_len(source).ok_or_else(invalid)?;
     let result = cx.allocate_result()?;
@@ -63,7 +63,7 @@ pub(super) fn vector(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     Ok(result)
 }
 
-pub(super) fn set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn set(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let source = source(cx)?;
     let count = cx.heap().array_len(source).ok_or_else(invalid)?;
     let result = cx.allocate_result()?;

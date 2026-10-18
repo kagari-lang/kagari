@@ -51,7 +51,7 @@ fn batch(
         set.add(ModuleDefinition::new(
             owner(&format!("part{index}")),
             move |module| {
-                module.define_function(
+                module.define_function((
                     FunctionDecl::new("run"),
                     PendingBinding::implementation_with_send(move |_| {
                         calls[index].fetch_add(1, Ordering::SeqCst);
@@ -67,7 +67,7 @@ fn batch(
                             },
                         ))
                     }),
-                )?;
+                ))?;
                 Ok(())
             },
         ))?;

@@ -1,10 +1,16 @@
-//! Explicit SR02 owner contributors. Unmigrated declarations join through raw seeds.
+//! Explicit standard owner contributors. Only SR04 Future/Task declarations join as raw seeds.
 mod arrays;
+mod comparison;
 pub(crate) mod enumerations;
+mod hash;
+mod iteration;
+mod lists;
 mod numeric;
 mod propagation;
+mod protocols;
 mod ranges;
 pub(crate) mod string;
+mod vector;
 
 use crate::{bindings::Entry, catalog::documentation, identity, namespaces};
 use kagari_common::identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext};
@@ -21,15 +27,39 @@ use kagari_runtime::{
     },
 };
 use kagari_types::{
-    declaration::TypeDefKind,
+    declaration::{TypeDefKind, native::NativeTypeConstructor},
+    reference::ReferenceAccess,
     ty::{GenericBound, Ty},
 };
 
 pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
+    protocols::declare(module)?;
     enumerations::declare(module)?;
     let owner = module.identity().clone();
     if owner == namespaces::module("alloc", "string") {
         string::declare(module)?;
+    }
+    if owner == namespaces::module("alloc", "vec") {
+        vector::declare(module)?;
+        comparison::concrete(module, "List")?;
+    }
+    if owner == namespaces::module("std", "collections") {
+        hash::declare(module)?;
+        lists::defaults(module)?;
+        comparison::public_functions(module)?;
+        comparison::concrete(module, "Set")?;
+        comparison::concrete(module, "Map")?;
+        comparison::interface_debug(module)?;
+    }
+    if owner == namespaces::module("core", "host") {
+        for access in [ReferenceAccess::Shared, ReferenceAccess::Mutable] {
+            let reference = module
+                .define_constructor(access.name(), NativeTypeConstructor::Reference(access))?;
+            module.document(reference.id(), documentation::type_markdown(access.name()))?;
+        }
+    }
+    if owner == namespaces::module("core", "iter") {
+        iteration::declare(module)?;
     }
     if owner == namespaces::module("core", "num") {
         numeric::declare(module)?;
@@ -59,10 +89,47 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
             )
         })
         .collect::<Vec<_>>();
+    for &(package, path, declarations) in protocols::INVENTORY {
+        types.extend(declarations.iter().map(|(name, _)| {
+            (
+                namespaces::module(package, path),
+                DefinitionKind::Trait,
+                (*name).into(),
+            )
+        }));
+    }
+    types.extend(
+        ["HashMap", "HashSet", "Ref", "RefMut"]
+            .into_iter()
+            .map(|name| {
+                (
+                    namespaces::type_owner(name),
+                    DefinitionKind::AssociatedType,
+                    name.into(),
+                )
+            }),
+    );
+    types.push((
+        namespaces::type_owner("Vec"),
+        DefinitionKind::AssociatedType,
+        "Vec".into(),
+    ));
     types.push((
         namespaces::type_owner("String"),
         DefinitionKind::AssociatedType,
         "String".into(),
+    ));
+    types.extend(iteration::ADAPTERS.iter().map(|(name, _, _)| {
+        (
+            namespaces::type_owner(name),
+            DefinitionKind::AssociatedType,
+            (*name).into(),
+        )
+    }));
+    types.push((
+        namespaces::type_owner("CollectionCursor"),
+        DefinitionKind::AssociatedType,
+        "CollectionCursor".into(),
     ));
     types.extend(ranges::KINDS.iter().map(|kind| {
         (

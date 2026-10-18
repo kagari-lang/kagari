@@ -16,7 +16,7 @@ use kagari_runtime::{
 use std::cell::Cell;
 
 #[derive(Debug, Clone, Copy)]
-enum Operation {
+pub(crate) enum Operation {
     Map,
     Filter,
     Take,
@@ -53,12 +53,12 @@ impl NativePayload for Adapter {
     }
 }
 
-pub(super) fn storage() -> NativeStorage {
+pub(crate) fn storage() -> NativeStorage {
     NativeStorage::payload::<Adapter>()
 }
 
 #[derive(Clone, Copy)]
-enum Terminal {
+pub(crate) enum Terminal {
     Count,
     Find,
     Any,
@@ -66,85 +66,41 @@ enum Terminal {
     ForEach,
 }
 
-pub(super) fn binding(name: &str) -> Option<NativeBinding> {
-    let operation = match name {
-        "$foundation_iterator_identity_iter" => {
-            return Some(NativeBinding::new(vec![Codec::Value], Codec::Value, |cx| {
-                cx.argument(0)
-            }));
-        }
-        "__default_Iterable_collect" | "__default_Iterable_sum" | "__default_Iterable_product" => {
-            return Some(NativeBinding::new(
-                vec![Codec::Value],
-                Codec::Value,
-                destination,
-            ));
-        }
-        "__default_Iterable_fold" => {
-            return Some(NativeBinding::new(
-                vec![Codec::Value; 3],
-                Codec::Value,
-                fold,
-            ));
-        }
-        "__default_Iterable_count"
-        | "__default_Iterable_find"
-        | "__default_Iterable_any"
-        | "__default_Iterable_all"
-        | "__default_Iterable_for_each" => {
-            let terminal = match name {
-                "__default_Iterable_count" => Terminal::Count,
-                "__default_Iterable_find" => Terminal::Find,
-                "__default_Iterable_any" => Terminal::Any,
-                "__default_Iterable_all" => Terminal::All,
-                _ => Terminal::ForEach,
-            };
-            let arity = if matches!(terminal, Terminal::Count) {
-                1
-            } else {
-                2
-            };
-            return Some(NativeBinding::new(
-                vec![Codec::Value; arity],
-                Codec::Value,
-                move |cx| consume(cx, terminal),
-            ));
-        }
-        "$foundation_MapIterator_next"
-        | "$foundation_FilterIterator_next"
-        | "$foundation_TakeIterator_next"
-        | "$foundation_FilterMapIterator_next"
-        | "$foundation_SkipIterator_next"
-        | "$foundation_EnumerateIterator_next"
-        | "$foundation_ZipIterator_next"
-        | "$foundation_ChainIterator_next" => return Some(next.binding()),
-        "__default_Iterable_map" => Operation::Map,
-        "__default_Iterable_filter" => Operation::Filter,
-        "__default_Iterable_take" => Operation::Take,
-        "__default_Iterable_filter_map" => Operation::FilterMap,
-        "__default_Iterable_skip" => Operation::Skip,
-        "__default_Iterable_enumerate" => Operation::Enumerate,
-        "__default_Iterable_zip" => Operation::Zip,
-        "__default_Iterable_chain" => Operation::Chain,
-        _ => return None,
-    };
+pub(crate) fn adapter_binding(operation: Operation) -> NativeBinding {
     let arity = if matches!(operation, Operation::Enumerate) {
         1
     } else {
         2
     };
-    Some(NativeBinding::new(
-        vec![Codec::Value; arity],
-        Codec::Value,
-        move |cx| construct(cx, operation),
-    ))
+    NativeBinding::new(vec![Codec::Value; arity], Codec::Value, move |cx| {
+        construct(cx, operation)
+    })
 }
 
-fn destination(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn terminal_binding(terminal: Terminal) -> NativeBinding {
+    let arity = if matches!(terminal, Terminal::Count) {
+        1
+    } else {
+        2
+    };
+    NativeBinding::new(vec![Codec::Value; arity], Codec::Value, move |cx| {
+        consume(cx, terminal)
+    })
+}
+
+pub(crate) fn next_binding() -> NativeBinding {
+    next.binding()
+}
+
+pub(crate) fn identity(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    cx.argument(0)
+}
+
+pub(crate) fn destination(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])
 }
 
-fn fold(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+pub(crate) fn fold(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let callback = cx.callable(2)?.store();
     let mut accumulator = cx.argument(1)?;
     let root = cx.heap().root_value(accumulator).ok_or_else(invalid)?;

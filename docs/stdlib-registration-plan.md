@@ -1,7 +1,7 @@
 # Module-Owned Standard Library Registration Plan
 
 Status: active; implementation and one commit per completed SR phase are authorized.
-SR01-SR02 are locally complete; SR03 is next. This plan owns an overall replacement of
+SR01-SR03 are locally complete; SR04 is next. This plan owns an overall replacement of
 standard-library declaration/binding assembly, not a String-only cleanup. Unimplemented directory
 sketches remain proposals. Current specifications remain authoritative until
 implementation updates them.
@@ -984,13 +984,13 @@ numeric and propagation semantics remain intact.
 
 ### SR03 — Migrate interfaces, defaults and collections
 
-- [ ] Migrate remaining standard traits, generic construction/comparison/hash
+- [x] Migrate remaining standard traits, generic construction/comparison/hash
   helpers, collection protocols and default bodies.
-- [ ] Migrate Vec's nominal storage and methods, and HashMap/HashSet constructor
+- [x] Migrate Vec's nominal storage and methods, and HashMap/HashSet constructor
   metadata and methods, to their owners without changing representation categories.
-- [ ] Migrate Iterable, lazy adapters, cursors and optimized overrides with explicit
+- [x] Migrate Iterable, lazy adapters, cursors and optimized overrides with explicit
   dependencies, requirements and concrete-result facts.
-- [ ] Remove superseded central dispatch/storage cases without changing collection
+- [x] Remove superseded central dispatch/storage cases without changing collection
   algorithms, storage representation or cursor revision/borrow contracts.
 
 Exit: generic/default/override associations are explicit and share existing checked
@@ -1163,7 +1163,7 @@ Documentation-only planning requires content/link/diff checks, not Rust builds.
 | --- | --- | --- |
 | SR01 | Locally complete: shared assembly, semantic lowering, identity and lifecycle proofs | Focused assembly/default/cache tests and local gates pass; baseline captured; independent exit review closed; CI matrix unrun |
 | SR02 | Locally complete: String/numeric/array/range/enum/propagation owners and production Bundle | Selected registration/docs/behavior/artifact tests and execution comparison pass; exact target assertions preserved; CI matrix unrun |
-| SR03 | Not started | Depends on SR02 |
+| SR03 | Locally complete: protocols, defaults, Vec/hash/collection/iteration owners | 30 distinct focused tests passed; shared default fix verified; local gates and independent review pass; CI unrun |
 | SR04 | Not started | Depends on SR03 |
 | SR05 | Not started | Depends on SR04; owns bridge removal |
 | SR06 | Not started | Depends on SR05; full matrix remains CI-owned |
@@ -1441,3 +1441,58 @@ cargo test -p kagari --lib runtime::tests::language::operator_traits::arithmetic
 Structure/fmt/workspace Clippy/diff gates passed. A stale build-product configuration
 issue was resolved by invalidating affected runtime/stdlib products, not by changing
 validation. No errors are carried; full workspace/backend/platform CI remains unrun.
+
+### SR03 completion
+
+Foundation contributors now own protocols (all 41 traits and conversion metadata),
+List/MutableList defaults, Vec, hash containers, content comparison and iteration.
+List and Iterable's old stdlib-specific default lowerers and migrated router cases
+are deleted. Shared algorithms remain single implementations, selected directly by
+owner-authored associations, not by private symbol matching. Only Future/task raw
+producers and spawn/cancel discovery remain for SR04.
+
+Runtime adds complete free-function submissions through `assembly/function`, using
+FunctionBuilder for generic parameters/bounds/requirements/concrete results. The
+new draft `define_function` takes one complete definition (a raw declaration/pending
+tuple is also a complete unit), replacing its newly introduced two-argument form.
+Immediate adapters retain their bounds; explicit transferable factories require Send
+captures, not Send outputs or Sync authoring state.
+
+A real generic-override test exposed duplicate implicit `Self: Iterable` and explicit
+`Self: Iterable<Item=..., Iter=...>` obligations. Default assembly now removes only an
+implicit constraint subsumed by an explicit one with the same receiver, trait,
+arguments and all original equalities. Public method bounds and ordered requirements
+remain; shared lowering and proof checks still run. This repaired the MIR shared-call
+failure without weakening verification.
+
+Verified slot order: List comparison (when needed), iter, next, optional set/remove;
+Vec override comparison only; Vec FromIterator iter/next; hash FromIterator
+hash/eq/insert/iter/next; zip/chain left iter/next then right iter/next; collect/sum/product
+destination call with source type argument. List keeps concrete Vec results. Vec
+primitive/scoped/owned categories, Map/Set builtin constructors, opaque lazy adapters
+and cursor revision/borrow semantics are unchanged.
+
+Actual selected validation (30 distinct tests) covered configured free functions
+(3), default/token/transfer/lifecycle (8), production registration and doc examples
+(2), custom/generic/interface List and Iterable, paired laziness/resumption, cursor
+GC/failure, key type bounds, collection content/custom hash, construction/defaults,
+reverse conversions, destination delegation, navigation and static rejection.
+Representative exact commands:
+
+```text
+cargo test -p kagari-runtime --lib native::assembly::function::tests
+cargo test -p kagari-runtime --lib -- native::assembly::default_tests native::assembly::tests::lifecycle native::assembly::transfer_tests::local_pending_rejection_reports_canonical_target_without_preparation
+cargo test -p kagari-stdlib --lib tests::registration::canonical_foundation_contracts_survive_scoped_publication_and_installation -- --exact
+cargo test -p kagari-stdlib --lib tests::documentation::standard_documentation_covers_the_registered_api_and_examples_analyze -- --exact
+cargo test -p kagari --lib runtime::tests::language::iteration_traits::iterable_defaults_chain_on_containers_generic_custom_and_interface_receivers -- --exact
+cargo test -p kagari --lib -- --exact runtime::tests::language::list_algorithms::generic_custom_receiver_uses_its_associated_iterator_in_default_calls runtime::tests::language::iteration_traits::paired_adapters_select_both_sources_and_preserve_laziness_and_resumption runtime::tests::language::collection_interfaces::hash_collection_interfaces_use_custom_key_protocols
+```
+
+The first behavioral selection passed 10/11; the implicit-bound repair above fixed
+the only failure, which passed on targeted rerun. Further affected navigation/lazy
+and destination/construction selections passed. Structure: 1347 Rust files, zero
+violations/exceptions; fmt, workspace all-target Clippy and diff checks passed.
+Independent review found no further SR03 blocker or weakened assertions. Counts
+remain 36 modules, 33 types, 41 traits, 226 implementations, 93 exports, 87 nonempty
+requirement owners and 11 concrete results. Full semantic normalization, post-migration
+execution comparison and complete CI matrix are not inferred from these counts.

@@ -93,7 +93,7 @@ fn representative(
             ]);
             Ok(())
         })?;
-        module.define_function(
+        module.define_function((
             FunctionDecl::new("none").returns(maybe.apply([Type::i32()])?),
             PendingBinding::implementation_with_send(move |preparation| {
                 counts.factories.fetch_add(1, Ordering::SeqCst);
@@ -117,7 +117,7 @@ fn representative(
                     },
                 ))
             }),
-        )?;
+        ))?;
         module.define_constructor("String", NativeTypeConstructor::String)?;
         module.inherent(Type::scalar(BuiltinType::String), |methods| {
             methods.define(

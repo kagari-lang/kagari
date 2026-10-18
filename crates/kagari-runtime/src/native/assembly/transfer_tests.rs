@@ -229,7 +229,7 @@ fn local_pending_rejection_reports_canonical_target_without_preparation() {
                     })
                 })
             };
-            module.define_function(FunctionDecl::new("local"), pending)?;
+            module.define_function((FunctionDecl::new("local"), pending))?;
             Ok(())
         }))
         .unwrap();
@@ -329,10 +329,10 @@ fn transferable_default_still_rejects_foreign_token_owners() {
     let factory_count = factories.clone();
     let mut set = ModuleSetBuilder::new(&DeclarationCatalog::default()).unwrap();
     set.add(ModuleDefinition::new(owner(), move |module| {
-        module.define_function(
+        module.define_function((
             FunctionDecl::new("foreign"),
             PendingBinding::implementation_send(unit_binding(0)),
-        )?;
+        ))?;
         let interface = module.define_trait("Run", 0, |_, _| Ok(()))?;
         module.define_trait_default(
             &interface,

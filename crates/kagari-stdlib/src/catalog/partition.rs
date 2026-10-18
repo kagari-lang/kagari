@@ -41,38 +41,11 @@ fn entry<'a>(
 }
 
 fn function_owner(name: &str) -> ModuleIdentity {
-    if name == "$foundation_default_Vec" {
-        return namespaces::type_owner("Vec");
-    }
-    if matches!(
-        name,
-        "list_content_equal" | "set_content_equal" | "map_content_equal"
-    ) {
-        return namespaces::module("std", "collections");
-    }
-    if name.starts_with("__default_Iterable_")
-        || name.ends_with("Iterator_next")
-        || name == "$foundation_iterator_identity_iter"
-    {
-        return namespaces::module("core", "iter");
-    }
     if name.starts_with("$foundation_task_") {
         return namespaces::type_owner("Task");
     }
-    if name.starts_with("__default_") || name.starts_with("$foundation_interface_") {
-        return namespaces::module("std", "collections");
-    }
-    if name.starts_with("$foundation_list_") {
-        return namespaces::type_owner("Vec");
-    }
-    if name.starts_with("$foundation_map_") || name.starts_with("$foundation_set_") {
-        return namespaces::module("std", "collections");
-    }
-    assert!(
-        matches!(name, "$foundation_cursor_next"),
-        "unknown foundation function {name}"
-    );
-    namespaces::module("core", "iter")
+
+    panic!("unknown remaining foundation function {name}")
 }
 
 fn bounds(

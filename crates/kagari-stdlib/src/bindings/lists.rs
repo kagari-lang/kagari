@@ -2,10 +2,7 @@
 mod comparison;
 mod receivers;
 use {
-    crate::bindings::{
-        Entry,
-        lists::{comparison::Comparison, receivers::ReceiverCalls},
-    },
+    crate::bindings::lists::{comparison::Comparison, receivers::ReceiverCalls},
     kagari_runtime::{
         error::RuntimeError,
         gc::HeapObjectId,
@@ -35,29 +32,23 @@ impl Algorithm {
 }
 
 macro_rules! entries {
-    ($($name:ident: $algorithm:ident, $copy:literal, $default:literal),+ $(,)?) => {
-        pub(super) fn entry(name: &str) -> Option<Entry> {
-            match name {
-                $(concat!("$foundation_list_", stringify!($name)) | $default => Some($name),)+
-                _ => None,
-            }
-        }
-        $(fn $name(cx: &mut CallContext<'_>) -> NativeResult<Value> { run(cx, Algorithm::$algorithm, $copy) })+
+    ($($name:ident: $algorithm:ident, $copy:literal),+ $(,)?) => {
+        $(pub(crate) fn $name(cx: &mut CallContext<'_>) -> NativeResult<Value> { run(cx, Algorithm::$algorithm, $copy) })+
     };
 }
 
 entries!(
-    sorted: Sort, true, "__default_List_sorted",
-    sorted_by: SortBy, true, "__default_List_sorted_by",
-    sorted_by_key: SortByKey, true, "__default_List_sorted_by_key",
-    reversed: Reverse, true, "__default_List_reversed",
-    distinct: Distinct, true, "__default_List_distinct",
-    sort: Sort, false, "__default_MutableList_sort",
-    sort_by: SortBy, false, "__default_MutableList_sort_by",
-    sort_by_key: SortByKey, false, "__default_MutableList_sort_by_key",
-    reverse: Reverse, false, "__default_MutableList_reverse",
-    retain: Retain, false, "__default_MutableList_retain",
-    dedup: Dedup, false, "__default_MutableList_dedup",
+    sorted: Sort, true,
+    sorted_by: SortBy, true,
+    sorted_by_key: SortByKey, true,
+    reversed: Reverse, true,
+    distinct: Distinct, true,
+    sort: Sort, false,
+    sort_by: SortBy, false,
+    sort_by_key: SortByKey, false,
+    reverse: Reverse, false,
+    retain: Retain, false,
+    dedup: Dedup, false,
 );
 
 fn run(cx: &mut CallContext<'_>, algorithm: Algorithm, copy: bool) -> NativeResult<Value> {

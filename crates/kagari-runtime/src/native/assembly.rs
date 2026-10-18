@@ -4,6 +4,7 @@
 //! consuming an assembly prepares ordinary modules for the existing installer.
 pub mod authoring;
 pub mod draft;
+pub mod function;
 pub mod references;
 mod seal;
 

@@ -11,11 +11,12 @@ use crate::native::{
             defaults::DefaultIntent,
             traits::{OverrideIntent, TraitImplementationDefinition},
         },
+        function::FunctionDefinition,
         references::{DraftMember, DraftReference, ReferenceKind},
     },
     binding::NativeResult,
     builder::inherent::InherentMethodsBuilder,
-    declarations::{FunctionDecl, MethodDecl},
+    declarations::{FunctionBuilder, MethodDecl, normalize_bounds},
     storage::NativeStorage,
     types::{FunctionRef, Type},
 };
@@ -327,11 +328,18 @@ impl<'a> ModuleDraft<'a> {
         Ok(())
     }
 
+    /// Submit a complete free function under its final binder. Configuration
+    /// failure publishes no signature, callable facts or pending binding.
     pub fn define_function(
         &mut self,
-        mut declaration: FunctionDecl,
-        binding: PendingBinding,
+        definition: impl Into<FunctionDefinition>,
     ) -> NativeResult<FunctionRef> {
+        let FunctionDefinition {
+            mut declaration,
+            concrete_result,
+            configure,
+            binding,
+        } = definition.into();
         if self
             .state
             .declaration
@@ -343,8 +351,37 @@ impl<'a> ModuleDraft<'a> {
         }
         let id = self.definition(DefinitionKind::Function, &declaration.name)?;
         let documentation = declaration.documentation.take();
-        let signature = declaration.lower(CallableImplementation::Native(id), self.context)?;
+        let mut signature = declaration.lower(CallableImplementation::Native(id), self.context)?;
+        let mut concrete_results = BTreeMap::new();
+        let mut requirements = vec![];
+        let mut names = vec![];
+        let mut function = FunctionBuilder {
+            id,
+            context: self.context,
+            signature: &mut signature,
+            concrete_results: &mut concrete_results,
+            requirements: &mut requirements,
+            names: &mut names,
+        };
+        if let Some(result) = concrete_result {
+            function.produces(result)?;
+        }
+        if let Some(configure) = configure {
+            configure(&mut function)?;
+        }
+        normalize_bounds(&mut signature, &self.definitions())?;
+        self.check_scope(&signature)?;
         self.state.declaration.functions.push(signature);
+        self.state
+            .declaration
+            .concrete_results
+            .extend(concrete_results);
+        if !requirements.is_empty() {
+            self.state
+                .declaration
+                .callable_requirements
+                .insert(id, requirements);
+        }
         if let Some(text) = documentation {
             self.state.declaration.documentation.insert(id, text);
         }
