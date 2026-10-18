@@ -1,0 +1,51 @@
+---
+import { base, source } from '../links.mjs';
+import { readExample } from '../source-example.mjs';
+import '../styles/playground.css';
+
+const examplePath = 'examples/syntax/control-flow.kgr';
+const example = await readExample(examplePath);
+---
+
+<section class="playground" data-playground data-state="idle" data-client-url={`${base}/wasm/playground/client.js`} data-source-limit="262144" aria-label="Kagari playground">
+  <p>The initial program is the <a href={source(examplePath)}>quickstart's maintained control-flow example</a>. Its result is <code>42</code>.</p>
+  <label for="playground-source">Kagari source — <code>memory://main.kgr</code></label>
+  <p id="playground-editor-help">Use Ctrl+Enter or Command+Enter to run. Tab moves to the next control; it is not captured by the editor. Source stays in this tab and is not saved after leaving the page.</p>
+  <textarea id="playground-source" data-source rows="18" spellcheck="false" autocapitalize="off" autocomplete="off" autocorrect="off" wrap="off" aria-describedby="playground-editor-help playground-source-size playground-source-error" aria-keyshortcuts="Control+Enter Meta+Enter">{example.code}</textarea>
+  <p id="playground-source-size" data-source-size>Source limit: 256 KiB of UTF-8.</p>
+  <p id="playground-source-error" data-source-error hidden>Source exceeds 256 KiB of UTF-8. Shorten it before running; it has not been truncated.</p>
+  <div class="playground-actions" role="group" aria-label="Execution controls">
+    <button type="button" data-action="run" disabled>Run</button>
+    <button type="button" data-action="cancel" disabled>Cancel</button>
+    <button type="button" data-action="hard-stop" disabled>Hard stop</button>
+    <button type="button" data-action="reset" disabled>Reset</button>
+  </div>
+  <p data-status role="status" aria-live="polite" aria-atomic="true">Ready. The compiler loads only when you run.</p>
+  <noscript><p>JavaScript and WebAssembly are required to run this playground. You can still read and copy the source above.</p></noscript>
+  <p class="playground-lifecycle">Compilation and long native calls are not cooperatively preemptible. Cancel requests cleanup at the next execution yield. Hard stop destroys the Worker and WASM instance, without destructors or rollback of completed effects. Reset cooperatively clears runtime state and results, keeping your source; use Hard stop if it cannot finish.</p>
+  <section aria-labelledby="playground-output-heading">
+    <h3 id="playground-output-heading">Output</h3>
+    <p>Each <code>web::print</code> message appears on its own line. At most 256 messages / 64 KiB per run, with a 4 KiB limit per message.</p>
+    <pre tabindex="0" aria-labelledby="playground-output-heading"><code data-output></code></pre>
+    <p data-output-truncated hidden>Output truncated: a message or the run's output limit was reached. Execution can continue; use Cancel or Hard stop to stop it.</p>
+  </section>
+  <section aria-labelledby="playground-diagnostics-heading">
+    <h3 id="playground-diagnostics-heading">Diagnostics</h3>
+    <p data-diagnostics-stale hidden>Source changed since this run. Run again to select diagnostic locations in the current source.</p>
+    <p data-diagnostics-empty>No diagnostics.</p>
+    <ul data-diagnostics></ul>
+    <p data-diagnostics-truncated hidden>Additional diagnostics were omitted by the compiler's display limit.</p>
+  </section>
+  <section aria-labelledby="playground-result-heading">
+    <h3 id="playground-result-heading">Result</h3>
+    <pre tabindex="0" aria-labelledby="playground-result-heading"><code data-result>No result yet.</code></pre>
+  </section>
+</section>
+
+<script>
+  import { mountPlayground } from '../playground/ui.js';
+
+  document.querySelectorAll('[data-playground]').forEach((element) => {
+    if (element instanceof HTMLElement) mountPlayground(element);
+  });
+</script>

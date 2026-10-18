@@ -8,6 +8,7 @@ import { readExample, repositoryRoot } from '../src/source-example.mjs';
 import { distRoot, inputDigest, manifestName, outputDigest, siteRoot, walk } from './files.mjs';
 import { codeText, elements, text, validateHtml } from './html.mjs';
 import { isFenceLanguage } from './fences.mjs';
+import { verifyBrowserAssets } from './build-provenance.mjs';
 
 const args = process.argv.slice(2);
 assert(args.length === 0 || (args.length === 2 && args[0] === '--expected-pages' && /^\d+$/u.test(args[1])), 'Usage: npm run check -- [--expected-pages N]');
@@ -19,6 +20,7 @@ try { manifest = JSON.parse(await readFile(join(distRoot, manifestName), 'utf8')
 catch { throw new Error('Missing successful build record. Run npm run build before npm run check.'); }
 assert.equal(manifest.inputs, await inputDigest(), 'Stale build: inputs changed; run npm run build.');
 assert.equal(manifest.output, await outputDigest(), 'Build output changed; run npm run build.');
+await verifyBrowserAssets(manifest.wasm);
 
 const files = new Map();
 for (const path of await walk(distRoot)) {
@@ -96,4 +98,5 @@ const result = spawnSync(process.execPath, ['--test', ...tests], { cwd: siteRoot
 assert(!result.error && result.status === 0, `Script tests failed: ${result.error?.message ?? result.status}`);
 assert.equal(manifest.inputs, await inputDigest(), 'Build inputs changed during validation.');
 assert.equal(manifest.output, await outputDigest(), 'Build output changed during validation.');
+await verifyBrowserAssets(manifest.wasm);
 console.log(`Validated ${pages.length} guide pages, 404, ${includes} source include(s), links/anchors/assets/base, highlighting and fresh output.`);

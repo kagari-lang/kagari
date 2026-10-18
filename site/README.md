@@ -1,12 +1,13 @@
 # Kagari documentation site
 
 This independent npm project builds a static Astro/Starlight language guide:
-24 substantive English pages covering getting started, the language, standard
-library, host embedding and references. The learning sequence takes inspiration
+25 substantive English guide/tool pages covering getting started, the language,
+standard library, host embedding, references and a local browser Playground. The learning sequence takes inspiration
 from the Rust Book while teaching Kagari's shared-value/GC semantics, not Rust's
 moves or borrow checker. [Specifications](../docs/README.md#language-and-execution-specifications)
 remain the semantic authority. Local acceptance is **not** a claim that Pages is
-enabled or deployed; no Rust/SDK changes are required by the website.
+enabled or deployed. The Playground uses the existing Rust compiler/interpreter
+through the [browser adapter](../crates/kagari-web/README.md), not a WASM backend.
 
 ## Build and validate
 
@@ -15,9 +16,19 @@ Node 24 is the CI reference. From this directory:
 
 ```sh
 npm ci --engine-strict
-npm run build
-npm run check -- --expected-pages 24
+npm run build:pages
 ```
+
+Install the Rust `wasm32-unknown-unknown` target and the exact wasm-bindgen CLI
+0.2.129 first; see the [product instructions](../crates/kagari-web/README.md#reproducible-products-and-focused-validation).
+`build:pages` explicitly builds both WASM modes and a native artifact fixture, then
+runs the site build and exact 25-route checks. Products use the workspace dev
+profile, default target and parallelism. Every child is bounded; failures/timeouts
+are reported, never replaced with cached success. CI acquires tools separately.
+
+With fresh verified products, `npm run build` performs only the site build;
+`npm run check -- --expected-pages 25` validates without rebuilding or invoking
+Cargo/Rust tools. Astro content rendering never starts Cargo.
 
 `build` runs Astro type/content checking and a clean static build, with each Astro
 child limited to 180 seconds. The runner disables telemetry only in its child
@@ -26,7 +37,11 @@ global Astro settings. A failed build cannot reuse a previous successful record.
 
 `check` does **not** rebuild. It requires a successful build record with matching
 SHA-256 input and output digests. Inputs include site source/configuration/scripts,
-the npm lockfile, the maintained grammar and allowed `.kgr`/`.rs` example sources.
+the npm lockfile, the maintained grammar and allowed `.kgr`/`.rs` example sources,
+plus the Rust source/manifests, Cargo.lock and target/toolchain configuration. The
+record retains verified WASM inputs, tool versions, recipe, source-free dependency
+graph and output hashes. Checks also compare both canonical products/native fixture
+and the exact deployed source bindings and Worker modules; substitution fails.
 Any changes require a new build. Output includes HTML, search chunks and assets;
 editing/removing a built file is rejected as well. A check never refreshes the
 record to make stale output look valid. Publish only this exact validated `dist/`.
@@ -42,7 +57,7 @@ Useful focused commands:
 
 ```sh
 npm test
-npm run check -- --expected-pages 24
+npm run check -- --expected-pages 25
 ```
 
 The optional expected count asserts the current finite manual scope. Update the
@@ -50,8 +65,9 @@ inventory and acceptance count together when deliberately adding pages. `check`
 normally derives its routes from that inventory. `npm test` needs installed
 dependencies, but does not require `dist/`.
 
-No browser tests or Cargo tests are run by these commands. In particular, a site
-build does not prove a Rust/Kagari example compiles or establish browser search,
+`build:pages` runs the focused native artifact-fixture test, not the Cargo test
+suite. Ordinary `build`, `check` and `npm test` run no Cargo tests or browser tests.
+A static site build does not prove every Rust/Kagari example compiles or establish browser search,
 theme, keyboard or mobile behavior. Reuse the canonical examples' owning semantic
 tests for those contracts; browser acceptance is separate. Do not start
 an unbounded server as part of validation.
@@ -89,13 +105,102 @@ For interactive human review, run `npm run preview` and open
 runs until you stop it with Ctrl+C; automated validation uses the bounded runner
 instead. Do not expose the preview server as a production service.
 
+## Playground ownership and acceptance
+
+`src/components/Playground.astro` renders the accessible textarea and controls;
+`src/playground/ui.js` owns presentation only. The maintained quickstart example
+supplies initial source. The editor uses ordinary text, not a second syntax grammar.
+Run (or Ctrl/Command+Enter) lazily imports `/kagari/wasm/playground/client.js`;
+normal guide visits and merely opening the Playground do not fetch the compiler.
+Raw Worker/client/protocol modules are deployed beside `wasm/source/` bindings.
+No npm-installed browser runtime or third-party editor is needed.
+
+The [adapter/Worker contract](../crates/kagari-web/README.md#worker-client) owns
+scheduling, generations, output credit and cancellation. UI renders text, preserves
+integer strings, and selects diagnostic UTF-16 ranges only for the submitted source
+snapshot. Textarea newline normalization happens before submission. Editing disables
+stale locations. Reset keeps source; leaving the page disposes the Worker. Source
+is not uploaded or persisted by the application. Hard stop destroys the instance;
+it does not promise destructors, cleanup of external resources or rollback.
+
+After building/checking the exact output, run from this directory:
+
+```sh
+node scripts/playground-browser.mjs
+node scripts/wasm-worker.mjs
+```
+
+The Playground harness owns its bounded server/browser, validates `/kagari/` URLs,
+blocks external traffic, and covers lazy downloads, real execution, diagnostic
+selection, text-safe output, repeated runs, cancel/reset/hard stop, keyboard/mobile
+controls and truncation. It also records separate adapter initialization,
+construction, source compilation and execution timings plus raw/gzip/Brotli sizes.
+Reports under `../target/site-playground-browser/` are disposable; meaningful
+measurements and limitations belong in maintained documentation, not only reports.
+Worker tests separately own backpressure, malformed/stale protocol and fatal
+recovery; labelled wrappers do not prove Rust panic unwinding. Neither runner is
+an exhaustive browser/platform matrix or live Pages acceptance.
+
+### Measured development baseline
+
+On 2026-10-18, `node scripts/playground-browser.mjs --samples 3` measured the
+verified workspace **dev-profile** products. This is an untuned first-delivery
+baseline, not a performance gate or a claim about optimized release products.
+The large on-demand download and several-second source setup remain limitations;
+ordinary documentation does not pay these costs.
+
+| Product (JS + WASM) | Raw bytes | gzip bytes | Brotli bytes |
+| --- | ---: | ---: | ---: |
+| Source-enabled (deployed) | 22,948,638 | 4,137,600 | 2,943,666 |
+| Artifact-only (separate) | 12,251,819 | 2,296,430 | 1,655,720 |
+
+Source WASM alone is 22,935,196 bytes; artifact WASM is 12,240,514 bytes.
+Each file was compressed separately using Node zlib gzip level 9 / Brotli quality
+5, then summed. Declarations and fixtures are excluded. These are compressed-byte
+estimates, **not** observed HTTP transfer sizes or a guarantee of Pages encoding.
+
+Workload (result `i32 "499500"`, ten `drive(1000)` slices):
+
+```text
+fn main() -> i32 { var sum = 0; for i in 0..1000 { sum += i; } sum }
+```
+
+| Sequential sample | Initialization (ms) | Session construction (ms) | Compilation (ms) | Execution (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| 1 | 76.6 | 1,132.4 | 3,412.9 | 14.6 |
+| 2 | 60.8 | 1,115.4 | 3,463.3 | 14.5 |
+| 3 | 60.4 | 1,138.4 | 3,431.2 | 14.3 |
+
+Initialization includes import, local JS/WASM fetch and WASM initialization.
+Construction measures `new BrowserSession()` separately. Compilation measures
+synchronous `compile(source)` including adapter serialization, excluding response
+JSON decoding. Execution includes `start`/`drive` and bridge/JSON decoding but no
+compilation, UI, Worker messaging or scheduling delays. This is not end-to-end
+Run latency, nor evidence of interpreter performance relative to another language.
+
+Environment: Windows x64 10.0.26300; Intel Core i9-12900K / 24 logical CPUs;
+Node 22.21.1, zlib 1.3.1-470d3a2; headless Chrome 155.0.8059.82; Rust/Cargo 1.99.0
+(rustc b940084d7, LLVM 23.1.1), wasm-bindgen 0.2.129; wasm32-unknown-unknown;
+default Cargo parallelism, no recorded build-environment overrides. Source mode
+uses default/source features, artifact mode disables defaults. Verified existing
+products were reused; original compilation-cache state was not recorded. Samples
+used fresh contexts/sessions with HTTP cache disabled and `no-store`, without
+warmup discards, in one browser process after UI tests. OS/filesystem and browser
+WASM code caches were uncontrolled; these are **not cold-cache measurements**.
+
+Selected Chromium coverage passed; other browsers, cold Linux CI build budgets,
+release-profile costs and live deployment remain unverified. Any optimization
+follow-up should first profile session construction/source compilation and set a
+workload/target, not infer a runtime bottleneck from aggregate initialization.
+
 ## Pages workflow and publication
 
 [`.github/workflows/pages.yml`](../.github/workflows/pages.yml) validates every PR,
 main push and manual dispatch, without path filters. The build has read-only
 repository permissions and no stored checkout credentials. It uses Node 24,
 engine-strict locked installation, the visible high-threshold audit, build and
-24-page output checks, then uploads that exact `site/dist/` with no rebuild.
+explicit bounded Rust/target/binding-tool acquisition, WASM products and
+25-page output checks, then uploads that exact `site/dist/` with no rebuild.
 Official actions are pinned by reviewed commit SHA; workflow contract tests parse
 YAML rather than matching permission-related substrings.
 
@@ -265,8 +370,13 @@ preprocessor on plugin/theme styles; nested's `parse` synchronously calls
 `parser(...).processSync(rawSelector)`. This is a build-time CSS preparation path,
 not a public request handler. The site supplies repository-controlled configuration
 and styles, uses static output with no server adapter, and exposes no remote CSS
-input or online code runner. Code is highlighted at build time; browsers receive
-HTML/CSS and the stock UI/search scripts, not a selector-parsing service.
+input. Guide code is highlighted at build time. The browser Playground accepts
+Kagari source in a textarea and executes it in a local Worker/WASM instance; it
+never passes user text to MDX, Shiki, CSS parsing or a server. All output and
+diagnostics use DOM text APIs, not HTML. No remote theme/plugin input, network
+provider, arbitrary JS callback, source upload or secret is added. Input/output
+bounds and hard stop do not constitute hard compiler/heap quotas or protection
+against every browser resource-exhaustion scenario.
 
 The advisory explicitly states that ordinary build-time use on trusted sources
 is not affected; the attack needs synchronous parsing of attacker-supplied
@@ -276,13 +386,15 @@ is patched. Untrusted PRs can change build configuration/MDX and already execute
 build code, so their builds must remain bounded and unprivileged; do not treat
 site sources or plugins as sandboxed input. The local runner bounds each Astro
 child to 180 seconds. Any future dynamic CSS service, remote theme/plugin input,
-server rendering or browser compiler requires a new review of this boundary.
+server rendering or new browser host capabilities require a new review of this
+boundary. The current local-only compiler boundary was reviewed as described above.
 The [roadmap](../docs/implementation-roadmap.md#language-documentation-website)
 tracks the remaining upstream-patch follow-up. This is an explicitly accepted
 build-time limitation, not authorization for publication.
 
 Dependencies are website build/development tools only. Installation accesses npm
 and runs dependency installation hooks; the generated site has no API keys,
-external search service, paid service, analytics, Rust build or Vela dependency.
+external search service, paid service, analytics or Vela dependency. Rust builds
+happen only in explicit tooling/CI, never in the deployed static host.
 No Vela code, CSS, prose, images or other assets are copied. `node_modules/`,
 `.astro/` and `dist/` are ignored disposable products, not source artifacts.

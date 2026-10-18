@@ -1,0 +1,90 @@
+.playground {
+  min-width: 0;
+}
+
+.playground label {
+  display: block;
+  font-weight: 600;
+}
+
+.playground textarea {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  min-height: 16rem;
+  max-height: 70vh;
+  resize: vertical;
+  padding: 0.75rem;
+  border: 1px solid var(--sl-color-gray-3);
+  border-radius: 0.25rem;
+  background: var(--sl-color-bg);
+  color: var(--sl-color-text);
+  font-family: var(--sl-font-mono);
+  font-size: 1rem;
+  line-height: 1.5;
+  tab-size: 4;
+}
+
+.playground .playground-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-block: 1rem;
+}
+
+.playground button {
+  min-height: 44px;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--sl-color-gray-3);
+  border-radius: 0.25rem;
+  background: var(--sl-color-bg);
+  color: var(--sl-color-text);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+
+.playground .playground-actions > button {
+  margin: 0;
+}
+
+.playground [data-action='run'] {
+  background: var(--sl-color-text-accent);
+  color: var(--sl-color-bg);
+  font-weight: 600;
+}
+
+.playground button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.playground :is(button, textarea, pre):focus-visible {
+  outline: 3px solid var(--sl-color-text-accent);
+  outline-offset: 3px;
+}
+
+.playground pre {
+  min-height: 3rem;
+  max-height: 24rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.playground pre code {
+  white-space: inherit;
+}
+
+.playground :is([data-status], [data-source-error], [data-output-truncated], [data-diagnostics-truncated], [data-diagnostics-stale]) {
+  font-weight: 600;
+}
+
+.playground :is([data-diagnostics], [data-result], .playground-lifecycle) {
+  overflow-wrap: anywhere;
+}
+
+.playground [hidden] {
+  display: none !important;
+}

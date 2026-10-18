@@ -18,7 +18,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 55
     permissions:
       contents: read
     defaults:
@@ -45,13 +45,23 @@ jobs:
         timeout-minutes: 2
         run: npm audit --audit-level=high
 
-      - name: Build site with type and content checks
-        timeout-minutes: 8
-        run: npm run build
-
-      - name: Validate the exact build and all 24 guide pages
+      - name: Install Rust and browser target
         timeout-minutes: 3
-        run: npm run check -- --expected-pages 24
+        working-directory: .
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add wasm32-unknown-unknown
+
+      # Match Cargo.lock exactly; acquisition is explicit, never part of rendering.
+      - name: Install locked wasm-bindgen CLI
+        timeout-minutes: 15
+        working-directory: .
+        run: cargo install wasm-bindgen-cli --version 0.2.129 --locked --root target/wasm-tools
+
+      - name: Build browser products and validate the exact 25-page site
+        timeout-minutes: 28
+        run: npm run build:pages
 
       # Upload immediately after validation: no second build or copied output tree.
       - name: Upload checked Pages output

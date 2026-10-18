@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { writeSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,12 +16,26 @@ const modes = ['source', 'artifact'];
 const recipe = { version: 1, target, profile: 'dev', cargoDirectory: 'debug', features: { source: ['default', 'source'], artifact: ['--no-default-features'] }, bindgenTarget: 'web' };
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
-/** No shell, finite output/time, and process-tree termination (including rustc/Chrome).
- * Each invocation owns its child; callers must await it. No tools are installed here.
+// Internal inherited contract, not a user setting: only the outer helper creates
+// a Unix process group. Descendants must not detach or strip this marker.
+const inheritedGroup = 'KAGARI_COMMAND_GROUP';
+
+/** No shell, finite output/time, and process-tree termination. On Unix, the outer
+ * helper owns a group; nested helpers join it. A nested timeout/output overflow
+ * terminates that entire operation (including the nested caller), not just a leaf.
+ * Windows retains taskkill /T /F. Callers must await children; no tools install here.
  */
 export async function runCommand(command, args, { timeout = 180_000, mirror = false } = {}) {
+  assert(Number.isSafeInteger(timeout) && timeout > 0 && timeout <= 2_147_483_647,
+    'Command timeout must be a positive integer within the Node timer range');
+  const unix = process.platform !== 'win32';
+  const ownsGroup = unix && process.env[inheritedGroup] !== '1';
   return new Promise((accept, reject) => {
-    const child = spawn(command, args, { cwd: repositoryRoot, shell: false, windowsHide: true, detached: process.platform !== 'win32', stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, {
+      cwd: repositoryRoot, shell: false, windowsHide: true, detached: ownsGroup,
+      env: unix ? { ...process.env, [inheritedGroup]: '1' } : process.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
     const stdout = [];
     const stderr = [];
     let size = 0;
@@ -37,6 +52,13 @@ export async function runCommand(command, args, { timeout = 180_000, mirror = fa
           killer.once('error', () => { clearTimeout(limit); child.kill('SIGKILL'); done(); });
           killer.once('close', () => { clearTimeout(limit); done(); });
         } else {
+          if (!ownsGroup) {
+            // This caller is inside the supervised group. Fail the whole operation;
+            // killing only child.pid would strand its descendants. Write before
+            // SIGKILL because this process cannot flush or run finally afterward.
+            try { writeSync(2, `${failure.message}\n`); }
+            finally { process.kill(0, 'SIGKILL'); }
+          }
           try { process.kill(-child.pid, 'SIGKILL'); } catch { child.kill('SIGKILL'); }
           done();
         }
@@ -197,6 +219,23 @@ export async function copyProducts(destination, { modes: selected = modes, inclu
   return { record, copied };
 }
 
+/** Finite product command recipe, separated from provenance publication. Three
+ * Cargo compilations: 4m each; graph: 30s; two bindings: 30s each. Together with
+ * up to nine 10s tool/target probes, commands consume at most 15m of the Pages
+ * 16m products stage, leaving 1m for IO/validation/teardown. These are budgets,
+ * not measured cold-host timings. Workspace profiles and parallelism are unchanged.
+ */
+export async function buildProductFiles(bindgen, run = runCommand) {
+  const tree = (await run('cargo', ['tree', '-p', 'kagari-web', '--no-default-features', '--target', target, '--edges', 'normal', '--prefix', 'none', '--locked'], { timeout: 30_000 })).stdout;
+  assertSourceFreeGraph(tree);
+  for (const mode of modes) {
+    await run('cargo', ['build', '-p', 'kagari-web', ...(mode === 'artifact' ? ['--no-default-features'] : []), '--target', target, '--locked'], { timeout: 240_000, mirror: true });
+    await run(bindgen, [join(repositoryRoot, `target/${target}/debug/kagari_web.wasm`), '--target', 'web', '--out-dir', join(productsRoot, mode), '--out-name', 'kagari_web'], { timeout: 30_000, mirror: true });
+  }
+  await run('cargo', ['test', '-p', 'kagari-web', '--lib', '--locked', 'tests::generate_browser_artifact', '--', '--exact'], { timeout: 240_000, mirror: true });
+  return tree;
+}
+
 export async function buildProducts() {
   await mkdir(productsRoot, { recursive: true });
   // A failed/partial build cannot leave a successful freshness claim behind.
@@ -205,13 +244,7 @@ export async function buildProducts() {
   const before = await inputs(discovered.identity);
   const installed = await runCommand('rustup', ['target', 'list', '--installed'], { timeout: 10_000 });
   assert(installed.stdout.split(/\s+/u).includes(target), `Missing target. Run explicitly: rustup target add ${target}`);
-  const tree = (await runCommand('cargo', ['tree', '-p', 'kagari-web', '--no-default-features', '--target', target, '--edges', 'normal', '--prefix', 'none', '--locked'])).stdout;
-  assertSourceFreeGraph(tree);
-  for (const mode of modes) {
-    await runCommand('cargo', ['build', '-p', 'kagari-web', ...(mode === 'artifact' ? ['--no-default-features'] : []), '--target', target, '--locked'], { mirror: true });
-    await runCommand(discovered.bindgen.command, [join(repositoryRoot, `target/${target}/debug/kagari_web.wasm`), '--target', 'web', '--out-dir', join(productsRoot, mode), '--out-name', 'kagari_web'], { mirror: true });
-  }
-  await runCommand('cargo', ['test', '-p', 'kagari-web', '--lib', '--locked', 'tests::generate_browser_artifact', '--', '--exact'], { mirror: true });
+  const tree = await buildProductFiles(discovered.bindgen.command);
   const files = await readProducts();
   const sourceModule = new WebAssembly.Module(files.get('source/kagari_web_bg.wasm'));
   const artifactModule = new WebAssembly.Module(files.get('artifact/kagari_web_bg.wasm'));
@@ -232,7 +265,7 @@ export async function buildProducts() {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    if (args.length === 1 && args[0] === '--help') console.log('Usage: node scripts/wasm-products.mjs [--verify]\nBuilds both dev-profile WASM modes and native fixture; each child is bounded to 180s. No installs.\n--verify checks freshness without rebuilding. Products/provenance: ../target/wasm-browser/.');
+    if (args.length === 1 && args[0] === '--help') console.log('Usage: node scripts/wasm-products.mjs [--verify]\nBuilds both dev-profile WASM modes and native fixture. No installs.\nBounds: each Cargo build/fixture 240s; graph/bindings 30s; tool/target probes 10s.\nPages orchestration gives products 16m total; nested commands inherit its supervised process group.\n--verify checks freshness without rebuilding. Products/provenance: ../target/wasm-browser/.');
     else if (args.length === 1 && args[0] === '--verify') { await verifyProducts(); console.log('WASM products are current'); }
     else { assert.equal(args.length, 0, 'Usage: node scripts/wasm-products.mjs [--verify]'); await buildProducts(); }
   } catch (error) { console.error(error); process.exitCode = 1; }

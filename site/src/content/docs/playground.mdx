@@ -1,0 +1,65 @@
+---
+title: Playground
+description: Compile and run a single Kagari source file locally in your browser.
+---
+
+import Playground from '@components/Playground.astro';
+import { page, source } from '@site/links.mjs';
+
+Compile and run Kagari in your browser, without installing the CLI. **Run** loads
+the compiler on demand and executes the root `main` function in a dedicated Worker.
+Your source is compiled locally, not sent to a server. The editor remains usable
+while the Worker compiles or runs.
+
+<Playground />
+
+## Printing and results
+
+The browser installs the standard library and one output function:
+
+```kagari
+use web::print;
+
+fn main() -> u64 {
+    print("Hello from Kagari 😀");
+    18446744073709551615u64
+}
+```
+
+Replace the editor's contents with this complete example to try output. Results
+use tagged values: this program returns a `u64` with the decimal string
+`"18446744073709551615"`, without losing precision through a JavaScript number.
+Strings may be visibly truncated; complex values are reported by kind, not by
+walking their object graphs. Output and diagnostics are displayed as text, never
+interpreted as HTML. Select a diagnostic's location button to focus its UTF-16
+range in the editor. Locations apply only to the submitted source; editing it
+disables old location buttons until you run again.
+
+## Execution boundaries
+
+- **Cancel** is cooperative. It preserves completed side effects and lets the
+  runtime perform normal cleanup when execution yields. Synchronous compilation
+  and long native calls cannot be interrupted by cooperative cancellation.
+- **Hard stop** terminates and replaces the Worker, destroying its WASM instance.
+  It is not rollback and cannot promise destructors or cleanup callbacks. The
+  next run starts with fresh runtime state.
+- **Reset** waits for cooperative cancellation if needed, then clears runtime
+  state and displayed results without changing your source. Before the first run,
+  it only clears the display and does not load the compiler.
+- A fatal Worker or WASM failure invalidates that instance. Run again to create a
+  fresh one; ordinary language errors do not require hard stop.
+- Source is limited to **256 KiB of UTF-8**. Output is limited to **256 messages /
+  64 KiB per run**, and **4 KiB per message**. Truncation is visible and does not
+  stop execution. Diagnostics and returned strings are bounded separately.
+
+This is a single-file experiment, not a full IDE or a hardened arbitrary-code
+hosting service. Traffic limits are **not** hard compiler-memory or execution-time
+quotas. Scripts have no filesystem, network, DOM access, remote imports or
+arbitrary JavaScript callbacks. Source is not persisted across page navigation.
+A browser with JavaScript, module Workers and WebAssembly is required.
+
+For local projects, use the <a href={page('start/quickstart')}>CLI quickstart</a>.
+See the <a href={source('crates/kagari-web/README.md')}>browser adapter contract</a>
+for exact result and diagnostic formats, and the
+<a href={page('reference/status')}>status and limits</a> before depending on this
+early-development language.

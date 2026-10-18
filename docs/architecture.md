@@ -22,6 +22,38 @@ For source-level data structures and ID lookup, start with the
 - Installed interfaces determine available APIs. Cancellation and call-depth
   protection remain; there is no generic permission matrix or execution charging.
 
+## Browser hosting
+
+[`kagari-web`](../crates/kagari-web/README.md) compiles the existing compiler and
+interpreter to `wasm32-unknown-unknown`; it is not a WASM code-generation backend.
+Its default `source` feature enables virtual-source compilation, while an
+independent no-default-features product loads validated `.kbc` without frontend
+or native/AOT dependencies. SDK `web` is an independent platform capability,
+forwarding the browser measurement clock without changing deterministic script
+inputs. Unsupported native loading reports an explicit capability error.
+
+Script integer identities are fixed width on every host. Standard lengths,
+indices and logical counters use `u64`; actual Rust storage positions remain
+machine-sized and checked at memory/host boundaries. Resource ceilings may differ
+between platforms, but narrowing never silently wraps. Language contracts remain
+in [builtins](spec/builtins.md), not in a separate browser typechecker.
+
+The adapter owns engine/session, prepared program, owned execution and rooted
+result conversion. A module Worker owns one adapter instance and task-based driving;
+the main thread owns only bounded text/protocol data. The sole browser output
+provider queues text in Rust and never invokes JS during a runtime borrow. Normal
+cancellation/reset uses SDK retirement; fatal failures and hard stop destroy the
+instance without promising destructors or rollback. Generation/sequence checks
+and response credit prevent old replies or unbounded output from taking over a
+new UI run. Waiting parks; no external async provider is installed.
+
+The static [Playground](../site/README.md#playground-ownership-and-acceptance) loads
+these assets only on demand. Its build consumes explicitly generated, verified
+products and publishes the exact checked bytes, never compiling Rust during page
+rendering. Source stays in the browser. Input/output limits are not hard heap or
+compiler quotas. Worker protocol, feature matrix, unsupported capabilities and
+measurement methodology belong in the adapter/site guides.
+
 ## Source tools
 
 The [formatter/checker/linter contract](spec/toolchain-tools.md) defines command,

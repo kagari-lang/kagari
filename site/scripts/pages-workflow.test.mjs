@@ -65,7 +65,7 @@ test('PR build has only read permissions, no secrets, environment or privileged 
   assert.deepEqual(build.permissions, { contents: 'read' });
   keys(build, ['runs-on', 'timeout-minutes', 'permissions', 'defaults', 'steps']);
   assert.equal(build['runs-on'], 'ubuntu-latest');
-  assert.equal(build['timeout-minutes'], 15);
+  assert.equal(build['timeout-minutes'], 55);
   assert.deepEqual(build.defaults, { run: { 'working-directory': 'site' } });
   assert.doesNotMatch(JSON.stringify(workflow), /secrets\s*[.\[]/u);
   assert.deepEqual(deploy.permissions, { contents: 'read', pages: 'write', 'id-token': 'write' });
@@ -89,18 +89,40 @@ test('build uses Node 24 and engine-strict locked install with visible high-thre
   assert.deepEqual(audit, { 'timeout-minutes': 2, run: 'npm audit --audit-level=high' });
 });
 
-test('upload consumes exactly the checked 24-page dist with no rebuild or other build jobs', () => {
-  assert.equal(build.steps.length, 7);
-  const [, , , , compile, check, upload] = build.steps.map(withoutName);
-  assert.deepEqual(compile, { 'timeout-minutes': 8, run: 'npm run build' });
-  assert.deepEqual(check, { 'timeout-minutes': 3, run: 'npm run check -- --expected-pages 24' });
+test('browser tool acquisition is explicit, version-locked and bounded', async () => {
+  const [, , , , rust, bindgen] = build.steps.map(withoutName);
+  assert.deepEqual(rust, {
+    'timeout-minutes': 3,
+    'working-directory': '.',
+    run: 'rustup toolchain install stable --profile minimal\nrustup default stable\nrustup target add wasm32-unknown-unknown\n',
+  });
+  assert.deepEqual(bindgen, {
+    'timeout-minutes': 15,
+    'working-directory': '.',
+    run: 'cargo install wasm-bindgen-cli --version 0.2.129 --locked --root target/wasm-tools',
+  });
+  const lock = await readFile(new URL('../../Cargo.lock', import.meta.url), 'utf8');
+  const versions = [...lock.matchAll(/\[\[package\]\]\s+name = "wasm-bindgen"\s+version = "([^"]+)"/gu)].map((match) => match[1]);
+  assert.deepEqual(versions, ['0.2.129'], 'Review the CLI acquisition pin with Cargo.lock');
+});
+
+test('upload consumes exactly the checked 25-page dist with no rebuild or other build jobs', async () => {
+  assert.equal(build.steps.length, 8);
+  const [, , , , , , compile, upload] = build.steps.map(withoutName);
+  assert.deepEqual(compile, { 'timeout-minutes': 28, run: 'npm run build:pages' });
+  const pkg = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  assert.equal(pkg.scripts['build:pages'], 'node scripts/build-pages.mjs');
+  assert.equal(pkg.scripts.build, 'node scripts/build.mjs');
+  assert.equal(pkg.scripts.check, 'node scripts/check.mjs');
+  assert.equal(pkg.scripts['prebuild:pages'], undefined);
+  assert.equal(pkg.scripts['postbuild:pages'], undefined);
   action(upload, 'upload-pages-artifact');
   assert.deepEqual(upload, {
     uses: upload.uses,
     with: { name: 'github-pages', path: 'site/dist' },
   });
   // Exact step contracts exclude conditionally skipped checks, ignored failures,
-  // copying/rebuilding output, alternate sources and Rust/WASM/editor workloads.
+  // copying/rebuilding output, alternate sources and unrelated editor workloads.
 });
 
 test('deploy requires successful build, main, non-PR event and explicit Actions string opt-in', () => {

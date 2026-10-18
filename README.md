@@ -20,7 +20,7 @@ This currently means:
 ## Documentation
 
 - [Agent and engineering guidelines](AGENTS.md)
-- [Language guide source and local preview](site/README.md) — 24-page manual; public Pages activation is pending
+- [Language guide source and local preview](site/README.md) — 25 guide/tool pages including a browser Playground; live Pages acceptance remains separate
 - [Documentation index](docs/README.md)
 - [Project goal](docs/project_goal.md)
 - [Architecture](docs/architecture.md)

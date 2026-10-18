@@ -6,6 +6,31 @@
 `compile` method**. Both use `kagari` with defaults disabled and `web` enabled,
 validated bytecode, `PreparedProgram`, and SDK owned interpreter execution.
 
+## Platform model and references
+
+The reviewed baseline is Rust 1.99.0 with Cargo resolver 3. Follow
+[Cargo's additive feature model](https://doc.rust-lang.org/cargo/reference/features.html#feature-unification),
+not separate desktop/browser language semantics. Rust
+[machine-sized integers](https://doc.rust-lang.org/reference/types/numeric.html)
+remain suitable for internal storage; script `u64` counters use checked storage
+boundaries. WASM [i64 values](https://webassembly.github.io/spec/core/syntax/types.html)
+do not require 64-bit pointers. There are no script `isize`/`usize` aliases.
+
+The [Rust target documentation](https://doc.rust-lang.org/rustc/platform-support/wasm32-unknown-unknown.html)
+does not promise working filesystems, threads or clocks just because std compiles.
+Use [web-time 1.1.0](https://docs.rs/web-time/1.1.0/web_time/) for measurement and
+[wasm-bindgen](https://wasm-bindgen.github.io/wasm-bindgen/examples/hello-world.html)
+for the maintained Rust/JS ABI (crate/CLI 0.2.129). Native/AOT loading, WASI,
+threads/shared memory, arbitrary JS callbacks and external async providers are not
+browser-adapter capabilities. Source input is a single virtual module, not browser
+filesystem/package acquisition.
+
+[Worker termination](https://developer.mozilla.org/en-US/docs/Web/API/Worker/terminate)
+is immediate, not graceful cancellation. Keep Kagari's owned-execution cleanup,
+roots and generation checks for normal exits, and discard fatal instances instead
+of inventing panic recovery. These references justify ownership mechanisms, not
+speed claims or weakened script/host contracts.
+
 ## JavaScript API and protocol v1
 
 After `await init(...)` from the generated ES module:
@@ -132,8 +157,13 @@ own normal root, loan, reentry and pinned-generation cleanup contracts.
 ## Reproducible products and focused validation
 
 Run from the repository root with installed `wasm32-unknown-unknown`. Use the
-default target directory and workspace dev profile. Bound each build/install to
-180 seconds; report a timeout instead of blindly retrying. Crate and CLI are both
+default target directory and workspace dev profile. The product runner budgets
+each Cargo build/fixture test to 240 seconds, binding generation and graph checks
+to 30 seconds, and tool probes to 10 seconds. The complete product stage is bounded
+to 16 minutes; explicit CLI installation in CI is separately bounded to 15 minutes.
+These budgets are not measured cold-CI durations. Report timeouts instead of
+blindly retrying. Nested Unix commands share the supervisor's process group;
+Windows uses process-tree termination. Crate and CLI are both
 locked to **wasm-bindgen 0.2.129**; discover `wasm-bindgen --version` first. If absent:
 
 ```sh
@@ -184,5 +214,8 @@ It owns its loopback server/browser, rejects stale products and writes disposabl
 reports beneath `target/wasm-browser/reports/`. `--mode source` or `--mode artifact`
 selects affected cases. No browser or binding tool is silently downloaded.
 Native tests and linking alone do not establish browser execution. Selected real
-browser acceptance covers both products; Worker/site integration and broader CI
-remain separately tracked in the roadmap.
+browser acceptance covers both products and the Worker-backed site Playground.
+Broader CI/platform and live Pages acceptance remain separately tracked in the
+[roadmap](../../docs/implementation-roadmap.md#browser-wasm-execution). The
+[site guide](../../site/README.md#playground-ownership-and-acceptance) owns UI,
+exact-product publication checks and measured dev-profile browser costs.

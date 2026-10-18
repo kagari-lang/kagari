@@ -4,7 +4,8 @@ Start with [project goals](project_goal.md), [architecture](architecture.md) and
 [the pending roadmap](implementation-roadmap.md). Specifications describe current
 behavior; queued designs do not imply implemented APIs.
 
-The [language guide](../site/README.md) provides a 24-page learning manual and
+The [language guide](../site/README.md) provides 25 guide/tool pages, including a
+local browser Playground, and
 local preview/build instructions. It is separate from the normative specifications
 below; the public Pages site has not been activated by this work.
 
@@ -64,11 +65,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Documentation website follow-ups](implementation-roadmap.md#language-documentation-website):
   CI/live Pages acceptance, upstream dependency patching and separately scoped
   translations. Build and content maintenance belong in the [site guide](../site/README.md).
-- [Fixed-width integers and browser WASM](wasm-browser-plan.md): WB01-WB05 are
-  active with phase commits; WB01-WB04 are complete and WB05 is next. Preserve checked machine-index
-  boundaries, and run the existing compiler/interpreter in a Worker-backed
-  Playground. Source execution is the default; a source-free artifact build is
-  separate. This is not a WASM code-generation backend.
+- [Browser WASM follow-ups](implementation-roadmap.md#browser-wasm-execution):
+  complete CI/platform and live Pages acceptance, plus separately scoped setup/size
+  optimization. Current source/source-free adapter and Worker contracts belong in
+  the [browser guide](../crates/kagari-web/README.md); measured Playground costs and
+  exact-product builds belong in the [site guide](../site/README.md).
 - [Host API unification](host-api-refactor.md).
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,

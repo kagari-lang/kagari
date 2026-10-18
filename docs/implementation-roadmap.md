@@ -177,15 +177,15 @@ separately proposed debug/DAP modes.
 ## Language documentation website
 
 The independent [Astro/Starlight language guide](../site/README.md) is implemented:
-24 substantive English pages, shared editor grammar, canonical source includes,
+25 substantive English guide/tool pages, shared editor grammar, canonical source includes,
 static-output checks and a default-disabled least-privilege Pages workflow.
 Specifications remain the semantic authority; site maintenance and publication
 setup belong in its README, not a second execution ledger.
 
 Focused local acceptance passed on Windows with Node 22.21.1/npm 10.9.4 and
-Chrome 155.0.8059.82: fresh 24-page/404 output, links/anchors/assets/base,
-20 source includes, 22 script tests, and the eight-case desktop/mobile browser
-matrix covering real search, themes, code/copy, nested routing and keyboard access.
+Chrome 155.0.8059.82: fresh 25-page/404 output, links/anchors/assets/base,
+20 source includes, script contracts, and selected desktop/mobile browser coverage
+for real search, themes, code/copy, nested routing, keyboard access and Playground.
 Selected CLI and SDK examples/host-boundary tests passed. This is not complete
 cross-browser/platform/accessibility or full Rust workspace acceptance.
 
@@ -205,40 +205,49 @@ Open acceptance and follow-ups:
   The narrowly accepted trusted build-time boundary is documented in the site
   README. Do not force incompatible overrides or treat this as a patched parser;
   re-review before dynamic CSS, remote theme/plugin or request-time inputs.
-- Browser Playground/WASM now has the separate [execution plan](wasm-browser-plan.md)
-  below; implementation is active. Translations, full API generation, versioned
-  release sites, custom domains and analytics remain separately scoped. Source-build
+- Browser Playground/WASM ownership and remaining acceptance are described below.
+  Translations, full API generation, versioned release sites, custom domains and
+  analytics remain separately scoped. Source-build
   instructions remain necessary until a functional toolchain release exists.
 
 ## Browser WASM execution
 
-The [fixed-width integer and browser plan](wasm-browser-plan.md) owns WB01-WB05
-and its progress ledger. Implementation and one commit per phase are authorized.
-WB01-WB04 passed focused local acceptance, including real source-enabled and
-source-free WASM execution and bounded Worker lifecycle in Chrome. WB05 site integration is next. Pushes and remote publication remain separately authorized.
+The fixed-width migration and browser-hosting implementation are complete. Current
+contracts belong to [architecture](architecture.md#browser-hosting), the
+[browser adapter](../crates/kagari-web/README.md) and
+[site guide](../site/README.md#playground-ownership-and-acceptance); completed phase
+ledgers live in Git history, not a parallel plan.
 
-Remove script isize/usize instead of preserving duplicate fixed-width identities.
-Migrate lengths/indices/counts to u64 and signed numeric roles to i64, while retaining
-Rust machine-sized storage positions behind checked boundaries. This is a coherent
-language/API migration across declarations, products, runtime, standard library,
-host adapters, tests and documentation, not a WASM-only semantic branch.
+Script isize/usize were removed, standard lengths/indices/counts use u64, and Rust
+storage narrowing stays checked. The browser runs the existing frontend/interpreter
+with default source support or an independent frontend-free `.kbc` product, not a
+WASM code-generation backend. One lazy-loaded Playground route uses bounded Worker
+execution and exact-product Pages builds. Selected source, source-free, Worker and
+UI contracts passed in Chrome, including Unicode diagnostics, lossless integers,
+ordered effects, cancellation and fresh-instance recovery. Native contract tests
+remain evidence for precise root/loan and pinned-generation cleanup; labelled
+browser fault wrappers are not proof of Rust panic recovery.
 
-Compile the existing frontend and interpreter into a browser product with default
-source support and a separate source-free artifact configuration. An additive web
-capability supplies narrow platform support; an independent browser adapter and
-Worker reuse existing owned execution, roots and cancellation. Fixed-width integer
-semantics remain portable; resource limits, external inputs and fatal-instance
-recovery are explicit boundaries. WB05 owns one lazy-loaded Playground route and
-its exact-product build/Pages integration, not remote deployment authorization.
+Remaining acceptance and explicitly deferred work:
 
-Source-enabled and source-free browser execution passed selected real Chrome
-contracts after correcting source-root initialization, clocks and wide indices.
-Complete cross-platform/CI acceptance and public Playground integration remain
-pending; successful target compilation alone is not execution
-acceptance.
-WASM code generation, i128/u128, threads/shared memory, WASI, arbitrary JS callbacks
-and a browser live-reload UI are outside this plan. Existing interpreter/native
-work remains separately owned and must not be silently folded into this migration.
+- Run full workspace/backend/feature/platform acceptance in CI; no local full sweep
+  was performed. Source-free graph and selected real execution are established,
+  not every target or host-capability combination.
+- Run the expanded Pages workflow on Linux/Node 24, including cold Cargo and CLI
+  acquisition budgets. The nested Unix timeout/interrupt contract passed in WSL,
+  but that is not cold GitHub Actions acceptance.
+- Validate the live Playground, Worker/WASM MIME/URLs, transfer encoding and caching
+  after separately authorized push/deployment. No remote activation follows from
+  local build/browser success.
+- Dev-profile source JS/WASM totals about 22.95 MB raw; measured session construction
+  is about 1.1 s and simple compilation about 3.4 s on the documented Windows host.
+  See [methods and limitations](../site/README.md#measured-development-baseline).
+  These are untuned costs, not release or cold-network claims. A performance follow-up
+  must establish a target and profile setup/compiler costs before changing models.
+- Other browsers/platforms, hard heap/compiler quotas, external async wake providers,
+  threads/shared memory, WASI, arbitrary JS callbacks, browser live reload, i128/u128
+  and a WASM code-generation backend remain outside this delivery. Existing native
+  and interpreter optimization work remains separately owned.
 
 ## Runtime storage redesign
 

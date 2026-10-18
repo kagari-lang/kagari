@@ -17,6 +17,12 @@ export const pages = Object.freeze([
     title: 'Quickstart',
     description: 'Build the source CLI and follow a complete Kagari control-flow example.',
   }),
+  Object.freeze({
+    path: 'playground',
+    group: 'Start',
+    title: 'Playground',
+    description: 'Compile and run a single Kagari source file locally in your browser.',
+  }),
   ...manualPages.filter(({ group }) => group === 'Start'),
   ...languagePages,
   ...manualPages.filter(({ group }) => group === 'Standard library'),

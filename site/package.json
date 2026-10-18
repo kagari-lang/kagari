@@ -8,6 +8,7 @@
   },
   "scripts": {
     "build": "node scripts/build.mjs",
+    "build:pages": "node scripts/build-pages.mjs",
     "check": "node scripts/check.mjs",
     "check:browser": "node scripts/browser.mjs",
     "preview": "astro preview --host 127.0.0.1",
