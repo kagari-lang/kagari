@@ -99,6 +99,36 @@ start is byte 28, UTF-16 offset 26, line 1, character 19.
   `Performance.now()`. Clock precision/sleep behavior is browser-dependent; script
   deterministic time/random inputs remain SDK defaults, not ambient JS inputs.
 
+## Worker client
+
+[`PlaygroundClient`](../../site/src/playground/client.js) owns a module Worker;
+construction alone performs no download. Deploy `client.js`, `protocol.js` and
+`worker.js` together under `wasm/playground/`, beside `wasm/source/` bindings.
+Trusted application code may override `workerURL` and `productURL`.
+
+- `run(source)` rejects invalid/busy admission synchronously, otherwise returns a
+  terminal-event Promise. There is one run and no queued work.
+- `cancel()` requests cooperative cancellation once. `reset()` coalesces requests,
+  waits for cancellation/cleanup, then returns idle. `hardStop()` destroys and
+  replaces the Worker immediately; `dispose()` destroys it permanently.
+- `onEvent` receives `progress`, `result`, `reset`, `fatal`, `stopped`, `disposed`.
+  Output is a delta, including terminal output. Render text as text and retain
+  tagged integer strings. Asynchronous observers hold response credit, not runtime
+  cleanup; never await `run` or `reset` inside an observer.
+- Worker/run generations and ordered response acknowledgements reject stale
+  replies. Deferred UI work must recheck generations before rendering. Fatal
+  faults retire the instance before notification; the next run uses a fresh one.
+- Drives use browser tasks, not a microtask spin. Waiting parks until cancellation;
+  there is no external async provider or wake callback. Cumulative run output is
+  limited to 256 messages / 64 KiB, with sticky visible truncation. Only one
+  unacknowledged response is allowed; saturated progress cannot flood the UI.
+
+Run `node site/scripts/wasm-worker.mjs` for focused Node and real-browser lifecycle
+coverage. Waiting, non-yielding compilation and fatal-fault cases use explicitly
+labelled test-only adapter wrappers, not production fault hooks. These cases do
+not claim panic unwinding or exact browser GC/loan counters; existing SDK tests
+own normal root, loan, reentry and pinned-generation cleanup contracts.
+
 ## Reproducible products and focused validation
 
 Run from the repository root with installed `wasm32-unknown-unknown`. Use the

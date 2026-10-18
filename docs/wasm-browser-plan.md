@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one commit per phase authorized on 2026-10-18.
-WB01-WB03 are complete; WB04 is next. Pushes, remote settings changes, dependency
+WB01-WB04 are complete; WB05 is next. Pushes, remote settings changes, dependency
 publication and deployment remain outside this authorization.
 
 The [roadmap](implementation-roadmap.md#browser-wasm-execution) owns activation and
@@ -448,7 +448,7 @@ needed for this planning-only change; check document links/content and whitespac
 - [x] WB01: fixed-width language integer migration.
 - [x] WB02: checked machine boundaries and browser timing.
 - [x] WB03: linked source-enabled and source-free browser products.
-- [ ] WB04: Worker scheduling, cancellation and recovery.
+- [x] WB04: Worker scheduling, cancellation and recovery.
 - [ ] WB05: Playground integration, focused acceptance and handoff.
 
 ### WB01 — fixed-width integer migration
@@ -533,3 +533,21 @@ used an invalid bare-return match arm and guessed a specialized SDK index code;
 corrected the fixture and asserted the existing ScriptTrap mapping with exact wide
 index diagnostics and once-only effects. No core semantic weakening or skipped case.
 Workspace Clippy, structure, formatting and diff checks passed. Full CI remains unrun.
+
+### WB04 — bounded Worker lifecycle
+
+Added a lazy client and task-driven module Worker with one active request, ordered
+response credit, cumulative output bounds and worker/run generations. Waiting
+parks rather than polls; cancellation is its currently supported wake. Normal
+terminal execution resets/frees the session before reply. Hard stop/fatal recovery
+destroys the old Worker, without promising cleanup or rollback.
+
+`node site/scripts/wasm-worker.mjs` passed eight Node contracts and ten actual
+Chrome lifecycle cases: cancellation/reuse, effects, bounded output/backpressure,
+admission, stale replies, Waiting, hard stop and fresh-instance recovery. Waiting,
+non-yielding compile and fatal cases use labelled test-only adapter wrappers;
+there are no production fault hooks or panic-unwind/browser-counter claims.
+Three selected native regressions cover adapter cancellation/root cleanup,
+owned-future reentry and pinned-generation lifecycle. JS syntax and whitespace
+checks passed. Rust is unchanged from WB03; its passing acceptance remains evidence.
+WB05 owns UI/exact-site-product integration; exhaustive CI remains separate.

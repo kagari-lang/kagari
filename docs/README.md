@@ -65,7 +65,7 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   CI/live Pages acceptance, upstream dependency patching and separately scoped
   translations. Build and content maintenance belong in the [site guide](../site/README.md).
 - [Fixed-width integers and browser WASM](wasm-browser-plan.md): WB01-WB05 are
-  active with phase commits; WB01-WB03 are complete and WB04 is next. Preserve checked machine-index
+  active with phase commits; WB01-WB04 are complete and WB05 is next. Preserve checked machine-index
   boundaries, and run the existing compiler/interpreter in a Worker-backed
   Playground. Source execution is the default; a source-free artifact build is
   separate. This is not a WASM code-generation backend.
