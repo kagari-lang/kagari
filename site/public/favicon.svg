@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Kagari</title>
+  <rect width="64" height="64" rx="12" fill="#17233b"/>
+  <path d="M18 14h8v16l16-16h10L34 32l19 18H42L26 35v15h-8z" fill="#fff"/>
+</svg>

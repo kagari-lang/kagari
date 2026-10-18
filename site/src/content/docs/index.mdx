@@ -1,0 +1,72 @@
+---
+title: Kagari
+description: A statically typed, GC-backed scripting language for Rust-hosted applications.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Kagari is a scripting language for applications hosted in Rust. Use scripts to
+express domain rules and data models while the host owns infrastructure such as
+I/O, scheduling and persistence. Types are checked before execution, script-owned
+objects are garbage collected, and host access goes through installed typed interfaces.
+
+**Kagari is unpublished and in early development.** Start from the source checkout;
+there is no functional published toolchain release to install. This guide describes
+current behavior, not a production-readiness guarantee.
+
+## Start with a running program
+
+The <a href={page('start/quickstart')}>quickstart</a> builds the source CLI and follows an
+existing program from the repository. A function can return its final expression;
+this small **fragment** illustrates the form used by that program:
+
+```kagari
+fn main() -> i32 {
+    var total = 12;
+    loop {
+        if total == 42 {
+            break;
+        };
+        total += 10;
+    }
+    total
+}
+```
+
+The loop adds ten three times, then exits with `total` equal to `42`. The
+quickstart includes the complete canonical source and its command, rather than a
+separate website-only program.
+
+<p><a href={page('start/quickstart')}>Read the quickstart →</a></p>
+
+## A familiar shape, a different value model
+
+Rust-inspired syntax does not imply Rust ownership rules. `val` prevents rebinding
+of a slot; `var` permits writes. Script objects can be shared by multiple values,
+so a non-rebindable value is not a promise that the referenced object cannot change.
+The script GC does not manage Rust resources or remove the host's scoped-access
+and rooting obligations.
+
+For Rust embedders, the SDK owns the engine and runtime boundary. These imports
+are an **excerpt**, not a complete host program, from the current
+<a href={source('crates/kagari/examples/runtime_initialization.rs')}>runtime initialization example</a>:
+
+```rust
+use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+```
+
+The <a href={source('docs/spec/embedding-api.md')}>embedding specification</a> explains
+that boundary; runnable <a href={source('crates/kagari/examples/typed_native.rs')}>typed-native examples</a>
+show concrete Rust APIs. Hot reload retains the code generations needed by active
+calls; it is not unrestricted runtime type mutation.
+
+## Guide and reference
+
+Use the <a href={page('start/quickstart')}>quickstart</a> to learn by running code.
+For exact rules, consult the repository's
+<a href={source('docs/spec/syntax.md')}>syntax specification</a>,
+<a href={source('docs/spec/value-semantics.md')}>value semantics</a> and
+<a href={source('docs/spec/builtins.md')}>builtin contracts</a>.
+These external references are the semantic authority, not additional website chapters.
+The <a href={source('docs/project_goal.md')}>project goals</a> describe the intended
+host/script split and current scope.

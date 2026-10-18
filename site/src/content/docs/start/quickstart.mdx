@@ -1,0 +1,80 @@
+---
+title: Quickstart
+description: Build the source CLI and follow a complete Kagari control-flow example.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+Run a complete program that combines a `while` loop, conditional skipping and
+`loop`/`for` iteration. You need Git and a Rust toolchain compatible with the
+repository's <a href={source('Cargo.toml')}>Cargo workspace</a>. The CLI is a source
+build: do **not** use `cargo install kagari-cli`; the published reservation is not
+a functional toolchain distribution.
+
+## Get the source CLI
+
+Clone the repository, then run these commands from its root directory:
+
+```sh
+git clone https://github.com/kagari-lang/kagari.git
+cd kagari
+cargo build -p kagari-cli --bin kg
+cargo run -p kagari-cli -- check examples/syntax/control-flow.kgr
+cargo run -p kagari-cli -- run examples/syntax/control-flow.kgr
+```
+
+Cargo builds the `kg` executable from the `kagari-cli` package. `check` analyzes the
+source without running it; `run` compiles and executes it. The first build needs
+to acquire Rust dependencies. Website development uses Node separately; you do not
+need Node to run a Kagari program.
+
+On success, this program's `main` returns `42`. The current non-JIT CLI does not
+print ordinary return values; a successful run exits with status zero, **not** exit
+code 42. Compilation errors and execution failures produce diagnostics instead.
+
+## Read the complete program
+
+This block is read from the canonical repository example during the website build.
+Its assertions deliberately trigger checked division by zero if a tested condition
+fails; those compact assertion expressions are not required loop syntax.
+
+<SourceExample
+  path="examples/syntax/control-flow.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/control-flow.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing that value."
+/>
+
+## Follow the values
+
+1. `index` and `total` are mutable bindings, introduced with `var`. The `while`
+   loop increments `index` from zero through five. At three, `continue` skips the
+   addition, leaving `total` equal to `1 + 2 + 4 + 5`, or `12`.
+2. The following `loop` checks whether `total` is `42` before each addition. It
+   adds ten three times and then `break` exits the loop.
+3. `Vec::from([20, 22])` provides the values for the `for` loop. Adding them yields
+   `42`; the next expression checks that result.
+4. The program also checks early exit from a `for` loop and a value-producing
+   `loop`. `break 42` supplies the latter's value.
+5. The final expression, `total`, is the result of `main`. Its declared result type
+   is `i32`, a signed 32-bit integer; no `return` keyword is needed here.
+
+`val` prevents rebinding, rather than freezing an object. Notice that `break_items`
+is a `val`, yet `break_items.push(2)` changes the vector it refers to. This is shared
+object behavior, not a Rust move or borrow-checker example.
+
+## Make one change
+
+In a local copy, change the `for` input from `[20, 22]` to `[21, 21]` and run the
+same command. It still sums to `42`, so the existing assertion succeeds. Keep the
+canonical source unchanged when contributing documentation unless you intend to
+change the example and its owning tests too.
+
+## Next and precise rules
+
+Return to the <a href={page('')}>guide overview</a>, explore the
+<a href={source('examples/syntax')}>syntax example directory</a>, or read the
+<a href={source('docs/spec/syntax.md')}>syntax specification</a> for exact loop and
+expression rules. The <a href={source('docs/spec/toolchain-tools.md')}>source-tool contract</a>
+describes `check`, formatting, linting and diagnostic output. Those are external
+repository references, not additional generated guide routes.

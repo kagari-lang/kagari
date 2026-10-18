@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one commit per phase authorized on 2026-10-18.
-DW01 is complete; DW02 is next. Pushes, GitHub settings and public activation are
+DW01-DW02 are complete; DW03 is next. Pushes, GitHub settings and public activation are
 not authorized.
 The [roadmap](implementation-roadmap.md#language-documentation-website) owns activation
 and queue placement. This plan owns DW01-DW05, content scope, remaining decisions,
@@ -392,7 +392,7 @@ Conventional, with `Plan-Phase: DW0N` trailers when commits are authorized.
 ## Progress ledger
 
 - [x] DW01: freeze tools, content routes, ownership and publication boundary.
-- [ ] DW02: static site foundation, shared syntax highlighting and real entry pages.
+- [x] DW02: static site foundation, shared syntax highlighting and real entry pages.
 - [ ] DW03: bounded language/library manual and reference navigation.
 - [ ] DW04: embedding/reload guide and least-privilege Pages workflow.
 - [ ] DW05: selected local/browser acceptance and documentation handoff.
@@ -467,3 +467,36 @@ DW01 changes documentation only. Registry engine/peer inspection is compatibilit
 evidence, not installation/build acceptance. Local document links and diff checks
 precede this phase commit. No carried implementation failure or performance claim;
 full workspace/feature/backend/editor matrices are not part of local site validation.
+
+### DW02 — static foundation and shared grammar
+
+Implemented a standalone locked Astro/Starlight project, homepage/quickstart only,
+shared grammar aliases, centralized base/source links, restricted canonical source
+includes, stock search/theme/navigation and DOM-based generated-output validation.
+Checks reject stale source/output records, broken routes/anchors/assets, unknown
+fences and mismatched included source; tests also cover traversal/symlink rejection.
+No copied grammar, Vela asset or runtime/compiler change.
+
+Material tool-selection correction: initial DW01 reference versions installed and
+built, but audit reported critical/high framework/image dependencies. Replaced them
+before committing with Astro 7.3.8, Starlight 0.42.6, MDX 8.0.3, Markdown Remark
+7.3.2, Astro check 0.9.10, Shiki 4.5.0 and parse5 8.0.1; TypeScript 6.0.3 and
+Playwright 1.64.1 unchanged. Registry peers/engines and engine-strict npm ci confirm
+local Node 22.21.1 compatibility; no overrides or peer bypass. Newer patches require
+Node 22.22+, so do not apply them under the older local runtime without revisiting
+the toolchain. Lockfile owns complete resolution.
+
+Audit at high threshold passes, not fully clean: 10 moderate package entries share
+GHSA-rj75-hqrm-r3gf in the upstream Expressive Code/nested CSS/parser 6.x chain.
+The primary advisory excludes ordinary trusted build-time use; this site has no
+public/request-time CSS parsing or user-uploaded theme service. Accept this narrow
+build-time risk with bounded, unprivileged PR builds, no silent cross-major override,
+and an upstream-patch follow-up in site/README. Moderate-threshold audit still fails;
+this must remain visible at handoff and requires renewed review for dynamic inputs.
+
+Passed locked engine-strict installation, Astro type/content/static build, generated
+2-page/404 links/assets/base/search/sitemap/source/highlight checks and 15 script
+tests. Initial dependency download timed out and succeeded on bounded retry;
+nonfatal Windows cleanup and optional Starlight collection warnings do not establish
+missing rendered pages. No carried build/test error. Browser/live Pages and CI Node
+24 remain unrun. Source-file whitespace/diff review precedes the phase commit.

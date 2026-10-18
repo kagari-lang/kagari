@@ -180,7 +180,8 @@ The user requested a language documentation site similar to Vela's GitHub Pages
 site. The [website execution plan](documentation-site-plan.md) owns DW01-DW05,
 content scope, architecture, focused acceptance and the sole progress ledger.
 Implementation and one commit per phase are authorized. DW01 froze the toolchain,
-24-route manual and validation/publication boundary; DW02 site foundation is next.
+24-route manual and validation/publication boundary. DW02 site foundation passed
+locked local build/output checks; DW03 language/library content is next.
 Pushes, remote settings and public activation remain unauthorized.
 
 Use an independent static Astro/Starlight project with shared Kagari TextMate

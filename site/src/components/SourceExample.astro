@@ -1,0 +1,21 @@
+---
+import { Code } from '@astrojs/starlight/components';
+import { source } from '../links.mjs';
+import { readExample } from '../source-example.mjs';
+
+interface Props {
+  path: string;
+  command?: string;
+  result?: string;
+}
+
+const { path, command, result } = Astro.props;
+const example = await readExample(path);
+---
+
+<figure class="source-example" data-source-example={path}>
+  <figcaption><a href={source(path)}>Source: {path}</a></figcaption>
+  <Code code={example.code} lang={example.language} title={path} />
+  {command && <><p>Run from the repository root:</p><Code code={command} lang="sh" /></>}
+  {result && <p><strong>Expected result:</strong> {result}</p>}
+</figure>

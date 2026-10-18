@@ -1,0 +1,13 @@
+:root {
+  --sl-font: system-ui, sans-serif;
+}
+
+.source-example {
+  margin-block: 1.5rem;
+}
+
+.source-example > figcaption {
+  font-size: var(--sl-text-sm);
+  margin-block-end: 0.5rem;
+  overflow-wrap: anywhere;
+}
