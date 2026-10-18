@@ -176,14 +176,21 @@ separately proposed debug/DAP modes.
 
 ## KBC disassembly
 
-The [KBC disassembler plan](kbc-disassembler-plan.md) owns DA01-DA03: offline
-`kg disasm`, complete instruction rendering by module/function, scoped reference
-annotations, a compact function directory/selection, entry-slot/effect summaries
-and optional debug locations. DA01 offline preparation and DA02 full rendering/CLI
-are implemented; DA03 contract acceptance and documentation handoff are next. Reuse bounded KBC decoding and full bytecode/envelope
-validation without source files, runtime construction or installed host providers.
-This is instruction inspection, not source decompilation; CFG reconstruction,
-source-like output, MIR/native browsing and editor/web integration are outside scope.
+The delivered [offline `kg disasm` contract](spec/toolchain-tools.md#kbc-disassembly)
+provides full instruction rendering, a compact function directory and exact
+name/artifact-slot selection. [Bytecode output](spec/bytecode.md#disassembly-output)
+owns scoped references, entry/physical/semantic facts, recorded nontransitive
+effects and nonauthoritative debug annotations. [Artifact validation](spec/artifacts.md#offline-disassembly-validation)
+and [library ownership](architecture.md#offline-bytecode-inspection) preserve bounded,
+complete current-format verification without source files, runtime construction or
+installed host providers. Paths show retained executable records, not reconstructed
+source declarations; optional MIR remains opaque.
+
+Full-workspace tests and the complete feature/backend/platform matrix remain
+**pending CI and unrun**; delivered behavior and documentation do not establish
+that acceptance. Source decompilation, CFG reconstruction, source-like output,
+MIR/native browsing, raw-invalid inspection, JSON/machine-protocol output and
+editor/web integration are outside the delivered scope.
 
 ## Language documentation website
 

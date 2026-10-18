@@ -626,6 +626,97 @@ Debug metadata includes:
 Debug metadata is not required for execution correctness.
 It is removable or compactable for production artifacts.
 
+## Disassembly output
+
+[`kg disasm`](toolchain-tools.md#kbc-disassembly) renders the complete current
+instruction model from a [fully validated artifact](artifacts.md#offline-disassembly-validation).
+It is instruction inspection, not source reconstruction. Full output contains an
+artifact summary, referenced descriptors and selected function bodies; directory
+mode retains only the summary and compact headers.
+
+### Instructions and scoped references
+
+Every selected instruction is printed once in stored order, including unreachable
+instructions. Its number is a **zero-based function-local instruction index**, not
+a file byte offset or machine PC. Decimal indices have at least four digits and
+expand as needed; jump destinations have `L<index>` labels and visible numeric
+targets. Explicit mnemonics and operands distinguish instruction variants and nested
+call/numeric/iteration operations, including registers/locals, branch arms, optional
+results, ordered arguments, captures, generic arguments and member ordinals. There
+is no execution, optimization, control-flow restructuring or inferred callee body.
+
+References retain artifact-local owning-module/table slots beside resolved portable
+names and types. For example, `@1:const#2` addresses module 1's constant slot 2,
+not slot 2 in the function's current module. Process-local definition IDs are not
+artifact offsets. Referenced constants, layouts, interfaces/trait contracts, paths,
+native imports and module slots (including their descriptor dependencies) are
+printed once per output operation in module/category/slot order. Unrelated tables
+are not dumped; calls do not recursively expand callee bodies. Interface dispatch
+shows its declared member/signature without inventing a concrete receiver target.
+Native imports describe declared call contracts, not provider implementations.
+
+Path descriptors print only retained executable `PathRecord` facts: owning slot,
+path ID, contract fingerprint, root/result physical types, readonly access and
+escaped debug name. The fingerprint is not a declaration-vector index. Rendering
+does **not** rebuild host schemas or expand source path declarations from it.
+
+Constants retain their stored type. Every `f32`/`f64` constant includes its exact
+hexadecimal bits beside decimal text, preserving signed zero and NaN payloads.
+Large strings are emitted at their pool entry rather than repeated at each use.
+Artifact-owned names, strings, URIs and diagnostics are escaped so they cannot
+inject instructions or terminal controls. Quoted text escapes quotes, backslashes,
+newlines, tabs, other controls, Unicode format/bidi controls and line/paragraph
+separators while retaining ordinary Unicode text. Name components requiring quoting
+are escaped individually; displayed names are not the raw CLI selector syntax.
+
+### Execution facts and debug annotations
+
+Headers prefer retained semantic signatures and concrete instance arguments;
+missing signature facts are explicitly labeled `physical(...)`. Full bodies list
+every local/register with separate physical representation and retained semantic
+type, or `semantic=unknown`. Unknown does not mean `Any`, and `heap_object` does
+not identify a nominal source type. Root slots and retained generic/protocol-adapter
+contracts are shown separately.
+
+Entry mappings are `argN -> lN` for the first `parameter_count` locals, from
+execution metadata rather than debug parameter flags. For example, a subsequent
+`load_local` from `l0` into `r3` transfers a value; it does not establish a permanent
+alias or make a debug name for `l0` the name of `r3`.
+
+`recorded_effects` lists set `FunctionMetadata.effects` fields in this order:
+`reads_local`, `writes_local`, `reads_module`, `writes_module`, `reads_aggregate`,
+`writes_aggregate`, `reads_path`, `writes_path`, `allocates`, `calls`,
+`touches_runtime`, `may_trap`, `may_suspend`; the empty set is `[]`. These are
+recorded summaries, **not recomputed transitive effects**, permissions, purity or
+execution-cost guarantees. An unset bit does not prove callees cannot allocate or
+mutate. The separately displayed `may_suspend` is an execution-entry fact, not
+proof of a particular original source spelling of `async`.
+
+Debug annotations are optional and nonauthoritative:
+
+- Locations are associated by explicit `instruction_offset`, not metadata vector
+  position. Unsorted records work; multiple matching locations/points are retained
+  in stable order and marked ambiguous rather than silently overwritten.
+- Local names annotate `lN` only within half-open `[start, end)` instruction ranges.
+  Overlapping names remain visible and ambiguous. Generated `argN`, `lN` and `rN`
+  labels remain usable when names are absent. Capture names do not imply a slot
+  mapping that the artifact does not retain.
+- Debug types, parameter flags and copied frame layouts cannot override execution
+  metadata. Verification does not promise sorted/unique records, nonoverlapping
+  names or agreement between debug claims and executable facts; disagreement is
+  not a new renderer-specific validation failure.
+- URIs, line/column values, source byte offsets/spans and source-module references
+  come only from retained metadata. Missing line information uses available byte
+  offsets/spans as such, never guessed line numbers. A default empty span is
+  unknown. No source path is opened and no server is contacted.
+- Missing/stripped debug data does not prevent inspection. Per-function metadata
+  is inspected independently of the optional envelope debug section.
+
+Output is deterministic for the same artifact and options, independent of fresh
+process-local IDs, hash-map iteration, current directory and runtime registration.
+It is human-readable text, not a stable machine protocol or a source/text round
+trip. See [inspection ownership and design references](../architecture.md#offline-bytecode-inspection).
+
 ## Artifact Tables
 
 The `.kbc` artifact is organized around compact tables rather than repeated inline strings.

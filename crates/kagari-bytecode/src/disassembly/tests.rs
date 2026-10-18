@@ -4,7 +4,7 @@ use crate::{
         KAGARI_LANGUAGE_VERSION, KBC_ARTIFACT_FORMAT_VERSION, KbcArtifact,
     },
     disassembly::{DisassemblyError, PreparedDisassembly},
-    instruction::{BytecodeInstruction, LocalSlot, Register},
+    instruction::{BytecodeInstruction, CallTarget, LocalSlot, NativeImportId, Register},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     native_input::PortableMir,
     program::{BytecodeProgram, ModuleRef},
@@ -142,8 +142,41 @@ fn directory(prepared: &PreparedDisassembly) -> String {
     String::from_utf8(output).unwrap()
 }
 
+fn disassembly(prepared: &PreparedDisassembly, selector: Option<&str>) -> String {
+    let mut output = Vec::new();
+    prepared.write_disassembly(&mut output, selector).unwrap();
+    String::from_utf8(output).unwrap()
+}
+
+fn function_headers(output: &str) -> Vec<&str> {
+    output
+        .lines()
+        .filter(|line| line.starts_with("fn @"))
+        .collect()
+}
+
+fn selection_error_before_output(
+    prepared: &PreparedDisassembly,
+    selector: &str,
+) -> DisassemblyError {
+    let expected = prepared.select(Some(selector)).unwrap_err();
+    let mut writer = FailingWriter {
+        remaining: 0,
+        failed: false,
+    };
+    let error = prepared
+        .write_disassembly(&mut writer, Some(selector))
+        .unwrap_err();
+    assert!(
+        !writer.failed,
+        "invalid selection must not touch the writer"
+    );
+    assert_eq!(error.to_string(), expected.to_string());
+    error
+}
+
 #[test]
-fn source_free_preparation_retains_scope_and_deterministic_directory() {
+fn source_free_preparation_retains_scope_and_deterministic_output() {
     let bytes = bytes();
     let first = PreparedDisassembly::from_bytes(&bytes).unwrap();
     let second = PreparedDisassembly::from_bytes(&bytes).unwrap();
@@ -169,7 +202,14 @@ fn source_free_preparation_retains_scope_and_deterministic_directory() {
         &identity("app")
     );
     assert_eq!(directory(&first), directory(&second));
+    let full = disassembly(&first, None);
+    assert_eq!(full, disassembly(&second, None));
+    assert_eq!(full.matches("  0000  load_local").count(), 5);
+    assert_eq!(full.matches("  0001  return").count(), 5);
+    assert!(!full.contains("nonexistent"));
+    assert!(!full.contains('\u{202e}'));
     let output = directory(&first);
+    assert_eq!(function_headers(&full), function_headers(&output));
     assert!(output.starts_with(&format!(
         "artifact: format={KBC_ARTIFACT_FORMAT_VERSION} language=\"{KAGARI_LANGUAGE_VERSION}\" validation=envelope+bytecode\ncompiler: \"{KAGARI_COMPILER_FINGERPRINT}\"\n"
     )));
@@ -213,20 +253,40 @@ fn exact_selection_uses_raw_names_and_reports_ordered_instance_candidates() {
             .unwrap(),
         vec![(1, 2)]
     );
-    for (m, f) in prepared.select(None).unwrap() {
+    let listing = directory(&prepared);
+    let headers = function_headers(&listing);
+    let full = disassembly(&prepared, None);
+    assert_eq!(function_headers(&full), headers);
+    for ((m, f), header) in prepared.select(None).unwrap().into_iter().zip(&headers) {
+        let selector = format!("@{m}:{f}");
+        assert_eq!(prepared.select(Some(&selector)).unwrap(), vec![(m, f)]);
+        let filtered = disassembly(&prepared, Some(&selector));
+        assert_eq!(function_headers(&filtered), vec![*header]);
+        let body_start = filtered.find("\nfn @").unwrap() + 1;
+        assert!(
+            full.contains(&filtered[body_start..]),
+            "selected body differs from full output"
+        );
+        assert_eq!(filtered.matches("  0000  load_local").count(), 1);
+        assert_eq!(filtered.matches("  0001  return").count(), 1);
+    }
+    for (name, slot) in [
+        ("fixture::dependency::echo", "@0:0"),
+        ("fixture::app::echo#2", "@1:3"),
+        ("fixture::app::generated\n\u{202e}name", "@1:2"),
+    ] {
         assert_eq!(
-            prepared.select(Some(&format!("@{m}:{f}"))).unwrap(),
-            vec![(m, f)]
+            disassembly(&prepared, Some(name)),
+            disassembly(&prepared, Some(slot))
         );
     }
-    let error = prepared.select(Some("fixture::app::echo")).unwrap_err();
+    let error = selection_error_before_output(&prepared, "fixture::app::echo");
     let DisassemblyError::AmbiguousFunction { candidates, .. } = &error else {
         panic!("expected ambiguity: {error}");
     };
     assert_eq!(candidates.len(), 2);
     assert!(candidates[0].starts_with("fn @1:0 fixture::app::echo<i32>"));
     assert!(candidates[1].starts_with("fn @1:1 fixture::app::echo<i64>"));
-    let listing = directory(&prepared);
     for candidate in candidates {
         assert!(listing.lines().any(|line| line == candidate));
     }
@@ -238,7 +298,7 @@ fn exact_selection_uses_raw_names_and_reports_ordered_instance_candidates() {
         "",
         "missing\n\u{202e}",
     ] {
-        let error = prepared.select(Some(selector)).unwrap_err();
+        let error = selection_error_before_output(&prepared, selector);
         assert!(matches!(error, DisassemblyError::FunctionNotFound(_)));
         assert!(!error.to_string().contains(['\n', '\u{202e}']));
     }
@@ -257,8 +317,8 @@ fn exact_selection_uses_raw_names_and_reports_ordered_instance_candidates() {
     ] {
         assert!(
             matches!(
-                prepared.select(Some(selector)),
-                Err(DisassemblyError::InvalidSelector(_))
+                selection_error_before_output(&prepared, selector),
+                DisassemblyError::InvalidSelector(_)
             ),
             "{selector}"
         );
@@ -326,6 +386,9 @@ fn portable_mir_is_reported_but_never_interpreted() {
     let prepared =
         PreparedDisassembly::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap()).unwrap();
     assert!(directory(&prepared).contains("portable_mir: present, not semantically checked\n"));
+    let output = disassembly(&prepared, Some("@1:0"));
+    assert!(output.contains("portable_mir: present, not semantically checked\n"));
+    assert!(output.contains("  0000  load_local"));
 }
 
 struct FailingWriter {
@@ -350,6 +413,26 @@ impl Write for FailingWriter {
     }
 }
 
+fn assert_disassembly_io_error(
+    prepared: &PreparedDisassembly,
+    selector: Option<&str>,
+    remaining: usize,
+) {
+    let mut writer = FailingWriter {
+        remaining,
+        failed: false,
+    };
+    let error = prepared
+        .write_disassembly(&mut writer, selector)
+        .unwrap_err();
+    let DisassemblyError::Io(error) = error else {
+        panic!("expected wrapped writer failure: {error}");
+    };
+    assert_eq!(error.kind(), io::ErrorKind::BrokenPipe);
+    assert_eq!(error.to_string(), "closed");
+    assert!(writer.failed);
+}
+
 #[test]
 fn writer_errors_stop_summary_and_directory_without_flushing() {
     let prepared = PreparedDisassembly::from_bytes(&bytes()).unwrap();
@@ -366,6 +449,9 @@ fn writer_errors_stop_summary_and_directory_without_flushing() {
         );
         assert!(writer.failed);
     }
+    // Full output wraps summary failures in the public disassembly error.
+    assert_disassembly_io_error(&prepared, None, 0);
+    assert_disassembly_io_error(&prepared, Some("@1:0"), 1);
     let mut writer = FailingWriter {
         remaining: 3,
         failed: false,
@@ -377,12 +463,12 @@ fn writer_errors_stop_summary_and_directory_without_flushing() {
 }
 
 #[test]
-fn custom_native_contracts_prepare_without_registration_or_script_bodies() {
+fn custom_native_calls_render_verified_offline_contracts_without_providers() {
     let context = DefinitionContext::new().unwrap();
     let module_identity = identity("custom_provider");
     let root = context.intern_root(&module_identity).unwrap();
     let binding = context
-        .intern_child(root, DefinitionKind::Function, "limit", 0)
+        .intern_child(root, DefinitionKind::Function, "rust_limit", 0)
         .unwrap();
     let mut declarations = ModuleDecl::new(module_identity.clone());
     declarations.functions.push(FnDecl {
@@ -418,36 +504,137 @@ fn custom_native_contracts_prepare_without_registration_or_script_bodies() {
         requirements: vec![],
         callables: vec![],
     };
+    let mut module = BytecodeModule {
+        identity: module_identity,
+        source_name: "nonexistent/native_caller.kgr".into(),
+        types: vec![ValueType::I32],
+        public_items: vec![PublicItem::Function(required[0].function.clone())],
+        native_declarations: required,
+        native_imports: vec![import],
+        ..Default::default()
+    };
+    let mut caller = BytecodeFunction {
+        name: "call_limit".into(),
+        register_count: 1,
+        metadata: FunctionMetadata {
+            return_type: ValueType::I32,
+            registers: vec![ValueType::I32],
+            ..Default::default()
+        },
+        instructions: vec![
+            BytecodeInstruction::Call {
+                dst: Some(Register::new(0)),
+                callee: CallTarget::Native(NativeImportId::new(0)),
+                args: vec![],
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Register::new(0)),
+                callee: CallTarget::Native(NativeImportId::new(0)),
+                args: vec![],
+            },
+            BytecodeInstruction::Return(Some(Register::new(0))),
+        ],
+        ..Default::default()
+    };
+    caller.metadata.semantic.result = Some(Ty::Builtin(BuiltinType::I32));
+    caller
+        .metadata
+        .semantic
+        .registers
+        .insert(0, Ty::Builtin(BuiltinType::I32));
+    caller.metadata.effects.calls = true;
+    push_function(&mut module, caller);
+    push_function(&mut module, function("echo"));
     let artifact = KbcArtifact::from_program(
         BytecodeProgram {
             root: ModuleRef::new(0),
             exports: Default::default(),
-            modules: vec![BytecodeModule {
-                identity: module_identity,
-                public_items: vec![PublicItem::Function(required[0].function.clone())],
-                native_declarations: required,
-                native_imports: vec![import],
-                ..Default::default()
-            }],
+            modules: vec![module],
         },
         Default::default(),
         &context,
     )
     .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
-    drop(artifact);
+    let mut invalid = artifact;
+    invalid.program.modules[0].functions[0].instructions[0] = BytecodeInstruction::Call {
+        dst: Some(Register::new(0)),
+        callee: CallTarget::Native(NativeImportId::new(99)),
+        args: vec![],
+    };
+    let invalid_bytes = invalid.to_bytes(&context.snapshot()).unwrap();
+    drop(invalid);
+    drop(declarations);
     drop(context);
+
+    // Only encoded artifacts remain: no compiler, source documents, runtime,
+    // provider installation or original definition scope participates in output.
     let prepared = PreparedDisassembly::from_bytes(&bytes).unwrap();
-    assert_eq!(
-        prepared.program().program().modules[0].native_imports.len(),
-        1
+    let fresh = PreparedDisassembly::from_bytes(&bytes).unwrap();
+    assert_ne!(
+        prepared.program().program().modules[0].native_imports[0].binding,
+        fresh.program().program().modules[0].native_imports[0].binding,
     );
-    assert!(prepared.select(None).unwrap().is_empty());
+    let output = disassembly(&prepared, None);
+    assert_eq!(output, disassembly(&fresh, None));
+    assert_eq!(prepared.select(None).unwrap(), vec![(0, 0), (0, 1)]);
+    assert!(matches!(
+        selection_error_before_output(&prepared, "fixture::custom_provider::limit"),
+        DisassemblyError::FunctionNotFound(_)
+    ));
+    let listing = directory(&prepared);
+    assert!(listing.contains("modules: 1, functions: 2\n"));
+    assert_eq!(function_headers(&output), function_headers(&listing));
+    assert!(!listing.contains("native#"));
+    assert!(output.contains(concat!(
+        "descriptors @0: fixture::custom_provider\n",
+        "  @0:native#0 fixture::custom_provider::limit arguments=[] binding=fixture::custom_provider::rust_limit receiver_access=none installation=not_checked\n",
+        "    signature params=[] -> i32\n",
+    )));
+    assert_eq!(output.matches("  @0:native#0 ").count(), 1);
+    assert!(output.contains("    declaration fixture::custom_provider::limit\n"));
     assert!(
-        prepared
-            .select(Some("fixture::custom_provider::limit"))
-            .is_err()
+        output.contains(
+            "name=\"limit\" implementation=(native fixture::custom_provider::rust_limit)"
+        )
     );
-    assert!(directory(&prepared).contains("modules: 1, functions: 0\n"));
-    assert!(!directory(&prepared).contains("fn @"));
+    let calls = concat!(
+        "  0000  call dst=r0, target=native @0:native#0, args=[]\n",
+        "  0001  call dst=r0, target=native @0:native#0, args=[]\n",
+        "  0002  return r0\n",
+    );
+    assert!(output.contains(calls), "{output}");
+    assert_eq!(output.matches("target=native @0:native#0").count(), 2);
+    assert!(!output.contains("nonexistent"));
+
+    let selected = disassembly(&prepared, Some("fixture::custom_provider::call_limit"));
+    assert_eq!(selected, disassembly(&prepared, Some("@0:0")));
+    assert_eq!(selected, disassembly(&fresh, Some("@0:0")));
+    assert_eq!(
+        function_headers(&selected),
+        vec![function_headers(&listing)[0]]
+    );
+    assert!(selected.contains(calls));
+    assert!(selected.contains("installation=not_checked"));
+    let unreferenced = disassembly(&prepared, Some("@0:1"));
+    assert_eq!(
+        function_headers(&unreferenced),
+        vec![function_headers(&listing)[1]]
+    );
+    assert!(!unreferenced.contains("descriptors @"));
+    assert!(!unreferenced.contains("native#"));
+    assert!(!unreferenced.contains("call_limit"));
+
+    // Distinct facade routes: descriptor output and native-call body output must
+    // wrap the original IO error and stop, not retry or flush. Low-level writers
+    // already cover every byte boundary in their own pure-renderer fixtures.
+    for marker in ["    signature params=[]", "target=native @0:native#0"] {
+        let boundary = selected.find(marker).unwrap() + marker.len();
+        assert_disassembly_io_error(&prepared, Some("@0:0"), boundary);
+    }
+    assert!(KbcArtifact::from_bytes(&invalid_bytes).is_ok());
+    assert!(matches!(
+        PreparedDisassembly::from_bytes(&invalid_bytes),
+        Err(DisassemblyError::Validation(error)) if matches!(error.as_ref(), ArtifactValidationError::Bytecode(_))
+    ));
 }

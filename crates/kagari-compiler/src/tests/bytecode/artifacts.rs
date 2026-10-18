@@ -2,6 +2,8 @@ use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
 use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use kagari_bytecode::{
     artifact::KBC_ARTIFACT_FORMAT_VERSION,
+    disassembly::PreparedDisassembly,
+    module::CallableTarget,
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_types::{
@@ -9,6 +11,7 @@ use kagari_types::{
     scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
+use std::collections::BTreeSet;
 
 #[test]
 fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
@@ -190,6 +193,227 @@ fn serializes_kbc_artifact_bytes_for_loader_execution() {
     decoded
         .validate_for_loader(&ArtifactCompatibility::default(), &context)
         .expect("decoded artifact should validate");
+}
+
+#[test]
+fn disassembles_compiler_generated_artifact_without_runtime() {
+    // Reuse the generic interface fixture from bytecode/interfaces.rs, aggregates
+    // from lower.rs, captured cells from patterns.rs and the loop from analysis.rs.
+    let bytes = {
+        let context = DefinitionContext::new().unwrap();
+        let program = common::adopt_bytecode(
+            &context,
+            common::bytecode_ok(
+                r#"
+pub trait Get { fn get(self) -> i32; }
+pub struct Holder<T> { val value: T }
+impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } }
+fn read(x: Get) -> i32 { x.get() }
+fn dispatch() -> (i32, i32) {
+    (read(Holder { value: 1 }), read(Holder { value: "a" }))
+}
+
+struct Cell<T> { var value: T }
+enum Packet<T> { Data(T) }
+fn get<T>(x: Cell<T>) -> T { Cell { ..x }.value }
+fn aggregates() -> (i32, bool) {
+    val a = Cell { value: 1 };
+    val b = Cell { value: 2 };
+    val c = Cell { value: true };
+    val p = Packet::Data(a);
+    (get(b), c.value)
+}
+
+struct Pair { val left: (i32, i32), val right: i32 }
+fn make() -> Pair { Pair { left: (20, 0), right: 22 } }
+fn captured() -> i32 {
+    var Pair { right: second, left: (first, _) } = make();
+    val next = || { first = first + 1; second = second + first; second };
+    next()
+}
+
+fn main(flag: bool) -> (i32, bool) {
+    val keep = (1, true);
+    var n = 0;
+    while n < 3 { n += 1; }
+    if flag { keep } else { (2, false) }
+}
+"#,
+            ),
+        );
+        KbcArtifact::from_program(program, ArtifactBuildOptions::default(), &context)
+            .unwrap()
+            .to_bytes(&context.snapshot())
+            .unwrap()
+    };
+    // Compilation and its definition context are gone; only serialized KBC enters
+    // the offline path. No engine, provider installation or execution is needed.
+    let prepared = PreparedDisassembly::from_bytes(&bytes).unwrap();
+    let render = |selector: Option<&str>| {
+        // A bounded writer makes accidental callee expansion fail rather than
+        // allowing an unbounded output allocation.
+        let mut buffer = vec![0; 256 * 1024];
+        let capacity = buffer.len();
+        let mut writer = buffer.as_mut_slice();
+        prepared.write_disassembly(&mut writer, selector).unwrap();
+        let written = capacity - writer.len();
+        buffer.truncate(written);
+        String::from_utf8(buffer).unwrap()
+    };
+    let all = render(None);
+    let program = prepared.program().program();
+    assert_eq!(
+        all.lines().filter(|line| line.starts_with("fn @")).count(),
+        program
+            .modules
+            .iter()
+            .map(|module| module.functions.len())
+            .sum::<usize>()
+    );
+
+    let owner = program.root.index();
+    let module = &program.modules[owner];
+    let mut seen = BTreeSet::new();
+    for (slot, function) in module.functions.iter().enumerate() {
+        let selected = render(Some(&format!("@{owner}:{slot}")));
+        assert_eq!(
+            selected
+                .lines()
+                .filter(|line| line.starts_with("fn @"))
+                .count(),
+            1
+        );
+        let lines: Vec<_> = selected
+            .lines()
+            .filter(|line| {
+                line.split_whitespace()
+                    .next()
+                    .is_some_and(|word| word.parse::<usize>().is_ok())
+            })
+            .collect();
+        assert_eq!(
+            lines.len(),
+            function.instructions.len(),
+            "{}",
+            function.name
+        );
+        for (index, instruction) in function.instructions.iter().enumerate() {
+            assert!(lines[index].starts_with(&format!("  {index:04}  ")));
+            let reference = match instruction {
+                BytecodeInstruction::Call { callee, .. } => {
+                    let target = match callee {
+                        CallTarget::Function(target) => Some((owner, *target, "function")),
+                        CallTarget::ModuleFunction { module, function } => {
+                            Some((module.index(), *function, "module_function"))
+                        }
+                        CallTarget::Shared {
+                            module,
+                            target: CallableTarget::Script(target),
+                            ..
+                        } => Some((module.index(), *target, "shared.script")),
+                        _ => None,
+                    };
+                    if let Some((target_owner, target, kind)) = target {
+                        let callee = &program.modules[target_owner].functions[target.index()];
+                        if callee
+                            .identity
+                            .as_ref()
+                            .is_some_and(|identity| !identity.arguments.is_empty())
+                        {
+                            seen.insert("generic call");
+                        }
+                        format!("target={kind} @{target_owner}:{} ", target.index())
+                    } else {
+                        match callee {
+                            CallTarget::InterfaceMethod { module, contract } => {
+                                seen.insert("trait dispatch");
+                                assert!(
+                                    lines[index]
+                                        .contains(&format!("method_slot={}", contract.method_slot))
+                                );
+                                format!("target=interface_method module=@{},", module.index())
+                            }
+                            CallTarget::ClosureRegister { register, .. } => {
+                                seen.insert("closure call");
+                                format!("target=closure_register r{},", register.index())
+                            }
+                            _ => continue,
+                        }
+                    }
+                }
+                BytecodeInstruction::MakeClosure {
+                    function, captures, ..
+                } => {
+                    assert!(!captures.is_empty());
+                    seen.insert("captured closure");
+                    format!("function=@{owner}:{} ", function.index())
+                }
+                BytecodeInstruction::MakeInterface {
+                    module,
+                    implementation,
+                    ..
+                } => {
+                    seen.insert("interface construction");
+                    format!("@{}:interface#{},", module.index(), implementation.index())
+                }
+                BytecodeInstruction::MakeStruct { structure, .. } => {
+                    seen.insert("struct");
+                    format!("@{owner}:struct#{},", structure.index())
+                }
+                BytecodeInstruction::MakeEnum { enumeration, .. } => {
+                    seen.insert("enum");
+                    format!("@{owner}:enum#{},", enumeration.index())
+                }
+                BytecodeInstruction::MakeTuple { .. } => {
+                    seen.insert("tuple");
+                    "make_tuple ".into()
+                }
+                BytecodeInstruction::Binary {
+                    op: BinaryOp::Add, ..
+                } => {
+                    seen.insert("numeric add");
+                    "binary.add ".into()
+                }
+                BytecodeInstruction::Binary {
+                    op: BinaryOp::Lt, ..
+                } => {
+                    seen.insert("numeric comparison");
+                    "binary.lt ".into()
+                }
+                BytecodeInstruction::Jump { target } if target.index() <= index => {
+                    seen.insert("loop backedge");
+                    assert!(
+                        selected
+                            .lines()
+                            .any(|line| line == format!("L{}:", target.index()))
+                    );
+                    format!("jump L{}", target.index())
+                }
+                _ => continue,
+            };
+            assert!(
+                lines[index].contains(&reference),
+                "{}: expected {reference} in {}",
+                function.name,
+                lines[index]
+            );
+        }
+    }
+    for expected in [
+        "generic call",
+        "trait dispatch",
+        "closure call",
+        "captured closure",
+        "interface construction",
+        "struct",
+        "enum",
+        "tuple",
+        "numeric add",
+        "numeric comparison",
+        "loop backedge",
+    ] {
+        assert!(seen.contains(expected), "compiler did not emit {expected}");
+    }
 }
 
 #[test]
