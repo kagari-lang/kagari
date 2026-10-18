@@ -1,4 +1,4 @@
-// Complete DW03 pages owned by the start/library/reference manual group.
+// Installation, library and reference route metadata.
 export const manualPages = Object.freeze([
   Object.freeze({
     path: 'start/installation',

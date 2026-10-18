@@ -1,0 +1,125 @@
+---
+title: Native functions and types
+description: Declare, bind and install native APIs explicitly, with checked conversions and receiver access.
+---
+
+import { page, source } from '@site/links.mjs';
+
+The <a href={page('host/overview')}>first host</a> lets a script call
+`application::text::split`. Now consider adding a `Player.heal` method as well.
+In both cases the script needs a declaration, the runtime needs a checked Rust
+implementation, and the engine must install the completed module. A Rust function
+or trait implementation alone supplies none of those script-visible declarations.
+
+## Declare what the script may call
+
+Open the complete
+<a href={source('crates/kagari/examples/typed_native.rs')}>`typed_native.rs` example</a>
+alongside this page. It creates `ModuleBuilder::new("application::text",
+builder.declarations())`, then obtains the installed semantic types with
+`String::kagari_type(text.declarations())` and
+`Vec::<String>::kagari_type(text.declarations())`.
+
+Its `FunctionDecl::new("split")` names two parameters, `text` and `separator`,
+with the string type and declares a `Vec<String>` result. `define_function`
+returns the declaration handle later passed to `bind`. The documentation on that
+declaration describes literal splitting and preserved empty fields; it is part of
+the authored API rather than a signature inferred from Rust documentation.
+
+Why look up types through this catalog? The application depends on the installed
+String and Vec providers, including their nominal identities. Conversion does not
+silently install a provider or equate every collection of strings with that Vec.
+A script `Array<String>` is not interchangeable with the declared `Vec<String>`,
+even if it is empty.
+
+## Bind the implementation, then install
+
+This is an exact **excerpt**, not a complete host: `text`, `split` and the imports
+are established earlier in `typed_native.rs`.
+
+```rust
+    text.bind(
+        split,
+        |cx: &mut NativeContext<'_>,
+         (text, separator): (String, String)|
+         -> NativeResult<Vec<String>> {
+            cx.collect(text.split(&separator).map(str::to_owned))
+        },
+    )
+    .unwrap();
+    builder.install(text.finish().unwrap()).unwrap();
+```
+
+`bind` checks the callback against the explicit declaration. Its outer tuple is
+the argument pack, not a script tuple parameter. `finish` rejects incomplete
+module bindings; `install` validates and adds the completed module transactionally.
+Only after that does `builder.build()` seal the engine used to compile the script.
+The `use application::text::split;` in the script resolves the installed API;
+it is not a request to discover an arbitrary Rust symbol.
+
+Run `cargo run -p kagari --example typed_native` from the repository root. The
+wrapper receives `hello,雪,` and the host prints `["hello", "雪", ""]`. This checks
+both directions of owned conversion as well as the registered callback. If its
+Rust argument/result types disagree with the declaration, binding must fail rather
+than waiting for a matching-looking call to reinterpret the values.
+
+`NativeResult` is the runtime-failure channel. An ordinary nested business
+`Result<T, E>` remains script data; returning `Err` through `NativeResult` is not
+the same as returning a script-level business error. `cx.collect` polls
+cancellation around iterator steps and checks growth, but cannot preempt an
+individual blocking step. Long callbacks must cooperate rather than assume the
+VM can interrupt arbitrary Rust work.
+
+## Register a type without exposing every Rust operation
+
+For a concrete receiver, use the longer canonical
+<a href={source('crates/kagari/examples/scoped_host.rs')}>`scoped_host.rs` example</a>.
+It defines `Player` with `native_data!`, registers the script type using
+`define_type("Player")`, and attaches `NativeStorage::data::<Player>()` before
+finishing the type declaration. That proof is appropriate for its fixed,
+reference-free `hp: i32` payload; it is not permission to store untraced script
+references inside arbitrary Rust data.
+
+Inside the example's `implementation.inherent_impl` closure, the following exact
+**excerpt** declares and binds one method. Imports, the type registration and the
+surrounding fallible closure are omitted here, not replaced by an invented host.
+
+```rust
+                let heal = methods.define_method(
+                    MethodDecl::instance("heal")
+                        .receiver_access(ReferenceAccess::Mutable)
+                        .parameter("amount", Type::i32())
+                        .returns(Type::i32()),
+                )?;
+                methods.bind(
+                    heal,
+                    |cx: &mut LoanContext<'_>, (player, amount): (&mut Player, i32)| {
+                        cx.poll()?;
+                        player.hp += amount;
+                        Ok(player.hp)
+                    },
+                )?;
+```
+
+The declaration requires mutable receiver access. The borrowed callback's first
+tuple element supplies that receiver; `LoanContext` permits polling but not script
+invocation or heap allocation while the Rust loan is active. The binding serves
+both a runtime-owned opaque Player and a scoped `RefMut<Player>` through checked
+adapters. A `Ref<Player>` can call the separately declared shared `inspect` method,
+not upgrade itself to call `heal`.
+
+## Keep schemas, traits and access separate
+
+For owned data transfer, `register_type::<T>()` with the supported `KagariValue`
+derive registers an explicit DTO schema. It does not register Rust methods, turn
+a GC DTO into `&mut T`, or provide a Kagari trait implementation. Kagari inherent
+methods and trait impls still need explicit declarations and bindings; implementing
+a same-named Rust trait does not satisfy a script trait bound automatically.
+
+Choose a DTO when independent owned conversion is intended, an `Opaque<T>` when
+identity-preserving runtime storage is intended, or a scoped view when Rust keeps
+the external object. Continue with
+<a href={page('host/ownership')}>ownership and scoped access</a> before lending one.
+The <a href={source('docs/spec/host-interop.md')}>host interop contract</a> and
+<a href={source('docs/spec/embedding-api.md#typed-native-registration')}>typed conversion rules</a>
+define the supported forms and failure boundaries beyond these two examples.

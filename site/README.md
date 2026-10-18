@@ -1,11 +1,12 @@
 # Kagari documentation site
 
-This independent npm project builds a static Astro/Starlight language guide.
-The foundation ships a homepage and quickstart (DW02); the active phase and
-remaining content/publication work belong to the
-[documentation-site plan](../docs/documentation-site-plan.md), not a second ledger
-here. Local build acceptance is **not** a claim that Pages is enabled or deployed.
-No workflow, remote settings, browser runner or Rust/SDK changes are owned here.
+This independent npm project builds a static Astro/Starlight language guide:
+24 substantive English pages covering getting started, the language, standard
+library, host embedding and references. The learning sequence takes inspiration
+from the Rust Book while teaching Kagari's shared-value/GC semantics, not Rust's
+moves or borrow checker. [Specifications](../docs/README.md#language-and-execution-specifications)
+remain the semantic authority. Local acceptance is **not** a claim that Pages is
+enabled or deployed; no Rust/SDK changes are required by the website.
 
 ## Build and validate
 
@@ -13,9 +14,9 @@ Use Node **>=22.12.0**. The locally validated toolchain is Node 22.21.1/npm 10.9
 Node 24 is the CI reference. From this directory:
 
 ```sh
-npm ci
+npm ci --engine-strict
 npm run build
-npm run check
+npm run check -- --expected-pages 24
 ```
 
 `build` runs Astro type/content checking and a clean static build, with each Astro
@@ -41,19 +42,51 @@ Useful focused commands:
 
 ```sh
 npm test
-npm run check -- --expected-pages 2
+npm run check -- --expected-pages 24
 ```
 
-The optional expected count is a phase acceptance assertion, not a permanent
-two-page limit. Later phases can use 20 or 24 after adding their real pages to the
-inventory. `check` normally derives its routes from that inventory. `npm test` needs
-installed dependencies, but does not require `dist/`.
+The optional expected count asserts the current finite manual scope. Update the
+inventory and acceptance count together when deliberately adding pages. `check`
+normally derives its routes from that inventory. `npm test` needs installed
+dependencies, but does not require `dist/`.
 
 No browser tests or Cargo tests are run by these commands. In particular, a site
 build does not prove a Rust/Kagari example compiles or establish browser search,
 theme, keyboard or mobile behavior. Reuse the canonical examples' owning semantic
-tests for those contracts; browser acceptance is separate DW05 work. Do not start
+tests for those contracts; browser acceptance is separate. Do not start
 an unbounded server as part of validation.
+
+## Pages workflow and publication
+
+[`.github/workflows/pages.yml`](../.github/workflows/pages.yml) validates every PR,
+main push and manual dispatch, without path filters. The build has read-only
+repository permissions and no stored checkout credentials. It uses Node 24,
+engine-strict locked installation, the visible high-threshold audit, build and
+24-page output checks, then uploads that exact `site/dist/` with no rebuild.
+Official actions are pinned by reviewed commit SHA; workflow contract tests parse
+YAML rather than matching permission-related substrings.
+
+Deployment is **disabled by default**. The separate deploy job requires a
+successful build, `refs/heads/main`, a non-PR event, and the repository Actions
+variable `PAGES_DEPLOY_ENABLED` set to the exact string `true`. Only that job gets
+`pages: write` and `id-token: write`; it executes no checkout or site code.
+Main concurrency cancels superseded runs and a read-only head-SHA check rejects
+manual reruns of old main revisions. Deployment consumes this run's checked
+`github-pages` artifact, not output rebuilt with privileged credentials.
+
+After **separate publication authorization**, a repository administrator must:
+
+1. Confirm the intended project URL is `https://kagari-lang.github.io/kagari/`.
+2. Select **GitHub Actions** as the repository Pages source and restrict the
+   `github-pages` environment's deployment branches to `main`.
+3. Set `PAGES_DEPLOY_ENABLED=true` and run the workflow on the current main SHA.
+4. Inspect the actual deployment and repeat nested-route, assets, search and 404
+   checks at the public URL. Local output checks do not prove live publication.
+
+No settings changes, push or public activation are performed by local validation.
+Leave the variable unset (or set it to `false`) to keep builds non-publishing.
+The [roadmap](../docs/implementation-roadmap.md#language-documentation-website)
+owns outstanding CI/live acceptance and upstream dependency follow-up.
 
 ## Content and links
 
@@ -110,6 +143,10 @@ repository root. Show both for a standalone runnable program; label excerpts,
 fragments and invalid examples explicitly. `result` can describe a value or
 observable effect and must not pretend a value is printed when it is not.
 
+The first complete host program is `crates/kagari/examples/typed_native.rs`.
+`scoped_host.rs` and the reload tests own the more advanced boundary examples;
+benchmark examples are not beginner embedding programs.
+
 Only regular `.kgr` and `.rs` files beneath `examples/` or
 `crates/kagari/examples/` are readable. Paths are repository-relative with forward
 slashes. Traversal, absolute paths, encoded paths and symlink/junction components
@@ -147,6 +184,7 @@ locked in `package-lock.json`:
 | `shiki` | 4.5.0 |
 | `parse5` | 8.0.1 |
 | `playwright` | 1.64.1 |
+| `yaml` | 2.9.1 |
 
 The Astro 7/Starlight 0.42 upgrade replaces the vulnerable original selection;
 it is not a forced peer resolution or an override. Astro 7.3.8 and MDX 8.0.3
@@ -162,8 +200,8 @@ direct for the supported `unified({ remarkPlugins })` processor configuration
 and parsed fence hook, not a hoisted transitive import or deprecated option.
 The processor, Starlight Code component, docs loader/schema and shared Shiki
 registration retain their existing site-facing APIs with this selection.
-Playwright is locked for later bounded browser acceptance; this phase does not
-acquire a browser.
+Playwright is locked for bounded browser acceptance. `yaml` parses the Pages
+workflow for executable permission, trigger and exact-artifact contract tests.
 
 ### Dependency security boundary
 
@@ -204,8 +242,9 @@ build code, so their builds must remain bounded and unprivileged; do not treat
 site sources or plugins as sandboxed input. The local runner bounds each Astro
 child to 180 seconds. Any future dynamic CSS service, remote theme/plugin input,
 server rendering or browser compiler requires a new review of this boundary.
-Parent-plan review owns acceptance of this remaining moderate finding and its
-upstream follow-up; local checks do not authorize publication.
+The [roadmap](../docs/implementation-roadmap.md#language-documentation-website)
+tracks the remaining upstream-patch follow-up. This is an explicitly accepted
+build-time limitation, not authorization for publication.
 
 Dependencies are website build/development tools only. Installation accesses npm
 and runs dependency installation hooks; the generated site has no API keys,

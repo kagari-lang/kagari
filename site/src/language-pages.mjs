@@ -1,4 +1,4 @@
-// Language guide inventory; the parent navigation owns integration and ordering.
+// Language guide inventory; navigation owns integration and learning order.
 export const languagePages = Object.freeze([
   Object.freeze({
     path: 'language/variables',

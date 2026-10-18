@@ -1,6 +1,7 @@
 
 import { languagePages } from './language-pages.mjs';
 import { manualPages } from './manual-pages.mjs';
+import { hostPages } from './host-pages.mjs';
 
 // Inventory of shipped pages only. Add a route here in the same change as its content.
 export const pages = Object.freeze([
@@ -18,7 +19,9 @@ export const pages = Object.freeze([
   }),
   ...manualPages.filter(({ group }) => group === 'Start'),
   ...languagePages,
-  ...manualPages.filter(({ group }) => group !== 'Start'),
+  ...manualPages.filter(({ group }) => group === 'Standard library'),
+  ...hostPages,
+  ...manualPages.filter(({ group }) => group === 'Reference'),
 ]);
 
 export const sidebar = [...new Set(pages.map(({ group }) => group))].map((label) => ({

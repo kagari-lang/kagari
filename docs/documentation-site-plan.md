@@ -394,7 +394,7 @@ Conventional, with `Plan-Phase: DW0N` trailers when commits are authorized.
 - [x] DW01: freeze tools, content routes, ownership and publication boundary.
 - [x] DW02: static site foundation, shared syntax highlighting and real entry pages.
 - [x] DW03: bounded language/library manual and reference navigation.
-- [ ] DW04: embedding/reload guide and least-privilege Pages workflow.
+- [x] DW04: embedding/reload guide and least-privilege Pages workflow.
 - [ ] DW05: selected local/browser acceptance and documentation handoff.
 
 ### DW01 — activation and frozen delivery
@@ -522,3 +522,33 @@ example. No full Rust or editor suite, dependency change or browser claim.
 
 No carried website build/test failures. DW04 owns four host pages and workflow;
 DW05 still owns actual browser/live-publication limits and final handoff.
+
+### DW04 — host guidance and guarded Pages automation
+
+Completed the four host routes and integrated exactly 24 guide pages. The first
+host uses the small maintained typed_native program, correcting DW01's inventory:
+runtime_initialization and execution_completion are benchmarks, not introductory
+hosts. Current API excerpts were checked against their declaration owners. Guides
+cover declare/bind/install, scoped Ref/RefMut, explicit roots, cleanup/reentry and
+atomic compatible reload with generation-pinned calls, without introducing a new
+SDK facade or duplicate specification.
+
+Pages validates all PRs, main pushes and dispatches. Its read-only build uploads
+only the checked dist. A separate main/non-PR/success/explicit-opt-in deploy job
+has Pages/OIDC permissions and rejects superseded main SHAs. Default publication
+remains disabled. Official action pins were checked against upstream refs/metadata;
+Pages upload/deploy v5 preserve the used inputs and support current hosted runners.
+Added exact yaml 2.9.1 for parsed workflow contract tests, without dependency churn.
+No remote settings, push, public activation or Rust source changes.
+
+Passed Astro type/content/build, fresh-output checks for 24 guides plus 404,
+20 canonical source includes, and all 22 script tests (including seven workflow
+contracts). The transient host-route/inventory mismatch passed after integration.
+Engine-strict npm ci and high-threshold audit passed; the accepted single upstream
+moderate advisory remains visible. Selected SDK validation passed: typed_native,
+scoped_host, compiles_loads_executes_and_reloads_through_embedding_api,
+scoped_native_calls_accept_compatible_reloaded_descriptors and
+reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch. These
+are focused host-boundary evidence, not a full Rust suite. Documentation/link
+and whitespace checks precede the commit. DW05 owns browser acceptance and final
+handoff; CI Node 24 and public Pages remain unrun.

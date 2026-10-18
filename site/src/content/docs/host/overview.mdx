@@ -1,0 +1,113 @@
+---
+title: First Rust host
+description: Compile a script, prepare and load its artifact, and call a typed public entry from Rust.
+---
+
+import { page, source } from '@site/links.mjs';
+import SourceExample from '@components/SourceExample.astro';
+
+Suppose your Rust application receives a comma-separated message and lets a script
+choose how to split it. Rust supplies the text operation; Kagari supplies a public
+wrapper; Rust receives an owned vector of strings. Start with the source checkout
+from <a href={page('start/installation')}>installation</a>: Kagari is unpublished,
+so this guide uses the workspace SDK and its maintained examples, not a promised
+registry release or a separate generated host project.
+
+## Run a complete small host
+
+This canonical example includes every import, registration and execution step.
+Run the command from the repository root:
+
+<SourceExample
+  path="crates/kagari/examples/typed_native.rs"
+  command="cargo run -p kagari --example typed_native"
+  result={'Prints ["hello", "雪", ""] after checking the owned result.'}
+/>
+
+Observe the final empty field. The Rust callback uses literal `str::split`, so the
+trailing comma in `hello,雪,` is not discarded. The script wrapper calls that
+installed function once, and `execute_typed` converts its `Vec<String>` result
+into owned Rust data before returning. Nothing in this example benchmarks runtime
+startup or requires a native code generator.
+
+## Follow preparation, loading and execution
+
+The example has five distinct boundaries:
+
+1. **Build an engine.** `KagariEngine::builder()` installs the standard modules and
+   returns a fallible registration builder. Add application modules before
+   `builder.build()`. Their declarations determine what the compiler can resolve.
+2. **Compile source.** `engine.compile_to_artifact(source, artifact_options)` checks
+   the script and emits an artifact with its definition metadata. A source name
+   such as `typed.kgr` supplies diagnostic origin; it need not be a disk file.
+3. **Prepare once.** `PreparedProgram::from_artifact` consumes that artifact and
+   checks compatibility and executable validity before any runtime linking. It
+   accepts a compatibility reference and a cancellation-token reference separately.
+4. **Load into an isolate.** `engine.runtime(context.clone())` creates independent
+   mutable runtime state. `load_program(&program, options)` checks installed bindings
+   and returns a `LoadedModule`; loading does not invoke the script wrapper.
+5. **Call explicitly.** `execute_typed(&loaded, "split_text", arguments, &context)`
+   selects the checked public entry and converts its argument tuple and result.
+
+These are the current API shapes, not conceptual replacement names. The source
+owners below contain their complete declarations and imports:
+
+| Operation | Parameters after `self` | Return type |
+| --- | --- | --- |
+| <a href={source('crates/kagari/src/engine/source.rs')}>`compile_to_artifact`</a> | `source: SourceFile, artifact_options: ArtifactOptions` | `CompileResult<DefinitionMetadata<BytecodeArtifact>>` |
+| <a href={source('crates/kagari/src/program/mod.rs')}>`PreparedProgram::from_artifact`</a> (associated function) | `artifact: DefinitionMetadata<KbcArtifact>, compatibility: &ArtifactCompatibility, cancel: &CancellationToken` | `Result<Self, ProgramPreparationError>` |
+| <a href={source('crates/kagari/src/runtime.rs')}>`load_program`</a> (`&mut self`) | `program: &PreparedProgram, options: LoadOptions` | `LoadResult<LoadedModule>` |
+| <a href={source('crates/kagari/src/runtime/typed.rs')}>`execute_typed`</a> (`&self`) | `module: &LoadedModule, entry: impl Into<ProgramEntry<'a>>, arguments: A, context: &ExecutionContext` | `RunResult<R>` |
+
+`BytecodeArtifact` is the SDK alias for `KbcArtifact`. The typed call's generics are
+`<'a, A: IntoKagariArguments, R: FromKagari>`; the annotation `let fields: Vec<String>`
+selects `R`. Source compilation requires the SDK's `source` feature, enabled by
+default. Prepared artifacts can instead be loaded without the source frontend;
+see <a href={source('docs/spec/artifacts.md')}>artifact feature boundaries</a>.
+
+## Choose the entry and the argument list
+
+The outer Rust tuple is the argument list. `(text,)` is one string argument;
+`()` means no arguments; `((a, b),)` is one tuple-valued argument. Omitting the
+trailing comma changes the Rust type rather than defining another calling style.
+The call uses the installed closed signature, not runtime source inference.
+
+A string entry selects a public export. In particular, `"main"` does not bypass
+visibility. To run the separately verified zero-argument root entry, use
+`ProgramEntry::Main` from `kagari_runtime::module::entry`. The lower-level SDK
+`execute(&loaded, entry, &[], &context)` returns an `ExecutionReport`; its current
+raw-argument interface rejects nonempty argument slices. Use `execute_typed` for
+ordinary argument passing rather than substituting raw values into that interface.
+
+The report's `return_value` is an owning `RootedValue`, not an unrooted register
+copy. Inspect it with `value(runtime.runtime().gc())`, retaining the root while
+using any heap value. Typed owned results such as this example's Rust vector need
+no manual rooting. Identity-preserving handles follow the different rules in
+<a href={page('host/ownership')}>ownership and scoped access</a>.
+
+## Handle the boundary that failed
+
+The sample uses `unwrap()` to keep the whole workflow visible. An application
+should retain structured errors instead of treating every failure as a bad script:
+
+- Compilation can return `EmbeddingError::Diagnostics` with source-aware records.
+  Fixing a misspelled imported function happens here, before loading or effects.
+- Artifact preparation returns **`ProgramPreparationError`**, not `EmbeddingError`.
+  Cancellation, identity, artifact and feature-dependent native-input validation
+  failures belong to this separate preparation boundary.
+- `LoadResult`, `RunResult` and `CompileResult` use `EmbeddingError`.
+  Inspect `code()` and, where available, `error_trace()`; a missing binding at load
+  time is not the same failure as a callback failing during execution.
+- A typed signature mismatch fails before entry. A data-dependent result conversion
+  failure can happen after script effects; error handling is not rollback.
+
+Pass an explicit `ExecutionContext` to calls. Cancellation is cooperative and
+context clones share their token: after cancellation, use a fresh token for a new
+root call. Already completed host effects survive `KG_RUNTIME_CANCELLED`.
+Hosts still own admission, deadlines and any process isolation they need.
+
+Next, unpack <a href={page('host/native')}>native registration</a>, then learn the
+<a href={page('host/reload')}>reload publication boundary</a>. The
+<a href={source('docs/spec/embedding-api.md')}>embedding contract</a> and
+<a href={source('crates/kagari/src/error.rs')}>current error API</a> own the detailed
+rules; the snippets here do not introduce another host facade.

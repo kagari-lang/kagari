@@ -1,0 +1,134 @@
+---
+title: Hot reload
+description: Prepare compatible candidates, publish atomically, and keep existing calls pinned without implicit state migration.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Suppose a running host must replace a rule without redirecting a call halfway
+through it. Compile and prepare the replacement first, ask the runtime to publish
+it, and use the returned handle for new work. Publication changes the available
+code generation, not the identity or contents of every existing object.
+Read <a href={page('host/overview')}>the first host</a> for artifact preparation and
+<a href={page('host/ownership')}>scoped access</a> for host-state lifetimes.
+
+## Replace one body through the SDK
+
+The existing test
+<a href={source('crates/kagari/src/runtime/tests/embedding/embedding_api.rs')}>`compiles_loads_executes_and_reloads_through_embedding_api`</a>
+is a compact source reference, not a standalone tutorial executable. It compiles
+two artifacts with the same source name, `game/main.kgr`: first
+`fn main() -> i32 { 1 }`, then `fn main() -> i32 { 2 }`. It loads the first as
+`game.main` and calls `ProgramEntry::Main`, observing a rooted result of 1.
+
+This exact **excerpt** begins after that initial load and call. `second` is the
+already compiled replacement artifact; `runtime` and `loaded` are the existing
+runtime and handle. The test supplies imports and its compilation helper.
+
+```rust
+    let reloaded = runtime
+        .reload_program(
+            &loaded,
+            &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
+                .unwrap(),
+            ReloadOptions {
+                module_name: Some("game.main".to_owned()),
+            },
+        )
+        .expect("compatible module should reload");
+    assert_eq!(reloaded.id, loaded.id);
+    assert_eq!(reloaded.epoch.0, loaded.epoch.0 + 1);
+```
+
+Calling `execute(&reloaded, ProgramEntry::Main, &[], &context)` then returns 2.
+The test inspects `report.return_value.value(runtime.runtime().gc())`; it does not
+pretend the raw result owns its own lifetime. Ordinary reload itself calls neither
+version's `main` and performs no hidden candidate initialization.
+
+The current <a href={source('crates/kagari/src/runtime.rs')}>SDK declaration</a>,
+shown as a **signature excerpt**, is:
+
+```rust
+    pub fn reload_program(
+        &self,
+        previous: &LoadedModule,
+        program: &PreparedProgram,
+        options: ReloadOptions,
+    ) -> ReloadResult<LoadedModule>
+```
+
+`ReloadOptions` currently contains `module_name: Option<String>`; its default uses
+`previous.name`. Supply the intended base handle, not an unrelated runtime's handle.
+Preparation has its own `ProgramPreparationError`; SDK reload errors use
+`EmbeddingError`, including `ReloadValidation { code, message }`.
+
+## Understand the publication boundary
+
+The SDK passes the exact prepared candidate to
+`stage_reload_verified_program`, then calls `publish_staged_reload`. Staging checks
+the candidate's module/schema and ABI contracts, public paths and signatures,
+host registrations and typed-path fingerprints. It does not install an unchecked
+body just because the source file has the same name.
+
+Publication rechecks the expected base version and candidate references before
+atomically making the generation current. A rejected candidate leaves the current
+entry unchanged; dropping a staged candidate discards it. Atomicity is **per
+runtime**, not a transaction across all your actors, persistent storage or services.
+The host owns any coordination across runtimes.
+
+For an observable rejection, the same test source contains
+`reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch`. It
+changes the host path contract and expects `KG_RELOAD_PATH_FINGERPRINT_MISMATCH`,
+then checks that both the loaded count and the current epoch are unchanged.
+Treat this as a failed update, keep serving with the existing generation, and
+report the structured code. Renaming/removing public paths or changing their
+signatures is also incompatible, not an invitation to repair callers at runtime.
+
+## Observe old and new code side by side
+
+Publication does not rewrite retained handles. The focused SDK test
+<a href={source('crates/kagari/src/runtime/tests/embedding/scoped_calls.rs')}>`scoped_native_calls_accept_compatible_reloaded_descriptors`</a>
+provides a second concrete scenario. Its `prepare(offset)` helper compiles public
+`direct`, `native` and `heal` wrappers. The native wrapper adds the offset to a
+registered read of host-owned `Stats.hp`. This exact **excerpt** shows the handoff:
+
+```rust
+    let context = ExecutionContext::default();
+    let mut runtime = engine.runtime(context.clone());
+    let old = runtime
+        .load_program(&prepare(0), Default::default())
+        .unwrap();
+    let descriptor = runtime.runtime().bind_rust_type::<Stats>(&old).unwrap();
+    let current = runtime
+        .reload_program(&old, &prepare(100), Default::default())
+        .unwrap();
+```
+
+The surrounding test registers the type/functions explicitly. With hp starting
+at 40, it calls old, current, then old code in a host scope. The native read returns
+40, 141, then 42 because each round also heals by one: current code adds 100;
+old code still adds 0. Final host hp is 43. The rule changed without copying or
+migrating that Rust object. Read the linked test for the complete checked scope.
+
+A root call pins its dependency program. Nested calls and synchronous host reentry
+use that same version set and cancellation state, even after publication. Retained
+`PinnedFunction` handles keep their selected supplying generation rather than
+rebinding by name. Old code, metadata and dependencies stay alive while reachable;
+they become reclaimable when their remaining calls and references end.
+
+## Do not confuse retention with state migration
+
+Compatible reload does **not** migrate object layouts, replace durable application
+state, extend a host scope, or make a taken opaque payload available again. Old
+receiver and field descriptors cannot silently switch to a new Rust layout.
+A retained generation preserves code dependencies, not expired host access.
+
+Lower-level runtime APIs also permit an explicit restricted candidate session.
+Such a session may compute and mutate candidate-owned state, but cannot perform
+external modifications. Publication follows session completion and revalidation;
+ordinary `reload_program` does not opt into that session for you. State replacement
+and suspended-state migration are not implicit reload features. The
+<a href={source('docs/spec/module-activation.md')}>activation contract</a> owns these
+rules. For current deployment/backend limits, continue to
+<a href={page('reference/status')}>status and limits</a> rather than treating a
+future update design as an available SDK operation.

@@ -1,0 +1,133 @@
+---
+title: Ownership and scoped access
+description: Separate script GC values, retained opaque payloads and scoped Rust borrows across calls and reentry.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Your application already owns a Player with 60 hp. Should a script receive a copy,
+a runtime-owned object, or a temporary view of that existing Player? Decide that
+before choosing a conversion. Kagari's tracing GC manages script reachability;
+it does not scan arbitrary Rust graphs or remove Rust's aliasing requirements.
+The shared-object semantics from <a href={page('language/values')}>types and values</a>
+are not a general license to retain host references.
+
+## Pick the owner first
+
+| Representation | Owner and observable behavior |
+| --- | --- |
+| Owned DTO conversion | Script GC data and Rust DTO data are independent converted values; editing one is not an implicit write through to the other. |
+| `Opaque<T>` | Runtime storage owns a registered Rust payload. Owning handles retain its identity; cloning a handle does not clone the payload. |
+| `Ref<T>` / `RefMut<T>` | Rust keeps external storage. A branded host scope temporarily lends shared or mutable access through registered adapters. |
+
+`Opaque<T>` is not a raw pointer into host-owned external storage. Conversely,
+a `RefMut<T>` is not a new GC-owned Player. Neither representation makes arbitrary
+Rust fields or methods callable: use the explicit
+<a href={page('host/native')}>declaration/binding/installation</a> sequence.
+
+## Observe owned and borrowed mutation
+
+Run this maintained example from the repository root:
+
+```sh
+cargo run -p kagari --example scoped_host
+```
+
+Read <a href={source('crates/kagari/examples/scoped_host.rs')}>the complete source</a>
+for its imports, storage registration, script and setup; it is linked rather than
+embedded in full. Its separately allocated opaque Player and its external Rust
+Player both start at 60. The same registered `heal(10)` body brings each to 70.
+The script's `owned` parameter is `Player`; `borrowed` accepts `RefMut<Player>`;
+`inspect` accepts `Ref<Player>`. They are distinct entry signatures.
+
+After the mutable scope has finished, this exact **excerpt** opens a shared scope.
+`runtime`, `descriptor`, `loaded`, `context` and `external` come from that example;
+this is not standalone host code.
+
+```rust
+    runtime
+        .with_host_scope(|scope| {
+            let view = scope.borrow(descriptor.rust_type(), &external)?;
+            assert_eq!(
+                KagariRuntime::execute_scoped(
+                    scope,
+                    &loaded,
+                    "inspect",
+                    &[view.value()],
+                    &context
+                )?,
+                Value::I32(70)
+            );
+            Ok(())
+        })
+        .unwrap();
+```
+
+The earlier mutable scope uses `borrow_mut` with `&mut external`. The shared scope
+can inspect the updated 70 but cannot authorize a mutable receiver. The script
+view carries checked owner, generation, target and access identities, not an
+unrestricted Rust reference. Methods acquire short checked loans; incompatible
+overlapping loans fail rather than violating Rust aliasing.
+
+`with_host_scope` reserves the mutable runtime for the closure. Call the associated
+`KagariRuntime::execute_scoped(scope, module, entry, arguments, context)` there,
+not an ordinary runtime call around the scope. It returns `RunResult<Value>` and
+requires an explicit `ExecutionContext`. This path is interpreter-only: the default
+`JitPolicy::Disabled` is supported, other policies reject before callback effects.
+
+## Scope exit revokes access, not completed effects
+
+Views cannot be returned, captured in closures, stored in owning containers or GC
+fields, or retained across suspension. Dropping a branded view early does not end
+the original host reservation: it lasts until scope exit. Success, errors and
+supported Rust unwinding all release loans and revoke external views. Copying the
+raw script `Value` does not extend the Rust object's lifetime.
+
+The scoped execution result is rooted **until scope exit**. Decode a scalar/owned
+DTO or retain an owning handle inside the scope if a heap result must survive it;
+do not return a naked heap `Value` and assume its temporary root persists. A trap
+or cancellation cleans up access but does not undo `heal` if the write already
+completed. See <a href={source('docs/spec/failure-semantics.md')}>failure and effects</a>.
+
+## Retain script values across collection and reentry
+
+An ordinary execution report holds an owning `RootedValue`. Inspect it with
+`report.return_value.value(runtime.runtime().gc())`, which validates the heap and
+root generation. Moving or cloning the root preserves retention; a raw `Value`
+copy does not. The last owning root's drop permits collection, not necessarily
+immediate destruction. Typed objects, opaque handles, collections, interfaces and
+`PinnedFunction` handles retain their required script dependencies automatically.
+
+This matters during synchronous host reentry: the suspended outer call can invoke
+script again, and nested work can collect. Keep scratch script values rooted for
+that whole interval, not merely until the first native callback starts. Advanced
+raw callback adapters use `HostCallContext::retain_temporaries`; reentry returns a
+rooted result. Do not keep a Rust payload or metadata borrow live while reentering.
+Conflicting reentry must fail before execution. The
+<a href={source('docs/spec/embedding-api.md')}>embedding contract</a> describes that
+rooted reentry boundary and its cleanup rules.
+
+The opaque part of `scoped_host.rs` also demonstrates explicit extraction:
+
+```rust
+    let alias = owned.clone();
+    let recovered = owned.take(&cx).unwrap();
+    assert_eq!(recovered.hp, 71);
+    assert!(alias.read(&cx, |_| Ok(())).is_err());
+```
+
+This is another **excerpt**: `owned` and `cx` were created earlier. The intervening
+edit raised hp to 71. Successful `take` moves the original payload and invalidates
+all old aliases; roots cannot resurrect taken storage. Extraction requires the
+installed take capability and its `NativeTake` proof, not just a handle clone.
+
+## Move a runtime, do not share its heap
+
+`KagariRuntime` is **Send, not Sync**. Move a quiescent runtime between workers
+only after synchronous scopes and loans finish; this does not enable concurrent
+heap execution. Scoped views cannot transfer between threads. `PreparedProgram`
+is neither Send nor Sync: load/install before moving the runtime, or prepare on
+the receiving worker. Shared native registrations require Send + Sync, so deliberate
+shared callback captures still need host synchronization. See the
+<a href={source('docs/spec/embedding-api.md#threading-and-isolates')}>threading contract</a>.
+Next, distinguish these object lifetimes from <a href={page('host/reload')}>code generations across reload</a>.
