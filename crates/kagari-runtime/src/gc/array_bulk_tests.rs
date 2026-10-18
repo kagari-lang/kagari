@@ -71,6 +71,33 @@ fn copy_within_validates_before_commit_and_accounts_temporary_storage() {
 }
 
 #[test]
+fn repeat_allocation_rejects_length_and_byte_capacity_without_publication() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
+    let before = heap.stats();
+    for (element, value, count) in [
+        (BuiltinType::Unit, Value::Unit, usize::MAX),
+        (BuiltinType::U64, Value::U64(7), isize::MAX as usize / 8 + 1),
+    ] {
+        let error = runtime
+            .alloc_array_repeat(&owner, Ty::Builtin(element), value, count)
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+        assert_eq!(heap.stats(), before);
+    }
+    let id = runtime
+        .alloc_array_repeat(
+            &owner,
+            Ty::Builtin(BuiltinType::U64),
+            Value::U64(1_u64 << 32),
+            1,
+        )
+        .unwrap();
+    assert_eq!(heap.array_get(id, 0), Some(Value::U64(1_u64 << 32)));
+}
+
+#[test]
 fn fixed_arrays_reject_sequence_growth_capacity_and_detached_edits() {
     let mut runtime = Runtime::default();
     let owner = allocation_owner(&mut runtime);

@@ -1,5 +1,5 @@
 //! Immutable UTF-8 input uses scoped views; owned output keeps typed conversion.
-use crate::bindings::Entry;
+use crate::bindings::{Entry, index_argument};
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
@@ -8,7 +8,6 @@ use kagari_runtime::{
         context::CallContext,
         conversion::KagariType,
         primitive::NativePrimitive,
-        scalar::NativeScalar,
         types::Type,
     },
     value::Value,
@@ -91,17 +90,21 @@ fn find(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn slice(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let start = usize::decode(cx.argument(1)?)?;
-    let end = usize::decode(cx.argument(2)?)?;
-    let result = text(cx, 0)?
-        .get(start..end)
+    let start = index_argument(cx, 1)?;
+    let end = index_argument(cx, 2)?;
+    let source = text(cx, 0)?;
+    let result = usize::try_from(start)
+        .ok()
+        .zip(usize::try_from(end).ok())
+        .and_then(|(start, end)| source.get(start..end))
         .map(str::to_owned)
         .ok_or_else(|| {
             RuntimeError::new(
                 RuntimeErrorKind::IndexOutOfBounds,
-                "String slice requires ordered byte offsets within bounds and on UTF-8 boundaries",
+                format!("String slice {start}..{end} requires ordered byte offsets within bounds and on UTF-8 boundaries"),
             )
         })?;
+    drop(source);
     cx.encode_result(result)
 }
 

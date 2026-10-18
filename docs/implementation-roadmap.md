@@ -214,8 +214,8 @@ Open acceptance and follow-ups:
 
 The [fixed-width integer and browser plan](wasm-browser-plan.md) owns WB01-WB05
 and its progress ledger. Implementation and one commit per phase are authorized.
-WB01 fixed-width migration passed focused local acceptance; WB02 memory boundaries
-and timing are next. Pushes and remote publication remain separately authorized.
+WB01 fixed-width migration and WB02 checked memory boundaries/web timing passed
+focused local acceptance. WB03 linked browser products are next. Pushes and remote publication remain separately authorized.
 
 Remove script isize/usize instead of preserving duplicate fixed-width identities.
 Migrate lengths/indices/counts to u64 and signed numeric roles to i64, while retaining

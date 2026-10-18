@@ -20,7 +20,7 @@ pub enum VmError {
     MissingFunction(String),
     MissingField(String),
     InvalidFunctionRef(FunctionRef),
-    InvalidIndex(usize),
+    InvalidIndex(u64),
     InvalidBranchCondition,
     HostError(HostError),
     BuiltinError(BuiltinError),

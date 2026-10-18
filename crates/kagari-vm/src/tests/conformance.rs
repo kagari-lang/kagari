@@ -170,6 +170,101 @@ fn interpreter_conformance_classifies_failure_paths() {
 }
 
 #[test]
+fn machine_boundaries_preserve_wide_indices_and_repeat_resource_errors() {
+    let (runtime, loaded) = load_test_module(
+        r#"
+        pub fn read(index: u64) -> i32 { val values = [7]; values[index] }
+        pub fn write(index: u64) { val values = [7]; values[index] = 9; }
+        pub fn signed(index: i64) -> i32 { val values = [7]; values[index] }
+        pub fn repeat(count: u64) -> u64 { val values = [7u64; count]; values.len() }
+        pub fn make() -> [i32] { [0, 7] }
+        fn base(values: [i32]) -> [i32] { values[0] = values[0] * 10 + 1; values }
+        fn index(values: [i32], position: u64) -> u64 { values[0] = values[0] * 10 + 2; position }
+        fn replacement(values: [i32]) -> i32 { values[0] = values[0] * 10 + 3; 9 }
+        pub fn write_order(values: [i32], position: u64) {
+            base(values)[index(values, position)] = replacement(values);
+        }
+    "#,
+    );
+    let mut vm = Vm::new(runtime);
+    assert_eq!(
+        vm.execute_typed::<_, i32>(&loaded, "read", (0_u64,))
+            .unwrap(),
+        7
+    );
+    assert_eq!(
+        vm.execute_typed::<_, u64>(&loaded, "repeat", (1_u64,))
+            .unwrap(),
+        1
+    );
+    for index in [1_u64 << 32, u64::MAX] {
+        for name in ["read", "write"] {
+            let error = if name == "read" {
+                vm.execute_typed::<_, i32>(&loaded, name, (index,))
+                    .unwrap_err()
+            } else {
+                vm.execute_typed::<_, ()>(&loaded, name, (index,))
+                    .unwrap_err()
+            };
+            if name == "write" {
+                assert!(
+                    matches!(error.cause(), VmError::InvalidIndex(actual) if *actual == index),
+                    "{error:?}"
+                );
+            } else {
+                assert!(
+                    matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::IndexOutOfBounds && error.message().contains(&index.to_string())),
+                    "{error:?}"
+                );
+            }
+        }
+    }
+    let error = vm
+        .execute_typed::<_, i32>(&loaded, "signed", (1_i64 << 32,))
+        .unwrap_err();
+    assert!(
+        matches!(error.cause(), VmError::InvalidIndex(4_294_967_296)),
+        "{error:?}"
+    );
+    for count in [u64::MAX, isize::MAX as u64 / 8 + 1] {
+        let error = vm
+            .execute_typed::<_, u64>(&loaded, "repeat", (count,))
+            .unwrap_err();
+        assert!(
+            matches!(error.cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::ResourceLimitExceeded),
+            "{error:?}"
+        );
+    }
+    for index in [1_u64 << 32, u64::MAX] {
+        let report = vm.execute(&loaded, "make").unwrap();
+        let value = report.return_value.value(vm.runtime().gc()).unwrap();
+        let error = vm
+            .runtime_mut()
+            .with_host_scope(|scope| {
+                Vm::execute_scoped(
+                    scope,
+                    &loaded,
+                    "write_order",
+                    &[value, Value::U64(index)],
+                    Default::default(),
+                )
+            })
+            .unwrap_err();
+        assert_eq!(error.kind(), RuntimeErrorKind::IndexOutOfBounds);
+        assert!(error.message().contains(&index.to_string()));
+        let Value::Array(id) = value else {
+            unreachable!()
+        };
+        assert_eq!(
+            vm.runtime().gc().array_snapshot(id),
+            Some(vec![Value::I32(123), Value::I32(7)])
+        );
+    }
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+}
+
+#[test]
 fn interpreter_debug_conformance_covers_stack_values_and_watch_expressions() {
     let source = r#"
 struct Point { var x: i32, var y: i32 }

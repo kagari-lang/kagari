@@ -1,4 +1,5 @@
 mod authority;
+mod clock;
 mod loading;
 mod objects;
 mod observer;

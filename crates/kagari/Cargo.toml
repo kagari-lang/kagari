@@ -10,10 +10,13 @@ source = ["dep:kagari-source", "dep:kagari-package", "dep:kagari-compiler", "kag
 aot-load = ["dep:libloading", "dep:blake3"]
 aot-build = ["native", "aot-load"]
 serde = ["kagari-runtime/serde"]
+web = ["kagari-runtime/web"]
 native = ["dep:kagari-codegen", "dep:kagari-compiler", "dep:kagari-mir"]
 
-[dependencies]
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
 libloading = { version = "0.8", optional = true }
+
+[dependencies]
 blake3 = { version = "1", optional = true }
 kagari-stdlib.workspace = true
 kagari-types.workspace = true

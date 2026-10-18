@@ -17,6 +17,8 @@ mod sealed {
 /// checks the Rust host range before callback entry; hosts needing the complete
 /// script domain must accept `u64`/`i64`. Encoding widens losslessly on supported
 /// 32-bit and 64-bit hosts. These conveniences do not provide sequence views.
+/// An unrepresentable machine scalar returns `HostCallFailure`; a mismatched
+/// Value carrier remains a `ModuleValidation` error.
 pub trait NativeScalar: sealed::Scalar + Sized + 'static {
     fn abi_type() -> BuiltinType;
 
@@ -34,6 +36,9 @@ fn invalid() -> RuntimeError {
 
 macro_rules! integer_scalar {
     ($rust:ty, $abi:ident, $value:ident, $physical:ty) => {
+        integer_scalar!($rust, $abi, $value, $physical, invalid);
+    };
+    ($rust:ty, $abi:ident, $value:ident, $physical:ty, $range_error:expr) => {
         impl sealed::Scalar for $rust {}
 
         impl NativeScalar for $rust {
@@ -45,7 +50,7 @@ macro_rules! integer_scalar {
                 let Value::$value(value) = value else {
                     return Err(invalid());
                 };
-                Self::try_from(value).map_err(|_| invalid())
+                Self::try_from(value).map_err(|_| $range_error())
             }
 
             fn encode(self) -> Value {
@@ -59,12 +64,16 @@ integer_scalar!(i8, I8, I32, i32);
 integer_scalar!(i16, I16, I32, i32);
 integer_scalar!(i32, I32, I32, i32);
 integer_scalar!(i64, I64, I64, i64);
-integer_scalar!(isize, I64, I64, i64);
+integer_scalar!(isize, I64, I64, i64, || RuntimeError::host_call_failure(
+    "i64 value is outside the Rust isize conversion range"
+));
 integer_scalar!(u8, U8, I64, i64);
 integer_scalar!(u16, U16, I64, i64);
 integer_scalar!(u32, U32, I64, i64);
 integer_scalar!(u64, U64, U64, u64);
-integer_scalar!(usize, U64, U64, u64);
+integer_scalar!(usize, U64, U64, u64, || RuntimeError::host_call_failure(
+    "u64 value is outside the Rust usize conversion range"
+));
 
 macro_rules! scalar {
     ($rust:ty, $abi:ident, $value:ident) => {

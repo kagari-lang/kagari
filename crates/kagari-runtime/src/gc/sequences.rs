@@ -40,7 +40,7 @@ impl GcHeap {
         self.buffer_snapshot(id)
     }
 
-    pub fn array_get(&self, id: HeapObjectId, index: usize) -> Option<Value> {
+    pub fn array_get(&self, id: HeapObjectId, index: impl TryInto<usize>) -> Option<Value> {
         self.ensure_array(id).ok()?;
         self.buffer_get(id, index)
     }
@@ -48,7 +48,7 @@ impl GcHeap {
     pub fn array_element(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
     ) -> Result<Option<Value>, RuntimeError> {
         self.ensure_array(id)?;
         self.buffer_element(id, index)
@@ -57,7 +57,7 @@ impl GcHeap {
     pub fn array_set(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.ensure_array(id)?;
@@ -105,7 +105,7 @@ impl GcHeap {
         self.buffer_snapshot(id)
     }
 
-    pub fn sequence_get(&self, id: HeapObjectId, index: usize) -> Option<Value> {
+    pub fn sequence_get(&self, id: HeapObjectId, index: impl TryInto<usize>) -> Option<Value> {
         self.ensure_sequence(id).ok()?;
         self.buffer_get(id, index)
     }
@@ -113,7 +113,7 @@ impl GcHeap {
     pub fn sequence_element(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
     ) -> Result<Option<Value>, RuntimeError> {
         self.ensure_sequence(id)?;
         self.buffer_element(id, index)
@@ -122,7 +122,7 @@ impl GcHeap {
     pub fn sequence_set(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.ensure_sequence(id)?;
@@ -163,7 +163,7 @@ impl GcHeap {
     pub(crate) fn check_sequence_replacement(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
     ) -> Result<(), RuntimeError> {
         self.ensure_sequence(id)?;
         self.check_buffer_replacement(id, index)

@@ -132,7 +132,7 @@ impl NativePrimitive {
                 let base = argument(0)?;
                 let id =
                     check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
-                let index = usize::decode(argument(1)?)?;
+                let index = u64::decode(argument(1)?)?;
                 heap.sequence_element(id, index)?.ok_or_else(|| {
                     Box::new(RuntimeError::new(
                         RuntimeErrorKind::IndexOutOfBounds,
@@ -144,7 +144,7 @@ impl NativePrimitive {
                 let base = argument(0)?;
                 let id =
                     check_sequence_argument(runtime, owner, &signature.params[0], || Ok(base))?;
-                let index = usize::decode(argument(1)?)?;
+                let index = u64::decode(argument(1)?)?;
                 let value = argument(2)?;
                 if !signature.params[2].matches(runtime, &value, owner) {
                     return Err(RuntimeError::module_validation(

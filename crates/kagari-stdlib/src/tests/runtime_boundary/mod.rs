@@ -1,4 +1,5 @@
 //! Standard-library providers composed with the ordinary runtime dependency.
+mod collection_indices;
 mod host_nominal;
 mod host_objects;
 mod installation_access;

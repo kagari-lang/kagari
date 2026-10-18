@@ -1,5 +1,6 @@
 //! Collection orchestration over the heap's checked storage and root records.
 use crate::{
+    clock::Instant,
     error::RuntimeError,
     execution_metadata::{MetadataLive, MetadataTrace},
     gc::{
@@ -13,7 +14,6 @@ use crate::{
 use std::{
     collections::HashSet,
     panic::{AssertUnwindSafe, catch_unwind},
-    time::Instant,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]

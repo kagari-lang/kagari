@@ -135,6 +135,13 @@ set enables both `source` and `native`; hosts may disable defaults and select:
 | `native` | Decode verified portable MIR, compile through a trusted backend, install and execute | Compiler core/MIR/codegen enabled; no HIR or syntax |
 | `source,native` | Both paths | Combination of the above |
 
+The additive `web` feature supplies browser/Worker measurement clocks on
+`wasm32-unknown-unknown`; it does not enable source compilation or native preparation.
+That target requires `web` and a browser Performance clock. Other targets keep the
+standard clock, without web-time dependencies. WASM targets reject `aot-load` and
+`aot-build`, which require native dynamic-library products. Browser bindings and
+execution acceptance are tracked separately in the roadmap.
+
 `PreparedProgram::from_artifact` always validates the envelope and bytecode. With
 `native` enabled it additionally checks portable MIR and canonical correspondence;
 without `native`, the MIR payload remains opaque and only its envelope bounds and

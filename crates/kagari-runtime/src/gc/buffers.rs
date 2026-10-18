@@ -1,4 +1,6 @@
 //! Shared compact-storage kernels after fixed-array or nominal-sequence admission.
+//! Indices accept host positions or wide script integers; narrowing failure follows
+//! each operation's absence/bounds policy, after its receiver and mutation checks.
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     gc::{GcHeap, HeapObjectId, storage::HeapObject},
@@ -61,7 +63,8 @@ impl GcHeap {
         self.with_buffer(id, SequenceStorage::snapshot)
     }
 
-    pub(crate) fn buffer_get(&self, id: HeapObjectId, index: usize) -> Option<Value> {
+    pub(crate) fn buffer_get(&self, id: HeapObjectId, index: impl TryInto<usize>) -> Option<Value> {
+        let index = index.try_into().ok()?;
         self.with_buffer(id, |values| values.get(index)).flatten()
     }
 
@@ -69,9 +72,10 @@ impl GcHeap {
     pub(crate) fn buffer_element(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
     ) -> Result<Option<Value>, RuntimeError> {
-        self.with_buffer(id, |values| values.get(index))
+        let index = index.try_into().ok();
+        self.with_buffer(id, |values| values.get(index?))
             .ok_or_else(|| RuntimeError::module_validation("array handle length"))
     }
 
@@ -80,14 +84,14 @@ impl GcHeap {
     pub(crate) fn check_buffer_replacement(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
     ) -> Result<(), RuntimeError> {
         self.ensure_callback_mutable(id)?;
         self.resources.poll_execution()?;
         let length = self
             .buffer_len(id)
             .ok_or_else(|| RuntimeError::module_validation("array handle length"))?;
-        if index >= length {
+        if index.try_into().ok().is_none_or(|index| index >= length) {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::IndexOutOfBounds,
                 "sequence set index is out of bounds",
@@ -234,14 +238,23 @@ impl GcHeap {
     pub(crate) fn buffer_set(
         &self,
         id: HeapObjectId,
-        index: usize,
+        index: impl TryInto<usize>,
         value: Value,
     ) -> Result<(), RuntimeError> {
+        let index = index.try_into().ok();
         self.ensure_execution_allowed()?;
         self.ensure_callback_mutable(id)?;
         self.validate_buffer_value(id, &value)?;
-        self.with_buffer_mut(id, |values| values.set(index, value))
-            .ok_or_else(invalid)?
+        self.with_buffer_mut(id, |values| {
+            let index = index.ok_or_else(|| {
+                RuntimeError::new(
+                    RuntimeErrorKind::IndexOutOfBounds,
+                    "sequence index is out of bounds",
+                )
+            })?;
+            values.set(index, value)
+        })
+        .ok_or_else(invalid)?
     }
 
     pub(crate) fn with_buffer<R>(

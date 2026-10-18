@@ -125,7 +125,11 @@ pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
     }
 }
 
-pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeError> {
+/// Decode a declared `Bound<u64>` without narrowing its logical endpoint.
+///
+/// The consuming memory operation owns machine conversion and out-of-range policy.
+/// Invalid identities, type arguments or variant payloads retain the range error.
+pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<u64>, RuntimeError> {
     let Value::Enum(id) = value else {
         return Err(invalid());
     };
@@ -153,12 +157,8 @@ pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeEr
         value.fields.as_slice(),
     ) {
         (Some("Unbounded"), []) => Ok(Bound::Unbounded),
-        (Some("Included"), [Value::U64(n)]) => {
-            Ok(Bound::Included(usize::try_from(*n).map_err(|_| invalid())?))
-        }
-        (Some("Excluded"), [Value::U64(n)]) => {
-            Ok(Bound::Excluded(usize::try_from(*n).map_err(|_| invalid())?))
-        }
+        (Some("Included"), [Value::U64(n)]) => Ok(Bound::Included(*n)),
+        (Some("Excluded"), [Value::U64(n)]) => Ok(Bound::Excluded(*n)),
         _ => Err(invalid()),
     }
 }

@@ -145,9 +145,9 @@ pub fn set_index(
     }
 
     let index = match index {
-        Value::I32(index) if *index >= 0 => *index as usize,
-        Value::I64(index) if *index >= 0 => *index as usize,
-        Value::U64(index) => *index as usize,
+        Value::I32(index) if *index >= 0 => *index as u64,
+        Value::I64(index) if *index >= 0 => *index as u64,
+        Value::U64(index) => *index,
         _ => {
             return Err(ReflectionError::new(
                 "reflect_set_index expects non-negative integer index",
@@ -166,7 +166,10 @@ pub fn set_index(
                 .tuple(*elements)
                 .ok_or_else(|| ReflectionError::new("invalid tuple"))?
                 .to_vec();
-            let Some(slot) = updated.get_mut(index) else {
+            let Some(slot) = usize::try_from(index)
+                .ok()
+                .and_then(|index| updated.get_mut(index))
+            else {
                 return Err(ReflectionError::new(format!("invalid index `{index}`")));
             };
             *slot = next_value;
@@ -201,8 +204,10 @@ mod tests {
     use crate::{
         host::{HostBorrowTable, HostObjectId, HostRootHandle, HostSchemaEpoch},
         metadata::{AbiFingerprint, TypeId},
-        test_support::layouts::path_view_value,
+        test_support::layouts::{allocation_owner, path_view_value},
     };
+
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
 
     fn host_root_value(gc: &GcHeap, object_id: u64) -> Value {
         gc.alloc_host_root(HostRootHandle::new(
@@ -224,6 +229,42 @@ mod tests {
                 .unwrap(),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn wide_indices_do_not_mutate_arrays_or_tuples() {
+        let mut runtime = crate::Runtime::default();
+        let owner = allocation_owner(&mut runtime);
+        let gc = runtime.gc();
+        let array = Value::Array(
+            runtime
+                .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
+                .unwrap(),
+        );
+        let tuple = gc.alloc_tuple(vec![Value::I32(7)]).unwrap();
+        let before = gc.stats();
+        for index in [
+            Value::U64(1_u64 << 32),
+            Value::U64(u64::MAX),
+            Value::I64(1_i64 << 32),
+        ] {
+            for value in [array, tuple] {
+                let error = set_index(gc, &value, &index, Value::I32(9)).unwrap_err();
+                assert_eq!(
+                    error.into_write_error().kind(),
+                    RuntimeErrorKind::InvalidReflectiveWrite
+                );
+            }
+        }
+        let Value::Array(id) = array else {
+            unreachable!()
+        };
+        assert_eq!(gc.array_get(id, 0), Some(Value::I32(7)));
+        let Value::Tuple(id) = tuple else {
+            unreachable!()
+        };
+        assert_eq!(&*gc.tuple(id).unwrap(), &[Value::I32(7)]);
+        assert_eq!(gc.stats(), before);
     }
 
     #[test]

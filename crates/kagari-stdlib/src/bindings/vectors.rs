@@ -1,8 +1,8 @@
 //! Concrete Vec operations borrow call roots; callback algorithms retain SDK handles.
-use crate::bindings::{Entry, option};
+use crate::bindings::{Entry, index_argument, option};
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     native::{
         binding::{Codec, NativeBinding, NativeResult},
         collections::vector::ScriptVec,
@@ -34,18 +34,21 @@ pub(super) fn binding(
         "$foundation_list_push_fluent" => {
             scoped(vec![Codec::MutableSequence, Codec::Value], push_fluent)
         }
-        "$foundation_list_insert" => NativeBinding::declared(
-            declaration,
-            |cx: &mut NativeContext<'_>, (values, index, value): (Vector, usize, ScriptValue)| {
-                values.insert(cx, index, value)
-            },
+        "$foundation_list_insert" => scoped(
+            vec![
+                Codec::MutableSequence,
+                Codec::Exact(Type::u64()),
+                Codec::Value,
+            ],
+            insert,
         ),
-        "$foundation_list_insert_fluent" => NativeBinding::declared(
-            declaration,
-            |cx: &mut NativeContext<'_>, (values, index, value): (Vector, usize, ScriptValue)| {
-                values.insert(cx, index, value)?;
-                Ok(values)
-            },
+        "$foundation_list_insert_fluent" => scoped(
+            vec![
+                Codec::MutableSequence,
+                Codec::Exact(Type::u64()),
+                Codec::Value,
+            ],
+            insert_fluent,
         ),
         "$foundation_list_clear" => NativeBinding::declared(
             declaration,
@@ -104,12 +107,38 @@ fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 fn element(cx: &CallContext<'_>) -> NativeResult<Option<Value>> {
     let id = cx.sequence_argument(0)?;
-    let index = usize::decode(cx.argument(1)?)?;
-    cx.heap().sequence_element(id, index)
+    cx.heap().sequence_element(id, index_argument(cx, 1)?)
 }
 
 fn get(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     option(cx, element(cx)?)
+}
+
+fn insert(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let id = cx.sequence_argument(0)?;
+    let index = index_argument(cx, 1)?;
+    cx.ensure_collection_mutable(id)?;
+    let length = cx
+        .heap()
+        .sequence_len(id)
+        .ok_or_else(|| RuntimeError::module_validation("Vec handle length"))?;
+    let position = usize::try_from(index)
+        .ok()
+        .filter(|position| *position <= length)
+        .ok_or_else(|| {
+            RuntimeError::new(
+                RuntimeErrorKind::IndexOutOfBounds,
+                format!("Vec insert index {index} exceeds length {length}"),
+            )
+        })?;
+    let value = cx.checked_argument(2)?;
+    cx.heap().sequence_insert(id, position, value)?;
+    Ok(Value::Unit)
+}
+
+fn insert_fluent(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    insert(cx)?;
+    cx.argument(0)
 }
 
 fn push(cx: &mut CallContext<'_>) -> NativeResult<Value> {

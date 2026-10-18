@@ -1,6 +1,8 @@
 //! Function arguments, generic conversion and retained callback lifetimes.
 use super::{compile, compile_program};
+use crate::error::VmError;
 use kagari_runtime::{
+    error::RuntimeErrorKind,
     module::entry::ProgramEntry,
     native::{
         binding::NativeResult,
@@ -78,7 +80,9 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
             assert_eq!(result.unwrap(), value);
             assert_eq!(calls.load(Ordering::SeqCst), before + 1);
         } else {
-            assert!(result.is_err());
+            assert!(
+                matches!(result.unwrap_err().cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::HostCallFailure)
+            );
             assert_eq!(calls.load(Ordering::SeqCst), before);
         }
     }
@@ -95,7 +99,9 @@ fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
             assert_eq!(result.unwrap(), value);
             assert_eq!(calls.load(Ordering::SeqCst), before + 1);
         } else {
-            assert!(result.is_err());
+            assert!(
+                matches!(result.unwrap_err().cause(), VmError::RuntimeError(error) if error.kind() == RuntimeErrorKind::HostCallFailure)
+            );
             assert_eq!(calls.load(Ordering::SeqCst), before);
         }
     }

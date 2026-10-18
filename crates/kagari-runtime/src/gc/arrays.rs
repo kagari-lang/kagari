@@ -62,7 +62,7 @@ impl GcHeap {
         self.alloc_array_repeat_with_contract(
             Arc::new(StorageType::prepare(element, owner)?),
             value,
-            count,
+            count as u64,
         )
     }
 
@@ -70,7 +70,7 @@ impl GcHeap {
         &self,
         contract: Arc<StorageType>,
         value: Value,
-        count: usize,
+        count: u64,
     ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !self.valid_payload(&value) || !contract.accepts_value(self, &value) {
@@ -79,6 +79,8 @@ impl GcHeap {
         let element = contract.ty.clone();
         let owner = contract.owner.clone();
         self.resources.poll_execution()?;
+        let count = usize::try_from(count)
+            .map_err(|_| self.resource_limit("array length exceeds platform capacity"))?;
         let units = count
             .checked_add(1)
             .ok_or_else(|| self.resource_limit("array length"))?;

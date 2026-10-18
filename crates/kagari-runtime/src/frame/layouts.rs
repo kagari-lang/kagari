@@ -62,7 +62,7 @@ impl ExecutionFrame {
         runtime: &Runtime,
         element: &Ty,
         value: Value,
-        count: usize,
+        count: u64,
     ) -> Result<HeapObjectId, RuntimeError> {
         runtime.validate_heap_payloads(slice::from_ref(&value))?;
         runtime.gc.alloc_array_repeat_with_contract(

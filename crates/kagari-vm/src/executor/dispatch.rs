@@ -209,8 +209,6 @@ impl<'a> Executor<'a> {
                 else {
                     return Err(VmError::Trap("invalid repeat array count"));
                 };
-                let count = usize::try_from(count)
-                    .map_err(|_| VmError::Trap("array length exceeds platform capacity"))?;
                 let array = self
                     .current_frame()?
                     .alloc_array_repeat(self.runtime, element, value, count)

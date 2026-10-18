@@ -52,9 +52,9 @@ impl ExecutionCursor<'_> {
             IndexAccess::Write { value } => Some(read(value)?),
         };
         let index = match index {
-            Value::I32(index) if index >= 0 => index as usize,
-            Value::I64(index) if index >= 0 => index as usize,
-            Value::U64(index) => index as usize,
+            Value::I32(index) if index >= 0 => index as u64,
+            Value::I64(index) if index >= 0 => index as u64,
+            Value::U64(index) => index,
             _ => {
                 return Err(RegionError::TypeMismatch(match operation.access {
                     IndexAccess::Read { .. } => "read_index expects non-negative integer index",
@@ -70,7 +70,7 @@ impl ExecutionCursor<'_> {
                         .runtime
                         .gc()
                         .tuple(id)
-                        .and_then(|values| values.get(index).copied()),
+                        .and_then(|values| values.get(usize::try_from(index).ok()?).copied()),
                     _ => {
                         return Err(RegionError::TypeMismatch(
                             "read_index expects array or tuple value",

@@ -259,8 +259,8 @@ fn array(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
     Ok(id)
 }
 
-fn index(cx: &CallContext<'_>, slot: usize) -> NativeResult<usize> {
-    usize::decode(cx.argument(slot)?)
+fn index_argument(cx: &CallContext<'_>, slot: usize) -> NativeResult<u64> {
+    u64::decode(cx.argument(slot)?)
 }
 
 fn list_new(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -302,10 +302,15 @@ fn list_pop(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 
 fn list_remove(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     let id = array(cx)?;
-    let index = index(cx, 1)?;
+    let index = usize::try_from(index_argument(cx, 1)?).ok();
     cx.ensure_collection_mutable(id)?;
-    let result = option(cx, cx.heap().sequence_get(id, index))?;
-    cx.heap().sequence_remove(id, index)?;
+    let result = option(
+        cx,
+        index.and_then(|index| cx.heap().sequence_get(id, index)),
+    )?;
+    if let Some(index) = index {
+        cx.heap().sequence_remove(id, index)?;
+    }
     Ok(result)
 }
 

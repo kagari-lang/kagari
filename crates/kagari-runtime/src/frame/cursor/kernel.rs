@@ -37,7 +37,7 @@ pub enum RegionError {
     #[error("{0}")]
     TypeMismatch(&'static str),
     #[error("invalid index: {0}")]
-    InvalidIndex(usize),
+    InvalidIndex(u64),
 }
 
 impl From<RuntimeError> for RegionError {
@@ -56,7 +56,7 @@ pub(super) enum PreparedTransition {
     Native { index: usize },
     Constant { dst: Location, constant: ConstantId },
     Field { index: usize },
-    TupleWrite { operation: usize, index: usize },
+    TupleWrite { operation: usize, index: u64 },
 }
 
 impl ExecutionCursor<'_> {

@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one commit per phase authorized on 2026-10-18.
-WB01 is complete; WB02 is next. Pushes, remote settings changes, dependency
+WB01-WB02 are complete; WB03 is next. Pushes, remote settings changes, dependency
 publication and deployment remain outside this authorization.
 
 The [roadmap](implementation-roadmap.md#browser-wasm-execution) owns activation and
@@ -446,7 +446,7 @@ needed for this planning-only change; check document links/content and whitespac
 
 - [x] Design selected and baseline inspected; plan recorded.
 - [x] WB01: fixed-width language integer migration.
-- [ ] WB02: checked machine boundaries and browser timing.
+- [x] WB02: checked machine boundaries and browser timing.
 - [ ] WB03: linked source-enabled and source-free browser products.
 - [ ] WB04: Worker scheduling, cancellation and recovery.
 - [ ] WB05: Playground integration, focused acceptance and handoff.
@@ -478,3 +478,28 @@ reported LNK2019 anonymous LLVM symbols after an interrupted incremental build;
 package-only cargo clean followed by the same focused tests passed. No carried
 WB01 integration failures. WB02 still owns wide index error handling and clocks;
 actual browser execution, source-free WASM and performance acceptance remain unrun.
+
+### WB02 — machine boundaries and clocks
+
+Wide indices now reach checked storage owners without truncation; cursor/VM errors
+retain full u64 values. Optional lookups preserve absence, writes preserve bounds
+errors and effects, string offsets preserve UTF-8 checks, repeat allocation checks
+machine length and byte capacity, and host scalar narrowing fails before callback
+entry. Reflection and iterator buffer positions no longer truncate. Shared heap
+access accepts checked-convertible host or script positions without duplicate
+semantic implementations.
+
+Added SDK/runtime web capability and private clock owner. Native targets use std
+without JS dependencies; browser clocks use exact web-time 1.1.0. Lock resolution
+added wasm-bindgen 0.2.129/js-sys 0.3.106 without upgrading existing packages.
+Unsupported unknown-unknown without web and WASM aot-load/aot-build produce explicit
+compile errors; AOT modules/dependency are target-gated. Script deterministic inputs
+are unchanged.
+
+Passed nine selected runtime/VM boundary tests, two stdlib collection/string tests
+and two fixed-width/logical-count regressions; target source,web check; workspace
+Clippy, structure (zero violations), formatting and diff checks. Negative capability
+checks failed with the intended diagnostics, not unresolved loader symbols. Earlier
+concurrent signature-transition errors were resolved before acceptance. Native
+checks exercise high values but do not substitute for wasm32 execution; WB03 owns
+actual source/source-free browser validation. No full workspace suite ran.

@@ -369,22 +369,38 @@ fn replacement_errors_preserve_targets_and_internal_fault_categories() {
         .unwrap();
     // Payload and receiver rejection must not be relabeled from the index.
     assert_eq!(
-        heap.array_set(array, usize::MAX, Value::Array(foreign))
+        heap.array_set(array, u64::MAX, Value::Array(foreign))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ScriptTrap
     );
     assert_eq!(
-        heap.array_set(foreign, usize::MAX, Value::I32(9))
+        heap.array_set(foreign, u64::MAX, Value::I32(9))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::ScriptTrap
     );
 
+    for index in [2, 1_u64 << 32, u64::MAX] {
+        assert_eq!(
+            heap.array_set(array, index, Value::I32(9))
+                .unwrap_err()
+                .kind(),
+            RuntimeErrorKind::IndexOutOfBounds
+        );
+        assert_eq!(heap.array_element(array, index).unwrap(), None);
+        assert_eq!(heap.array_get(array, index), None);
+    }
+    // Exercise failed machine conversion even on a 64-bit test host.
+    let unrepresentable = usize::MAX as u128 + 1;
     assert_eq!(
-        heap.array_set(array, 2, Value::I32(9)).unwrap_err().kind(),
+        heap.array_set(array, unrepresentable, Value::I32(9))
+            .unwrap_err()
+            .kind(),
         RuntimeErrorKind::IndexOutOfBounds
     );
+    assert_eq!(heap.array_element(array, unrepresentable).unwrap(), None);
+    assert_eq!(heap.array_get(array, unrepresentable), None);
     assert_eq!(heap.array_get(array, 0), Some(Value::I32(1)));
     assert_eq!(heap.stats().current_heap_units, before);
     let schema = layout(

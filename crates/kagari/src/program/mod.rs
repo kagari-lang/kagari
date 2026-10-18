@@ -1,5 +1,5 @@
 //! Preparation-side executable input and local compilation cache, independent of runtimes.
-#[cfg(feature = "aot-build")]
+#[cfg(all(feature = "aot-build", not(target_family = "wasm")))]
 pub mod aot;
 #[cfg(feature = "native")]
 pub mod native;

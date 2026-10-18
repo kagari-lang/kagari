@@ -291,14 +291,14 @@ impl GcHeap {
                         1,
                     ),
                     Value::Array(id) | Value::GcHandle(id) => (
-                        self.buffer_get(*id, iter.position as usize)
-                            .map(PendingItem::Value),
+                        self.buffer_get(*id, iter.position).map(PendingItem::Value),
                         1,
                     ),
                     Value::Set(id) => (
                         self.with_set(*id, |values| {
-                            iter.keys
-                                .get(iter.position as usize)
+                            usize::try_from(iter.position)
+                                .ok()
+                                .and_then(|position| iter.keys.get(position))
                                 .and_then(|key| values.get(key))
                                 .map(|key| PendingItem::Value(key.to_value()))
                         })
@@ -307,27 +307,32 @@ impl GcHeap {
                     ),
                     Value::Map(id) => (
                         self.with_map(*id, |entries| {
-                            iter.keys.get(iter.position as usize).and_then(|key| {
-                                entries
-                                    .get(key)
-                                    .map(|value| PendingItem::Pair(key.to_value(), *value))
-                            })
+                            usize::try_from(iter.position)
+                                .ok()
+                                .and_then(|position| iter.keys.get(position))
+                                .and_then(|key| {
+                                    entries
+                                        .get(key)
+                                        .map(|value| PendingItem::Pair(key.to_value(), *value))
+                                })
                         })
                         .ok_or_else(invalid)?,
                         1,
                     ),
-                    Value::Str(text) => match self
-                        .string(*text)
-                        .ok_or_else(invalid)?
-                        .get(iter.position as usize..)
-                        .and_then(|tail| tail.chars().next())
-                    {
-                        Some(character) => (
-                            Some(PendingItem::Text(character.to_string())),
-                            character.len_utf8() as u128,
-                        ),
-                        None => (None, 0),
-                    },
+                    Value::Str(text) => {
+                        let text = self.string(*text).ok_or_else(invalid)?;
+                        let character = usize::try_from(iter.position)
+                            .ok()
+                            .and_then(|position| text.get(position..))
+                            .and_then(|tail| tail.chars().next());
+                        match character {
+                            Some(character) => (
+                                Some(PendingItem::Text(character.to_string())),
+                                character.len_utf8() as u128,
+                            ),
+                            None => (None, 0),
+                        }
+                    }
                     _ => return Err(invalid()),
                 }
             };

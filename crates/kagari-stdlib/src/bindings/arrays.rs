@@ -1,4 +1,5 @@
 //! Fixed arrays expose bounded element access; constructors copy into library storage.
+use crate::bindings::index_argument;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
@@ -32,14 +33,18 @@ pub(super) fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 pub(super) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {
+    let source = source(cx)?;
+    let index = index_argument(cx, 1)?;
+    let out_of_bounds = || {
+        RuntimeError::new(
+            RuntimeErrorKind::IndexOutOfBounds,
+            format!("array index {index} is out of bounds"),
+        )
+    };
+
     cx.heap()
-        .array_element(source(cx)?, usize::decode(cx.argument(1)?)?)?
-        .ok_or_else(|| {
-            RuntimeError::new(
-                RuntimeErrorKind::IndexOutOfBounds,
-                "array index is out of bounds",
-            )
-        })
+        .array_element(source, index)?
+        .ok_or_else(out_of_bounds)
 }
 
 pub(super) fn vector(cx: &mut CallContext<'_>) -> NativeResult<Value> {

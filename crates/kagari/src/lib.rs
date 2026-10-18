@@ -4,7 +4,12 @@
 //! `source` adds analysis and artifact emission; `native` adds frontend-free MIR
 //! preparation and trusted backend integration. Defaults enable both. Concrete
 //! native backends are supplied by the host and are not production dependencies.
-#[cfg(feature = "aot-load")]
+//! `web` supplies browser/Worker timing on wasm32-unknown-unknown independently
+//! of `source`. Browser products do not support dynamic-library AOT loading.
+#[cfg(all(target_family = "wasm", feature = "aot-load"))]
+compile_error!("Kagari AOT dynamic-library loading/building is unsupported on WASM targets");
+
+#[cfg(all(feature = "aot-load", not(target_family = "wasm")))]
 pub mod aot;
 pub mod context;
 pub mod engine;

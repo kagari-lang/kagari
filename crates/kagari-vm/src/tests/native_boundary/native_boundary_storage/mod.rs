@@ -148,6 +148,8 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
         r#"use core::ops::Bound;
         enum ForeignBound { Unbounded }
         pub fn valid() -> Bound<u64> { Bound::Unbounded }
+                pub fn included() -> Bound<u64> { Bound::Included(18446744073709551615u64) }
+                pub fn excluded() -> Bound<u64> { Bound::Excluded(4294967296u64) }
         pub fn wrong_argument() -> Bound<i32> { Bound::Unbounded }
         pub fn wrong_owner() -> ForeignBound { ForeignBound::Unbounded }
         "#,
@@ -165,6 +167,20 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
         .unwrap(),
         Bound::Unbounded
     );
+    for (name, expected) in [
+        ("included", Bound::Included(u64::MAX)),
+        ("excluded", Bound::Excluded(1_u64 << 32)),
+    ] {
+        let report = vm.execute(&loaded, name).unwrap();
+        assert_eq!(
+            index_bound(
+                vm.runtime().gc(),
+                &report.return_value.value(vm.runtime().gc()).unwrap()
+            )
+            .unwrap(),
+            expected
+        );
+    }
     for name in ["wrong_argument", "wrong_owner"] {
         let invalid = vm.execute(&loaded, name).unwrap();
         assert_eq!(

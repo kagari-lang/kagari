@@ -1,5 +1,6 @@
 use crate::{
     Runtime, StagedReload,
+    clock::Instant,
     error::{RuntimeError, RuntimeErrorKind},
     error_trace::ErrorTrace,
     frame::{
@@ -22,7 +23,6 @@ use std::{
     collections::HashSet,
     fmt::Debug,
     sync::Arc,
-    time::Instant,
 };
 
 use kagari_bytecode::artifact::ArtifactFingerprint;

@@ -66,7 +66,7 @@ impl ExecutionStack<'_> {
                     .ok_or(RegionError::InvalidIndex(index))?
                     .to_vec();
                 let slot = elements
-                    .get_mut(index)
+                    .get_mut(usize::try_from(index).map_err(|_| RegionError::InvalidIndex(index))?)
                     .ok_or(RegionError::InvalidIndex(index))?;
                 *slot = value;
                 let tuple = runtime.gc().alloc_tuple(elements)?;
