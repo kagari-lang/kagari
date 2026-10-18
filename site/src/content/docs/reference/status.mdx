@@ -1,0 +1,97 @@
+---
+title: Status and limits
+description: Understand the current source-build workflow, execution and library boundaries, and tools that are not yet available.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Kagari is an early-development, statically typed scripting language for
+Rust-hosted applications. Use the source checkout and its current contracts, not
+a production-readiness or release-compatibility assumption. Registry reservation
+packages are **not functional releases**; start with
+<a href={page('start/installation')}>source installation</a>.
+
+## What you can use now
+
+- Check and execute typed `.kgr` programs with functions, closures, structs, enums,
+  patterns, generics, traits/interfaces and `Option`/`Result` propagation. The
+  <a href={page('start/quickstart')}>quickstart</a> is a complete runnable example.
+- Use fixed-length arrays, growable `Vec` storage, read-only/mutable collection
+  interfaces, hash containers, immutable strings and ordinary lazy iteration.
+  Begin with the <a href={page('library/overview')}>library guide</a> rather than
+  assuming every similarly named Rust API exists.
+- Check local package workspaces and declared modules; emit and validate `.kbc`
+  artifacts for execution without source. Current package acquisition is local,
+  not a remote package-registry workflow.
+- Embed through the Rust SDK, install typed native APIs and publish checked reload
+  candidates. Existing calls keep their pinned version and dependencies; publication
+  does not silently redirect an active call. The external
+  <a href={source('docs/spec/embedding-api.md')}>embedding contract</a> and
+  <a href={source('docs/spec/module-activation.md')}>activation rules</a> describe
+  those host-managed operations.
+- Format, check and lint with `kg`, and install local Zed/VS Code syntax adapters.
+  See <a href={page('reference/cli')}>CLI and diagnostics</a> and
+  <a href={page('start/editors')}>editor setup</a>.
+
+## Shared objects, not Rust moves
+
+`val` prevents rebinding; it does not freeze a referenced object. Assignment and
+argument passing share structs and collections. Read-only collection views hide
+container mutators but stay live, and referenced elements may still be writable.
+There is no script-visible Rust borrow checker, lifetime model, general deep copy
+or deep freeze. <a href={page('language/values')}>Types and shared values</a> explains
+what copying a value does in practice.
+
+GC manages script-owned objects, not unrestricted Rust references. Installed host
+interfaces retain their separate access, borrow, rooting and lifetime checks.
+One script heap is driven exclusively on one host thread at a time; shared
+concurrent script-heap mutation is not provided.
+
+## Failures do not roll back earlier work
+
+For example, if a script updates a score and then traps on an invalid index, the
+completed score update remains. `Result` handles ordinary business rejection;
+`?` is not an exception handler for overflow, bounds failures or cancellation.
+Cleanup releases execution resources without undoing business effects. Hosts
+that need a transaction must define one explicitly. See the external
+<a href={source('docs/spec/failure-semantics.md')}>failure contract</a>.
+
+Kagari primarily embeds trusted scripts. Cooperative cancellation and call-depth
+protection do not provide hard preemption, process isolation or per-script
+CPU/memory quotas. A blocking Rust callback cannot be forcibly interrupted by a
+script cancellation request. Hosts own service admission, deadlines and isolation
+for untrusted code; see <a href={source('docs/spec/security.md')}>execution control and access</a>.
+
+## Native execution is a limited optional mode
+
+The interpreter is the default CLI path. The optional Cranelift JIT supports a
+small scalar subset and selects interpreter fallback before entry for unsupported
+functions. A successful run with JIT requested is not proof that the program ran
+natively. The <a href={source('docs/spec/jit.md')}>JIT specification</a> owns current
+coverage and fallback rules.
+
+AOT is a separate, feature-gated trusted-bundle workflow for the documented
+x86_64 Windows MSVC scalar subset. It is not general cross-compilation or a
+standalone executable distribution. Unsupported entries fail the AOT build; see
+<a href={source('docs/spec/aot.md')}>AOT deployment</a> for target, linker and trust
+requirements. Neither native mode implies wider language or API support.
+
+## Do not plan around unavailable tools or APIs
+
+- There is no implemented `kg repl` or `kg test` command.
+- Syntax adapters do not start a language server. The separate analyzer currently
+  supplies stdio lifecycle/document synchronization, not semantic IDE features,
+  diagnostics, completion or formatting. Marketplace publication and automatic
+  server-launch integration are not available.
+- Interactive debugger/DAP control is not shipped. Existing debugger hooks and
+  snapshot notifications are not an interactive paused session.
+- Runtime interface type tests/downcasts and automatic suspended-state migration
+  are not available. Reload is not arbitrary type mutation or monkey-patching.
+- Full Rust standard-library parity, implicit host IO and deep collection
+  snapshots are not part of the installed library surface.
+
+This page is a user-facing boundary summary, not a delivery schedule. Consult
+<a href={page('reference/specifications')}>the specification index</a> for precise
+current rules. The external <a href={source('docs/project_goal.md')}>project goals</a>
+and <a href={source('docs/implementation-roadmap.md')}>roadmap</a> own direction and
+pending work; a proposal there is not an available command or API.

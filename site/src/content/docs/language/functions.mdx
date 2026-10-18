@@ -1,0 +1,111 @@
+---
+title: Functions and closures
+description: Pass typed arguments, return values and retain lexical state in callable closures.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You want a reusable calculation and a counter that remembers previous calls.
+A named function describes typed inputs and an output. A **closure** is a callable
+value that can retain names from its lexical surroundings. Build on
+<a href={page('language/control-flow')}>block results</a> and
+<a href={page('language/values')}>ordinary value passing</a>.
+
+## Run a retained counter
+
+<SourceExample
+  path="examples/syntax/closures.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/closures.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+`make_counter` creates a local `var value = 40` and returns a closure. Its return
+type, `fn() -> i32`, means a callable with no arguments and an integer result.
+The first call increments the retained slot to `41`; the second produces `42`.
+Returning the closure does not invalidate the slot when `make_counter` returns.
+Its retained environment participates in managed reachability.
+
+`make_add(40)` instead captures a non-rebindable parameter. `invoke` accepts that
+callable and an integer, and calls it to obtain `42`. A named function and a
+compatible closure can both be passed as callable values.
+
+## Read the signature from the caller's side
+
+An exact function excerpt from the complete example, not a separate program:
+
+```kagari
+fn invoke(function: fn(i32) -> i32, argument: i32) -> i32 {
+    function(argument)
+}
+```
+
+Parameters have declared types. `-> i32` states the result type, and the tail
+expression supplies the result without `return`. An explicit `return` also exits
+the current function. Within a closure, it exits that closure, as
+`make_early_return` demonstrates, rather than the function that created it.
+
+Passing a scalar copies its value; passing an object shares its identity. A
+parameter is a non-rebindable local slot, not an exclusive borrow. Consequently,
+a function may mutate a writable field of a shared object received as a parameter
+without replacing the parameter itself.
+
+## Captures preserve the binding's behavior
+
+In `nested_shared`, the nested `add` closure reads `base`. The separate
+`increment` closure assigns that outer `var`. The first read yields `41`, and the
+read after incrementing yields `42`: both closures observe the shared slot.
+A captured `val` number does not turn into a mutable counter merely by capture.
+
+The object cases distinguish two operations. `shared_object_capture` changes an
+element of the vector already held by `values`. `rebound_object_capture` replaces
+the captured `var values` with a new vector. In both examples the later read is
+`42`, for different reasons: shared object contents in the first, a shared
+rebindable slot in the second.
+
+`iteration_captures` stores three callbacks during a `for` loop. Their later reads
+produce `10`, `20` and `12`, not three reads of one final loop slot. Each iteration
+has a fresh binding. Together with the counter and call examples, the final
+arithmetic checks these cases and returns `42`.
+
+## Let a callable type supply context
+
+`invoke(|number| number + 40, 2)` omits the closure parameter's annotation because
+`invoke` supplies `fn(i32) -> i32` as context. Without a contextual callable type,
+write the parameter type, as in `|amount: i32| base + amount`.
+
+The example's private `apply<T>` uses one type parameter for its input, output
+and callable contract. Generic code does not mean dynamically typed arguments:
+each checked call must satisfy the same relationships. The
+<a href={page('language/traits')}>generics chapter</a> adds operation bounds.
+The standard `Fn` protocol also expresses callable contracts; it is not Rust's
+ownership-based `Fn`/`FnMut`/`FnOnce` family.
+
+## One useful mistake: replacing a parameter
+
+Deliberately invalid definition, shown as text rather than a diagnostic transcript:
+
+```text
+fn advance(value: i32) -> i32 {
+    value += 1;
+    value
+}
+```
+
+The assignment is invalid because parameters cannot be rebound. Return a computed
+expression, or initialize a separate local `var` for an algorithm that needs
+several updates. This restriction does not freeze an object passed as `value`.
+
+## Limits and next steps
+
+Calls evaluate arguments once, left to right. A return or trap while evaluating
+an earlier argument prevents later arguments and the call itself from running.
+Capturing a script value supplies neither unrestricted host references nor a way
+to evade host borrow scopes. Async producers have additional execution rules;
+ordinary closures alone do not schedule background work.
+
+See <a href={source('docs/spec/syntax.md#functions')}>function declarations</a>,
+<a href={source('docs/spec/syntax.md#closure-capture-semantics')}>capture semantics</a>
+and <a href={source('docs/spec/traits.md#unified-callable-protocol')}>the callable protocol</a>
+for the precise contracts. Next, define the records those functions manipulate in
+<a href={page('language/data-model')}>structs, enums and tuples</a>.

@@ -1,4 +1,7 @@
 
+import { languagePages } from './language-pages.mjs';
+import { manualPages } from './manual-pages.mjs';
+
 // Inventory of shipped pages only. Add a route here in the same change as its content.
 export const pages = Object.freeze([
   Object.freeze({
@@ -13,6 +16,9 @@ export const pages = Object.freeze([
     title: 'Quickstart',
     description: 'Build the source CLI and follow a complete Kagari control-flow example.',
   }),
+  ...manualPages.filter(({ group }) => group === 'Start'),
+  ...languagePages,
+  ...manualPages.filter(({ group }) => group !== 'Start'),
 ]);
 
 export const sidebar = [...new Set(pages.map(({ group }) => group))].map((label) => ({

@@ -1,0 +1,111 @@
+---
+title: Default and struct update
+description: Construct explicit defaults and fresh struct updates while retaining shared inner objects.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You want a normal starting player and another player with different health but
+the same inventory. Use an explicit Default implementation to choose a starting
+value, and struct update to construct a fresh record from an eligible base.
+These are separate mechanisms. First read
+<a href={page('language/data-model')}>records</a> and
+<a href={page('language/traits')}>static trait calls</a>.
+
+## Run an update with visible effects
+
+<SourceExample
+  path="examples/syntax/struct-update.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/struct-update.kgr"
+  result="main returns 42: the shared inventory ends at 22 and contextual.health is 20. The non-JIT CLI prints no return value."
+/>
+
+Player's explicit implementation returns health `100`, score `1` and a fresh
+empty vector. The annotation `Player<i32>` gives `Default::default()` its expected
+Self type. An ordinary checked implementation must then exist for that type;
+the name Default is not an instruction to zero arbitrary memory.
+
+The trait is supplied by `core::default`, re-exported by `std::default` and the
+prelude. Its required method is static `fn default() -> Self`. Concrete-type and
+trait-qualified calls use ordinary static dispatch. The example uses an annotated
+`Default::default()` call to determine the receiver type. In generic code,
+`T: Default` permits `T::default()`.
+
+## Observe explicit fields before the base
+
+The update's explicit health expression calls `explicit` first. It records `1`,
+sets the base's score to `2`, and yields health `200`. The terminal base expression
+then calls `marked` once, records `2`, sets the score to `3`, and returns the base.
+Only after those effects does construction read omitted fields.
+
+Consequently `changed.health` is `200`, while its inherited score is `3`, not the
+score that existed before evaluation began. The base's health is still `100`:
+constructing changed did not assign to that field on base. The example checks
+both the call order and the resulting values.
+
+Even when every field is explicit, the terminal base expression still runs once
+and in full. `overridden` demonstrates this by adding one more marker, although
+none of its fields need to be inherited. A trap or return in an earlier expression
+skips later work and final construction, without rolling back completed effects.
+
+## New outside, shared inside
+
+The update result has a fresh outer identity, so `changed === base` is false.
+Its scalar slots are independent. Its items field still refers to the same vector,
+so `changed.items !== base.items` is false as well.
+
+Adding two to `changed.items[0]` changes the shared element from `20` to `22`.
+Reading `base.items[0]` sees `22`. `Player { ..changed }` makes another fresh outer
+record, but again shares items. There is no implicit Clone, deep copy or move, and
+the base remains usable. This is why Rust-style partial-move reasoning is not the
+right model for the example.
+
+Finally, the contextual update supplies health `20` over a default base. The
+last expression adds it to the shared inventory's `22` and returns `42`.
+
+## Keep the two uses of dots separate
+
+A construction fragment from the complete example, not a separate program:
+
+```kagari
+val contextual: Player<i32> = Player { health: 20, ..Default::default() };
+```
+
+Update `..base` needs exactly one operand, last in the initializer. The base must
+be the same owned struct declaration with the same normalized type arguments.
+It is not a structural conversion, interface adaptation or host-field projection.
+Every field must be accessible, even if overridden. Without a base, every field
+is required. Pattern `..` instead omits fields without evaluating a base expression.
+
+## One useful mistake: a trailing comma after the base
+
+Deliberately invalid fragment using the example's base, not a diagnostic transcript:
+
+```text
+Player { health: 200, ..base, }
+```
+
+Unlike field lists and pattern rest, the update base does not accept a trailing
+comma. End the initializer after the base operand. Multiple bases and `..=` as an
+update marker are also outside the construction syntax.
+
+## Default is not universal construction
+
+The standard implementations cover Unit, bool, primitive numeric zero, empty
+String, a fresh empty Vec and None for Option. Vec and Option do not require their
+element type to implement Default. There is no supplied default for arbitrary
+user records, tuples, arrays, maps, sets, Result or host/view types.
+
+Default is static-only, not an interface value type. It neither derives an
+implementation nor enables field-declaration defaults or enum-default selection.
+A trait **default method** is a method body used when an implementation omits that
+method; that separate feature does not construct a default value.
+
+## Precise rules and next steps
+
+Read <a href={source('docs/spec/builtins.md#default-construction')}>Default construction</a>,
+<a href={source('docs/spec/syntax.md#struct-update-expressions')}>update eligibility and punctuation</a>
+and <a href={source('docs/spec/value-semantics.md#struct-update-construction')}>update evaluation and sharing</a>
+for exact rules. Continue with the <a href={page('library/overview')}>standard library overview</a>
+to choose the collection and conversion operations these records will use.

@@ -1,0 +1,105 @@
+---
+title: Variables and constants
+description: Choose val, var and const, and understand binding scope without freezing shared objects.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You want to name an input, keep a running total and give a fixed limit a name.
+Kagari separates these tasks: `val` keeps a binding fixed, `var` allows assignment,
+and `const` defines a checked compile-time value. Start with the
+<a href={page('start/quickstart')}>quickstart</a> if you have not run the source CLI.
+
+## A binding is a slot, not a frozen object
+
+A **binding** associates a name with a local slot. Rebinding replaces the value in
+that slot. `val` forbids that replacement; `var` allows it. Both are statically
+typed: permitting assignment does not permit changing the slot's type.
+
+Script objects live in a garbage-collected heap. A binding can hold a shared
+reference to an object rather than an independent copy of its contents. Therefore
+`val calls = Vec::from([0])` still allows `calls[0] += 1`. The vector changes;
+the binding still names the same vector. There is no Rust move or lifetime rule
+hidden in `val`.
+
+## Run bindings that work together
+
+This complete example also uses patterns and closures. For now, follow `x`,
+`total`, `step` and `calls`; later chapters explain their surrounding syntax.
+Commands throughout this guide run from the repository root.
+
+<SourceExample
+  path="examples/syntax/binding-patterns.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/binding-patterns.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+The compact failure checks in this and other canonical examples are assertions:
+they return an unexpected value or deliberately trap if a tested rule fails.
+They are not additional declaration syntax.
+
+## Follow scope and assignment
+
+The first `x` is `4`. A later declaration introduces another `x` while extracting
+`alias` from a pair. Its initializer still sees the old `x`, so the new value is
+`5`. This is **shadowing**: a new binding with the same spelling, not assignment
+to the old `val`. All names in that declaration become visible together, after
+the initializer executes once.
+
+`var (total, step) = (x, 2)` gives both leaves writable slots. The closure adds
+`step` to `total`. After `step = 3`, two calls advance `total` from `5` to `11`.
+The final calculation also includes the shared item, another captured binding,
+and the two counted initializer effects, producing `42`.
+
+The outer declaration keyword controls every real leaf of a pattern. `_` creates
+no binding. A `var` leaf extracted from a scalar field is a separate local slot;
+assigning it does not write back to the original field. Object leaves instead
+continue to share the same object.
+
+## Give a compile-time limit a name
+
+Declaration excerpt from the complete example:
+
+```kagari
+const LIMIT: i32 = 100;
+```
+
+The annotation selects `i32`; the initializer must be const-safe. The supported
+subset is scalar: Unit, booleans and primitive numeric values, with permitted scalar
+operations and references to constants. It is not a place to call a script or
+host function, construct a vector, or store mutable global state.
+
+The example later declares a local named `LIMIT`. In an ordinary declaration,
+a bare name binds even if it shadows a constant or a constructor such as `None`.
+Conditional and match patterns have different name-resolution rules; see
+<a href={page('language/patterns')}>patterns</a> before using them to test a value.
+
+## One useful mistake: assigning to val
+
+Deliberately invalid fragment, not a standalone program or diagnostic transcript:
+
+```text
+val x = 4;
+x = 5;
+```
+
+The second line tries to replace a non-rebindable slot. Use `var` if this same
+slot must change; use a new `val` declaration if you mean to introduce a new name
+in scope. Function parameters are also non-rebindable: copy an input into a local
+`var` when an algorithm needs a working counter.
+
+## Limits and next steps
+
+Local declarations require an initializer; delayed initialization is not supported.
+Field `val`/`var` controls assignment to that field, independently of whether the
+binding holding its enclosing object is `val`. Neither spelling supplies deep
+freeze or exclusive access, and neither bypasses checked host access.
+
+The precise repository rules are
+<a href={source('docs/spec/syntax.md#binding-and-field-writeability')}>binding and field writeability</a>,
+<a href={source('docs/spec/syntax.md#blocks-and-statements')}>declaration scope</a>
+and the scalar constant subset described under
+<a href={source('docs/spec/traits.md#associated-constants')}>associated constants</a>.
+Next, follow what a binding actually holds in
+<a href={page('language/values')}>types, values and shared identity</a>.

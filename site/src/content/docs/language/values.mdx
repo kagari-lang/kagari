@@ -1,0 +1,107 @@
+---
+title: Types, values and shared identity
+description: Follow scalar copies, GC-managed objects and shared identity through a small program.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+Before passing a record to a function, decide what the caller and callee will
+share. Kagari is statically typed, but static typing does not mean every assignment
+copies an object. This chapter builds on
+<a href={page('language/variables')}>bindings</a> and establishes the value model
+used by collections, closures and data models throughout the guide.
+
+## Two kinds of copying
+
+Scalars, strings, tuples and enums have **value semantics**. Copying an integer
+copies its number. Copying a tuple or enum follows the semantics of each member:
+a member that names an object still names that same object afterward.
+
+Structs, arrays, vectors, maps and sets are **identity-bearing objects**. Assignment,
+arguments and returns share their identity. Their script storage is managed by a
+tracing garbage collector, not by Rust moves, lifetimes or a script borrow checker.
+You can keep using an object after passing it to an ordinary function.
+
+`val` fixes a slot, not the referenced object. Read-only collection views likewise
+restrict operations through that view; they do not freeze another writable alias.
+There is no generic deep-copy or deep-freeze operation.
+
+## Watch a point change
+
+The example defines a `Point` record. You do not need all the declaration syntax
+yet; pay attention to the point, the pair of numbers and the `fetch` closure.
+
+<SourceExample
+  path="examples/syntax/data-model.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/data-model.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+`point` initially refers to a point with coordinates `20` and `21`. Updating its
+writable `y` field makes the sum `42`, even though `point` is a `val`.
+The tuple `pair` then receives the numbers `20` and `22`; the array `values`
+receives those numbers too.
+
+Later, `fetch()` returns the same point object. Assigning `fetch().y = 42` is
+visible through `point.y`. It does not change the numbers already stored in
+`pair` or `values`. The final sum is still `20 + 22`, so `main` returns `42`.
+
+Conceptual state after the mutation, not Kagari source:
+
+```text
+point and fetch()  -> the same Point object, now x=20, y=42
+pair               -> the value (20, 22)
+values             -> an array object containing 20 and 22
+```
+
+This distinction is shallow, not recursive. If a tuple held a vector instead of
+numbers, copying that tuple would preserve the vector's shared identity.
+
+## Choose a type deliberately
+
+Type annotations describe the values allowed in a slot or signature. Unsuffixed
+integer literals use surrounding constraints and otherwise default to `i32`;
+float literals otherwise default to `f64`. A suffix such as `20i64` selects a
+primitive type. It does not authorize arbitrary implicit numeric conversion.
+
+`[20, 22]` creates a fixed-length array of type `[i32]`, with writable elements.
+`Vec::from([20, 22])` explicitly constructs growable vector storage. Array length
+is not a type parameter, and a range index does not create a borrowed slice.
+Read about access views separately in
+<a href={page('library/collections')}>collections and access</a>.
+
+## Equality is not identity
+
+`==` asks a type's checked `PartialEq` implementation to compare values. Primitive
+numbers have this support; a user struct or enum needs an explicit implementation.
+Having fields or an object identity supplies no automatic equality implementation.
+
+`===` asks whether two statically known object operands identify the same object.
+`!==` is its negation. These operators do not call user equality code. Interface
+values cannot use them, even when the hidden payload is an object.
+
+Deliberately invalid fragment, not a diagnostic transcript:
+
+```text
+1 === 1
+```
+
+Integers are values, not identity-bearing objects. Use `==` to compare these
+numbers. Conversely, replacing `==` with `===` is not a way to implement content
+comparison for an arbitrary generic type or an erased interface.
+
+## Limits and next steps
+
+GC manages script reachability; it does not grant access to arbitrary Rust memory
+or remove host rooting and scoped-borrow rules. The external
+<a href={source('docs/spec/host-interop.md')}>host interop specification</a> owns
+those boundaries. Strings use byte lengths and UTF-8 boundary-checked slices,
+not an implicit character-indexed mutable buffer.
+
+For exact rules, read
+<a href={source('docs/spec/value-semantics.md#values-and-identity')}>values and identity</a>,
+<a href={source('docs/spec/value-semantics.md#accepted-comparison-design')}>comparison eligibility</a>
+and <a href={source('docs/spec/syntax.md#literals')}>literal typing</a>.
+Next, use these values in
+<a href={page('language/control-flow')}>operators and control flow</a>.

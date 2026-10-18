@@ -1,0 +1,94 @@
+---
+title: Specifications and sources
+description: Find the authoritative repository rules, current source APIs, and canonical examples without a second copied specification.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Use the guide to learn a task; use a specification to answer an exact behavior
+question. **All specification and source links below open the external GitHub
+repository on `main`.** They point to tracked owners, not copied website pages or
+versioned release API docs. Early-development source and contracts can change
+together.
+
+## Start with your question
+
+For example, if `readonly.len()` changes after another alias pushes an element,
+the behavior is not an accidental exception to `val`. Read the
+<a href={page('library/collections')}>collections walkthrough</a> for the scenario,
+then the collection contract below for the precise shallow/live access rule.
+Choose the corresponding owner for other questions:
+
+| Question | Authoritative repository reference |
+| --- | --- |
+| Which declarations, expressions and patterns are legal? | <a href={source('docs/spec/syntax.md')}>Syntax</a> and <a href={source('docs/kagari.ebnf')}>grammar</a> |
+| What is copied or shared? When do equality and hashing apply? | <a href={source('docs/spec/value-semantics.md')}>Value semantics</a> |
+| How do generic bounds, associated types and interface values work? | <a href={source('docs/spec/traits.md')}>Traits and interfaces</a> |
+| Which names and methods are installed or in the prelude? | <a href={source('docs/spec/builtins.md')}>Foundation, prelude and builtin behavior</a> |
+| What can a read-only collection do? What invalidates an iterator? | <a href={source('docs/spec/collection-access.md')}>Collection interfaces and storage</a> and <a href={source('docs/spec/builtins.md#iteration-protocols')}>iteration protocols</a> |
+| How do imports, package selection and dependencies resolve? | <a href={source('docs/spec/modules.md')}>Modules</a>, <a href={source('docs/spec/packages.md')}>packages/workspaces</a> and <a href={source('docs/spec/module-loading.md')}>loading</a> |
+| What survives a failed call, and what does cancellation mean? | <a href={source('docs/spec/failure-semantics.md')}>Failure and effects</a>, <a href={source('docs/spec/execution.md')}>execution</a> and <a href={source('docs/spec/security.md')}>access and execution control</a> |
+| Why does an error point at an earlier call? | <a href={source('docs/spec/error-reporting.md')}>Error origins and stacks</a> |
+| What do format/check/lint write or report? | <a href={source('docs/spec/toolchain-tools.md')}>Source tools and diagnostic output</a> |
+
+These references own the exhaustive signatures, bounds and admissible forms.
+This index intentionally does not maintain another trait inventory or repeat a
+specification's rules in full.
+
+## Host integration and reload references
+
+For Rust-host work, use the current repository contracts directly:
+
+- <a href={source('docs/spec/embedding-api.md')}>Embedding</a> describes the SDK
+  boundary and conversion behavior. It is a semantic API specification, not a
+  guarantee that every conceptual name is an exact current Rust identifier.
+- <a href={source('docs/spec/standard-declarations.md')}>Native declarations and library modules</a>
+  defines explicit installation and registration.
+- <a href={source('docs/spec/host-interop.md')}>Host interop</a> and
+  <a href={source('docs/spec/typed-path-mutation.md')}>typed path mutation</a>
+  own scoped access, declared members and mutation guarantees.
+- <a href={source('docs/spec/module-activation.md')}>Loading and activation</a>
+  defines checked publication and generation-pinned calls.
+- <a href={source('docs/spec/runtime.md')}>Runtime</a> and
+  <a href={source('docs/spec/reflection.md')}>reflection</a> describe the execution
+  and metadata boundaries.
+
+These are external references, not links to unshipped `host/*` tutorial routes.
+For supported versus deferred behavior, consult
+<a href={page('reference/status')}>status and limits</a> before treating a design
+proposal as an implemented API.
+
+## Artifacts, backends and debugger boundaries
+
+- <a href={source('docs/spec/artifacts.md')}>Artifacts</a> and
+  <a href={source('docs/spec/bytecode.md')}>bytecode</a>: executable products and
+  validation, rather than a serialized-source shortcut.
+- <a href={source('docs/spec/codegen-backend.md')}>Backend contract</a>,
+  <a href={source('docs/spec/jit.md')}>JIT</a> and
+  <a href={source('docs/spec/aot.md')}>AOT</a>: current native coverage, selection
+  and trust requirements.
+- <a href={source('docs/spec/debugger.md')}>Debugger</a>: existing hooks and adapter
+  boundary, not a promise of an interactive DAP editor session.
+- <a href={source('docs/spec/language-conformance.md')}>Language conformance</a>:
+  the semantic test organization and contract coverage.
+
+## Find current code and examples
+
+When writing Rust, check the concrete API and a maintained example together:
+
+| Task | Current source owner |
+| --- | --- |
+| Discover the SDK's public modules and features | <a href={source('crates/kagari/src/lib.rs')}>SDK entrypoint</a> and <a href={source('crates/kagari/Cargo.toml')}>feature definitions</a> |
+| Load a package and call typed public entries from Rust | <a href={source('crates/kagari/examples/package_workspace.rs')}>Package workspace host example</a> |
+| Look up an installed library declaration | <a href={source('crates/kagari-stdlib/src/catalog')}>Library declarations</a> |
+| Verify executable names and CLI arguments | <a href={source('crates/kagari-cli/Cargo.toml')}>CLI targets</a> and <a href={source('crates/kagari-cli/src/args.rs')}>argument parser and help</a> |
+| Install editor syntax support | <a href={source('editors/README.md')}>Editor tooling guide</a> |
+| Read complete Kagari programs | <a href={source('examples/syntax')}>Canonical syntax examples</a> and <a href={source('examples/standard-library.kgr')}>library example</a> |
+
+For the full maintained document list, open the
+<a href={source('docs/README.md')}>repository documentation index</a>.
+<a href={source('docs/project_goal.md')}>Project goals</a> explains direction;
+<a href={source('docs/implementation-roadmap.md')}>the roadmap</a> records pending
+work, not a second set of current language rules. Return to
+<a href={page('start/quickstart')}>the quickstart</a> or
+<a href={page('library/overview')}>the library guide</a> for example-led learning.

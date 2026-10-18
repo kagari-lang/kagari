@@ -1,0 +1,103 @@
+---
+title: Operators and control flow
+description: Compute with checked operators, choose branches and follow while, loop and for execution.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You want to accumulate numbers, skip one input and stop at a target. Use `while`
+when a condition controls repetition, `for` when a value supplies iteration, and
+`loop` when the exit belongs inside the body. This chapter assumes
+<a href={page('language/variables')}>val and var</a> and the
+<a href={page('language/values')}>shared-value model</a>.
+
+## Run the three loops
+
+<SourceExample
+  path="examples/syntax/control-flow.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/control-flow.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+Start with `index = 0` and `total = 0`. The `while` body increments the index
+before testing for `3`. At that value, `continue` jumps to the next condition
+check, skipping only the remaining work in that iteration. The additions are
+therefore `1 + 2 + 4 + 5 = 12`.
+
+The following `loop` tests the total before adding ten. Three additions produce
+`42`; the next test takes `break`. A bare `break` exits the nearest loop, not the
+enclosing function. `return` would leave the function instead.
+
+The `for` loop visits `20` and `22`, giving a separate sum of `42`. The early-break
+case then verifies that exiting iteration releases its cursor before a later
+vector mutation. The compact division-by-zero expressions check the example's
+expectations; they are not needed to write a loop.
+
+## Blocks and branches can produce values
+
+A block's final expression, without a semicolon, is its value. The last `total`
+is the `i32` result of `main`. Adding a semicolon would discard that value and
+leave Unit, `()`, at the end instead.
+
+The example also binds the result of `loop { break 42; }`. Here `break` supplies
+the loop expression's value. Use an `if` or `match` expression when a choice must
+produce a value, and ensure normally completing branches have compatible types.
+An explicit surrounding interface type can supply a conversion target, but
+branches do not discover a common interface by themselves.
+
+## Operators do not hide evaluation order
+
+Arithmetic such as `+`, `-`, `*`, `/` and `%` operates under checked typing.
+Integer overflow and invalid division trap in every build mode; they do not
+silently wrap in release builds. Explicit wrapping operations are separate APIs.
+Comparisons and custom arithmetic use their corresponding checked trait contracts.
+
+Operands, call arguments and indexes evaluate left to right, once each. `&&` and
+`||` short-circuit: the right operand runs only if needed. This matters when a
+condition calls a function with side effects. A trap stops later work, but does
+not undo effects already completed.
+
+For compound assignment, the right-hand side runs before the current target value
+is read and the validated replacement commits. If that right-hand side changes
+the same shared object, do not reason as though the old value was saved first.
+The precise <a href={source('docs/spec/value-semantics.md#evaluation-and-assignment')}>assignment contract</a>
+also covers targets that disappear during those effects.
+
+## Choose an iterable, not an implicit array
+
+`for` accepts the language's `Iterable` protocol. Vectors, supported collection
+views and ranges with a start can supply it. A range such as `0..5` visits zero
+through four lazily; `0..=5` includes five. Reversed finite bounds visit nothing.
+Each loop iteration introduces a fresh binding for closure capture.
+
+Ranges describe bounds rather than allocating all their elements. A range
+without a start, such as `..5`, is not an iterable sequence. See
+<a href={page('library/strings-iteration')}>strings and iteration</a> for cursors,
+adapters and mutation limits.
+
+## One useful mistake: a numeric condition
+
+Deliberately invalid fragment, not a standalone program or diagnostic transcript:
+
+```text
+if 1 { 42 } else { 0 }
+```
+
+A normal condition must be `bool`; there is no integer truthiness. Write the
+comparison that expresses your decision. For an enum test that also extracts a
+payload, use `if val pattern = expression`, introduced in
+<a href={page('language/patterns')}>patterns</a>.
+
+## Limits and next steps
+
+Loops and calls retain cooperative cancellation. An unbounded loop is not a
+promise that the host must let it finish. Bounds errors and arithmetic traps are
+not ordinary `Result` values that a branch can catch.
+
+The exact repository references are
+<a href={source('docs/spec/syntax.md#blocks-and-statements')}>blocks and statements</a>,
+<a href={source('docs/spec/syntax.md#expression-notes')}>ranges and iteration syntax</a>
+and <a href={source('docs/spec/failure-semantics.md#failure-classes')}>failure classes</a>.
+Next, put repeatable work behind
+<a href={page('language/functions')}>functions and closures</a>.

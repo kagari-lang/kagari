@@ -1,0 +1,114 @@
+---
+title: Collections and access
+description: Choose arrays or growable storage, expose live read-only views, and use hash keys with explicit equality contracts.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+Store scores in a growable sequence while giving a reader only the operations it
+needs. Before using this chapter, read about
+<a href={page('language/values')}>shared values</a> and the
+<a href={page('library/overview')}>library prelude</a>.
+
+## Separate storage from access
+
+| Need | Choose | What this means |
+| --- | --- | --- |
+| A fixed number of elements | An array, written `[T]` | Array literals such as `[20, 22]` create fixed-length shared objects. Elements can be replaced, but the array cannot grow. Length is not part of its type. |
+| Ordered, growable storage | `Vec<T>` | Preserves order and duplicates; supports collection mutation through its checked implementations. |
+| Read access without choosing storage | `List<T>` | An interface implemented by `Vec`, not a concrete allocation or a copy. It exposes reads and iteration, not container mutation. |
+
+`Vec::from(array)` explicitly creates independent sequence storage. It does not
+deep-copy referenced elements. An array is not implicitly a `Vec` or `List`, and
+arrays do not implement `List`/`MutableList`. Their own indexing and iteration
+still work.
+
+For empty storage, use `Vec::new()`, `HashMap::new()` or `HashSet::new()`, with a
+type annotation or explicit type arguments when the element types are otherwise
+unknown. Interfaces do not have constructors that secretly choose storage. There
+is no map/set literal syntax.
+
+## Give a reader a live view
+
+<SourceExample
+  path="examples/syntax/collection-access.kgr"
+  command="cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/collection-access.kgr"
+  result="main returns 42 after checking live list access, map replacement and set deduplication; the default runner does not print the return value."
+/>
+
+`values` begins with one element, `20`. Assigning it to `readonly: List<i32>`
+keeps the same underlying object. `append` accepts `MutableList<i32>`, so it can
+push `22`. The read-only view then sees length two and its final indexed reads
+sum to `42`. No snapshot was made when the view was created.
+
+The `size` function demonstrates the other use of an interface: a generic bound,
+`C: List<i32>`, accepts a concrete implementation without requiring a `List`
+variable at the call site.
+
+## Read-only does not mean frozen
+
+There are three separate questions:
+
+- Can the binding be reassigned? `val` says no; `var` says yes.
+- Can this access path change the container? `List` says no; `MutableList` exposes
+  mutators such as `push` and `set`.
+- Can a returned element be mutated? Its own type and fields decide that.
+
+For example, if a `List<Cell>` contains a struct with a writable `value` field,
+`readable[0].value = 42` changes that same `Cell`. It does not replace the list
+slot. Calling `readable.push(...)` or replacing `readable[0]` is rejected, while a
+writable alias can still change the container. Read-only access is **shallow and
+live**, not deep freezing or a concurrency guarantee.
+
+`Map`/`MutableMap` and `Set`/`MutableSet` make the same read/write distinction.
+A concrete implementation can convert to its implemented interface, and a mutable
+interface can upcast to its read-only parent. The reverse conversion is not
+implicit, and adapting an outer container does not recursively convert its elements.
+
+## Missing elements and invalid positions
+
+Use `get` when absence is an expected outcome: list `get` returns `None` outside
+its bounds; map `get` returns `None` for a missing key. `pop` on an empty list
+and an out-of-bounds list `remove` also return `None`.
+
+Indexing a list or array outside its bounds traps instead. Invalid list `set`
+or `insert` also traps; insertion at the current length is allowed. Prefer an
+explicit `get`/`match` when the caller should recover from absence rather than
+terminate the call.
+
+## Choose keys deliberately
+
+The example's `HashMap<String, i32>` requires `String: Eq + Hash`, and its
+`HashSet<i32>` requires `i32: Eq + Hash`. Those built-in types already satisfy
+the contracts. Inserting an equal map key keeps the latest value (`42` here);
+inserting an equal set element does not add a duplicate. Neither hash container
+promises insertion order or sorted traversal.
+
+For a user struct or enum key, implement `PartialEq`, `Eq` and `Hash` explicitly
+in its defining module. `Eq` promises an equivalence relation, and equal keys
+must produce equal hashes. Having an object identity alone does not supply those
+implementations. Floats do not supply `Eq + Hash`.
+
+Keep equality- and hash-relevant state stable while a key is stored, including
+writes through aliases. The `Map` and `Set` interfaces themselves do not require
+hash storage or impose `Eq + Hash`; those are the concrete hash containers'
+requirements.
+
+## Algorithms, sharing and iteration
+
+`List` provides new-result operations such as `sorted` and `reversed`;
+`MutableList` provides in-place operations such as `sort`, `reverse`, `retain`
+and `dedup`. Natural sorting requires `Ord`. A new result copies the container
+structure, not referenced element objects. In-place algorithms are not
+transactions: callback failure or cancellation does not undo completed effects.
+
+A saved native iterator is also not a snapshot. A structural edit through an alias
+commits, then its next affected read traps. Element replacement is different from
+growth or reordering; see <a href={page('library/strings-iteration')}>iteration and mutation</a>.
+
+The external <a href={source('docs/spec/collection-access.md')}>collection contract</a>
+owns the full method/bounds inventory, content comparison helpers and precise
+failure rules. <a href={source('docs/spec/value-semantics.md#equality-and-hashing')}>Equality and hashing</a>
+and the <a href={source('crates/kagari-stdlib/src/catalog/collections.rs')}>interface declarations</a>
+are the reference owners, not an additional guide API table.

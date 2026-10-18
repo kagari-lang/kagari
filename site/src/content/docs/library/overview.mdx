@@ -1,0 +1,90 @@
+---
+title: Library and prelude
+description: Use the installed foundation, distinguish implicit prelude names from imports, and find current library contracts.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+Suppose you have a few scores to sort, total and look up by name. You can use the
+bundled library for those operations without choosing a package from a registry.
+This chapter assumes you can read a function, a collection literal and a `match`;
+the <a href={page('start/quickstart')}>quickstart</a> establishes the basic execution
+workflow.
+
+## Sort and store an answer
+
+<SourceExample
+  path="examples/standard-library.kgr"
+  command="cargo run --locked -p kagari-cli --bin kg -- run examples/standard-library.kgr"
+  result="main returns 42; the default runner exits successfully without printing the return value."
+/>
+
+Follow the values rather than the import list:
+
+1. `[22, 20]` constructs a fixed-length array. `Vec::from` creates a separate,
+   growable sequence containing those two values.
+2. `sort()` changes that vector to `[20, 22]`. The `val` binding still refers to
+   the same object; `val` prevents rebinding, not object mutation.
+3. `map` builds a lazy iterator. The callback here returns each score unchanged;
+   the `for` loop drives it and accumulates `42`.
+4. Inserting the total under `"answer"` makes it available through `map.get`.
+   A map lookup returns `Option`, so `match` handles both a found value and a
+   missing key. The set separately checks whether `42` is present.
+
+The return value is not a printed report. The example's early returns make an
+unexpected condition return zero; its successful path returns the stored answer.
+
+## Why some names need no import
+
+A **prelude** is a small set of implicitly available names. `Vec`, `String`,
+`Option`, `Result` and their `Some`, `None`, `Ok`, `Err` constructors are examples.
+Iteration traits such as `Iterator` and `Iterable`, common comparison/conversion
+traits and `Default` are also in the prelude. Local declarations and explicit
+imports take precedence over these implicit names.
+
+The prelude is not the entire library. The example explicitly imports `HashMap`
+and `HashSet` from `std::collections`. Collection interfaces such as `List` and
+`MutableList`, and names such as `Hash`, `Debug`, `Display` and `Ordering`, also
+need explicit imports when you name them. An operator can work without its trait
+name being imported; writing that trait's bound or implementation requires the
+name in scope.
+
+The example also imports the `std::collections` module. That is not a special
+switch enabling `map`: transformation methods belong to the ordinary `Iterable`
+API, which is already in the prelude.
+
+## Paths are names, not ownership rules
+
+`core` contains foundational types and traits, `alloc` owns `String` and `Vec`,
+and `std::collections` contains the collection interfaces and hash containers.
+Public `std` paths re-export canonical declarations; for example,
+`std::option::Option` and `core::option::Option` name the same type. Choosing a
+spelling does not change its implementations or turn a shared object into a
+Rust-owned value.
+
+These facilities are installed by the normal Kagari engine and available to the
+CLI independently of optional application libraries. Importing a name makes it
+visible; it does not install a new Rust service. Host-sensitive operations such
+as application IO require explicitly installed host APIs. See the external
+<a href={source('docs/spec/standard-declarations.md')}>native library and installation contract</a>
+for that boundary.
+
+## Find an API without guessing from Rust
+
+Rust-inspired names do not promise Rust's full standard library. Do not assume
+that a Rust convenience method, a different container class or an enum combinator
+is available. The foundation currently defines **41 traits**, including the
+**26 reserved language traits**; the complete
+<a href={source('docs/spec/builtins.md#foundation-trait-inventory')}>foundation inventory</a>
+and <a href={source('docs/spec/builtins.md#namespaces-and-prelude')}>prelude/path contract</a>
+are maintained in one place, rather than repeated as a second API table here.
+
+For current signatures, use those contracts and the
+<a href={source('crates/kagari-stdlib/src/catalog')}>installed declaration sources</a>.
+The guide focuses on tasks and observable behavior, not a generated API catalog.
+
+Continue with <a href={page('library/collections')}>collections and read-only access</a>,
+then <a href={page('library/strings-iteration')}>strings and iteration</a>. For
+`Option`/`Result` control flow, read
+<a href={page('language/error-handling')}>error handling</a>.

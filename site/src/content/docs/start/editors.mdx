@@ -1,0 +1,110 @@
+---
+title: Editor setup
+description: Install local Zed or VS Code syntax support and understand the separate analyzer's current limits.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Make `.kgr` files easier to read and edit, then use the CLI to check them. The
+repository provides local syntax adapters for Zed and VS Code. They supply
+highlighting, comment toggling and bracket/quote pairing, **not** type checking
+or automatic language-server startup. They are not marketplace releases.
+
+## Choose syntax support first
+
+Basic highlighting needs neither `kg` nor `kagari-analyzer`, and works on a file
+without a `Kagari.toml` manifest. Installing from this checkout does require the
+editor tooling's development dependencies: Node 22.12 or newer, npm, Python 3 and
+a native C/C++ toolchain. Windows users need Visual Studio C++ build tools; the
+<a href={source('editors/README.md#development-prerequisites')}>editor prerequisite guide</a>
+also covers selecting a uv-managed Python.
+
+From the repository root:
+
+```sh
+cd editors
+npm ci
+```
+
+This installs the locked editor build tools and may download packages, the
+Tree-sitter CLI and Node headers. It does not publish an extension. Run the
+following editor-specific commands from `editors/` too.
+
+### VS Code
+
+Package the local extension:
+
+```sh
+npm run package:vscode
+```
+
+In VS Code, choose **Extensions: Install from VSIX...** and select
+`target/editors/kagari-language-0.1.0.vsix` beneath the **repository root**, not
+beneath `editors/`. Open a `.kgr` file and check that its language mode is
+**Kagari**. The current extension requires VS Code 1.142.0 or newer.
+
+The installed VSIX is declarative: it has no activation code, analyzer process or
+Node-module runtime requirement. Its TextMate grammar recognizes lexical regions;
+a colored identifier is not proof that a type or function resolves. For the
+Extension Development Host workflow, use the
+<a href={source('editors/vscode/README.md')}>VS Code adapter guide</a>.
+
+### Zed
+
+Stage a local extension snapshot:
+
+```sh
+npm run stage:zed
+```
+
+Use Zed's **Extensions → Install Dev Extension** command and select the printed
+`extensionDirectory`. **Do not install `editors/zed/` directly.** Staging points
+the extension at the checkout's actual grammar snapshot, including local grammar
+changes. Keep the entire printed staging tree while the extension is installed,
+and restage/reinstall after changing grammar or queries.
+
+Zed must compile and load a real WASM grammar. The documented development setup
+uses WASI SDK 34; an ordinary native C compiler or a Rust WASM target does not
+replace it. Follow the
+<a href={source('editors/zed/README.md#real-wasm-build')}>Zed SDK and WASM build instructions</a>,
+including the Windows/WSL choices, if the SDK is not already available. Staging
+success alone does not establish that the editor loaded the grammar.
+
+## Try an interpolation example
+
+Open <a href={source('examples/syntax/string-interpolation.kgr')}>the canonical string interpolation example</a>.
+In `f"Hello {name}, score={score + 2}"`, the text should be highlighted as string
+text and the expressions inside braces as code. Try comment toggling and pairing
+in code versus string text. These are editing behaviors, not semantic diagnostics.
+
+To check and execute the file, return to the repository root:
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/string-interpolation.kgr
+cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/string-interpolation.kgr
+```
+
+The program checks its constructed strings and returns `42`. The default runner
+exits successfully without printing that return value. An editor theme may choose
+different colors; the CLI, not the color scheme, determines whether the program
+is valid.
+
+## What the analyzer does today
+
+`kagari-analyzer` is a **separate Rust executable**. Its current stdio LSP
+foundation supports initialization, shutdown and open/close/full-text document
+synchronization with UTF-16 positions. It does not yet provide diagnostics,
+completion, go-to-definition, semantic tokens or formatting, and the adapters do
+not launch it. Installing a syntax extension therefore does not silently enable
+those features.
+
+There is no need to start the analyzer to follow this manual. Protocol-client
+authors can consult the
+<a href={source('docs/architecture.md#language-server-foundation')}>current analyzer capabilities</a>
+and <a href={source('crates/kagari-analyzer/src')}>analyzer source</a>; running a
+stdio server in a terminal is not an interactive checking command.
+
+Use <a href={page('reference/cli')}>CLI check, lint and format</a> for source tools
+now. The <a href={source('editors/README.md')}>repository editor guide</a> owns detailed
+installation and tested platform scope; <a href={page('reference/status')}>status and limits</a>
+distinguishes current tools from planned IDE features.

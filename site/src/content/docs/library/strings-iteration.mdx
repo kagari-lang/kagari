@@ -1,0 +1,120 @@
+---
+title: Strings and iteration
+description: Build immutable text, use checked UTF-8 byte ranges, and consume ordinary lazy iterators without assuming Rust borrowing.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+Build a message from values, then process a sequence one item at a time. This
+chapter builds on <a href={page('library/collections')}>collections</a> and
+<a href={page('language/functions')}>functions and closures</a>.
+
+## Format a message
+
+<SourceExample
+  path="examples/syntax/string-interpolation.kgr"
+  command="cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/string-interpolation.kgr"
+  result="The program checks its formatted strings and main returns 42; the default runner exits successfully without printing the message or return value."
+/>
+
+`f"Hello {name}, score={score + 2}"` evaluates the expressions and produces
+`"Hello Kagari, score=42"`. The expression can do arithmetic; it is not a textual
+name substitution. Ordinary holes use `Display`, while `:?` selects `Debug`:
+the debug representation of `name` includes quotes. Doubled braces, `{{` and
+`}}`, produce literal braces. Formatting evaluates expressions left to right,
+with ordinary effects and failures.
+
+A `String` is an immutable value. Trimming, replacement and slicing produce
+strings rather than exposing a writable character buffer or a borrowed Rust
+`&str`. Assigning a string does not grant mutation of its contents.
+
+## Work with UTF-8 bytes deliberately
+
+`len()` counts **UTF-8 bytes**, not displayed characters or Unicode scalar values.
+For example, `"é!"` has three bytes: two for `é`, then one for `!`.
+`slice(0, 2)` selects `é` using a half-open range; `slice(0, 1)` traps because its
+end splits a UTF-8 encoding. Reversed or out-of-range slices also trap with
+`IndexOutOfBounds`. A checked slice returns a string value, not a script borrow
+whose lifetime must be tied to the original string.
+
+For searching, `find(pattern)` returns `Option<usize>` containing a **byte**
+offset. `contains`, `starts_with`, `ends_with` and `replace` use literal patterns,
+not regular expressions. `trim` and its one-sided variants remove Unicode
+whitespace. `split(separator)` eagerly returns a `List<String>`; iterating that
+list is different from iterating the original string.
+
+Empty patterns have defined behavior: `find("")` returns `Some(0)`, while empty-pattern
+replacement and splitting use Unicode scalar boundaries, including both ends.
+Do not infer string indexing, `.chars()`, `.bytes()`, regex or locale APIs from
+Rust: the current foundation does not provide string traversal. The
+<a href={source('docs/spec/builtins.md#primitive-operations-and-formatting')}>string contract</a>
+and <a href={source('crates/kagari-stdlib/src/catalog/strings.rs')}>String declarations</a>
+own the exact supported surface.
+
+## Delay work until consumption
+
+<SourceExample
+  path="examples/syntax/collection-pipelines.kgr"
+  command="cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/collection-pipelines.kgr"
+  result="The mapper runs zero times during construction and twice during the loop; main returns 42 without the default runner printing it."
+/>
+
+Sorting puts the two values in order. Calling `map` obtains a source cursor, but
+does not pull an item or invoke the closure, so `calls` is still zero. The `for`
+loop advances the saved iterator, invoking the mapper once for each item; it ends
+with `calls == 2` and `total == 42`.
+
+Transformations such as `map`, `filter` and `take` are lazy. Terminal operations
+such as `collect`, `fold`, `sum` and `count` consume items. For `collect`, `sum`
+and `product`, a destination type annotation or explicit method type argument
+must determine the result type. `find`, `any` and `all` can stop early, without
+an extra pull after the answer is known.
+
+These are ordinary methods of `Iterable`, available on containers, constrained
+generic values and custom implementations. `Iterator` itself requires only
+`next`; an iterator automatically acts as its own iterable and gets the same
+method chains. There is no separate query syntax or special compiler-only
+pipeline API.
+
+## Implement ordinary iteration
+
+<SourceExample
+  path="examples/syntax/iterators.kgr"
+  command="cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/iterators.kgr"
+  result="Counter yields 0 through 6, totaling 21; the second sequence totals 21, so main returns 42 without printed output from the default runner."
+/>
+
+`Iterator::next` returns `Some(item)` or `None`. `Iterable::iter` supplies a cursor
+whose associated `Item` agrees with the iterable's `Item`. Here `Range::iter`
+creates a fresh `Counter`; `next` reads and increments its shared `current` field.
+The generic `sum` function can consume both this custom range and the mapped
+sequence.
+
+A `for` loop evaluates its source once, calls `iter` once, then calls `next`
+until `None`. `continue` asks for the next item; `break` stops without another
+read. This is method dispatch with normal side effects, not a Rust borrow or
+move of each stored object.
+
+## Understand saved progress and mutation
+
+Aliases of the **same cursor or adapter** share progress. Calling `iter()` on a
+collection again creates an independent cursor. Native cursors retain their
+source and read slots on demand rather than copying the whole collection.
+
+Retaining a native cursor does not lock its collection against writes. Replacing
+a sequence element can be seen by the next read, but growth, removal or reordering
+changes the structure. Such an edit commits through any writable alias, and the
+existing cursor traps on its next source read. A read-only view does not prevent
+that invalidation. Already completed writes and callback effects remain visible.
+A lazy adapter checks only sources it actually pulls; `take(0)`, for example,
+does not advance its source to discover an otherwise stale cursor.
+
+Custom iterators own their own state and consistency rules. Do not assume every
+iterator resets, is fused after `None`, reports an exact length or can be cloned
+into independent progress. See the external
+<a href={source('docs/spec/builtins.md#iteration-protocols')}>iteration contract</a>
+for all current adapters and consumption rules, and
+<a href={source('docs/spec/collection-access.md')}>collection access</a> for mutation
+boundaries. Continue to <a href={page('reference/specifications')}>the reference index</a>
+when you need a precise rule rather than a walkthrough.

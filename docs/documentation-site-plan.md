@@ -3,7 +3,7 @@
 ## Status and authority
 
 Status: active; implementation and one commit per phase authorized on 2026-10-18.
-DW01-DW02 are complete; DW03 is next. Pushes, GitHub settings and public activation are
+DW01-DW03 are complete; DW04 is next. Pushes, GitHub settings and public activation are
 not authorized.
 The [roadmap](implementation-roadmap.md#language-documentation-website) owns activation
 and queue placement. This plan owns DW01-DW05, content scope, remaining decisions,
@@ -393,7 +393,7 @@ Conventional, with `Plan-Phase: DW0N` trailers when commits are authorized.
 
 - [x] DW01: freeze tools, content routes, ownership and publication boundary.
 - [x] DW02: static site foundation, shared syntax highlighting and real entry pages.
-- [ ] DW03: bounded language/library manual and reference navigation.
+- [x] DW03: bounded language/library manual and reference navigation.
 - [ ] DW04: embedding/reload guide and least-privilege Pages workflow.
 - [ ] DW05: selected local/browser acceptance and documentation handoff.
 
@@ -500,3 +500,25 @@ tests. Initial dependency download timed out and succeeded on bounded retry;
 nonfatal Windows cleanup and optional Starlight collection warnings do not establish
 missing rendered pages. No carried build/test error. Browser/live Pages and CI Node
 24 remain unrun. Source-file whitespace/diff review precedes the phase commit.
+
+### DW03 — bounded language/library manual
+
+Completed all 20 non-host routes: ten language chapters, three library guides,
+installation/editor setup and three references, plus the existing two entry pages.
+Integrated route metadata and progression links. Shared-value/GC semantics precede
+abstraction; examples explain values/effects instead of internal crate mechanics.
+No copied spec, fabricated diagnostic transcript or unshipped-host route. Independent
+source/spec review found no concrete semantic or API/output error.
+
+Passed Astro type/content/build and generated checks for 20 pages/404, 19 canonical
+source includes, metadata/base/anchors/assets/search/sitemap, and all 15 script
+tests. Navigation count failed temporarily before metadata integration and passed
+afterward. CLI metadata/build/help verified current targets. Selected checks/runs
+cover control flow, binding patterns, Default/update, package-workspace, strings,
+collections, iteration and the source/artifact command round trip. Help currently
+returns usage status 2; fmt --check on the canonical control-flow file reports
+existing KG_FORMAT_DIFFERENCE/status 1, correctly documented without modifying the
+example. No full Rust or editor suite, dependency change or browser claim.
+
+No carried website build/test failures. DW04 owns four host pages and workflow;
+DW05 still owns actual browser/live-publication limits and final handoff.

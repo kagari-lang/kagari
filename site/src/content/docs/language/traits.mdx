@@ -1,0 +1,125 @@
+---
+title: Generics, traits and interfaces
+description: Use checked generic bounds, associated outputs and explicit interface types without Rust ownership rules.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You want one function to read several kinds of record without losing static
+checking. A type parameter names a caller-selected type; a trait bound states
+which operations it supports. An interface value instead hides its concrete type
+behind a chosen contract. Start with
+<a href={page('language/functions')}>functions</a> and
+<a href={page('language/data-model')}>concrete records</a>.
+
+## Require an operation, not a particular record
+
+<SourceExample
+  path="examples/syntax/where-bounds.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/where-bounds.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+`Read` promises a `read(self) -> i32` method. `Number` implements it explicitly.
+`value_of<T>` accepts any checked T satisfying `where T: Read`; it can therefore
+call `item.read()` without assuming Number's fields. Passing `Number { value: 42 }`
+produces `42`. Inline `T: Read` and a trailing `where` express the same requirement.
+
+A bound makes operations available; it does not implicitly construct an interface.
+Generic structs and enums likewise preserve their type arguments. Operators need
+their own evidence: equality requires PartialEq, hashing requires Eq + Hash, and
+addition uses an Add contract with its output. There is no magic broad numeric
+bound that grants every arithmetic and comparison operation.
+
+`AlsoRead: Read` requires a parent contract. Number implements each separately;
+implementing the child does not manufacture a Read implementation. A child bound
+exposes inherited methods. A compatible child interface can also be viewed through
+an expected parent interface type without copying its underlying object.
+
+## Let an implementation choose an output type
+
+<SourceExample
+  path="examples/syntax/associated-types.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/associated-types.kgr"
+  result="main returns 42 by adding the four reads 20, 20, 1 and 1; the non-JIT CLI prints no return value."
+/>
+
+Reader's `type Item: Eq + Hash` is an **associated output**. The implementation for
+Number defines it as `i32`. Unlike a trait input parameter, an output is chosen
+by that receiver's implementation for the applied trait; it does not distinguish
+two otherwise identical implementations.
+
+`read_generic<R: Reader>` returns `R::Item`. `read_integer` additionally requires
+`Item = i32`, so its declared result can be i32. `<R as Reader>::Item` explicitly
+selects the owner when a short projection would be ambiguous. Output bounds are
+checked on definitions and available to generic callers; the example imports Hash
+because it is not in the prelude.
+
+## Use an interface when the concrete type should be hidden
+
+`read_interface(reader: Reader<Item = i32>)` takes an interface value. Its argument
+context requests conversion of a Number to that exact interface. Kagari writes
+the trait name directly, not `dyn Reader` or a borrowed Rust trait object.
+The call still returns a statically known i32.
+
+A concrete applied implementation can supply an interface, including generic
+receiver shapes with known arguments. This is different from erasing a bare
+`T: Reader`: a bound alone currently cannot supply an interface-construction
+witness. Calling the bound method remains supported. The
+<a href={source('examples/syntax/generic-interfaces.kgr')}>generic interface example</a>
+uses a known `Holder<T>` shape, not unchecked erasure of arbitrary T.
+
+An annotation, parameter, field or declared result can supply the interface target
+for differing concrete branches. Without it, `if` and `match` do not search for a
+common implemented trait. Interface conversion preserves object sharing; it does
+not grant equality, identity operators or extra methods of the hidden concrete type.
+It is not an allocation-free promise.
+
+## One useful mistake: leaving the output unknown
+
+Deliberately invalid definition using the example's Reader, not a diagnostic transcript:
+
+```text
+fn read_unfixed(reader: Reader) {}
+```
+
+A dynamic caller needs to know every ordinary associated output. Here Item has no
+binding or contextual source, so the interface type is incomplete. Use a fixed
+`Reader<Item = i32>` contract, or a generic `R: Reader` when the concrete type and
+its projection should remain part of the function's checked contract.
+
+## Which traits can be interfaces?
+
+Every method must have `self`. After substituting known trait inputs and output
+bindings, other parameters, results and bounds must not need the hidden concrete
+Self. A method returning Self, or taking `other: Self`, keeps that trait static-only.
+PartialEq is an important example. All parents must satisfy the same rules.
+
+Method type parameters are supported through compatible interfaces; do not import
+Rust's blanket ban on generic trait-object methods. Each call still checks its
+arguments and bounds. A method body can provide a default implementation, and an
+explicit override wins for both static and dynamic calls. This is separate from
+the construction trait named Default.
+
+Scalar associated constants and type-parameterized associated type families are
+also implemented, but traits declaring or inheriting them are static-only.
+Associated type defaults, lifetime/const-parameterized families, specialization
+and automatic derive are not part of this feature set. See the runnable
+<a href={source('examples/syntax/associated-constants.kgr')}>constant</a>,
+<a href={source('examples/syntax/generic-associated-types.kgr')}>type-family</a> and
+<a href={source('examples/syntax/default-methods.kgr')}>default-method</a> examples.
+
+## Limits and next steps
+
+Receiver `self` follows ordinary shared-value semantics, not move or exclusive
+borrow rules. Interfaces do not expose a universal Object/Any API. Source interface
+downcasting remains planned, not an available `is` or `downcast` operation.
+Nor does this chapter promise Rust's complete blanket-implementation or orphan-rule
+system; implementations must satisfy Kagari's checked applicability rules.
+
+The precise owners are <a href={source('docs/spec/traits.md#static-trait-bounds')}>static bounds</a>,
+<a href={source('docs/spec/traits.md#ordinary-associated-types')}>associated outputs</a>,
+<a href={source('docs/spec/traits.md#interface-compatibility-rules')}>interface compatibility</a>
+and <a href={source('docs/spec/traits.md#current-interface-conversion-boundary')}>conversion limits</a>.
+Next, organize these declarations with <a href={page('language/modules')}>modules and packages</a>.

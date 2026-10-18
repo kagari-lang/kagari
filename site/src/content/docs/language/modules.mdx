@@ -1,0 +1,117 @@
+---
+title: Modules and packages
+description: Organize declarations, control visibility and connect source packages through explicit dependencies.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You want to separate a calculation from its caller, then reuse it in another source
+package. A **module** groups declarations under a path. A **package** gives a root
+module and its declared dependencies a source identity. Imports make names
+available; they do not run code. This chapter assumes
+<a href={page('language/functions')}>explicit function calls</a>.
+
+## Start with a child module
+
+<SourceExample
+  path="examples/syntax/inline-modules.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/inline-modules.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+`mod model { ... }` creates a child module in the same physical file.
+`pub(super)` makes `value` accessible to its parent module and descendants.
+`use self::model::*` imports its accessible members into the current module;
+the call in `main`, not the import, executes `value` and yields `42`.
+
+Use named imports for a small explicit dependency surface. Aliases (`as`) and
+grouped import trees are also supported. Local declarations and explicit imports
+take precedence over globs; conflicting glob names are errors rather than a
+rule that whichever file loads last wins.
+
+## Read a path and its access boundary
+
+`self` begins at the current module, `super` at its parent, and `crate` at the
+package root. A dependency alias names a direct dependency of the importing
+package. These are logical paths, not arbitrary filesystem strings.
+
+Unmarked items and fields are private to their module and descendants. `pub`
+permits access from other module trees; `pub(crate)` permits access throughout
+the same package. Every component of a direct path must be accessible. `pub use`
+can expose a public declaration through a private implementation module, but
+cannot make an intrinsically private target public.
+
+Types and values occupy separate name spaces. A named import can bind both
+categories when both exist. A local value named Option does not hide the Option
+type, and a value named like a module does not hide that module in a path prefix.
+This is checked name resolution, not a dynamically mutable module dictionary.
+
+## Move a child into a file
+
+`mod events;` declares a separately loaded child. Exactly one of `events.kgr`
+or `events/mod.kgr` must exist relative to the declaring module's directory.
+Children of either form live beneath `events/`. Undeclared files are not silently
+compiled just because they sit beside the root. Both file candidates existing is
+an ambiguity, not a preference for one spelling.
+
+A package uses `Kagari.toml`; its default root is `src/lib.kgr`. The checked source
+closure includes declared modules and dependencies, including uncalled bodies
+and dependencies used only for trait implementations. Invalid source inside that
+closure cannot be hidden by leaving its functions uncalled.
+
+## Follow a real package dependency
+
+The complete root file below belongs to the canonical workspace's gameplay
+package. Its sibling files are required; it is not a standalone single-file sample.
+Run the command against the manifest, from the repository root.
+
+<SourceExample
+  path="examples/package-workspace/gameplay/src/lib.kgr"
+  command="cargo run -p kagari-cli -- run --manifest-path examples/package-workspace/Kagari.toml -p gameplay"
+  result="main returns 42: on_login contributes damage(20) = 40 and tick contributes bonus(()) = 2. The non-JIT CLI prints no return value."
+/>
+
+The <a href={source('examples/package-workspace/gameplay/Kagari.toml')}>member manifest</a>
+explicitly inherits `rules` from the
+<a href={source('examples/package-workspace/Kagari.toml')}>workspace dependency table</a>.
+The <a href={source('examples/package-workspace/gameplay/src/events.kgr')}>events child</a>
+calls `rules::damage(20)`, while
+<a href={source('examples/package-workspace/rules/src/lib.kgr')}>rules</a> supplies
+both damage and bonus. Public re-exports preserve those declarations' identities;
+they do not duplicate the functions.
+
+Workspace membership alone grants no import access. Dependencies need explicit
+edges, and aliases expose only direct dependencies unless an accessible re-export
+provides another path. Each selected root compiles with its dependency closure
+into one Program. There is no separate package-library binary linker.
+
+## One useful mistake: executing at module scope
+
+Deliberately invalid module contents, not a diagnostic transcript:
+
+```text
+fn answer() -> i32 { 42 }
+answer();
+```
+
+A module contains declarations, not top-level executable statements. Put the call
+inside `main` or another explicitly invoked function. Importing or loading a
+Program does not initialize hidden module state or invoke every declared function.
+The CLI selects a zero-argument, non-generic root `main`; a library needs no main
+merely to be checked or built.
+
+## Limits and next steps
+
+Supported package sources are approved local paths or explicitly supplied host
+source packages, not a remote registry or Git dependency syntax. Workspaces use
+a shared Kagari.lock; a lock records selections, not an immutable snapshot of
+mutable checkout contents. Reload is host-managed, and in-flight calls retain
+their pinned program/dependency versions; imports do not retarget old calls.
+See the external <a href={source('docs/spec/module-activation.md')}>activation contract</a>.
+
+The precise references are <a href={source('docs/spec/modules.md')}>modules and visibility</a>,
+<a href={source('docs/spec/module-loading.md#source-discovery-and-imports')}>file discovery</a>
+and <a href={source('docs/spec/packages.md#manifests')}>packages and manifests</a>.
+For CLI selection, use <a href={page('reference/cli')}>the CLI guide</a>.
+Next, create related records with <a href={page('language/default-updates')}>Default and struct update</a>.

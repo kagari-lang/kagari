@@ -1,0 +1,91 @@
+---
+title: Install from source
+description: Build the kg executable from the Kagari checkout and verify it with a small program.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Build the command-line tool, then check and run a program. Kagari is in early
+development: there is **no functional published toolchain release**. The registry
+reservation packages are not usable compiler or SDK releases. Use this source
+workflow, not `cargo install kagari-cli`.
+
+## Prepare your machine
+
+You need Git, Cargo and a Rust toolchain that can build this checkout's
+<a href={source('Cargo.toml')}>Rust 2024 workspace</a> and locked dependencies.
+Install Rust through <a href="https://rustup.rs/">rustup</a> if needed. The
+workspace does not currently declare a minimum Rust version; an edition number
+alone is not a promise that every dependency builds on that edition's first compiler.
+
+On Windows, use the linker and native build tools required by your Rust target;
+for an MSVC toolchain, install the Visual Studio C++ build tools and Windows SDK.
+Run Cargo from a terminal where that toolchain is available. The commands below
+use forward-slash repository paths, which Cargo accepts on Windows too.
+
+Node and npm are for developing the website or editor adapters. They are not
+required to build `kg` or run a script.
+
+## Build the CLI
+
+Clone the repository and enter its root:
+
+```sh
+git clone https://github.com/kagari-lang/kagari.git
+cd kagari
+cargo build --locked -p kagari-cli --bin kg
+```
+
+The Cargo **package** is `kagari-cli`; its **executable target** is `kg`, not
+`kagari`. `--locked` keeps the checked-in Rust dependency selection. The first
+build can download dependencies and needs network access unless they are already
+available locally.
+
+Use Cargo to launch the executable without assuming its output directory or
+adding a local build directory to `PATH`:
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- --help
+```
+
+Arguments after `--` go to `kg`, rather than Cargo. Help prints the available
+commands. **Currently help exits with status 2**, using the same usage path as
+invalid arguments; Cargo therefore also prints a non-success message. Seeing
+that status after the usage text does not mean the build failed.
+
+## Check that execution works
+
+From the same repository root:
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/control-flow.kgr
+cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/control-flow.kgr
+```
+
+`check` enforces language rules without executing the program. `run` compiles it
+and calls its `main`. The example returns `42`; the default, non-JIT runner does
+**not** print that value and exits with status zero, not 42. Cargo's build/run
+messages are separate from script output. The
+<a href={page('start/quickstart')}>quickstart</a> shows the full source and explains
+how the loops produce that result.
+
+If a command fails, distinguish a Rust build/link error from a Kagari source
+diagnostic. Fix a missing Rust toolchain or linker before investigating script
+syntax. For source errors and automation-friendly reports, see
+<a href={page('reference/cli')}>CLI and diagnostics</a>.
+
+## Keep using the checkout
+
+After updating the checkout, rebuild with the same command. Source APIs and
+artifacts may change during early development; regenerate affected build products
+rather than treating an old local binary as a versioned release.
+
+These instructions use the default interpreter path. Optional `jit` and `aot`
+Cargo features are not required for the manual; their native execution limits are
+linked from <a href={page('reference/status')}>status and limits</a>.
+
+Next, set up <a href={page('start/editors')}>editor syntax support</a> or start the
+<a href={page('start/quickstart')}>quickstart</a>. The
+<a href={source('crates/kagari-cli/Cargo.toml')}>CLI target and feature definitions</a>
+and <a href={source('docs/implementation-roadmap.md#toolchain-distribution-and-modes')}>distribution status</a>
+are external repository references.

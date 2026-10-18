@@ -1,0 +1,142 @@
+---
+title: CLI and diagnostics
+description: Select source or project commands, check and lint without execution, and interpret kg output and exit statuses.
+---
+
+import { page, source } from '@site/links.mjs';
+
+Use `kg` to check a program before executing it, format source, or inspect a
+reported failure. Build it through <a href={page('start/installation')}>source installation</a>
+first. Commands below run from the repository root and use Cargo so they do not
+assume a binary directory is on `PATH`.
+
+## Check, then run
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/control-flow.kgr
+cargo run --locked -p kagari-cli --bin kg -- run examples/syntax/control-flow.kgr
+```
+
+`check` validates language rules without executing source. `run` compiles and
+calls the program's separate `main` entry. This example returns `42`; the default
+runner exits with zero and does not print that return value. See the
+<a href={page('start/quickstart')}>quickstart</a> for its source and result.
+
+A returned top-level `Result::Err` is different: the CLI reports it on stderr
+and exits with status 1. A handled inner `Err`, `Ok` or `None` does not by itself
+produce that failure report. Traps such as checked overflow also fail execution;
+`?` does not catch a trap or undo completed effects.
+
+## Select a command by task
+
+In this table, `kg` means the executable built above; through Cargo, replace it
+with `cargo run --locked -p kagari-cli --bin kg --`.
+
+| Task | Command form | Effect |
+| --- | --- | --- |
+| Inspect syntax only | `kg parse file.kgr` | Parses one file; does not establish type correctness. |
+| Check language rules | `kg check file.kgr` | Reports required diagnostics, without execution or executable output. |
+| Check style too | `kg lint file.kgr` | Performs required checks and adds optional lint findings. |
+| Preview formatting changes | `kg fmt file.kgr --check` | Reports differences without writing. Exit 1 can mean formatting differences, not a language error. |
+| Apply formatting | `kg fmt file.kgr` | Rewrites changed files while preserving non-whitespace tokens, including comments. |
+| Build a single-file artifact | `kg emit -o output.kbc file.kgr` | Emits a complete bytecode artifact without running it. |
+| Execute an artifact | `kg run-artifact output.kbc` | Validates and runs the artifact without reading source or package manifests. Required native bindings must still match. |
+
+For a concrete artifact round trip, keep disposable output under `target/` in
+this checkout:
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- emit -o target/control-flow.kbc examples/syntax/control-flow.kgr
+cargo run --locked -p kagari-cli --bin kg -- run-artifact target/control-flow.kbc
+```
+
+`emit` reports the written path. The following execution has the same successful,
+unprinted return value as source execution. An implicit `.kbc` path also selects
+artifact execution; an implicit source path selects source execution. Prefer
+explicit command names in documentation and automation.
+
+## Select a project rather than a file
+
+Omit the file for project `fmt`, `check`, `lint`, `build` and `run`. Discovery starts
+at the nearest `Kagari.toml`, or at `--manifest-path`. `-p NAME` selects packages;
+`--workspace` selects all members and cannot be combined with `-p`. `run` requires
+exactly one selected package; `build` can build libraries without `main`.
+
+For example, using the tracked package workspace:
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- check --manifest-path examples/package-workspace/Kagari.toml --workspace
+```
+
+Do not combine an explicit source/artifact path with project selectors. Source
+discovery follows declared modules and dependencies rather than compiling every
+`.kgr` file it finds. Project formatting selects declared workspace members;
+check/lint also resolve their dependencies.
+
+Project resolution accepts `--locked`, `--offline` and `--frozen` (both).
+Acquisition is currently local only; these flags do not imply a package registry.
+They do not apply to formatting. The `--locked` **before** Cargo's `--` in these
+examples controls Rust dependencies, independently of a `kg` project lock flag
+placed **after** it. See the external
+<a href={source('docs/spec/module-loading.md#cli-loading')}>CLI loading contract</a>
+for selection, input roots and output locations.
+
+## Read structured diagnostics
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- check examples/syntax/control-flow.kgr --message-format json
+```
+
+For this successful standalone check, stdout ends with:
+
+```json
+{"type":"summary","command":"check","succeeded":1,"failed":0,"incomplete":0,"exit_code":0}
+```
+
+`check` and `lint` support `human` or `json` output. JSON is **newline-delimited
+objects**, not one JSON array: diagnostic objects precede a final summary.
+Use codes, severities and structured locations rather than parsing human message
+wording. JSON source locations use zero-based lines and UTF-8 byte columns with
+end-exclusive ranges; human source diagnostics use one-based positions. Missing
+locations remain explicit instead of pointing at unrelated source text. Runtime
+stack reports are a separate output contract.
+
+A successful source-tool command exits 0, including when it reports warnings.
+Language errors, denied lint findings, input/write errors or `fmt --check`
+differences exit 1. Argument/project-tool configuration errors exit 2. Argument
+parsing can fail before a JSON report exists, so capture stderr too. Currently
+`--help` also prints usage through the status-2 path; it is not a status-zero
+health check.
+
+## Ask the linter what it checks
+
+```sh
+cargo run --locked -p kagari-cli --bin kg -- lint --list-rules
+cargo run --locked -p kagari-cli --bin kg -- lint --explain unnecessary_var
+```
+
+These commands need no project and do not execute scripts. The current six rules
+cover unused bindings/parameters, unnecessary `var` and naming conventions. Rule
+help explains their actual scope and exemptions. `-A RULE`, `-W RULE` and
+`-D RULE` change an optional rule's level; `-D warnings` promotes remaining
+warnings. None can suppress a required parser or type error. There is no autofix
+mode.
+
+`Kagari.tools.toml` configures project formatting and lint levels. Explicit file
+mode uses defaults and flags, without ancestor configuration discovery. Only
+`fmt` accepts stdin (`-`), and not together with `--check`.
+
+## Native modes and precise references
+
+The default CLI features are empty. `--jit` requests execution support from a
+binary built with Cargo feature `jit`; it is not a checking option and does not
+mean every function compiles natively. `build-aot`/`run-aot` require feature `aot`
+and the separately documented trusted native-bundle workflow. They are not
+standalone executable packaging commands. See
+<a href={page('reference/status')}>current limits</a> before choosing a native mode.
+
+The external <a href={source('docs/spec/toolchain-tools.md')}>source-tool contract</a>
+owns configuration, writeback, lint policy and diagnostic schemas;
+<a href={source('docs/spec/error-reporting.md')}>error reporting</a> owns runtime
+origins and stacks. For the exact current argument parser and usage text, consult
+<a href={source('crates/kagari-cli/src/args.rs')}>CLI source</a> or local `--help`.

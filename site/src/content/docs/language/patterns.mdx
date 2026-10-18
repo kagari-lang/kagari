@@ -1,0 +1,107 @@
+---
+title: Patterns and destructuring
+description: Extract fields, select match arms and distinguish irrefutable bindings from conditional patterns.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You have a tuple, a point or an answer and need the data inside it. A **pattern**
+describes a shape to inspect and the names to bind. In a declaration it must be
+safe to bind without failure; in a match or binding condition it can test which
+case is present. First read
+<a href={page('language/data-model')}>structs, enums and tuples</a>.
+
+## Select and extract in one operation
+
+<SourceExample
+  path="examples/syntax/match.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/match.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+The first match tests `2` against arms in source order and selects `40`. In the
+nested tuple match, the first two patterns fail; `(1, (value, 3))` succeeds and
+binds `value` to `2`. The final `selected + bound` is therefore `42`.
+
+Struct patterns can combine binding and testing. `Point { x, y: 22 }` binds `x`
+while requiring a particular `y`. Enum patterns test the variant and bind its
+payload. A wildcard `_` accepts a value without introducing a name.
+
+An arm can have a boolean guard after its pattern. The guard runs only after a
+match has supplied its bindings; a false guard continues to the next arm. Arm
+results must have compatible types on paths that complete normally. A branch that
+returns from the function does not also need to produce a match result.
+
+## Rest means omit fields, not copy a base
+
+Pattern excerpt from the complete example:
+
+```kagari
+val from_rest = match point { Point { x, .. } => x + 22 };
+```
+
+The terminal `..` says to leave the other named fields unmentioned. It binds
+nothing and performs no field read of its own. `Point { .. }` can omit every
+field; explicitly listed fields still require access, even if their subpattern
+is `_`. An inaccessible field may be omitted with rest.
+
+This is different from the expression `Point { ..base }`, which constructs a
+new object using a base. Pattern rest has no operand; an update base requires
+one. Tuples use exact positional shapes: Kagari has no tuple-rest, slice-rest or
+Rust reference patterns. `(p)` groups a pattern; `(p,)` matches a one-element tuple.
+
+## Declare only what cannot fail
+
+Ordinary `val` and `var` declarations accept simple names, wildcards, tuples and
+owned-struct decomposition under conservative **irrefutability** checks: the
+pattern must not require a runtime match-failure path. The
+<a href={source('examples/syntax/binding-patterns.kgr')}>binding example</a> used
+in the variables chapter also demonstrates source-order extraction and captures.
+
+One initializer runs once, in the old scope, before any new leaf becomes visible.
+The outer `val` or `var` governs all bound leaves. Rebinding an extracted scalar
+leaf does not write back to its source; an object leaf keeps shared identity.
+Destructuring does not move fields out of an object.
+
+Bare names in ordinary declarations always bind, even if named `None` or like a
+constant. Match and conditional patterns instead retain constructor precedence.
+For clarity, avoid shadowing familiar constructors when you later need to test them.
+
+## Test a case without a whole match
+
+`if val pattern = expression` runs the expression once and enters the then branch
+only if it matches. The names are visible in that branch, not in `else` or after
+the condition. `while val` repeats that operation once per condition check and
+exits on a failed match. See the complete
+<a href={source('examples/syntax/binding-conditions.kgr')}>binding-condition example</a>.
+
+Alternatives separated by `|` must bind the same names with the same types.
+Integer range patterns currently use `i32` literal or local scalar-constant
+bounds; `..` excludes the upper bound and `..=` includes it. This is not a promise
+that every range-expression endpoint type is also a supported pattern bound.
+
+## One useful mistake: a fallible declaration
+
+Deliberately invalid fragment, not a diagnostic transcript:
+
+```text
+val Some(value) = Some(42);
+```
+
+An explicit variant pattern is rejected in an ordinary declaration, even when
+this initializer visibly constructs that variant. Use `if val` when failure
+should skip a branch, or `match` when both cases need behavior. An explicit
+single-variant user enum pattern has the same declaration restriction.
+
+## Limits and next steps
+
+Decomposition in ordinary declarations is for owned tuples and structs, not host
+objects, scoped references, path views or interfaces. Binding one of those values
+to a simple name can still be valid. Pattern checks do not bypass field privacy.
+
+The exact owners are <a href={source('docs/spec/syntax.md#patterns')}>pattern syntax</a>,
+<a href={source('docs/spec/syntax.md#blocks-and-statements')}>declaration patterns</a>
+and <a href={source('docs/spec/syntax.md#expression-notes')}>guards and conditions</a>.
+Next, apply these choices to absence and failure in
+<a href={page('language/error-handling')}>Option, Result and propagation</a>.

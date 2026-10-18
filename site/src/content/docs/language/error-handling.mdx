@@ -1,0 +1,117 @@
+---
+title: Option, Result and propagation
+description: Represent absence and business errors, propagate with question mark and distinguish traps from values.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+A lookup can find nothing without the program being broken. A calculation can
+reject an input while still returning normally. Represent those outcomes as
+`Option<T>` and `Result<T, E>`, then decide where to handle or propagate them.
+This chapter builds on <a href={page('language/patterns')}>enum patterns</a>.
+
+## Start with an explicit decision
+
+<SourceExample
+  path="examples/syntax/result-option.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/result-option.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+`lookup(true)` yields `Some(20)`; `lookup(false)` yields `None`. In `compute`, a
+match extracts the number or returns `Err("missing")`. `None` is written without
+parentheses. `Some`, `None`, `Ok` and `Err` are prelude constructors for ordinary
+standard enums, not exceptions.
+
+`compute(true)` adds the extracted `20` to the successful second result, `22`,
+and returns `Ok(42)`. `main` checks the failure cases separately and extracts the
+successful payload with a final match. This is why the program returns `42`.
+
+Use Option when absence is the entire unsuccessful outcome. Use Result when a
+caller needs an error payload explaining a rejected operation. Type context can
+supply missing constructor arguments: the example annotates `second` as
+`Result<i32, String>` because `Ok(22)` alone does not determine its error type.
+
+## Replace repetitive forwarding with question mark
+
+The postfix `?` evaluates its operand once. On `Some(value)` or `Ok(value)`, its
+expression produces that value. On `None` or `Err(error)`, it returns the failure
+from the nearest function or closure. It does not return from a function that
+merely created the closure.
+
+In `optional`, a failed lookup returns None before addition. A successful lookup
+provides `20`, so the function returns `Some(42)`. In `compute`, `second?` unwraps
+the successful `22`. The enclosing success type need not equal the operand's
+success type; the failure must fit the enclosing carrier's propagation contract.
+
+Result propagation may convert `E` to the enclosing error type `F` using one
+selected `From<E>` implementation. That conversion runs once only on Err; it does
+not search conversion chains or silently convert ordinary assignments. Propagation
+preserves the original Err origin metadata instead of recording a second origin.
+See the canonical <a href={source('examples/syntax/error-conversion.kgr')}>error conversion example</a>.
+
+## One useful mistake: mixing standard carriers
+
+Deliberately invalid definition, not a diagnostic transcript:
+
+```text
+fn missing() -> Result<i32, String> {
+    val value: Option<i32> = None;
+    Ok(value?)
+}
+```
+
+Standard Option propagation does not invent a String error for a Result return.
+Match the Option and choose an explicit error, as `compute` does. The reverse
+standard conversion is not automatic either: Result does not discard its error
+to become an Option merely because `?` appears inside an Option-returning function.
+
+## Custom propagation is an ordinary trait contract
+
+The general mechanism is implemented through `Try` and `FromResidual`. A
+**residual** is the failure-side value carried out of an unsuccessful operation.
+`Try` declares associated `Output` and `Residual` types; `branch` yields a
+`ControlFlow::Continue(output)` or `ControlFlow::Break(residual)`. The enclosing
+return type must accept that residual through `FromResidual`.
+
+These names require explicit imports from `core::ops` or `std::ops`. Local
+structs and enums can implement the protocols, and generic functions can declare
+the required bounds. Distinct standard residual types prevent accidental
+cross-carrier propagation; an explicit custom implementation can define its own
+accepted residuals. This is not a general exception-catching facility.
+
+A complete advanced example, useful after the
+<a href={page('language/traits')}>traits chapter</a>:
+
+<SourceExample
+  path="examples/syntax/try-protocols.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/try-protocols.kgr"
+  result="main returns 42 by forwarding Outcome::Value(40) and adding two through ControlFlow. The non-JIT CLI prints no return value."
+/>
+
+## Errors as values are not traps
+
+An Err is ordinary data that a script can inspect. Checked overflow, bounds errors
+and invalid handles trap the root call instead. Cancellation and resource exhaustion
+terminate it. Neither matching Result nor `?` catches those outcomes.
+
+Cleanup releases execution resources; it does not roll back business effects.
+If a function changes a shared vector and later returns Err or traps, completed
+changes remain. For all-or-nothing external work, use an explicitly designed
+host transaction, not an assumption that returning failure undoes earlier work.
+The <a href={source('docs/spec/host-interop.md')}>host interop specification</a>
+owns host access rather than this language-level propagation mechanism.
+
+## Limits and next steps
+
+There are no `throw`/`try`/`catch` statements or built-in Error value. Try blocks,
+dynamic-interface propagation and conversion-chain search are outside the current
+contract. Ordinary Option/Result are copied according to their members' semantics,
+so an object inside an error or success payload can still be shared.
+
+Read <a href={source('docs/spec/builtins.md#option-and-result')}>Option and Result</a>,
+<a href={source('docs/spec/builtins.md#propagation-protocols')}>propagation protocols</a>
+and <a href={source('docs/spec/failure-semantics.md#failure-classes')}>failure classes</a>
+for exact boundaries. Next, express reusable contracts in
+<a href={page('language/traits')}>generics, traits and interfaces</a>.

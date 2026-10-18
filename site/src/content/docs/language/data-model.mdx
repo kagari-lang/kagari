@@ -1,0 +1,110 @@
+---
+title: Structs, enums and tuples
+description: Model records and alternatives while preserving field writeability and shared-value behavior.
+---
+
+import SourceExample from '@components/SourceExample.astro';
+import { page, source } from '@site/links.mjs';
+
+You want to keep coordinates together and distinguish a missing answer from an
+answer containing a number. Use a struct for a named record, an enum for named
+alternatives, and a tuple for a small positional grouping. This chapter assumes
+<a href={page('language/functions')}>function signatures</a> and the
+<a href={page('language/values')}>difference between values and shared objects</a>.
+
+## Run a record through a calculation
+
+<SourceExample
+  path="examples/syntax/data-model.kgr"
+  command="cargo run -p kagari-cli -- run examples/syntax/data-model.kgr"
+  result="main returns 42; the non-JIT CLI exits successfully without printing the value."
+/>
+
+`Point` names two fields. Its `val x` can be initialized but not assigned later;
+its `var y` can change. `make_point(20, 21)` uses field shorthand `Point { x, y }`,
+which initializes each field from the corresponding parameter.
+
+The `impl Point` block places `sum` on the type. Its `self` receiver is an ordinary
+Point value: for this struct, a shared object reference. `point.sum()` reads the
+two coordinates after `point.y += 1`, so it produces `42`. Receiver syntax does
+not introduce Rust borrowing or consume the caller's object.
+
+Later the closure returns that same point and changes `y` again. The pair and
+array were already initialized from scalar reads, so their saved values remain
+`20` and `22`. Their final sum explains the program's result.
+
+## Give alternatives a name
+
+Definition excerpt from the complete example:
+
+```kagari
+enum Answer {
+    Missing,
+    Value(i32),
+}
+```
+
+`Answer::Missing` carries no payload; `Answer::Value(number)` carries an `i32`.
+The example constructs the latter from the array sum, then matches it to read
+the payload. The variant tells a consumer what data is present without a separate
+boolean that might disagree with it.
+
+Enums have value semantics, and payloads cannot be reassigned in place. Construct
+another enum value to select a different variant or payload. If a payload contains
+a vector, copying the enum still shares that vector; value semantics does not
+recursively clone contained objects. User enums also need explicit comparison
+implementations rather than receiving memberwise equality automatically.
+
+## Use tuples for positional groupings
+
+`(point.x, point.y)` makes a tuple with two positions. The example reads positions
+with `pair[0]` and `pair[1]`; tuple indexes select known members, unlike a vector's
+runtime element selection. Tuple members need not all have the same type.
+
+Parentheses alone group an expression. A one-element tuple needs a comma, `(x,)`;
+`()` is Unit. Updating a scalar tuple member replaces part of the tuple value and
+therefore needs a writable enclosing slot. Mutating an object referenced by a
+tuple member does not replace the tuple.
+
+Prefer named fields when positions stop explaining their purpose. Prefer an enum
+when only one alternative is present at a time. An array is a different choice:
+it holds homogeneous elements in fixed-length, identity-bearing storage.
+
+## Reuse a shape with type parameters
+
+Structs and enums can take type parameters. For a concrete example, the
+<a href={source('examples/syntax/binding-patterns.kgr')}>binding-patterns source</a>
+defines `Pair<T>` with a `first: T` field. Field and payload values can constrain
+constructor arguments; an explicit type application or surrounding annotation can
+supply arguments that the contents alone cannot determine.
+
+A generic application is still nominally typed. Two separately declared records
+with identical fields are not interchangeable. Applied bounds are checked, and
+unresolved arguments require more type context rather than runtime guessing.
+The <a href={page('language/traits')}>traits chapter</a> explains those bounds.
+
+## One useful mistake: forgetting a field
+
+Deliberately invalid fragment using the example's Point, not a diagnostic transcript:
+
+```text
+Point { x: 20 }
+```
+
+`y` is still required, even though it is writable. Field declarations do not supply
+implicit initial values or declaration-site defaults. Provide both fields, or use
+an eligible update base as taught in
+<a href={page('language/default-updates')}>Default and struct update</a>.
+
+## Limits and next steps
+
+Fields also obey visibility checks: writeability alone does not grant access.
+Kagari does not automatically derive equality, hashing or Default for user records.
+Enum variants here are unit or positional-payload variants, not Rust's entire
+aggregate syntax surface.
+
+Read <a href={source('docs/spec/syntax.md#structs-and-enums')}>aggregate syntax</a>,
+<a href={source('docs/spec/value-semantics.md#values-and-identity')}>member-copy semantics</a>
+and <a href={source('docs/spec/traits.md#generic-aggregates')}>generic aggregates</a>
+for exact rules. Next, extract and inspect these shapes with
+<a href={page('language/patterns')}>patterns and destructuring</a>.
