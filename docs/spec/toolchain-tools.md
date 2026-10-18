@@ -1,7 +1,9 @@
-# Formatter, checker and linter
+# Toolchain tools
 
-These are source tools. They do not execute scripts. `check` and `lint` use the
-same sealed native environment and required language checks as CLI compilation;
+`fmt`, `check` and `lint` are source tools. `disasm` inspects a validated artifact
+without source files; see [KBC disassembly](#kbc-disassembly). None executes scripts.
+`check` and `lint` use the same sealed native environment and required language
+checks as CLI compilation;
 neither emits MIR, bytecode or native products. See [CLI loading](module-loading.md#cli-loading)
 for dependency resolution, filesystem boundaries and execution commands.
 
@@ -189,7 +191,7 @@ applicable filesystem permissions is not promised.
 
 ## Output contracts
 
-Human diagnostics use retained source excerpts and one-based positions; tabs use
+Source-tool human diagnostics use retained source excerpts and one-based positions; tabs use
 four-column stops and Unicode text is preserved. The presentation record and
 renderer require neither HIR objects nor a runtime. See [diagnostic ownership](error-reporting.md#source-tool-diagnostics).
 
@@ -217,3 +219,62 @@ machine-readable finding. For a successful standalone check:
 The summary's `exit_code` matches the process result. Argument parsing errors occur
 before a report exists and use the ordinary stderr usage/error path. A failing
 reported command may additionally print its short final error on stderr.
+
+## KBC disassembly
+
+```sh
+kg disasm artifact.kbc
+kg disasm artifact.kbc --list-functions
+kg disasm artifact.kbc --function 'game::add_one'
+kg disasm artifact.kbc --function '@0:3' > function.txt
+```
+
+`disasm` takes one explicit regular local file. It performs no source compilation,
+project/configuration discovery, package resolution, directory recursion, source
+lookup, provider installation or execution. It does not accept stdin or fetch URLs.
+All modes use the same [complete offline artifact validation](artifacts.md#offline-disassembly-validation)
+before emitting normal output; selecting one function cannot hide invalid code in
+another function.
+
+- The default prints every script bytecode function in stored module/function
+  order, including private and generated bodies.
+- `--list-functions` prints the artifact summary and compact function headers:
+  numeric selector, qualified identity, retained concrete instance arguments,
+  signature, instruction count, `may_suspend` and recorded effects. It omits
+  instruction bodies, descriptors/constants and detailed slot/debug tables.
+- `--function` prints one body and its referenced descriptors. The selector is an
+  exact underlying qualified name or `@<module-index>:<function-index>`. Both
+  indices are zero-based buffer slots in this artifact, not persistent identities
+  across rebuilds or reloads. Quote selectors for shell portability.
+
+Qualified names use package/module/declaration components joined with `::`, with
+nonzero declaration occurrences retained as `#N`. Functions without a declaration
+identity use their module and stored function name. Matching uses raw text, **not**
+the quoted/escaped display spelling, and excludes displayed generic instance
+arguments. There is no substring or regex matching. A name must match exactly one
+function; ambiguity (including multiple generic instances) reports candidate
+headers with numeric selectors and retained type arguments in stored order. Use
+`--list-functions` to discover slots and numeric selection for ambiguous or awkward
+generated names. Missing names and malformed/out-of-range numeric slots fail.
+Native imports expose contracts, not KBC function bodies.
+
+Output is plain UTF-8 text on stdout without terminal styling; diagnostics go to
+stderr. Redirect stdout for a file; `-o` is not supported. Repeated selection
+switches, combining `--function` with `--list-functions`, extra operands, and
+unrelated execution/JIT, project, formatting, lint or message-format flags are
+usage errors. No `--offline` flag is needed or accepted: this command is always
+offline.
+
+| Status | Meaning |
+| --- | --- |
+| `0` | Successful output, including final flush |
+| `1` | File/read/write/flush failure (including a closed pipe), decoding/identity import/validation failure, or function-selection failure |
+| `2` | Invalid command arguments |
+
+Validation and selector resolution precede normal output. A later write failure
+can leave partial text; rendering stops at the first IO error rather than retrying
+discarded buffered output. See [bytecode disassembly output](bytecode.md#disassembly-output)
+for instruction indices, references, types and nonauthoritative debug annotations.
+The text is deterministic for the same artifact/options, but is **not a stable
+machine protocol**. There is no JSON mode, source decompilation, assembler/text
+round trip, bytecode editing, MIR/native-code browsing or raw-invalid-artifact mode.

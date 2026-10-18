@@ -84,6 +84,57 @@ dependencies. Check/lint use ordinary closure capture and keep lock publication
 separate. See [HIR optional facts](architecture/hir.md#optional-source-tool-facts)
 and [formatter architecture](architecture/syntax.md#formatting).
 
+## Offline bytecode inspection
+
+[`kg disasm`](spec/toolchain-tools.md#kbc-disassembly) is separate from both source
+tools and runtime preparation. The bytecode crate owns selection, identity/type
+presentation, reference resolution and instruction rendering; CLI owns file IO,
+arguments, buffering, final flush and diagnostics.
+
+`kagari_bytecode::disassembly::PreparedDisassembly::from_bytes` reuses bounded KBC
+decoding, scope-preserving identity import and complete envelope/bytecode verification
+under current compatibility defaults. It owns an immutable `VerifiedBytecodeProgram`
+with its retained definition scope, a small header summary and a MIR-presence flag.
+Decoded envelopes, temporary import contexts and optional opaque MIR buffers are
+released before preparation returns. It does not clone the whole verified program
+just to preserve the header, construct a runtime, install providers or depend on
+source analysis, compiler lowering, MIR interpretation or code generation. The CLI
+binary may link those systems for its other commands; they are not this library's
+inspection boundary.
+
+`program()` borrows immutable evidence. `select()` resolves exact raw qualified
+names or artifact-local `@m:f` slots. `write_summary()`, `write_directory()` and
+`write_disassembly()` borrow the prepared value and stream to a caller-owned
+fallible `std::io::Write`; full rendering resolves selection before any output.
+The library stops on the first writer error and neither owns stdout nor flushes
+the caller's writer. CLI handles bounded file reads, final flush and status-1 IO
+errors, including broken pipes, without a buffered-drop retry.
+
+Each rendering operation owns small borrowed resolution/reference indexes, jump
+labels and per-function debug location/range indexes. References are collected
+once from selected bodies and descriptor dependencies, not by traversing callee
+instructions. There is no persistent cache, duplicate decoded IR, semantic
+inference engine or CFG reconstruction. In particular, paths expose retained
+`PathRecord` facts rather than reconstructing host schema declarations. Debug
+annotations never become authoritative execution types or entry-slot mappings.
+The [artifact validation boundary](spec/artifacts.md#offline-disassembly-validation)
+and [output contract](spec/bytecode.md#disassembly-output) define these guarantees
+and the deliberate absence of raw-invalid inspection and source decompilation.
+
+The design draws on established inspection mechanisms, not their runtime models:
+[JDK 25 javap](https://docs.oracle.com/en/java/javase/25/docs/specs/man/javap.html)
+separates compact function listings, code and debug facts;
+[LLVM 22.1.0 llvm-objdump](https://github.com/llvm/llvm-project/blob/llvmorg-22.1.0/llvm/docs/CommandGuide/llvm-objdump.rst)
+keeps exact selectors beside symbolized operands;
+[Lua 5.4.9 luac](https://www.lua.org/source/5.4/luac.c.html) explains register slots,
+captures and missing debug data (the linked 5.4 source page tracks patch releases);
+and [WABT 1.0.37 wasm-objdump](https://github.com/WebAssembly/wabt/blob/1.0.37/include/wabt/binary-reader-objdump.h)
+retains small name/type/symbol indexes for later output. Kagari instead uses an
+already verified immutable program: no JVM classpath or external source lookup,
+Lua state/host addresses/one-based PCs, machine byte offsets, repeated binary
+passes or relaxed invalid-input admission. These references justify presentation
+and ownership choices, not performance claims or identical validation policies.
+
 ## Source package inputs
 
 [Packages and workspaces](spec/packages.md) defines the manifest, identity, lock,

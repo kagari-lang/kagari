@@ -174,6 +174,24 @@ cancellation, roots and pinned generations, without a second interpreter or new
 standalone top-level-statement rule. [Debugger tooling](debugger-design.md) owns its
 separately proposed debug/DAP modes.
 
+## KBC disassembly
+
+The delivered [offline `kg disasm` contract](spec/toolchain-tools.md#kbc-disassembly)
+provides full instruction rendering, a compact function directory and exact
+name/artifact-slot selection. [Bytecode output](spec/bytecode.md#disassembly-output)
+owns scoped references, entry/physical/semantic facts, recorded nontransitive
+effects and nonauthoritative debug annotations. [Artifact validation](spec/artifacts.md#offline-disassembly-validation)
+and [library ownership](architecture.md#offline-bytecode-inspection) preserve bounded,
+complete current-format verification without source files, runtime construction or
+installed host providers. Paths show retained executable records, not reconstructed
+source declarations; optional MIR remains opaque.
+
+Full-workspace tests and the complete feature/backend/platform matrix remain
+**pending CI and unrun**; delivered behavior and documentation do not establish
+that acceptance. Source decompilation, CFG reconstruction, source-like output,
+MIR/native browsing, raw-invalid inspection, JSON/machine-protocol output and
+editor/web integration are outside the delivered scope.
+
 ## Language documentation website
 
 The independent [Astro/Starlight language guide](../site/README.md) is implemented:

@@ -98,7 +98,8 @@ These names are intended to serve as the baseline vocabulary for the future tool
 
 ## CLI
 
-The `kg` CLI uses the same embedding pipeline as hosts. Build it with
+The `kg` CLI uses the same compilation/execution pipeline as hosts and also provides
+offline artifact inspection. Build it with
 `cargo build -p kagari-cli --bin kg`, or run it through Cargo:
 
 ```sh
@@ -111,7 +112,8 @@ cargo run -p kagari-cli -- run path/to/main.kgr
 cargo run -p kagari-cli -- run-artifact path/to/main.kbc
 ```
 
-Omit the file to select project members; `--workspace` selects the workspace.
+For source-tool/project commands, omit the file to select project members;
+`--workspace` selects the workspace.
 `fmt` changes layout, `check` enforces language rules, and `lint` adds six optional
 rules. See [source tools](docs/spec/toolchain-tools.md) for configuration, JSON,
 suppressions, source acquisition and writeback guarantees.
@@ -119,6 +121,23 @@ suppressions, source acquisition and writeback guarantees.
 An implicit path selects `run-artifact` for `.kbc` files and `run` for other paths.
 Installed interfaces determine available APIs; execution supports cancellation and a runtime call-depth limit.
 `--jit` requests JIT execution when the binary is built with the `jit` feature; `--no-jit` forces interpreter execution.
+
+Inspect an existing artifact without source files, installed host providers or
+execution:
+
+```sh
+kg disasm path/to/main.kbc --list-functions
+kg disasm path/to/main.kbc --function '@0:3'
+kg disasm path/to/main.kbc > main.disasm.txt
+```
+
+Choose a slot from the listing, or pass an exact raw qualified name to `--function`.
+All modes validate the entire current-format artifact first. Instruction numbers
+are zero-based indices, not byte offsets; the output is human-readable bytecode,
+not reconstructed source or a stable machine protocol. See the
+[disassembly contract](docs/spec/toolchain-tools.md#kbc-disassembly) for selection,
+exit codes and output limits. With Cargo, use `cargo run -p kagari-cli -- disasm`
+in place of `kg disasm`.
 
 ## Standard Library
 

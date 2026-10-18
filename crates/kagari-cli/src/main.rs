@@ -1,6 +1,7 @@
 mod aot;
 mod args;
 mod checking;
+mod disassembly;
 mod formatting;
 mod project;
 mod report;
@@ -38,6 +39,7 @@ use kagari_types::declaration::logging;
 use kagari_vm::vm::ExecutionReport;
 use std::{
     env, fs,
+    io::{self, Write},
     path::{Path, PathBuf},
     process::ExitCode,
 };
@@ -46,7 +48,7 @@ fn main() -> ExitCode {
     match Cli::parse(env::args().skip(1)).and_then(run_cli) {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("{error}");
+            let _ = writeln!(io::stderr().lock(), "{error}");
             ExitCode::from(error.exit_code())
         }
     }
@@ -82,6 +84,7 @@ fn run_cli(cli: Cli) -> Result<(), CliError> {
         Command::Emit { source, output } => emit_artifact(&source, &output),
         Command::RunSource { source } => run_source(&source, cli.jit),
         Command::RunArtifact { artifact } => run_artifact(&artifact, cli.jit),
+        Command::Disassemble { artifact, mode } => disassembly::run(&artifact, &mode),
     }
 }
 
@@ -389,6 +392,7 @@ impl CliError {
 #[cfg(test)]
 mod tests {
     use super::{Cli, Command, run_cli};
+    use crate::{args::DisassemblyMode, disassembly};
     use kagari::BytecodeArtifact;
     use std::{
         fs,
@@ -522,9 +526,18 @@ mod tests {
         })
         .expect("emit command should succeed");
 
-        let _emitted =
+        let emitted =
             BytecodeArtifact::from_bytes(&fs::read(&artifact).expect("artifact should exist"))
                 .expect("artifact should decode");
+        let program = &emitted.records().program;
+        let root = program.root.index();
+        let main = program.modules[root]
+            .functions
+            .iter()
+            .position(|function| function.name == "main")
+            .expect("root module should contain main");
+        let selector = format!("@{root}:{main}");
+        let header_prefix = format!("fn {selector} ");
 
         run_cli(Cli {
             command: Command::RunArtifact {
@@ -534,6 +547,60 @@ mod tests {
             jit: false,
         })
         .expect("artifact command should run");
+
+        fs::remove_file(&source).expect("disassembly must not need the source file");
+        let mut listing = Vec::new();
+        disassembly::run_with_writer(&artifact, &DisassemblyMode::ListFunctions, &mut listing)
+            .expect("directory should succeed without source");
+        let listing = String::from_utf8(listing).unwrap();
+        assert!(listing.starts_with("artifact: "));
+        let header = listing
+            .lines()
+            .find(|line| line.starts_with(&header_prefix))
+            .expect("directory should list main's artifact-local slot");
+        let mut full = Vec::new();
+        disassembly::run_with_writer(&artifact, &DisassemblyMode::All, &mut full)
+            .expect("full disassembly should succeed without source");
+        let full = String::from_utf8(full).unwrap();
+        assert!(full.starts_with("artifact: "));
+        assert!(full.contains(header));
+        assert_ne!(full, listing, "full output must include the function body");
+        let mut selected = Vec::new();
+        disassembly::run_with_writer(
+            &artifact,
+            &DisassemblyMode::Function(selector),
+            &mut selected,
+        )
+        .expect("slot selection should succeed without source");
+        let selected = String::from_utf8(selected).unwrap();
+        assert!(selected.starts_with("artifact: "));
+        assert_eq!(
+            selected
+                .lines()
+                .filter(|line| line.starts_with("fn @"))
+                .collect::<Vec<_>>(),
+            [header],
+            "selection must include only the requested function",
+        );
+        assert!(
+            selected.contains("return"),
+            "selection must include the body"
+        );
+        let mut rejected = Vec::new();
+        let error = disassembly::run_with_writer(
+            &artifact,
+            &DisassemblyMode::Function("@999:0".into()),
+            &mut rejected,
+        )
+        .unwrap_err();
+        assert_eq!(error.exit_code(), 1);
+        assert!(rejected.is_empty(), "selection must precede normal output");
+        fs::write(&artifact, b"invalid KBC").unwrap();
+        let error =
+            disassembly::run_with_writer(&artifact, &DisassemblyMode::ListFunctions, &mut rejected)
+                .unwrap_err();
+        assert_eq!(error.exit_code(), 1);
+        assert!(rejected.is_empty(), "validation must precede normal output");
 
         fs::remove_dir_all(dir).expect("temp dir should be removed");
     }
