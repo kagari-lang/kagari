@@ -11,6 +11,8 @@ This page describes current implemented behavior. Shared semantic declarations
 feed explicit analysis providers and runtime registration. Generated modules,
 cached navigation and checked language roles use the same library inputs.
 [Architecture](../architecture.md#unified-library-registration) defines the owners.
+The [native registration guide](../native-registration.md) explains the authoring
+lifecycle, Local/Send preparation and a complete multi-owner fluent example.
 
 ## Ownership and installation
 
@@ -50,7 +52,9 @@ The fallible mutable builder uses `install`/`install_all` as atomic transactions
 providers to application ModuleBuilders. Duplicate module identities, conflicting
 bindings, missing dependencies and declaration mismatches are rejected. A finished module contains
 both portable declarations and runtime-local Rust entries/storage descriptors.
-Compiler-only consumers can read the same declarations without a runtime.
+Compiler-only consumers can read the same declarations without a runtime or native
+adapter preparation. Standard declarations and executable modules originate from
+one authored module set; there is no independent catalog producer.
 
 `ModuleBuilder::from_declaration` adopts separately authored `ModuleDecl` records
 into its own definition scope. `declared_function(name)` selects a free function;
@@ -119,6 +123,48 @@ requirements. New libraries may implement such APIs through ordinary registratio
 
 ## Explicit registration
 
+Two supported authoring paths produce the same checked native modules.
+`ModuleBuilder` uses already available explicit providers; module-owned assembly
+collects same-batch contracts before preparing implementations. Neither path
+infers a Kagari declaration from a Rust callback.
+
+### Module-owned assembly
+
+`ModuleDefinition` contains one canonical owner and one consumed recipe.
+`ModuleSetBuilder` adopts external providers once into a shared definition context;
+its owner-scoped `ModuleDraft` records complete declarations, docs, exports,
+storage and deferred bindings. `finish()` runs recipes and seals semantic facts
+without invoking adapter factories. Duplicate/external owners, unfulfilled forward
+references, invalid scopes/categories/binders, unsupported exports and missing
+binding/storage coverage reject rather than producing weaker declaration-only data.
+
+`MethodDecl` and `FunctionDecl` use fluent `configure`, `produces`, documentation
+and implementation terminals. `configure` uses the ordinary `FunctionBuilder`;
+`produces` requires a checked concrete implementation of the declared interface
+result. Generic inherent groups, trait defaults and implementation overrides reuse
+runtime's shared semantic lowerers. Override facts retain requirement slot order
+and are substituted under actual implementation/member binders.
+
+`DeclarationSnapshot` independently retains immutable declarations and the sealed
+catalog, with no pending factories. `ModuleAssembly::into_modules()` consumes
+preparation once, returning all modules or an error without installation. Factories
+receive `SealedPreparation` for their exact target and catalog. Preparation failure
+drops completed candidates and unexecuted factories, not retained snapshots, and
+does not undo external Rust side effects. Ordinary assembly does not catch panics.
+
+Local implementation terminals impose no additional `Send` bound. Explicit
+`implementation_send` / `implementation_with_send` terminals allow
+`try_into_send()` to move sealed pending work without invoking it. Configuration
+remains local; final callbacks retain their existing thread-safety requirements.
+The standard library privately caches collection/preparation results and terminal
+errors; this is not an extra requirement on ordinary `ModuleBuilder` users. See
+[the guide](../native-registration.md#local-versus-transferable-pending-work) for
+transfer, reentry and failure boundaries, and its
+[runtime boundaries](../native-registration.md#the-standard-bundle-and-runtime-boundaries)
+for cooperative cancellation and generation-pinned handles.
+
+### Immediate module builders
+
 `ModuleBuilder` owns a module's declarations. `FunctionBuilder` introduces fresh
 Kagari generic parameters, parameter/result types, bounds and selected callable
 requirements. `TypeBuilder` declares a nominal native type and its storage.
@@ -185,12 +231,12 @@ use kagari_stdlib::declarations::StandardDeclarations;
 
 fn module() -> NativeResult<NativeModule> {
     let standard = StandardDeclarations::default();
-    let mut module = ModuleBuilder::new("demo::numbers", &standard.catalog()?);
+    let mut module = ModuleBuilder::new("demo::numbers", &standard.catalog()?)?;
     let maximum = module.define_function(FunctionDecl::new("maximum"))?;
     module.function(&maximum, |function| {
-        function.parameter("left", Type::i32());
-        function.parameter("right", Type::i32());
-        function.returns(Type::i32());
+        function.parameter("left", Type::i32())?;
+        function.parameter("right", Type::i32())?;
+        function.returns(Type::i32())?;
         Ok(())
     })?;
     module.bind(maximum, |_cx: &mut CallContext<'_>, left: i32, right: i32| -> NativeResult<i32> {
@@ -210,7 +256,7 @@ Registration checks ownership, generic scope, complete trait method coverage,
 substituted signatures and storage compatibility before publishing a module.
 Unbound functions, foreign declaration handles and incompatible Rust conversions
 are rejected. The application fixture at
-`crates/kagari/tests/support/native_provider.rs` demonstrates a generic
+[native provider](../../crates/kagari/tests/support/native_provider.rs) demonstrates a generic
 factory and a non-sequence object with an inherent method and retained callback.
 
 Documentation registration preserves complete Markdown, blank paragraphs and
@@ -231,10 +277,16 @@ and check complete generated KGR with the ordinary frontend before publishing it
 For example, a tooling host configures file materialization before sealing:
 
 ```rust
-let mut builder = KagariEngine::builder()?;
-// Construct application modules against builder.declarations(), then install them.
-builder.declaration_cache("target/kagari-declarations");
-let engine = builder.build()?;
+use kagari::engine::KagariEngine;
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut builder = KagariEngine::builder()?;
+    // Construct application modules against builder.declarations(), then install them.
+    builder.declaration_cache("target/kagari-declarations");
+    let engine = builder.build().map_err(|error| format!("{error:?}"))?;
+    assert!(!engine.native_declaration_sources().is_empty());
+    Ok(())
+}
 ```
 
 Omitting the directory keeps views in memory without filesystem IO. CLI source

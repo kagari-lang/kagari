@@ -1038,12 +1038,13 @@ Keep owned conversion, scoped borrowing and explicit raw/primitive implementatio
 behind one validated binding entrypoint without forcing one data-movement path.
 The [VM allocation tests](../crates/kagari-vm/tests/allocation_contracts/native_allocations.rs) establish
 warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
-general typed adapter is allocation-free. Preserve those existing contracts during
-registration migration. The queued
-[stdlib registration plan](stdlib-registration-plan.md#execution-cost-is-a-separate-boundary)
-owns a bounded bytecode/link/runtime non-regression comparison, not implementation
-of these pre-existing optimizations. It must preserve primitive/raw/typed/owned
-execution distinctions while changing authoring and assembly.
+general typed adapter is allocation-free. The completed
+[module-owned registration](native-registration.md) refactor preserves these
+primitive/raw/typed/owned distinctions through direct associations and one-shot
+preparation. Its bounded bytecode/link/runtime comparison and focused allocation
+checks do not implement these pre-existing optimizations or establish general
+allocation-free invocation. Keep this follow-up at the actual call/conversion/root
+owners, not in a second standard-library registration layer.
 
 This is a queued, bounded follow-up, separate from completed registration/interop
 delivery. Before optimization, measure equivalent raw/typed/owned cases and the
@@ -1119,97 +1120,6 @@ When activated, reuse the existing [standard type checks](../crates/kagari-hir/s
 and constant-check contracts, with focused numeric/negation and builtin
 name/display coverage. Verify all consumers migrate without changing accepted
 programs or diagnostics; add coverage only for distinct missing rules.
-
-
-## SA25 Standard-library method authoring scatters contracts across name-based passes
-
-Standard-library methods should declare their signatures, generic bounds and
-native callable dependencies together at their definition owner. The current
-construction has nonlocal, name-driven policy that makes a method's complete
-contract difficult to read and change. This is a recorded authoring-model
-follow-up, not activated implementation or an observed execution failure.
-
-In [list method authoring](../crates/kagari-stdlib/src/catalog/list_methods.rs),
-`declare` enumerates method names and derives callback shapes from suffixes;
-`comparison` assigns Eq/Ord bounds; `calls` reconstructs comparison, iteration
-and mutation dependencies; `configure_overrides` scans another method-name list
-and attaches concrete implementations' requirements and result metadata.
-[Foundation assembly](../crates/kagari-stdlib/src/catalog/mod.rs) first declares
-these methods, projects concrete implementations, then runs that override pass.
-[Hash collection defaults](../crates/kagari-stdlib/src/catalog/defaults.rs) also
-attach key-operation requirements through a name whitelist after selecting the
-most recently appended implementation. Adding or renaming a method requires
-coordinating these rules, not merely changing its declaration.
-
-The issue is construction cohesion, not late inference of static constraints.
-Bounds already enter `FnDecl` during declaration construction. A
-[NativeCallableRequirement](../crates/kagari-types/src/declaration/requirement.rs)
-is a symbolic dependency on a receiver type's trait member, not a bound,
-function pointer or runtime argument list. Its `arguments` are the method's own
-type arguments; trait arguments belong to `interface`. The
-[compiler](../crates/kagari-compiler/src/source/lower/instances/callables.rs)
-substitutes and selects or forwards these operations. Native execution consumes
-prepared calls rather than searching for an implementation by method name.
-
-For example, `dedup` requires `T: Eq`, but its callable dependency is
-`T`'s `PartialEq::eq`. A generic MutableList default additionally needs receiver
-iteration, iterator advancement and removal; the Vec override operates directly
-on storage and needs only the element comparison dependency. The
-[Vec binding](../crates/kagari-stdlib/src/bindings/vectors.rs) retrieves that
-requirement's declaration-scoped `SelectedCall` and invokes the selected equality
-operation. Deriving bounds solely from callbacks would lose the stronger Eq
-contract; copying the default's dependencies into every override would retain
-operations its body does not need.
-
-Proposed direction: introduce a cohesive per-method authoring record or a small
-builder, initially for these collection methods. Keep one public signature/bound
-owner and attach explicit implementation recipes to it:
-
-```text
-MutableList<T>::dedup
-  public contract: (Self) -> Unit, T: Eq
-  generic native default:
-    equal -> T's PartialEq::eq
-    iter / next / remove -> declared receiver operations
-  Vec<T> native override:
-    equal -> T's PartialEq::eq
-    direct Vec storage operations
-```
-
-Create owner-scoped operation handles when declaring dependencies, and let Rust
-bindings consume those same handles rather than reconstructing intent from
-method names or independently maintained slot numbers. Names may label methods
-and operations for presentation, but must not silently select their contracts.
-Instantiate default/override recipes with checked identity and generic mappings;
-later passes may allocate identities, project implementations and validate them,
-but should not rediscover method semantics from strings. The exact API remains
-a design question; this does not prescribe a new macro system or global DSL.
-
-Lower the authoring description into the existing
-[FnDecl/NativeDeclaration](../crates/kagari-types/src/declaration/mod.rs) and
-[ModuleDecl](../crates/kagari-types/src/declaration/module.rs) records. Identity-keyed
-side maps can remain normalized storage without being a manually coordinated
-authoring interface. Preserve distinct bounds, symbolic requirements and selected
-executable operations; Rust closures stay outside portable declaration records.
-Retain owner/scope validation, callback signature and slot correspondence,
-source-free verification and generation-pinned calls. Shared generic operations
-must keep their existing checked forwarding path, not become runtime trait search.
-
-Follow-up owner: `kagari-stdlib` declaration/binding authoring, with narrowly scoped
-shared registration or operation-handle support only where required. Keep this
-separate from the implemented [ordinary trait-bound semantics](spec/traits.md#operation-specific-bounds),
-Host API facade changes and collection storage redesign. Start with the list/default/Vec path and hash-key dependencies;
-remove superseded name-based attachment passes instead of retaining a second
-source of method policy. No performance improvement has been measured.
-
-When activated, reuse existing list/default and hash-collection contract tests.
-Select coverage for Eq versus PartialEq admission, generic default versus concrete
-override dependencies, scripted/native callbacks and generic substitution. Check
-rejection of missing, mismatched or foreign-owner operations and representative
-source-free execution and pinned reload. Confirm generated declarations and
-observable behavior remain unchanged; add tests only for distinct uncovered
-contracts. Exhaustive workspace/feature/backend validation remains CI-owned.
-
 
 ## Architecture findings
 

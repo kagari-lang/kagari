@@ -228,8 +228,8 @@ physical signature or selected callback. Contract owns concrete native imports,
 interface execution tables, selected instances and linked proof catalogs. Types
 checks declarations, binders, substitutions, trait ancestry and applications
 against explicitly supplied records. Module declaration validation also receives
-an explicit receiver-ownership lookup; the existing bundled provider supplies
-canonical ownership during the remaining registration migration.
+an explicit receiver-ownership lookup; installed declaration providers supply
+canonical ownership without an implicit standard-library fallback.
 
 Shared substitution, implementation matching and trait ancestry operate on scoped
 `DefinitionId` records. Pure substitution preserves caller/family binders and
@@ -247,9 +247,9 @@ explicit provider vector, and `native::render::declaration_source` takes its
 provider slice. Installed package aliases, an explicitly marked prelude and array
 interfaces come from these records. Language-role validation compares checked
 signatures with the supplied registration declarations. The SDK and independent
-producers currently install the bundled foundation explicitly; LR moves its
-concrete authoring owner into stdlib. Older snapshots retain their declarations
-when the current database replaces its registration inputs.
+producers install the bundled foundation explicitly; `kagari-stdlib` owns its
+concrete declarations, documentation and implementations. Older snapshots retain
+their declarations when the current database replaces its registration inputs.
 
 ## Reusable preparation and independent sessions
 
@@ -383,11 +383,13 @@ HashMap/HashSet require checked Eq + Hash keys and use Rust standard hash storag
 without a traversal-order guarantee. Collection and String behavior lives in
 [collection access](spec/collection-access.md) and [builtins](spec/builtins.md).
 
-Application and library modules use explicit ModuleBuilder declarations and
-scoped implementation blocks. `bind` selects raw/primitive, flat call-context or owned typed adapters against
-the same authored Kagari signature. Rust signatures do not infer Kagari traits.
-`finish` checks the declaration/binding/storage closure; installation validates
-dependencies and publishes atomically. Runtime construction starts empty. Engine
+Application and library modules use explicit native declarations and
+scoped implementation blocks. `bind` and fluent implementation terminals select
+raw/primitive, flat call-context or owned typed adapters against the same authored
+Kagari signature. Rust signatures do not infer Kagari traits. Immediate builders
+check the complete module at `finish`; module-owned batches separate semantic
+sealing from native preparation. Installation validates dependencies and publishes
+atomically. Runtime construction starts empty. Engine
 construction explicitly installs standard modules through the same builder path
 as application modules, retaining independent heaps, host state and generations.
 
@@ -401,21 +403,23 @@ signature completion validates installed origin, uniqueness, required roles,
 binders, parents and member types before body selection. The 26 core signatures
 belong to explicit standard registrations, checked against the installed records
 and the compiler requirements.
-Rust library records under `kagari-stdlib::catalog` generate declaration views
-that use the ordinary declaration parser and HIR lowering. Non-trivia syntax is
+Module-owned recipes in `kagari-stdlib::foundation` author the contracts and Rust
+implementation associations. `kagari-stdlib::catalog` exposes their sealed semantic
+projection for declaration views using the ordinary parser and HIR lowering. Non-trivia syntax is
 checked against authoritative registrations before native storage, bindings and
 default metadata attach. Core traits retain role/shape validation. Artifacts carry
 declarations, native imports, signatures and selected witnesses; loading checks
 them against installed implementations without parsing source. The ownership model below preserves source-free execution.
-See [native declarations](spec/standard-declarations.md) for the registration API.
+See [native declarations](spec/standard-declarations.md) for registration contracts
+and the [native registration guide](native-registration.md) for supported authoring
+paths and a complete fluent example.
 
 ## Crate responsibility target
 
-CR01-CR02 separate shared semantic models from executable contracts; LR01-LR03
-complete unified library registration. This ownership supersedes AC01-AC05's
-combined semantic/executable contract model. HIR depends on explicit semantic
-providers; stdlib owns concrete declarations and implementations. The
-[execution roadmap](implementation-roadmap.md) records checkpoints and validation.
+Shared semantic models are separate from executable contracts. HIR depends on
+explicit semantic providers; stdlib owns concrete declarations and implementations.
+The [execution roadmap](implementation-roadmap.md) records implementation work,
+while these boundaries define continuing ownership.
 
 | Crate | Target responsibility |
 | --- | --- |
@@ -497,18 +501,16 @@ registered semantic declarations -> generated KGR -> HIR
 registered Rust entries/storage  -> runtime installation
 ```
 
-Populate the two new owners directly; do not introduce forwarding crates,
-compatibility aliases, extra host/numeric/trait crates or new MIR stages. First
-complete CR01's semantic ownership, then CR02's consumer/dependency boundaries,
-then LR01-LR03's concrete stdlib registration. Required intermediate build failures
-are bounded and recorded in the roadmap; CR02 closes its carried errors before LR01.
+Place new contracts and algorithms directly in their semantic or execution owner.
+Do not introduce forwarding crates, compatibility aliases or extra lowering stages
+to hide a mixed responsibility. Standard-library authoring must reuse runtime's
+shared native lowerers rather than implementing a second interpretation of them.
 
 ## Unified library registration
 
-This registration path supersedes AC02/NS01's source-authority and embedded
-trait-product choices. The preceding crate target defines the semantic and
-execution split; the [roadmap](implementation-roadmap.md) records implementation
-and acceptance.
+The preceding crate boundaries define the semantic and execution split.
+Explicit authored declarations are the authority; generated source and executable
+bindings are products of the same checked registration inputs.
 
 Standard and application native libraries supply the same kind of module:
 explicit Kagari declarations, documentation, dependencies and checked Rust
@@ -558,6 +560,53 @@ editing them does not modify native signatures or Rust bindings. Both standard
 and application modules use this materialization path. In-memory embedding does
 not require filesystem access, while editor integration supplies navigable files.
 
+### Module-owned authoring and preparation
+
+One `ModuleDefinition` owns a canonical module and a consumed recipe. Runtime's
+`ModuleSetBuilder` adopts external providers once into a shared definition context;
+owner-scoped drafts collect explicit signatures, proof facts, prose, storage and
+implementation associations. Same-batch type/trait/member references retain their
+expected scope/category/arity, not fabricated completed contracts. Semantic sealing
+runs the shared native lowerers and catalog checks before publishing a
+`DeclarationSnapshot`; it does not prepare Rust adapters.
+
+The snapshot has no recipes, adapters or runtime roots. Consuming its separate
+`ModuleAssembly` prepares each binding against `SealedPreparation` containing that
+exact sealed declaration and catalog, then returns an all-or-error module vector.
+Preparation is not installation. Failure drops candidate modules and remaining
+pending work; retained declarations survive and external factory side effects
+are not rolled back. Runtime assembly does not itself catch unwinding panics.
+
+Ordinary pending adapters/factories are Local and need no additional `Send` bound.
+Explicit `_send` terminals and consuming `try_into_send` support thread transfer
+of sealed pending work without running factories or sealing again. Recipes and
+configuration callbacks remain local; final native callbacks keep their existing
+thread-safety requirements. No registration operation enables concurrent heap use.
+
+The stdlib's private bundle caches one semantic product and one terminal native
+preparation result. `catalog` owns the immutable projection; `StandardDeclarations`
+reads it without reconstructing another provider cache. Declaration consumers do
+not prepare entries. Concurrent module consumers share the one preparation result;
+ordinary errors and unwinding initializer panics are cached without retry.
+Same-thread recursive initialization rejects; there is no general cross-thread
+wait-cycle detector. Factories must not spawn and join work waiting on their bundle.
+
+Standard contributors keep signatures, prose and Rust algorithms together under
+`foundation` owners (including responsibility-specific submodules). Composition
+owns aliases, explicit exports and prelude selection, not per-method/storage
+routing. An empty facade does not gain a dependency merely from its name:
+`std::array` has neither exports nor dependencies. Nonempty facade dependencies
+are inferred from their actual exports. Each declaration has an independent checked
+binding target even when several declarations reuse one Rust algorithm.
+
+Callbacks capture symbolic handles from their supplied sealed catalog rather than
+querying global declaration caches per invocation or capturing runtime-local roots.
+Loading and execution retain generation, handle, access, selected-call and result
+validation. Assembly has no caller-supplied cancellation token; execution remains
+cooperative, with long native operations polling and preserving roots, cleanup and
+completed effects. The [registration guide](native-registration.md) details these
+boundaries, default-template token provenance and practical authoring.
+
 ### Documentation in registered modules
 
 Documentation is part of the native registration authoring API for standard and
@@ -603,6 +652,10 @@ native libraries. Registration and configuration operations mutate the builder;
 | `KagariEngine::builder() -> NativeResult<KagariEngineBuilder>` | Construct a registration builder and install `kagari_stdlib::modules()` through the ordinary batch installation path; report any failure |
 | `builder.declarations() -> &DeclarationCatalog` | Read the checked providers already registered with this builder; no global foundation fallback |
 | `ModuleBuilder::new(identity, providers)` | Construct one native module using an explicit provider catalog; existing `with_modules` supports additional explicit providers |
+| `ModuleBuilder::from_declaration(...)` | Adopt independently authored scoped declarations for ordinary checked binding/storage registration |
+| `ModuleSetBuilder::new(providers)` | Adopt providers once for module-owned recipes, including same-batch forward references |
+| `ModuleSetBuilder::finish()` | Consume recipes and seal declarations without native adapter preparation |
+| `ModuleAssembly::declarations()` / `into_modules()` | Retain a declaration-only snapshot / consume one-shot native preparation |
 | `builder.install(module) -> NativeResult<()>` | Validate and atomically add one completed module to the builder's registrations |
 | `builder.install_all(modules) -> NativeResult<()>` | Stage a module set and validate its complete dependency closure before publishing, including mutually dependent standard modules |
 | `builder.declaration_cache(path)` (source feature) | Configure SDK tooling materialization of generated KGR files; pure rendering remains in HIR |
@@ -657,10 +710,10 @@ caller without depending on Engine or stdlib.
 | Owner | Target responsibility |
 | --- | --- |
 | `kagari-common` | Spans, cancellation and definition identity infrastructure |
-| `kagari-types` (new, populated during CR01) | Shared semantic types/declarations/docs, generic constraints, role metadata, offline host schemas and declaration-level validation |
+| `kagari-types` | Shared semantic types/declarations/docs, generic constraints, role metadata, offline host schemas and declaration-level validation |
 | `kagari-contract` | Executable call/layout/operation contracts, linked validation, representation conversion and bounded executable encoding |
 | `kagari-abi` | Execution representations, physical native calls, helper signatures and executable ownership interfaces |
-| `kagari-stdlib` (new, populated during LR01) | Bundled core/alloc/std declarations, docs, prelude/re-export inventory, native bindings and library algorithms |
+| `kagari-stdlib` | Bundled core/alloc/std module recipes, docs, prelude/re-export inventory, native bindings and owner-local library algorithms |
 | `kagari-runtime` | Generic native module builders, registration checks, linking, heap/host services and execution state |
 | `kagari` | Assemble and validate the engine's module set, supply declarations to analysis and install matching implementations in runtimes |
 | `kagari-hir` | Render registered declarations, analyze generated/user source, collect checked language roles and provide tooling queries |

@@ -413,25 +413,29 @@ open compiler follow-up; shared-identity benchmarks do not prove that capability
 
 ## Module-owned standard-library registration
 
-[The standard-library registration plan](stdlib-registration-plan.md) owns the
-active SR01-SR06 overall refactor. Implementation and one commit per completed
-phase are authorized. SR01 establishes shared assembly and lifecycle proofs;
-stdlib contributor migration follows in SR02-SR04. Module owners will define
-declarations, docs, direct checked implementation
-associations and storage together, replacing private-name dispatch and inferred
-publication ownership across the complete core/alloc/std inventory.
+Module-owned standard-library registration is implemented across core/alloc/std.
+[Architecture](architecture.md#unified-library-registration), the
+[native authoring guide](native-registration.md) and
+[declaration specification](spec/standard-declarations.md) own the current contracts.
+The SR01-SR06 execution plan is retired; Git history retains its phase decisions,
+normalization policy and validation ledger.
 
-Retain explicit Kagari signatures, declaration-only consumers, scoped identities,
-ordinary NativeModule validation and one atomic batch installation entrypoint.
-String is an early migration proof, not the completion boundary. The plan includes
-staged cross-module assembly, generic/default/collection and async registrations,
-consumer cutover and deletion of the old assembly path. Collection storage changes,
-host facade redesign and VM/backend expansion remain independently queued.
-Single-submission fluent definitions are the confirmed authoring shape. SR includes
-a bounded bytecode/linked-call/runtime non-regression check, not the existing
-[call-boundary optimizations](review.md#call-boundary-cost-follow-up); preserve
-primitive, scoped raw and typed/owned adapter behavior without adding per-call
-registration preparation.
+Remaining acceptance is the full workspace test suite and complete
+feature/backend/platform CI matrix. Focused local coverage passed authoring/default
+proofs, public declarations/docs/navigation, collection and async behavior, source-free
+loading, GC/host/reload boundaries and existing native allocation contracts. Final
+checks used fresh current build products after invalidating stale shared-target
+artifacts; the stale comparison result was withdrawn. Full semantic comparison
+retained every declaration field with explicit reviewed identity/metadata mappings
+and 15 documentation corrections, not only inventory counts. The frozen baseline
+has matching captures and pinned source fingerprints but lacks its historical
+producer rlib/source manifest; this is not a hermetic historical rebuild claim.
+
+The existing [call-boundary cost follow-up](review.md#call-boundary-cost-follow-up)
+remains separately queued. Registration now uses direct associations and one-shot
+preparation; it does not eliminate invocation-time value/ownership/generation checks
+or establish general zero-allocation execution or speedups. Collection storage,
+host facade redesign and VM/backend expansion remain independent work.
 
 ## Host registration and interop delivery
 
@@ -568,9 +572,11 @@ the source feature. Representative existing arithmetic tests require actual nati
 execution, not fallback. Full workspace tests and the complete feature/backend/
 platform matrix remain unrun locally and CI-owned.
 
-SA22 construction witnesses, SA23 scalar cleanup, SA25 method authoring, native
-collection storage and broader native-backend work remain separate. No performance
-improvement or completion of those tracks is implied.
+Method authoring is implemented through
+[module-owned registration](native-registration.md#generic-contracts-defaults-and-selected-calls).
+SA22 construction witnesses, SA23 scalar cleanup, native collection storage and
+broader native-backend work remain separate. No performance improvement or
+completion of those tracks is implied.
 
 ## Default and struct update
 
@@ -597,7 +603,7 @@ parser/capture/incremental tests and staging passed, but are not host rendering
 evidence. Retry the [existing pinned build/host workflow](../editors/README.md#syntax-change-workflow)
 when SDK acquisition is available; do not substitute SDK 29 or infer host acceptance.
 
-Derive, automatic enum selection, field declaration initializers, SA22, SA25,
+Derive, automatic enum selection, field declaration initializers, SA22,
 host/view update, new native instructions and broader standard Default implementations
 remain separate. Default is not a language protocol or special runtime constructor.
 

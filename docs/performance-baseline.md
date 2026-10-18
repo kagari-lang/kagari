@@ -667,7 +667,7 @@ This is verified duplicate membership work across accounting/storage ownership,
 not a required language semantic. Its elapsed share is not measured.
 
 **Map lookup and match:** the i32-key fixture takes the
-[builtin-key branch](../crates/kagari-stdlib/src/bindings/hash.rs); it does not call
+[builtin-key branch](../crates/kagari-stdlib/src/foundation/hash/operations.rs); it does not call
 script Hash/Eq per lookup or allocate a key vector. Each get nevertheless constructs
 an ordinary heap-backed Some with a payload buffer. The 2,000 successful gets explain
 2,000 enum objects in addition to the map. They then execute exactly 2,000
