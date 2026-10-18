@@ -95,10 +95,7 @@ struct Source {
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let iteration = Iteration::new(module)?;
     let cursor = module.define_constructor("CollectionCursor", NativeTypeConstructor::Iter)?;
-    module.document(
-        cursor.id(),
-        documentation::type_markdown("CollectionCursor"),
-    )?;
+    module.document(cursor.id(), documentation::markdown(TYPE_DOCS))?;
     let entry = override_entry(
         module,
         &iteration.iterator,
@@ -125,7 +122,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             |_, _| Ok(()),
         )?;
         module.bind_storage(&adapter, iterable::storage())?;
-        module.document(adapter.id(), documentation::type_markdown(name))?;
+        module.document(adapter.id(), documentation::markdown(ADAPTER_DOCS))?;
         let entry = override_entry(module, &iteration.iterator, "next", 0, PendingBinding::implementation_send(iterable::next_binding()))?
             .documentation("Advance the retained source lazily. Recursive advancement of this cursor traps; completed source and callback effects survive failure.");
         module.trait_implementation_with(arity, |items| {
@@ -418,3 +415,18 @@ fn adapter_docs(operation: Operation) -> (&'static str, &'static str) {
         ),
     }
 }
+
+const TYPE_DOCS: (&str, &str) = (
+    "A shared built-in cursor. Copies share progress. next returns None when exhausted; structural source edits invalidate subsequent reads.",
+    "fn first(values: Vec<i32>) -> Option<i32> { values.iter().next() }",
+);
+
+const ADAPTER_DOCS: (&str, &str) = (
+    "A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.",
+    "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }",
+);
+
+pub(super) const MODULE_DOCS: (&str, &str) = (
+    "Shared iteration and iterable construction. Iterator values retain progress and reject stale source reads after structural mutation.",
+    "fn total<I: Iterable<Item = i32>>(values: I) -> i32 { values.filter(|item| item > 0).sum() }",
+);

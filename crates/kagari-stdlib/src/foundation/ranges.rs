@@ -28,7 +28,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let cursor_member = module.reference_associated_type(&iterable, "Iter", 0)?;
     for kind in KINDS {
         let range = module.define_constructor(kind.name(), NativeTypeConstructor::Range(kind))?;
-        type_docs(module, &range, kind.name(), &[])?;
+        type_docs(module, &range, kind.name(), TYPE_DOCS, &[])?;
         let start = override_entry(
             module,
             &bounds,
@@ -82,3 +82,13 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     }
     Ok(())
 }
+
+const TYPE_DOCS: (&str, &str) = (
+    "A range value carrying its declared endpoints and inclusion policy. Finite integer ranges implement Iterable; open bounds are available through RangeBounds.",
+    "fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }",
+);
+
+pub(super) const MODULE_DOCS: (&str, &str) = (
+    "Operator contracts, range values and boundary policies. Operators dispatch through checked implementations and preserve evaluation order.",
+    "fn plus(left: i32, right: i32) -> i32 { left + right }",
+);

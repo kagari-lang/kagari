@@ -6,9 +6,9 @@
 //! Factories consume the supplied sealed preparation view, not global declaration
 //! entrypoints. They must not spawn and join work that initializes the same bundle.
 //!
-//! Production recipes and remaining raw seeds share one seal and this cache.
+//! Production recipes and composition exports share one seal and this cache.
 //! Declaration-only consumers never prepare adapters. SR05 removes the remaining
-//! raw seed bridge and symbolic enum caches; no separate declaration producer runs.
+//! export import bridge and symbolic enum caches; no separate declaration producer runs.
 mod composition;
 mod initialization;
 pub(crate) mod semantic;

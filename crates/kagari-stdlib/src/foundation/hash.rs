@@ -89,7 +89,10 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 Ok(())
             },
         )?;
-        module.document(reference.id(), documentation::type_markdown(name))?;
+        module.document(
+            reference.id(),
+            documentation::markdown(if map { MAP_DOCS } else { SET_DOCS }),
+        )?;
         inherent(module, &keys, &reference, map)?;
         capabilities(module, &keys, &reference, map, arity)?;
         from_iterator(module, &keys, &reference, map, arity)?;
@@ -112,7 +115,7 @@ fn inherent(
         methods.define(
             MethodDecl::static_method("new")
                 .returns(receiver.clone())
-                .documentation(documentation::inherent_docs(receiver.abi(), "new"))
+                .documentation(inherent_docs(map, "new"))
                 .configure(move |function| {
                     for call in calls {
                         function.requires_draft(call)?;
@@ -131,7 +134,7 @@ fn inherent(
                 MethodDecl::static_method("from")
                     .parameter("array", array(items[0].clone())?)
                     .returns(receiver.clone())
-                    .documentation(documentation::inherent_docs(receiver.abi(), "from"))
+                    .documentation(inherent_docs(map, "from"))
                     .configure(move |function| {
                         for call in calls {
                             function.requires_draft(call)?;
@@ -148,7 +151,7 @@ fn inherent(
         let mut insert = MethodDecl::instance("insert")
             .parameter("arg1", items[0].clone())
             .returns(receiver.clone())
-            .documentation(documentation::inherent_docs(receiver.abi(), "insert"));
+            .documentation(inherent_docs(map, "insert"));
         if map {
             insert = insert.parameter("arg2", items[1].clone());
         }
@@ -174,7 +177,7 @@ fn inherent(
         methods.define(
             MethodDecl::instance("clear")
                 .returns(receiver.clone())
-                .documentation(documentation::inherent_docs(receiver.abi(), "clear"))
+                .documentation(inherent_docs(map, "clear"))
                 .implementation_send(NativeBinding::new(
                     vec![Codec::Value],
                     Codec::Value,
@@ -353,4 +356,55 @@ fn from_iterator(
         }
         .with_overrides([entry]))
     })
+}
+
+const MAP_DOCS: (&str, &str) = (
+    "A shared hash map with invariant key and value types. Equal keys must hash equally. Insert replaces an existing value; get returns None for an absent key.",
+    "fn find(values: std::collections::HashMap<i32, String>) -> Option<String> { values.get(1) }",
+);
+const SET_DOCS: (&str, &str) = (
+    "A shared hash set. Equal members occupy one entry, and must hash equally. Lookup and structural mutation use checked synchronous guards.",
+    "fn has(values: std::collections::HashSet<i32>) -> bool { values.contains(1) }",
+);
+
+pub(super) const MODULE_DOCS: (&str, &str) = (
+    "Sequence, map and set interfaces, concrete hash collections and lazy mapping. Callbacks run synchronously with explicit borrow, root and mutation guards.",
+    "fn length(values: Vec<i32>) -> u64 { values.len() }",
+);
+
+fn inherent_docs(map: bool, name: &str) -> String {
+    let ty = if map {
+        "std::collections::HashMap<i32, i32>"
+    } else {
+        "std::collections::HashSet<i32>"
+    };
+    let (description, arguments) = match name {
+        "new" => ("Create fresh empty hash collection storage.", ""),
+        "from" => (
+            "Construct a hash set from an array, preserving uniqueness of equal members.",
+            "[1, 2]",
+        ),
+        "insert" if map => (
+            "Insert a key/value entry, replacing the value of an equal key, and return the same map.",
+            "0, 1",
+        ),
+        "insert" => (
+            "Insert a member, preserving uniqueness of equal members, and return the same set.",
+            "1",
+        ),
+        "clear" => (
+            "Remove all entries after validating structural mutation guards and return the same collection.",
+            "",
+        ),
+        _ => unreachable!("hash collection inherent inventory"),
+    };
+    let code = if matches!(name, "new" | "from") {
+        format!(
+            "fn create() -> {ty} {{ {}::{name}({arguments}) }}",
+            ty.split('<').next().unwrap()
+        )
+    } else {
+        format!("fn example(values: {ty}) {{ val result = values.{name}({arguments}); }}")
+    };
+    documentation::example(description, &code)
 }

@@ -24,7 +24,16 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 methods.define(
                     MethodDecl::instance(name)
                         .returns(result)
-                        .documentation(documentation::inherent_docs(methods.receiver().abi(), name))
+                        .documentation(documentation::example(
+                            if name == "len" {
+                                "Return the number of entries."
+                            } else {
+                                "Return whether the collection has no entries."
+                            },
+                            &format!(
+                                "fn example(values: [i32]) {{ val result = values.{name}(); }}"
+                            ),
+                        ))
                         .implementation_send(NativeBinding::new(
                             vec![Codec::Value],
                             Codec::Value,
@@ -84,3 +93,8 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
 pub(super) fn array(item: Type) -> NativeResult<Type> {
     map_type(item, |item| Ty::Array(Box::new(item)))
 }
+
+pub(super) const MODULE_DOCS: (&str, &str) = (
+    "Builtin shared arrays have construction-time fixed length and checked element access.",
+    "fn length(values: Vec<i32>) -> u64 { values.len() }",
+);

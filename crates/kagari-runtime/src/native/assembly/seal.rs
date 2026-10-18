@@ -10,13 +10,25 @@ use crate::native::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata},
+    identity::{
+        DefinitionKind, map::DefinitionContext, metadata::DefinitionMetadata,
+        table::DefinitionTable,
+    },
 };
-use kagari_types::{callable::CallableImplementation, declaration::TypeDefKind};
-use std::{collections::BTreeSet, mem};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{TypeDefKind, module::ModuleDecl},
+};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    mem,
+};
 
 #[cfg(test)]
 mod owner_tests;
+
+#[cfg(test)]
+mod documentation_tests;
 
 #[cfg(test)]
 mod validation_tests;
@@ -148,6 +160,7 @@ pub(super) fn seal(
     catalog.check_implementations(drafts.iter().map(|draft| &draft.declaration))?;
     catalog.validate_callable_contracts()?;
     catalog.validate_paths()?;
+    inherit_documentation(&definitions, drafts)?;
     let modules = drafts
         .iter()
         .map(|draft| {
@@ -159,4 +172,43 @@ pub(super) fn seal(
         modules: modules.into(),
         catalog,
     })
+}
+
+/// Inherit authored documentation from traits in this batch after implementation
+/// expansion. External catalogs do not retain prose. Explicit implementation docs
+/// take precedence, and forward references do not impose recipe ordering.
+fn inherit_documentation(
+    definitions: &DefinitionTable,
+    drafts: &mut [DraftState],
+) -> NativeResult<()> {
+    let documents = drafts
+        .iter()
+        .flat_map(|draft| &draft.declaration.documentation)
+        .map(|(id, text)| (*id, text.clone()))
+        .collect::<BTreeMap<_, _>>();
+    for draft in drafts {
+        let module = &mut draft.declaration;
+        for (index, implementation) in module.implementations.iter().enumerate() {
+            let Some(interface) = &implementation.trait_type else {
+                continue;
+            };
+            let owner = module
+                .implementation_id(index, definitions)
+                .map_err(conflict)?;
+            for method in &implementation.methods {
+                let source =
+                    ModuleDecl::method_id(interface.declaration, &method.name, definitions)
+                        .map_err(conflict)?;
+                if let Some(text) = documents.get(&source) {
+                    let target = ModuleDecl::method_id(owner, &method.name, definitions)
+                        .map_err(conflict)?;
+                    module
+                        .documentation
+                        .entry(target)
+                        .or_insert_with(|| text.clone());
+                }
+            }
+        }
+    }
+    Ok(())
 }

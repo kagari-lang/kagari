@@ -1,47 +1,26 @@
-//! Shared algorithms and the temporary preparation bridge for SR04 Future/Task owners.
-//! SR05 removes this routing owner; migrated declarations never enter it.
+//! Shared algorithms awaiting SR05 responsibility-based consolidation with their authors.
 pub(crate) mod arrays;
 pub(crate) mod comparison;
 pub(crate) mod construction;
-mod enums;
+pub(crate) mod enums;
 pub(crate) mod hash;
 pub(crate) mod iterable;
 pub(crate) mod lists;
 pub(crate) mod propagation;
-mod tasks;
+
 pub(crate) mod vectors;
-use crate::{assembly::semantic::Semantic, identity};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{
-        DefinitionKind,
-        metadata::DefinitionMetadata,
-        table::{DefinitionId, DefinitionTable},
-    },
-};
+use crate::assembly::semantic::Semantic;
 use kagari_contract::operations::IterOp;
 use kagari_runtime::{
     error::RuntimeError,
     gc::HeapObjectId,
     native::{
-        assembly::{
-            authoring::{PendingBinding, SealedPreparation},
-            draft::ModuleDraft,
-        },
-        binding::{Codec, NativeBinding, NativeResult},
-        context::CallContext,
-        scalar::NativeScalar,
-        storage::NativeStorage,
-        types::VariantRef,
+        binding::NativeResult, context::CallContext, scalar::NativeScalar, types::VariantRef,
     },
     value::Value,
 };
-use kagari_types::{
-    callable::CallableImplementation,
-    declaration::{TypeDefKind, module::ModuleDecl, native::NativeStorageLayout},
-    language::binding,
-};
-use std::{collections::BTreeMap, ops::Bound, sync::OnceLock};
+use kagari_types::language::binding;
+use std::{ops::Bound, sync::OnceLock};
 
 pub(crate) type Entry = for<'call> fn(&mut CallContext<'call>) -> NativeResult<Value>;
 static OPTION_MEMBERS: OnceLock<NativeResult<(VariantRef, VariantRef)>> = OnceLock::new();
@@ -58,114 +37,6 @@ pub(crate) fn initialize(semantic: &Semantic) -> NativeResult<()> {
         .as_ref()
         .map(|_| ())
         .map_err(Clone::clone)
-}
-
-pub(crate) fn collect(
-    module: &mut ModuleDraft<'_>,
-    source: DefinitionMetadata<ModuleDecl>,
-) -> NativeResult<()> {
-    let definitions = source.definitions();
-    let mut declaration = source.records().clone();
-    let mut bindings = BTreeMap::new();
-    for function in &mut declaration.functions {
-        let id = source
-            .records()
-            .definition(DefinitionKind::Function, &function.name, definitions)
-            .map_err(conflict)?;
-        associate(&mut function.implementation, id, definitions, &mut bindings)?;
-    }
-    for (index, implementation) in declaration.implementations.iter_mut().enumerate() {
-        let owner = source
-            .records()
-            .implementation_id(index, definitions)
-            .map_err(conflict)?;
-        for method in &mut implementation.methods {
-            let id = ModuleDecl::method_id(owner, &method.name, definitions).map_err(conflict)?;
-            associate(&mut method.implementation, id, definitions, &mut bindings)?;
-        }
-    }
-    let source = DefinitionMetadata::checked(
-        definitions.clone(),
-        declaration,
-        &CancellationToken::default(),
-    )
-    .map_err(conflict)?;
-    module.import_declaration(&source, bindings)?;
-    for ty in &source.records().types {
-        let TypeDefKind::NativeStorage(layout) = ty.kind else {
-            continue;
-        };
-        let reference = module.reference_type(
-            identity::type_id(&ty.name, ty.kind.definition_kind()),
-            ty.kind,
-            ty.generic_params.len(),
-        )?;
-        let storage = match layout {
-            NativeStorageLayout::Future => NativeStorage::future(),
-            NativeStorageLayout::Task => NativeStorage::task(),
-            NativeStorageLayout::TaskScope => NativeStorage::task_scope(),
-            _ => return Err(conflict("unexpected remaining storage contributor")),
-        };
-        module.bind_storage(&reference, storage)?;
-    }
-    Ok(())
-}
-
-fn associate(
-    implementation: &mut CallableImplementation,
-    declaration: DefinitionId,
-    definitions: &DefinitionTable,
-    bindings: &mut BTreeMap<DefinitionId, PendingBinding>,
-) -> NativeResult<()> {
-    let CallableImplementation::Native(target) = implementation else {
-        return Err(conflict("remaining body is not a native association"));
-    };
-    let name = definitions
-        .resolve(*target)
-        .map_err(conflict)?
-        .last()
-        .ok_or_else(|| conflict("missing native target"))?
-        .name
-        .to_owned();
-    // Legacy shared target spellings select only the remaining algorithm. Every
-    // submitted declaration still owns an independent checked native association.
-    *target = declaration;
-    if bindings
-        .insert(
-            declaration,
-            PendingBinding::implementation_with_send(move |preparation| {
-                prepare_remaining(&name, preparation)
-            }),
-        )
-        .is_some()
-    {
-        return Err(conflict("duplicate remaining native association"));
-    }
-    Ok(())
-}
-
-fn prepare_remaining(
-    name: &str,
-    preparation: &SealedPreparation<'_>,
-) -> NativeResult<NativeBinding> {
-    let entry: Entry = match name {
-        "$foundation_task_spawn" => tasks::spawn,
-        "$foundation_task_cancel" => tasks::cancel,
-        _ => {
-            return Err(RuntimeError::metadata_conflict(format!(
-                "missing foundation implementation {name}"
-            )));
-        }
-    };
-    Ok(NativeBinding::new(
-        vec![Codec::Value; preparation.declaration().records().function.params.len()],
-        Codec::Value,
-        entry,
-    ))
-}
-
-fn conflict(error: impl ToString) -> RuntimeError {
-    RuntimeError::metadata_conflict(error.to_string())
 }
 
 fn invalid() -> RuntimeError {

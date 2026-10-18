@@ -8,7 +8,7 @@ use kagari_runtime::{
 };
 use std::cmp::Ordering;
 
-pub(super) fn allocate(
+pub(crate) fn allocate(
     cx: &CallContext<'_>,
     ty: &TypeArgument,
     name: &str,

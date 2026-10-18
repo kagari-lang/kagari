@@ -1,8 +1,10 @@
-//! Explicit standard owner contributors. Only SR04 Future/Task declarations join as raw seeds.
+//! Explicit standard owner contributors; composition contains no implementation policy.
 mod arrays;
 mod comparison;
 pub(crate) mod enumerations;
+mod future;
 mod hash;
+mod host;
 mod iteration;
 mod lists;
 mod numeric;
@@ -10,6 +12,7 @@ mod propagation;
 mod protocols;
 mod ranges;
 pub(crate) mod string;
+mod tasks;
 mod vector;
 
 use crate::{bindings::Entry, catalog::documentation, identity, namespaces};
@@ -27,8 +30,7 @@ use kagari_runtime::{
     },
 };
 use kagari_types::{
-    declaration::{TypeDefKind, native::NativeTypeConstructor},
-    reference::ReferenceAccess,
+    declaration::TypeDefKind,
     ty::{GenericBound, Ty},
 };
 
@@ -52,11 +54,13 @@ pub(crate) fn contribute(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         comparison::interface_debug(module)?;
     }
     if owner == namespaces::module("core", "host") {
-        for access in [ReferenceAccess::Shared, ReferenceAccess::Mutable] {
-            let reference = module
-                .define_constructor(access.name(), NativeTypeConstructor::Reference(access))?;
-            module.document(reference.id(), documentation::type_markdown(access.name()))?;
-        }
+        host::declare(module)?;
+    }
+    if owner == namespaces::module("core", "future") {
+        future::declare(module)?;
+    }
+    if owner == namespaces::module("core", "task") {
+        tasks::declare(module)?;
     }
     if owner == namespaces::module("core", "iter") {
         iteration::declare(module)?;
@@ -90,7 +94,7 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
         })
         .collect::<Vec<_>>();
     for &(package, path, declarations) in protocols::INVENTORY {
-        types.extend(declarations.iter().map(|(name, _)| {
+        types.extend(declarations.iter().map(|(name, _, _)| {
             (
                 namespaces::module(package, path),
                 DefinitionKind::Trait,
@@ -99,15 +103,23 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
         }));
     }
     types.extend(
-        ["HashMap", "HashSet", "Ref", "RefMut"]
-            .into_iter()
-            .map(|name| {
-                (
-                    namespaces::type_owner(name),
-                    DefinitionKind::AssociatedType,
-                    name.into(),
-                )
-            }),
+        [
+            "HashMap",
+            "HashSet",
+            "Ref",
+            "RefMut",
+            "Future",
+            "Task",
+            "TaskScope",
+        ]
+        .into_iter()
+        .map(|name| {
+            (
+                namespaces::type_owner(name),
+                DefinitionKind::AssociatedType,
+                name.into(),
+            )
+        }),
     );
     types.push((
         namespaces::type_owner("Vec"),
@@ -138,6 +150,11 @@ pub(crate) fn public_types() -> Vec<(ModuleIdentity, DefinitionKind, String)> {
             kind.name().into(),
         )
     }));
+    types.push((
+        namespaces::type_owner("SpawnError"),
+        DefinitionKind::Enum,
+        "SpawnError".into(),
+    ));
     types
 }
 
@@ -177,16 +194,7 @@ fn override_entry(
     binding: PendingBinding,
 ) -> NativeResult<TraitOverride> {
     let member = module.reference_method(owner, name, arity)?;
-    let contract = module
-        .definitions()
-        .resolve(owner.id())
-        .map_err(conflict)?
-        .last()
-        .expect("trait identity")
-        .name
-        .to_owned();
-    Ok(TraitOverride::new(member, binding)
-        .documentation(documentation::implementation_docs(&contract, name)))
+    Ok(TraitOverride::new(member, binding))
 }
 
 fn bound(ty: &Type, interface: Type) -> GenericBound {
@@ -211,10 +219,11 @@ fn type_docs(
     module: &mut ModuleDraft<'_>,
     reference: &DraftReference,
     name: &str,
+    document: (&str, &str),
     variants: &[&str],
 ) -> NativeResult<()> {
-    module.document(reference.id(), documentation::type_markdown(name))?;
-    let (description, _) = documentation::type_docs(name);
+    module.document(reference.id(), documentation::markdown(document))?;
+    let (description, _) = document;
     for variant in variants {
         let id = module.member(reference.id(), DefinitionKind::Variant, variant)?;
         module.document(
@@ -256,3 +265,25 @@ fn default_impl(
 fn conflict(error: impl ToString) -> RuntimeError {
     RuntimeError::metadata_conflict(error.to_string())
 }
+
+/// Canonical module inventory; facades reuse their owner documentation.
+pub(crate) const MODULES: &[(&str, &str, (&str, &str))] = &[
+    ("core", "array", arrays::MODULE_DOCS),
+    ("core", "iter", iteration::MODULE_DOCS),
+    ("core", "ops", ranges::MODULE_DOCS),
+    ("core", "cmp", protocols::CMP_MODULE_DOCS),
+    ("core", "hash", protocols::HASH_MODULE_DOCS),
+    ("core", "fmt", protocols::FMT_MODULE_DOCS),
+    ("core", "future", future::MODULE_DOCS),
+    ("core", "task", tasks::MODULE_DOCS),
+    ("core", "host", host::MODULE_DOCS),
+    ("core", "convert", protocols::CONVERT_MODULE_DOCS),
+    ("core", "default", protocols::DEFAULT_MODULE_DOCS),
+    ("core", "num", numeric::MODULE_DOCS),
+    ("core", "option", enumerations::OPTION_MODULE_DOCS),
+    ("core", "result", enumerations::RESULT_MODULE_DOCS),
+    ("alloc", "vec", vector::MODULE_DOCS),
+    ("core", "str", protocols::STR_MODULE_DOCS),
+    ("alloc", "string", string::MODULE_DOCS),
+    ("std", "collections", hash::MODULE_DOCS),
+];

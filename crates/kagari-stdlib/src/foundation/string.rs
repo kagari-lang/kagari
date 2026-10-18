@@ -37,7 +37,7 @@ fn documented(method: MethodDecl, text: &str, name: &str, arguments: &str) -> Me
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     let reference = module.define_constructor("String", NativeTypeConstructor::String)?;
-    type_docs(module, &reference, "String", &[])?;
+    type_docs(module, &reference, "String", TYPE_DOCS, &[])?;
     let string = Type::scalar(BuiltinType::String);
     let option = enumeration(module, "Option", 1)?.apply([Type::u64()])?;
     let list = interface(module, "List", 1)?.apply([string.clone()])?;
@@ -170,3 +170,8 @@ fn split(cx: &mut CallContext<'_>) -> NativeResult<Value> {
     };
     cx.encode_result(parts)
 }
+
+pub(super) const MODULE_DOCS: (&str, &str) = (
+    "Immutable UTF-8 strings. Length and offsets count bytes; slicing validates UTF-8 boundaries.",
+    "fn clean(text: String) -> String { text.trim() }",
+);

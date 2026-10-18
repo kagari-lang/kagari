@@ -6,6 +6,7 @@ use kagari_types::declaration::{TypeDefKind, VariantDef};
 pub(crate) struct Enumeration {
     pub name: &'static str,
     arity: usize,
+    documentation: (&'static str, &'static str),
     variants: &'static [(&'static str, Option<usize>)],
     export: bool,
 }
@@ -13,24 +14,40 @@ pub(crate) struct Enumeration {
 pub(crate) const ENUMERATIONS: &[Enumeration] = &[
     Enumeration {
         name: "Option",
+        documentation: (
+            "An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.",
+            "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",
+        ),
         arity: 1,
         variants: &[("Some", Some(0)), ("None", None)],
         export: true,
     },
     Enumeration {
         name: "Result",
+        documentation: (
+            "A checked outcome: Ok carries the successful value and Err carries the error. Question-mark propagation returns a converted error early.",
+            "fn read(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+        ),
         arity: 2,
         variants: &[("Ok", Some(0)), ("Err", Some(1))],
         export: true,
     },
     Enumeration {
         name: "Ordering",
+        documentation: (
+            "The result of a total comparison: Less, Equal or Greater.",
+            "fn compare(left: i32, right: i32) -> core::cmp::Ordering { left.cmp(right) }",
+        ),
         arity: 0,
         variants: &[("Less", None), ("Equal", None), ("Greater", None)],
         export: true,
     },
     Enumeration {
         name: "Bound",
+        documentation: (
+            "A range endpoint: Included(value), Excluded(value) or Unbounded.",
+            "fn lower() -> core::ops::Bound<i32> { (1..4).start_bound() }",
+        ),
         arity: 1,
         variants: &[
             ("Included", Some(0)),
@@ -41,6 +58,10 @@ pub(crate) const ENUMERATIONS: &[Enumeration] = &[
     },
     Enumeration {
         name: "ParseError",
+        documentation: (
+            "A numeric parsing error. Invalid input and out-of-range values are reported through Result.",
+            "fn number(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+        ),
         arity: 0,
         variants: &[
             ("Empty", None),
@@ -53,18 +74,30 @@ pub(crate) const ENUMERATIONS: &[Enumeration] = &[
     },
     Enumeration {
         name: "TryFromIntError",
+        documentation: (
+            "A checked numeric conversion error. Its variants distinguish the declared failure conditions.",
+            "fn narrow(value: i64) -> Result<i32, core::num::TryFromIntError> { i32::try_from(value) }",
+        ),
         arity: 0,
         variants: &[("OutOfRange", None)],
         export: false,
     },
     Enumeration {
         name: "ControlFlow",
+        documentation: (
+            "Continue contains a successful value; Break contains an early-exit value. Try uses ControlFlow<B, Infallible> as its distinct residual, preserving the break value without conversion.",
+            "fn success() -> core::ops::ControlFlow<String, i32> { core::ops::ControlFlow::Continue(42) }",
+        ),
         arity: 2,
         variants: &[("Break", Some(0)), ("Continue", Some(1))],
         export: false,
     },
     Enumeration {
         name: "Infallible",
+        documentation: (
+            "An uninhabited error type for conversions that cannot fail. It has no constructible variants.",
+            "fn widen(value: i32) -> i64 { i64::from(value) }",
+        ),
         arity: 0,
         variants: &[],
         export: false,
@@ -103,7 +136,23 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             .iter()
             .map(|(name, _)| *name)
             .collect::<Vec<_>>();
-        type_docs(module, &reference, enumeration.name, &variants)?;
+        type_docs(
+            module,
+            &reference,
+            enumeration.name,
+            enumeration.documentation,
+            &variants,
+        )?;
     }
     Ok(())
 }
+
+pub(super) const OPTION_MODULE_DOCS: (&str, &str) = (
+    "Optional values: Some contains a value; None represents absence. Question-mark propagation preserves the enclosing Option result.",
+    "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",
+);
+
+pub(super) const RESULT_MODULE_DOCS: (&str, &str) = (
+    "Success and failure values. Question-mark propagation returns an error early and uses a declared From conversion where needed.",
+    "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+);

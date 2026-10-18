@@ -13,13 +13,15 @@ pub(super) fn configure(module: &mut ModuleDraft<'_>, contract: &mut Contract) -
         "Default" => contract.method(
             module,
             MethodDecl::static_method("default").returns(receiver),
-        ),
+"Return the value chosen by the explicit implementation. This required static method has no receiver or arguments and no fallback body. Its result is the implementing Self type.",
+),
         "From" => contract.method(
             module,
             MethodDecl::static_method("from")
                 .parameter("value", contract.owner.parameter(0)?)
                 .returns(receiver),
-        ),
+contract.overview.0,
+),
         "FromIterator" | "Sum" | "Product" => aggregation(module, contract),
         _ => conversion(module, contract),
     }
@@ -44,7 +46,14 @@ fn conversion(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeRe
         contract.owner.receiver()?
     };
     let error = error_name
-        .map(|name| contract.associated(module, name, vec![]))
+        .map(|name| {
+            contract.associated(
+                module,
+                name,
+                vec![],
+                "The error returned when this conversion or parse fails.",
+            )
+        })
         .transpose()?;
     let result_enum = enumeration(module, "Result", 2)?;
     let result = if let Some(error) = &error {
@@ -58,7 +67,7 @@ fn conversion(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeRe
         MethodDecl::static_method(name)
             .parameter(if contract.arity == 0 { "text" } else { "value" }, input)
     };
-    contract.method(module, declaration.returns(result))?;
+    contract.method(module, declaration.returns(result), contract.overview.0)?;
     contract.conversion = match contract.name {
         "Into" | "TryInto" => {
             let fallible = contract.name == "TryInto";
@@ -115,6 +124,5 @@ fn aggregation(module: &mut ModuleDraft<'_>, contract: &mut Contract) -> NativeR
         position: 0,
     });
     method.bounds.push(bound(&source, applied));
-    contract.methods.push(method);
-    Ok(())
+    contract.submit(module, method, contract.overview.0)
 }

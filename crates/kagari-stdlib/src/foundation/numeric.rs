@@ -154,3 +154,8 @@ fn aggregate(
         .with_overrides([entry]))
     })
 }
+
+pub(super) const MODULE_DOCS: (&str, &str) = (
+    "Numeric parsing and aggregation. Numeric failures use checked traps or the declared Result error.",
+    "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
+);

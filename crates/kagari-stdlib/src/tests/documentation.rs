@@ -1,4 +1,4 @@
-use crate::modules;
+use crate::catalog;
 use kagari_common::identity::DefinitionKind;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::{source::SourceFile, source_database::SourceSnapshot};
@@ -7,11 +7,7 @@ use std::{collections::BTreeSet, sync::Arc};
 
 #[test]
 fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
-    let providers: Vec<_> = modules()
-        .unwrap()
-        .iter()
-        .map(|module| Arc::new(module.to_declaration()))
-        .collect();
+    let providers = catalog::shared().unwrap();
     let mut examples = BTreeSet::new();
     let mut traits = 0;
     for provider in &providers {
@@ -22,6 +18,33 @@ fn standard_documentation_covers_the_registered_api_and_examples_analyze() {
             "{}",
             module.identity
         );
+        for ty in &module.types {
+            let owner = module
+                .definition(ty.kind.definition_kind(), &ty.name, definitions)
+                .unwrap();
+            assert!(
+                module.documentation[&owner].contains("```kgr"),
+                "{}::{}",
+                module.identity,
+                ty.name
+            );
+            for variant in &ty.variants {
+                let id = ModuleDecl::variant_id(owner, &variant.name, definitions).unwrap();
+                assert!(!module.documentation[&id].is_empty());
+            }
+        }
+        for (index, implementation) in module.implementations.iter().enumerate() {
+            let owner = module.implementation_id(index, definitions).unwrap();
+            for method in &implementation.methods {
+                let id = ModuleDecl::method_id(owner, &method.name, definitions).unwrap();
+                assert!(
+                    !module.documentation[&id].is_empty(),
+                    "{}::{}",
+                    module.identity,
+                    method.name
+                );
+            }
+        }
         for contract in &module.traits {
             traits += 1;
             let owner = module

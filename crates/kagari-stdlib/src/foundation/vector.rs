@@ -25,7 +25,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
         |_, _| Ok(()),
     )?;
     module.bind_storage(&vector, NativeStorage::sequence(0))?;
-    module.document(vector.id(), documentation::type_markdown("Vec"))?;
+    module.document(vector.id(), documentation::markdown(TYPE_DOCS))?;
     module.inherent_with(
         1,
         |items| vector.apply(items.to_vec()),
@@ -34,7 +34,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             methods.define(
                 MethodDecl::static_method("new")
                     .returns(receiver.clone())
-                    .documentation(documentation::inherent_docs(receiver.abi(), "new"))
+                    .documentation(inherent_docs("new"))
                     .implementation_send(NativeBinding::new(
                         vec![],
                         Codec::Value,
@@ -45,7 +45,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 MethodDecl::static_method("from")
                     .parameter("array", array(items[0].clone())?)
                     .returns(receiver.clone())
-                    .documentation(documentation::inherent_docs(receiver.abi(), "from"))
+                    .documentation(inherent_docs("from"))
                     .implementation_send(NativeBinding::new(
                         vec![Codec::Value],
                         Codec::Value,
@@ -56,7 +56,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                 MethodDecl::instance("push")
                     .parameter("arg1", items[0].clone())
                     .returns(receiver.clone())
-                    .documentation(documentation::inherent_docs(receiver.abi(), "push"))
+                    .documentation(inherent_docs("push"))
                     .implementation_send(scoped(
                         vec![Codec::MutableSequence, Codec::Value],
                         vectors::push_fluent,
@@ -67,7 +67,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     .parameter("arg1", Type::u64())
                     .parameter("arg2", items[0].clone())
                     .returns(receiver.clone())
-                    .documentation(documentation::inherent_docs(receiver.abi(), "insert"))
+                    .documentation(inherent_docs("insert"))
                     .implementation_send(scoped(
                         vec![
                             Codec::MutableSequence,
@@ -80,7 +80,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
             methods.define(
                 MethodDecl::instance("clear")
                     .returns(receiver.clone())
-                    .documentation(documentation::inherent_docs(receiver.abi(), "clear"))
+                    .documentation(inherent_docs("clear"))
                     .implementation_with_send(|view| Ok(vectors::clear_fluent(view.declaration()))),
             )?;
             methods.define(
@@ -88,7 +88,7 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
                     .parameter("arg1", Type::u64())
                     .parameter("arg2", items[0].clone())
                     .returns(receiver.clone())
-                    .documentation(documentation::inherent_docs(receiver.abi(), "set"))
+                    .documentation(inherent_docs("set"))
                     .implementation_send(NativeBinding::primitive(NativePrimitive::VecSetFluent)),
             )?;
             Ok(())
@@ -249,4 +249,45 @@ pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
 
 fn scoped(arguments: Vec<Codec>, entry: bindings::Entry) -> NativeBinding {
     NativeBinding::new(arguments, Codec::Value, entry)
+}
+
+const TYPE_DOCS: (&str, &str) = (
+    "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.",
+    "fn append(values: Vec<i32>) -> u64 { values.push(3); values.len() }",
+);
+
+pub(super) const MODULE_DOCS: (&str, &str) = (
+    "Shared mutable sequences with checked indexing, iteration and collection algorithms. Readonly views do not freeze aliases.",
+    "fn length(values: Vec<i32>) -> u64 { values.len() }",
+);
+
+fn inherent_docs(name: &str) -> String {
+    let (description, code) = match name {
+        "new" => (
+            "Create fresh empty mutable sequence storage.",
+            "fn create() -> Vec<i32> { Vec::new() }",
+        ),
+        "from" => (
+            "Copy an array into fresh mutable sequence storage.",
+            "fn create() -> Vec<i32> { Vec::from([1, 2]) }",
+        ),
+        "push" => (
+            "Append one item and return the same Vec. A guarded structural edit traps before committing the edit.",
+            "fn example(values: Vec<i32>) { val result = values.push(1); }",
+        ),
+        "insert" => (
+            "Insert at the given position and return the same Vec. An index beyond the length traps.",
+            "fn example(values: Vec<i32>) { val result = values.insert(0, 1); }",
+        ),
+        "clear" => (
+            "Remove all entries after validating structural mutation guards and return the same Vec.",
+            "fn example(values: Vec<i32>) { val result = values.clear(); }",
+        ),
+        "set" => (
+            "Replace the item at an existing index and return the same Vec. An out-of-bounds index traps.",
+            "fn example(values: Vec<i32>) { val result = values.set(0, 1); }",
+        ),
+        _ => unreachable!("Vec inherent inventory"),
+    };
+    documentation::example(description, code)
 }

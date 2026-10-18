@@ -1,7 +1,7 @@
 # Module-Owned Standard Library Registration Plan
 
 Status: active; implementation and one commit per completed SR phase are authorized.
-SR01-SR03 are locally complete; SR04 is next. This plan owns an overall replacement of
+SR01-SR04 are locally complete; SR05 is next. This plan owns an overall replacement of
 standard-library declaration/binding assembly, not a String-only cleanup. Unimplemented directory
 sketches remain proposals. Current specifications remain authoritative until
 implementation updates them.
@@ -999,14 +999,14 @@ NC remains independently queued.
 
 ### SR04 — Complete module ownership and declaration projections
 
-- [ ] Migrate Future/task/scope storage and callbacks and any remaining contributors
+- [x] Migrate Future/task/scope storage and callbacks and any remaining contributors
   identified in SR01; every inventoried entry has a final owner.
-- [ ] Consolidate module docs, conversion metadata, aliases and prelude under
+- [x] Consolidate module docs, conversion metadata, aliases and prelude under
   explicit definitions; preserve canonical language-role recognition and retain
   generic rendering/documentation inheritance utilities.
-- [ ] Feed declaration-only consumers from the same authored definitions without
+- [x] Feed declaration-only consumers from the same authored definitions without
   preparing runtime bindings or rendering/parsing source during registration.
-- [ ] Verify representative generated source navigation and default engine
+- [x] Verify representative generated source navigation and default engine
   installation against the assembled canonical module set.
 
 Exit: the full standard-library inventory has migrated, not merely String and Vec.
@@ -1164,7 +1164,7 @@ Documentation-only planning requires content/link/diff checks, not Rust builds.
 | SR01 | Locally complete: shared assembly, semantic lowering, identity and lifecycle proofs | Focused assembly/default/cache tests and local gates pass; baseline captured; independent exit review closed; CI matrix unrun |
 | SR02 | Locally complete: String/numeric/array/range/enum/propagation owners and production Bundle | Selected registration/docs/behavior/artifact tests and execution comparison pass; exact target assertions preserved; CI matrix unrun |
 | SR03 | Locally complete: protocols, defaults, Vec/hash/collection/iteration owners | 30 distinct focused tests passed; shared default fix verified; local gates and independent review pass; CI unrun |
-| SR04 | Not started | Depends on SR03 |
+| SR04 | Locally complete: Future/tasks, owner-authored prose, declaration/navigation projections | Selected task/lifecycle/docs/registration tests and local gates passed; review doc-routing issue fixed; CI unrun |
 | SR05 | Not started | Depends on SR04; owns bridge removal |
 | SR06 | Not started | Depends on SR05; full matrix remains CI-owned |
 
@@ -1496,3 +1496,46 @@ Independent review found no further SR03 blocker or weakened assertions. Counts
 remain 36 modules, 33 types, 41 traits, 226 implementations, 93 exports, 87 nonempty
 requirement owners and 11 concrete results. Full semantic normalization, post-migration
 execution comparison and complete CI matrix are not inferred from these counts.
+
+### SR04 completion
+
+Checkpoint input: `426b38d7`. `foundation/future` and `foundation/tasks` now own
+Future/Task/TaskScope storage, SpawnError, method signatures/docs and direct Rust
+implementations. Spawn retains method-local T, ordinary callable coercion, three
+admission errors and rooting; cancel retains generic receiver and cooperative
+semantics. Remaining task private-name dispatch and old producer/partition helpers
+are deleted. No executable contributor remains on the old producer path.
+
+Module/type/trait/member prose is supplied with its owner declaration. Review caught
+a moved-but-still-central member-doc switch; it was removed, and protocol signatures
+now submit prose together. Generic same-batch inheritance copies actual trait-member
+documents by scoped identity after impl expansion, preserves explicit overrides and
+never prepares bindings. External catalogs do not carry prose, so this inheritance
+is explicitly limited to same-batch declarations. A canonical documentation capture
+before/after this repair was identical (238274 bytes). The remaining documentation
+utility only renders Markdown; it contains no standard API inventory or text switch.
+
+Production semantic tests prove real task declarations do not consume pending
+preparation. Doc tests use declaration-only inputs and cover types, variants and
+implementation members. Navigation resolves Future/Task/TaskScope/SpawnError and
+spawn/cancel by full canonical identities and real source ranges. Module metadata,
+aliases/facades/prelude are explicit; their raw import transport remains a named SR05
+bridge, not a second executable declaration producer.
+
+Passing local selections included production registration/storage, generated doc
+examples, concurrent bundle preparation/terminal failure, SDK task handler, owned
+future factory, lifecycle reload and failed dependency boundaries, plus navigation.
+The final documentation repair ran:
+
+```text
+cargo test -p kagari-runtime --lib -- --exact native::assembly::seal::documentation_tests::canonical_member_docs_inherit_in_both_orders_without_overwriting_explicit_prose
+cargo test -p kagari-stdlib --lib -- --exact tests::documentation::standard_documentation_covers_the_registered_api_and_examples_analyze tests::registration::canonical_foundation_contracts_survive_scoped_publication_and_installation
+cargo test -p kagari --lib -- --exact engine::tests::registration_sources::generated_files_docs_and_navigation_share_the_checked_snapshot engine::tests::registration_sources::task_navigation_uses_canonical_authored_members_and_docs
+```
+
+All five passed. Prior unchanged async evidence was retained, not rerun for a new
+transcript. Structure (1346 files, zero violations/exceptions), fmt, workspace Clippy
+and diff checks passed. Initial fixture type/visibility errors were fixed; none are
+carried. SR05 owns remaining catalog/enum caches, raw module-metadata import, and
+moving shared implementation algorithms from the bindings tree into their actual
+module owners. No complete CI matrix or final semantic comparison is claimed.

@@ -34,6 +34,7 @@ use std::{
 };
 
 mod failures;
+mod standard;
 
 const WAIT: Duration = Duration::from_secs(10);
 

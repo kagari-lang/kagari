@@ -6,6 +6,7 @@ use crate::{
     program::PreparedProgram,
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_hir::declarations::DeclarationId;
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
@@ -23,7 +24,7 @@ use kagari_runtime::{
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_stdlib::{catalog as standard_catalog, namespaces};
-use kagari_types::callable::CallableImplementation;
+use kagari_types::{callable::CallableImplementation, declaration::module::ModuleDecl, ty::Ty};
 use std::{
     fs,
     path::PathBuf,
@@ -317,6 +318,124 @@ fn generated_files_docs_and_navigation_share_the_checked_snapshot() {
             .expect("retained execution result"),
         Value::I32(42)
     );
+}
+
+#[test]
+fn task_navigation_uses_canonical_authored_members_and_docs() {
+    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let text = "fn stop(task: std::task::Task<i32>) { task.cancel(); } fn submit(scope: TaskScope) -> Result<Task<i32>, SpawnError> { scope.spawn(async || 42) } fn retain(future: Future<i32>) -> Future<i32> { future }";
+    let file = engine
+        .set_source("memory://tasks.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let snapshot = engine
+        .analyze(engine.source_snapshot(), &Default::default())
+        .unwrap();
+    snapshot.check_program(file, &Default::default()).unwrap();
+    let declarations = standard_catalog::declarations().unwrap();
+    for (receiver_name, member) in [("Task", "cancel"), ("TaskScope", "spawn")] {
+        let owner = declarations
+            .iter()
+            .find(|module| module.records().identity == namespaces::module("core", "task"))
+            .unwrap();
+        let (index, implementation) = owner
+            .records()
+            .implementations
+            .iter()
+            .enumerate()
+            .find(|(_, implementation)| {
+                let Ty::NativeObject(receiver) = &implementation.for_type else {
+                    return false;
+                };
+                implementation.trait_type.is_none()
+                    && owner
+                        .definitions()
+                        .resolve(receiver.declaration)
+                        .unwrap()
+                        .last()
+                        .unwrap()
+                        .name
+                        == receiver_name
+            })
+            .unwrap();
+        assert!(
+            implementation
+                .methods
+                .iter()
+                .any(|method| method.name == member)
+        );
+        let expected = ModuleDecl::method_id(
+            owner
+                .records()
+                .implementation_id(index, owner.definitions())
+                .unwrap(),
+            member,
+            owner.definitions(),
+        )
+        .unwrap();
+        let documentation = snapshot
+            .documentation_at(file, text.find(&format!("{member}(")).unwrap())
+            .unwrap();
+        let DeclarationId::Definition(actual) = documentation.declaration.id else {
+            panic!("canonical method declaration")
+        };
+        let actual = snapshot.definitions().resolve(actual).unwrap();
+        let identity = owner.definitions().resolve(expected).unwrap();
+        assert_eq!(actual.module(), identity.module());
+        assert_eq!(
+            actual.segments().collect::<Vec<_>>(),
+            identity.segments().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            documentation.documentation,
+            owner.records().documentation[&expected]
+        );
+        let target = snapshot
+            .source(documentation.declaration.location.file)
+            .unwrap();
+        let range = target
+            .local_range(documentation.declaration.location)
+            .unwrap();
+        assert_eq!(&target.text()[range.start..range.end], member);
+    }
+    for (name, path) in [
+        ("Future", "future"),
+        ("Task", "task"),
+        ("TaskScope", "task"),
+        ("SpawnError", "task"),
+    ] {
+        let owner = declarations
+            .iter()
+            .find(|module| module.records().identity == namespaces::module("core", path))
+            .unwrap();
+        let ty = owner
+            .records()
+            .types
+            .iter()
+            .find(|ty| ty.name == name)
+            .unwrap();
+        let expected = owner
+            .records()
+            .definition(ty.kind.definition_kind(), name, owner.definitions())
+            .unwrap();
+        let offset = text
+            .find(if name == "Task" { "Task<i32>" } else { name })
+            .unwrap();
+        let documentation = snapshot.documentation_at(file, offset).unwrap();
+        let DeclarationId::Definition(actual) = documentation.declaration.id else {
+            panic!("canonical type declaration")
+        };
+        let actual = snapshot.definitions().resolve(actual).unwrap();
+        let identity = owner.definitions().resolve(expected).unwrap();
+        assert_eq!(actual.module(), identity.module());
+        assert_eq!(
+            actual.segments().collect::<Vec<_>>(),
+            identity.segments().collect::<Vec<_>>()
+        );
+        assert_eq!(
+            documentation.documentation,
+            owner.records().documentation[&expected]
+        );
+    }
 }
 
 #[test]
