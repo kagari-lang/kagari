@@ -174,6 +174,31 @@ cancellation, roots and pinned generations, without a second interpreter or new
 standalone top-level-statement rule. [Debugger tooling](debugger-design.md) owns its
 separately proposed debug/DAP modes.
 
+## Language documentation website
+
+The user requested a language documentation site similar to Vela's GitHub Pages
+site. The [website execution plan](documentation-site-plan.md) owns DW01-DW05,
+content scope, architecture, focused acceptance and the sole progress ledger.
+Implementation and one commit per phase are authorized. DW01 froze the toolchain,
+24-route manual and validation/publication boundary; DW02 site foundation is next.
+Pushes, remote settings and public activation remain unauthorized.
+
+Use an independent static Astro/Starlight project with shared Kagari TextMate
+highlighting, a bounded English user manual, current runnable examples and
+least-privilege Pages automation. Follow Rust's Book/reference/library separation
+and example-led learning sequence, teaching Kagari's shared-value/GC model rather
+than Rust moves or lifetimes. Keep `docs/spec/` as the semantic authority and
+avoid a second manually copied specification/API inventory. The default project
+URL would be `https://kagari-lang.github.io/kagari/`; live Pages settings and
+publication have not been verified or enabled.
+
+Browser Playground/WASM, translation delivery, full API generation, versioned
+release sites, custom domains and analytics remain outside this plan. Source
+build instructions must not present the reservation toolchain package as a
+functional release. PRs validate without deployment privileges; remote settings,
+pushes and public activation require separate authorization. Local site acceptance
+and actual public deployment must be reported separately.
+
 ## Runtime storage redesign
 
 RS01-RS06 are locally complete as of 2026-10-16. Receiver-independent interface

@@ -58,6 +58,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   contracts without introducing Any.
 
 
+- [Language documentation website](documentation-site-plan.md): DW01-DW05 are
+  active with phase commits; DW01 is complete and DW02 site foundation is next.
+  Deliver an Astro/Starlight manual, shared highlighting and Pages automation;
+  Playground/translations and actual public activation remain separate.
 - [Host API unification](host-api-refactor.md).
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
