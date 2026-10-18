@@ -2,6 +2,8 @@
 use crate::{
     error::RuntimeError,
     native::{
+        adapter::NativeAdapter,
+        assembly::authoring::{MethodAuthoring, MethodDefinition, SealedPreparation},
         binding::NativeResult,
         types::{AppliedTrait, MethodRef, ParameterRef, Type, same_definition},
     },
@@ -159,6 +161,69 @@ impl MethodDecl {
     pub fn returns(mut self, ty: Type) -> Self {
         self.signature = self.signature.returns(ty);
         self
+    }
+
+    /// State the concrete value produced behind an interface return type.
+    /// The authoring wrapper retains this fact until semantic sealing checks it;
+    /// the portable MethodDecl itself never owns an adapter or factory.
+    pub fn produces(self, ty: Type) -> MethodAuthoring {
+        MethodAuthoring::new(self).produces(ty)
+    }
+
+    /// Configure method-local generics, bounds and requirements during submission.
+    /// Configuration runs after fluent signature setters and before adapter
+    /// preparation. Further configure calls run in insertion order, stopping on
+    /// the first error; a failed submission does not publish a partial method.
+    pub fn configure(
+        self,
+        configure: impl FnOnce(&mut FunctionBuilder<'_>) -> NativeResult<()> + 'static,
+    ) -> MethodAuthoring {
+        MethodAuthoring::new(self).configure(configure)
+    }
+
+    /// Complete this definition with a directly selected adapter or primitive.
+    /// The owned adapter is prepared only against the sealed declaration catalog.
+    /// No additional Send bound is imposed on authoring-only state.
+    pub fn implementation<M, R>(
+        self,
+        adapter: impl NativeAdapter<M, R> + 'static,
+    ) -> MethodDefinition {
+        MethodAuthoring::new(self).implementation(adapter)
+    }
+
+    /// Complete this definition with a factory given its exact sealed target.
+    /// The read-only view includes the scoped native declaration and catalog;
+    /// adapters still receive the authored method signature. Declaration-only
+    /// projection never invokes the factory. Preparation errors install nothing.
+    pub fn implementation_with<M, R, A>(
+        self,
+        factory: impl FnOnce(&SealedPreparation<'_>) -> NativeResult<A> + 'static,
+    ) -> MethodDefinition
+    where
+        A: NativeAdapter<M, R>,
+    {
+        MethodAuthoring::new(self).implementation_with(factory)
+    }
+
+    /// Complete this definition with a transferable adapter. Authoring stays local;
+    /// only the retained adapter must be Send for assembly transfer.
+    pub fn implementation_send<M, R>(
+        self,
+        adapter: impl NativeAdapter<M, R> + Send + 'static,
+    ) -> MethodDefinition {
+        MethodAuthoring::new(self).implementation_send(adapter)
+    }
+
+    /// Complete this definition with a transferable factory. The returned adapter
+    /// is created and prepared on the consuming thread and need not be Send.
+    pub fn implementation_with_send<M, R, A>(
+        self,
+        factory: impl FnOnce(&SealedPreparation<'_>) -> NativeResult<A> + Send + 'static,
+    ) -> MethodDefinition
+    where
+        A: NativeAdapter<M, R>,
+    {
+        MethodAuthoring::new(self).implementation_with_send(factory)
     }
 
     pub(crate) fn lower(

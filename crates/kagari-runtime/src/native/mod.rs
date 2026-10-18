@@ -2,6 +2,7 @@
 pub mod adapter;
 pub(crate) mod application;
 pub mod arguments;
+pub mod assembly;
 pub mod binding;
 pub mod builder;
 pub mod callable;

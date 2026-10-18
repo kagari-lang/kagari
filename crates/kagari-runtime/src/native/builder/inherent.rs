@@ -1,4 +1,5 @@
 //! Inherent methods belong to the module that owns the nominal type.
+mod lowering;
 use crate::{
     error::RuntimeError,
     native::{

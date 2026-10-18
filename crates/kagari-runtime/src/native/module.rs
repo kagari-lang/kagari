@@ -48,16 +48,10 @@ impl NativeModule {
         providers: &DeclarationCatalog,
     ) -> NativeResult<Self> {
         let context = providers.types.context();
-        let definitions = declaration
+        declaration
             .collect_definitions(context)
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-        let owners = providers.receiver_owners(Some(&declaration))?;
-        declaration
-            .validate(
-                &|receiver| owners.owner(receiver, &definitions),
-                &definitions,
-            )
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        providers.validate_module_shape(&declaration)?;
         let mut providers = providers.clone();
         for (id, contract) in &declaration.trait_references {
             providers.insert(*id, contract.clone())?;
@@ -119,36 +113,7 @@ impl NativeModule {
         let mut available = owned.clone();
         available.merge(&providers)?;
         available.validate_paths()?;
-        let definitions = available.definitions();
-        for target in declaration.exports.values() {
-            let owner = export_owner(*target, &definitions)?;
-            let view = definitions
-                .resolve(owner)
-                .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-            let exists = match view.last().map(|part| part.kind) {
-                Some(DefinitionKind::Trait) => available.traits.get_id(*target).is_some(),
-                Some(
-                    DefinitionKind::Struct | DefinitionKind::Enum | DefinitionKind::AssociatedType,
-                ) => available.types.get_id(owner).is_some_and(|ty| {
-                    owner == *target
-                        || definitions
-                            .resolve(*target)
-                            .ok()
-                            .and_then(|view| view.last())
-                            .is_some_and(|member| {
-                                ty.variants
-                                    .iter()
-                                    .any(|variant| variant.name == member.name)
-                            })
-                }),
-                _ => false,
-            };
-            if !exists {
-                return Err(RuntimeError::metadata_conflict(
-                    "re-export target is not declared by an available provider",
-                ));
-            }
-        }
+        available.validate_module_declarations(&declaration)?;
         // Owned traits and implementation bounds are common to every binding.
         // A binding extends this closed seed only with its own signature/proofs.
         let base =
@@ -182,7 +147,7 @@ impl NativeModule {
         }
         let mut dependencies = dependencies;
         for target in declaration.exports.values() {
-            let owner = export_owner(*target, &definitions)?;
+            let owner = available.checked_export_owner(*target)?;
             if let Some(contract) = available.traits.get_id(*target) {
                 dependencies.insert(*target, contract.clone())?;
             } else {
@@ -216,12 +181,7 @@ impl NativeModule {
                 .into_iter()
                 .filter(|owner| *owner != declaration.identity),
         );
-        declaration
-            .validate(
-                &|receiver| owners.owner(receiver, &definitions),
-                &definitions,
-            )
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
+        available.validate_module_shape(&declaration)?;
         let mut indexed_storage = DefinitionMap::new(owned.types.context().clone());
         for (id, storage) in storage {
             indexed_storage
@@ -442,22 +402,5 @@ impl NativeModule {
         self.declaration()
             .definition(DefinitionKind::Trait, name, self.definitions())
             .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))
-    }
-}
-
-fn export_owner(target: DefinitionId, definitions: &DefinitionTable) -> NativeResult<DefinitionId> {
-    let view = definitions
-        .resolve(target)
-        .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?;
-    if view
-        .last()
-        .is_some_and(|part| part.kind == DefinitionKind::Variant)
-    {
-        definitions
-            .parent(target)
-            .map_err(|error| RuntimeError::metadata_conflict(error.to_string()))?
-            .ok_or_else(|| RuntimeError::metadata_conflict("export variant has no owner"))
-    } else {
-        Ok(target)
     }
 }

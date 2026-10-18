@@ -1,4 +1,5 @@
 //! Explicit Kagari declarations plus checked local Rust bindings.
+pub mod default_lowering;
 pub mod enum_builder;
 pub mod implementation;
 pub mod inherent;

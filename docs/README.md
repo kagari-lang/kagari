@@ -56,6 +56,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and
   host/library integration while keeping explicit native coverage requirements.
+- [Module-owned standard-library registration](stdlib-registration-plan.md):
+  SR01-SR06 are queued; replace fragmented declaration/binding assembly across the
+  full library with explicit module ownership and direct checked associations.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are

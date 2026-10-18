@@ -39,6 +39,7 @@ impl CatalogImports {
         catalog: &DeclarationCatalog,
     ) -> Result<DeclarationCatalog, RuntimeError> {
         let mut imported = DeclarationCatalog {
+            module_owners: catalog.module_owners.clone(),
             rust_types: Arc::default(),
             documentation: Default::default(),
             types: imported(&catalog.types, &self.context, &mut self.types)?,

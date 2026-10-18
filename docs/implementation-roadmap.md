@@ -411,6 +411,28 @@ Shared generic Add failed MIR lowering with
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains an
 open compiler follow-up; shared-identity benchmarks do not prove that capability.
 
+## Module-owned standard-library registration
+
+[The standard-library registration plan](stdlib-registration-plan.md) owns the
+active SR01-SR06 overall refactor. Implementation and one commit per completed
+phase are authorized. SR01 establishes shared assembly and lifecycle proofs;
+stdlib contributor migration follows in SR02-SR04. Module owners will define
+declarations, docs, direct checked implementation
+associations and storage together, replacing private-name dispatch and inferred
+publication ownership across the complete core/alloc/std inventory.
+
+Retain explicit Kagari signatures, declaration-only consumers, scoped identities,
+ordinary NativeModule validation and one atomic batch installation entrypoint.
+String is an early migration proof, not the completion boundary. The plan includes
+staged cross-module assembly, generic/default/collection and async registrations,
+consumer cutover and deletion of the old assembly path. Collection storage changes,
+host facade redesign and VM/backend expansion remain independently queued.
+Single-submission fluent definitions are the confirmed authoring shape. SR includes
+a bounded bytecode/linked-call/runtime non-regression check, not the existing
+[call-boundary optimizations](review.md#call-boundary-cost-follow-up); preserve
+primitive, scoped raw and typed/owned adapter behavior without adding per-call
+registration preparation.
+
 ## Host registration and interop delivery
 
 Unified registration, Rust DTO/Serde conversion, runtime-owned Opaque and scoped

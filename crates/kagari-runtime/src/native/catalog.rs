@@ -5,18 +5,27 @@ mod ownership;
 mod paths;
 mod proofs;
 mod rust_types;
+mod validation;
 use crate::{error::RuntimeError, native::catalog::rust_types::RustTypes};
 use kagari_common::identity::{
+    ModuleIdentity,
     map::{DefinitionContext, DefinitionMap},
     table::{DefinitionId, DefinitionTableError},
 };
 use kagari_types::declaration::path::HostPathDeclaration;
 use kagari_types::declaration::{NativeDeclaration, TraitDef, TypeDef, module::ImplDecl};
-use std::{collections::BTreeMap, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
 
 /// A declaration view of validated native APIs. It does not install handlers.
 #[derive(Debug, Clone)]
 pub struct DeclarationCatalog {
+    /// Actual module providers, including empty and re-export-only modules. Partial
+    /// dependency records and interned references do not establish module ownership.
+    /// This authoring inventory is separate from executable contract requirements.
+    pub(super) module_owners: Arc<BTreeSet<ModuleIdentity>>,
     pub(crate) rust_types: RustTypes,
     /// Authoring-only Markdown; excluded from executable contract comparisons.
     pub(crate) documentation: Arc<BTreeMap<DefinitionId, String>>,
@@ -37,6 +46,7 @@ impl Default for DeclarationCatalog {
 impl DeclarationCatalog {
     pub(crate) fn in_context(context: DefinitionContext) -> Self {
         Self {
+            module_owners: Arc::default(),
             rust_types: Arc::default(),
             documentation: Arc::default(),
             types: Arc::new(DefinitionMap::new(context.clone())),
@@ -62,6 +72,7 @@ impl DeclarationCatalog {
         remove().map_err(|error: DefinitionTableError| {
             RuntimeError::metadata_conflict(error.to_string())
         })?;
+        Arc::make_mut(&mut self.module_owners).retain(|owner| !owned.module_owners.contains(owner));
         Ok(self)
     }
 }

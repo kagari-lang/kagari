@@ -10,7 +10,7 @@ use crate::{
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, DefinitionPath,
+        DefinitionKind, DefinitionPath, ModuleIdentity,
         map::{DefinitionContext, DefinitionMap},
         metadata::DefinitionMetadata,
         scoped::{DefinitionReferences, RemapDefinitions},
@@ -30,6 +30,11 @@ fn conflict(cause: impl ToString) -> RuntimeError {
 }
 
 impl DeclarationCatalog {
+    /// Whether an actual module provider was collected, rather than merely referenced.
+    pub(crate) fn contains_module(&self, identity: &ModuleIdentity) -> bool {
+        self.module_owners.contains(identity)
+    }
+
     /// Validate scoped declaration providers after explicit adoption into one catalog.
     pub fn from_declarations<'a>(
         modules: impl IntoIterator<Item = &'a DefinitionMetadata<ModuleDecl>>,
@@ -50,15 +55,8 @@ impl DeclarationCatalog {
                 catalog.insert(*id, contract.clone())?;
             }
         }
-        let definitions = catalog.definitions();
-        let owners = catalog.receiver_owners(None)?;
         for module in &modules {
-            module
-                .validate(
-                    &|receiver| owners.owner(receiver, &definitions),
-                    &definitions,
-                )
-                .map_err(conflict)?;
+            catalog.validate_module_declarations(module)?;
         }
         catalog.check_implementations(&modules)?;
         catalog.validate_callable_contracts()?;
@@ -144,6 +142,7 @@ impl DeclarationCatalog {
             let root = definitions
                 .lookup_root(&module.identity)
                 .expect("collected module identity");
+            Arc::make_mut(&mut result.module_owners).insert(module.identity.clone());
             Arc::make_mut(&mut result.documentation).extend(module.documentation.clone());
             for ty in &module.types {
                 let id = context
@@ -299,6 +298,7 @@ impl DeclarationCatalog {
             .extend(documentation.iter().map(|(id, text)| (*id, text.clone())));
         self.merge_rust_types(other)?;
         self.collect_implicit_definitions()?;
+        Arc::make_mut(&mut self.module_owners).extend(other.module_owners.iter().cloned());
         Ok(())
     }
 

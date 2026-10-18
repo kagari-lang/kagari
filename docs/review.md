@@ -1012,6 +1012,19 @@ code-derived costs, not benchmark results or speedup claims:
   copying here is not necessarily a deep object copy. Individual scalar conversion
   avoids an object root, which does not eliminate the pack-level allocation.
 
+- [Native call-site linking](../crates/kagari-runtime/src/module/linked_execution/native_calls.rs)
+  validates arity and prepares physical argument locations, while the common
+  [linked invocation entry](../crates/kagari-runtime/src/native/binding.rs) repeats
+  the arity check per call. Audit which callers possess the prepared call-site
+  evidence before proposing any specialized admission path; this is not authority
+  to remove checks from dynamic or host-originated invocation.
+- [Native result adaptation](../crates/kagari-runtime/src/native/result.rs) selects
+  its implementation table at linking, but its closed branch without applied type
+  arguments still resolves those arguments during conversion. Composite result
+  encoding also repeats Rust mapping checks before the outer return validation.
+  Distinguish stable preparation facts from checks on newly produced values;
+  bytecode containing one native call does not expose this work or measure its cost.
+
 The GC root owner should evaluate scope/batch storage or bounded amortized reclaim;
 the typed invocation owner should evaluate borrowed argument windows and reuse of
 checked mapping facts. Preserve snapshot/retention across user conversion and
@@ -1026,7 +1039,11 @@ behind one validated binding entrypoint without forcing one data-movement path.
 The [VM allocation tests](../crates/kagari-vm/tests/allocation_contracts/native_allocations.rs) establish
 warm zero-allocation scalar/SequenceHandle paths; they do not establish that the
 general typed adapter is allocation-free. Preserve those existing contracts during
-registration migration.
+registration migration. The queued
+[stdlib registration plan](stdlib-registration-plan.md#execution-cost-is-a-separate-boundary)
+owns a bounded bytecode/link/runtime non-regression comparison, not implementation
+of these pre-existing optimizations. It must preserve primitive/raw/typed/owned
+execution distinctions while changing authoring and assembly.
 
 This is a queued, bounded follow-up, separate from completed registration/interop
 delivery. Before optimization, measure equivalent raw/typed/owned cases and the
