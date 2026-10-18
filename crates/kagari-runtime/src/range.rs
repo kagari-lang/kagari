@@ -120,7 +120,7 @@ impl RangeValue {
 pub(crate) fn integer_value(ty: BuiltinType, n: i128) -> Value {
     match ty {
         BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(n as i32),
-        BuiltinType::U64 | BuiltinType::USize => Value::U64(n as u64),
+        BuiltinType::U64 => Value::U64(n as u64),
         _ => Value::I64(n as i64),
     }
 }
@@ -140,7 +140,7 @@ pub fn index_bound(gc: &GcHeap, value: &Value) -> Result<Bound<usize>, RuntimeEr
     }
     let expected = Ty::Enum(NominalTy {
         declaration: layout.layout().declaration,
-        arguments: vec![Ty::Builtin(BuiltinType::USize)],
+        arguments: vec![Ty::Builtin(BuiltinType::U64)],
         associated_types: Default::default(),
     });
     if !layout.matches_type(&expected, layout.module(), None) {

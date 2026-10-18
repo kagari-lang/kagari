@@ -52,7 +52,7 @@ fn main() -> i32 {
     val a = Vec::from([1, 2]);
     val r: std::collections::List<i32> = a;
     a.push(3);
-    if r.len() != 3usize { return 0; }
+    if r.len() != 3u64 { return 0; }
     val m: HashMap<String, i32> = HashMap::new();
     m.insert("a", 1); m.insert("a", 2);
     val mr: Map<String, i32> = m;
@@ -61,7 +61,7 @@ fn main() -> i32 {
     if !mr.contains_key("b") { return 0; }
     val s: HashSet<i32> = HashSet::new();
     s.insert(1); s.insert(1); s.insert(2);
-    if s.len() != 2usize { return 0; }
+    if s.len() != 2u64 { return 0; }
     val empty: Map<String, i32> = HashMap::new();
     val empty_array: Vec<i32> = Vec::new();
     val empty_set: Set<i32> = HashSet::new();
@@ -79,7 +79,7 @@ fn access_is_shallow_and_preserved_by_calls_closures_and_branch_joins() {
 struct Item { var value: i32 }
 struct Shelf { val items: std::collections::List<Item> }
 fn readable<T>(values: Vec<T>) -> std::collections::List<T> { values }
-fn size<T>(values: std::collections::List<T>) -> usize { values.len() }
+fn size<T>(values: std::collections::List<T>) -> u64 { values.len() }
 fn main() -> i32 {
     val item = Item { value: 1 };
     val writable = Vec::from([item]);

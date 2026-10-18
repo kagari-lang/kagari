@@ -24,7 +24,6 @@ impl IntegerMethodContract {
                 BuiltinType::U16 => BuiltinType::I16,
                 BuiltinType::U32 => BuiltinType::I32,
                 BuiltinType::U64 => BuiltinType::I64,
-                BuiltinType::USize => BuiltinType::ISize,
                 _ => return None,
             },
             IntegerMethod::WrappingAdd

@@ -1,6 +1,6 @@
 //! Collection contracts carry capabilities, never an allocator or hash algorithm.
 use crate::catalog::{
-    contracts::{applied_item, boolean, contract, method, option, receiver, unit, usize_type},
+    contracts::{applied_item, boolean, contract, method, option, receiver, u64_type, unit},
     identities,
     key::{self, RegistrationTrait},
 };
@@ -16,7 +16,7 @@ pub(super) fn declare(
 ) -> Result<(), DeclarationError> {
     let mut list = contract(ids, RegistrationTrait::List, &["T"])?;
     let item = list.generic_params[0].as_type();
-    let mut index = key::applied(ids, RegistrationTrait::Index, vec![usize_type()])?;
+    let mut index = key::applied(ids, RegistrationTrait::Index, vec![u64_type()])?;
     index.associated_types.insert(
         identities::associated(ids, &index.declaration, "Output")?,
         item.clone(),
@@ -27,9 +27,9 @@ pub(super) fn declare(
     ]);
     let this = receiver(ids, RegistrationTrait::List)?;
     list.methods.extend([
-        method("len", vec![this.clone()], usize_type()),
+        method("len", vec![this.clone()], u64_type()),
         method("is_empty", vec![this.clone()], boolean()),
-        method("get", vec![this, usize_type()], option(ids, item)?),
+        method("get", vec![this, u64_type()], option(ids, item)?),
     ]);
     module.traits.push(list);
     let mut writable = contract(ids, RegistrationTrait::MutableList, &["T"])?;
@@ -45,16 +45,16 @@ pub(super) fn declare(
         method("pop", vec![this.clone()], option(ids, item.clone())?),
         method(
             "insert",
-            vec![this.clone(), usize_type(), item.clone()],
+            vec![this.clone(), u64_type(), item.clone()],
             unit(),
         ),
         method(
             "remove",
-            vec![this.clone(), usize_type()],
+            vec![this.clone(), u64_type()],
             option(ids, item.clone())?,
         ),
         method("clear", vec![this.clone()], unit()),
-        method("set", vec![this, usize_type(), item], unit()),
+        method("set", vec![this, u64_type(), item], unit()),
     ]);
     module.traits.push(writable);
     let mut map = contract(ids, RegistrationTrait::Map, &["K", "V"])?;
@@ -67,7 +67,7 @@ pub(super) fn declare(
         Ty::Tuple(vec![key.clone(), value.clone()]),
     )?);
     map.methods.extend([
-        method("len", vec![this.clone()], usize_type()),
+        method("len", vec![this.clone()], u64_type()),
         method("is_empty", vec![this.clone()], boolean()),
         method("contains_key", vec![this.clone(), key.clone()], boolean()),
         method("get", vec![this, key], option(ids, value)?),
@@ -101,7 +101,7 @@ pub(super) fn declare(
         item.clone(),
     )?);
     set.methods.extend([
-        method("len", vec![this.clone()], usize_type()),
+        method("len", vec![this.clone()], u64_type()),
         method("is_empty", vec![this.clone()], boolean()),
         method("contains", vec![this, item], boolean()),
     ]);

@@ -89,7 +89,7 @@ fn nominal_dtos_use_typed_callbacks_while_explicit_handles_keep_shared_identity(
     let (vm, owner) = source_free_vm(
         r#"
         use example::dto::{Packet, update};
-        pub fn main() -> (i32, i32, usize) {
+        pub fn main() -> (i32, i32, u64) {
             val input = Packet { hp: 7, shared: Vec::from([1]) };
             val output = update(input);
             (input.hp, output.hp, input.shared.len())

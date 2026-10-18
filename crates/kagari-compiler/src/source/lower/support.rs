@@ -29,12 +29,10 @@ pub(crate) fn lower_scalar(value: ScalarValue) -> Constant {
         ScalarValue::Bool(value) => Constant::Bool(value),
         ScalarValue::Integer { value, ty } => match ty {
             IntegerType::I8 | IntegerType::I16 | IntegerType::I32 => Constant::I32(value as i32),
-            IntegerType::U64 | IntegerType::USize => Constant::U64(value as u64),
-            IntegerType::I64
-            | IntegerType::ISize
-            | IntegerType::U8
-            | IntegerType::U16
-            | IntegerType::U32 => Constant::I64(value as i64),
+            IntegerType::U64 => Constant::U64(value as u64),
+            IntegerType::I64 | IntegerType::U8 | IntegerType::U16 | IntegerType::U32 => {
+                Constant::I64(value as i64)
+            }
         },
         ScalarValue::F32(value) => Constant::F32(value),
         ScalarValue::F64(value) => Constant::F64(value),

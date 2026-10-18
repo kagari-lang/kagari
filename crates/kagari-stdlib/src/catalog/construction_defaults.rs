@@ -15,18 +15,16 @@ use kagari_types::{
     ty::{GenericParam, NominalTy, Ty},
 };
 
-const SCALARS: [BuiltinType; 13] = [
+const SCALARS: [BuiltinType; 11] = [
     BuiltinType::Bool,
     BuiltinType::I8,
     BuiltinType::I16,
     BuiltinType::I32,
     BuiltinType::I64,
-    BuiltinType::ISize,
     BuiltinType::U8,
     BuiltinType::U16,
     BuiltinType::U32,
     BuiltinType::U64,
-    BuiltinType::USize,
     BuiltinType::F32,
     BuiltinType::F64,
 ];
@@ -124,11 +122,6 @@ fn default_implementations(
             "Return zero of type i64.",
         ),
         (
-            BuiltinType::ISize,
-            "$foundation_default_ISize",
-            "Return zero of type isize.",
-        ),
-        (
             BuiltinType::U8,
             "$foundation_default_U8",
             "Return zero of type u8.",
@@ -147,11 +140,6 @@ fn default_implementations(
             BuiltinType::U64,
             "$foundation_default_U64",
             "Return zero of type u64.",
-        ),
-        (
-            BuiltinType::USize,
-            "$foundation_default_USize",
-            "Return zero of type usize.",
         ),
         (
             BuiltinType::F32,

@@ -398,7 +398,7 @@ fn main()->i32 {
  val equivalent = Id::Remote(42);
  if !a.contains(equivalent) || !b.contains(equivalent) { return 0; }
  a.insert(Id::Remote(42));
- if a.len() != 1usize || b.len() != 2usize { return 0; }
+ if a.len() != 1u64 || b.len() != 2u64 { return 0; }
  val map:HashMap<Option<Id>,i32> = HashMap::new();
  map.insert(Some(Id::Local(42,2.5)),42);
  (match map.get(Some(Id::Remote(42))) { Some(value) => value, None => 0 })

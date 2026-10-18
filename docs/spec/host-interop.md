@@ -106,6 +106,21 @@ Metadata does not authorize unrestricted Rust references or turn a DTO into a
 borrowed host object. Common declarations are the sole schema owner for both
 source compilation and source-free path validation.
 
+## Fixed-width numeric host boundary
+
+Portable native numeric declarations use Rust `i64`/`u64` for the corresponding
+script types; standard lengths, indices and counts use `u64`. Rust `isize`/`usize`
+scalar convenience adapters map to script `i64`/`u64` with checked host-range
+conversion. They do not register additional script identities or aliases. An
+unrepresentable script argument fails before the Rust callback is entered; a
+callback needing the full script domain must accept a fixed-width parameter.
+
+Scalar conversion does not authorize slice reinterpretation. Zero-copy native
+element views of script 64-bit integer buffers use `&[i64]`/`&[u64]`, never
+`&[isize]`/`&[usize]`. Actual Rust allocation and storage positions can still use
+`usize`, subject to the operation-owned checks described under
+[machine and resource boundaries](runtime.md#machine-and-resource-boundaries).
+
 ## Function Registration
 
 Rust consumers import each API from its owning module. For example,
@@ -134,7 +149,7 @@ Open generics require inline `T: NativeValue` and compile once using checked roo
 `NativeResult<T>` returns T to script and propagates RuntimeError as a trap.
 `#[context]` injects a checked NativeCall without adding a script argument.
 NativeArray operations preserve bounds, aliasing and heap guards. Readonly
-applications permit reads and reject mutations. NativeFn<(usize,), T> supplies the
+applications permit reads and reject mutations. NativeFn<(u64,), T> supplies the
 checked index callback for the current array proof; NativeContinuation<T> reuses
 the rooted resumable driver and cooperative polling boundaries. The registered ops Index is a by-value
 Rust bridge for the existing script indexing contract. It returns checked values

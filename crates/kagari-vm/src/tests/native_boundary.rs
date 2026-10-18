@@ -184,7 +184,7 @@ fn foundation_defaults_execute_without_optional_modules() {
             values.push(20); values.push(22);
             val map = HashMap::new(); map.insert(1, values[0]); map.insert(2, values[1]);
             val set = HashSet::new(); set.insert(1); set.insert(1);
-            if values.len() == (2 as usize) && map.len() == (2 as usize) && set.len() == (1 as usize) && map.contains_key(2) {
+            if values.len() == (2 as u64) && map.len() == (2 as u64) && set.len() == (1 as u64) && map.contains_key(2) {
                 var total = 0; for value in values { total = total + value; } total
             } else { 0 }
         }
@@ -217,7 +217,7 @@ use std::hash::{Hash};
             map.insert(Key { value: 1 }, 21);
             val second = Key { value: 2 }; val first = Key { value: 1 };
             val found = map.get(first);
-            if map.len() == (2 as usize) && map.contains_key(second) {
+            if map.len() == (2 as u64) && map.contains_key(second) {
                 match found { Some(value) => value + 21, None => 0 }
             } else { 0 }
         }
@@ -534,7 +534,7 @@ fn ordinary_sequence_parameters_borrow_roots_and_preserve_mutation_guards() {
         .define_function(
             FunctionDecl::new("len")
                 .parameter("values", language.vec(Type::i32()).unwrap())
-                .returns(Type::usize()),
+                .returns(Type::u64()),
         )
         .unwrap();
     builder.bind(len, rooted_sequence_len).unwrap();
@@ -719,7 +719,10 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
             let function = builder
                 .define_function(
                     FunctionDecl::new(name)
-                        .parameter("values", language.vec(Type::scalar(BuiltinType::$kind)).unwrap())
+                        .parameter(
+                            "values",
+                            language.vec(Type::scalar(BuiltinType::$kind)).unwrap(),
+                        )
                         .returns(Type::bool()),
                 )
                 .unwrap();
@@ -732,7 +735,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
                         Codec::Exact(Type::bool()),
                         move |cx| {
                             cx.with_sequence::<$rust, _>(0, |values| {
-                                assert!(values.is_empty() || values.len() == 2);
+                                assert!(values.len() <= 2);
                                 assert!(values.iter().all(|value| *value == $expected));
                                 count.fetch_add(1, Ordering::SeqCst);
                                 Ok(Value::Bool(true))
@@ -742,7 +745,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
                 )
                 .unwrap();
             expressions.push(format!(
-                "{name}(Vec::new()) && {name}(Vec::from([{0}, {0}])) && {name}(Vec::from([{0}; 2]))",
+                "{name}(Vec::new()) && {name}(Vec::from([{0}])) && {name}(Vec::from([{0}; 2]))",
                 $literal
             ));
         }};
@@ -753,13 +756,11 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
     check!(I8, i8, 1, "1 as i8");
     check!(I16, i16, 1, "1 as i16");
     check!(I32, i32, 1, "1");
-    check!(I64, i64, 1, "1 as i64");
-    check!(ISize, isize, 1, "1 as isize");
+    check!(I64, i64, i64::MIN, "-9223372036854775808i64");
     check!(U8, u8, 1, "1 as u8");
     check!(U16, u16, 1, "1 as u16");
     check!(U32, u32, 1, "1 as u32");
-    check!(U64, u64, 1, "1 as u64");
-    check!(USize, usize, 1, "1 as usize");
+    check!(U64, u64, u64::MAX, "18446744073709551615u64");
     check!(F32, f32, 1.0, "1.0 as f32");
     check!(F64, f64, 1.0, "1.0");
     let module = builder.finish().unwrap();
@@ -779,7 +780,7 @@ fn every_scalar_layout_is_selected_from_the_declared_array_element() {
             .expect("retained execution result"),
         Value::Bool(true)
     );
-    assert_eq!(calls.load(Ordering::SeqCst), 42);
+    assert_eq!(calls.load(Ordering::SeqCst), 36);
 }
 
 #[test]
@@ -833,7 +834,7 @@ use std::hash::{Hash};
             set.insert(Key { value: 1 }); set.insert(Key { value: 2 });
             set.insert(Key { value: 1 });
             val first_key = Key { value: 1 }; val second_key = Key { value: 2 };
-            if set.len() != (2 as usize) || !set.contains(second_key) { return -1; }
+            if set.len() != (2 as u64) || !set.contains(second_key) { return -1; }
             match map.get(first_key) {
                 Some(first) => match map.get(second_key) { Some(second) => first + second, None => -2 },
                 None => -3

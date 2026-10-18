@@ -532,14 +532,16 @@ See [numeric conversions](../../examples/syntax/numeric-conversions.kgr).
 `[value; count]` constructs a fresh builtin `[T]` array whose length remains fixed.
 Length is not a type argument; rebinding a `var` to another array changes only that
 slot. Existing aliases retain the original object and length.
-Evaluate `value`, then the `usize` count, exactly once. The value is evaluated even
+Evaluate `value`, then the `u64` count, exactly once. The value is evaluated even
 for zero length. Repetition requires a type proven to contain no shared mutable
 object identity: scalars, String and integer ranges qualify; Tuple and enum payloads
 are checked recursively across every variant. Structs, containers (including
 read-only views), interfaces, closures and host handles do not qualify. This rule
 also applies at lengths zero and one and to an empty variant such as `None` in
 `Option<Struct>`. An unconstrained generic element type cannot prove the requirement.
-The count may be a runtime expression. Checked allocation arithmetic and cooperative cancellation still apply.
+The count may be a runtime expression. Checked allocation arithmetic and cooperative
+cancellation still apply. A valid u64 count need not be an allocatable size; see
+[machine and resource boundaries](runtime.md#machine-and-resource-boundaries).
 
 Objects requiring separate identity must be initialized separately, for example
 `[Cell { value: 1 }, Cell { value: 1 }]`. A repeated reference can be expressed

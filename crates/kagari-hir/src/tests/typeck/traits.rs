@@ -285,7 +285,7 @@ fn main() { Factory::make(false, unknown); }
 #[test]
 fn trait_method_where_bounds_keep_self_and_associated_output_owners() {
     let lowered = common::lower_ok(
-        "trait Sequence { type Item; fn size(self) -> usize where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
+        "trait Sequence { type Item; fn size(self) -> u64 where Self: Iterable<Item = Self::Item>, Self::Item: Eq; }",
     );
     let analyzed = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
@@ -382,7 +382,7 @@ fn forward<T{bound}>(value: Wrap<T>) {{
 #[test]
 fn trait_name_is_not_a_self_parameter_in_where_bounds() {
     let context = DefinitionContext::new().unwrap();
-    let lowered = common::lower_ok("trait Sequence { fn size(self) -> usize where Sequence: Eq; }");
+    let lowered = common::lower_ok("trait Sequence { fn size(self) -> u64 where Sequence: Eq; }");
     let names = resolve_names(&lowered)
         .unwrap()
         .into_checked()

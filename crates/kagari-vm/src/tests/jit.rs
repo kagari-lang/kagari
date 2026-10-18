@@ -134,10 +134,10 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
 fn jit_fallback_executes_foundation_bindings_deterministically() {
     let module = common::compile_test_bytecode(
         r#"
-fn main() -> (usize, usize, i32) {
+fn main() -> (u64, u64, i32) {
     val values = Vec::from([1, 2]);
     values.push(3);
-    (values.len(), values.len() - 1usize, match values.pop() { Some(value) => value + 4, None => 0 })
+    (values.len(), values.len() - 1u64, match values.pop() { Some(value) => value + 4, None => 0 })
 }
 
 "#,

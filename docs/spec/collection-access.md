@@ -67,7 +67,7 @@ Binding mutability, container mutation and element mutation are independent:
 
 ```kgr
 struct Cell { var value: i32 }
-fn main() -> usize {
+fn main() -> u64 {
     val storage = Vec::from([Cell { value: 1 }]);
     val writable: MutableList<Cell> = storage;
     val readable: List<Cell> = writable;
@@ -110,7 +110,7 @@ its data object and execution version. Views do not copy collection storage.
 
 | Interface | Members, in addition to its parents |
 | --- | --- |
-| `List<T>` | `len`, `is_empty`, `get`; inherits `Index<usize, Output=T>` and `Iterable<Item=T>` |
+| `List<T>` | `len`, `is_empty`, `get`; inherits `Index<u64, Output=T>` and `Iterable<Item=T>` |
 | `MutableList<T>` | `push`, `pop`, `insert`, `remove`, `clear`, `set` |
 | `Map<K,V>` | `len`, `is_empty`, `contains_key`, `get`; inherits `Iterable<Item=(K,V)>` |
 | `MutableMap<K,V>` | `insert`, `remove`, `clear` |
@@ -122,9 +122,13 @@ Concrete implementations supply their own iterator type; the contract does not
 require a particular optional `Iter<T>` class. Checked interface metadata retains
 actual associated outputs and targets for static and dynamic dispatch.
 
-List interface indices use `usize`; unsuffixed literals receive that context.
-Nominal Vec indexing uses its checked Index<usize> implementation. Builtin array
-indexing accepts the existing integer index types.
+Standard collection lengths and capacities use `u64`. List interface indices use
+`u64`; unsuffixed literals receive that context. Nominal Vec indexing uses its
+checked Index<u64> implementation. Builtin array indexing accepts the existing
+integer index types; user-defined Index implementations retain their declared
+parameter types. Storage access checks bounds before conversion to a machine
+position; large indices must not wrap to a smaller valid position. Allocation
+sizes are subject to [machine and resource boundaries](runtime.md#machine-and-resource-boundaries).
 Out-of-bounds `get`/`remove` return None; invalid indexing, `set` and `insert` trap.
 List insert permits an index equal to the length. `pop` returns None when empty.
 Map remove returns the previous value or None; Set remove returns a boolean.

@@ -107,6 +107,32 @@ The key property is:
 
 - ephemeral values are not legal heap payloads
 
+## Machine and resource boundaries
+
+Script integers have fixed widths independent of the host address width. Standard
+lengths, capacities, indices and logical counts use `u64`. A value such as
+`4294967296u64` is valid on a 32-bit host: storing it in a one-element array needs
+one 64-bit element, not that many elements. Iterator take/skip counts remain wide
+logical values rather than machine storage positions.
+
+Rust `usize` still describes physical storage lengths, positions and allocation.
+Crossing from a script integer into storage requires a checked conversion or a
+bounds proof in the wide domain before conversion. Invalid indices must not
+truncate or wrap into valid positions. Error policy belongs to the operation:
+indexing traps, optional lookups return absence where specified, and string slices
+also validate UTF-8 boundaries. Preserve once-only, left-to-right evaluation and
+completed side effects on failure.
+
+A `u64` length does not promise that every representable size can be allocated.
+Capacity depends on address width, element size, allocator/runtime limits and
+available memory. Allocation checks length and byte-size arithmetic without
+wraparound. Ordinary checked failures retain their specified error and mutation
+contracts; underlying out-of-memory failure may be fatal and is not promised
+recoverable. Equal source and inputs have the same specified numeric behavior
+within platform resources, not identical memory limits. There are no per-script
+memory quotas. [Host scalar conversions](host-interop.md#fixed-width-numeric-host-boundary)
+are distinct from zero-copy element storage.
+
 ## Value Shape
 
 Enum objects contain an `EnumTag` and immutable payload slots. Declared variants

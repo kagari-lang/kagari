@@ -183,7 +183,7 @@ fn failed_shift_keeps_target_and_completed_rhs_effects() {
                 "commit.kgr",
                 r#"
         use demo;
-        fn index(log: Vec<i32>) -> usize { log.push(1); 0usize }
+        fn index(log: Vec<i32>) -> u64 { log.push(1); 0u64 }
         fn count(log: Vec<i32>) -> u16 { log.push(2); 32u16 }
         fn main() { val memory = demo::memory(); memory[index(memory)] <<= count(memory); }
     "#,

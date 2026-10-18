@@ -198,9 +198,9 @@ use std::iter::{CollectionCursor};
 use std::ops::{Index};
 
 struct Sequence { val items: Vec<i32> }
-impl Index<usize> for Sequence {
+impl Index<u64> for Sequence {
     type Output = i32;
-    fn index(self, index: usize) -> i32 { self.items[index] }
+    fn index(self, index: u64) -> i32 { self.items[index] }
 }
 impl Iterable for Sequence {
     type Item = i32;
@@ -208,9 +208,9 @@ impl Iterable for Sequence {
     fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
 }
 impl List<i32> for Sequence {
-    fn len(self) -> usize { self.items.len() }
+    fn len(self) -> u64 { self.items.len() }
     fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: usize) -> Option<i32> { self.items.get(index) }
+    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
 }
 pub fn make() -> List<i32> { Sequence { items: Vec::from([3, 1, 2]) } }
 "#,

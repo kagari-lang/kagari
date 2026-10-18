@@ -127,7 +127,7 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
         .implement(Type::i32(), |implementation| {
             implementation.receiver_codec(Codec::Exact(Type::i32()))?;
             implementation.trait_impl(measure.apply([])?, |methods| {
-                methods.associated_type("Output", Type::usize())?;
+                methods.associated_type("Output", Type::u64())?;
                 methods.bind(
                     "measure",
                     |_cx: &mut CallContext<'_>, value: i32| -> NativeResult<usize> {
@@ -148,6 +148,6 @@ fn trait_groups_bind_declared_members_and_associated_outputs() {
         )
         .unwrap()
         .text
-        .contains("type Output = usize")
+        .contains("type Output = u64")
     );
 }

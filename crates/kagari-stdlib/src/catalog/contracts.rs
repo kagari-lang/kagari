@@ -103,8 +103,8 @@ pub(super) fn unit() -> Ty {
     Ty::Builtin(BuiltinType::Unit)
 }
 
-pub(super) fn usize_type() -> Ty {
-    Ty::Builtin(BuiltinType::USize)
+pub(super) fn u64_type() -> Ty {
+    Ty::Builtin(BuiltinType::U64)
 }
 
 pub(super) fn boolean() -> Ty {

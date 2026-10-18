@@ -10,7 +10,7 @@ use {kagari_common::cancellation::CancellationToken, kagari_source::source::Sour
 
 #[test]
 fn declaration_mode_preserves_signatures_docs_and_source() {
-    let text = "/// Read one element.\r\n/// Returns None outside the array.\r\n#[intrinsic(array_get)]\r\npub fn get<T>(value:[T], index:usize)->Option<T>;\r\n\r\n/// The next operation.\r\npub fn len<T>(value:[T])->usize;";
+    let text = "/// Read one element.\r\n/// Returns None outside the array.\r\n#[intrinsic(array_get)]\r\npub fn get<T>(value:[T], index:u64)->Option<T>;\r\n\r\n/// The next operation.\r\npub fn len<T>(value:[T])->u64;";
     let source = SourceFile::new("kagari://std/array.kgr", text);
     let parsed = parse_declarations(
         &source,

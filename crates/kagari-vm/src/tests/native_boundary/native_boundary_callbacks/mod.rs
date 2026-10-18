@@ -17,9 +17,91 @@ use kagari_runtime::{
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    Arc, Mutex,
+    atomic::{AtomicUsize, Ordering},
+};
 
 type Callback = PinnedFunction<(i32,), i32>;
+
+#[test]
+fn machine_scalar_conveniences_check_host_range_before_callback_entry() {
+    let catalog = StandardDeclarations::default().catalog().unwrap();
+    let mut builder = ModuleBuilder::new("example::machine_scalars", &catalog).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let unsigned = builder
+        .define_function(
+            FunctionDecl::new("unsigned")
+                .parameter("value", Type::u64())
+                .returns(Type::u64()),
+        )
+        .unwrap();
+    let observed = calls.clone();
+    builder
+        .bind(
+            unsigned,
+            move |_: &mut CallContext<'_>, value: usize| -> NativeResult<usize> {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(value)
+            },
+        )
+        .unwrap();
+    let signed = builder
+        .define_function(
+            FunctionDecl::new("signed")
+                .parameter("value", Type::i64())
+                .returns(Type::i64()),
+        )
+        .unwrap();
+    let observed = calls.clone();
+    builder
+        .bind(
+            signed,
+            move |_: &mut NativeContext<'_>, (value,): (isize,)| -> NativeResult<isize> {
+                observed.fetch_add(1, Ordering::SeqCst);
+                Ok(value)
+            },
+        )
+        .unwrap();
+    let (vm, owner) = compile(
+        r#"
+        use example::machine_scalars;
+        pub fn unsigned(value: u64) -> u64 { machine_scalars::unsigned(value) }
+        pub fn signed(value: i64) -> i64 { machine_scalars::signed(value) }
+        "#,
+        Some(&builder.finish().unwrap()),
+    );
+    for value in [0, u32::MAX as u64 + 1, u64::MAX] {
+        let before = calls.load(Ordering::SeqCst);
+        let result = vm.execute_typed::<_, u64>(&owner, "unsigned", (value,));
+        if usize::try_from(value).is_ok() {
+            assert_eq!(result.unwrap(), value);
+            assert_eq!(calls.load(Ordering::SeqCst), before + 1);
+        } else {
+            assert!(result.is_err());
+            assert_eq!(calls.load(Ordering::SeqCst), before);
+        }
+    }
+    for value in [
+        i64::MIN,
+        i32::MIN as i64 - 1,
+        0,
+        i32::MAX as i64 + 1,
+        i64::MAX,
+    ] {
+        let before = calls.load(Ordering::SeqCst);
+        let result = vm.execute_typed::<_, i64>(&owner, "signed", (value,));
+        if isize::try_from(value).is_ok() {
+            assert_eq!(result.unwrap(), value);
+            assert_eq!(calls.load(Ordering::SeqCst), before + 1);
+        } else {
+            assert!(result.is_err());
+            assert_eq!(calls.load(Ordering::SeqCst), before);
+        }
+    }
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+}
 
 fn call_repeatedly(
     cx: &mut CallContext<'_>,
@@ -58,7 +140,7 @@ fn function_arguments_call_captured_script_closures_synchronously() {
                     Type::function([Type::i32()], Type::i32()).unwrap(),
                 )
                 .parameter("value", Type::i32())
-                .parameter("count", Type::usize())
+                .parameter("count", Type::u64())
                 .returns(Type::i32()),
         )
         .unwrap();
@@ -298,8 +380,8 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
     let probe = builder
         .define_function(
             FunctionDecl::new("probe")
-                .parameter("value", Type::usize())
-                .returns(Type::usize()),
+                .parameter("value", Type::u64())
+                .returns(Type::u64()),
         )
         .unwrap();
     builder
@@ -308,12 +390,14 @@ fn ordinary_generic_value_binding_keeps_closed_types_and_shared_values() {
             |_cx: &mut CallContext<'_>, value: ValueHandle<'_>| -> NativeResult<usize> {
                 assert!(
                     value
-                        .scalar::<u64>()
+                        .scalar::<i64>()
                         .unwrap_err()
                         .message()
                         .contains("argument type")
                 );
-                value.scalar::<usize>()
+                let host = value.scalar::<usize>()?;
+                assert_eq!(value.scalar::<u64>()?, host as u64);
+                Ok(host)
             },
         )
         .unwrap();

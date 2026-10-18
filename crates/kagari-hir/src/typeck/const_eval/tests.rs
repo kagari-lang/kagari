@@ -7,12 +7,10 @@ fn checked_constants_share_integer_semantics_at_every_width() {
         IntegerType::I16,
         IntegerType::I32,
         IntegerType::I64,
-        IntegerType::ISize,
         IntegerType::U8,
         IntegerType::U16,
         IntegerType::U32,
         IntegerType::U64,
-        IntegerType::USize,
     ] {
         let scalar = |value| ScalarValue::integer(value, ty).unwrap();
         let (min, max) = ty.bounds();

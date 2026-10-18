@@ -159,7 +159,7 @@ pub fn integer_method(
 
     let value = match ty {
         BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(value as i32),
-        BuiltinType::U64 | BuiltinType::USize => Value::U64(value as u64),
+        BuiltinType::U64 => Value::U64(value as u64),
         _ => Value::I64(value as i64),
     };
     if operation.checked() && overflow {
@@ -251,7 +251,7 @@ mod boundary_tests {
             integer_method(
                 gc,
                 IntegerMethod::WrappingAddSigned,
-                BuiltinType::USize,
+                BuiltinType::U64,
                 &[Value::U64(0), Value::I64(-1)]
             )
             .unwrap(),
@@ -294,7 +294,7 @@ mod boundary_tests {
         for (method, receiver) in [
             (IntegerMethod::WrappingAdd, BuiltinType::I8),
             (IntegerMethod::RotateRight, BuiltinType::U32),
-            (IntegerMethod::WrappingAddSigned, BuiltinType::USize),
+            (IntegerMethod::WrappingAddSigned, BuiltinType::U64),
         ] {
             let error = integer_method(gc, method, receiver, &[]).unwrap_err();
             assert_eq!(error.message(), "integer method requires two arguments");

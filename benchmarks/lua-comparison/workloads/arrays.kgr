@@ -7,13 +7,13 @@ fn run(n: i32) -> i32 {
     }
     i = 0;
     while i < n {
-        values[i as usize] = values[i as usize] * 3 + 1;
+        values[i as u64] = values[i as u64] * 3 + 1;
         i = i + 1;
     }
     i = 0;
     var sum = 0;
     while i < n {
-        sum = sum + values[i as usize];
+        sum = sum + values[i as u64];
         i = i + 1;
     }
     sum

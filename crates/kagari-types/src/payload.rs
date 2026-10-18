@@ -46,8 +46,8 @@ macro_rules! select_op {
 pub fn binary_kernel(op: ScalarBinaryOp, input: BuiltinType) -> Option<ScalarKernel> {
     Some(match input {
         BuiltinType::I32 => select_op!(op, integer_binary, 32, true),
-        BuiltinType::I64 | BuiltinType::ISize => select_op!(op, integer_binary, 64, true),
-        BuiltinType::U64 | BuiltinType::USize => select_op!(op, integer_binary, 64, false),
+        BuiltinType::I64 => select_op!(op, integer_binary, 64, true),
+        BuiltinType::U64 => select_op!(op, integer_binary, 64, false),
         BuiltinType::F32 => select_op!(op, float_binary, true),
         BuiltinType::F64 => select_op!(op, float_binary, false),
         BuiltinType::Bool | BuiltinType::Unit
@@ -134,11 +134,11 @@ macro_rules! integer_width {
             BuiltinType::I8 => $function::<$op, 8, true $(, $parameter)*>,
             BuiltinType::I16 => $function::<$op, 16, true $(, $parameter)*>,
             BuiltinType::I32 => $function::<$op, 32, true $(, $parameter)*>,
-            BuiltinType::I64 | BuiltinType::ISize => $function::<$op, 64, true $(, $parameter)*>,
+            BuiltinType::I64 => $function::<$op, 64, true $(, $parameter)*>,
             BuiltinType::U8 => $function::<$op, 8, false $(, $parameter)*>,
             BuiltinType::U16 => $function::<$op, 16, false $(, $parameter)*>,
             BuiltinType::U32 => $function::<$op, 32, false $(, $parameter)*>,
-            BuiltinType::U64 | BuiltinType::USize => $function::<$op, 64, false $(, $parameter)*>,
+            BuiltinType::U64 => $function::<$op, 64, false $(, $parameter)*>,
             _ => return None,
         }
     };
@@ -220,7 +220,7 @@ fn shift_value<
 pub fn negation_kernel(input: BuiltinType) -> Option<ScalarKernel> {
     Some(match input {
         BuiltinType::I32 => negate_integer::<32>,
-        BuiltinType::I64 | BuiltinType::ISize => negate_integer::<64>,
+        BuiltinType::I64 => negate_integer::<64>,
         BuiltinType::F32 => negate_float::<true>,
         BuiltinType::F64 => negate_float::<false>,
         _ => return None,
@@ -247,12 +247,10 @@ macro_rules! numeric_type {
             BuiltinType::I16 => $function::<{ BuiltinType::I16 as u8 } $(, $parameter)*>,
             BuiltinType::I32 => $function::<{ BuiltinType::I32 as u8 } $(, $parameter)*>,
             BuiltinType::I64 => $function::<{ BuiltinType::I64 as u8 } $(, $parameter)*>,
-            BuiltinType::ISize => $function::<{ BuiltinType::ISize as u8 } $(, $parameter)*>,
             BuiltinType::U8 => $function::<{ BuiltinType::U8 as u8 } $(, $parameter)*>,
             BuiltinType::U16 => $function::<{ BuiltinType::U16 as u8 } $(, $parameter)*>,
             BuiltinType::U32 => $function::<{ BuiltinType::U32 as u8 } $(, $parameter)*>,
             BuiltinType::U64 => $function::<{ BuiltinType::U64 as u8 } $(, $parameter)*>,
-            BuiltinType::USize => $function::<{ BuiltinType::USize as u8 } $(, $parameter)*>,
             BuiltinType::F32 => $function::<{ BuiltinType::F32 as u8 } $(, $parameter)*>,
             BuiltinType::F64 => $function::<{ BuiltinType::F64 as u8 } $(, $parameter)*>,
             _ => return None,
@@ -275,7 +273,7 @@ fn select_target<const SOURCE: u8>(target: BuiltinType) -> Option<ScalarKernel> 
 fn builtin<const CODE: u8>() -> BuiltinType {
     // Exhaustive identity table is shared by the generated source/target kernels;
     // constant codes are eliminated in each concrete monomorphization.
-    const TYPES: [BuiltinType; 16] = [
+    const TYPES: [BuiltinType; 14] = [
         BuiltinType::Never,
         BuiltinType::Unit,
         BuiltinType::Bool,
@@ -283,12 +281,10 @@ fn builtin<const CODE: u8>() -> BuiltinType {
         BuiltinType::I16,
         BuiltinType::I32,
         BuiltinType::I64,
-        BuiltinType::ISize,
         BuiltinType::U8,
         BuiltinType::U16,
         BuiltinType::U32,
         BuiltinType::U64,
-        BuiltinType::USize,
         BuiltinType::F32,
         BuiltinType::F64,
         BuiltinType::String,

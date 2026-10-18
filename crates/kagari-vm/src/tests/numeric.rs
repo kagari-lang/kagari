@@ -9,17 +9,15 @@ use crate::{
 
 use kagari_runtime::{error::RuntimeErrorKind, value::Value};
 
-const INTEGERS: [(&str, u32, bool); 10] = [
+const INTEGERS: [(&str, u32, bool); 8] = [
     ("i8", 8, true),
     ("i16", 16, true),
     ("i32", 32, true),
     ("i64", 64, true),
-    ("isize", 64, true),
     ("u8", 8, false),
     ("u16", 16, false),
     ("u32", 32, false),
     ("u64", 64, false),
-    ("usize", 64, false),
 ];
 
 fn check(source: &str, entries: &[String], traps: bool) {

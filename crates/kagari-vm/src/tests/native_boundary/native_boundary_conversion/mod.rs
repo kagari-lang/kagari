@@ -365,7 +365,7 @@ fn typed_concrete_result_uses_the_compiler_selected_interface_adapter() {
     let (vm, loaded) = source_free_vm(
         r#"
         use example::typed::split;
-        fn main() -> usize { val fields = split("a:雪:", ":"); fields.len() }
+        fn main() -> u64 { val fields = split("a:雪:", ":"); fields.len() }
     "#,
         &module,
     );

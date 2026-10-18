@@ -111,7 +111,7 @@ fn inference_order_does_not_change_evaluation_order() {
             val x = consume(Marker { value: record(events, 20) }, record(events, 22));
             { val passed = events[0] == 20; if !passed {val zero=0;1/zero;} };
             { val passed = events[1] == 22; if !passed {val zero=0;1/zero;} };
-            { val passed = events.len() == 2usize; if !passed {val zero=0;1/zero;} };
+            { val passed = events.len() == 2u64; if !passed {val zero=0;1/zero;} };
             val pair = Pair { marker: Marker { value: x }, seed: true };
             val bundle = Bundle::Pair(Marker { value: x }, true);
             val options = Vec::from([None, Some(22)]);
@@ -154,14 +154,14 @@ fn numeric_suffixes_context_and_full_unsigned_range_execute() {
             val signed: i16 = -32768;
             val wide = 9223372036854775807i64;
             val maximum = 18446744073709551615u64;
-            val size = 18446744073709551615usize;
+
             { val passed = small == 0xff_u8; if !passed {val zero=0;1/zero;} };
             { val passed = MINIMUM == -128i8; if !passed {val zero=0;1/zero;} };
             { val passed = WIDE == 4000000002i64; if !passed {val zero=0;1/zero;} };
             { val passed = DOUBLE == 2f64; if !passed {val zero=0;1/zero;} };
             { val passed = maximum > 9223372036854775808u64; if !passed {val zero=0;1/zero;} };
             { val passed = maximum / 3u64 == 6148914691236517205u64; if !passed {val zero=0;1/zero;} };
-            { val passed = f"{size}" == "18446744073709551615"; if !passed {val zero=0;1/zero;} };
+            { val passed = f"{maximum}" == "18446744073709551615"; if !passed {val zero=0;1/zero;} };
             val keys = HashSet::new();
             keys.insert(maximum);
             { val passed = keys.contains(maximum); if !passed {val zero=0;1/zero;} };
@@ -169,7 +169,7 @@ fn numeric_suffixes_context_and_full_unsigned_range_execute() {
             { val passed = single == 1.25f32; if !passed {val zero=0;1/zero;} };
             val inferred = 2.0;
             { val passed = inferred == 2.0f64; if !passed {val zero=0;1/zero;} };
-            { val passed = Vec::from([1,2]).len() == 2usize; if !passed {val zero=0;1/zero;} };
+            { val passed = Vec::from([1,2]).len() == 2u64; if !passed {val zero=0;1/zero;} };
             42
         }
     "#,
@@ -207,7 +207,7 @@ fn narrow_and_unsigned_arithmetic_trap_on_overflow() {
         "255u8 + 1u8",
         "127i8 + 1i8",
         "18446744073709551615u64 + 1u64",
-        "0usize - 1usize",
+        "0u64 - 1u64",
     ] {
         let engine = KagariEngine::default();
         let artifact = engine

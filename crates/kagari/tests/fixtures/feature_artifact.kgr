@@ -26,14 +26,14 @@ pub fn default_update_values() -> i32 {
     match absent { None => {}, Some(_) => { return 0; } };
     val base = FeatureDefault<i32> { ..Default::default() };
     val fresh: FeatureDefault<i32> = Default::default();
-    if zero != 0 || base.value != 0 || empty.len() != 0usize
-        || base.values.len() != 0usize { return 0; }
+    if zero != 0 || base.value != 0 || empty.len() != 0u64
+        || base.values.len() != 0u64 { return 0; }
     base.values.push(20);
     val updated = FeatureDefault { value: 20, ..base };
     updated.value += 2;
     updated.values.push(20);
-    if base.value != 0 || fresh.value != 0 || fresh.values.len() != 0usize
-        || base.values.len() != 2usize || base.values[0] != 20
+    if base.value != 0 || fresh.value != 0 || fresh.values.len() != 0u64
+        || base.values.len() != 2u64 || base.values[0] != 20
         || updated.values[1] != 20 { return 0; }
     updated.value + base.values[1]
 }
@@ -43,7 +43,7 @@ pub fn native_enum_values() -> i32 {
     val nested = enums::make(enums::make(Vec::from([38]), 2), 2);
     match enums::roundtrip(nested) {
         enums::Event::Data(inner, outer) => match inner {
-            enums::Event::Data(value, sequence) => value[0usize] + sequence + outer,
+            enums::Event::Data(value, sequence) => value[0u64] + sequence + outer,
             enums::Event::Closed => 0
         },
         enums::Event::Closed => 0
@@ -53,18 +53,18 @@ pub fn native_enum_values() -> i32 {
 pub fn required_methods() -> i32 {
     val text = "  β,a  ";
     val fields = text.trim().split(",").sorted_by_key(|field| field);
-    if fields.len() != 2usize || fields[0] != "a" || fields[1].len() != 2usize
-        || fields[1].slice(0usize, 2usize) != "β" || text.is_empty()
+    if fields.len() != 2u64 || fields[0] != "a" || fields[1].len() != 2u64
+        || fields[1].slice(0u64, 2u64) != "β" || text.is_empty()
         || !text.contains("β") || !text.starts_with("  ") || !text.ends_with("  ")
-        || text.find("β") != Some(2usize) || text.trim_start() != "β,a  "
+        || text.find("β") != Some(2u64) || text.trim_start() != "β,a  "
         || text.trim_end() != "  β,a" || "β".replace("", "-") != "-β-" { return 0; }
     val values = Vec::from([20, 22]);
     if !values.map(|item| item).any(|item| item == 20) { return 0; }
     change(values);
-    val indexed: std::collections::HashMap<usize, i32> = [20, 22]
+    val indexed: std::collections::HashMap<u64, i32> = [20, 22]
         .filter_map(|item| Some(item)).zip([1, 1])
         .map(|pair| pair[0] * pair[1]).enumerate().collect();
-    if indexed.get(0usize) != Some(20) || indexed.get(1usize) != Some(22) { return 0; }
+    if indexed.get(0u64) != Some(20) || indexed.get(1u64) != Some(22) { return 0; }
     val copied=Vec<i32>::from_iter(values);
     val total=i32::sum(copied);
     val parsed=i32::from_str("42");
@@ -73,12 +73,12 @@ pub fn required_methods() -> i32 {
 }
 
 fn change<C: MutableList<i32>>(values: C) {
-    values.set(0usize, 19);
-    values.insert(1usize, 1);
-    values.remove(2usize);
+    values.set(0u64, 19);
+    values.insert(1u64, 1);
+    values.remove(2u64);
     values.push(22);
-    values.set(0usize, 20);
-    values.remove(1usize);
+    values.set(0u64, 20);
+    values.remove(1u64);
 }
 
 
@@ -105,7 +105,7 @@ pub fn native_propagation_values() -> i32 {
     val value = FeaturePayload { values: Vec::from([42]) };
     val passed = carry(Carrier::Data(value));
     match stop_carrier(Carrier::Stop) {
-        Carrier::Stop => match passed { Carrier::Data(item) => item.values[0usize], Carrier::Stop => 0 },
+        Carrier::Stop => match passed { Carrier::Data(item) => item.values[0u64], Carrier::Stop => 0 },
         Carrier::Data(_) => 0
     }
 }
@@ -137,7 +137,7 @@ pub fn fixed_array_construction() -> i32 {
     alias[0] = 19;
     data = [0];
     vector.push(1);
-    if alias.len() != 2usize || data.len() != 1usize || vector.len() != 3usize || unique.len() != 2usize { return 0; }
+    if alias.len() != 2u64 || data.len() != 1u64 || vector.len() != 3u64 || unique.len() != 2u64 { return 0; }
     vector[0] + alias[1]
 }
 

@@ -124,7 +124,7 @@ fn sdk_owned_future_factory_contract() {
         r#"
 use test::async_sdk::request;
 pub fn events() -> Vec<i32> { Vec::from([]) }
-pub fn count(events:Vec<i32>) -> usize { events.len() }
+pub fn count(events:Vec<i32>) -> u64 { events.len() }
 async fn read() -> i32 { request(10).await }
 pub fn ordinary(events:Vec<i32>) -> fn()->Future<i32> { || { events.push(1); read() } }
 pub fn explicit(events:Vec<i32>) -> fn()->Future<i32> { async || { events.push(2); request(20).await } }
@@ -305,7 +305,7 @@ pub async fn custom(calls:Calls) -> i32 {
 }
 pub fn items() -> Vec<i32> { Vec::from([10,20,30]) }
 pub fn replace(items:Vec<i32>) { items[1]=99; }
-pub fn size(items:Vec<i32>) -> usize { items.len() }
+pub fn size(items:Vec<i32>) -> u64 { items.len() }
 pub fn append(items:Vec<i32>) { items.push(40); }
 fn view(items:Vec<i32>) -> Iterator<Item=i32> { items.map(|item| item) }
 pub async fn nested(items:Vec<i32>) -> i32 {
@@ -471,7 +471,7 @@ pub async fn total(items: Vec<i32>) -> i32 {
 pub fn items() -> Vec<i32> { Vec::from([10, 20, 30]) }
 pub fn replace(items: Vec<i32>) { items[1] = 99; }
 pub fn append(items: Vec<i32>) { items.push(40); }
-pub fn size(items: Vec<i32>) -> usize { items.len() }
+pub fn size(items: Vec<i32>) -> u64 { items.len() }
 pub async fn lazy(items: Vec<i32>) { items.push(50); }
 fn record(events:Vec<i32>, value:i32) -> i32 { events.push(value); value }
 async fn ordered(first:i32, second:i32) -> i32 { first*10+second }

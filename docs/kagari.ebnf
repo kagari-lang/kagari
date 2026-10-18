@@ -428,8 +428,8 @@ IDENT_CONTINUE      ::= IDENT_START | DIGIT ;
 INTEGER             ::= (DEC_INTEGER
                       | BIN_INTEGER
                       | OCT_INTEGER
-                      | HEX_INTEGER) ("i8" | "i16" | "i32" | "i64" | "isize"
-                                     | "u8" | "u16" | "u32" | "u64" | "usize")? ;
+                      | HEX_INTEGER) ("i8" | "i16" | "i32" | "i64"
+                                     | "u8" | "u16" | "u32" | "u64")? ;
 
 DEC_INTEGER         ::= DIGIT (DIGIT | "_")* ;
 

@@ -253,16 +253,16 @@ use std::collections::{List, list_content_equal};
 use std::iter::CollectionCursor;
 use std::ops::Index;
 struct Bag { val value: f32 }
-impl Index<usize> for Bag { type Output = f32; fn index(self, index: usize) -> f32 { self.value } }
+impl Index<u64> for Bag { type Output = f32; fn index(self, index: u64) -> f32 { self.value } }
 impl Iterable for Bag {
     type Item = f32;
     type Iter = CollectionCursor<f32>;
     fn iter(self) -> CollectionCursor<f32> { Vec::from([self.value]).iter() }
 }
 impl List<f32> for Bag {
-    fn len(self) -> usize { 1usize }
+    fn len(self) -> u64 { 1u64 }
     fn is_empty(self) -> bool { false }
-    fn get(self, index: usize) -> Option<f32> { Some(self.value) }
+    fn get(self, index: u64) -> Option<f32> { Some(self.value) }
 }
 trait Probe { fn same(self, a: List<f32>, b: List<f32>) -> bool; }
 struct Checker {}

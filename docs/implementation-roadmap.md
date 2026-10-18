@@ -205,9 +205,39 @@ Open acceptance and follow-ups:
   The narrowly accepted trusted build-time boundary is documented in the site
   README. Do not force incompatible overrides or treat this as a patched parser;
   re-review before dynamic CSS, remote theme/plugin or request-time inputs.
-- Browser Playground/WASM, translations, full API generation, versioned release
-  sites, custom domains and analytics require separately scoped work. Source-build
+- Browser Playground/WASM now has the separate [execution plan](wasm-browser-plan.md)
+  below; implementation is active. Translations, full API generation, versioned
+  release sites, custom domains and analytics remain separately scoped. Source-build
   instructions remain necessary until a functional toolchain release exists.
+
+## Browser WASM execution
+
+The [fixed-width integer and browser plan](wasm-browser-plan.md) owns WB01-WB05
+and its progress ledger. Implementation and one commit per phase are authorized.
+WB01 fixed-width migration passed focused local acceptance; WB02 memory boundaries
+and timing are next. Pushes and remote publication remain separately authorized.
+
+Remove script isize/usize instead of preserving duplicate fixed-width identities.
+Migrate lengths/indices/counts to u64 and signed numeric roles to i64, while retaining
+Rust machine-sized storage positions behind checked boundaries. This is a coherent
+language/API migration across declarations, products, runtime, standard library,
+host adapters, tests and documentation, not a WASM-only semantic branch.
+
+Compile the existing frontend and interpreter into a browser product with default
+source support and a separate source-free artifact configuration. An additive web
+capability supplies narrow platform support; an independent browser adapter and
+Worker reuse existing owned execution, roots and cancellation. Fixed-width integer
+semantics remain portable; resource limits, external inputs and fatal-instance
+recovery are explicit boundaries. WB05 owns one lazy-loaded Playground route and
+its exact-product build/Pages integration, not remote deployment authorization.
+
+The source-enabled wasm32-unknown-unknown cargo check passed during investigation.
+Actual browser runtime, source-free WASM and cross-platform semantic acceptance
+remain unrun; existing clock calls, machine-sized scalar storage and truncating
+indices are known work, not evidence that compilation implies execution support.
+WASM code generation, i128/u128, threads/shared memory, WASI, arbitrary JS callbacks
+and a browser live-reload UI are outside this plan. Existing interpreter/native
+work remains separately owned and must not be silently folded into this migration.
 
 ## Runtime storage redesign
 

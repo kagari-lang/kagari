@@ -80,7 +80,7 @@ pub(super) fn declare(
                     RegistrationTrait::Iterator,
                     match name {
                         "EnumerateIterator" => {
-                            Ty::Tuple(vec![Ty::Builtin(BuiltinType::USize), items[0].clone()])
+                            Ty::Tuple(vec![Ty::Builtin(BuiltinType::U64), items[0].clone()])
                         }
                         "ZipIterator" => Ty::Tuple(items.clone()),
                         _ => items[arity - 1].clone(),
@@ -132,7 +132,7 @@ pub(super) fn declare(
         method.params.push(Param {
             name: if name == "take" { "limit" } else { "callback" }.into(),
             ty: if name == "take" {
-                Ty::Builtin(BuiltinType::USize)
+                Ty::Builtin(BuiltinType::U64)
             } else {
                 Ty::Function {
                     params: vec![item.clone()],
@@ -246,7 +246,7 @@ pub(super) fn declare(
             item.clone()
         };
         let result = match name {
-            "count" => Ty::Builtin(BuiltinType::USize),
+            "count" => Ty::Builtin(BuiltinType::U64),
             "find" => contracts::enum_type(ids, "Option", vec![item.clone()])?,
             "any" | "all" => contracts::boolean(),
             "for_each" => contracts::unit(),
@@ -277,7 +277,7 @@ pub(super) fn declare(
         let argument = match name {
             "enumerate" | "count" => None,
             "zip" | "chain" => Some(("other", parameter)),
-            "skip" => Some(("count", Ty::Builtin(BuiltinType::USize))),
+            "skip" => Some(("count", Ty::Builtin(BuiltinType::U64))),
             _ => Some((
                 "callback",
                 Ty::Function {
@@ -301,10 +301,10 @@ pub(super) fn declare(
         module.documentation.insert(identities::method(ids, &owner, name)?, match name {
             "filter_map" => "Lazily return the callback's Some values in source order, without fusing the source.",
             "skip" => "Discard only the initial count items; aliases share the remaining skip state.",
-            "enumerate" => "Lazily pair each item with its checked usize position, starting at zero.",
+            "enumerate" => "Lazily pair each item with its checked u64 position, starting at zero.",
             "zip" => "Lazily pull left then right and return pairs. A left item stays consumed if right returns None.",
             "chain" => "Lazily traverse the first cursor, then switch permanently to the second on its first None.",
-            "count" => "Consume until the first None and return the checked usize count.",
+            "count" => "Consume until the first None and return the checked u64 count.",
             "find" => "Return the first matching item, stopping immediately; empty input returns None.",
             "any" => "Stop at the first true predicate; empty input returns false.",
             "all" => "Stop at the first false predicate; empty input returns true.",

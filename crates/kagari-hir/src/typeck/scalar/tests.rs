@@ -7,16 +7,10 @@ fn integer_literals_keep_their_type_and_full_range_in_one_representation() {
         (IntegerType::I16, i128::from(i16::MIN), i128::from(i16::MAX)),
         (IntegerType::I32, i128::from(i32::MIN), i128::from(i32::MAX)),
         (IntegerType::I64, i128::from(i64::MIN), i128::from(i64::MAX)),
-        (
-            IntegerType::ISize,
-            i128::from(i64::MIN),
-            i128::from(i64::MAX),
-        ),
         (IntegerType::U8, 0, i128::from(u8::MAX)),
         (IntegerType::U16, 0, i128::from(u16::MAX)),
         (IntegerType::U32, 0, i128::from(u32::MAX)),
         (IntegerType::U64, 0, i128::from(u64::MAX)),
-        (IntegerType::USize, 0, i128::from(u64::MAX)),
     ] {
         for value in [min, max, 0, 42] {
             let literal = Literal {

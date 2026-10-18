@@ -31,14 +31,14 @@ strings rather than exposing a writable character buffer or a borrowed Rust
 
 ## Work with UTF-8 bytes deliberately
 
-`len()` counts **UTF-8 bytes**, not displayed characters or Unicode scalar values.
+`len()` returns a `u64` count of **UTF-8 bytes**, not displayed characters or Unicode scalar values.
 For example, `"é!"` has three bytes: two for `é`, then one for `!`.
 `slice(0, 2)` selects `é` using a half-open range; `slice(0, 1)` traps because its
 end splits a UTF-8 encoding. Reversed or out-of-range slices also trap with
 `IndexOutOfBounds`. A checked slice returns a string value, not a script borrow
 whose lifetime must be tied to the original string.
 
-For searching, `find(pattern)` returns `Option<usize>` containing a **byte**
+For searching, `find(pattern)` returns `Option<u64>` containing a **byte**
 offset. `contains`, `starts_with`, `ends_with` and `replace` use literal patterns,
 not regular expressions. `trim` and its one-sided variants remove Unicode
 whitespace. `split(separator)` eagerly returns a `List<String>`; iterating that
@@ -70,6 +70,11 @@ such as `collect`, `fold`, `sum` and `count` consume items. For `collect`, `sum`
 and `product`, a destination type annotation or explicit method type argument
 must determine the result type. `find`, `any` and `all` can stop early, without
 an extra pull after the answer is known.
+
+`take` and `skip` accept `u64` logical counts; `count()` returns `u64`, and
+`enumerate()` pairs each item with a `u64` index. Counts remain wide even when the
+host has narrower addresses. Taking a large prefix of a short iterator does not
+allocate a buffer of that size; collection and allocation remain separate steps.
 
 These are ordinary methods of `Iterable`, available on containers, constrained
 generic values and custom implementations. `Iterator` itself requires only

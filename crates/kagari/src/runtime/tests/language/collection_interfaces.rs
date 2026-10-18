@@ -174,14 +174,14 @@ fn native_collection_views() {
     execute(
         r#"use std::collections::{HashMap, HashSet, List, Map, MutableList, MutableMap, MutableSet, Set};
 
-fn size(xs: List<i32>) -> usize { xs.len() }
+fn size(xs: List<i32>) -> u64 { xs.len() }
 fn change(xs: MutableList<i32>) { xs.push(42); xs[0] += 6; }
 fn main() -> i32 {
     val xs = Vec::from([1]);
     change(xs);
     val view: MutableList<i32> = xs;
     val read: std::collections::List<i32> = view;
-    if !(read[0usize] == 7) { return 0; }
+    if !(read[0u64] == 7) { return 0; }
     var total = 0;
     for item in read { total += item; }
     if !(total == 49) { return 0; }
@@ -195,7 +195,7 @@ fn main() -> i32 {
     writable_set.insert(42);
     val readable_set: Set<i32> = writable_set;
     if !(readable_set.contains(42)) { return 0; }
-    if !(size(xs) == 2usize) { return 0; }
+    if !(size(xs) == 2u64) { return 0; }
     if !(read.get(0) == Some(7)) { return 0; }
     42
 }
@@ -213,9 +213,9 @@ mod storage {
 use std::iter::CollectionCursor;
 use std::ops::Index;
 pub struct Sequence { pub val items: Vec<i32> }
-impl Index<usize> for Sequence {
+impl Index<u64> for Sequence {
     type Output = i32;
-    fn index(self, index: usize) -> i32 { self.items[index] }
+    fn index(self, index: u64) -> i32 { self.items[index] }
 }
 impl Iterable for Sequence {
     type Item = i32;
@@ -225,18 +225,18 @@ impl Iterable for Sequence {
 }
 use self::storage::Sequence;
 impl List<i32> for Sequence {
-    fn len(self) -> usize { self.items.len() }
+    fn len(self) -> u64 { self.items.len() }
     fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: usize) -> Option<i32> { self.items.get(index) }
+    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
 }
 impl MutableList<i32> for Sequence {
 
     fn push(self, value: i32) { self.items.push(value); }
     fn pop(self) -> Option<i32> { self.items.pop() }
-    fn insert(self, index: usize, value: i32) { self.items.insert(index, value); }
-    fn remove(self, index: usize) -> Option<i32> { self.items.remove(index) }
+    fn insert(self, index: u64, value: i32) { self.items.insert(index, value); }
+    fn remove(self, index: u64) -> Option<i32> { self.items.remove(index) }
     fn clear(self) { self.items.clear(); }
-    fn set(self, index: usize, value: i32) { self.items[index] = value; }
+    fn set(self, index: u64, value: i32) { self.items[index] = value; }
 }
 trait Writable: MutableList<i32> {}
 impl Writable for Sequence {}
@@ -251,12 +251,12 @@ impl Iterable for Singleton {
     fn iter(self) -> CollectionCursor<f64> { Vec::from([self.value]).iter() }
 }
 impl Set<f64> for Singleton {
-    fn len(self) -> usize { 1usize }
+    fn len(self) -> u64 { 1u64 }
     fn is_empty(self) -> bool { false }
     fn contains(self, value: f64) -> bool { self.value == value }
 }
 fn first<T>(xs: std::collections::List<T>) -> T { xs[0] }
-fn size<C: List<i32>>(xs: C) -> usize { xs.len() }
+fn size<C: List<i32>>(xs: C) -> u64 { xs.len() }
 fn main() -> i32 {
     val source = Sequence { items: Vec::from([7, 35]) };
     val view: std::collections::List<i32> = source;
@@ -276,7 +276,7 @@ fn main() -> i32 {
     val child: Writable = source;
     child[0] -= 8;
     if !(copy[0] == 7 && view[0] == 1) { return 0; }
-    if !(size(source) == 2usize && size(copy) == 2usize) { return 0; }
+    if !(size(source) == 2u64 && size(copy) == 2u64) { return 0; }
     val concrete = Singleton { value: 0.5 };
     val same_concrete = Singleton { value: 0.5 };
     val set: Set<f64> = concrete;
@@ -306,11 +306,11 @@ fn main() -> i32 {
     for (key, value) in storage { if key.value != 1 || value != 42 { return 0; } }
     val read: Map<Key, i32> = map;
     val lookup = Key { value: 1 };
-    if !(read.len() == 1usize && read.get(lookup) == Some(42)) { return 0; }
+    if !(read.len() == 1u64 && read.get(lookup) == Some(42)) { return 0; }
     val set: MutableSet<Key> = HashSet::from([Key { value: 1 }, Key { value: 1 }]);
     set.insert(Key { value: 1 });
     set.insert(Key { value: 1 });
-    if !(set.len() == 1usize && set.contains(lookup)) { return 0; }
+    if !(set.len() == 1u64 && set.contains(lookup)) { return 0; }
     42
 }
 "#,
@@ -329,7 +329,7 @@ fn readonly_views_do_not_grant_mutators_or_implicit_storage_construction() {
         "use std::collections::{HashSet, Set};\nfn main() { val xs: Set<f64> = HashSet::new(); }",
         "use std::collections::List; use std::hash::Hash; fn main() { val xs: List<i32> = Vec::from([1]); xs.hash(); }",
         "use std::collections::{List, HashSet}; fn main() { val keys: HashSet<List<i32>> = HashSet::new(); }",
-        "trait MutableList: std::ops::Index<usize, Output = i32> { fn set(self, index: usize, value: i32); } fn edit(xs: MutableList) { xs[0] = 2; }",
+        "trait MutableList: std::ops::Index<u64, Output = i32> { fn set(self, index: u64, value: i32); } fn edit(xs: MutableList) { xs[0] = 2; }",
     ] {
         assert!(
             engine
@@ -495,7 +495,7 @@ impl Iterable for Pairs {
     fn iter(self) -> CollectionCursor<(Key, Value)> { self.entries.iter() }
 }
 impl Map<Key, Value> for Pairs {
-    fn len(self) -> usize { self.entries.len() }
+    fn len(self) -> u64 { self.entries.len() }
     fn is_empty(self) -> bool { self.entries.is_empty() }
     fn get(self, key: Key) -> Option<Value> {
         for (stored, value) in self.entries { if stored.tag == key.tag { return Some(value); } }

@@ -27,8 +27,8 @@ impl Fn<()> for Fetch {
 }
 pub fn items() -> Vec<i32> { Vec::from([10,20]) }
 pub fn events() -> Vec<i32> { Vec::from([]) }
-pub fn len(items: Vec<i32>) -> usize { items.len() }
-pub fn at(items: Vec<i32>, index: usize) -> i32 { items[index] }
+pub fn len(items: Vec<i32>) -> u64 { items.len() }
+pub fn at(items: Vec<i32>, index: u64) -> i32 { items[index] }
 pub fn replace(items: Vec<i32>) { items[1]=40; }
 pub fn append(items: Vec<i32>) { items.push(50); }
 pub fn handler(scope: TaskScope, items: Vec<i32>, events: Vec<i32>) -> Result<Task<i32>, SpawnError> {

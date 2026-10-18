@@ -117,8 +117,8 @@ The core type set includes:
 
 - `()`
 - `bool`
-- signed integers: `i8`, `i16`, `i32`, `i64`, `isize`
-- unsigned integers: `u8`, `u16`, `u32`, `u64`, `usize`
+- signed integers: `i8`, `i16`, `i32`, `i64`
+- unsigned integers: `u8`, `u16`, `u32`, `u64`
 - floating-point numbers: `f32`, `f64`
 - `String`
 - builtin fixed-length `[T]` arrays
@@ -132,8 +132,12 @@ The core type set includes:
 - `Result<T, E>`
 - `Future<T>` (cold script/native producer values and explicit await through the owned driver)
 
-The numeric type names follow Rust spelling.
-The semantics do not import Rust ownership or borrowing.
+The numeric types have fixed widths on every target. There are no machine-width
+integer types or aliases. Standard lengths, capacities, indices and logical counts
+use `u64`; signed 64-bit numeric contracts use `i64`. This does not change
+user-defined Index parameter types or introduce implicit numeric conversions.
+The semantics do not import Rust ownership or borrowing. Physical storage remains
+subject to [machine and resource boundaries](runtime.md#machine-and-resource-boundaries).
 
 ## Collection Types
 
@@ -285,7 +289,8 @@ query, parse and string-iterator helpers are not implicitly restored.
 The inherent String surface is len/is_empty (UTF-8 bytes), literal
 contains/starts_with/ends_with/find, checked slice(start, end), Unicode whitespace
 trim/trim_start/trim_end, literal replace and eager split returning List<String>.
-find returns Option<usize>; slice uses a half-open byte range and rejects reversed,
+len returns u64, find returns Option<u64>, and slice takes u64 byte offsets.
+Slice uses a half-open byte range and rejects reversed,
 out-of-range and non-boundary offsets. Empty patterns match at Unicode scalar
 boundaries, including both ends: find returns zero, replace inserts there, and
 split retains endpoint empty fields. A nonempty separator on empty input produces
@@ -412,14 +417,14 @@ values support the same method chains; explicit overrides retain precedence.
 | `map<U>(fn(T) -> U)` | `MapIterator<T, U>` |
 | `filter(fn(T) -> bool)` | `FilterIterator<T>` |
 | `filter_map<U>(fn(T) -> Option<U>)` | `FilterMapIterator<T, U>` |
-| `take(usize)` / `skip(usize)` | `TakeIterator<T>` / `SkipIterator<T>` |
-| `enumerate()` | `EnumerateIterator<T>`, Item = `(usize, T)` |
+| `take(u64)` / `skip(u64)` | `TakeIterator<T>` / `SkipIterator<T>` |
+| `enumerate()` | `EnumerateIterator<T>`, Item = `(u64, T)` |
 | `zip<I: Iterable>(I)` | `ZipIterator<T, I::Item>`, Item = `(T, I::Item)` |
 | `chain<I: Iterable<Item = T>>(I)` | `ChainIterator<T>` |
 | `collect<C: FromIterator<T>>()` | C |
 | `fold<A>(A, fn(A, T) -> A)` | A |
 | `sum<S: Sum<T>>()` / `product<P: Product<T>>()` | S / P |
-| `count()` | usize |
+| `count()` | u64 |
 | `find(fn(T) -> bool)` | Option<T> |
 | `any(fn(T) -> bool)` / `all(fn(T) -> bool)` | bool |
 | `for_each(fn(T) -> ())` | () |
@@ -431,7 +436,9 @@ share source progress and adapter state. An item stays consumed if its callback
 fails. Filter and filter_map skip rejected items in source order. They do not
 fuse a resumable source after None. Skip discards only its initial allowance;
 take(0) never advances its source and a consumed take allowance remains exhausted.
-Enumerate starts at zero and uses checked usize increment.
+Enumerate starts at zero and uses checked u64 increment. Take/skip allowances
+remain u64 logical counts, not machine allocation sizes: a large allowance is
+valid even when it exceeds the host's addressable storage.
 
 Zip obtains and advances left before right. A left None prevents a right pull;
 a right None leaves the already-pulled left item consumed. Zip does not rewind or
@@ -441,7 +448,7 @@ first left None; it does not fuse the second cursor.
 Terminal methods stop at the first None. Find, any and all short-circuit without
 an extra pull. Empty find returns None, any returns false, all returns true,
 count returns zero, for_each returns unit and fold returns its initial value.
-Count uses checked usize addition. Collect, sum and product call the requested
+Count uses checked u64 addition. Collect, sum and product call the requested
 destination's existing constructor/reducer with the original source; they do not
 obtain an unused extra cursor. Destination context or explicit method type
 arguments must determine the result type, for example:

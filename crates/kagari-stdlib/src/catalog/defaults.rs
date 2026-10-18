@@ -320,7 +320,7 @@ pub(super) fn declare(
             let mut applied = if kind.iteration() {
                 applied_item(ids, *kind, item.clone())?
             } else if *kind == RegistrationTrait::Index {
-                key::applied(ids, *kind, vec![Ty::Builtin(BuiltinType::USize)])?
+                key::applied(ids, *kind, vec![Ty::Builtin(BuiltinType::U64)])?
             } else {
                 key::applied(ids, *kind, items.clone())?
             };
@@ -401,12 +401,10 @@ fn range_implementations(
         BuiltinType::I16,
         BuiltinType::I32,
         BuiltinType::I64,
-        BuiltinType::ISize,
         BuiltinType::U8,
         BuiltinType::U16,
         BuiltinType::U32,
         BuiltinType::U64,
-        BuiltinType::USize,
     ] {
         let item = Ty::Builtin(scalar);
         let mut applied = applied_item(ids, RegistrationTrait::Iterable, item.clone())?;
@@ -466,11 +464,7 @@ fn inherent(
     new.implementation = CallableImplementation::Native(binding(ids, family, "new")?);
     let mut methods: Vec<FnDecl> = if family == "array" {
         [
-            method(
-                "len",
-                vec![receiver.clone()],
-                Ty::Builtin(BuiltinType::USize),
-            ),
+            method("len", vec![receiver.clone()], Ty::Builtin(BuiltinType::U64)),
             method(
                 "is_empty",
                 vec![receiver.clone()],

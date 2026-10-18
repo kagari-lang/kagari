@@ -156,7 +156,7 @@ impl Probe {
             )
             .unwrap();
         let tick = module
-            .define_function(FunctionDecl::new("tick").returns(Type::usize()))
+            .define_function(FunctionDecl::new("tick").returns(Type::u64()))
             .unwrap();
         let count = calls.clone();
         module
@@ -192,7 +192,7 @@ fn comparator_failure_stops_callbacks_and_preserves_original_elements() {
         struct Item { val key: i32, var visits: i32 }
         fn main() {
             val values = Vec::from([Item { key: 3, visits: 0 }, Item { key: 1, visits: 0 }, Item { key: 2, visits: 0 }, Item { key: 0, visits: 0 }]); keep(values);
-            values.sort_by(|a,b| { a.visits += 1; val count = tick(); if count == 3usize { val fail = 1 / 0; }; a.key.cmp(b.key) });
+            values.sort_by(|a,b| { a.visits += 1; val count = tick(); if count == 3u64 { val fail = 1 / 0; }; a.key.cmp(b.key) });
         }
     "#;
     let mut config = RuntimeConfig::default();

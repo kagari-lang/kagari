@@ -72,13 +72,6 @@ const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
         heap_backed: false,
     },
     BuiltinTypeSpec {
-        ty: BuiltinType::ISize,
-        name: "isize",
-        family: BuiltinTypeFamily::SignedInteger,
-        const_safe: true,
-        heap_backed: false,
-    },
-    BuiltinTypeSpec {
         ty: BuiltinType::U8,
         name: "u8",
         family: BuiltinTypeFamily::UnsignedInteger,
@@ -102,13 +95,6 @@ const BUILTIN_TYPES: &[BuiltinTypeSpec] = &[
     BuiltinTypeSpec {
         ty: BuiltinType::U64,
         name: "u64",
-        family: BuiltinTypeFamily::UnsignedInteger,
-        const_safe: true,
-        heap_backed: false,
-    },
-    BuiltinTypeSpec {
-        ty: BuiltinType::USize,
-        name: "usize",
         family: BuiltinTypeFamily::UnsignedInteger,
         const_safe: true,
         heap_backed: false,

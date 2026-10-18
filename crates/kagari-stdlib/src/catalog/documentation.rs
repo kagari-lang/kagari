@@ -139,7 +139,7 @@ fn trait_docs(name: &str) -> (&'static str, &'static str) {
             "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
         ),
         "Default" => (
-            "Constructs an implementation-defined value through the required static `default() -> Self` method, with no receiver or arguments. The canonical trait is `core::default::Default`; the prelude and `std::default::Default` expose the same declaration. Implementations are explicit: this contract neither zeroes storage nor recursively initializes fields, and user structs receive no automatic implementation. It is static-only and cannot be used as an interface value type. Calls use ordinary trait selection, including concrete, qualified and generic bound forms; a trait-qualified call needs result context to determine Self, not merely an available implementation.\n\n# Standard implementations\n\nUnit returns (); bool returns false. The ten integer types i8, i16, i32, i64, isize, u8, u16, u32, u64 and usize return correctly typed zero; f32 and f64 return positive zero. String returns an empty string. Vec<T> returns fresh empty mutable storage on every call; Option<T> returns None. Neither container requires T: Default. Tuples, builtin arrays, maps, sets, ranges, Result, other enums and host/scoped values have no standard implementation.",
+            "Constructs an implementation-defined value through the required static `default() -> Self` method, with no receiver or arguments. The canonical trait is `core::default::Default`; the prelude and `std::default::Default` expose the same declaration. Implementations are explicit: this contract neither zeroes storage nor recursively initializes fields, and user structs receive no automatic implementation. It is static-only and cannot be used as an interface value type. Calls use ordinary trait selection, including concrete, qualified and generic bound forms; a trait-qualified call needs result context to determine Self, not merely an available implementation.\n\n# Standard implementations\n\nUnit returns (); bool returns false. The eight integer types i8, i16, i32, i64, u8, u16, u32 and u64 return correctly typed zero; f32 and f64 return positive zero. String returns an empty string. Vec<T> returns fresh empty mutable storage on every call; Option<T> returns None. Neither container requires T: Default. Tuples, builtin arrays, maps, sets, ranges, Result, other enums and host/scoped values have no standard implementation.",
             "struct Player { val health: i32 }\nimpl Default for Player { fn default() -> Self { Player { health: 100 } } }\nfn player() -> Player { Player::default() }\nfn qualified() -> Player { <Player as core::default::Default>::default() }\nfn make<T: Default>() -> T { T::default() }\nstruct Element {}\nfn empty_vec() -> Vec<Element> { Vec<Element>::default() }\nfn absent() -> Option<Element> { Option<Element>::default() }\nfn zero() -> i32 { Default::default() }\nfn empty_string() -> String { String::default() }",
         ),
         "FromIterator" => (
@@ -346,7 +346,7 @@ pub(super) fn complete(
         "string" => "fn clean(text: String) -> String { text.trim() }",
         "option" => "fn first(values: Vec<i32>) -> Option<i32> { values.get(0) }",
         "result" => trait_docs("FromStr").1,
-        _ => "fn length(values: Vec<i32>) -> usize { values.len() }",
+        _ => "fn length(values: Vec<i32>) -> u64 { values.len() }",
     };
     module.module_documentation = example(overview, code);
     for contract in &module.traits {
@@ -409,7 +409,7 @@ pub(super) fn complete(
             ),
             "Vec" => (
                 "A shared mutable sequence. Copies retain the same storage identity. Indexing traps out of bounds; get returns None. Structural mutation honors active borrows and invalidates existing cursors.",
-                "fn append(values: Vec<i32>) -> usize { values.push(3); values.len() }",
+                "fn append(values: Vec<i32>) -> u64 { values.push(3); values.len() }",
             ),
             "String" => (
                 "An immutable UTF-8 string. len counts bytes and slice requires valid byte boundaries. Transformations produce strings without changing the receiver.",
@@ -430,7 +430,7 @@ pub(super) fn complete(
             "MapIterator" | "FilterIterator" | "TakeIterator" | "FilterMapIterator"
             | "SkipIterator" | "EnumerateIterator" | "ZipIterator" | "ChainIterator" => (
                 "A lazy shared cursor. Retains its sources, any callbacks and selected next targets; aliases share progress and original generations. Recursive next on the same cursor traps.",
-                "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1usize).next() }",
+                "fn first(values: Vec<i32>) -> Option<i32> { values.map(|x| x + 1).filter(|x| x > 0).take(1u64).next() }",
             ),
             "Option" => (
                 "An optional value: Some carries one value and None carries none. Question-mark propagation returns None early.",

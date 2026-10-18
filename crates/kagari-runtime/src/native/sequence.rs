@@ -25,12 +25,10 @@ pub(crate) enum SequenceStorage {
     I16(Vec<i16>),
     I32(Vec<i32>),
     I64(Vec<i64>),
-    ISize(Vec<isize>),
     U8(Vec<u8>),
     U16(Vec<u16>),
     U32(Vec<u32>),
     U64(Vec<u64>),
-    USize(Vec<usize>),
     F32(Vec<f32>),
     F64(Vec<f64>),
     Traced(Vec<Value>),
@@ -152,8 +150,8 @@ macro_rules! storage {
     };
 }
 
-storage!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64, ISize:isize,
-    U8:u8, U16:u16, U32:u32, U64:u64, USize:usize, F32:f32, F64:f64);
+storage!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64,
+    U8:u8, U16:u16, U32:u32, U64:u64, F32:f32, F64:f64);
 
 fn copy_values<T: Clone>(values: &[T]) -> NativeResult<Vec<T>> {
     copy_segments(values, &[])
@@ -237,6 +235,9 @@ mod sealed {
 }
 
 /// Supported contiguous scalar elements. Views borrow one buffer for the closure.
+///
+/// Script `i64`/`u64` buffers use Rust `i64`/`u64` elements on every target.
+/// Rust `isize`/`usize` scalar conveniences do not support zero-copy element views.
 pub trait NativeElement: NativeScalar + sealed::Element {
     #[doc(hidden)]
     fn slice(storage: &dyn Any) -> Option<&[Self]>;
@@ -264,5 +265,5 @@ macro_rules! elements {
     )+ };
 }
 
-elements!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64, ISize:isize,
-    U8:u8, U16:u16, U32:u32, U64:u64, USize:usize, F32:f32, F64:f64);
+elements!(Unit:(), Bool:bool, I8:i8, I16:i16, I32:i32, I64:i64,
+    U8:u8, U16:u16, U32:u32, U64:u64, F32:f32, F64:f64);

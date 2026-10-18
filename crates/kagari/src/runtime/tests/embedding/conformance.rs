@@ -177,14 +177,14 @@ fn embedding_conformance_executes_foundation_native_artifacts() {
                 "builtins.kgr",
                 r#"use std::collections::{HashMap, HashSet};
 
-fn main() -> (usize, usize, usize, bool, i32) {
+fn main() -> (u64, u64, u64, bool, i32) {
     val values = Vec::from([1, 2]);
     values.push(3);
     val map: HashMap<String, i32> = HashMap::new();
     map.insert("ok", 7);
     val set: HashSet<String> = HashSet::new();
     set.insert("ready");
-    (values.len(), values.len() - 1usize, map.len(), set.contains("ready"), match map.get("ok") { Some(x) => x, None => 0 })
+    (values.len(), values.len() - 1u64, map.len(), set.contains("ready"), match map.get("ok") { Some(x) => x, None => 0 })
 }
 "#,
             ),
@@ -239,7 +239,7 @@ fn embedding_conformance_reloads_standard_intrinsic_artifacts() {
             SourceFile::new(
                 "stdlib_reload.kgr",
                 r#"
-pub fn main() -> usize {
+pub fn main() -> u64 {
     val values = [1];
     values.len()
 }
@@ -253,7 +253,7 @@ pub fn main() -> usize {
             SourceFile::new(
                 "stdlib_reload.kgr",
                 r#"
-pub fn main() -> usize {
+pub fn main() -> u64 {
     val values = [1, 2];
     values.len()
 }

@@ -12,7 +12,6 @@ fn numeric_contracts_preserve_width_sign_and_compound_results() {
         (BuiltinType::U16, BuiltinType::I16),
         (BuiltinType::U32, BuiltinType::I32),
         (BuiltinType::U64, BuiltinType::I64),
-        (BuiltinType::USize, BuiltinType::ISize),
     ] {
         let offset =
             IntegerMethodContract::new(IntegerMethod::WrappingAddSigned, receiver).unwrap();

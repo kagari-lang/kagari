@@ -230,7 +230,7 @@ module.exports = grammar({
     _literal: $ => choice($.integer_literal, $.float_literal, $.string_literal, $.boolean_literal),
     integer_literal: $ => token(seq(choice(/[0-9][0-9_]*/, /0b_*[01][01_]*/,
       /0o_*[0-7][0-7_]*/, /0x_*[0-9a-fA-F][0-9a-fA-F_]*/),
-      optional(choice('i8', 'i16', 'i32', 'i64', 'isize', 'u8', 'u16', 'u32', 'u64', 'usize')))),
+      optional(choice('i8', 'i16', 'i32', 'i64', 'u8', 'u16', 'u32', 'u64')))),
     float_literal: $ => token(choice(
       seq(/[0-9][0-9_]*\.[0-9][0-9_]*/, optional(/[eE][+-]?[0-9][0-9_]*/), optional(choice('f32', 'f64'))),
       seq(/[0-9][0-9_]*[eE][+-]?[0-9][0-9_]*/, optional(choice('f32', 'f64'))),

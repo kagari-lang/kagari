@@ -49,6 +49,12 @@ test('declaration/type captures and bracket pairs use syntax, not name guesses',
     ['function', 'run'], ['variable.parameter', 'n:']]) {
     assert.equal(effectiveCapture(found, text.indexOf(value)), name, `${name}: ${value}`);
   }
+  const names = 'fn main() { val isize = 1i64; val usize = 1u64; isize + usize }';
+  const nameCaptures = captures(names);
+  for (const name of ['isize', 'usize']) {
+    assert.equal(effectiveCapture(nameCaptures, names.indexOf(name)), 'variable');
+    assert.equal(effectiveCapture(nameCaptures, names.lastIndexOf(name)), 'variable');
+  }
   const matches = query('brackets.scm').matches(tree.rootNode);
   assert.ok(matches.length > 4);
   for (const match of matches) {

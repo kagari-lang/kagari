@@ -758,7 +758,7 @@ fn foundation_calls_lower_to_provider_qualified_native_imports() {
         &context,
         common::bytecode_ok(
             r#"
-fn main() -> usize {
+fn main() -> u64 {
     val values = Vec::from([1, 2]);
     values.push(3);
     values.pop();

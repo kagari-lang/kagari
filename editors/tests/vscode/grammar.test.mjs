@@ -131,10 +131,11 @@ test('Unicode escapes never open holes, including malformed escapes', async () =
 });
 
 test('numeric bases, suffixes, separators and ranges follow lexer boundaries', async () => {
-  const integers = ['0', '1_000', '255_u8', '128i8', '0b_10_', '0o755usize', '0xff_u8', '0xff32',
+  const integers = ['0', '1_000', '255_u8', '128i8', '0b_10_', '0o755u64', '0xff_u8', '0xff32',
     '0xff64', '18446744073709551615u64'];
   const floats = ['1f64', '1.25_f32', '6.02e23', '1e+2', '1_2.5e0', '1_0e-2_f64'];
-  const text = [...integers, ...floats, '1..2', '1..=2', '1.foo', '0xgg', '0b2', '1u128', 'version1'].join(' ');
+  const invalid = ['0xgg', '0b2', '1u128', 'version1', '1isize', '1usize', '0o755usize', '0xff_isize'];
+  const text = [...integers, ...floats, '1..2', '1..=2', '1.foo', ...invalid].join(' ');
   const spans = await tokenize(text);
   for (const [numbers, scope] of [[integers, 'constant.numeric.integer.kagari'],
     [floats, 'constant.numeric.float.kagari']]) {
@@ -147,7 +148,7 @@ test('numeric bases, suffixes, separators and ranges follow lexer boundaries', a
   }
   region(text, spans, '..', 'code', 'keyword.operator.kagari');
   region(text, spans, '..=', 'code', 'keyword.operator.kagari');
-  for (const bad of ['0xgg', '0b2', '1u128', 'version1']) {
+  for (const bad of invalid) {
     const start = text.indexOf(bad);
     assert.ok(!spans.some((span) => span.start < start + bad.length && span.end > start
       && span.scopes.some((scope) => scope.startsWith('constant.numeric.'))), bad);
@@ -163,7 +164,7 @@ test('reserved Kagari words, conservative declarations/types, attributes and no 
     assert.ok(spans.some((span) => span.scopes.some((scope) =>
       /^(keyword\.|storage\.|variable\.language\.|constant\.language\.)/.test(scope))), word);
   }
-  const plain = "let mut dyn ref static 'life 'x' r b SomeType Constructor Vec String";
+  const plain = "let mut dyn ref static 'life 'x' r b SomeType Constructor Vec String isize usize";
   for (const span of await tokenize(plain)) {
     assert.equal(span.type, 'code');
     assert.ok(!span.scopes.some((scope) => /^(keyword|storage|entity\.name\.type|support\.type)\./.test(scope)),

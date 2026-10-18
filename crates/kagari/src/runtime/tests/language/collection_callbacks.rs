@@ -38,7 +38,7 @@ trait Test {
     fn compare(self, helper: bool) -> bool;
     fn hash_items(self) -> i64;
     fn calls(self) -> i32;
-    fn size(self) -> usize;
+    fn size(self) -> u64;
 }
 struct Tester { val left: Vec<Item>, val right: Vec<Item>, val state: State }
 impl Test for Tester {
@@ -52,7 +52,7 @@ impl Test for Tester {
     }
     fn hash_items(self) -> i64 { self.left.hash() }
     fn calls(self) -> i32 { self.state.calls }
-    fn size(self) -> usize { self.left.len() }
+    fn size(self) -> u64 { self.left.len() }
 }
 pub fn make() -> Test {
     val state = State { mode: 0, calls: 0 };

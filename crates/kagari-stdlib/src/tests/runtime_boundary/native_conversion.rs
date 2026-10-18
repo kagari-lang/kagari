@@ -118,6 +118,12 @@ fn scalar_widths_tuple_arity_and_foreign_roots_are_checked() {
             .unwrap(),
         values
     );
+    let unsigned = vec![1u64 << 32, u64::MAX];
+    let root = cx.encode(unsigned.clone()).unwrap();
+    assert_eq!(cx.decode::<Vec<u64>>(&root).unwrap(), unsigned);
+    let signed = vec![i64::MIN, i64::MAX];
+    let root = cx.encode(signed.clone()).unwrap();
+    assert_eq!(cx.decode::<Vec<i64>>(&root).unwrap(), signed);
     let unit = cx.encode(()).unwrap();
     assert_eq!(unit.value(runtime.gc()), Some(Value::Unit));
     let tuple = cx.encode((true,)).unwrap();

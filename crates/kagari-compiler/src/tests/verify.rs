@@ -53,7 +53,6 @@ fn integer_constants_must_match_semantic_range_and_representation() {
         ("fn main() -> i8 { 1i8 }", ConstantOperand::I32(128)),
         ("fn main() -> u8 { 1u8 }", ConstantOperand::I64(256)),
         ("fn main() -> u8 { 1u8 }", ConstantOperand::I64(-1)),
-        ("fn main() -> usize { 1usize }", ConstantOperand::I64(1)),
         ("fn main() -> u64 { 1u64 }", ConstantOperand::I64(1)),
     ] {
         let mut bytecode = common::adopt_bytecode(&context, common::bytecode_ok(source));

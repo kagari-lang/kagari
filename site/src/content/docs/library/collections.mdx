@@ -68,6 +68,12 @@ implicit, and adapting an outer container does not recursively convert its eleme
 
 ## Missing elements and invalid positions
 
+Standard lengths and capacities use `u64`, as do List and Vec indices. An
+unsuffixed index such as `values[0]` gets the expected type from that operation;
+builtin arrays still accept their supported integer index types, and custom Index
+implementations keep their own parameter types. A large index must fail normally,
+not truncate to a smaller position on a narrow-address host.
+
 Use `get` when absence is an expected outcome: list `get` returns `None` outside
 its bounds; map `get` returns `None` for a missing key. `pop` on an empty list
 and an out-of-bounds list `remove` also return `None`.

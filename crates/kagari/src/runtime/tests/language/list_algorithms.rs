@@ -58,11 +58,11 @@ fn main() -> bool {
     a.sort();
     if alias[0] != 1 || alias[3] != 3 { return false; }
     a.dedup();
-    if a.len() != 3usize { return false; }
+    if a.len() != 3u64 { return false; }
     a.reverse();
     a.retain(|x| x != 2);
     val c = Vec::from([1, 2, 1, 3, 2]).distinct();
-    a.len() == 2usize && a[0] == 3 && a[1] == 1 && c.len() == 3usize && c[1] == 2
+    a.len() == 2u64 && a[0] == 3 && a[1] == 1 && c.len() == 3u64 && c[1] == 2
 }
 "#,
     );
@@ -110,9 +110,9 @@ use std::iter::{CollectionCursor};
 use std::ops::{Index};
 
 struct Sequence { val items: Vec<i32> }
-impl Index<usize> for Sequence {
+impl Index<u64> for Sequence {
     type Output = i32;
-    fn index(self, index: usize) -> i32 { 1 / 0 }
+    fn index(self, index: u64) -> i32 { 1 / 0 }
 }
 impl Iterable for Sequence {
     type Item = i32;
@@ -120,17 +120,17 @@ impl Iterable for Sequence {
     fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
 }
 impl List<i32> for Sequence {
-    fn len(self) -> usize { self.items.len() }
+    fn len(self) -> u64 { self.items.len() }
     fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: usize) -> Option<i32> { self.items.get(index) }
+    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
 }
 impl MutableList<i32> for Sequence {
     fn push(self, value: i32) { self.items.push(value); }
     fn pop(self) -> Option<i32> { self.items.pop() }
-    fn insert(self, index: usize, value: i32) { self.items.insert(index, value); }
-    fn remove(self, index: usize) -> Option<i32> { self.items.remove(index) }
+    fn insert(self, index: u64, value: i32) { self.items.insert(index, value); }
+    fn remove(self, index: u64) -> Option<i32> { self.items.remove(index) }
     fn clear(self) { self.items.clear(); }
-    fn set(self, index: usize, value: i32) { self.items[index] = value; }
+    fn set(self, index: u64, value: i32) { self.items[index] = value; }
 }
 fn main() -> bool {
     val source = Sequence { items: Vec::from([3, 1, 2, 1]) };
@@ -142,7 +142,7 @@ fn main() -> bool {
     writable.dedup();
     writable.reverse();
     writable.retain(|item| item != 2);
-    source.items.len() == 2usize && source.items[0] == 3 && source.items[1] == 1
+    source.items.len() == 2u64 && source.items[0] == 3 && source.items[1] == 1
 }
 "#,
     );
@@ -342,28 +342,28 @@ fn generic_custom_receiver_uses_its_associated_iterator_in_default_calls() {
 use std::ops::{Index};
 
 struct Sequence<T> { val items: Vec<T> }
-struct Cursor<T> { val items: Vec<T>, var position: usize }
+struct Cursor<T> { val items: Vec<T>, var position: u64 }
 impl<T> Iterator for Cursor<T> {
     type Item = T;
     fn next(self) -> Option<T> {
         val value = self.items.get(self.position);
-        self.position += 1usize;
+        self.position += 1u64;
         value
     }
 }
-impl<T> Index<usize> for Sequence<T> {
+impl<T> Index<u64> for Sequence<T> {
     type Output = T;
-    fn index(self, index: usize) -> T { self.items[index] }
+    fn index(self, index: u64) -> T { self.items[index] }
 }
 impl<T> Iterable for Sequence<T> {
     type Item = T;
     type Iter = Cursor<T>;
-    fn iter(self) -> Cursor<T> { Cursor { items: self.items, position: 0usize } }
+    fn iter(self) -> Cursor<T> { Cursor { items: self.items, position: 0u64 } }
 }
 impl<T> List<T> for Sequence<T> {
-    fn len(self) -> usize { self.items.len() }
+    fn len(self) -> u64 { self.items.len() }
     fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: usize) -> Option<T> { self.items.get(index) }
+    fn get(self, index: u64) -> Option<T> { self.items.get(index) }
 }
 fn order<T: Ord>(values: List<T>) -> List<T> { values.sorted() }
 trait Sorter {

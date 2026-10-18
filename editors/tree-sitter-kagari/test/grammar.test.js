@@ -168,6 +168,15 @@ test('numbers, adjacency, identity and generic angles remain distinct', () => {
   assert.deepEqual(nodes(tree.rootNode, 'integer_literal').slice(0, 4).map(n => n.text),
     ['1', '2', '0xff_u8', '0xff32']);
   assert.ok(nodes(tree.rootNode, 'float_literal').some(n => n.text === '1f64'));
+  const fixed = ['1i8', '1i16', '1i32', '1i64', '1u8', '1u16', '1u32', '1u64',
+    '18446744073709551615u64'];
+  const integers = valid(`fn main() { val values = [${fixed.join(', ')}]; }`);
+  assert.deepEqual(nodes(integers.rootNode, 'integer_literal').map(n => n.text), fixed);
+  for (const literal of ['1isize', '1usize', '0o755usize', '0xff_isize']) {
+    const invalid = parse(`fn main() { val value = ${literal}; }`);
+    assert.ok(invalid.rootNode.hasError, `unsupported integer suffix: ${literal}`);
+    assert.ok(!nodes(invalid.rootNode, 'integer_literal').some(n => n.text === literal));
+  }
   assert.equal(nodes(tree.rootNode, 'generic_path').length, 1);
   for (const op of ['> >', '> /* comment */ >', '< <', '< /* comment */ <']) {
     const invalid = parse(`fn main() { a ${op} b; }`);

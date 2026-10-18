@@ -6307,10 +6307,6 @@
                   },
                   {
                     "type": "STRING",
-                    "value": "isize"
-                  },
-                  {
-                    "type": "STRING",
                     "value": "u8"
                   },
                   {
@@ -6324,10 +6320,6 @@
                   {
                     "type": "STRING",
                     "value": "u64"
-                  },
-                  {
-                    "type": "STRING",
-                    "value": "usize"
                   }
                 ]
               },

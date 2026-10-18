@@ -8,7 +8,7 @@ pub fn parse_integer_literal(text: &str) -> Result<u64, &'static str> {
 /// Separate a primitive type suffix without confusing hexadecimal digits with f32/f64.
 pub fn numeric_literal_parts(text: &str) -> (&str, Option<&str>) {
     for suffix in [
-        "isize", "usize", "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8", "f32", "f64",
+        "i64", "u64", "i32", "u32", "i16", "u16", "i8", "u8", "f32", "f64",
     ] {
         if suffix.starts_with('f')
             && ["0x", "0o", "0b"]
@@ -97,4 +97,32 @@ pub fn decode_string_literal(text: &str) -> Result<String, &'static str> {
         }
     }
     Ok(decoded)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn integer_suffixes_are_fixed_width() {
+        for suffix in ["i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64"] {
+            let text = format!("42{suffix}");
+            assert_eq!(numeric_literal_parts(&text), ("42", Some(suffix)));
+            assert!(is_integer_literal(&text));
+            assert_eq!(parse_integer_literal(&text), Ok(42));
+        }
+        for suffix in ["isize", "usize"] {
+            for digits in ["42", "0x2a", "0o52", "0b101010"] {
+                let text = format!("{digits}{suffix}");
+                assert_eq!(numeric_literal_parts(&text), (text.as_str(), None));
+                assert!(!is_integer_literal(&text));
+                assert_eq!(parse_integer_literal(&text), Err("invalid integer literal"));
+            }
+        }
+        assert_eq!(
+            parse_integer_literal("18446744073709551615u64"),
+            Ok(u64::MAX)
+        );
+        assert_eq!(parse_integer_literal("0xf64"), Ok(0xf64));
+    }
 }

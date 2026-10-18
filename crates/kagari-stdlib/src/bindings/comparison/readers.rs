@@ -14,12 +14,12 @@ use kagari_runtime::{
 pub(super) enum Reader {
     Interface {
         value: Interface,
-        len: InterfaceMethod<(), usize>,
+        len: InterfaceMethod<(), u64>,
         iter: InterfaceMethod<(), Interface>,
     },
     Concrete {
         value: ScriptValue,
-        len: SelectedMethod<(ScriptValue,), usize>,
+        len: SelectedMethod<(ScriptValue,), u64>,
         iter: SelectedMethod<(ScriptValue,), ScriptValue>,
         next: SelectedMethod<(ScriptValue,), Option<ScriptValue>>,
     },
@@ -62,7 +62,7 @@ impl Reader {
         })
     }
 
-    pub(super) fn len(&self, cx: &mut NativeContext<'_>) -> NativeResult<usize> {
+    pub(super) fn len(&self, cx: &mut NativeContext<'_>) -> NativeResult<u64> {
         match self {
             Self::Interface { value, len, .. } => value.call(cx, len, ()),
             Self::Concrete { value, len, .. } => len.call(cx, (value.clone(),)),

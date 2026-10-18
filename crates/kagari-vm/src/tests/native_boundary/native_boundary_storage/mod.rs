@@ -147,7 +147,7 @@ fn index_bounds_validate_the_applied_type_even_without_a_payload() {
     let (vm, loaded) = compile(
         r#"use core::ops::Bound;
         enum ForeignBound { Unbounded }
-        pub fn valid() -> Bound<usize> { Bound::Unbounded }
+        pub fn valid() -> Bound<u64> { Bound::Unbounded }
         pub fn wrong_argument() -> Bound<i32> { Bound::Unbounded }
         pub fn wrong_owner() -> ForeignBound { ForeignBound::Unbounded }
         "#,
@@ -513,7 +513,7 @@ fn sorted_set(heap: &GcHeap, entries: Vec<Value>) -> Vec<String> {
 fn native_array_helpers_mutate_and_return_options() {
     let (vm, loaded) = compile(
         r#"
-        fn main() -> (Vec<i32>, Option<i32>, Option<i32>, usize) {
+        fn main() -> (Vec<i32>, Option<i32>, Option<i32>, u64) {
             val array = Vec::from([1]); val length = array.len();
             array.push(3); array.insert(1, 2);
             val removed = array.remove(1); val missing = array.get(99);

@@ -32,7 +32,7 @@ use test::async_sdk::request;
 pub fn items() -> Vec<i32> { Vec::from([10,20]) }
 pub fn push(items:Vec<i32>) { items.push(30); }
 pub fn replace(items:Vec<i32>) { items[1]=40; }
-pub fn count(items:Vec<i32>) -> usize { items.len() }
+pub fn count(items:Vec<i32>) -> u64 { items.len() }
 pub fn work(items:Vec<i32>) -> fn()->Future<Vec<i32>> {
     async || { val results:Vec<i32> = Vec::from([]); for item in items { results.push(request(item).await); } results }
 }

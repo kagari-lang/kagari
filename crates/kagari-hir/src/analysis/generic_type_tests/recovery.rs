@@ -124,7 +124,7 @@ fn indexing_partial_composites_preserves_the_selected_member() {
             true,
         ),
         (
-            "trait Reader: std::ops::Index<usize, Output = i32> {} fn bad(value: Reader) { value[true]; }",
+            "trait Reader: std::ops::Index<u64, Output = i32> {} fn bad(value: Reader) { value[true]; }",
             TypeId::Builtin(BuiltinType::I32),
             true,
         ),

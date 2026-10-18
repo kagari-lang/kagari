@@ -34,6 +34,13 @@ and runtime-helper ABI v6. Native bindings use module-qualified declaration IDs;
 the provider descriptor and its separate per-contract version are removed. Older
 products are rejected before execution without a migration reader.
 
+Integer identities, signatures and scalar layouts use only fixed-width i8/i16/i32/i64
+and u8/u16/u32/u64. Standard lengths, indices and logical counts use u64. Products
+encode these language contracts, not Rust pointer-sized slice layouts; no removed
+machine-named integer identity has an alias or compatibility decoder. This
+unpublished migration keeps format/ABI identifiers unchanged. Regenerate affected
+development artifacts and caches instead of loading their obsolete schema.
+
 Ordinary nominal enum nodes and layouts now cover source, standard and registered
 native enums. Layouts carry full declaration/member identities, applied arguments,
 ordered payload types and the explicit variant reporting fact. Generic enum
@@ -430,7 +437,7 @@ Version 76/runtime ABI v76 finalize source-declared native collection protocols
 and checked narrow-integer aggregation. Earlier products are rejected.
 
 Version 77/runtime ABI v77 add unsigned 64-bit constants and execution values,
-including the full usize range. Numeric literals preserve their checked scalar
+including the full u64 range. Numeric literals preserve their checked scalar
 types and precision; unsuffixed floating-point literals now default to f64.
 Earlier artifact versions are rejected before execution.
 
@@ -447,7 +454,7 @@ standard TryFromIntError/Infallible enum identities. Checked conversion results
 carry their concrete Result payload types. Earlier products are rejected.
 
 Version 81/runtime ABI v81 add the verified repeat-array instruction and array bulk
-replacement intrinsics. Repeat counts have the semantic type usize; writable target
+replacement intrinsics. Repeat counts have the semantic type u64; writable target
 access and element types are checked before execution. Older products are rejected.
 
 Version 82/runtime ABI v82 add immutable range ABI descriptors and canonical
@@ -492,8 +499,8 @@ Earlier artifacts are rejected without migration.
 ## Lazy string traversal (v88)
 
 KBC/runtime ABI v88 adds typed string-iterator constructors and split-once
-intrinsics. Constructors validate the argument tuple (including usize limits)
-and produce Iter<String>. Unlowered source bindings and previous artifacts are
+intrinsics. Constructors validate the argument tuple (including checked storage-size
+limits) and produce Iter<String>. Unlowered source bindings and previous artifacts are
 rejected. Iterator positions are committed only after result allocation succeeds.
 
 ## String transformations and typed traversal (v89)

@@ -92,10 +92,6 @@ impl Type {
         Self::scalar(BuiltinType::I64)
     }
 
-    pub fn usize() -> Self {
-        Self::scalar(BuiltinType::USize)
-    }
-
     pub fn u64() -> Self {
         Self::scalar(BuiltinType::U64)
     }

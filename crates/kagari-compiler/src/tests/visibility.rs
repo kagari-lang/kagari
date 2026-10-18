@@ -206,7 +206,7 @@ fn native_inherent_exports_cannot_redefine_registered_signatures() {
     let context = DefinitionContext::new().unwrap();
     let original = common::adopt_bytecode(
         &context,
-        common::bytecode_ok("pub fn main() -> usize { \"abc\".len() }"),
+        common::bytecode_ok("pub fn main() -> u64 { \"abc\".len() }"),
     );
     for corruption in 0..4 {
         let mut forged = original.clone();

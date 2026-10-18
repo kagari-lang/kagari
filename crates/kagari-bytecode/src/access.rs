@@ -326,7 +326,7 @@ pub(super) fn verify(
                         ) {
                             return Err(invalid());
                         }
-                        if !flows(&count, &Ty::Builtin(B::USize)) {
+                        if !flows(&count, &Ty::Builtin(B::U64)) {
                             return Err(invalid());
                         }
                         produced = Some((*dst, Fact::typed(Ty::Array(Box::new(element.clone())))));

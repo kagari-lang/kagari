@@ -77,9 +77,7 @@ macro_rules! edits {
     };
 }
 
-edits!(
-    Unit, Bool, I8, I16, I32, I64, ISize, U8, U16, U32, U64, USize, F32, F64
-);
+edits!(Unit, Bool, I8, I16, I32, I64, U8, U16, U32, U64, F32, F64);
 
 fn sort<T: Clone>(
     values: &mut [T],

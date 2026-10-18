@@ -121,7 +121,7 @@ impl StringIterKind {
         let string = Ty::Builtin(BuiltinType::String);
         Ty::Tuple(match self {
             Self::Split => vec![string.clone(), string],
-            Self::SplitN => vec![string.clone(), Ty::Builtin(BuiltinType::USize), string],
+            Self::SplitN => vec![string.clone(), Ty::Builtin(BuiltinType::U64), string],
             Self::Whitespace | Self::Lines | Self::Bytes | Self::CharIndices => vec![string],
         })
     }
@@ -130,7 +130,7 @@ impl StringIterKind {
         match self {
             Self::Bytes => Ty::Builtin(BuiltinType::U8),
             Self::CharIndices => Ty::Tuple(vec![
-                Ty::Builtin(BuiltinType::USize),
+                Ty::Builtin(BuiltinType::U64),
                 Ty::Builtin(BuiltinType::String),
             ]),
             _ => Ty::Builtin(BuiltinType::String),

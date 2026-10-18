@@ -27,10 +27,10 @@ pub(super) fn binding(
         "$foundation_string_contains" => method::<bool>(catalog, &[string, string], contains),
         "$foundation_string_starts_with" => method::<bool>(catalog, &[string, string], starts_with),
         "$foundation_string_ends_with" => method::<bool>(catalog, &[string, string], ends_with),
-        "$foundation_string_find" => method::<Option<usize>>(catalog, &[string, string], find),
+        "$foundation_string_find" => method::<Option<u64>>(catalog, &[string, string], find),
         "$foundation_string_slice" => method::<String>(
             catalog,
-            &[string, BuiltinType::USize, BuiltinType::USize],
+            &[string, BuiltinType::U64, BuiltinType::U64],
             slice,
         ),
         "$foundation_string_trim" => method::<String>(catalog, &[string], trim),
@@ -86,7 +86,7 @@ fn ends_with(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn find(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let result = text(cx, 0)?.find(&*text(cx, 1)?);
+    let result = text(cx, 0)?.find(&*text(cx, 1)?).map(|index| index as u64);
     cx.encode_result(result)
 }
 

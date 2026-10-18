@@ -66,7 +66,7 @@ fn direct_native_imports_run_from_source_and_decoded_artifacts() {
         pub fn answer() -> i32 {
             val values: Vec<i32> = Vec::new();
             values.push(40); values.push(2);
-            if values.len() == 2usize { values[0] + values[1] } else { 0 }
+            if values.len() == 2u64 { values[0] + values[1] } else { 0 }
         }
     "#,
     );
@@ -229,7 +229,7 @@ fn concrete_collection_native_signatures_preserve_element_types() {
     let program = fixture(
         r#"pub fn answer() -> i32 {
         val values = Vec::from([40]); values.push(2);
-        values[0] + match values.get(1usize) { Some(value) => value, None => 0 }
+        values[0] + match values.get(1u64) { Some(value) => value, None => 0 }
     }"#,
     );
     let context = DefinitionContext::new().unwrap();

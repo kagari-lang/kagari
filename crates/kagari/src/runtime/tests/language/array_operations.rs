@@ -76,15 +76,15 @@ fn repeats_evaluate_value_elements_once() {
         r#"
     struct Cell { var value: i32 }
     fn item(log: Vec<i32>) -> i32 { log.push(1); 7 }
-    fn count(log: Vec<i32>) -> usize { log.push(2); 3 }
+    fn count(log: Vec<i32>) -> u64 { log.push(2); 3 }
     fn main() -> i32 {
         val log = Vec::new();
         val values = [item(log); count(log)];
-        if !(log.len() == 2usize && log[0] == 1 && log[1] == 2) { return 0; }
+        if !(log.len() == 2u64 && log[0] == 1 && log[1] == 2) { return 0; }
         values[0] = 42;
         if values[2] != 7 { return 0; }
         val empty = [item(log); 0];
-        if !(empty.is_empty() && log.len() == 3usize) { return 0; }
+        if !(empty.is_empty() && log.len() == 3u64) { return 0; }
         val inferred: [u8] = [1; 4];
         if inferred[3] != 1u8 { return 0; }
         42
@@ -134,7 +134,7 @@ fn range_values_iterate_lazily_and_preserve_integer_width() {
 
     use core::ops as foundation;
     fn identity<T>(range: Range<T>) -> Range<T> { range }
-    fn upper<R: RangeBounds<usize>>(range: R) -> Bound<usize> { range.end_bound() }
+    fn upper<R: RangeBounds<u64>>(range: R) -> Bound<u64> { range.end_bound() }
     fn main() -> i32 {
         val qualified: foundation::Range<u8> = identity(1u8..4u8);
         val bound: foundation::Bound<u8> = qualified.start_bound();
@@ -148,10 +148,10 @@ fn range_values_iterate_lazily_and_preserve_integer_width() {
         for n in range { total += n; }
         for n in range { total += n; }
         if total != 12u8 { return 0; }
-        var count = 0usize;
+        var count = 0u64;
         var maximum = 0u8;
         for n in 254u8..=255u8 { count += 1; maximum = n; }
-        if count != 2usize || maximum != 255u8 { return 0; }
+        if count != 2u64 || maximum != 255u8 { return 0; }
         var wide = 0u64;
         for n in 0u64..18446744073709551615u64 { wide = n; if n == 2u64 { break; } }
         if wide != 2u64 { return 0; }
@@ -218,12 +218,12 @@ fn fixed_arrays_preserve_aliases_and_explicit_constructors_copy_storage() {
     fn key(counter: Cell) -> i32 { counter.value += 1; 7 }
     fn write<T: MutableList<i32>>(first: T, second: T) {
         var current = first;
-        current[{ current = second; 0usize }] = 42;
+        current[{ current = second; 0u64 }] = 42;
     }
     fn update<T: MutableList<i32>>(first: T, second: T) {
         var current = first;
         val rebind = || { current = second; 2 };
-        current[0usize] += rebind();
+        current[0u64] += rebind();
     }
     fn main() -> i32 {
         var array = [1, 2, 2];
@@ -235,11 +235,11 @@ fn fixed_arrays_preserve_aliases_and_explicit_constructors_copy_storage() {
         vector[0] += 6;
         array = [9];
         val readable: List<i32> = vector;
-        if alias.len() != 3usize || first(alias) != 3 || vector[0] != 7 { return 0; }
-        if readable.len() != 4usize || array.len() != 1usize || unique.len() != 2usize { return 0; }
+        if alias.len() != 3u64 || first(alias) != 3 || vector[0] != 7 { return 0; }
+        if readable.len() != 4u64 || array.len() != 1u64 || unique.len() != 2u64 { return 0; }
         var destination = Vec::from([1]);
         val original = destination;
-        destination[{ destination = Vec::from([9]); 0usize }] = 42;
+        destination[{ destination = Vec::from([9]); 0u64 }] = 42;
         if original[0] != 42 || destination[0] != 9 { return 0; }
         val generic_original = Vec::from([1]);
         val generic_replacement = Vec::from([9]);
@@ -253,7 +253,7 @@ fn fixed_arrays_preserve_aliases_and_explicit_constructors_copy_storage() {
         if !empty.is_empty() || !empty_vector.is_empty() || !empty_set.is_empty() { return 0; }
         val counter = Cell { value: 0 };
         val deduplicated = HashSet::from([key(counter), key(counter)]);
-        if counter.value != 2 || deduplicated.len() != 1usize { return 0; }
+        if counter.value != 2 || deduplicated.len() != 1u64 { return 0; }
         if vector[1] != 2 || vector[2] != 2 || vector[3] != 4 { return 0; }
         val object = Cell { value: 1 };
         val objects = [object];

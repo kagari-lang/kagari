@@ -5,24 +5,24 @@ use game::diagnostics;
 
 fn assertion() { debug::assert(true, "message"); }
 fn stop() -> ! { debug::panic("stop"); }
-fn coerced() -> usize { debug::panic("coerced") }
+fn coerced() -> u64 { debug::panic("coerced") }
 fn logging() { debug::print("é😀"); }
 fn relay() -> String { diagnostics::echo("echo") }
 fn app_stop() -> ! { diagnostics::fatal() }
-fn sequence() -> usize {
+fn sequence() -> u64 {
     debug::print("first");
     debug::assert(false, "failed");
     debug::print("unreachable");
-    42usize
+    42u64
 }
-fn unreachable_log() -> usize {
+fn unreachable_log() -> u64 {
     debug::print("before");
     debug::panic("stop");
     debug::print("after");
-    42usize
+    42u64
 }
-fn nested() -> usize { coerced() }
-fn answer() -> Option<usize> { Some(42usize) }
+fn nested() -> u64 { coerced() }
+fn answer() -> Option<u64> { Some(42u64) }
 fn eager() {
     debug::assert({ debug::print("condition"); false }, { debug::print("message"); "eager" });
 }

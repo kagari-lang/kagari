@@ -113,7 +113,7 @@ fn main() -> i32 {
     val result = { val std = 7; val Display = 8; f"{make(log, 1)}:{make(log, 2):?}" };
     { val passed = result == "1:debug"; if !passed {val zero=0;1/zero;} };
     { val passed = log.len() == Vec::from([0, 0, 0, 0]).len(); if !passed {val zero=0;1/zero;} };
-    { val passed = log.get(0usize) == Some(0); if !passed {val zero=0;1/zero;} };
+    { val passed = log.get(0u64) == Some(0); if !passed {val zero=0;1/zero;} };
     { val passed = log.get(Vec::from([0]).len()) == Some(1); if !passed {val zero=0;1/zero;} };
     { val passed = log.get(Vec::from([0, 0]).len()) == Some(0); if !passed {val zero=0;1/zero;} };
     { val passed = log.get(Vec::from([0, 0, 0]).len()) == Some(9); if !passed {val zero=0;1/zero;} };

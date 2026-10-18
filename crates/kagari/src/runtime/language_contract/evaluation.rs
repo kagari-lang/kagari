@@ -399,7 +399,7 @@ fn main() -> i32 {
 fn string_len_counts_utf8_bytes() {
     run_routes(&Case::new(
         "string-len-counts-utf8-bytes",
-        "fn main() -> usize { \"aé文\".len() }",
+        "fn main() -> u64 { \"aé文\".len() }",
         Expected::Value(|_| Value::U64(6)),
     ));
 }
@@ -408,7 +408,7 @@ fn string_len_counts_utf8_bytes() {
 fn iter_array_option() {
     run_routes(&Case::new(
         "iter-array-option",
-        "fn main() -> (usize, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }",
+        "fn main() -> (u64, i32, bool) { val a = [4, 7]; { val cursor = a.iter(); cursor.next(); val second = match cursor.next() { Some(x) => x, None => 0 }; (a.len(), second, match cursor.next() { Some(x) => false, None => true }) } }",
         Expected::Value(|heap| {
             heap.alloc_tuple(vec![Value::U64(2), Value::I32(7), Value::Bool(true)])
                 .unwrap()
@@ -420,7 +420,7 @@ fn iter_array_option() {
 fn pop_empty_option() {
     run_routes(&Case::new(
         "pop-empty-option",
-        "fn main() -> (i32, bool, usize) { val a = Vec::from([7]); val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }",
+        "fn main() -> (i32, bool, u64) { val a = Vec::from([7]); val alias = a; val popped = match a.pop() { Some(x) => x, None => 0 }; (popped, match alias.pop() { Some(x) => false, None => true }, a.len()) }",
         Expected::Value(|heap| {
             heap.alloc_tuple(vec![Value::I32(7), Value::Bool(true), Value::U64(0)])
                 .unwrap()

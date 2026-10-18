@@ -656,7 +656,7 @@ fn integer_operations_expose_traps_to_downstream_backends() {
 fn records_ir_function_effect_summary() {
     let analyzed = common::program_ok(
         r#"
-fn main() -> usize {
+fn main() -> u64 {
     val values = Vec::from([1, 2]);
     values.push(3);
     print("ok");
@@ -903,7 +903,7 @@ fn main() -> i32 {
 fn foundation_calls_lower_to_checked_native_imports() {
     let analyzed = common::program_ok(
         r#"
-fn main() -> usize {
+fn main() -> u64 {
     val values = Vec::from([1, 2]);
     values.push(3);
     values.pop();

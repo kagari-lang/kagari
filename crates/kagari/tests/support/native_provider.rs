@@ -63,8 +63,8 @@ pub fn module(drops: Arc<AtomicUsize>) -> NativeModule {
     module
         .function(&function, |function| {
             let item = function.type_parameter("T")?;
-            function.parameter("count", Type::usize())?;
-            function.parameter("callback", Type::function([Type::usize()], item.ty())?)?;
+            function.parameter("count", Type::u64())?;
+            function.parameter("callback", Type::function([Type::u64()], item.ty())?)?;
             function.returns(language.vec(item.ty())?)?;
             Ok(())
         })

@@ -16,7 +16,6 @@ use crate::{
     },
     value::Value,
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty};
 use serde::{
     Serialize,
     ser::{Impossible, Serializer as SerdeSerializer},
@@ -87,24 +86,8 @@ impl<'scope, 'runtime> SerdeSerializer for Serializer<'scope, 'runtime> {
     type SerializeStructVariant = Impossible<Value, RuntimeError>;
 
     scalar!(serialize_bool: bool, serialize_i8: i8, serialize_i16: i16,
-        serialize_i32: i32, serialize_u8: u8, serialize_u16: u16,
-        serialize_u32: u32, serialize_f32: f32, serialize_f64: f64);
-
-    fn serialize_i64(self, value: i64) -> NativeResult<Value> {
-        if self.expected.ty() == &Ty::Builtin(BuiltinType::ISize) {
-            self.scalar(isize::try_from(value).map_err(|_| unsupported("isize range"))?)
-        } else {
-            self.scalar(value)
-        }
-    }
-
-    fn serialize_u64(self, value: u64) -> NativeResult<Value> {
-        if self.expected.ty() == &Ty::Builtin(BuiltinType::USize) {
-            self.scalar(usize::try_from(value).map_err(|_| unsupported("usize range"))?)
-        } else {
-            self.scalar(value)
-        }
-    }
+        serialize_i32: i32, serialize_i64: i64, serialize_u8: u8, serialize_u16: u16,
+        serialize_u32: u32, serialize_u64: u64, serialize_f32: f32, serialize_f64: f64);
 
     fn serialize_i128(self, _: i128) -> NativeResult<Value> {
         Err(unsupported("i128"))

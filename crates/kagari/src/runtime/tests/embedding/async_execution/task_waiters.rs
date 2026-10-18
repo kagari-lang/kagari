@@ -37,7 +37,7 @@ pub fn add(tasks:Vec<Task<i32>>, task:Task<i32>) { tasks.push(task); }
 pub fn looping(tasks:Vec<Task<i32>>) -> fn()->Future<i32> {
     async || { var total=0; for task in tasks { total += task.await; } total }
 }
-pub fn indexed(tasks:Vec<Task<i32>>, index:usize) -> fn()->Future<i32> { async || tasks[index].await }
+pub fn indexed(tasks:Vec<Task<i32>>, index:u64) -> fn()->Future<i32> { async || tasks[index].await }
 pub fn business() -> fn()->Future<Result<i32,i32>> { async || Err(4) }
 pub fn propagate(task:Task<Result<i32,i32>>) -> fn()->Future<Result<i32,i32>> { async || Ok(task.await? + 1) }
 pub fn code(value:Result<i32,i32>) -> i32 { match value { Ok(x) => x, Err(e) => -e } }

@@ -1,16 +1,16 @@
 use std::collections::{HashMap, HashSet, List, Map, MutableList, Set};
 // Interfaces control access; concrete types choose storage. Views stay live.
 fn append(values:MutableList<i32>,value:i32){values.push(value);}
-fn size<C:List<i32>>(values:C)->usize{values.len()}
+fn size<C:List<i32>>(values:C)->u64{values.len()}
 fn main()->i32 {
     val values=Vec::from([20]); val readonly:List<i32> = values;
     append(values,22);
-    if size(values)!=2usize || readonly.len()!=2usize {return 0;}
+    if size(values)!=2u64 || readonly.len()!=2u64 {return 0;}
     val map=HashMap::new(); map.insert("answer",20); map.insert("answer",42);
     val map_view:Map<String,i32> = map;
     if map_view.get("answer")!=Some(42){return 0;}
     val set=HashSet::new();set.insert(20);set.insert(20);set.insert(22);
     val set_view:Set<i32> = set;
-    if set_view.len()!=2usize || !set_view.contains(22){return 0;}
+    if set_view.len()!=2u64 || !set_view.contains(22){return 0;}
     readonly[0]+readonly[1]
 }

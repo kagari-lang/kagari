@@ -65,6 +65,11 @@ integer literals use surrounding constraints and otherwise default to `i32`;
 float literals otherwise default to `f64`. A suffix such as `20i64` selects a
 primitive type. It does not authorize arbitrary implicit numeric conversion.
 
+The integer types are `i8`, `i16`, `i32`, `i64` and `u8`, `u16`, `u32`, `u64`.
+Their widths do not depend on the host. There are no `isize`/`usize` builtin types,
+aliases or literal suffixes; use `i64`/`u64` for 64-bit values. Standard lengths,
+counts and indices use `u64`, not a host-sized script integer.
+
 `[20, 22]` creates a fixed-length array of type `[i32]`, with writable elements.
 `Vec::from([20, 22])` explicitly constructs growable vector storage. Array length
 is not a type parameter, and a range index does not create a borrowed slice.
@@ -98,6 +103,13 @@ or remove host rooting and scoped-borrow rules. The external
 <a href={source('docs/spec/host-interop.md')}>host interop specification</a> owns
 those boundaries. Strings use byte lengths and UTF-8 boundary-checked slices,
 not an implicit character-indexed mutable buffer.
+
+A wide integer does not imply a large allocation: `[4294967296u64]` holds one
+64-bit value, whereas `[0u8; 4294967296u64]` requests that many elements. Capacity
+still depends on address width, element size, allocator limits and available
+memory. Unsupported sizes must not wrap; underlying out-of-memory failure is not
+promised recoverable. See the
+<a href={source('docs/spec/runtime.md#machine-and-resource-boundaries')}>machine and resource boundary contract</a>.
 
 For exact rules, read
 <a href={source('docs/spec/value-semantics.md#values-and-identity')}>values and identity</a>,

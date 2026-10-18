@@ -207,7 +207,7 @@ fn readonly_index_returns_shared_objects_without_container_writeback() {
 
 struct Item {var value:i32}
 struct Bag {val items:Vec<Item>,var reads:i32}
-impl Index<i32> for Bag {type Output=Item;fn index(self,rhs:i32)->Item {self.reads+=1;self.items[rhs as usize]}}
+impl Index<i32> for Bag {type Output=Item;fn index(self,rhs:i32)->Item {self.reads+=1;self.items[rhs as u64]}}
 fn read<C:Index<i32>>(c:C,i:i32)->C::Output {c[i]}
 fn main()->i32 {
  val item=Item{value:0};val bag=Bag{items:Vec::from([item]),reads:0};

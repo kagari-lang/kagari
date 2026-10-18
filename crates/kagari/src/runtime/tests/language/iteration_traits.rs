@@ -38,7 +38,7 @@ impl Iterator for Pulse {
 }
 fn main()->i32 {
     val source=Pulse { step:0 };
-    val zero=source.take(0usize);
+    val zero=source.take(0u64);
     if zero.next()!=None || source.step!=0 { return 0; }
     val mapped=source.map(|x|x+39);
     if mapped.next()!=Some(40) || mapped.next()!=None { return 0; }
@@ -46,7 +46,7 @@ fn main()->i32 {
     val filtered=Pulse {step:0}.filter(|x|x==3);
     if filtered.next()!=None || filtered.next()!=Some(3) { return 0; }
     val limited_source=Pulse {step:0};
-    val limited=limited_source.take(1usize);
+    val limited=limited_source.take(1u64);
     val alias=limited;
     if limited.next()!=Some(1) || alias.next()!=None || limited_source.step!=1 { return 0; }
     match resumed { Some(x)=>x, None=>0 }
@@ -83,7 +83,7 @@ impl Iterable for Override {
     }
 }
 fn total<I: Iterable<Item=i32>>(values: I) -> i32 {
-    values.map(|x| x * 2).filter(|x| x > 2).take(1usize).sum()
+    values.map(|x| x * 2).filter(|x| x > 2).take(1u64).sum()
 }
 fn main() -> i32 {
     val custom=Override {};
@@ -587,18 +587,18 @@ impl Iterator for Cursor {
         if self.step==1 || self.step==3 {Some(self.step)} else {None}
     }
 }
-fn pairs<L:Iterable<Item=i32>,R:Iterable>(left:L,right:R)->usize {
+fn pairs<L:Iterable<Item=i32>,R:Iterable>(left:L,right:R)->u64 {
     left.zip(right).enumerate().count()
 }
 fn main()->i32 {
     val log=Vec::new();
     val zipped=make(log,1).zip(make(log,2));
-    if log.len()!=4usize || log[0]!=1 || log[1]!=2 || log[2]!=11 || log[3]!=12 {return 0;}
+    if log.len()!=4u64 || log[0]!=1 || log[1]!=2 || log[2]!=11 || log[3]!=12 {return 0;}
     val alias=zipped;
     match alias.next() {Some(pair)=>{if pair[0]!=1 || pair[1]!=1 {return 0;}},None=>{return 0;}};
     if log[4]!=21 || log[5]!=22 {return 0;}
-    if zipped.next()!=None || log.len()!=7usize {return 0;}
-    if alias.next()!=None || log.len()!=9usize {return 0;}
+    if zipped.next()!=None || log.len()!=7u64 {return 0;}
+    if alias.next()!=None || log.len()!=9u64 {return 0;}
     val pulse=Cursor {log:Vec::new(),id:0,step:0};
     val mapped=pulse.filter_map(|x|if x==3 {Some(Vec::from([42]))} else {None});
     if mapped.next()!=None {return 0;}
@@ -607,14 +607,14 @@ fn main()->i32 {
     val last=Cursor {log:Vec::new(),id:0,step:0};
     val chained=first.chain(last);
     if chained.next()!=Some(1) || chained.next()!=Some(1) || chained.next()!=None || chained.next()!=Some(3) || first.step!=2 {return 0;}
-    val skipped=Cursor {log:Vec::new(),id:0,step:0}.skip(2usize);
+    val skipped=Cursor {log:Vec::new(),id:0,step:0}.skip(2u64);
     if skipped.next()!=None || skipped.next()!=None {return 0;}
     val counted:Iterable<Item=i32,Iter=Cursor> = Source {log:Vec::new(),id:0};
     val erased:Iterator<Item=String> = ["a","b"].iter();
-    if pairs(counted,erased)!=1usize {return 0;}
+    if pairs(counted,erased)!=1u64 {return 0;}
     val list:List<i32> = Vec::from([10,20]);
-    val output:Vec<(usize,(i32,String))> = list.zip(["a","b"]).enumerate().collect();
-    if output[0][0]!=0usize || output[1][0]!=1usize || output[1][1][0]!=20 || output[1][1][1]!="b" {return 0;}
+    val output:Vec<(u64,(i32,String))> = list.zip(["a","b"]).enumerate().collect();
+    if output[0][0]!=0u64 || output[1][0]!=1u64 || output[1][1][0]!=20 || output[1][1][1]!="b" {return 0;}
     42
 }
 "#,
@@ -632,16 +632,16 @@ fn main()->i32 {
     match pipeline.find(|pair|true) {Some(pair)=>{if pair[0]!=3 || pair[1]!=30 {return 0;}},None=>{return 0;}};
     left.push(4);right.push(40);
     val values=Vec::from([1,2,3,4]);
-    val cursor=values.skip(1usize);val alias=cursor;
+    val cursor=values.skip(1u64);val alias=cursor;
     if cursor.all(|x| {calls[0]+=1;x<3}) || calls[0]!=4 {return 0;}
     if alias.next()!=Some(4) {return 0;}
     for item in alias {break;}
     values.push(5);
     val empty:[i32]=[];
-    if empty.any(|x|true) || !empty.all(|x|false) || empty.find(|x|true)!=None || empty.count()!=0usize {return 0;}
+    if empty.any(|x|true) || !empty.all(|x|false) || empty.find(|x|true)!=None || empty.count()!=0u64 {return 0;}
     val output=Vec::new();
     val unit=values.enumerate().for_each(|pair| {output.push(pair[1]);});
-    if unit!=() || output.len()!=5usize || output[4]!=5 {return 0;}
+    if unit!=() || output.len()!=5u64 || output[4]!=5 {return 0;}
     values.push(6);
     42
 }
@@ -657,10 +657,10 @@ fn main()->i32 {
     val values=Vec::from([1,2,3]);
     val unused=values.iter();
     values.push(4);
-    val zero=values.take(0usize);
+    val zero=values.take(0u64);
     if zero.next()!=None {return 0;}
     values.push(5);
-    val one=values.take(1usize);
+    val one=values.take(1u64);
     if one.next()!=Some(1) {return 0;}
     values.push(6);
     if one.next()!=None {return 0;}
@@ -673,7 +673,7 @@ fn main()->i32 {
     for x in values {values.push(9);break;}
     val fresh=values.iter();
     values[0]=42;
-    if fresh.next()!=Some(42) || values.len()!=9usize {return 0;}
+    if fresh.next()!=Some(42) || values.len()!=9u64 {return 0;}
     42
 }
 "#,

@@ -99,7 +99,7 @@ fn invalid_attribute_forms_are_rejected_and_following_functions_survive() {
     for prefix in ["@intrinsic(ArrayLen)", "#![intrinsic(ArrayLen)]"] {
         let source = SourceFile::new(
             "invalid-sdk.kgr",
-            format!("{prefix}\npub fn len<T>(value: [T]) -> usize;"),
+            format!("{prefix}\npub fn len<T>(value: [T]) -> u64;"),
         );
         let parsed = parse_declarations(&source, Default::default(), &Default::default()).unwrap();
         assert!(!parsed.diagnostics().is_empty(), "{prefix}");

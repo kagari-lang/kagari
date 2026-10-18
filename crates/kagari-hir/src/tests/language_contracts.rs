@@ -389,7 +389,7 @@ fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
         &foundation_catalog::shared().unwrap(),
     )
     .unwrap();
-    let source = "fn main() { val text = \"é🙂\"; text.slice(0usize, 2usize); text. }";
+    let source = "fn main() { val text = \"é🙂\"; text.slice(0u64, 2u64); text. }";
     let mut sources = SourceDatabase::default();
     let file = sources
         .set("string-navigation.kgr", source.into(), SourceLayer::Base)
@@ -409,7 +409,7 @@ fn string_method_docs_completion_and_navigation_share_the_language_catalog() {
     );
     let docs = snapshot.documentation_at(file, offset).unwrap();
     assert!(docs.documentation.contains("UTF-8 boundaries"));
-    assert!(docs.written_signature.contains("usize"));
+    assert!(docs.written_signature.contains("u64"));
     let candidates = snapshot
         .file(file)
         .unwrap()

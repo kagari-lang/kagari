@@ -63,7 +63,7 @@ pub fn string_calls() -> i32 { var sum = 0; var i = 0;
 pub fn byte_state() -> i32 { val memory: Vec<u8> = Vec::from([0u8; 256]); var state = 1u8; var sum = 0; var i = 0;
     while i < 5000 {
         state = (((state as u32) * 13u32 + 17u32) as u8) ^ (state >> 3u32);
-        val index = ((i as u32) & 255u32) as usize;
+        val index = ((i as u32) & 255u32) as u64;
         memory[index] = ((memory[index] as u32) + (state as u32)) as u8;
         sum += memory[index] as i32;
         i += 1;

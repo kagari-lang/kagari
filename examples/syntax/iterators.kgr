@@ -26,7 +26,7 @@ fn sum<C: Iterable<Item = i32>>(values: C) -> i32 {
 }
 fn main() -> i32 {
     val range = Range { start: 0, end: 7 };
-    val indexed: Vec<(usize, i32)> = [20, 1].enumerate().collect();
+    val indexed: Vec<(u64, i32)> = [20, 1].enumerate().collect();
     val iter = indexed.map(|entry| entry[1]);
     sum(range) + sum(iter)
 }

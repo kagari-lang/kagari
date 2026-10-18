@@ -36,11 +36,11 @@ impl NativePayload for EmptyPayload {
 }
 
 #[test]
-fn same_physical_integer_layout_does_not_erase_usize() {
+fn inferred_binding_preserves_signedness() {
     let mut module =
         ModuleBuilder::new("example::mismatch", &DeclarationCatalog::default()).unwrap();
     let function = module
-        .define_function(FunctionDecl::new("count").returns(Type::usize()))
+        .define_function(FunctionDecl::new("count").returns(Type::i64()))
         .unwrap();
     let error = module.bind(function, count).unwrap_err();
     assert!(error.message().contains("codec"));
@@ -51,11 +51,11 @@ fn explicit_binding_uses_the_same_signature_check() {
     let mut module =
         ModuleBuilder::new("example::explicit", &DeclarationCatalog::default()).unwrap();
     let function = module
-        .define_function(FunctionDecl::new("count").returns(Type::usize()))
+        .define_function(FunctionDecl::new("count").returns(Type::u64()))
         .unwrap();
-    let wrong = NativeBinding::new(vec![], Codec::Exact(Type::u64()), |_| Ok(Value::U64(0)));
+    let wrong = NativeBinding::new(vec![], Codec::Exact(Type::i64()), |_| Ok(Value::I64(0)));
     assert!(module.bind(function.clone(), wrong).is_err());
-    let right = NativeBinding::new(vec![], Codec::Exact(Type::usize()), |_| Ok(Value::U64(0)));
+    let right = NativeBinding::new(vec![], Codec::Exact(Type::u64()), |_| Ok(Value::U64(0)));
     module.bind(function, right).unwrap();
     module.finish().unwrap();
 }
@@ -82,7 +82,7 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
         .define_function(
             FunctionDecl::new("len")
                 .parameter("values", opaque.apply([]).unwrap())
-                .returns(Type::usize()),
+                .returns(Type::u64()),
         )
         .unwrap();
     assert!(
@@ -95,7 +95,7 @@ fn sequence_conversion_rejects_opaque_storage_at_registration() {
     module
         .bind(
             len,
-            NativeBinding::new(vec![opaque.codec()], Codec::Exact(Type::usize()), |_| {
+            NativeBinding::new(vec![opaque.codec()], Codec::Exact(Type::u64()), |_| {
                 Ok(Value::U64(0))
             }),
         )
@@ -111,7 +111,7 @@ fn sequence_receiver_groups_allow_read_and_write_member_views() {
     declaration.sequence_storage(&item).unwrap();
     let buffer = declaration.finish().unwrap();
     let mut read = module.define_trait("Read").unwrap();
-    read.define_method(MethodDecl::instance("len").returns(Type::usize()))
+    read.define_method(MethodDecl::instance("len").returns(Type::u64()))
         .unwrap();
     let read = read.finish().unwrap();
     let mut write = module.define_trait("Write").unwrap();
@@ -151,7 +151,7 @@ fn missing_or_unknown_trait_member_is_rejected() {
         ModuleBuilder::new("example::missing_trait", &DeclarationCatalog::default()).unwrap();
     let mut declaration = module.define_trait("Measure").unwrap();
     declaration
-        .define_method(MethodDecl::instance("measure").returns(Type::usize()))
+        .define_method(MethodDecl::instance("measure").returns(Type::u64()))
         .unwrap();
     let measure = declaration.finish().unwrap();
     let error = module
@@ -542,7 +542,7 @@ fn native_default_rejects_unproven_operations_and_incompatible_codecs() {
     let mut module = ModuleBuilder::new("example::default_codec", &provider.catalog()).unwrap();
     let mut declaration = module.define_trait("Count").unwrap();
     let method = declaration
-        .define_method(MethodDecl::instance("count").returns(Type::usize()))
+        .define_method(MethodDecl::instance("count").returns(Type::u64()))
         .unwrap();
     declaration
         .bind(

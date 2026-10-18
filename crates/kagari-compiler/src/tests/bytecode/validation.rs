@@ -290,7 +290,7 @@ fn verifier_rejects_invalid_language_primitive_signatures() {
         &context,
         common::bytecode_ok(
             r#"
-fn main(value: Vec<i32>) -> usize {
+fn main(value: Vec<i32>) -> u64 {
     value.len()
 }
 "#,
@@ -513,7 +513,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
 
     let module = common::adopt_bytecode(
         &context,
-        common::bytecode_ok("fn main() { val range = 0usize..2usize; range.start_bound(); }"),
+        common::bytecode_ok("fn main() { val range = 0u64..2u64; range.start_bound(); }"),
     );
     verify_program(&module, &context.snapshot()).unwrap();
     for mutation in 0..6 {
@@ -536,11 +536,11 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
                     RangeKind::Exclusive,
                 )
             }
-            3 => *ty = Ty::Range(Box::new(Ty::Builtin(BuiltinType::USize)), RangeKind::Full),
+            3 => *ty = Ty::Range(Box::new(Ty::Builtin(BuiltinType::U64)), RangeKind::Full),
             4 => *start = Some(Register::new(usize::MAX)),
             _ => {
                 *ty = Ty::Range(
-                    Box::new(Ty::Builtin(BuiltinType::U64)),
+                    Box::new(Ty::Builtin(BuiltinType::I64)),
                     RangeKind::Exclusive,
                 )
             }
@@ -613,7 +613,7 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
         "Some(Cell { value: 1 })",
     ] {
         let source = format!(
-            "struct Cell {{ var value: i32 }} fn main() {{ val count = 2usize; val value = {value}; val array = [value, value]; }}"
+            "struct Cell {{ var value: i32 }} fn main() {{ val count = 2u64; val value = {value}; val array = [value, value]; }}"
         );
         let mut module = common::adopt_bytecode(&context, common::bytecode_ok(&source));
         verify_program(&module, &context.snapshot()).unwrap();

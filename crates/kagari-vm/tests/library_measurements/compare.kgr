@@ -3,27 +3,27 @@ use std::collections::{MutableList};
 // Measurement reference only: stable O(n log n) sorting over the same compact
 // Vec<i32>. Production algorithms remain Rust implementations.
 trait Run {
-    fn primitive(self, values: Vec<i32>, calls: Vec<usize>);
-    fn callback(self, values: Vec<i32>, calls: Vec<usize>);
-    fn interface_primitive(self, values: MutableList<i32>, calls: Vec<usize>);
-    fn interface_callback(self, values: MutableList<i32>, calls: Vec<usize>);
-    fn script(self, values: Vec<i32>, calls: Vec<usize>);
+    fn primitive(self, values: Vec<i32>, calls: Vec<u64>);
+    fn callback(self, values: Vec<i32>, calls: Vec<u64>);
+    fn interface_primitive(self, values: MutableList<i32>, calls: Vec<u64>);
+    fn interface_callback(self, values: MutableList<i32>, calls: Vec<u64>);
+    fn script(self, values: Vec<i32>, calls: Vec<u64>);
     fn view(self, values: Vec<i32>) -> MutableList<i32>;
 }
 struct Runner {}
 impl Run for Runner {
-    fn primitive(self, values: Vec<i32>, calls: Vec<usize>) { values.sort(); }
-    fn callback(self, values: Vec<i32>, calls: Vec<usize>) {
-        values.sort_by(|a,b| { calls[0] += 1usize; a.cmp(b) });
+    fn primitive(self, values: Vec<i32>, calls: Vec<u64>) { values.sort(); }
+    fn callback(self, values: Vec<i32>, calls: Vec<u64>) {
+        values.sort_by(|a,b| { calls[0] += 1u64; a.cmp(b) });
     }
-    fn interface_primitive(self, values: MutableList<i32>, calls: Vec<usize>) {
+    fn interface_primitive(self, values: MutableList<i32>, calls: Vec<u64>) {
         values.sort();
     }
-    fn interface_callback(self, values: MutableList<i32>, calls: Vec<usize>) {
-        values.sort_by(|a,b| { calls[0] += 1usize; a.cmp(b) });
+    fn interface_callback(self, values: MutableList<i32>, calls: Vec<u64>) {
+        values.sort_by(|a,b| { calls[0] += 1u64; a.cmp(b) });
     }
-    fn script(self, values: Vec<i32>, calls: Vec<usize>) {
-        merge_sort(values, |a,b| { calls[0] += 1usize; a.cmp(b) });
+    fn script(self, values: Vec<i32>, calls: Vec<u64>) {
+        merge_sort(values, |a,b| { calls[0] += 1u64; a.cmp(b) });
     }
     fn view(self, values: Vec<i32>) -> MutableList<i32> { values }
 }
@@ -31,27 +31,27 @@ fn runner() -> Run { Runner {} }
 fn merge_sort(values: Vec<i32>, compare: fn(i32,i32) -> Ordering) {
     val size = values.len();
     var source: Vec<i32> = Vec::from([]); var target: Vec<i32> = Vec::from([]);
-    var index = 0usize;
-    while index < size { source.push(values[index]); target.push(0); index += 1usize; }
-    var width = 1usize;
+    var index = 0u64;
+    while index < size { source.push(values[index]); target.push(0); index += 1u64; }
+    var width = 1u64;
     while width < size {
-        var start = 0usize;
+        var start = 0u64;
         while start < size {
             val middle = if start + width < size { start + width } else { size };
             val end = if middle + width < size { middle + width } else { size };
             var left = start; var right = middle; var output = start;
             while left < middle && right < end {
                 if compare(source[left], source[right]) != Ordering::Greater {
-                    target[output] = source[left]; left += 1usize;
-                } else { target[output] = source[right]; right += 1usize; }
-                output += 1usize;
+                    target[output] = source[left]; left += 1u64;
+                } else { target[output] = source[right]; right += 1u64; }
+                output += 1u64;
             }
-            while left < middle { target[output] = source[left]; left += 1usize; output += 1usize; }
-            while right < end { target[output] = source[right]; right += 1usize; output += 1usize; }
+            while left < middle { target[output] = source[left]; left += 1u64; output += 1u64; }
+            while right < end { target[output] = source[right]; right += 1u64; output += 1u64; }
             start = end;
         }
-        val swap = source; source = target; target = swap; width *= 2usize;
+        val swap = source; source = target; target = swap; width *= 2u64;
     }
-    index = 0usize;
-    while index < size { values[index] = source[index]; index += 1usize; }
+    index = 0u64;
+    while index < size { values[index] = source[index]; index += 1u64; }
 }

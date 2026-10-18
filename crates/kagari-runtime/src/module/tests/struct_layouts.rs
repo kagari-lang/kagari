@@ -382,12 +382,11 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
         (BuiltinType::I16, Value::I32(i16::MIN.into())),
         (BuiltinType::I32, Value::I32(i32::MIN)),
         (BuiltinType::I64, Value::I64(i64::MIN)),
-        (BuiltinType::ISize, Value::I64(i64::MAX)),
+        (BuiltinType::I64, Value::I64(i64::MAX)),
         (BuiltinType::U8, Value::I64(u8::MAX.into())),
         (BuiltinType::U16, Value::I64(u16::MAX.into())),
         (BuiltinType::U32, Value::I64(u32::MAX.into())),
         (BuiltinType::U64, Value::U64(u64::MAX)),
-        (BuiltinType::USize, Value::U64(u64::MAX)),
         (BuiltinType::F32, Value::F32(f32::from_bits(0x7fc1_2345))),
         (
             BuiltinType::F64,
@@ -451,18 +450,18 @@ fn mixed_scalar_fields_preserve_full_domains_and_float_bits_at_value_boundaries(
     }
     runtime
         .gc()
-        .struct_set_slot(object, &layout, 12, Value::F32(-0.0))
+        .struct_set_slot(object, &layout, 11, Value::F32(-0.0))
         .unwrap();
     runtime
         .gc()
-        .struct_set_slot(object, &layout, 13, Value::F64(-0.0))
+        .struct_set_slot(object, &layout, 12, Value::F64(-0.0))
         .unwrap();
     let (_, fields) = runtime.gc().struct_snapshot(object).unwrap();
-    let Value::F32(value) = fields[12].value else {
+    let Value::F32(value) = fields[11].value else {
         unreachable!()
     };
     assert_eq!(value.to_bits(), (-0.0_f32).to_bits());
-    let Value::F64(value) = fields[13].value else {
+    let Value::F64(value) = fields[12].value else {
         unreachable!()
     };
     assert_eq!(value.to_bits(), (-0.0_f64).to_bits());

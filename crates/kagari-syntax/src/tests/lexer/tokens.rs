@@ -62,7 +62,15 @@ fn numeric_and_escaped_string_tokens_keep_range_boundaries() {
             TokenKind::Eof,
         ]
     );
-    for malformed in ["0b", "0xgg", "1e+", r#""\q""#, r#""\u{110000}""#] {
+    for malformed in [
+        "0b",
+        "0xgg",
+        "1e+",
+        "1isize",
+        "1usize",
+        r#""\q""#,
+        r#""\u{110000}""#,
+    ] {
         assert_eq!(lex(malformed)[0].kind, TokenKind::Unknown, "{malformed}");
     }
 }

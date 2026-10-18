@@ -12,12 +12,10 @@ pub enum BuiltinType {
     I16,
     I32,
     I64,
-    ISize,
     U8,
     U16,
     U32,
     U64,
-    USize,
     F32,
     F64,
     String,
@@ -30,12 +28,10 @@ pub enum IntegerType {
     I16,
     I32,
     I64,
-    ISize,
     U8,
     U16,
     U32,
     U64,
-    USize,
 }
 
 impl IntegerType {
@@ -45,12 +41,10 @@ impl IntegerType {
             BuiltinType::I16 => Self::I16,
             BuiltinType::I32 => Self::I32,
             BuiltinType::I64 => Self::I64,
-            BuiltinType::ISize => Self::ISize,
             BuiltinType::U8 => Self::U8,
             BuiltinType::U16 => Self::U16,
             BuiltinType::U32 => Self::U32,
             BuiltinType::U64 => Self::U64,
-            BuiltinType::USize => Self::USize,
             _ => return None,
         })
     }
@@ -61,12 +55,10 @@ impl IntegerType {
             Self::I16 => BuiltinType::I16,
             Self::I32 => BuiltinType::I32,
             Self::I64 => BuiltinType::I64,
-            Self::ISize => BuiltinType::ISize,
             Self::U8 => BuiltinType::U8,
             Self::U16 => BuiltinType::U16,
             Self::U32 => BuiltinType::U32,
             Self::U64 => BuiltinType::U64,
-            Self::USize => BuiltinType::USize,
         }
     }
 
@@ -75,11 +67,11 @@ impl IntegerType {
             Self::I8 => (8, true),
             Self::I16 => (16, true),
             Self::I32 => (32, true),
-            Self::I64 | Self::ISize => (64, true),
+            Self::I64 => (64, true),
             Self::U8 => (8, false),
             Self::U16 => (16, false),
             Self::U32 => (32, false),
-            Self::U64 | Self::USize => (64, false),
+            Self::U64 => (64, false),
         }
     }
 

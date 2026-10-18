@@ -9,12 +9,8 @@ pub fn builtin_representation(ty: BuiltinType) -> ValueType {
         BuiltinType::Unit => ValueType::Unit,
         BuiltinType::Bool => ValueType::Bool,
         BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => ValueType::I32,
-        BuiltinType::I64
-        | BuiltinType::ISize
-        | BuiltinType::U8
-        | BuiltinType::U16
-        | BuiltinType::U32 => ValueType::I64,
-        BuiltinType::U64 | BuiltinType::USize => ValueType::U64,
+        BuiltinType::I64 | BuiltinType::U8 | BuiltinType::U16 | BuiltinType::U32 => ValueType::I64,
+        BuiltinType::U64 => ValueType::U64,
         BuiltinType::F32 => ValueType::F32,
         BuiltinType::F64 => ValueType::F64,
         BuiltinType::String => ValueType::Str,

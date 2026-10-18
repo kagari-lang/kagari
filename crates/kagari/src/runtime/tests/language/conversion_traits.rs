@@ -275,20 +275,20 @@ fn make<T: Default>() -> T { Default::default() }
 fn main() -> i32 {
     val _: () = Default::default();
     val a: i8 = make(); val b: i16 = make(); val c: i32 = make();
-    val d: i64 = make(); val e: isize = make();
+    val d: i64 = make();
     val f: u8 = make(); val g: u16 = make(); val h: u32 = make();
-    val i: u64 = make(); val j: usize = make();
+    val i: u64 = make();
     val single: f32 = make(); val double: f64 = make();
     val flag: bool = make(); val text: String = make();
-    if a != 0i8 || b != 0i16 || c != 0 || d != 0i64 || e != 0isize
-        || f != 0u8 || g != 0u16 || h != 0u32 || i != 0u64 || j != 0usize
+    if a != 0i8 || b != 0i16 || c != 0 || d != 0i64
+        || f != 0u8 || g != 0u16 || h != 0u32 || i != 0u64
         || single != 0f32 || double != 0f64 || flag || text != "" { return 0; }
     if !(1f32 / single > 0f32) || !(1f64 / double > 0f64) { return 0; }
     val first: Vec<NoDefault> = Default::default();
     val second = Vec<NoDefault>::default();
-    if first === second || first.len() != 0usize || second.len() != 0usize { return 0; }
+    if first === second || first.len() != 0u64 || second.len() != 0u64 { return 0; }
     first.push(NoDefault { value: 42 });
-    if second.len() != 0usize { return 0; }
+    if second.len() != 0u64 { return 0; }
     val empty: Option<NoDefault> = make();
     match empty { None => first[0].value, Some(_) => 0 }
 }
@@ -328,7 +328,7 @@ fn main()->i32 {
     val source = Vec::from(["a", "b"]);
     val strings = source.map(|item| f"{item}!");
     val copied = Vec<String>::from_iter(strings);
-    if copied.len() != 2usize || copied[0] != "a!" || copied[1] != "b!" { return 0; }
+    if copied.len() != 2u64 || copied[0] != "a!" || copied[1] != "b!" { return 0; }
     copied[0] = "changed";
     if source[0] != "a" || !Vec<String>::from_iter(strings).is_empty() { return 0; }
     42
@@ -380,7 +380,7 @@ use std::num::{ParseError, TryFromIntError};
 fn main()->i32 {
     val source=Vec::from([1,2]);val copy=Vec<i32>::from_iter(source);copy.push(3);
     val empty_values:Vec<i32> = Vec::from([]);
-    if source.len()!=2usize || i32::sum(empty_values)!=0 || i32::product(empty_values)!=1 {return 0;}
+    if source.len()!=2u64 || i32::sum(empty_values)!=0 || i32::product(empty_values)!=1 {return 0;}
     val out=i8::try_from(128);val empty=i32::from_str("");val invalid=bool::from_str("TRUE");
     val narrow:Result<i8,Infallible> = i8::try_from(42i8);
     match out {Err(TryFromIntError::OutOfRange)=>match empty {
@@ -436,14 +436,14 @@ fn native_construction_accepts_custom_iterable_implementations() {
     execute(
         r#"
 struct Source {val values:Vec<i32>}
-struct Cursor {val values:Vec<i32>,var index:usize}
+struct Cursor {val values:Vec<i32>,var index:u64}
 impl Iterator for Cursor {
     type Item=i32;
-    fn next(self)->Option<i32> {if self.index<self.values.len() {val item=self.values[self.index];self.index=self.index+1usize;Some(item)}else{None}}
+    fn next(self)->Option<i32> {if self.index<self.values.len() {val item=self.values[self.index];self.index=self.index+1u64;Some(item)}else{None}}
 }
 impl Iterable for Source {
     type Item=i32;type Iter=Cursor;
-    fn iter(self)->Cursor {Cursor{values:self.values,index:0usize}}
+    fn iter(self)->Cursor {Cursor{values:self.values,index:0u64}}
 }
 fn main()->i32 {i32::sum(Source{values:Vec::from([20,22])})}
 "#,
@@ -485,7 +485,7 @@ fn main()->i32 {
     source.push(4);
     if selected.result!=12 { return 0; }
     val values:Vec<i32> = (1..4).map(|x|x*2).collect();
-    if values.len()!=3usize || values[0]!=2 || values[1]!=4 || values[2]!=6 {return 0;}
+    if values.len()!=3u64 || values[0]!=2 || values[1]!=4 || values[2]!=6 {return 0;}
     val total:i32=sum(values);
     val multiplied:i32=Vec::from([2,3]).product();
     val empty:Vec<i32> =Vec::from([]);
@@ -518,18 +518,18 @@ fn main()->i32 {
     val a=Key {number:1,calls};val b=Key {number:1,calls};val c=Key {number:2,calls};
     val source=Vec::from([a,b,c]);
     val unique=keys(source.map(|key|key));
-    if unique.len()!=2usize || calls[0]!=3 || calls[1]!=2 {return 0;}
+    if unique.len()!=2u64 || calls[0]!=3 || calls[1]!=2 {return 0;}
     source.push(c);
     val mapped:HashMap<Key,Vec<i32>> = [(a,Vec::from([10])),(b,Vec::from([42])),(c,Vec::from([20]))].filter(|pair|true).collect();
-    if mapped.len()!=2usize || calls[0]!=6 || calls[1]!=4 {return 0;}
+    if mapped.len()!=2u64 || calls[0]!=6 || calls[1]!=4 {return 0;}
     match mapped.get(a) {Some(value)=>{if value[0]!=42 {return 0;}},None=>{return 0;}};
-    val indexed:HashMap<usize,i32> = [10,20].enumerate().collect();
-    if indexed.get(1usize)!=Some(20) {return 0;}
+    val indexed:HashMap<u64,i32> = [10,20].enumerate().collect();
+    if indexed.get(1u64)!=Some(20) {return 0;}
     val builtin:HashSet<i32> = [1,1,2].collect();
     val builtin_map:HashMap<i32,i32> = [(1,10),(1,42)].collect();
     val empty:[(i32,i32)]=[];
     val empty_map:HashMap<i32,i32> = empty.collect();
-    if builtin.len()!=2usize || builtin_map.get(1)!=Some(42) || !empty_map.is_empty() {return 0;}
+    if builtin.len()!=2u64 || builtin_map.get(1)!=Some(42) || !empty_map.is_empty() {return 0;}
     match mapped.get(b) {Some(value)=>value[0],None=>0}
 }
 "#,

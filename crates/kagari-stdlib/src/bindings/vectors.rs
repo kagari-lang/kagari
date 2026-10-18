@@ -28,7 +28,7 @@ pub(super) fn binding(
     Ok(Some(match name {
         "$foundation_list_len" => scoped(vec![Codec::Sequence], length),
         "$foundation_list_is_empty" => scoped(vec![Codec::Sequence], is_empty),
-        "$foundation_list_get" => scoped(vec![Codec::Sequence, Codec::Exact(Type::usize())], get),
+        "$foundation_list_get" => scoped(vec![Codec::Sequence, Codec::Exact(Type::u64())], get),
         "$foundation_list_index" => NativeBinding::primitive(NativePrimitive::VecIndex),
         "$foundation_list_push" => scoped(vec![Codec::MutableSequence, Codec::Value], push),
         "$foundation_list_push_fluent" => {
@@ -98,7 +98,7 @@ fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    let length = usize::decode(length(cx)?)?;
+    let length = u64::decode(length(cx)?)?;
     Ok(Value::Bool(length == 0))
 }
 

@@ -473,12 +473,10 @@ impl<'a> DeclarationView<'a> {
                 BuiltinType::I16 => "i16",
                 BuiltinType::I32 => "i32",
                 BuiltinType::I64 => "i64",
-                BuiltinType::ISize => "isize",
                 BuiltinType::U8 => "u8",
                 BuiltinType::U16 => "u16",
                 BuiltinType::U32 => "u32",
                 BuiltinType::U64 => "u64",
-                BuiltinType::USize => "usize",
                 BuiltinType::F32 => "f32",
                 BuiltinType::F64 => "f64",
                 BuiltinType::String => {

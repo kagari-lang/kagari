@@ -22,7 +22,7 @@ pub(crate) type PrimitiveResult = Result<Value, Box<RuntimeError>>;
 /// callback annotated with a purity claim. Registration checks its exact codecs.
 #[derive(Debug, Clone, Copy)]
 pub enum NativePrimitive {
-    /// Read immutable UTF-8 storage and return its byte count as Kagari usize.
+    /// Read immutable UTF-8 storage and return its byte count as Kagari u64.
     StringByteLength,
     /// Read an element from a checked Vec; an absent index traps.
     VecIndex,
@@ -37,19 +37,19 @@ impl NativeBinding {
         let (arguments, result) = match primitive {
             NativePrimitive::StringByteLength => (
                 vec![Codec::Exact(Type::scalar(BuiltinType::String))],
-                Codec::Exact(Type::scalar(BuiltinType::USize)),
+                Codec::Exact(Type::scalar(BuiltinType::U64)),
             ),
             NativePrimitive::VecIndex => (
                 vec![
                     Codec::Sequence,
-                    Codec::Exact(Type::scalar(BuiltinType::USize)),
+                    Codec::Exact(Type::scalar(BuiltinType::U64)),
                 ],
                 Codec::Value,
             ),
             NativePrimitive::VecSet | NativePrimitive::VecSetFluent => (
                 vec![
                     Codec::MutableSequence,
-                    Codec::Exact(Type::scalar(BuiltinType::USize)),
+                    Codec::Exact(Type::scalar(BuiltinType::U64)),
                     Codec::Value,
                 ],
                 Codec::Value,
@@ -92,16 +92,16 @@ impl NativePrimitive {
         match self {
             Self::StringByteLength => {
                 params == &[Ty::Builtin(BuiltinType::String)]
-                    && signature.result == Ty::Builtin(BuiltinType::USize)
+                    && signature.result == Ty::Builtin(BuiltinType::U64)
             }
             Self::VecIndex => {
-                matches!(params.as_slice(), [Ty::NativeObject(nominal), Ty::Builtin(BuiltinType::USize)]
+                matches!(params.as_slice(), [Ty::NativeObject(nominal), Ty::Builtin(BuiltinType::U64)]
                 if nominal.arguments.as_slice() == [signature.result.clone()])
             }
             Self::VecSet | Self::VecSetFluent => {
                 let [
                     Ty::NativeObject(nominal),
-                    Ty::Builtin(BuiltinType::USize),
+                    Ty::Builtin(BuiltinType::U64),
                     value,
                 ] = params.as_slice()
                 else {

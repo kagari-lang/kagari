@@ -56,7 +56,7 @@ fn infers_vec_method_call_types() {
     let source = SourceFile::new(
         "array-method.kgr",
         r#"
-fn main() -> usize {
+fn main() -> u64 {
     val values = Vec::from([1, 2]);
     val next = values.push(3);
     next.len()
@@ -87,7 +87,7 @@ fn main() -> usize {
     );
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
-        Some(TypeId::Builtin(BuiltinType::USize))
+        Some(TypeId::Builtin(BuiltinType::U64))
     );
 }
 
@@ -97,7 +97,7 @@ fn infers_map_method_call_types() {
         "string-method.kgr",
         r#"use std::collections::{HashMap};
 
-fn main(value: HashMap<String, i32>) -> usize {
+fn main(value: HashMap<String, i32>) -> u64 {
     value.len()
 }
 "#,
@@ -114,14 +114,14 @@ fn main(value: HashMap<String, i32>) -> usize {
 
     assert_eq!(
         typed.type_table.expr_type(tail_expr),
-        Some(TypeId::Builtin(BuiltinType::USize))
+        Some(TypeId::Builtin(BuiltinType::U64))
     );
 }
 
 #[test]
 fn exposes_installed_standard_declarations_and_checked_signatures() {
     assert!(standard_surface::builtin_type("String").is_some());
-    assert!(standard_surface::builtin_type("usize").is_some());
+    assert!(standard_surface::builtin_type("u64").is_some());
     assert!(standard_surface::builtin_type("str").is_none());
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -272,7 +272,7 @@ fn choose(value: Pick<i32>) -> Pick<i32> { value }
 fn fallible(value: Result<i32, String>) -> Result<i32, String> { value }
 fn lookup(value: HashMap<String, i32>) -> HashMap<String, i32> { value }
 fn unique(value: HashSet<String>) -> HashSet<String> { value }
-fn sized(value: usize) -> usize { value }
+fn sized(value: u64) -> u64 { value }
 fn constructed() -> Pick<i32> { Pick(7) }
 "#,
     );
@@ -349,7 +349,7 @@ fn constructed() -> Pick<i32> { Pick(7) }
     );
     assert_eq!(
         typed.functions[4].return_type,
-        TypeId::Builtin(BuiltinType::USize)
+        TypeId::Builtin(BuiltinType::U64)
     );
 }
 
@@ -438,7 +438,7 @@ fn get(values: HashMap<String, i32>) -> Option<i32> {
     values.get("key")
 }
 
-fn len(value: Vec<i32>) -> usize {
+fn len(value: Vec<i32>) -> u64 {
     value.len()
 }
 
@@ -547,7 +547,7 @@ fn contains<K: Eq + Hash, V>(values: HashMap<K, V>, key: K) -> bool {
     values.contains_key(key)
 }
 
-fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
+fn unique<T: Eq + Hash>(values: HashSet<T>) -> u64 {
     values.len()
 }
 "#,
@@ -558,7 +558,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
         .expect("hash-key constrained generics should type check");
 
     let lowered = common::lower_ok(
-        "use std::collections::{HashMap};\nfn bad(values: HashMap<f64, i32>) -> usize { values.len() }",
+        "use std::collections::{HashMap};\nfn bad(values: HashMap<f64, i32>) -> u64 { values.len() }",
     );
     let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")
@@ -573,7 +573,7 @@ fn unique<T: Eq + Hash>(values: HashSet<T>) -> usize {
     }));
 
     let lowered = common::lower_ok(
-        "use std::collections::{HashMap};\nfn bad<K, V>(values: HashMap<K, V>) -> usize { values.len() }",
+        "use std::collections::{HashMap};\nfn bad<K, V>(values: HashMap<K, V>) -> u64 { values.len() }",
     );
     let diagnostics = crate::analyze_source(&lowered.source, foundation_catalog::shared().unwrap())
         .expect("installed declaration analysis")

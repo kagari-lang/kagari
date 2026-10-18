@@ -49,12 +49,10 @@ fn function_owner(name: &str) -> ModuleIdentity {
         | "$foundation_default_I16"
         | "$foundation_default_I32"
         | "$foundation_default_I64"
-        | "$foundation_default_ISize"
         | "$foundation_default_U8"
         | "$foundation_default_U16"
         | "$foundation_default_U32"
         | "$foundation_default_U64"
-        | "$foundation_default_USize"
         | "$foundation_default_F32"
         | "$foundation_default_F64" => return namespaces::module("core", "num"),
         "$foundation_default_String" => return namespaces::type_owner("String"),

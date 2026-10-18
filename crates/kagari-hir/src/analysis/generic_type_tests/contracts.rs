@@ -14,9 +14,9 @@ fn ordered_three<T: PartialOrd>(value: T, min: T, max: T) -> T { if value < min 
 fn signed_value<T: Neg<Output = T>>(value: T) -> T { -value }
 fn check_equal<T: PartialEq>(left: T, right: T, message: String) -> bool { left == right }
 fn put<T>(values: Vec<T>, value: T) { values.push(value); }
-fn list_count<T>(values: List<T>) -> usize { values.len() }
-fn map_count<K: Eq + Hash, V>(values: Map<K,V>) -> usize { values.len() }
-fn set_count<T: Eq + Hash>(values: Set<T>) -> usize { values.len() }
+fn list_count<T>(values: List<T>) -> u64 { values.len() }
+fn map_count<K: Eq + Hash, V>(values: Map<K,V>) -> u64 { values.len() }
+fn set_count<T: Eq + Hash>(values: Set<T>) -> u64 { values.len() }
 fn take_text(value: String) {}
 fn text_pair(value: String, other: String) {}
 fn option_present<T>(value: Option<T>) -> bool { match value { Some(x) => true, None => false } }

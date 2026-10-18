@@ -111,7 +111,7 @@ fn parse(target: BuiltinType, text: &str) -> NativeResult<Result<Value, u8>> {
         };
     }
 
-    integers!(I8:i8,I16:i16,I32:i32,I64:i64,ISize:isize,U8:u8,U16:u16,U32:u32,U64:u64,USize:usize)
+    integers!(I8:i8,I16:i16,I32:i32,I64:i64,U8:u8,U16:u16,U32:u32,U64:u64)
 }
 
 pub(super) fn list_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -146,7 +146,7 @@ fn aggregate(cx: &mut CallContext<'_>, product: bool) -> NativeResult<Value> {
     let identity = i32::from(product);
     let mut result = match kind {
         BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32 => Value::I32(identity),
-        BuiltinType::U64 | BuiltinType::USize => Value::U64(identity as u64),
+        BuiltinType::U64 => Value::U64(identity as u64),
         BuiltinType::F32 => Value::F32(identity as f32),
         BuiltinType::F64 => Value::F64(identity as f64),
         _ => Value::I64(i64::from(identity)),
@@ -270,7 +270,7 @@ fn scalar_vec_aggregate(
         };
     }
 
-    integers!(I8:i8,I16:i16,I32:i32,I64:i64,ISize:isize,U8:u8,U16:u16,U32:u32,U64:u64,USize:usize)
+    integers!(I8:i8,I16:i16,I32:i32,I64:i64,U8:u8,U16:u16,U32:u32,U64:u64)
 }
 
 pub(super) fn hash_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -297,4 +297,42 @@ pub(super) fn hash_from_iter(cx: &mut CallContext<'_>) -> NativeResult<Value> {
         Ok(())
     })?;
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse;
+    use kagari_runtime::value::Value;
+    use kagari_types::scalar::BuiltinType;
+
+    #[test]
+    fn parsing_preserves_fixed_width_integer_boundaries() {
+        for (kind, text, expected) in [
+            (BuiltinType::U64, "4294967296", Value::U64(1u64 << 32)),
+            (
+                BuiltinType::U64,
+                "18446744073709551615",
+                Value::U64(u64::MAX),
+            ),
+            (
+                BuiltinType::I64,
+                "-9223372036854775808",
+                Value::I64(i64::MIN),
+            ),
+            (
+                BuiltinType::I64,
+                "9223372036854775807",
+                Value::I64(i64::MAX),
+            ),
+        ] {
+            assert_eq!(parse(kind, text).unwrap(), Ok(expected));
+        }
+        for (kind, text) in [
+            (BuiltinType::U64, "18446744073709551616"),
+            (BuiltinType::I64, "-9223372036854775809"),
+            (BuiltinType::I64, "9223372036854775808"),
+        ] {
+            assert_eq!(parse(kind, text).unwrap(), Err(2));
+        }
+    }
 }

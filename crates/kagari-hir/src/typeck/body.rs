@@ -751,7 +751,7 @@ impl<'a> BodyChecker<'a> {
                         .with_span(self.lowered.source_map.expr_span(*value)),
                     );
                 }
-                let length_type = TypeId::Builtin(BuiltinType::USize);
+                let length_type = TypeId::Builtin(BuiltinType::U64);
                 let actual = self.infer_expr_with_coercion(*count, env, Some(&length_type));
                 if actual.conflicts_with(&length_type) {
                     self.diagnostics.push(

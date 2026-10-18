@@ -274,7 +274,7 @@ pub(crate) fn text_items_module(
                 ty: Ty::SelfType(owner),
                 mutable: false,
             }],
-            return_type: Ty::Builtin(BuiltinType::USize),
+            return_type: Ty::Builtin(BuiltinType::U64),
         }],
     });
     for family in 0..4 {
@@ -324,7 +324,7 @@ pub(crate) fn text_items_module(
                 ty: receiver.clone(),
                 mutable: false,
             }],
-            return_type: Ty::Builtin(BuiltinType::USize),
+            return_type: Ty::Builtin(BuiltinType::U64),
         };
         module.implementations.push(ImplDecl {
             generic_params: vec![parameter],

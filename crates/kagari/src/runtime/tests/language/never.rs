@@ -255,7 +255,7 @@ fn rejects_normal_returns_and_nested_never_coercions() {
         "fn wrong() -> ! { return 42; }",
         "fn wrong() -> ! { loop { break; } }",
         "fn wrong(x: Vec<!>) -> Vec<i32> { x }",
-        "fn wrong(x: Vec<!>) { x[0usize] = 1; }",
+        "fn wrong(x: Vec<!>) { x[0u64] = 1; }",
         "fn wrong(value: !) { var x: ! = value; x = 1; }",
         "fn wrong(x: fn() -> !) -> fn() -> i32 { x }",
     ] {
@@ -427,7 +427,7 @@ fn main() -> i32 {
     val copied: Result<!, i32> = match result { Ok(value) => value, Err(error) => Err(error) };
     val unused = false && fail();
     val skipped = true || fail();
-    if !(readonly.len() == 0usize && (match missing { None => true, Some(value) => value }) && skipped && !unused) { return 0; }
+    if !(readonly.len() == 0u64 && (match missing { None => true, Some(value) => value }) && skipped && !unused) { return 0; }
     match copied { Ok(value) => value, Err(error) => error }
 }
 "#,

@@ -19,8 +19,14 @@ use kagari_common::identity::{
     map::DefinitionContext, metadata::DefinitionMetadata, table::DefinitionId,
 };
 use kagari_contract::types::PublicItem;
-use kagari_runtime::module::entry::ProgramEntry;
-use kagari_runtime::value::Value;
+use kagari_runtime::{
+    module::entry::ProgramEntry,
+    native::{
+        binding::NativeResult, builder::ModuleBuilder, context::CallContext,
+        declarations::FunctionDecl, types::Type,
+    },
+    value::Value,
+};
 use kagari_source::source::SourceFile;
 use kagari_types::{declaration::FnDecl, scalar::BuiltinType, ty::Ty};
 
@@ -84,7 +90,7 @@ fn execute(source: &str) {
 #[test]
 fn minimal_array_provider_executes_from_serialized_artifact() {
     execute(
-        "fn main() -> i32 { val a: Vec<i32> = Vec::new(); a.push(20); a.push(22); if a.len() == 2usize { a[0usize] + a[1usize] } else { 0 } }",
+        "fn main() -> i32 { val a: Vec<i32> = Vec::new(); a.push(20); a.push(22); if a.len() == 2u64 { a[0u64] + a[1u64] } else { 0 } }",
     );
 }
 
@@ -93,11 +99,11 @@ fn provider_callback_retains_captures_partial_output_and_heap_results() {
     execute(
         r#"fn main() -> i32 {
         val count = [18];
-        val arrays = native::from_fn(2usize, |index| {
-            count[0usize] = count[0usize] + 2;
-            [count[0usize]]
+        val arrays = native::from_fn(2u64, |index| {
+            count[0u64] = count[0u64] + 2;
+            [count[0u64]]
         });
-        arrays[0usize][0usize] + arrays[1usize][0usize]
+        arrays[0u64][0u64] + arrays[1u64][0u64]
     }"#,
     );
 }
@@ -107,8 +113,8 @@ fn zero_length_initialization_does_not_call_the_callback() {
     execute(
         r#"fn main() -> i32 {
         val count = [42];
-        val a = native::from_fn(0usize, |index| { count[0usize] = 0; 1 });
-        if a.len() == 0usize { count[0usize] } else { 0 }
+        val a = native::from_fn(0u64, |index| { count[0u64] = 0; 1 });
+        if a.len() == 0u64 { count[0u64] } else { 0 }
     }"#,
     );
 }
@@ -116,7 +122,7 @@ fn zero_length_initialization_does_not_call_the_callback() {
 #[test]
 fn readonly_interfaces_expose_reads_and_hide_mutators_without_native_access_flags() {
     execute(
-        "fn main() -> i32 { val a = [20, 22]; val view: [i32] = a; if view.len() == 2usize { view[0usize] + view[1usize] } else { 0 } }",
+        "fn main() -> i32 { val a = [20, 22]; val view: [i32] = a; if view.len() == 2u64 { view[0u64] + view[1u64] } else { 0 } }",
     );
     assert!(
         KagariEngine::default()
@@ -139,8 +145,8 @@ fn main() -> i32 {
             val storage = Vec::from([20]);
             val view: List<i32> = storage;
             storage.push(22);
-            match view.get(1usize) {
-                Some(value) => view[0usize] + value,
+            match view.get(1u64) {
+                Some(value) => view[0u64] + value,
                 None => 0,
             }
         }"#,
@@ -151,7 +157,7 @@ fn main() -> i32 {
 fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
     for change in 0..3 {
         let context = DefinitionContext::new().unwrap();
-        let mut original = artifact("fn main() -> usize { [1, 2].len() }")
+        let mut original = artifact("fn main() -> u64 { [1, 2].len() }")
             .import_into(&context, &Default::default())
             .unwrap()
             .into_records();
@@ -181,14 +187,34 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
 #[test]
 fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     fn change_result(function: &mut FnDecl) {
-        if matches!(function.name.as_str(), "len" | "main")
-            && function.return_type == Ty::Builtin(BuiltinType::USize)
+        if matches!(function.name.as_str(), "number" | "main")
+            && function.return_type == Ty::Builtin(BuiltinType::U8)
         {
-            function.return_type = Ty::Builtin(BuiltinType::U64);
+            function.return_type = Ty::Builtin(BuiltinType::U16);
         }
     }
+    let mut builder = KagariEngine::builder().unwrap();
+    let mut module = ModuleBuilder::new("fixture", builder.declarations()).unwrap();
+    let function = module
+        .define_function(FunctionDecl::new("number").returns(Type::scalar(BuiltinType::U8)))
+        .unwrap();
+    module
+        .bind(function, |_: &mut CallContext<'_>| -> NativeResult<u8> {
+            Ok(0)
+        })
+        .unwrap();
+    builder.install(module.finish().unwrap()).unwrap();
+    let engine = builder.build().unwrap();
     let context = DefinitionContext::new().unwrap();
-    let mut original = artifact("fn main() -> usize { [1, 2].len() }")
+    let mut original = engine
+        .compile_to_artifact(
+            SourceFile::new(
+                "forged-signature.kgr",
+                "fn main() -> u8 { fixture::number() }",
+            ),
+            Default::default(),
+        )
+        .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
@@ -199,10 +225,10 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
                 .resolve(import.instance.declaration)
                 .unwrap()
                 .last()
-                .is_some_and(|part| part.name == "len")
-                && import.signature.result == Ty::Builtin(BuiltinType::USize)
+                .is_some_and(|part| part.name == "number")
+                && import.signature.result == Ty::Builtin(BuiltinType::U8)
             {
-                import.signature.result = Ty::Builtin(BuiltinType::U64);
+                import.signature.result = Ty::Builtin(BuiltinType::U16);
             }
         }
         for declaration in &mut module.native_declarations {
@@ -240,23 +266,23 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
                     .resolve(identity.declaration)
                     .unwrap()
                     .last()
-                    .is_some_and(|part| matches!(part.name, "len" | "main"))
+                    .is_some_and(|part| matches!(part.name, "number" | "main"))
             }) {
                 continue;
             }
             let semantic = &mut function.metadata.semantic;
-            if semantic.result == Some(Ty::Builtin(BuiltinType::USize)) {
-                semantic.result = Some(Ty::Builtin(BuiltinType::U64));
+            if semantic.result == Some(Ty::Builtin(BuiltinType::U8)) {
+                semantic.result = Some(Ty::Builtin(BuiltinType::U16));
             }
             for ty in semantic.registers.values_mut() {
-                if *ty == Ty::Builtin(BuiltinType::USize) {
-                    *ty = Ty::Builtin(BuiltinType::U64);
+                if *ty == Ty::Builtin(BuiltinType::U8) {
+                    *ty = Ty::Builtin(BuiltinType::U16);
                 }
             }
         }
     }
-    // Alter only len and its caller, leaving count and other defaults intact.
-    // usize and u64 share a representation: portable checks accept the forgery,
+    // Alter only the native result and its caller, leaving the binding identity intact.
+    // u8 and u16 share a representation: portable checks accept the forgery,
     // but installation must check the source ABI.
     let forged = KbcArtifact::from_program(original.program, Default::default(), &context).unwrap();
     let program = PreparedProgram::from_artifact(
@@ -265,7 +291,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
         &Default::default(),
     )
     .unwrap();
-    let mut runtime = engine(EngineConfig::default()).runtime(Default::default());
+    let mut runtime = engine.runtime(Default::default());
     assert!(runtime.load_program(&program, Default::default()).is_err());
     assert_eq!(runtime.runtime().gc().active_roots(), 0);
 }
@@ -273,7 +299,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
 #[test]
 fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
     let original = artifact(
-        "fn main() -> i32 { val values = native::from_fn(3usize, |i| { if i == 1usize { 1 / 0 } else { 20 } }); values[0usize] }",
+        "fn main() -> i32 { val values = native::from_fn(3u64, |i| { if i == 1u64 { 1 / 0 } else { 20 } }); values[0u64] }",
     );
     let program =
         PreparedProgram::from_artifact(original, &Default::default(), &Default::default()).unwrap();
@@ -298,7 +324,7 @@ fn callbacks_abort_without_retaining_native_state_or_partial_arrays() {
 #[test]
 fn cancellation_boundaries_unwind_nested_provider_callbacks() {
     let program = PreparedProgram::from_artifact(
-        artifact("fn main() -> i32 { val values = native::from_fn(2usize, |i| { native::from_fn(1usize, |j| { [21] }) }); values[0usize][0usize][0usize] + values[1usize][0usize][0usize] }"),
+        artifact("fn main() -> i32 { val values = native::from_fn(2u64, |i| { native::from_fn(1u64, |j| { [21] }) }); values[0u64][0u64][0u64] + values[1u64][0u64][0u64] }"),
         &Default::default(), &Default::default(),
     ).unwrap();
     let mut cancelled = 0;

@@ -25,7 +25,7 @@ pub(super) fn declare(
         (
             "len",
             vec![],
-            contracts::usize_type(),
+            contracts::u64_type(),
             "Return the UTF-8 byte length.",
         ),
         (
@@ -55,14 +55,14 @@ pub(super) fn declare(
         (
             "find",
             vec![("pattern", string.clone())],
-            contracts::option(ids, contracts::usize_type())?,
+            contracts::option(ids, contracts::u64_type())?,
             "Return the first matching byte offset, or None. An empty pattern matches at zero.",
         ),
         (
             "slice",
             vec![
-                ("start", contracts::usize_type()),
-                ("end", contracts::usize_type()),
+                ("start", contracts::u64_type()),
+                ("end", contracts::u64_type()),
             ],
             string.clone(),
             "Copy the half-open byte range. Invalid order, bounds or UTF-8 boundaries trap.",

@@ -50,9 +50,9 @@ fn unified_integers_preserve_constant_encoding_and_physical_lowering() {
             Constant::I64(i64::MIN),
         ),
         (
-            IntegerType::ISize,
+            IntegerType::I64,
             i128::from(i64::MAX),
-            "const-v2:isize:9223372036854775807",
+            "const-v2:i64:9223372036854775807",
             Constant::I64(i64::MAX),
         ),
         (IntegerType::U8, 255, "const-v2:u8:255", Constant::I64(255)),
@@ -72,12 +72,6 @@ fn unified_integers_preserve_constant_encoding_and_physical_lowering() {
             IntegerType::U64,
             i128::from(u64::MAX),
             "const-v2:u64:18446744073709551615",
-            Constant::U64(u64::MAX),
-        ),
-        (
-            IntegerType::USize,
-            i128::from(u64::MAX),
-            "const-v2:usize:18446744073709551615",
             Constant::U64(u64::MAX),
         ),
     ] {

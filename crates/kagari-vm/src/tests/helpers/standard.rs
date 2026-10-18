@@ -51,7 +51,7 @@ fn executes_bytecode_foundation_collection_bindings() {
     let program = compile_test_bytecode(
         r#"use std::collections::{HashMap, HashSet};
 
-fn main()->(usize,bool,usize,bool){
+fn main()->(u64,bool,u64,bool){
  val map:HashMap<String,i32> =HashMap::new();map.insert("k",7);
  val set:HashSet<String> =HashSet::new();set.insert("k");
  (map.len(),map.contains_key("k"),map.len(),set.contains("k"))
@@ -90,7 +90,7 @@ fn main()->(usize,bool,usize,bool){
 fn standard_vec_mutation_updates_shared_sequence_handles() {
     let (runtime, loaded) = load_test_module(
         r#"
-fn main() -> usize {
+fn main() -> u64 {
     val values = Vec::from([1, 2]);
     val alias = values;
     values.push(3);

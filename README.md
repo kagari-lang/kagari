@@ -12,6 +12,7 @@ This currently means:
 
 - The specifications in `docs/spec/`, `docs/kagari.ebnf`, and `docs/architecture.md` are authoritative over legacy implementation behavior.
 - The core standard library surface is implemented as typed runtime-native builtins rather than as compatibility wrappers or Kagari source-level container implementations.
+- Script integers are fixed-width `i8`/`i16`/`i32`/`i64` and `u8`/`u16`/`u32`/`u64`, with no machine-width aliases. Standard lengths, counts and indices use `u64`; [memory and resource limits](docs/spec/runtime.md#machine-and-resource-boundaries) remain platform-dependent.
 - Interpreter execution is the semantic foundation.
 - The Cranelift JIT is optional and feature-gated; unsupported functions or debug-policy conflicts fall back to the interpreter.
 - Runtime, host interop, reload, reflection, and debugger APIs expose structural boundaries, while production polish continues beyond the current implementation slice.

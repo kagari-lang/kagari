@@ -110,9 +110,9 @@ fn concrete_native_results_construct_declared_interfaces_in_generic_calls() {
     let engine = engine();
     for source in [
         "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; if std::collections::list_content_equal(f.one(1), f.one(1)) {42} else {0} }",
-        "use example::results::singleton; fn main() -> i32 { singleton([42])[0usize][0usize] }",
-        "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; f.one([42])[0usize][0usize] }",
-        "use example::results::Factory; struct F {} struct Payload { val value: i32 } impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; val a = f.one(20); val b = f.one(Payload { value: 22 }); a[0usize] + b[0usize].value }",
+        "use example::results::singleton; fn main() -> i32 { singleton([42])[0u64][0u64] }",
+        "use example::results::Factory; struct F {} impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; f.one([42])[0u64][0u64] }",
+        "use example::results::Factory; struct F {} struct Payload { val value: i32 } impl Factory for F {} fn main() -> i32 { val f: Factory = F {}; val a = f.one(20); val b = f.one(Payload { value: 22 }); a[0u64] + b[0u64].value }",
     ] {
         let original = artifact(&engine, source);
         assert!(
@@ -153,7 +153,7 @@ fn forged_native_result_conversions_are_rejected() {
     let engine = engine();
     let original = artifact(
         &engine,
-        "use example::results::singleton; fn main() -> i32 { singleton(42)[0usize] }",
+        "use example::results::singleton; fn main() -> i32 { singleton(42)[0u64] }",
     );
     let context = DefinitionContext::new().unwrap();
     let original = original
@@ -232,7 +232,7 @@ fn native_result_conversion_validates_the_rust_body_value() {
     let program = PreparedProgram::from_artifact(
         artifact(
             &engine,
-            "use example::results::wrong; fn main() -> i32 { wrong()[0usize] }",
+            "use example::results::wrong; fn main() -> i32 { wrong()[0u64] }",
         ),
         &Default::default(),
         &Default::default(),

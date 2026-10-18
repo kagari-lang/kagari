@@ -113,7 +113,7 @@ fn callback_failure_consumes_once_and_releases_callback_and_iteration_scopes() {
     let source = r#"
          use test::probe::tick;
         pub fn make() -> Iterator<Item = (i32,i32)> {
-            Vec::from([100,200]).map(|item| item).zip(Vec::from([10,20]).map(|item| { if tick() == 1usize { val fail = 1 / 0; }; item + 1 }))
+            Vec::from([100,200]).map(|item| item).zip(Vec::from([10,20]).map(|item| { if tick() == 1u64 { val fail = 1 / 0; }; item + 1 }))
         }
     "#;
     let mut runtime = Runtime::default();
@@ -257,18 +257,18 @@ fn retained_zip_uses_both_original_custom_sources_and_callbacks_after_reload() {
         .unwrap();
     let source = r#"
 fn bias()->i32{0}
-struct Source { val values: Vec<i32>, var position: usize }
+struct Source { val values: Vec<i32>, var position: u64 }
 impl Iterator for Source {
     type Item=i32;
     fn next(self)->Option<i32> {
-        val value=self.values.get(self.position); self.position+=1usize;
+        val value=self.values.get(self.position); self.position+=1u64;
         match value { Some(item)=>Some(item+bias()), None=>None }
     }
 }
 pub fn make()->Iterator<Item=(i32,i32)> {
     val offset=Vec::from([1]);
-    Source { values:Vec::from([10,20]),position:0usize }.map(|item|item+offset[0])
-        .zip(Source {values:Vec::from([30,40]),position:0usize}.map(|item|item+offset[0]))
+    Source { values:Vec::from([10,20]),position:0u64 }.map(|item|item+offset[0])
+        .zip(Source {values:Vec::from([30,40]),position:0u64}.map(|item|item+offset[0]))
 }
 "#;
     let mut runtime = Runtime::default();

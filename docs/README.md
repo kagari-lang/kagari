@@ -63,8 +63,12 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
 - [Documentation website follow-ups](implementation-roadmap.md#language-documentation-website):
   CI/live Pages acceptance, upstream dependency patching and separately scoped
-  translations/Playground. Build and content maintenance belong in the
-  [site guide](../site/README.md).
+  translations. Build and content maintenance belong in the [site guide](../site/README.md).
+- [Fixed-width integers and browser WASM](wasm-browser-plan.md): WB01-WB05 are
+  active with phase commits; WB01 is complete and WB02 is next. Preserve checked machine-index
+  boundaries, and run the existing compiler/interpreter in a Worker-backed
+  Playground. Source execution is the default; a source-free artifact build is
+  separate. This is not a WASM code-generation backend.
 - [Host API unification](host-api-refactor.md).
 - [Editor follow-ups](implementation-roadmap.md#toolchain-distribution-and-modes):
   complete CI/platform acceptance, semantic IDE features, server-launch integration,

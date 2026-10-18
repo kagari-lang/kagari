@@ -76,24 +76,6 @@ fn i64_rotate_left() -> i64 { val left = 0i64; val right = 1u32; left.rotate_lef
 fn i64_rotate_right() -> i64 { val left = 0i64; val right = 1u32; left.rotate_right(right) }
 fn i64_radix() -> Result<i64, ParseError> { i64::from_str_radix("42", 10u32) }
 fn i64_parse() -> Result<i64, ParseError> { i64::from_str("42") }
-fn isize_wrapping_add() -> isize { val left = 0isize; val right = 1isize; left.wrapping_add(right) }
-fn isize_wrapping_sub() -> isize { val left = 0isize; val right = 1isize; left.wrapping_sub(right) }
-fn isize_wrapping_mul() -> isize { val left = 0isize; val right = 1isize; left.wrapping_mul(right) }
-fn isize_checked_add() -> Option<isize> { val left = 0isize; val right = 1isize; left.checked_add(right) }
-fn isize_checked_sub() -> Option<isize> { val left = 0isize; val right = 1isize; left.checked_sub(right) }
-fn isize_checked_mul() -> Option<isize> { val left = 0isize; val right = 1isize; left.checked_mul(right) }
-fn isize_checked_div() -> Option<isize> { val left = 0isize; val right = 1isize; left.checked_div(right) }
-fn isize_checked_rem() -> Option<isize> { val left = 0isize; val right = 1isize; left.checked_rem(right) }
-fn isize_overflowing_add() -> (isize, bool) { val left = 0isize; val right = 1isize; left.overflowing_add(right) }
-fn isize_overflowing_sub() -> (isize, bool) { val left = 0isize; val right = 1isize; left.overflowing_sub(right) }
-fn isize_overflowing_mul() -> (isize, bool) { val left = 0isize; val right = 1isize; left.overflowing_mul(right) }
-fn isize_saturating_add() -> isize { val left = 0isize; val right = 1isize; left.saturating_add(right) }
-fn isize_saturating_sub() -> isize { val left = 0isize; val right = 1isize; left.saturating_sub(right) }
-fn isize_saturating_mul() -> isize { val left = 0isize; val right = 1isize; left.saturating_mul(right) }
-fn isize_rotate_left() -> isize { val left = 0isize; val right = 1u32; left.rotate_left(right) }
-fn isize_rotate_right() -> isize { val left = 0isize; val right = 1u32; left.rotate_right(right) }
-fn isize_radix() -> Result<isize, ParseError> { isize::from_str_radix("42", 10u32) }
-fn isize_parse() -> Result<isize, ParseError> { isize::from_str("42") }
 fn u8_wrapping_add() -> u8 { val left = 0u8; val right = 1u8; left.wrapping_add(right) }
 fn u8_wrapping_sub() -> u8 { val left = 0u8; val right = 1u8; left.wrapping_sub(right) }
 fn u8_wrapping_mul() -> u8 { val left = 0u8; val right = 1u8; left.wrapping_mul(right) }
@@ -170,25 +152,6 @@ fn u64_rotate_right() -> u64 { val left = 0u64; val right = 1u32; left.rotate_ri
 fn u64_radix() -> Result<u64, ParseError> { u64::from_str_radix("42", 10u32) }
 fn u64_parse() -> Result<u64, ParseError> { u64::from_str("42") }
 fn u64_wrapping_add_signed() -> u64 { val left = 0u64; val right = 1i64; left.wrapping_add_signed(right) }
-fn usize_wrapping_add() -> usize { val left = 0usize; val right = 1usize; left.wrapping_add(right) }
-fn usize_wrapping_sub() -> usize { val left = 0usize; val right = 1usize; left.wrapping_sub(right) }
-fn usize_wrapping_mul() -> usize { val left = 0usize; val right = 1usize; left.wrapping_mul(right) }
-fn usize_checked_add() -> Option<usize> { val left = 0usize; val right = 1usize; left.checked_add(right) }
-fn usize_checked_sub() -> Option<usize> { val left = 0usize; val right = 1usize; left.checked_sub(right) }
-fn usize_checked_mul() -> Option<usize> { val left = 0usize; val right = 1usize; left.checked_mul(right) }
-fn usize_checked_div() -> Option<usize> { val left = 0usize; val right = 1usize; left.checked_div(right) }
-fn usize_checked_rem() -> Option<usize> { val left = 0usize; val right = 1usize; left.checked_rem(right) }
-fn usize_overflowing_add() -> (usize, bool) { val left = 0usize; val right = 1usize; left.overflowing_add(right) }
-fn usize_overflowing_sub() -> (usize, bool) { val left = 0usize; val right = 1usize; left.overflowing_sub(right) }
-fn usize_overflowing_mul() -> (usize, bool) { val left = 0usize; val right = 1usize; left.overflowing_mul(right) }
-fn usize_saturating_add() -> usize { val left = 0usize; val right = 1usize; left.saturating_add(right) }
-fn usize_saturating_sub() -> usize { val left = 0usize; val right = 1usize; left.saturating_sub(right) }
-fn usize_saturating_mul() -> usize { val left = 0usize; val right = 1usize; left.saturating_mul(right) }
-fn usize_rotate_left() -> usize { val left = 0usize; val right = 1u32; left.rotate_left(right) }
-fn usize_rotate_right() -> usize { val left = 0usize; val right = 1u32; left.rotate_right(right) }
-fn usize_radix() -> Result<usize, ParseError> { usize::from_str_radix("42", 10u32) }
-fn usize_parse() -> Result<usize, ParseError> { usize::from_str("42") }
-fn usize_wrapping_add_signed() -> usize { val left = 0usize; val right = 1isize; left.wrapping_add_signed(right) }
 fn f32_parse() -> Result<f32, ParseError> { f32::from_str("42") }
 fn f64_parse() -> Result<f64, ParseError> { f64::from_str("42") }
 fn bool_parse() -> Result<bool, ParseError> { bool::from_str("true") }
@@ -197,19 +160,19 @@ fn option_queries() -> bool {
     val some = Some(Payload { value: 42 });
     val none: Option<Payload> = None;
     val effects = [0];
-    val chosen = some.unwrap_or({ effects[0usize] = effects[0usize] + 1; Payload { value: 0 } });
-    val fallback = none.unwrap_or({ effects[0usize] = effects[0usize] + 1; chosen });
+    val chosen = some.unwrap_or({ effects[0u64] = effects[0u64] + 1; Payload { value: 0 } });
+    val fallback = none.unwrap_or({ effects[0u64] = effects[0u64] + 1; chosen });
     some.is_some() && !some.is_none() && none.is_none() && !none.is_some()
-        && fallback.value == 42 && effects[0usize] == 2
+        && fallback.value == 42 && effects[0u64] == 2
 }
 fn result_queries() -> bool {
     val ok: Result<Payload, Payload> = Ok(Payload { value: 42 });
     val error: Result<Payload, Payload> = Err(Payload { value: 0 });
     val effects = [0];
-    val chosen = ok.unwrap_or({ effects[0usize] = effects[0usize] + 1; Payload { value: 0 } });
-    val fallback = error.unwrap_or({ effects[0usize] = effects[0usize] + 1; chosen });
+    val chosen = ok.unwrap_or({ effects[0u64] = effects[0u64] + 1; Payload { value: 0 } });
+    val fallback = error.unwrap_or({ effects[0u64] = effects[0u64] + 1; chosen });
     ok.is_ok() && !ok.is_err() && error.is_err() && !error.is_ok()
-        && fallback.value == 42 && effects[0usize] == 2
+        && fallback.value == 42 && effects[0u64] == 2
 }
 fn error_queries() -> Result<i32, ParseError> {
     val error = i32::from_str("invalid");

@@ -56,7 +56,7 @@ fn main() {
     val values = Vec::from([1,2,3,4]); keep(values);
     values.retain(|value| {
         val count = tick();
-        if count == 3usize { val fail = 1 / 0; }
+        if count == 3u64 { val fail = 1 / 0; }
         value != 1
     });
 }
@@ -72,9 +72,9 @@ use std::ops::{Index};
 
 use test::probe::{keep, tick};
 struct Sequence { val items: Vec<i32> }
-impl Index<usize> for Sequence {
+impl Index<u64> for Sequence {
     type Output = i32;
-    fn index(self, index: usize) -> i32 { self.items[index] }
+    fn index(self, index: u64) -> i32 { self.items[index] }
 }
 impl Iterable for Sequence {
     type Item = i32;
@@ -82,21 +82,21 @@ impl Iterable for Sequence {
     fn iter(self) -> CollectionCursor<i32> { self.items.iter() }
 }
 impl List<i32> for Sequence {
-    fn len(self) -> usize { self.items.len() }
+    fn len(self) -> u64 { self.items.len() }
     fn is_empty(self) -> bool { self.items.is_empty() }
-    fn get(self, index: usize) -> Option<i32> { self.items.get(index) }
+    fn get(self, index: u64) -> Option<i32> { self.items.get(index) }
 }
 impl MutableList<i32> for Sequence {
     fn push(self, value: i32) { self.items.push(value); }
     fn pop(self) -> Option<i32> { self.items.pop() }
-    fn insert(self, index: usize, value: i32) { self.items.insert(index,value); }
+    fn insert(self, index: u64, value: i32) { self.items.insert(index,value); }
     fn clear(self) { self.items.clear(); }
-    fn set(self, index: usize, value: i32) {
-        if tick() == 2usize { val fail = 1 / 0; }
+    fn set(self, index: u64, value: i32) {
+        if tick() == 2u64 { val fail = 1 / 0; }
         self.items[index] = value;
     }
-    fn remove(self, index: usize) -> Option<i32> {
-        if tick() == 2usize { val fail = 1 / 0; }
+    fn remove(self, index: u64) -> Option<i32> {
+        if tick() == 2u64 { val fail = 1 / 0; }
         self.items.remove(index)
     }
 }

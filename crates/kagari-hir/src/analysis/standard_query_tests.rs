@@ -343,7 +343,7 @@ mod tests {
         assert!(signature.parameters.is_empty());
         assert_eq!(
             signature.result,
-            TypeId::Builtin(kagari_types::scalar::BuiltinType::USize)
+            TypeId::Builtin(kagari_types::scalar::BuiltinType::U64)
         );
     }
 
@@ -829,7 +829,7 @@ mod collection_access_tests {
     fn extension_completion_filters_total_order_requirement() {
         for (element, value, ordered) in [("i32", "1", true), ("f64", "1.0", false)] {
             let text = format!(
-                "use std::collections::{{List}};\nimpl<T: Ord> List<T> {{ fn ordered(self) -> usize {{ self.len() }} }} impl<T: PartialEq> List<T> {{ fn comparable(self) -> usize {{ self.len() }} }} fn main() {{ val values: List<{element}> = Vec::from([{value}]); values. }}"
+                "use std::collections::{{List}};\nimpl<T: Ord> List<T> {{ fn ordered(self) -> u64 {{ self.len() }} }} impl<T: PartialEq> List<T> {{ fn comparable(self) -> u64 {{ self.len() }} }} fn main() {{ val values: List<{element}> = Vec::from([{value}]); values. }}"
             );
             let mut sources = SourceDatabase::default();
             let id = sources

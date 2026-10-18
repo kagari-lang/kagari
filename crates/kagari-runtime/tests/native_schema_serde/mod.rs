@@ -146,6 +146,27 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
     let root = cx.encode(Serde(Transformed { value: 7 })).unwrap();
     let Serde(decoded): Serde<Transformed> = cx.decode(&root).unwrap();
     assert_eq!(decoded.value, 14);
+
+    // Serde's fixed-width visits also serve Rust machine-sized conveniences,
+    // without narrowing the stored script value on 32-bit hosts.
+    for value in [u32::MAX as u64 + 1, u64::MAX] {
+        let root = cx.encode(Serde(value)).unwrap();
+        assert_eq!(cx.decode::<Serde<u64>>(&root).unwrap().0, value);
+        let host = cx.decode::<Serde<usize>>(&root);
+        match usize::try_from(value) {
+            Ok(expected) => assert_eq!(host.unwrap().0, expected),
+            Err(_) => assert!(host.is_err()),
+        }
+    }
+    for value in [i64::MIN, i64::MAX] {
+        let root = cx.encode(Serde(value)).unwrap();
+        assert_eq!(cx.decode::<Serde<i64>>(&root).unwrap().0, value);
+        let host = cx.decode::<Serde<isize>>(&root);
+        match isize::try_from(value) {
+            Ok(expected) => assert_eq!(host.unwrap().0, expected),
+            Err(_) => assert!(host.is_err()),
+        }
+    }
 }
 
 #[test]

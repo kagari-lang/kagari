@@ -74,11 +74,11 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
             Ty::Builtin(BuiltinType::I8) => self.deserialize_i8(visitor),
             Ty::Builtin(BuiltinType::I16) => self.deserialize_i16(visitor),
             Ty::Builtin(BuiltinType::I32) => self.deserialize_i32(visitor),
-            Ty::Builtin(BuiltinType::I64 | BuiltinType::ISize) => self.deserialize_i64(visitor),
+            Ty::Builtin(BuiltinType::I64) => self.deserialize_i64(visitor),
             Ty::Builtin(BuiltinType::U8) => self.deserialize_u8(visitor),
             Ty::Builtin(BuiltinType::U16) => self.deserialize_u16(visitor),
             Ty::Builtin(BuiltinType::U32) => self.deserialize_u32(visitor),
-            Ty::Builtin(BuiltinType::U64 | BuiltinType::USize) => self.deserialize_u64(visitor),
+            Ty::Builtin(BuiltinType::U64) => self.deserialize_u64(visitor),
             Ty::Builtin(BuiltinType::F32) => self.deserialize_f32(visitor),
             Ty::Builtin(BuiltinType::F64) => self.deserialize_f64(visitor),
             Ty::Builtin(BuiltinType::String) => self.deserialize_string(visitor),
@@ -95,27 +95,10 @@ impl<'de> SerdeDeserializer<'de> for Deserializer<'_, '_> {
 
     scalar!(deserialize_bool: bool => visit_bool, deserialize_i8: i8 => visit_i8,
         deserialize_i16: i16 => visit_i16, deserialize_i32: i32 => visit_i32,
-        deserialize_u8: u8 => visit_u8, deserialize_u16: u16 => visit_u16,
-        deserialize_u32: u32 => visit_u32, deserialize_f32: f32 => visit_f32,
+        deserialize_i64: i64 => visit_i64, deserialize_u8: u8 => visit_u8,
+        deserialize_u16: u16 => visit_u16, deserialize_u32: u32 => visit_u32,
+        deserialize_u64: u64 => visit_u64, deserialize_f32: f32 => visit_f32,
         deserialize_f64: f64 => visit_f64);
-
-    fn deserialize_i64<V: Visitor<'de>>(mut self, visitor: V) -> NativeResult<V::Value> {
-        let value = if self.expected.ty() == &Ty::Builtin(BuiltinType::ISize) {
-            self.scalar::<isize>()? as i64
-        } else {
-            self.scalar::<i64>()?
-        };
-        visitor.visit_i64(value)
-    }
-
-    fn deserialize_u64<V: Visitor<'de>>(mut self, visitor: V) -> NativeResult<V::Value> {
-        let value = if self.expected.ty() == &Ty::Builtin(BuiltinType::USize) {
-            self.scalar::<usize>()? as u64
-        } else {
-            self.scalar::<u64>()?
-        };
-        visitor.visit_u64(value)
-    }
 
     fn deserialize_i128<V: Visitor<'de>>(self, _: V) -> NativeResult<V::Value> {
         Err(unsupported("i128"))

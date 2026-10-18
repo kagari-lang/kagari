@@ -33,7 +33,7 @@ struct Adapter {
     second: Option<Value>,
     operation: Operation,
     callback: Option<StoredCallable>,
-    remaining: Cell<usize>,
+    remaining: Cell<u64>,
     switched: Cell<bool>,
 }
 
@@ -170,7 +170,7 @@ fn consume(cx: &mut CallContext<'_>, terminal: Terminal) -> NativeResult<Value> 
     };
     let cursor = cx.call_values(cx.selected_at(0)?, &[cx.argument(0)?])?;
     let _cursor = cx.heap().root_value(cursor).ok_or_else(invalid)?;
-    let mut count = 0usize;
+    let mut count = 0u64;
     loop {
         cx.poll()?;
         let result = cx.call_values(cx.selected_at(1)?, &[cursor])?;
@@ -205,7 +205,7 @@ fn invalid() -> RuntimeError {
     RuntimeError::module_validation("Iterable adapter contract")
 }
 
-fn increment(value: usize) -> NativeResult<usize> {
+fn increment(value: u64) -> NativeResult<u64> {
     value
         .checked_add(1)
         .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "integer overflow"))
@@ -222,7 +222,7 @@ fn construct(cx: &mut CallContext<'_>, operation: Operation) -> NativeResult<Val
         None
     };
     let remaining = if matches!(operation, Operation::Take | Operation::Skip) {
-        usize::decode(cx.argument(1)?)?
+        u64::decode(cx.argument(1)?)?
     } else {
         0
     };
@@ -351,5 +351,21 @@ fn next(cx: &mut CallContext<'_>, receiver: ValueHandle<'_>) -> NativeResult<Val
             }
             Operation::Skip | Operation::Chain => return option(cx, Some(item)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::increment;
+    use kagari_runtime::error::RuntimeErrorKind;
+
+    #[test]
+    fn logical_counts_use_the_full_u64_domain() {
+        assert_eq!(increment(u64::from(u32::MAX)).unwrap(), 1u64 << 32);
+        assert_eq!(increment(u64::MAX - 1).unwrap(), u64::MAX);
+        assert_eq!(
+            increment(u64::MAX).unwrap_err().kind(),
+            RuntimeErrorKind::ScriptTrap
+        );
     }
 }

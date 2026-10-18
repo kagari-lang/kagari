@@ -33,8 +33,8 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
     let catalog = StandardDeclarations::default().catalog().unwrap();
     let string = Type::scalar(BuiltinType::String);
     let primitive = || NativeBinding::primitive(NativePrimitive::StringByteLength);
-    // String and usize are semantic types, not merely pointer/integer layouts.
-    for (argument, result) in [(Type::i32(), Type::usize()), (string.clone(), Type::u64())] {
+    // String and u64 are semantic types, not merely pointer/integer layouts.
+    for (argument, result) in [(Type::i32(), Type::u64()), (string.clone(), Type::i64())] {
         let mut builder = ModuleBuilder::new("example::primitives", &catalog).unwrap();
         let function = builder
             .define_function(
@@ -50,7 +50,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
     let observed = calls.clone();
     let callback = NativeBinding::new(
         vec![Codec::Exact(Type::scalar(BuiltinType::String))],
-        Codec::Exact(Type::usize()),
+        Codec::Exact(Type::u64()),
         move |_| {
             observed.fetch_add(1, Ordering::Relaxed);
             Ok(Value::U64(41))
@@ -63,7 +63,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
             .define_function(
                 FunctionDecl::new("count")
                     .parameter("text", string.clone())
-                    .returns(Type::usize()),
+                    .returns(Type::u64()),
             )
             .unwrap();
         let id = function
@@ -76,7 +76,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
     }
     let source = r#"
         use example::primitives::count;
-        pub fn main() -> usize {
+        pub fn main() -> u64 {
             val callable = |text: String| count(text);
             count("discarded");
             count("aé文") + callable("é")
@@ -171,7 +171,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
         let mut builder = ModuleBuilder::new("example::vector", &catalog).unwrap();
         let mut declaration = FunctionDecl::new("operation")
             .parameter("values", receiver)
-            .parameter("index", Type::usize())
+            .parameter("index", Type::u64())
             .returns(result);
         if let Some(value) = value {
             declaration = declaration.parameter("value", value);
@@ -196,7 +196,7 @@ fn vector_primitives_preserve_element_access_aliases_and_bounds() {
     ] {
         let mut declaration = FunctionDecl::new(name)
             .parameter("values", vector())
-            .parameter("index", Type::usize())
+            .parameter("index", Type::u64())
             .returns(result);
         if write {
             declaration = declaration.parameter("value", Type::i32());

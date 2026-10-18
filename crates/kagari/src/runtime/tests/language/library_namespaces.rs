@@ -33,7 +33,7 @@ fn main() -> i32 {
     val result: core::option::Option<i32> = std::option::Option::Some(plus(Number { value: values[0] }, Number { value: other[0] }).value);
     val map: HashMap<i32, i32> = HashMap::new();
     map.insert(1, hash(Number { value: 42 }) as i32);
-    if text.len() != 5usize { return 0; }
+    if text.len() != 5u64 { return 0; }
     match result { Some(value) => value + map.len() as i32 - 1, None => 0 }
 }
 "#), Default::default()).unwrap();

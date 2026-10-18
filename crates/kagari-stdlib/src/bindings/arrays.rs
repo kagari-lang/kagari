@@ -28,7 +28,7 @@ pub(super) fn length(cx: &mut CallContext<'_>) -> NativeResult<Value> {
 }
 
 pub(super) fn is_empty(cx: &mut CallContext<'_>) -> NativeResult<Value> {
-    Ok(Value::Bool(usize::decode(length(cx)?)? == 0))
+    Ok(Value::Bool(u64::decode(length(cx)?)? == 0))
 }
 
 pub(super) fn index(cx: &mut CallContext<'_>) -> NativeResult<Value> {

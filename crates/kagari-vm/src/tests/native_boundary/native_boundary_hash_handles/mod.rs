@@ -38,7 +38,7 @@ fn builtin_hash_handles_preserve_aliases_access_and_retained_values() {
             val set = HashSet::new(); set.insert(7);
             (map, set)
         }
-        pub fn size(map: HashMap<String, Vec<i32>>) -> usize { map.len() }
+        pub fn size(map: HashMap<String, Vec<i32>>) -> u64 { map.len() }
     "#,
         None,
     );

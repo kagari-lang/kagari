@@ -155,7 +155,7 @@ fn unordered(
     shape: Shape,
     left: Cursor,
     right: Cursor,
-    count: usize,
+    count: u64,
     comparisons: &[Equality],
 ) -> NativeResult<bool> {
     let mut items = Vec::new();
@@ -271,5 +271,5 @@ fn content_hash(
         };
     }
     cursor.finish(cx)?;
-    Ok(mix(result, count as u64) as i64)
+    Ok(mix(result, count) as i64)
 }

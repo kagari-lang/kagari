@@ -174,7 +174,7 @@ impl<'a> BodyChecker<'a> {
         };
         let parameters: Vec<_> = method.params.iter().map(|param| apply(&param.ty)).collect();
         (parameters == [receiver.clone(), index.clone(), item.clone()]
-            && *index == TypeId::Builtin(BuiltinType::USize)
+            && *index == TypeId::Builtin(BuiltinType::U64)
             && apply(&method.return_type) == TypeId::Builtin(BuiltinType::Unit))
         .then_some((interface, member))
     }

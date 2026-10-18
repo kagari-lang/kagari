@@ -131,12 +131,10 @@ pub fn intrinsic_output(
                     | BuiltinType::I16
                     | BuiltinType::I32
                     | BuiltinType::I64
-                    | BuiltinType::ISize
                     | BuiltinType::U8
                     | BuiltinType::U16
                     | BuiltinType::U32
                     | BuiltinType::U64
-                    | BuiltinType::USize
             )]
         )
     {
@@ -152,7 +150,6 @@ pub fn intrinsic_output(
                             | BuiltinType::I16
                             | BuiltinType::I32
                             | BuiltinType::I64
-                            | BuiltinType::ISize
                             | BuiltinType::F32
                             | BuiltinType::F64
                     )

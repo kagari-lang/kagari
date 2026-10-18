@@ -22,11 +22,6 @@ pub fn lossless_from(source: BuiltinType, target: BuiltinType) -> bool {
                 | BuiltinType::U32
                 | BuiltinType::F32
         ),
-        BuiltinType::ISize => {
-            matches!(source, BuiltinType::I8 | BuiltinType::I16 | BuiltinType::U8)
-        }
-        BuiltinType::USize => matches!(source, BuiltinType::U8 | BuiltinType::U16),
-        _ if matches!(source, BuiltinType::ISize | BuiltinType::USize) => false,
         _ => match (source.integer_layout(), target.integer_layout()) {
             (Some((a, sa)), Some((b, sb))) => (sa == sb && a < b) || (!sa && sb && a < b),
             _ => false,

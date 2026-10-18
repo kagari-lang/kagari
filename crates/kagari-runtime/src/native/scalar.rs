@@ -11,6 +11,12 @@ mod sealed {
     pub trait Scalar {}
 }
 
+/// Converts a Rust scalar to or from its declared script type.
+///
+/// Rust `usize` and `isize` use script `u64` and `i64`, respectively. Decoding
+/// checks the Rust host range before callback entry; hosts needing the complete
+/// script domain must accept `u64`/`i64`. Encoding widens losslessly on supported
+/// 32-bit and 64-bit hosts. These conveniences do not provide sequence views.
 pub trait NativeScalar: sealed::Scalar + Sized + 'static {
     fn abi_type() -> BuiltinType;
 
@@ -53,12 +59,12 @@ integer_scalar!(i8, I8, I32, i32);
 integer_scalar!(i16, I16, I32, i32);
 integer_scalar!(i32, I32, I32, i32);
 integer_scalar!(i64, I64, I64, i64);
-integer_scalar!(isize, ISize, I64, i64);
+integer_scalar!(isize, I64, I64, i64);
 integer_scalar!(u8, U8, I64, i64);
 integer_scalar!(u16, U16, I64, i64);
 integer_scalar!(u32, U32, I64, i64);
 integer_scalar!(u64, U64, U64, u64);
-integer_scalar!(usize, USize, U64, u64);
+integer_scalar!(usize, U64, U64, u64);
 
 macro_rules! scalar {
     ($rust:ty, $abi:ident, $value:ident) => {

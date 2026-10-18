@@ -61,14 +61,14 @@ fn string_methods_use_bytes_and_preserve_immutable_inputs() {
 fn main() -> bool {
     val text = "aé🙂z";
     val alias = text;
-    val middle = text.slice(1usize, 7usize);
+    val middle = text.slice(1u64, 7u64);
     val replaced = text.replace("é", "E");
-    text.len() == 8usize && !text.is_empty() && "".is_empty()
+    text.len() == 8u64 && !text.is_empty() && "".is_empty()
         && text.contains("é🙂") && text.starts_with("aé") && text.ends_with("🙂z")
         && !text.contains("missing") && !text.starts_with("é") && !text.ends_with("🙂")
-        && text.find("🙂") == Some(3usize) && text.find("missing") == None
+        && text.find("🙂") == Some(3u64) && text.find("missing") == None
         && middle == "é🙂" && replaced == "aE🙂z" && alias == "aé🙂z" && text == alias
-        && text.slice(8usize, 8usize) == "" && "".slice(0usize, 0usize) == ""
+        && text.slice(8u64, 8u64) == "" && "".slice(0u64, 0u64) == ""
 }
 "#,
         None,
@@ -85,8 +85,8 @@ fn main() -> bool {
         && "".trim() == "" && "\t\n　".trim() == ""
         && "aaa".replace("aa", "b") == "ba" && "é🙂".replace("", "-") == "-é-🙂-"
         && "".replace("", "x") == "x" && "abc".replace("missing", "x") == "abc"
-        && "abc".replace("b", "") == "ac" && "".find("") == Some(0usize)
-        && "é🙂".find("") == Some(0usize) && "".contains("") && "".starts_with("") && "".ends_with("")
+        && "abc".replace("b", "") == "ac" && "".find("") == Some(0u64)
+        && "é🙂".find("") == Some(0u64) && "".contains("") && "".starts_with("") && "".ends_with("")
 }
 "#,
         None,
@@ -108,12 +108,12 @@ fn main() -> bool {
     val combining = "é".split("");
     val empty_pattern = "".split("");
     val ordered = "b,a,b".split(",").sorted().distinct();
-    values.len() == 5usize && values[0] == "" && values[1] == "é" && values[2] == ""
+    values.len() == 5u64 && values[0] == "" && values[1] == "é" && values[2] == ""
         && values[3] == "🙂" && values[4] == "" && source.text == "|é||🙂|"
-        && scalars.len() == 4usize && scalars[0] == "" && scalars[1] == "é" && scalars[2] == "🙂" && scalars[3] == ""
-        && combining.len() == 4usize && combining[1] == "e" && combining[2] == "́"
-        && empty.len() == 1usize && empty[0] == "" && empty_pattern.len() == 2usize
-        && empty_pattern[0] == "" && empty_pattern[1] == "" && ordered.len() == 2usize && ordered[0] == "a"
+        && scalars.len() == 4u64 && scalars[0] == "" && scalars[1] == "é" && scalars[2] == "🙂" && scalars[3] == ""
+        && combining.len() == 4u64 && combining[1] == "e" && combining[2] == "́"
+        && empty.len() == 1u64 && empty[0] == "" && empty_pattern.len() == 2u64
+        && empty_pattern[0] == "" && empty_pattern[1] == "" && ordered.len() == 2u64 && ordered[0] == "a"
 }
 "#,
         None,
@@ -131,7 +131,7 @@ fn invalid_string_slices_trap_and_release_execution_state() {
         (0, usize::MAX),
     ] {
         let source = format!(
-            "fn main() -> bool {{ val value = \"aé🙂z\".slice({start}usize, {end}usize); false }}"
+            "fn main() -> bool {{ val value = \"aé🙂z\".slice({start}u64, {end}u64); false }}"
         );
         run(&source, Some("String slice requires ordered byte offsets"));
     }
@@ -141,7 +141,7 @@ fn invalid_string_slices_trap_and_release_execution_state() {
 fn string_method_signatures_are_statically_checked() {
     let engine = KagariEngine::default();
     for expression in [
-        "\"text\".slice(true, 1usize)",
+        "\"text\".slice(true, 1u64)",
         "\"text\".contains(1)",
         "\"text\".replace(\"x\")",
         "\"text\".split(0)",

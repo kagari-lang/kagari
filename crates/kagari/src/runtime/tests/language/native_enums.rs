@@ -37,10 +37,10 @@ fn native_registered_enums_execute_from_serialized_artifacts_with_traced_payload
     let compiler = engine();
     for body in [
         "fn main() -> i32 { match enums::make(40, 2) { enums::Event::Data(value, sequence) => value + sequence, enums::Event::Closed => 0 } }",
-        "fn main() -> i32 { val event = enums::roundtrip(enums::make([40], 2)); match event { enums::Event::Data(value, sequence) => value[0usize] + sequence, enums::Event::Closed => 0 } }",
+        "fn main() -> i32 { val event = enums::roundtrip(enums::make([40], 2)); match event { enums::Event::Data(value, sequence) => value[0u64] + sequence, enums::Event::Closed => 0 } }",
         "struct Payload { val value: i32 } fn wrap<T>(value: T) -> enums::Event<T> { enums::make(value, 2) } fn main() -> i32 { val payload = Payload { value: 40 }; match wrap(payload) { enums::Event::Data(value, sequence) => value.value + sequence, enums::Event::Closed => 0 } }",
         "fn main() -> i32 { val event = enums::Event::Data(40, 2); if enums::is_data(event) && !enums::is_data(enums::closed(0, 0)) { enums::sequence(enums::roundtrip(event)) + 40 } else { 0 } }",
-        "fn main() -> i32 { val nested = enums::make(enums::make([38], 2), 2); match enums::roundtrip(nested) { enums::Event::Data(inner, outer) => match inner { enums::Event::Data(value, sequence) => value[0usize] + sequence + outer, enums::Event::Closed => 0 }, enums::Event::Closed => 0 } }",
+        "fn main() -> i32 { val nested = enums::make(enums::make([38], 2), 2); match enums::roundtrip(nested) { enums::Event::Data(inner, outer) => match inner { enums::Event::Data(value, sequence) => value[0u64] + sequence + outer, enums::Event::Closed => 0 }, enums::Event::Closed => 0 } }",
     ] {
         let original = artifact(&compiler, body);
         let decoded = BytecodeArtifact::from_bytes(

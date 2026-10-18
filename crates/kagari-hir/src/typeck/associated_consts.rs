@@ -35,12 +35,10 @@ pub(crate) fn scalar_type(ty: &TypeId) -> bool {
                 | BuiltinType::I16
                 | BuiltinType::I32
                 | BuiltinType::I64
-                | BuiltinType::ISize
                 | BuiltinType::U8
                 | BuiltinType::U16
                 | BuiltinType::U32
                 | BuiltinType::U64
-                | BuiltinType::USize
                 | BuiltinType::F32
                 | BuiltinType::F64
         )

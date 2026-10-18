@@ -100,11 +100,7 @@ fn compare_rust_native_and_script_stable_sorting() {
                 let array_root = vm.runtime().root_value(Value::Array(array)).unwrap();
                 let counter = vm
                     .runtime()
-                    .alloc_array(
-                        &loaded,
-                        Ty::Builtin(BuiltinType::USize),
-                        vec![Value::U64(0)],
-                    )
+                    .alloc_array(&loaded, Ty::Builtin(BuiltinType::U64), vec![Value::U64(0)])
                     .unwrap();
                 let counter_root = vm.runtime().root_value(Value::Array(counter)).unwrap();
                 // Prepare interface views outside the sort interval, and report

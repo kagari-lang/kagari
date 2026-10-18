@@ -15,12 +15,10 @@ pub(super) fn binding(name: &str) -> Option<NativeBinding> {
         "$foundation_default_I16" => constant(0_i16),
         "$foundation_default_I32" => constant(0_i32),
         "$foundation_default_I64" => constant(0_i64),
-        "$foundation_default_ISize" => constant(0_isize),
         "$foundation_default_U8" => constant(0_u8),
         "$foundation_default_U16" => constant(0_u16),
         "$foundation_default_U32" => constant(0_u32),
         "$foundation_default_U64" => constant(0_u64),
-        "$foundation_default_USize" => constant(0_usize),
         "$foundation_default_F32" => constant(0.0_f32),
         "$foundation_default_F64" => constant(0.0_f64),
         "$foundation_default_String" => NativeBinding::new(

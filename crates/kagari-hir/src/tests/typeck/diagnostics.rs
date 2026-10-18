@@ -154,30 +154,35 @@ fn const_type_mismatch_is_rejected_before_codegen() {
 
 #[test]
 fn reports_unknown_parameter_type() {
-    let context = DefinitionContext::new().unwrap();
-    let lowered = common::lower_ok("fn foo(value: number) {}");
-    let names = resolve_names(&lowered)
-        .unwrap()
-        .into_checked()
-        .expect("resolver should succeed");
+    for name in ["number", "isize", "usize"] {
+        let context = DefinitionContext::new().unwrap();
+        let lowered = common::lower_ok(&format!("fn foo(value: {name}) {{}}"));
+        let names = resolve_names(&lowered)
+            .unwrap()
+            .into_checked()
+            .expect("resolver should succeed");
 
-    let diagnostics = check_module(&context, &lowered, &names, None)
-        .into_checked()
-        .expect_err("type checker should reject type");
+        let diagnostics = check_module(&context, &lowered, &names, None)
+            .into_checked()
+            .expect_err("type checker should reject type");
 
-    assert_eq!(diagnostics.len(), 1);
-    assert_eq!(
-        diagnostics[0].kind,
-        DiagnosticKind::UnknownType {
-            type_name: "number".to_string(),
-            function_name: "foo".to_string(),
-            position: TypePosition::Parameter,
-        }
-    );
-    assert_eq!(
-        diagnostics[0].to_string(),
-        "Error: unknown parameter type `number` in function `foo` at 13..20"
-    );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0].kind,
+            DiagnosticKind::UnknownType {
+                type_name: name.to_string(),
+                function_name: "foo".to_string(),
+                position: TypePosition::Parameter,
+            }
+        );
+        assert_eq!(
+            diagnostics[0].to_string(),
+            format!(
+                "Error: unknown parameter type `{name}` in function `foo` at 13..{}",
+                14 + name.len()
+            )
+        );
+    }
 }
 
 #[test]
