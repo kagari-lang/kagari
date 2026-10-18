@@ -19,7 +19,7 @@ below; the public Pages site has not been activated by this work.
 | Host integration | [Embedding and Rust DTO/Serde conversion](spec/embedding-api.md), [unified registration, Opaque and scoped Ref/RefMut](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
 | Modules and reload | [Packages/workspaces](spec/packages.md), [Modules](spec/modules.md), [loading](spec/module-loading.md), [activation](spec/module-activation.md) |
 | Executable products | [Bytecode](spec/bytecode.md), [artifacts](spec/artifacts.md), [backend contract](spec/codegen-backend.md), [JIT](spec/jit.md), [AOT deployment](spec/aot.md) |
-| Tooling | [Formatter, checker and linter](spec/toolchain-tools.md), [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
+| Tooling | [Formatter, checker, linter and KBC disassembler](spec/toolchain-tools.md), [Debugger and adapter](spec/debugger.md), [reflection](spec/reflection.md), [language conformance](spec/language-conformance.md) |
 
 ## Implementation references
 
@@ -75,6 +75,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   complete CI/platform acceptance, semantic IDE features, server-launch integration,
   marketplace publication and separately authorized old-repository administration.
   The syntax-adapter implementation and selected local acceptance are complete.
+- [KBC disassembly CI follow-up](implementation-roadmap.md#kbc-disassembly): the
+  [offline command and selection contract](spec/toolchain-tools.md#kbc-disassembly)
+  is implemented; full workspace and feature/backend/platform acceptance remains
+  pending CI.
 - [Script testing](script-testing-design.md): proposed `kg test`, source-owned
   `#[test]` functions and host-orchestrated fixtures; design only, separate from
   formatter/checker/linter implementation.

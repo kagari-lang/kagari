@@ -61,10 +61,22 @@ pub(crate) enum Command {
     RunArtifact {
         artifact: PathBuf,
     },
+    Disassemble {
+        artifact: PathBuf,
+        mode: DisassemblyMode,
+    },
     Project {
         action: ProjectAction,
         options: ProjectArgs,
     },
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) enum DisassemblyMode {
+    #[default]
+    All,
+    ListFunctions,
+    Function(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,6 +119,7 @@ struct Arguments {
     message_option: bool,
     format: FormatArgs,
     format_option: bool,
+    disassembly: Option<DisassemblyMode>,
 }
 
 impl Arguments {
@@ -115,6 +128,19 @@ impl Arguments {
         let mut args = args.into_iter();
         while let Some(arg) = args.next() {
             match arg.as_str() {
+                "--list-functions" | "--function" => {
+                    if result.disassembly.is_some() {
+                        return Err(CliError::message(
+                            2,
+                            "--list-functions and --function cannot be repeated or combined",
+                        ));
+                    }
+                    result.disassembly = Some(if arg == "--list-functions" {
+                        DisassemblyMode::ListFunctions
+                    } else {
+                        DisassemblyMode::Function(value(&mut args, &arg)?)
+                    });
+                }
                 "--list-rules" => {
                     result.list_rules = true;
                     result.lint_option = true;
@@ -208,7 +234,10 @@ impl Arguments {
                     result.project.offline = true;
                 }
                 option if option.starts_with('-') => {
-                    return Err(CliError::message(2, format!("unknown option `{option}`")));
+                    return Err(CliError::message(
+                        2,
+                        format!("unknown option `{}`", option.escape_default()),
+                    ));
                 }
                 _ => result.positionals.push(arg),
             }
@@ -261,6 +290,7 @@ impl Cli {
                 | "run-artifact"
                 | "build-aot"
                 | "run-aot"
+                | "disasm"
         );
         let rest = &parsed.positionals[usize::from(explicit)..];
         if rest.len() > 1 {
@@ -270,6 +300,12 @@ impl Cli {
             ));
         }
         let name = if explicit { first.as_str() } else { "implicit" };
+        if parsed.disassembly.is_some() && name != "disasm" {
+            return Err(CliError::message(
+                2,
+                "--list-functions and --function apply only to disasm",
+            ));
+        }
         if parsed.lint_option && name != "lint" {
             return Err(CliError::message(2, "lint options apply only to lint"));
         }
@@ -399,6 +435,15 @@ impl Cli {
                 source,
             },
             "run-artifact" => Command::RunArtifact { artifact: source },
+            "disasm" => {
+                if source.as_os_str().is_empty() {
+                    return Err(CliError::message(2, "missing artifact path"));
+                }
+                Command::Disassemble {
+                    artifact: source,
+                    mode: parsed.disassembly.unwrap_or_default(),
+                }
+            }
             "implicit" if source.extension().and_then(|ext| ext.to_str()) == Some("kbc") => {
                 Command::RunArtifact { artifact: source }
             }
@@ -412,7 +457,9 @@ impl Cli {
 }
 
 fn lint_id(name: &str) -> Result<LintId, CliError> {
-    LintId::parse(name).ok_or_else(|| CliError::message(2, format!("unknown lint rule `{name}`")))
+    LintId::parse(name).ok_or_else(|| {
+        CliError::message(2, format!("unknown lint rule `{}`", name.escape_default()))
+    })
 }
 
 fn value(args: &mut impl Iterator<Item = String>, option: &str) -> Result<String, CliError> {
@@ -435,6 +482,9 @@ pub(crate) fn usage() -> String {
         "  kg emit [-o artifact.kbc] <script.kgr>",
         "  kg run [--jit] [script.kgr] [project options]",
         "  kg run-artifact [--jit] <artifact.kbc>",
+        "  kg disasm <artifact.kbc> [--list-functions | --function <selector>]",
+        "    Inspect one local file offline; write plain text to stdout (no execution).",
+        "    Select an exact qualified name or artifact-local slot, e.g. --function '@0:3'.",
         "project options: --manifest-path Kagari.toml, -p NAME, --workspace,",
         "                 --locked, --offline, --frozen, --input-root DIRECTORY",
     ]
@@ -443,8 +493,154 @@ pub(crate) fn usage() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Cli, Command, ProjectAction};
+    use super::{Cli, Command, DisassemblyMode, ProjectAction};
     use crate::report::MessageFormat;
+
+    #[test]
+    fn disassembly_modes_preserve_raw_selectors_and_allow_option_ordering() {
+        for (options, mode) in [
+            (vec![], DisassemblyMode::All),
+            (vec!["--list-functions"], DisassemblyMode::ListFunctions),
+            (
+                vec!["--function", "@0:3"],
+                DisassemblyMode::Function("@0:3".into()),
+            ),
+            (
+                vec!["--function", "module::名前\u{202e}"],
+                DisassemblyMode::Function("module::名前\u{202e}".into()),
+            ),
+        ] {
+            for position in 0..=2 {
+                let mut args = vec!["disasm", "file.kbc"];
+                args.splice(position..position, options.iter().copied());
+                assert_eq!(
+                    Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap(),
+                    Cli {
+                        command: Command::Disassemble {
+                            artifact: "file.kbc".into(),
+                            mode: mode.clone(),
+                        },
+                        jit: false,
+                    },
+                    "{args:?}",
+                );
+            }
+        }
+        assert!(matches!(
+            Cli::parse(["disasm", "--", "--file.kbc"].map(str::to_owned))
+                .unwrap()
+                .command,
+            Command::Disassemble { artifact, .. } if artifact.to_str() == Some("--file.kbc")
+        ));
+    }
+
+    #[test]
+    fn disassembly_rejects_invalid_operands_and_selection_modes() {
+        for args in [
+            vec!["disasm"],
+            vec!["disasm", ""],
+            vec!["disasm", "-"],
+            vec!["disasm", "file.kbc", "extra.kbc"],
+            vec!["disasm", "file.kbc", "--function"],
+            vec!["disasm", "file.kbc", "--function", ""],
+            vec!["disasm", "file.kbc", "--function", "--list-functions"],
+            vec!["disasm", "file.kbc", "--list-functions", "--list-functions"],
+            vec!["--list-functions", "disasm", "--list-functions", "file.kbc"],
+            vec![
+                "--function",
+                "@0:0",
+                "disasm",
+                "file.kbc",
+                "--function",
+                "@0:1",
+            ],
+            vec![
+                "--list-functions",
+                "disasm",
+                "--function",
+                "@0:0",
+                "file.kbc",
+            ],
+            vec![
+                "--function",
+                "@0:0",
+                "disasm",
+                "file.kbc",
+                "--list-functions",
+            ],
+            vec!["disasm", "file.kbc", "--", "--list-functions"],
+            vec![
+                "disasm",
+                "file.kbc",
+                "--function",
+                "@0:0",
+                "--function",
+                "@0:1",
+            ],
+            vec![
+                "disasm",
+                "file.kbc",
+                "--list-functions",
+                "--function",
+                "@0:0",
+            ],
+            vec![
+                "disasm",
+                "file.kbc",
+                "--function",
+                "@0:0",
+                "--list-functions",
+            ],
+            vec!["run-artifact", "file.kbc", "--list-functions"],
+            vec!["check", "--function", "main"],
+            vec!["file.kbc", "--function", "main"],
+        ] {
+            let error = Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap_err();
+            assert_eq!(error.exit_code(), 2, "{args:?}");
+        }
+        // Selector syntax and existence belong to library selection (status 1), not parsing.
+        assert!(
+            Cli::parse(["disasm", "file.kbc", "--function", "@bad"].map(str::to_owned)).is_ok()
+        );
+    }
+
+    #[test]
+    fn disassembly_rejects_unrelated_options_including_leading_options() {
+        for options in [
+            vec!["--jit"],
+            vec!["--no-jit"],
+            vec!["--manifest-path", "Kagari.toml"],
+            vec!["--input-root", "."],
+            vec!["-p", "game"],
+            vec!["--package", "game"],
+            vec!["--workspace"],
+            vec!["--locked"],
+            vec!["--offline"],
+            vec!["--frozen"],
+            vec!["-o", "out.kbc"],
+            vec!["--output", "out.kbc"],
+            vec!["--message-format", "human"],
+            vec!["--check"],
+            vec!["--indent-width", "4"],
+            vec!["--max-width", "80"],
+            vec!["--newline", "lf"],
+            vec!["--list-rules"],
+            vec!["--explain", "unknown"],
+            vec!["-D", "warnings"],
+            vec!["-A", "unknown"],
+            vec!["-W", "unknown"],
+            vec!["--unknown\n\u{202e}"],
+        ] {
+            for position in 0..=2 {
+                let mut args = vec!["disasm", "file.kbc"];
+                args.splice(position..position, options.iter().copied());
+                let error = Cli::parse(args.iter().map(|arg| (*arg).to_owned())).unwrap_err();
+                assert_eq!(error.exit_code(), 2, "{args:?}");
+                assert!(!error.to_string().contains('\n'), "{args:?}");
+                assert!(!error.to_string().contains('\u{202e}'), "{args:?}");
+            }
+        }
+    }
 
     #[test]
     fn project_options_are_order_independent_and_command_scoped() {

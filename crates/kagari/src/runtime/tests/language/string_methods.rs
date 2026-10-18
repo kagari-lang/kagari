@@ -133,7 +133,10 @@ fn invalid_string_slices_trap_and_release_execution_state() {
         let source = format!(
             "fn main() -> bool {{ val value = \"aé🙂z\".slice({start}u64, {end}u64); false }}"
         );
-        run(&source, Some("String slice requires ordered byte offsets"));
+        let expected = format!(
+            "String slice {start}..{end} requires ordered byte offsets within bounds and on UTF-8 boundaries"
+        );
+        run(&source, Some(&expected));
     }
 }
 

@@ -123,6 +123,40 @@ Cooperative cancellation and individual mutation commit rules remain explicit.
 Native payloads trace retained script values/callables. Artifacts contain portable
 contracts, not live heap state, Rust references or function pointers.
 
+## Offline disassembly validation
+
+[`kg disasm`](toolchain-tools.md#kbc-disassembly) and
+`kagari_bytecode::disassembly::PreparedDisassembly::from_bytes` inspect current-format
+KBC without source files, installed native implementations or a runtime. They reuse
+the existing codec and verifier, not a permissive second decoder:
+
+1. The CLI reads at most `MAX_ARTIFACT_BYTES` plus one sentinel byte and rejects
+   oversized input. Decoding also enforces existing byte/count/depth limits.
+2. `KbcArtifact::from_bytes` decodes records with their definition metadata.
+   Scope-preserving import into an offline `DefinitionContext` remaps identities;
+   numeric IDs are never interpreted in an unrelated table.
+3. `KbcArtifact::into_verified` uses current `ArtifactCompatibility::default()`
+   requirements. Header/version/ABI, content hash, envelope/table consistency and
+   complete bytecode graph/type/reference/resource checks remain in force. A stored
+   verification flag is not trusted. Compatibility is not derived from the input
+   header merely to make it pass.
+4. Only after full validation may listing or selection proceed. Invalid unselected
+   functions still reject the artifact. There is no raw/unchecked fallback or
+   older-format migration reader.
+
+The summary reports encoded format/language/compiler/ABI provenance, content hash,
+root module, module/function counts and `validation=envelope+bytecode`. The root
+module is not an assertion about public exports or an entry function. The hash is
+content identity, not authentication or a live runtime generation.
+
+Optional portable MIR is opaque: presence is reported as `present, not semantically
+checked`, and its buffer is released during preparation. Disassembly does not
+establish MIR/bytecode correspondence, native eligibility, signature authentication
+or host linkability. A valid custom-native contract can be inspected without its
+Rust provider, but that does not establish that it can execute in a particular host.
+See [library ownership](../architecture.md#offline-bytecode-inspection) and
+[output semantics](bytecode.md#disassembly-output).
+
 ## SDK Feature Boundary
 
 The SDK separates source compilation from native preparation. Its default feature
