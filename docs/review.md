@@ -15,6 +15,8 @@ status and activation belong to the [roadmap](implementation-roadmap.md).
 - [Repository findings](#sa1-inline-modules-are-parsed-again): unresolved SA entries.
 - [Architecture findings](#architecture-findings): retained R findings checked
   against the current implementation; validation limits are recorded below.
+- [Interpreter instruction model](#interpreter-instruction-and-operand-model-follow-up):
+  general operand/control-flow simplification before specialized loop instructions.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
 - Historical timings, allocation data and reproduction details are retained under
@@ -1145,6 +1147,86 @@ Evidence owners:
 
 These findings remain review items, not automatically activated tasks or new
 prerequisites for unrelated work.
+
+## Interpreter instruction and operand model follow-up
+
+**Queued design direction, not implementation authorization or a measured speedup.**
+Prefer a compact general value/operand/control-flow model before introducing
+specialized counting-loop instructions. This extends the instruction-model question
+owned by the [existing interpreter performance plan](interpreter-performance-plan.md),
+not a new phase sequence or performance ledger. Its current activation gates and
+unresolved acceptance still apply; adopting a replacement requires explicit scope.
+
+A current `i64` probe initializes `s = 0`, `i = 0`, runs
+`while i < n { s = s + i; i = i + 1; }` and returns s.
+Actual `kg emit` / `kg disasm` output contains 17 instructions. Each successful
+iteration traverses ten bytecode positions: load i/n, compare, branch, load s,
+add, store s, add, store i and jump. Constants zero/one are already outside the
+loop. The function declares three locals and twelve temporary registers, not twelve
+simultaneously live values. [Physical allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
+reuses temporaries but separates named locals; preparation converts local transport
+into moves. The [scalar execution loop](../crates/kagari-runtime/src/frame/cursor/scalars.rs)
+already uses prepared scalar slots and kernels, not repeated source type inference.
+See the [existing attribution](performance-baseline.md#instruction-stream-and-scalar-execution)
+for the distinction between excess logical work and per-operation machinery.
+
+The comparable PUC Lua 5.4.9 while function has eleven stored instructions, directly
+updates local registers and couples comparison with a jump; successful numeric
+arithmetic skips metamethod fallback instructions. Numeric-for specialization is
+separate. Consult [Lua opcodes](https://www.lua.org/source/5.4/lopcodes.h.html) and
+[execution](https://www.lua.org/source/5.4/lvm.c.html) (pages track the 5.4 series).
+Adopt direct destinations/control flow, not wrapping arithmetic or incompatible
+root/ownership rules; stored opcode counts are not dispatched-handler counts.
+
+Proposed general shape, **illustrative pseudobytecode, not existing opcodes**:
+
+```text
+; r0 = n, r1 = s, r2 = i
+00  load_i64          r1, 0
+01  load_i64          r2, 0
+Lcheck:
+02  branch_ge_i64     r2, r0, Lexit
+03  add_i64_checked   r1, r1, r2
+04  add_i64_checked   r2, r2, #1
+05  jump              Lcheck
+Lexit:
+06  return            r1
+```
+
+The intended ownership/model changes are:
+
+- Let locals occupy execution slots directly; keep temporaries only where aliasing,
+  old-value liveness, once-only evaluation or calls require them. Compiler value
+  placement and runtime physical preparation must agree on ownership.
+- Write arithmetic directly to its destination only after checked success; retain
+  one numeric semantic owner and no partial assignment on failure.
+- Branch directly on comparisons used only for control flow; keep materialized bools
+  when they are observable values. Support suitable immediate/constant operands.
+- Preserve logical origins, debugger-visible ranges, effect/trap order, roots and
+  pinned calls through explicit mappings, not unconditional local transport.
+  Removing initialization/ownership checks requires adequate verification evidence.
+- Review portable encoding and prepared execution together, without prematurely
+  multiplying type/operand opcode combinations or creating duplicate semantics.
+
+This example targets seven general instructions and four positions per successful
+iteration, rather than adding a one-off sum instruction. Assignments, branches and
+other arithmetic should benefit too. It is a structural target, not a dispatch-time
+ratio, register-allocation result or promise that fewer serialized bytes run faster.
+No closed-form replacement, JIT route or weaker overflow semantics is implied.
+Cancellation feature/polling policy is a separate execution-contract decision, not
+an implicit change authorized by this representation proposal.
+
+Only after the general model is coherent and measured should a specialized numeric
+loop combine increment, comparison and backedge. Require explicit step/bound rules,
+initial zero-iteration behavior, counter mutation/liveness and trap/debug mappings;
+do not hide unresolved local transport beneath growing superinstruction cases.
+
+When activated, inspect MIR, bytecode, prepared records and release machine code.
+Reuse the fixed benchmarks and scalar/control-flow, source-free, debug, overflow/trap,
+GC/callback and reload contracts, including negative/zero bounds and effectful failures.
+Measure warmed execution separately from preparation, code size and slot traffic.
+Current cancellation/slice guarantees remain unless explicitly revised; do not use
+benchmark-only unchecked execution.
 
 ## Artifact reachability follow-up
 
