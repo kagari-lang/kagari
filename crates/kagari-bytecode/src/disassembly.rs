@@ -4,7 +4,11 @@
 //! native providers or a runtime. It does not authenticate signatures, establish
 //! host linkability or interpret the optional portable MIR payload.
 
+mod body;
+mod descriptors;
+mod instructions;
 mod presentation;
+mod resolution;
 mod selection;
 
 #[cfg(test)]
@@ -15,7 +19,11 @@ use crate::{
         ArtifactCodecError, ArtifactCompatibility, ArtifactHeader, ArtifactValidationError,
         KbcArtifact,
     },
-    disassembly::presentation::{DisplayContext, quoted},
+    disassembly::{
+        descriptors::References,
+        presentation::{DisplayContext, quoted},
+        resolution::Resolution,
+    },
     program::verified::VerifiedBytecodeProgram,
 };
 use kagari_common::{
@@ -66,6 +74,44 @@ impl PreparedDisassembly {
             header,
             has_portable_mir,
         })
+    }
+
+    /// Writes selected function bodies and their referenced descriptors offline.
+    ///
+    /// Resolves the optional exact name or `@m:f` selector before emitting anything.
+    /// All bytecode was validated during preparation, including unselected bodies.
+    /// Instruction numbers are function-local indices, not encoded byte offsets.
+    /// Returns selection or writer errors immediately; the caller owns flushing.
+    pub fn write_disassembly(
+        &self,
+        writer: &mut impl Write,
+        selector: Option<&str>,
+    ) -> Result<(), DisassemblyError> {
+        let selected = self.select(selector)?;
+        let program = self.program.program();
+        let context = DisplayContext {
+            definitions: self.program.definitions(),
+        };
+        self.write_summary(writer).map_err(DisassemblyError::Io)?;
+        let resolution = Resolution::new(program, context.definitions);
+        let references = References::collect(&resolution, &selected);
+        references
+            .write(writer, &context, &resolution)
+            .map_err(DisassemblyError::Io)?;
+        let mut previous_module = None;
+        for (m, f) in selected {
+            if previous_module != Some(m) {
+                writeln!(
+                    writer,
+                    "\nmodule @{m}: {}",
+                    context.module(&program.modules[m].identity)
+                )
+                .map_err(DisassemblyError::Io)?;
+                previous_module = Some(m);
+            }
+            body::write_body(writer, &context, &resolution, m, f).map_err(DisassemblyError::Io)?;
+        }
+        Ok(())
     }
 
     /// Borrows immutable bytecode evidence, including its retained definition table.
@@ -168,9 +214,10 @@ impl PreparedDisassembly {
 /// An offline preparation or exact function-selection failure.
 ///
 /// Display escapes artifact/selector text, including nested validation diagnostics.
-/// IO errors are returned directly by the writing methods instead.
+/// Full disassembly wraps IO errors; summary/directory methods return them directly.
 #[derive(Debug)]
 pub enum DisassemblyError {
+    Io(io::Error),
     Decode(ArtifactCodecError),
     Identity(DefinitionMappingError),
     Validation(Box<ArtifactValidationError>),
@@ -186,6 +233,11 @@ pub enum DisassemblyError {
 impl fmt::Display for DisassemblyError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Io(error) => write!(
+                f,
+                "cannot write disassembly: {}",
+                quoted(&error.to_string())
+            ),
             Self::Decode(error) => write!(
                 f,
                 "disassembly decode failed: {}",
@@ -226,6 +278,7 @@ impl fmt::Display for DisassemblyError {
 impl Error for DisassemblyError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Io(error) => Some(error),
             Self::Decode(error) => Some(error),
             Self::Identity(error) => Some(error),
             Self::Validation(error) => Some(error.as_ref()),

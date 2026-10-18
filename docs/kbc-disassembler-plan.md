@@ -1,10 +1,10 @@
 # KBC disassembler plan
 
-Status: implementation authorized; DA01 complete, DA02 next. The selected scope is
+Status: implementation authorized; DA01 and DA02 complete, DA03 acceptance next. The selected scope is
 **bytecode instruction inspection**, not source decompilation. The
 [roadmap](implementation-roadmap.md#kbc-disassembly) owns activation and queue
 placement; this document owns DA01-DA03, output decisions, acceptance and the
-progress ledger. Proposed commands and APIs below are not implemented behavior.
+progress ledger. DA02 implements the commands and output contract below.
 
 ## Outcome and scope
 
@@ -431,7 +431,7 @@ in this ledger rather than relying on ignored files.
 - [x] Design review against JDK 25, LLVM 22.1.0, Lua 5.4.9 and WABT 1.0.37;
   resolved scope/metadata/reference-work gaps within DA01-DA03 without production edits.
 - [x] DA01: offline boundary and output vocabulary.
-- [ ] DA02: complete renderer and CLI.
+- [x] DA02: complete renderer and CLI.
 - [ ] DA03: focused acceptance and documentation handoff.
 
 DA01: `PreparedDisassembly::from_bytes` owns offline decode/import/full verification
@@ -458,3 +458,34 @@ snapshot mismatch after adding recorded effects was corrected; all 13 pass.
 `cargo fmt --all -- --check`, workspace all-target Clippy with `-D warnings`, and
 `git diff --check` passed. No known carried build failures. Full test/backend/
 platform coverage remains CI-only. No runtime or performance claim is made.
+
+DA02: full streaming rendering covers all 41 instruction variants and nine call
+kinds, nested numeric/iteration/runtime operations, call contracts and witnesses.
+One borrowed per-output resolution index serves descriptor collection and both
+instruction/descriptor contract rendering. Interface dispatch includes its declared
+member and declaration signature without inventing a concrete receiver target.
+Referenced constants/layouts/interfaces/imports/module slots are emitted once.
+Path output deliberately uses all retained executable `PathRecord` fields (slot,
+fingerprint, physical types, readonly access and escaped name); it does not rebuild
+host schemas to expand source declarations. The initial extra declaration-expansion
+attempt repeated semantic admission and has been removed, not cached.
+
+Body output preserves physical/semantic facts, roots, entry mappings, stored order,
+labels, indexed duplicate/unsorted debug records and half-open local names. CLI
+supports full/list/selection modes with bounded file IO, escaped errors, no runtime,
+and fallible buffered output/final flush. Pure formatting fixtures cover enum
+vocabulary; separate verified fixtures cover admission and debug/dispatch boundaries.
+
+DA02 local validation:
+- `cargo test -p kagari-bytecode disassembly --lib`: 40 passed.
+- `cargo test -p kagari-cli --bin kg --no-fail-fast -- args::tests:: disassembly::tests:: tests::emits_and_runs_kbc_artifacts_through_cli_pipeline`: 10 passed,
+  including emit/run then source deletion and offline full/list/selection.
+- Structure check: 1344 Rust files, zero violations/exceptions; format check,
+  workspace all-target Clippy with denied warnings and diff check passed.
+
+Integration repairs: the GC-root fixture now uses a traced heap object rather than
+nontraced string; the CLI fixture derives main's actual slot instead of assuming
+slot zero. A path presentation fixture no longer invokes schema validation.
+Temporary missing-module errors during parallel integration are resolved. No carried
+build failures. DA03 adds verified custom-provider body acceptance and dependency
+isolation evidence, then hands off lasting documentation. Exhaustive CI remains unrun.

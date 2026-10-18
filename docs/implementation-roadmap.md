@@ -179,8 +179,8 @@ separately proposed debug/DAP modes.
 The [KBC disassembler plan](kbc-disassembler-plan.md) owns DA01-DA03: offline
 `kg disasm`, complete instruction rendering by module/function, scoped reference
 annotations, a compact function directory/selection, entry-slot/effect summaries
-and optional debug locations. Implementation is authorized; DA01 offline preparation,
-selection and presentation foundations are complete. DA02 rendering/CLI is next. Reuse bounded KBC decoding and full bytecode/envelope
+and optional debug locations. DA01 offline preparation and DA02 full rendering/CLI
+are implemented; DA03 contract acceptance and documentation handoff are next. Reuse bounded KBC decoding and full bytecode/envelope
 validation without source files, runtime construction or installed host providers.
 This is instruction inspection, not source decompilation; CFG reconstruction,
 source-like output, MIR/native browsing and editor/web integration are outside scope.
