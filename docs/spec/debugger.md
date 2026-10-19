@@ -180,6 +180,15 @@ Safe debug points include:
 The debugger must not require arbitrary pause at every VM instruction.
 This keeps interpreter, GC, host borrow, and JIT support tractable.
 
+Points and observer events refer to the final verified executable, not historical
+MIR transport instructions. Compiler selection may combine a checked scalar
+computation with its successful binding commit or a control-only comparison with
+its branch. It must retain distinct required statement/call/loop binding states;
+redundant records may share a final boundary only when those states agree. Runtime
+preparation remains one-to-one with final bytecode and cannot silently fuse its
+boundaries. Recompilation need not preserve internal PCs, observer event ordinals
+or slice/drive counts. No extra phase engine replays deleted micro-steps.
+
 ## Stepping
 
 The baseline step operations are:
@@ -217,13 +226,16 @@ Each frame includes:
 - function id
 - function name
 - source span
-- current instruction offset
+- current final executable instruction offset
 - parameter bindings
 - local bindings
 - captured bindings
 - receiver value, when present
 
 Frame ids are debugger-session values and must not be script-visible.
+A suspended caller keeps its executing call/await location rather than reporting
+its next-execution PC. Native-generated code separately retains its exact semantic
+origin ID and maps it to the final PC; see [error locations](error-reporting.md#bounds-versions-and-source-positions).
 
 ## Variable Inspection
 
@@ -232,9 +244,26 @@ Variables are resolved through debug metadata:
 - local names
 - parameter names
 - live ranges
-- register/local locations
+- source binding identities and logical `Slot` mappings
 - captured environment slots
 - source spans
+
+`LocalLiveRange::binding` identifies the source binding independently of
+`LocalLiveRange::slot`, its unified execution home. `DebugBinding::local` currently
+contains that `Slot`; the field name does not denote a separate local storage bank.
+Parameter homes come from `FunctionMetadata::parameter_slots`, never a prefix
+assumption or a debug `is_parameter` flag. Full semantic execution facts remain
+separate from debug names and copied representation layouts.
+
+Runtime preparation translates logical slots into scalar/managed bank locations.
+It includes retained binding availability in conservative liveness, so inspection
+needs no permanent local mirror; nonoverlapping scalar lifetimes may reuse storage.
+Managed slots currently remain distinct. Public `ExecutionFrame::read_slot` and
+`write_slot` reject access outside a reused logical lifetime, and `jump_to` cannot
+manufacture a later binding from an earlier alias's initialized bytes. A completed
+definition is readable at its defining PC once the owning operation publishes
+success, before successor-PC preparation. Failed operations do not publish it.
+See [public frame restrictions](execution.md#public-frame-access).
 
 The debugger may show a value as unavailable when:
 
@@ -375,12 +404,16 @@ Bytecode and artifacts must preserve enough metadata for:
 Debug metadata may be stripped only when the module is not intended to be debugged.
 If debug metadata is stripped, breakpoints and variable inspection are unavailable for that artifact.
 Local live ranges use instruction offsets with an inclusive start and exclusive
-end. A source local starts after its initializing store; parameters start at
-function entry. IR records lexical scope identity at each instruction and
-terminator. Bytecode lowering emits disjoint ranges when control-flow emission
+end, with an explicit logical `slot` and source `binding` identity. A source
+binding starts after its initializing commit (a `Move` or selected direct producer);
+parameters start at function entry. IR records lexical scope identity at each
+instruction and terminator. Bytecode lowering emits disjoint ranges when control-flow emission
 leaves and reenters a scope. The verifier checks scope ownership and range bounds;
 the debugger queries these program points rather than inferring visibility from
-source spans.
+source spans. Compiler selection rewrites these ranges and debug points to final
+PCs; optional debug records do not choose the actual failure origin. Mandatory
+`origins` and `instruction_origins` survive stripping and independently select that
+origin when several MIR points map to one instruction.
 
 ## Debug Adapter Boundary
 

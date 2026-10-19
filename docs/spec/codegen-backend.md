@@ -24,7 +24,9 @@ checked HIR --compiler source--> verified MIR --compiler core--> verified byteco
 - `kagari-abi` owns physical representations, helper signatures, native calling
   conventions, version constants, physical descriptors and executable page owners.
 - `kagari-contract` owns semantic types/layouts, checked call/operation contracts
-  and the native product's logical function, safepoint and debug metadata.
+  and the native product's logical function, safepoint and debug metadata. Native
+  logical Register/Local stack-map entries remain MIR coordinates, not the unified
+  bytecode `Slot` namespace or physical machine locations.
 - `kagari-codegen` owns the compilation interface and diagnostics. It consumes MIR
   and ABI, without runtime, bytecode, frontend or concrete backend dependencies.
 - `kagari-codegen-cranelift` owns MIR-to-CLIF legalization, host ISA selection,
@@ -54,7 +56,10 @@ must reject support when it cannot implement the verified root contract.
 
 Portable MIR carries untrusted data, never serialized trust. A native-enabled SDK
 decodes and verifies it, lowers it through compiler core and compares the canonical
-bytecode program before installation. Missing native input permits an explicit
+bytecode program before installation. Canonical equality includes deterministic
+slot placement, full semantic projection, parameter homes, selected predicate/
+constant forms, origin/PC correspondence and debug metadata, not merely a hash or
+instruction-count comparison. Missing native input permits an explicit
 unsupported decision. Invalid or inconsistent input is an error, not permission
 to execute either unvalidated representation.
 
@@ -113,11 +118,28 @@ The current zero-argument scalar entry uses the C ABI:
 Runtime translates them into values or structured failures. Cranelift stores fields
 at ABI-defined offsets rather than assuming the layout of runtime Rust `Value`.
 
-At each executable point, the scalar backend calls the execution-poll helper using
-its sealed logical offset. Runtime validates and records the location, checks
-sticky termination/cancellation and visits a GC safepoint before checked arithmetic.
-Errors retain their correct source origin. There are no logical charges or
-charge-only checkpoints; optimizers retain actual effects and required safepoints.
+At each supported MIR instruction and terminator, the scalar backend calls the
+execution-poll helper with the sealed point's `logical_offset()`: a function-local
+semantic origin ID, not the selected bytecode PC. `ExecutableSafepoint` and trap
+`instruction_offset` fields use this same origin coordinate. Runtime installation
+bounds these references by `FunctionMetadata::origins.len()`; invocation resolves
+`origins[id].instruction` to record the final PC and retains the exact native ID in
+`ExecutionFrame::native_origin()`. It checks sticky termination/cancellation and
+visits a GC safepoint before checked arithmetic.
+
+Compiler selection may map several MIR origins to one final bytecode instruction.
+The mandatory mapping survives debug stripping; `instruction_origins` chooses the
+actual origin for an ambiguous interpreter PC, while a native poll identifies its
+own exact MIR origin. Missing coordinates never borrow another origin's location.
+Source-free AOT validates manifest origin coverage against these same facts without
+MIR. See [bytecode origins](bytecode.md#executable-origins-and-final-pcs).
+
+Interpreter observation/slices consume actual final bytecode boundaries; the
+MIR-based scalar backend does not replay selected bytecode transport. Equal event
+counts, PC numbers or drive counts across recompilation/tiers are not a contract.
+Effects, required safepoints, exact failures and success-only commits remain
+preserved. There are no logical charges or charge-only checkpoints, general phase
+engine or cancellation-policy change.
 
 Allocation, host access, borrows, declared interface checks, reflection, paths, calls and
 future GC-bearing native operations must use the shared runtime contracts. Their

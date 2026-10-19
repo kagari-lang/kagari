@@ -137,6 +137,11 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
     ));
     {
         let mut frame = stack.current_mut().unwrap();
+        assert_eq!(
+            frame.read_slot(&runtime, Slot::new(0)).unwrap(),
+            Value::I32(7),
+            "a successful slice publishes the first definition before PC preparation"
+        );
         frame.prepare_instruction();
         assert_eq!(
             frame.read_slot(&runtime, Slot::new(0)).unwrap(),
@@ -175,6 +180,11 @@ fn public_frame_access_preserves_reused_binding_lifetimes_and_initialized_entry(
     ));
     {
         let mut frame = stack.current_mut().unwrap();
+        assert_eq!(
+            frame.read_slot(&runtime, Slot::new(1)).unwrap(),
+            Value::I32(9),
+            "the completed replacement is visible at its defining PC"
+        );
         frame.prepare_instruction();
         assert_eq!(
             frame.read_slot(&runtime, Slot::new(1)).unwrap(),

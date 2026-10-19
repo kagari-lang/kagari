@@ -443,9 +443,15 @@ another disposition of its collection timing gate. The user subsequently authori
 implementation and one commit per phase. BO01 froze the current baseline and
 settled the executable-boundary/slot/proof design; BO02 replaced the slot contract
 and passed its focused correctness/measurement gates. BO03 added general
-predicate branches and prepared scalar-constant operands. BO04 remains open:
-unrestricted integrated timing failed 16 of 43 gates despite targeted arithmetic/
-branches passing; one fixed-P-core diagnosis is predeclared in the plan.
+predicate branches and prepared scalar-constant operands. BO04 remains blocked:
+initial unrestricted timing failed 16/43 gates. One fixed-P-core diagnosis and a
+bounded completion-publication ownership repair produced original 7/7 and forms
+12/12 passes, but four of 24 lifecycle rows still exceed 1.05. The
+[measurement report](performance-baseline.md#bytecode-slot-and-operand-evaluation-windows-2026-10-19)
+records arithmetic/branches ratios 0.69181/0.71995, passing setup/size/retained-byte
+budgets and the exact residual failures. Required local correctness/code-quality
+checks pass; full CI is unrun. Do not mark the plan complete or add another tuning
+phase without an explicit scope decision; earlier failed evidence remains visible.
 
 Use a current-revision baseline and separate progress/acceptance ledger. The old
 plan retains its outstanding results; BO acceptance neither closes IP12 nor requires

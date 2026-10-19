@@ -31,8 +31,8 @@ Artifacts may be used by:
 
 Current products use KBC format v115, `kagari-runtime-abi-v138`, `KMIR` v13
 and runtime-helper ABI v6. Native bindings use module-qualified declaration IDs;
-the provider descriptor and its separate per-contract version are removed. Older
-products are rejected before execution without a migration reader.
+the provider descriptor and its separate per-contract version are removed. Unsupported versioned products are rejected before execution without a migration
+reader. Unpublished schema changes below retain these identifiers, not old readers.
 
 Integer identities, signatures and scalar layouts use only fixed-width i8/i16/i32/i64
 and u8/u16/u32/u64. Standard lengths, indices and logical counts use u64. Products
@@ -122,6 +122,46 @@ synchronously on shared frames; results remain rooted across allocation/reentry.
 Cooperative cancellation and individual mutation commit rules remain explicit.
 Native payloads trace retained script values/callables. Artifacts contain portable
 contracts, not live heap state, Rust references or function pointers.
+
+### Unified executable slots and origins
+
+Current function records encode `slot_count: u32`, one `slots` representation vector,
+explicit `parameter_slots` and a separate `BytecodeSemanticSlots` projection. `Slot`
+is a checked u32 identity, not either half of a local/register split. Counts and
+vectors are bounded before decoding/verification; parameter homes must be distinct,
+in range and compatible with physical and retained semantic signatures. Entry
+initializes only those homes. Bounded CFG verification checks initialized reads and
+semantic/access facts through writes, joins and loops for ordinary as well as
+suspendable functions. Full nominal/reference/generic/protocol/numeric facts remain
+independent of shared physical representations; missing facts are not unchecked Any.
+MIR retains its own semantic locals/temporaries and is not the bytecode slot schema.
+
+Canonical instructions include `BinaryOperands` and `PredicateBranch` with
+`ScalarOperand::Slot` or `Constant { constant: ConstantId, ty: BuiltinType }`.
+Constants reference the canonical pool and preserve exact numeric width/range and
+float bits. Predicate records retain the original comparison, explicit `negated`
+Boolean polarity and both final-PC targets; polarity is not ordered-predicate
+inversion. Ordinary comparison protocol and object-identity restrictions apply.
+No literal/immediate encoding rule or second numeric implementation is introduced.
+
+Mandatory `origins: Vec<InstructionOrigin>` retains semantic MIR emission ordinals
+as origin IDs and maps them monotonically, without final-PC gaps, onto the final
+instruction stream. Each record retains its own span and optional coordinates.
+`instruction_origins` selects exactly one actual origin per ambiguous many-to-one
+PC group, ordered by PC; unique-origin PCs need no override. Canonical encoding and
+decoding validate this selection independently of optional debug data. Removed
+transport origins are not executable PCs or implicit actual-origin choices.
+Native safepoint/trap references use origin IDs, not final-PC bounds; source-free
+[AOT loading](aot.md#bundle-and-trust-contract) checks them against this carried
+mapping without MIR or source. The [bytecode contract](bytecode.md#executable-origins-and-final-pcs)
+owns the detailed mapping rules.
+
+`LocalLiveRange` carries source `binding` identity separately from `slot` and final-PC
+availability. Runtime-only bank allocation and prepared scalar sites are derived
+from verified code, never serialized live locations, heap handles or kernel pointers.
+These implemented contracts are independent of blocked BO04 performance acceptance.
+The unpublished replacement keeps identifiers unchanged and invalidates obsolete
+artifacts/caches rather than adding an old-schema reader.
 
 ## Offline disassembly validation
 
@@ -337,7 +377,8 @@ bytecode carries no unresolved source declaration lookup.
 
 Verification metadata includes:
 
-- register and local layouts
+- unified logical slot representations, full semantic projection and explicit parameter homes
+- mandatory origin-to-final-PC mappings and actual-origin choices
 - instruction effect metadata
 - control-flow target metadata
 - safepoint metadata
@@ -372,14 +413,18 @@ It may include:
 - local names
 - parameter names
 - captured binding names
-- local and captured value live ranges
-- frame layout metadata
+- binding identities, logical slot mappings and half-open final-PC live ranges
+- captured value metadata and copied debug frame layouts
 - type names
 - path names
 - line tables
 
 Debug metadata may be stripped from production artifacts.
-Stripping debug metadata must not change execution semantics.
+Stripping debug metadata must not change execution semantics. Mandatory executable
+origin records/choices, parameter homes, semantic contracts and root layouts are
+not this optional section and cannot be discarded with names or breakpoint tables.
+Physical scalar reuse respects retained binding availability but does not require
+permanent debug storage; managed slots currently remain distinct.
 
 ## Signatures and Trust
 

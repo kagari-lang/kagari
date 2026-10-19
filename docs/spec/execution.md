@@ -143,11 +143,43 @@ preparation and must reproduce the same complete bytecode program canonically.
 This means:
 
 - interpreter behavior follows the verified bytecode operations and metadata
-- JIT compilation preserves the same effects, charges, traps and value contracts
+- JIT compilation preserves effects, required safepoints, traps and value contracts
 - runtime metadata attaches to modules, functions, and program points
 - source analysis is absent from artifact loading and native preparation
 
-Bytecode remains a distributable, verified execution product.
+Bytecode remains a distributable, verified execution product. Interpreter functions
+use a checked u32 logical `Slot` namespace, explicit `parameter_slots` and a full
+semantic projection distinct from physical representations. MIR retains semantic
+locals/temporaries; native backends consume those verified MIR facts rather than
+recovering them from bytecode slot placement. See [bytecode](bytecode.md#execution-model).
+
+Observer events, per-instruction cancellation/GC checks and nonzero interpreter
+slices consume the final verified executable's actual instructions. Deterministic
+compiler selection may remove transport, choose an atomic direct destination, or
+combine a control-only comparison with its branch. Runtime preparation remains
+one-to-one with that final input and may not skip boundaries still present there.
+Recompilation need not preserve internal PCs, event/cancellation ordinals or drive
+counts. Required statement/call/loop states, left-to-right once-only evaluation,
+trap order, completed side effects and success-only mutation commits remain intact.
+
+For example, a selected `x = x + y` reads both homes and commits `x` only if checked
+addition succeeds; overflow leaves its old value. A `PredicateBranch` applies
+explicit Boolean polarity to its original comparison, with no published temporary
+Boolean or ordered-inverse substitution that would change NaN behavior. Removed
+micro-steps do not require synthetic pending-store/successor phases. Existing
+call/await continuations still own suspension and once-only completion. There is
+no general phase engine, execution charging or cancellation-policy change.
+
+Mandatory semantic origin IDs are separate from final PCs. Interpreter traces select
+the actual origin of the selected instruction; native polls/traps carry their exact
+MIR origin and runtime maps it to a final PC. Neither optional debugger stripping
+nor source-free loading can erase this correspondence. See
+[origin metadata](bytecode.md#executable-origins-and-final-pcs).
+
+These are implemented contracts, independent of integrated performance acceptance.
+BO04 performance remains blocked after the bounded diagnosis and runtime owner
+repair; the [active plan](../bytecode-optimization-plan.md) owns the gate and remaining
+scope. Documenting these current contracts does not claim full acceptance.
 
 ## Bytecode Artifact Format
 
@@ -410,7 +442,11 @@ Runtime borrow. `drive` borrows the runtime for one exclusive activation and ret
 `Runnable`, `Waiting` or `Complete(Result<RootedValue, VmError>)`. Its nonzero
 instruction slice is a scheduling interval; native calls remain cooperative and a slice may overrun
 until all transient resources have left. Synchronous execute/reentry uses the same
-frame store and interpreter without host-visible slice exits.
+frame store and interpreter without host-visible slice exits. The slice counts
+actual final executable boundaries, not removed transport or semantic-origin count;
+a closed managed handoff/cold transition does not consume a second instruction.
+Actual waits are polled before checking slice exhaustion. Native completion roots
+its result before a runnable exit and is not reinvoked on resume.
 
 Independent roots retain their own frames, cancellation, code pins and call-depth
 state. Runtime current call depth is restored for the selected root and is zero
@@ -430,6 +466,39 @@ Native and script Future waits use this same driver. Source `async`/`.await` is
 implemented through checked cold factories and resume bodies. Host Task scopes
 and shared waits use the same driver. Script `scope.spawn(factory)` and `task.cancel()`
 are ordinary registered methods using transactional admission and cooperative cancellation.
+
+## Public frame access
+
+`ExecutionFrame::read_slot(runtime, Slot)`, `write_slot(runtime, Slot, Value)` and
+`jump_to(runtime, offset)` address the current final executable, not historical
+local/register namespaces or PCs. They retain runtime/session/window ownership,
+bounds, heap identity and incoming representation/domain validation. Reuse guards
+also distinguish a completed logical definition from an initialized physical alias.
+Unavailable scalar inspection otherwise retains its `Value::Unit` result; scalar
+execution kernels reject uninitialized operands. Manual redirection never supplies
+the normal-entry verifier's initialization proof.
+
+Function-owned immutable reuse guards restrict external access to a reused slot's
+logical lifetime. A physical initialization flag for an earlier alias does not
+initialize a later logical value. Reads at a nonparameter lifetime's defining PC
+require successful completion; explicit parameter homes retain admitted entry
+values. Writes cannot overwrite another logical lifetime. `jump_to` admits declared
+CFG arms and completed-current reexecution, but other side entries must not require
+a reused nonparameter lifetime; entry-initialized parameters may be preserved only
+while still in their lifetime. Defensive runtime reads remain necessary.
+
+The frame keeps next-execution PC, executing/suspended PC, completed publication and
+native origin separately. `instruction_offset()` reports the executing point when
+present; `prepare_instruction()` clears that observation/completion/native state
+only when the frame resumes. A suspended caller therefore stays at its call origin.
+
+Completion publication is owned by the successful operation: the closed-region
+owner marks slice/safepoint/return completion while its frame is admitted; cold
+constant/tuple transitions, field operations and fixed native operations publish
+after their checked destination/mutation succeeds. A reused destination is then
+readable at its defining PC even before successor-PC preparation. The outer region
+wrapper does not reacquire the current frame solely to mark completion. No marker
+is published for failed work, and this is not per-scalar-instruction phase tracking.
 
 ## Owned async execution
 

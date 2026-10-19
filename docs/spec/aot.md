@@ -71,7 +71,16 @@ The bounded manifest format includes format/build identifiers, runtime/helper AB
 backend configuration, target/pointer width/CPU requirements, BLAKE3 digests of
 the exact bytecode and image, the selected main/public path, file-local module and
 function slots, the exported symbol, scalar safepoints and overflow origins.
-Slots are resolved against verified bytecode, never process-local definition IDs.
+Module/function slots are resolved against verified bytecode, never process-local
+definition IDs. Safepoint and overflow entries instead name function-local semantic
+MIR origin IDs, not final executable PCs. The manifest requires nonempty contiguous
+safepoints `0..N`, strictly increasing in-range overflow origins, and the loader
+requires `N == function.metadata.origins.len()` alongside the checked entry signature
+and suspension restriction. Bytecode validation independently checks the bounded,
+ordered origin-to-final-PC mapping and actual-origin selections. These checks occur
+before opening the DLL, without portable MIR, source text or compiler reconstruction.
+An origin reference is never accepted merely because its numeric value is an
+in-range final PC.
 Manifest, image and bytecode reads have byte limits; collection counts are bounded
 before decoding elements. Unknown formats/contracts, malformed metadata, mismatched
 digests/entries and unsupported CPU/target requirements are rejected before loading.
@@ -98,7 +107,12 @@ The physical [native ABI](codegen-backend.md#links-and-runtime-abi) passes a
 per-invocation context containing an opaque runtime pointer and immutable helper
 table. JIT and AOT call through this table; persistent output contains no build
 process address. Scalar polling, checked arithmetic, trace origins and frame/root
-cleanup remain owned by the existing runtime. This context does not define the
+cleanup remain owned by the existing runtime. Native polls preserve the exact
+origin ID and map it through `origins[id].instruction` for the executable location;
+interpreter fallback uses the explicit actual-origin choice at an ambiguous PC.
+Both retain the right span even after many-to-one selection or optional debugger
+stripping. Absent native coordinates remain absent, rather than being filled from
+another origin sharing the PC. This context does not define the
 future general script-call or continuation model.
 
 ## Unpublished build compatibility
@@ -107,7 +121,10 @@ ABI/format identifiers remain present without a compatibility-version bump for
 this internal migration. A conservative build-contract fingerprint hashes normalized
 source contents and Cargo manifests for the physical/executable/runtime/compiler/SDK
 closure, the SDK fingerprint build script and the workspace lockfile. Build and load
-must use the same fingerprint. Changes invalidate development bundles instead of
+must use the same fingerprint. Unified bytecode slots, explicit parameter homes,
+full semantic projection, selected operand/predicate forms and mandatory origin
+metadata are the current unpublished schema, not optional compatibility extensions.
+Changes invalidate development bundles instead of
 supporting alternate readers. Comments/test-source edits in that closure can also
 invalidate products; this is deliberately conservative, not a compilation cache.
 

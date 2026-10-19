@@ -3,7 +3,8 @@
 ## Status, priority and ownership
 
 **Status: active, implementation and one commit per phase authorized on 2026-10-19;
-BO01-BO03 completed; BO04 integrated timing acceptance is under diagnosis.**
+BO01-BO03 completed; BO04 is blocked after its bounded diagnosis/repair: four
+owned-lifecycle timing gates remain above 1.05.**
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. This document owns BO01-BO04: general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -736,3 +737,66 @@ suites once; no threshold, fixture, sample count or favorable sample selection m
 change. If failures remain, diagnose the changed execution model using this evidence
 and record rejection/blockage or seek a scope decision; do not start a tuning queue
 or claim unrestricted acceptance from a more favorable isolated sample.
+
+### BO04 — 2026-10-19: evaluated, acceptance blocked
+
+Completed the integrated evaluation and one bounded architecture diagnosis/repair;
+**BO04 is not checked complete**. The lasting
+[measurement report](performance-baseline.md#bytecode-slot-and-operand-evaluation-windows-2026-10-19)
+records environment, image identities, fixed estimators, complete retained-memory
+scope/results, failed unrestricted evidence and exact outstanding gates without
+requiring ignored report files.
+
+Fixed-P-core diagnosis of the unchanged BO03 image passed original seven but left
+forms_native at 1.052035 and single-cancel admission/retirement at 1.090909/1.10.
+Source inspection isolated added duplicate frame admission: execute_region reacquired
+a frame solely to set completed just after an existing result-publication borrow.
+The one repair moves completion into the owning admitted closed-region/native/
+constant/tuple/field publication borrow. No frame borrow survives a callback; errors
+do not mark completion. Cancellation, dynamic value/window checks, source origins,
+PC/slice rules and public side-entry guards are unchanged. No new field, enum layout,
+collection optimization or scalar-kernel semantic path was added.
+
+Affected regression selection passed: 21 runtime frame/cursor/budget cases (one new
+Unit-native fixture corrected and only that failure rerun), 14 VM native-control/
+reentry/owned/debug/field/tuple cases, two SDK nested/shared layout cases. A temporary
+fixture compile error was fixed before tests; no carried compilation/correctness
+failure remains. Required workspace Clippy, structure (1,388 files, zero violations),
+fmt and diff checks passed. Earlier passing unaffected numeric/source-free/native/AOT
+coverage remains evidence; exhaustive workspace/backend/platform checks are CI-only.
+
+The final ordinary image is 27,816,448 bytes (1.00552x BO01), SHA-256
+`7992458ac9914ffc0869daf69f442727b3d86989077ae9edcd15644300e3b9b8`.
+All three post-repair suites use that same image, original BO01 baseline, unchanged
+workload/lock hashes and fixed CPU2/0x4 procedure. Reports:
+
+- `target/lua-comparison/20261019T185615Z-paired/results.json`: original 7/7 pass;
+  arithmetic 0.6918111 (range 0.6769153..0.7130965), branches 0.7199509
+  (0.5044933..0.8225882), meeting the fixed 0.90/0.95 targets.
+- `20261019T190822Z-forms-paired/results.json`: forms 12/12 pass;
+  forms_native 0.9616903 after repairing its repeated publication admission.
+- `20261019T191001Z-controls-paired/results.json`: controls 20/24 pass. Remaining:
+  admit/roots_1_tail_complete 1.0769231; collect/roots_256_forward_cancel 1.0681818;
+  collect/roots_256_random_cancel 1.0677966; retire/roots_1_tail_cancel 1.10.
+  Checker returns failure. All result checksums pass, not all performance gates.
+
+The single-root differences are about 0.1 us, but no complete cost attribution proves
+that all residual failures are noise. No favorable retry, reduced limit or expanded
+local tuning is authorized after this bounded disposition. Further implementation
+requires an explicit scope decision rather than another automatic phase.
+
+Diagnostic total setup passes (original 1.015981, forms 1.010372, limit 1.10).
+Complete affected representation plus actual frame-bank storage passes all eight
+selected rows, ratios 0.852970..1.050934; stricter no-session-padding maximum
+1.068820. All sixteen diagnostic lifecycles end at zero net bytes and selected
+warmed native/script-window allocation contracts show no new allocations. Temporary
+memory instrumentation used an isolated BO01 archive/default target and was removed;
+ordinary builds were restored. Its later completion-owner repair does not change
+measured storage layouts or capacity policy. This is not a full retained workload
+matrix, RSS/OOM proof or permission to treat timing failures as passes.
+
+Implemented contracts have been transferred to architecture/specification owners.
+The plan remains active solely for its unresolved integrated acceptance and finite
+scope decision; it is not retired, historical IP12 remains separate, and CI/Lua
+parity are not claimed. The BO04 commit records the repair and blocked evaluation,
+not a completed acceptance checkpoint.

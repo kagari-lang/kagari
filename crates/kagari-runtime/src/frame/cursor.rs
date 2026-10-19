@@ -53,20 +53,12 @@ impl ExecutionStack<'_> {
             )
             .into());
         }
-        let result = match self.execute_admitted_region(runtime, remaining)? {
+        match self.execute_admitted_region(runtime, remaining)? {
             CursorExit::Region(exit) => Ok(exit),
             CursorExit::Transition(transition) => {
                 self.complete_transition(runtime, transition, invoke_script)
             }
-        };
-        if matches!(
-            &result,
-            Ok(RegionExit::Slice | RegionExit::Safepoint | RegionExit::Return(_))
-        ) {
-            let mut frame = self.current_mut()?;
-            frame.completed = frame.executing;
         }
-        result
     }
 
     fn execute_admitted_region(
@@ -115,7 +107,7 @@ impl ExecutionStack<'_> {
             .functions
             .get(function.index())
             .ok_or_else(|| runtime.resources().quarantine("invalid execution function"))?;
-        ExecutionCursor {
+        let result = ExecutionCursor {
             loaded,
             function,
             links: links.as_deref(),
@@ -125,7 +117,14 @@ impl ExecutionStack<'_> {
             runtime,
             session: &session,
         }
-        .execute_region(remaining)
+        .execute_region(remaining)?;
+        if matches!(
+            &result,
+            CursorExit::Region(RegionExit::Slice | RegionExit::Safepoint | RegionExit::Return(_))
+        ) {
+            frame.completed = frame.executing;
+        }
+        Ok(result)
     }
 }
 

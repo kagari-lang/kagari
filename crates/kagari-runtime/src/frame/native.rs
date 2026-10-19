@@ -144,8 +144,9 @@ impl ExecutionStack<'_> {
             ),
         };
         let value = callback.function.invoke(&mut context)?;
+        let mut frame = self.current_mut()?;
         if let Some(destination) = operation.destination {
-            self.current_mut()?
+            frame
                 .slots
                 .set_location(&runtime.gc, destination, value)
                 .ok_or_else(|| {
@@ -154,6 +155,7 @@ impl ExecutionStack<'_> {
                         .quarantine("invalid native return destination")
                 })?;
         }
+        frame.completed = frame.executing;
         Ok(())
     }
 }

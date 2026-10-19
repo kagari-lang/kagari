@@ -16,6 +16,170 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Bytecode slot and operand evaluation, Windows 2026-10-19
+
+**Implementation is present, but BO04 performance acceptance is blocked.** The
+[independent bytecode plan](bytecode-optimization-plan.md) owns the bounded decision
+and outstanding gate. This result neither completes historical IP12 nor establishes
+Lua parity. Current slot/origin/operand behavior is specified in
+[bytecode](spec/bytecode.md) and [architecture](architecture.md#compilation-pipeline).
+
+### Images, environment and procedure
+
+Baseline production revision: `06172d5e1aee6dca0b8f88fe46fc9726d8992b85`;
+ordinary executable SHA-256
+`ba2c5e44beba5fee14800275483585c7d3a862f02c48503433f08ed042afc740`,
+27,663,872 bytes. BO02 is `6257833c`, BO03 is `9e739cd7`; the final image additionally
+contains the bounded BO04 completion-publication ownership correction. Its SHA-256
+is `7992458ac9914ffc0869daf69f442727b3d86989077ae9edcd15644300e3b9b8`,
+27,816,448 bytes, 1.00552x baseline (limit 1.02). Cargo.lock SHA-256 is
+`6fe327a7801e48778ae27a74764b556250f9c9007a0528e4fa3d38d424099009`.
+
+Windows 11 10.0.26300, Intel Core i9-12900K, 24 logical CPUs, 66,843,692 KiB visible
+memory; rustc 1.99.1 (`58cf8f9c3`, LLVM 23.1.1), Cargo 1.99.1 (`5f94df478`),
+x86_64-pc-windows-msvc. Workspace release profile, default target and build
+parallelism, Kagari source/native and vendored Lua 5.4.9 via mlua lua54/vendored;
+no build flags/job overrides. Existing build cache was reused, with fresh process,
+engine and runtime state for each run; execution follows three warmups. Compilation,
+verification, preparation and linking are separate diagnostics, not execution time.
+Builds/tests/diagnostics did not overlap timing.
+
+Use the unchanged [benchmark procedure](../benchmarks/lua-comparison/README.md#beforeafter-workflow):
+seven alternating process pairs, eleven checked samples per process, sole estimator
+median(candidate process median / baseline process median). Preserve ranges, not a
+second estimator or favorable sample selection. Workload SHA-256 values remained:
+original `ce648a8dc75951a9f148ff3ce1fd0497c44b93e21ffb2b7324fc63f9e1eaaaee`,
+forms `63da18bd97ed4e11e9cdb6a3fb8d77c7903031559020bc452dc1d90018f8808f`,
+controls `8570e946697b691a2989188686033c8be32af26f4c2e7a35a017af464d227492`.
+
+Initial unrestricted BO03 runs failed 16/43 execution/lifecycle rows, with pair
+ranges as wide as approximately 0.35..3.08. One predeclared scheduling diagnosis
+pinned the unchanged image pair to logical CPU 2, affinity mask 0x4: Windows
+GetLogicalProcessorInformationEx reports this as class-1 P-core/SMT (core mask 0xC),
+versus class-0 E-cores. Both engines/processes inherit the same affinity. Forty of
+43 rows then passed; forms_native 1.05204 and single-cancel admission/retirement
+1.09091/1.10 still failed. Unrestricted failures were not converted into passes.
+
+Source diagnosis found an added post-region `current_mut()` solely to record
+completion, repeating validated frame admission immediately after native result
+publication. The one bounded repair assigns completion to the existing closed-region
+or result-publication owner, within its current frame borrow. It retains post-callback
+admission, value/window checks, exact executing PC, cancellation and slice rules.
+There was no collection optimization, poll reduction, inline-hint sequence or new
+fast interpreter. The final comparison below reruns affected suites after that code
+change, using the same CPU, image baseline, sample count and thresholds.
+
+To reproduce, freeze the ordinary baseline at the specified revision using the
+three driver modes, then run each mode with `--baseline-executable` on the candidate:
+
+```text
+uv run python scripts/benchmark_lua.py --interpreter-only --freeze-baseline target/bytecode-optimization/before
+uv run python scripts/benchmark_lua.py --source-forms --interpreter-only --freeze-baseline target/bytecode-optimization/before
+uv run python scripts/benchmark_lua.py --execution-controls --freeze-baseline target/bytecode-optimization/before
+```
+
+For the fixed-CPU experiment, set parent-process affinity with Windows
+`SetProcessAffinityMask(GetCurrentProcess(), 0x4)` before launching each driver;
+children inherit it. The ordinary driver does not set affinity itself. Check the
+original paired report with `--target arithmetic=0.90 --target branches=0.95` and
+the forms/controls reports with the unchanged default 1.05 limit. Do not replace
+these thresholds or hide unrestricted results.
+
+### Final timing and remaining failures
+
+All checksums pass; 39/43 timing gates pass, **four controls fail**. Original seven
+and forms twelve all pass. Selected ratios and complete failure list:
+
+| Row | Paired median ratio | Pair min..max | Gate |
+| --- | ---: | --- | --- |
+| arithmetic | 0.691811 | 0.676915..0.713096 | <=0.90, pass |
+| branches | 0.719951 | 0.504493..0.822588 | <=0.95, pass |
+| maps | 1.005201 | 0.946474..1.043956 | <=1.05, pass |
+| fibonacci | 1.008655 | 0.931481..1.061990 | <=1.05, pass |
+| forms_direct | 0.668096 | 0.617169..0.699187 | <=1.05, pass |
+| forms_native | 0.961690 | 0.917887..0.988957 | <=1.05, pass |
+| forms_capture_cell | 1.042731 | 1.027786..1.114443 | <=1.05, pass |
+| admit / roots_1_tail_complete | 1.076923 | 0.636364..1.083333 | <=1.05, **fail** |
+| collect / roots_256_forward_cancel | 1.068182 | 0.763636..1.361111 | <=1.05, **fail** |
+| collect / roots_256_random_cancel | 1.067797 | 0.657143..1.238095 | <=1.05, **fail** |
+| retire / roots_1_tail_cancel | 1.100000 | 0.625000..1.111111 | <=1.05, **fail** |
+
+The two single-root deltas are approximately 0.1 microseconds, but that does not
+make a failed gate pass. Hybrid scheduling and quantization remain uncertainty;
+no exact cost partition establishes that all residual failures are noise. Do not
+continue favorable reruns or add a collection tuning queue. Further disposition
+requires an explicit bounded scope decision under the active plan.
+
+Diagnostic total-setup paired medians are 1.015981 original and 1.010372 forms
+(limit 1.10); ranges 0.958320..1.059369 and 0.988551..1.025129. Totals sum Kagari
+engine/runtime initialization, source-to-artifact, artifact preparation and linking
+per process where supplied. They are matched setup diagnostics, not controlled cold
+startup measurements. Lua comparison remains diagnostic: final Kagari/Lua
+arithmetic is 2.18x and branches 1.64x. No parity claim follows.
+
+### Complete affected retained bytes and allocation boundaries
+
+Separate release diagnostics compared the BO01 source archive and BO03 source using
+the same lockfile/toolchain/features and eight actual fixture/population states.
+The archive used its own default target directory, never current compiled outputs.
+The diagnostic feature was `kagari-runtime/execution-diagnostics`; ordinary timing
+images were restored afterward. The later completion-owner repair changes neither
+fields/types nor capacity policy, so these retained-layout results still apply.
+
+The existing [counting allocator](../crates/kagari-runtime/src/diagnostics/allocations.rs)
+measured net live allocation bytes and actual deallocation, not cumulative requests.
+Temporary private-owner instrumentation consumed uniquely owned snapshots and
+measured disjoint drop deltas; it was removed after measurement. To repeat the method:
+compile outside accounting using identical absolute fixture paths, perform a balanced
+PreparedProgram/runtime lifecycle, warm or park actual windows, retire roots in
+seeded out-of-order sequence, then uniquely consume and drop each owned component.
+Measure both actual canonical copies (source version and normalized user module),
+one shared prepared product, and retained banks/frame/session capacities. Credit an
+allocation only on final-owner drop; assert unique ownership rather than approximate
+Vec capacity, BTreeMap nodes or shared Arc children. Complete independent teardown
+must reach zero without subtracting process-lazy initialization from the result.
+
+The affected total includes canonical instructions/nested buffers, full semantic types,
+binding/debug and mandatory origins/actual-origin choices, slot/parameter/root/CFG
+maps, function/module-owned allocation, constants and other affected tables, hot
+prepared instructions, 48-byte scalar sites, layouts/reuse guards/call/field/index/
+await tables, root execution links/constants, scalar/managed bank capacities,
+initialization/window/free-link/allocation-order capacities and actual frame/session
+backing storage. Distinct normalization copies count twice, shared prepared storage
+once. Unchanged stdlib identity/declaration residue and the unchanged 2,892-byte
+program-layout cache are reported separately, **not denominator padding**. SDK
+retirement bytes are also identical per fixture; all six portable MIR payloads are
+byte-identical and not used to dilute representation growth.
+
+| Selected state | BO01 affected bytes | BO03 affected bytes | Ratio |
+| --- | ---: | ---: | ---: |
+| arithmetic | 38,346 | 32,708 | 0.852970 |
+| branches | 56,061 | 49,743 | 0.887301 |
+| forms_direct | 35,137 | 35,302 | 1.004696 |
+| forms_helper | 40,346 | 35,868 | 0.889010 |
+| forms_capture_cell | 44,282 | 42,460 | 0.958855 |
+| owned, 1 complete | 30,108 | 27,226 | 0.904278 |
+| owned, 32 complete | 89,876 | 90,666 | 1.008790 |
+| owned, 256 cancel | 543,252 | 570,922 | 1.050934 |
+
+All selected rows satisfy 1.10; even removing session-record storage from the
+denominator gives maximum 1.068820. Frame growth 240->272 bytes accounts for much
+of the large-population increase; hot instructions remain 24 bytes and scalar
+sites add 48 bytes each. Arithmetic's canonical instructions shrink 7,892->5,336
+bytes, semantic maps 9,888->4,848, while new origins cost 1,824; prepared hot code
+528->408 plus 48 site bytes. Its physical payload bank shrinks 88->72 bytes. These
+figures explain the whole-representation result without equating hot-enum size
+with retained memory. This is not RSS, allocator overhead or an OOM guarantee.
+
+All sixteen measured before/after lifecycles end at zero net bytes. Existing focused
+allocation contracts pass on both images: warmed native boundaries and script scalar
+argument/return windows have zero new allocations. Whole SDK calls retain existing
+allocations: eight warmed arithmetic calls request 56 allocations/1,472 bytes on
+both versions, not zero. Await-heavy/generic/aggregate-heavy retained workloads and
+exhaustive feature/backend/platform coverage were not measured here. Focused local
+correctness, workspace Clippy and lightweight checks pass; CI remains unrun and
+BO04 stays open because the four timing gates above are unresolved.
+
 ## Object storage overhead, 2026-10-18
 
 OM01-OM05 completed local acceptance. Native mutation revisions now belong to

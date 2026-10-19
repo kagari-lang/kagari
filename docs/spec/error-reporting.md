@@ -77,16 +77,34 @@ incomplete flag. Function names, source URIs and payload previews are limited to
 frames/locations are explicit and do not replace the original failure.
 
 Each frame copies the code fingerprint, module slot and epoch, function identity/name,
-logical instruction offset and available source range/position. Locations use
+final executable `instruction_offset`, optional `semantic_origin` ID and available
+source range/position. These are different coordinates, scoped to the retained
+function/version: an origin ID is not a bytecode PC. Locations use
 one-based lines and UTF-8 byte columns, including CRLF and non-ASCII source.
-Source URIs and line tables survive artifact loading without optional debugger
-metadata; stack reports do not consult current disk contents after hot reload.
+Mandatory `FunctionMetadata::origins` carries each semantic MIR emission ordinal's
+final PC, span and optional line/column. For a many-to-one PC, `instruction_origins`
+explicitly selects the actual interpreter instruction's origin;
+`FunctionMetadata::instruction_origin(pc)` does not choose the first removed
+transport alias. For example, when an outer read and `-y` share a selected PC,
+negation overflow must report `-y`, not the outer read's span.
+
+Native poll/trap offsets are semantic origin IDs. Runtime validates that ID against
+`origins`, maps it to the final PC and retains the exact native origin, even if
+another origin is the interpreter's selected one at that PC. Span and coordinates
+come from that same origin; absent coordinates stay absent, never filled from
+another alias's line table. Source-free AOT checks native origin references before
+image loading using the carried bytecode metadata, without MIR or source.
+
+Origin records and actual-origin choices survive optional debugger stripping.
+Retained source URIs identify their loaded version; stripped/unavailable URI data
+uses the loaded module label. Stack reports do not consult current disk contents
+after hot reload. A suspended caller reports its call/await point, not its successor.
 
 Snapshots contain no local values, GC roots or owning execution-version handles.
 Keeping a report does not retain script objects or old code. Hosts retaining the
 Result value itself must still use a rooted handle. Error trace data uses bounded
 host diagnostic memory outside the script heap-unit accounting. Native backends
-publish logical instruction positions before resource checks; unsupported Result
+publish semantic origin IDs before execution checks; unsupported Result
 operations use the existing interpreter fallback.
 
 ## Async terminal reporting

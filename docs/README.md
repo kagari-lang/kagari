@@ -57,8 +57,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Bytecode optimization](bytecode-optimization-plan.md): independently prioritized
   BO01-BO04 cover unified typed slots, direct destinations, predicate branches and
   constant operands. Implementation and phase commits are authorized; BO01 baseline
-  and BO02/BO03 implementation are complete; BO04 timing acceptance remains open.
-  Its acceptance does not
+  and BO02/BO03 implementation are complete; BO04 remains blocked by four lifecycle
+  timing gates after its bounded diagnosis/repair. Its acceptance does not
   require the older IP12 lifecycle gate to pass first.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and
   the call-stack decision are deferred until the interpreter is stable; expand

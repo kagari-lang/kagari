@@ -113,6 +113,7 @@ impl ExecutionStack<'_> {
                 .resources()
                 .quarantine("invalid prepared field ordinal")
         })?;
+        let access = operation.access;
         let read = |location: Location| {
             runtime
                 .resources()
@@ -129,7 +130,7 @@ impl ExecutionStack<'_> {
         if operation.reference.is_none()
             && let Some(ty) = operation.scalar
         {
-            let bits = if let FieldAccess::Write { value } = operation.access {
+            let bits = if let FieldAccess::Write { value } = access {
                 Some(
                     runtime
                         .resources()
@@ -153,16 +154,19 @@ impl ExecutionStack<'_> {
             };
             let layout = frame.field_layout(runtime, operation.layout_site)?;
             let Value::Struct(id) = read(operation.base)? else {
-                return Err(RegionError::TypeMismatch(match operation.access {
+                return Err(RegionError::TypeMismatch(match access {
                     FieldAccess::Read { .. } => "read_field expects struct value",
                     FieldAccess::Write { .. } => "write_field expects struct value",
                 }));
             };
-            match operation.access {
+            let slot = operation.slot;
+            drop(frame);
+            let mut frame = self.current_mut()?;
+            match access {
                 FieldAccess::Read { dst } => {
                     let bits = runtime
                         .gc()
-                        .struct_scalar(id, &layout, operation.slot as usize, ty)
+                        .struct_scalar(id, &layout, slot as usize, ty)
                         .ok_or(RegionError::TypeMismatch("struct layout or field mismatch"))?;
                     runtime
                         .resources()
@@ -181,14 +185,15 @@ impl ExecutionStack<'_> {
                 FieldAccess::Write { .. } => runtime.gc().set_struct_scalar(
                     id,
                     &layout,
-                    operation.slot as usize,
+                    slot as usize,
                     ty,
                     bits.expect("prepared scalar write"),
                 )?,
             }
+            frame.completed = frame.executing;
             return Ok(RegionExit::Safepoint);
         }
-        let action = match operation.access {
+        let action = match access {
             FieldAccess::Read { .. } => FieldAction::Read,
             FieldAccess::Write { value } => FieldAction::Write(read(value)?),
         };
@@ -209,8 +214,10 @@ impl ExecutionStack<'_> {
         } else {
             action.execute(runtime, &layout, operation.slot as usize, base)?
         };
+        drop(frame);
+        let mut frame = self.current_mut()?;
         if let Some(value) = result {
-            let FieldAccess::Read { dst } = operation.access else {
+            let FieldAccess::Read { dst } = access else {
                 return Err(runtime
                     .resources()
                     .quarantine("field access contract mismatch")
@@ -232,6 +239,7 @@ impl ExecutionStack<'_> {
                 .ok_or_else(|| runtime.resources().quarantine("invalid field destination"))?;
         }
         drop(result_root);
+        frame.completed = frame.executing;
         Ok(RegionExit::Safepoint)
     }
 }

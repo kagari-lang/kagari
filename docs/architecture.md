@@ -267,8 +267,10 @@ build-fingerprint policy.
 Native artifacts split physical `kagari-abi::native::NativeArtifact` from
 contract-owned executable function identity, logical stack maps and debug metadata.
 `NativeCompilationProduct` retains the executable page owner alongside that checked
-envelope. Register/Local stack-map entries are logical slots, not a physical native
-GC protocol. Semantic-to-slot lowering belongs to contract. Native `.kgr` rendering
+envelope. Native `ExecutableStackMapLocation::Register/Local` entries name MIR's
+logical temporaries/locals, not bytecode storage banks or a physical native GC
+protocol. Bytecode's separate unified-slot semantic projection belongs to compiler
+lowering; shared semantic validation belongs to contract. Native `.kgr` rendering
 belongs to HIR tooling and the SDK's `source` feature; runtime installations expose
 checked declaration records without generating text.
 
@@ -1364,29 +1366,61 @@ its script action instead of probing pending waits and native entry/return state
 This action is local control flow, not a second persistent session state; every
 resumed activation classifies again.
 Region exits release operand borrows before observation, collection, native callbacks,
-frame changes or parking. Synchronous native reentry must unwind back to its caller;
-the next region still admits the session/frame/window. Cancellation and debugger
-checks retain their original logical execution points. Actual waits are polled before
-the slice check. Native completion publishes its result into the traced frame before
+frame changes or parking. Completed-value publication belongs to the operation owner:
+a successful closed-region slice/safepoint/return records completion while that
+frame is still admitted; cold constant/tuple transitions, field operations and
+fixed native operations record it after successful destination/mutation publication.
+The outer region wrapper does not reacquire the current frame merely to mark
+completion. Failed operations do not publish a completed result, and completion is
+not updated per scalar micro-step. Synchronous native reentry must unwind back to
+its caller; the next region still admits the session/frame/window. Cancellation
+and debugger checks follow actual final executable boundaries, not removed compiler
+transport. Actual waits are polled before the slice check. Native completion publishes its result into the traced frame before
 the driver can park; resume consumes it through the common return protocol without
 repeating the native callback. The removed per-frame native-state probe API and VM
 region-exit forwarding enum have no compatibility replacements.
 
+Compiler bytecode lowering projects MIR semantic locals/temporaries into one
+checked u32 `Slot` namespace. `BytecodeFunction::slot_count`,
+`FunctionMetadata::slots`, explicit `parameter_slots` and `BytecodeSemanticSlots`
+carry counts, physical representations, argument homes and full retained semantic
+facts separately. Homes need not be a prefix. Scoped generic/protocol facts,
+reference access, nominal types, capture-cell roles and exact numeric widths are
+not erased to physical tags. Bounded CFG verification admits only parameter homes
+at entry and proves initialized reads and conservative semantic/access facts through
+writes, joins and loops, independently of source or MIR availability.
+
+Compiler placement forwards proven stable block-local scalar reads and redirects
+eligible adjacent scalar assignments into binding homes when full types and debug
+states agree. Inputs are read before successful commit; failure leaves the old
+home unchanged. Managed/cell/call/await and uncertain snapshots remain explicit.
+MIR's semantic namespaces and its own pass pipeline remain separate. See the
+[bytecode contract](spec/bytecode.md#semantic-projection-and-placement).
+
 VerifiedProgram derives compact physical operations once from sealed bytecode.
-Bounded control-flow liveness and conservative intervals assign reusable physical
-temporary slots without renaming canonical registers used by contract verification.
-Prepared operands directly name physical slots. Cold instructions, native views and
-frame inspection translate logical indices; named locals retain fixed debug slots.
-If the preparation work/state budget is exhausted, that function keeps distinct
-register slots. The budget is shared across the complete verified program.
-Immutable FrameLayout locations map canonical registers/locals to bank offsets,
-physical representations and direct scalar admission domains. Reused slots stay
-within one bank. A managed capture cell's semantic type describes its content;
+Bounded control-flow liveness, parameter entry, suspension uses and retained binding
+availability produce conservative physical reuse intervals without renaming logical
+slots. Prepared operands directly name bank locations; cold instructions, native
+views and public frame inspection translate logical indices. Named bindings carry
+`LocalLiveRange::binding` identity and `slot` mappings, not fixed debug storage or
+a second local bank. If the preparation budget is exhausted, allocation retains
+distinct locations; this does not decline verification. The work budget is shared
+across the verified program. Immutable runtime FrameLayout locations map logical
+slots to bank offsets, representations and scalar admission domains. Disjoint scalar
+lifetimes may reuse storage; managed slots currently remain distinct. A managed
+capture cell's semantic type describes its content;
 the slot retains the managed physical representation and cell read/write validation.
 Cold host/native/debug access materializes scalar Values on demand and validates
 incoming representations/domains. Unavailable scalar inspection produces Unit;
 executing an uninitialized operand quarantines. Frame entry reserves both banks
-before copying arguments; release clears managed roots and initialization state.
+before copying arguments into their explicit homes; release clears managed roots
+and initialization state. `ExecutionFrame::read_slot`, `write_slot` and `jump_to`
+retain runtime/window, range, initialization and representation checks. Reused-slot
+access is limited to its logical lifetime, and arbitrary side entry cannot acquire
+a later value from an earlier physical alias. A successful definition is visible
+at its defining PC once its owner publishes completion, before successor-PC
+preparation. Next-execution, executing/suspended and native-origin positions remain
+separate; see [public frame access](spec/execution.md#public-frame-access).
 
 Statically selected script, shared script/native, interface and closure calls transfer
 arguments directly between disjoint frame banks. Sealed call sites own physical source locations and the
@@ -1400,8 +1434,9 @@ returns use an opaque packet until the caller slot or public host boundary;
 shared environments and interface adapters retain their full return validation.
 Function/ModuleFunction, Shared, InterfaceMethod and ClosureRegister call sites prepare
 physical arguments and return destinations once. The sealed execution instruction
-selects a dense function-local call ordinal; canonical PCs remain the debug and
-trap locations. Module slots bind through the caller's pinned program descriptor.
+selects a dense function-local call ordinal; final bytecode PCs remain executable
+locations, with mandatory origins supplying exact diagnostic identity. Module slots
+bind through the caller's pinned program descriptor.
 Shared calls select their runtime-owned environment and retain caller-scoped
 semantic argument checks before common admission.
 Interface calls retain a `MethodInvocation` containing checked selection/application
@@ -1410,7 +1445,7 @@ receiver type descriptions. The selected receiver is a borrowed parameter prefix
 remaining parameters come directly from the caller window. Selection/application edges
 are published with the callee's program, environment and argument roots before any
 safepoint. They remain live even after optional application-cache eviction or caller
-register replacement. Retirement releases these edges with the window.
+slot replacement. Retirement releases these edges with the window.
 `RootedInterfaceMethod` is the host-retained wrapper around the same descriptor. Host
 entry validates its lease and keeps it alive until window publication; internal dispatch
 does not construct that wrapper or refresh a host root container. Host/internal arguments
@@ -1506,11 +1541,17 @@ mixed-width shift counts keep both checked domains. Source-width overflow and
 IEEE bits remain intact. These function addresses are runtime preparation data,
 never serialized artifact operands. Native public argument/result adapters remain
 Value interfaces; concrete script transfers remain raw through the caller bank.
-Scalar operands and numeric contracts are inline; identity-bearing types, strings,
-call arguments and other variable-length metadata remain in the canonical immutable
-instruction records. Their logical PC is the index, so normalization and hot reload
-do not require a second semantic description or change debug locations. The VM
-borrows these records at slow boundaries instead of cloning wide instructions.
+Ordinary scalar operands/contracts are inline. `BinaryOperands` and
+`PredicateBranch` additionally use immutable function-owned prepared scalar sites
+containing resolved constant bits, operand orientation, a shared numeric kernel and
+a store/branch destination. Typed constants retain source widths in the canonical
+pool; execution does not repeat constant lookup or numeric selection. Predicate
+polarity negates the original Boolean result, never substitutes an ordered inverse
+that would change NaN behavior. Non-scalar comparison categories keep their checked
+ordinary path. Identity-bearing types, strings, call arguments and other variable-length
+metadata remain in canonical immutable instruction records. Their final PC is the
+instruction index, not the semantic MIR origin ID. The VM borrows these records at
+slow boundaries instead of cloning wide instructions.
 The runtime cursor supplies a closed nonallocating execution region: it fetches only
 sealed operations and reuses entry authority without admitting caller callbacks
 or external Values. Field instructions reference a dense function-local table of physical receiver/
@@ -1533,19 +1574,20 @@ destructor; the frame and object remain traced at the surrounding safepoints.
 The scalar loop hands prepared managed operations back to the cursor's object
 handlers without releasing its frame/window access. Keeping those handlers outside
 the scalar loop prevents their storage checks from changing its inlining budget;
-the handoff retains original logical PC and instruction-slice accounting.
+the handoff retains the final executable PC and instruction-slice accounting.
 `PreparedManagedOperation` is an opaque sealed record shared by instructions and
 this handoff. Its internal variants cover physical value copies, linked constant loads,
 managed returns, field/index ordinals and runtime-linked native operation ordinals.
 It cannot represent a scalar opcode
-or require an unreachable generic-operation arm. Managed local/register copies use
+or require an unreachable generic-operation arm. Managed slot copies use
 prepared physical locations and the ordinary bank read/write representation rules,
 retaining heap owner/generation/kind validation without repeating public frame
 admission. Both slots remain traced in the admitted window. Managed returns carry
 the rooted value to common frame retirement; there is no separate VM return decoder.
-The previous VM LoadConst/LoadLocal/StoreLocal/Move/Return and aggregate field/index handlers
-are removed, along with the cursor's logical-register mapping helpers. SDK/reflection
-field access still uses the same checked GC storage kernels.
+The former VM constant/copy/return and aggregate field/index handlers are removed;
+these paths use the admitted runtime cursor and prepared locations. Bytecode no
+longer has local load/store transport opcodes. SDK/reflection field access still
+uses the same checked GC storage kernels.
 Scalar exits explicitly distinguish boundary, slice, safepoint, return and managed
 operation. The region reconstructs payload-free exits directly; only returns and
 managed operations carry data across that internal boundary. A cold constant miss
@@ -1616,7 +1658,8 @@ of exhaustion, cancellation, observation and GC checks. Managed handoffs consume
 second step; successors resume normal boundary checks. The loop owns instruction
 decoding and dispatch directly; it returns only when leaving the scalar segment,
 without a per-instruction progress result or a second continuation dispatch.
-Canonical instructions remain one-to-one with prepared instructions.
+Final canonical instructions remain one-to-one with prepared instructions; runtime
+preparation may not skip or fuse boundaries still present in its verified input.
 Scoped fields use the same physical execution kernel as concrete fields once their
 function/environment's layout operand is ready. Only first-use preparation exits the
 cursor; subsequent accesses keep its admitted frame/window scope. Other unmigrated operations still
@@ -1624,8 +1667,8 @@ use the ordinary canonical boundary; field migration does not imply their comple
 The VM owns the
 frame driver, cold dispatch, safepoints and observation. The cursor checks
 cancellation, observer requests and candidate-reclamation notifications at each
-original program point. The last unpublished CandidateLease release sets a runtime-
-local atomic request without borrowing or retaining module storage; publication
+final executable program point. The last unpublished CandidateLease release sets
+a runtime-local atomic request without borrowing or retaining module storage; publication
 disarms that lease. Weak identity/strong-count checks still own program availability.
 Collection consumes the request before discovering roots, restores it if graph
 processing fails, and leaves concurrent releases pending for a later safepoint.
@@ -1657,8 +1700,10 @@ remain for debugging; fresh verification rebuilds roots, liveness and provenance
 Scalar constants are shared
 and moved to the dominating entry block; entry operations retain their order.
 Modified MIR is reverified to rebuild control flow, roots and source/debug facts.
-Explicit diagnostic lowering can disable these passes. Ordinary script calls copy
-checked register arguments directly between arena windows after capacity growth,
+Explicit diagnostic lowering can disable these MIR passes. The separate bytecode
+selection described above still owns interpreter slot placement and final PCs.
+Ordinary script calls copy checked slot arguments directly between arena windows
+after capacity growth,
 without an intermediate value vector; callers remain rooted during the copy.
 
 Leases can move across threads and outlive runtime teardown without owning heap
@@ -1787,6 +1832,23 @@ handles retain exact program/dependency generations. Supported functions are
 zero-argument, straight-line Unit/Bool/i32 constants, moves, checked arithmetic,
 supported comparisons and return. Unsupported locals/control flow/calls/GC values
 fall back before entry. Failures after entry never restart interpretation.
+
+Mandatory `FunctionMetadata::origins` maps function-local MIR origin IDs to final
+bytecode PCs, independently of optional debug records or portable MIR. Many-to-one
+groups require an explicit `instruction_origins` actual-origin choice; interpreter
+traces cannot select the first removed transport alias. Native poll/trap arguments
+remain MIR origin IDs. Runtime records both that origin and its mapped final PC;
+source-free AOT validates contiguous origin references/counts against the carried
+bytecode mapping before loading the image. Missing coordinates stay unavailable,
+not borrowed from another origin at the same PC.
+
+Observers, per-instruction checks and nonzero interpreter slices follow the final
+verified executable. Recompilation can remove transport or choose a direct commit;
+it does not preserve old PC numbers, event ordinals or drive counts. Required
+statement/call/loop states, trap order, completed effects and success-only writes
+remain intact. There is no historical micro-step replay, general phase engine or
+cancellation-policy change. These implemented contracts do not imply BO04 performance
+acceptance; the [active plan](bytecode-optimization-plan.md) owns that blocked gate.
 
 Wider native support needs a concrete call/result/status ABI, real native-root
 publication, checked cross-module targets and conservative call effects. Logical
@@ -1992,8 +2054,8 @@ register/local maps and source/debug metadata belong to executable contract/MIR
 metadata, which may wrap the physical ABI product. Keep only physical facts and
 opaque shared boundary identifiers in ABI; never make ABI depend on contract to
 recover a semantic function or type. Actual memory ownership remains explicit.
-Current ExecutableStackMapLocation::Register/Local entries are logical slot
-identifiers, not a proven native GC root protocol. Preserve their coverage at the
+Current ExecutableStackMapLocation::Register/Local entries identify MIR semantic
+temporaries/locals, not unified bytecode slots or a proven native GC root protocol. Preserve their coverage at the
 logical owner; implement physical root publication only with the native feature
 that consumes it.
 

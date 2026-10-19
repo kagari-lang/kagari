@@ -70,7 +70,7 @@ impl ExecutionStack<'_> {
                     .ok_or(RegionError::InvalidIndex(index))?;
                 *slot = value;
                 let tuple = runtime.gc().alloc_tuple(elements)?;
-                let frame = self.current()?;
+                let mut frame = self.current_mut()?;
                 if !runtime.gc().validate_value(&tuple) {
                     return Err(runtime.resources().quarantine("invalid tuple value").into());
                 }
@@ -85,6 +85,7 @@ impl ExecutionStack<'_> {
                     })?
                     .set_location(frame.slots, base, tuple)
                     .ok_or_else(|| runtime.resources().quarantine("invalid tuple destination"))?;
+                frame.completed = frame.executing;
                 Ok(RegionExit::Safepoint)
             }
             PreparedTransition::Constant { dst, constant } => {
@@ -101,7 +102,7 @@ impl ExecutionStack<'_> {
                     (frame.loaded.clone(), links.constants.clone())
                 };
                 let value = pool.materialize(runtime, &owner, constant)?;
-                let frame = self.current()?;
+                let mut frame = self.current_mut()?;
                 if !runtime.gc().validate_value(&value) {
                     return Err(runtime
                         .resources()
@@ -123,6 +124,7 @@ impl ExecutionStack<'_> {
                             .resources()
                             .quarantine("invalid constant destination")
                     })?;
+                frame.completed = frame.executing;
                 // Recompute allocation/collection state at the successor PC.
                 Ok(RegionExit::Safepoint)
             }

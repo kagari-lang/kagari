@@ -1089,7 +1089,7 @@ prerequisites for unrelated work.
 
 ## Interpreter instruction and operand model follow-up
 
-**BO02/BO03 implementation completed; BO04 integrated acceptance remains pending.**
+**BO02/BO03 implemented; BO04 evaluated but blocked by four lifecycle timing gates.**
 Prefer a compact general value/operand/control-flow model before introducing
 specialized counting-loop instructions. The
 [bytecode optimization plan](bytecode-optimization-plan.md) owns BO01-BO04,
@@ -1100,8 +1100,12 @@ baseline and acceptance do not depend on IP12 completion; the older plan retains
 its outstanding lifecycle gate. The user's subsequent instruction authorized
 implementation and one commit per BO phase. BO02 removed eligible scalar transport;
 BO03 added predicate branches and prepared scalar-constant operands. Targeted
-arithmetic/branches passed, but unrestricted integrated regression gates did not;
-the plan records a bounded measurement diagnosis before any further tuning. This section's
+arithmetic/branches passed; unrestricted integrated gates did not. After one bounded
+fixed-core diagnosis/publication-owner repair, original and forms suites pass, but
+four lifecycle timing gates remain. The
+[measurement report](performance-baseline.md#bytecode-slot-and-operand-evaluation-windows-2026-10-19)
+and plan retain failures, accepted boundaries and the required scope decision before
+further tuning. This section's
 original counts below describe the pre-migration baseline, not the current product.
 
 A current `i64` probe initializes `s = 0`, `i = 0`, runs

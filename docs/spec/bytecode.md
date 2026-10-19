@@ -84,9 +84,9 @@ arity comes from the standard declaration table. IR rejects unsupported indirect
 calls. The declared entry block is emitted first, even when its arena index is
 nonzero; branches use offsets computed in that same emission order.
 
-Every bytecode function ends in an explicit `Return`, `Jump`, `Branch`, or
-`Unreachable`. An empty function or a final ordinary operation cannot implicitly
-return `Unit`; the verifier rejects fallthrough before artifact construction or
+Every bytecode function ends in an explicit `Return`, `Jump`, `Branch`,
+`PredicateBranch`, or `Unreachable`. An empty function or a final ordinary operation
+cannot implicitly return `Unit`; the verifier rejects fallthrough before artifact construction or
 runtime loading. If a verified execution ever reaches the end without a terminator,
 the runtime treats that as an engine invariant failure.
 
@@ -103,7 +103,7 @@ their already-computed values in declaration order. Run the `layouts` example in
 
 Bytecode carries the same verified `StructLayout` records. `StructId` indexes
 this version's layout table; a field operand is `FieldRef { structure, slot }`.
-`MakeStruct` carries a layout ID and positional register operands, with exactly
+`MakeStruct` carries a layout ID and positional slot operands, with exactly
 one value per layout slot. The old field table, field-name operands and named
 initializer records are removed. Artifact verification independently checks the
 layout identities, field count, slots, representations and write permissions.
@@ -191,21 +191,58 @@ unsupported GC-bearing native functions use interpreter fallback.
 
 ## Execution Model
 
-Kagari bytecode is register/local based.
-Kagari bytecode is not a stack-machine format.
+Kagari bytecode uses one function-local logical `Slot` namespace for parameters,
+source binding homes and temporary values. It is not a stack-machine format.
+`Slot` wraps u32; `Slot::new(usize)` uses checked conversion and panics on overflow
+rather than truncating. Compiler/verifier/codec limits bound counts before execution;
+`BytecodeFunction::slot_count` is u32, not a sum of two u16 storage counts.
 
-That means:
+MIR retains separate semantic locals and temporaries. Compiler bytecode lowering
+projects their full contracts into this unified namespace; it does not replace
+MIR's model or make a physical representation sufficient evidence for aliasing.
+Runtime preparation separately maps logical slots to scalar/managed bank locations.
+Machine-code backends still consume verified MIR, not interpreter slot placement.
 
-- temporary expression results live in virtual registers
-- user-visible variable storage lives in local slots
-- control flow is expressed through explicit jump and branch instructions
+`metadata.parameter_slots[arg_index]` explicitly selects each parameter's home.
+The homes must be distinct, in range and agree with `metadata.params` and retained
+semantic parameter facts. They need not be the first N slots. Only admitted
+parameter homes start initialized; ordinary operations read inputs before defining
+their output, including when the destination is also an input.
 
-This matches the current IR model closely and keeps `IR -> bytecode` lowering simple.
-It also keeps data dependencies visible enough for verification, effect analysis, and JIT lowering.
+The bounded CFG verifier checks synchronous and suspendable functions: reachable
+predecessors meet initialization by intersection, writes invalidate old semantic/
+constant/access facts, and joins conservatively retain shared facts. A backedge
+cannot initialize a value for the first iteration. Structural/type checks also
+cover unreachable code. Exhausting a verification budget rejects the input.
 
-The bytecode register model is virtual.
-The interpreter stores registers in VM frames; machine-code backends map the same virtual register semantics to backend-specific locations.
-Source-visible variable semantics remain attached to locals, not to bytecode registers.
+### Semantic projection and placement
+
+`FunctionMetadata::semantic` is `BytecodeSemanticSlots`, with `generic`,
+`protocol_adapter`, parameter-indexed `params`, `result` and logical-indexed `slots`.
+It preserves full `Ty` facts, including nominal arguments, reference access and
+narrow numeric widths, separately from `metadata.slots: Vec<ValueType>`.
+Missing annotations do not become unchecked `Any`; generic representations require
+scoped generic facts. Capture-cell slots retain a managed representation even when
+their semantic type describes scalar contents. Readonly-weakening moves and
+managed/cell/call/await snapshots keep their independent checks.
+
+Initial compiler placement uses MIR local homes followed by temporaries. Bounded,
+block-local selection forwards proven stable scalar reads and redirects an eligible
+scalar producer's sole adjacent assignment into its binding home only when full
+types and required debug states agree. For example, `x = x + y` may become one
+checked operation with `dst=x`: it reads both inputs, computes, and commits only
+on success. Overflow leaves the old `x` intact. Calls, awaits, managed/cell writes
+and compound path writes are not redirected by this pass. Uncertain snapshots stay
+explicit `Move` operations. Final PCs, branch targets, debug ranges and origins are
+repacked after selection; unused temporary slots are removed.
+
+Runtime physical reuse is a separate bounded preparation step. CFG liveness,
+parameter entry and retained binding availability contribute conservative intervals.
+Disjoint scalar lifetimes may share a physical location; managed slots currently
+keep distinct locations. Debug bindings map to logical slots, not permanent mirror
+storage. Exhausting allocation's budget declines reuse without weakening verification
+or changing the final instruction boundaries. See
+[public frame access](execution.md#public-frame-access).
 
 ## Module Layout
 
@@ -213,8 +250,8 @@ The module model is:
 
 ```text
 BytecodeModule {
-  module_id: ModuleId,
-  epoch: ModuleEpoch,
+  identity: ModuleIdentity,
+  source_name: String,
   functions: [BytecodeFunction],
   module_slots: [ModuleSlot],
   constants: ConstantPool,
@@ -230,11 +267,11 @@ Each function contains:
 
 ```text
 BytecodeFunction {
-  id: FunctionId,
+  id: FunctionRef,
+  identity: ConcreteFunctionIdentity?,
   name: String,
   parameter_count: u16,
-  register_count: u16,
-  local_count: u16,
+  slot_count: u32,
   instructions: [BytecodeInstruction],
   metadata: FunctionMetadata
 }
@@ -244,47 +281,36 @@ Function metadata includes:
 
 - source span table, if available
 - parameter and return layout
-- local and register type layout, if retained for verification or JIT
+- logical slot representations and full retained semantic projection
+- explicit argument-to-slot parameter homes
+- mandatory semantic-origin-to-final-PC mapping and actual-origin selections
 - effect summary
 - safepoint metadata
 - public ABI fingerprint, when public
 
 ## Implementation Status
 
-The current in-memory Rust shape is:
+The unified slot, semantic projection and selected instruction contracts above are
+implemented in compiler lowering, independent verification, canonical KBC encoding,
+runtime preparation, debugger/disassembly and native/AOT correspondence. The module
+and function sketches above omit declaration/layout/link details for brevity.
+There is no separate bytecode `Register`/`LocalSlot` API or local transport opcode.
 
-```text
-BytecodeModule {
-  module_slots: [BytecodeModuleSlot],
-  functions: [BytecodeFunction]
-}
-```
-
-Each current function contains:
-
-```text
-BytecodeFunction {
-  id: FunctionRef,
-  name: String,
-  parameter_count: u16,
-  register_count: u16,
-  local_count: u16,
-  instructions: [BytecodeInstruction]
-}
-```
-
-This implementation slice is valid for the current interpreter, but it is not the bytecode artifact contract.
+These are current implementation contracts, not a claim of integrated performance
+or final acceptance. BO04 performance remains blocked; its status is owned by the
+[active plan](../bytecode-optimization-plan.md). Format/ABI identifiers are unchanged
+for this unpublished replacement; obsolete development artifacts/caches are disposable.
 
 ## Operand Model
 
 Bytecode operands are compact index-like values.
 The operand model includes:
 
-- `Register`
-- `LocalSlot`
+- `Slot`
+- `ScalarOperand::Slot(Slot)` or `ScalarOperand::Constant { constant: ConstantId, ty: BuiltinType }`
 - `ModuleSlot`
 - `JumpTarget`
-- `ConstId` or inline `ConstantOperand`
+- `ConstantId` into the module's canonical `ConstantOperand` pool
 - `CallTarget`
 - `FunctionRef`
 - `NativeImportId`
@@ -305,11 +331,10 @@ They are not the semantic identity of hot bytecode operations such as field acce
 The bytecode instruction set covers:
 
 - `LoadConst`
-- `LoadLocal`
-- `StoreLocal`
 - `Move`
 - unary arithmetic and logical operations
-- binary arithmetic and comparison operations
+- binary arithmetic and comparison operations, including `BinaryOperands`
+- `PredicateBranch` for a comparison used only to select control flow
 - `Call`
 - `Jump`
 - `Branch`
@@ -332,14 +357,14 @@ The core instruction set has this shape:
 
 ```text
 LoadConst dst, const
-LoadLocal dst, local
-StoreLocal local, src
 LoadModule dst, slot
 StoreModule slot, src
 Move dst, src
 
 Unary dst, op, operand
-Binary dst, op, lhs, rhs
+Binary dst, op, lhs_slot, rhs_slot
+BinaryOperands dst, op, lhs_operand, rhs_operand
+PredicateBranch op, lhs_operand, rhs_operand, negated, then_target, else_target
 
 Call dst?, callee, args
 Jump target
@@ -348,7 +373,23 @@ Return value?
 Unreachable
 ```
 
-This shape matches the register/local execution model and keeps control flow explicit.
+Value operands and destinations use `Slot`; `BinaryOperands` and
+`PredicateBranch` use the explicit slot-or-typed-constant form. Control flow remains
+explicit. `BinaryOperands` computes a numeric result (including numeric comparisons)
+into a slot. `PredicateBranch` publishes no Boolean value: it evaluates its original
+comparison, applies `negated` to that Boolean, then selects the corresponding arm.
+It supports equality, identity equality and ordered comparisons under the ordinary
+comparison contracts, not a special loop instruction.
+
+Polarity is not predicate inversion. For example, `!(a < b)` is not rewritten as
+`a >= b`: with NaN, the former is true and the latter false. Operand order, exact
+numeric widths, primitive protocol eligibility and statically known object identity
+categories remain independently checked for the new forms.
+
+Compiler selection combines only control-only, single-definition comparisons and
+eligible `Not` chains with compatible debug states and no intervening retained
+operation. A Boolean stored in a source binding or used as data remains a value.
+Selection does not fuse instructions during runtime preparation.
 
 ## Aggregate Instructions
 
@@ -379,7 +420,7 @@ the stored function against that contract before entering its frame. Capture
 cells preserve writes to lexically captured `var` bindings and are traced by the
 same non-moving GC as other script objects. A closure retains its linked program
 version, including the dependency set used by subsequent calls. Invalid slots,
-capture counts and register types are rejected during bytecode verification.
+capture counts and slot types are rejected during bytecode verification.
 
 If a field or index chain is resolved as host-backed, it lowers to the typed path instruction family.
 
@@ -413,10 +454,10 @@ player.inventory.items[item_id].count -= 1
 Bytecode shape:
 
 ```text
-LoadLocal    r0, local_player
-LoadLocal    r1, local_item_id
-LoadConst    r2, 1
-ModifyPath   _, r0, path_Player_inventory_items_count, [r1], SubAssign, r2
+Move         s0, s_player
+Move         s1, s_item_id
+LoadConst    s2, 1
+ModifyPath   _, s0, path_Player_inventory_items_count, [s1], SubAssign, s2
 ```
 
 Example with a local path view:
@@ -429,14 +470,18 @@ combat.hp -= damage
 Bytecode shape:
 
 ```text
-LoadLocal     r0, local_player
-MakePathView  r1, r0, path_Player_combat, []
-StoreLocal    local_combat, r1
+Move          s0, s_player
+MakePathView  s1, s0, path_Player_combat, []
+Move          s_combat, s1
 
-LoadLocal     r2, local_combat
-LoadLocal     r3, local_damage
-ModifyPath    _, r2, path_Combat_hp, [], SubAssign, r3
+Move          s2, s_combat
+Move          s3, s_damage
+ModifyPath    _, s2, path_Combat_hp, [], SubAssign, s3
 ```
+
+Here `s_player`, `s_item_id`, `s_combat` and `s_damage` label logical binding
+homes, not a second operand namespace; numbered slots retain once-only snapshots.
+The managed/path operations are not direct-destination scalar selection candidates.
 
 `MakePathView` must create a lightweight root-plus-path handle.
 It must not create or store a Rust `&mut` reference.
@@ -472,7 +517,8 @@ It does not resolve ordinary path operations by repeatedly looking up field-name
 Calls distinguish:
 
 - direct script function calls
-- indirect register-based calls
+- indirect slot-based calls (`CallTarget::Slot` and the typed
+  `CallTarget::ClosureRegister` variant, whose `register` field is a `Slot`)
 - host function calls
 - runtime helper calls
 - standard intrinsic calls with verified argument and result representations
@@ -511,8 +557,10 @@ Effect flags include:
 Effect classification:
 
 ```text
-LoadLocal       no observable effect
+Move            value transfer; retain semantic/access checks
 Binary          may_trap for checked arithmetic or invalid operands
+BinaryOperands  same checked numeric semantics as the corresponding binary operation
+PredicateBranch comparison contract plus explicit control transfer
 MakeArray       may_allocate, is_safepoint
 Call host       may_call_host, may_trap, is_safepoint
 ReadPath        may_call_host, may_trap
@@ -533,16 +581,21 @@ This metadata supports:
 
 The bytecode verifier checks:
 
-- register indices are in range
-- local indices are in range
+- logical slot indices/counts/layouts agree and are in range
+- explicit parameter homes are distinct, in range and type-compatible
+- reads are definitely initialized along every reachable predecessor
+- semantic/access/constant facts follow writes and conservative CFG joins
+- mandatory origin mappings cover final PCs in order, with explicit actual-origin
+  disambiguation for many-to-one groups at the artifact boundary
 - jump targets point to valid instruction boundaries
 - functions return values compatible with their declared return type
 - instruction operands match the expected type layout when type metadata is retained
 - runtime reflection helpers have the same verified arity and representation
   contract in IR and bytecode: field/index receivers are heap values, indexes
   are integers, reflective writes cannot store host handles, and result
-  registers match the helper's static result where known
-- local and field writes respect `val` / `var` writeability
+  slots match the helper's static result where known
+- field/path writes and semantic reference access respect their checked writeability
+  contracts; source `val` / `var` binding rules remain owned by source/MIR checking
 - `PathId` operands exist in the path table
 - path dynamic argument counts match the descriptor
 - path result values are used with compatible types
@@ -588,18 +641,20 @@ New calls use the latest successfully published epoch.
 
 ## GC and Safepoint Metadata
 
-KBC format 38 retains the verified, function-wide conservative root layout
-introduced in format 34.
-Every local and register with `HeapObject` representation appears exactly once,
-in ascending slot order. Scalar, string and host-handle slots do not appear.
-Omitting a heap slot or adding another slot rejects the artifact before
-execution. The interpreter currently roots its whole frame, which remains safe;
-the layout is an explicit contract for future narrower frame roots.
+`RootSlotLayout::slots` is the verified, function-wide conservative logical root
+layout derived by `RootSlotLayout::from_types(metadata.slots)`. Every representation
+whose `ValueType::may_contain_gc_reference()` is true appears exactly once in
+ascending logical slot order; extra or missing entries reject verification.
+This portable layout currently selects `HeapObject` and `Generic`; scalar, string
+and host-handle representations do not appear in that logical list. Runtime frames
+separately trace the whole managed bank, including strings/host descriptors and
+suspended callers, with complete checked identities.
+Physical scalar reuse does not rename the portable logical root contract.
 
 Additional GC and safepoint metadata planned for later backends includes:
 
-- which registers and locals contain GC-managed values at safepoints
-- which registers and locals contain host handles or path views
+- which logical values contain GC-managed references at safepoints
+- which logical values contain host handles or path views
 - which values are ephemeral and must not cross suspension points
 - call boundary metadata for host calls and runtime helpers
 
@@ -623,8 +678,38 @@ Debug metadata includes:
 - path names for diagnostics
 - type names for diagnostics
 
-Debug metadata is not required for execution correctness.
-It is removable or compactable for production artifacts.
+`LocalLiveRange { slot, binding, name, span, start, end, ty, is_parameter }`
+separates source binding identity from its logical execution home. Ranges are
+half-open final-PC intervals; runtime preparation includes retained availability
+when allocating physical storage. A name does not reserve a permanent physical slot.
+
+Optional debugger records are not execution type authority and may be stripped.
+Mandatory origins below are a separate executable contract, not optional debug data.
+
+## Executable origins and final PCs
+
+`FunctionMetadata::origins` is indexed by semantic origin ID: compiler output retains
+the function-local MIR emission ordinal (instructions and terminators). Each
+`InstructionOrigin { instruction, span, line, column }` maps that origin to a final
+executable PC and retains its own diagnostic coordinates. The nonempty bounded
+mapping is nondecreasing, covers every final instruction without gaps and contains
+no out-of-range PC. Several origins may map to one selected instruction; an origin
+ID must never be interpreted as a PC merely because its number is in range.
+
+`instruction_origins: Vec<usize>` selects exactly one actual origin for each
+many-to-one PC group, in PC order; a unique-origin PC needs no selection entry.
+`FunctionMetadata::instruction_origin(pc)` resolves this actual origin, not the
+first removed transport alias. Canonical encoding/decoding rejects missing or
+invalid disambiguation independently of source and optional debugger metadata.
+For example, if a removed outer read and a retained negation share a PC, overflow
+must identify the negation's span, not whichever record came first.
+
+Interpreter traces use the selected origin of the actual final PC. Native polling
+and trap records carry MIR origin IDs and runtime maps them to final PCs while
+retaining the exact native origin. Missing line/column information stays missing;
+it is not borrowed from another origin sharing that PC. These facts survive
+source-free loading and optional debug stripping. See [error reports](error-reporting.md#bounds-versions-and-source-positions)
+and [AOT validation](aot.md#bundle-and-trust-contract).
 
 ## Disassembly output
 
@@ -641,7 +726,8 @@ instructions. Its number is a **zero-based function-local instruction index**, n
 a file byte offset or machine PC. Decimal indices have at least four digits and
 expand as needed; jump destinations have `L<index>` labels and visible numeric
 targets. Explicit mnemonics and operands distinguish instruction variants and nested
-call/numeric/iteration operations, including registers/locals, branch arms, optional
+call/numeric/iteration operations, including unified slots, typed constant operands,
+predicate polarity, branch arms, optional
 results, ordered arguments, captures, generic arguments and member ordinals. There
 is no execution, optimization, control-flow restructuring or inferred callee body.
 
@@ -673,15 +759,15 @@ are escaped individually; displayed names are not the raw CLI selector syntax.
 
 Headers prefer retained semantic signatures and concrete instance arguments;
 missing signature facts are explicitly labeled `physical(...)`. Full bodies list
-every local/register with separate physical representation and retained semantic
+every logical `sN` slot with separate physical representation and retained semantic
 type, or `semantic=unknown`. Unknown does not mean `Any`, and `heap_object` does
 not identify a nominal source type. Root slots and retained generic/protocol-adapter
 contracts are shown separately.
 
-Entry mappings are `argN -> lN` for the first `parameter_count` locals, from
-execution metadata rather than debug parameter flags. For example, a subsequent
-`load_local` from `l0` into `r3` transfers a value; it does not establish a permanent
-alias or make a debug name for `l0` the name of `r3`.
+Entry mappings are `argN -> sM`, read from `metadata.parameter_slots`, not inferred
+from a slot prefix or debug parameter flags. A subsequent `move s3, s0` transfers
+a value; it does not establish a permanent alias or move a binding name from `s0`
+to `s3`. The listing shows logical slots, not runtime bank offsets or native registers.
 
 `recorded_effects` lists set `FunctionMetadata.effects` fields in this order:
 `reads_local`, `writes_local`, `reads_module`, `writes_module`, `reads_aggregate`,
@@ -697,10 +783,10 @@ Debug annotations are optional and nonauthoritative:
 - Locations are associated by explicit `instruction_offset`, not metadata vector
   position. Unsorted records work; multiple matching locations/points are retained
   in stable order and marked ambiguous rather than silently overwritten.
-- Local names annotate `lN` only within half-open `[start, end)` instruction ranges.
-  Overlapping names remain visible and ambiguous. Generated `argN`, `lN` and `rN`
-  labels remain usable when names are absent. Capture names do not imply a slot
-  mapping that the artifact does not retain.
+- Binding names annotate their `LocalLiveRange::slot` (`sN`) only within half-open
+  `[start, end)` final-PC ranges. Overlapping names remain visible and ambiguous.
+  Generated `argN` and `sN` labels remain usable when names are absent. Capture names
+  do not imply a slot mapping that the artifact does not retain.
 - Debug types, parameter flags and copied frame layouts cannot override execution
   metadata. Verification does not promise sorted/unique records, nonoverlapping
   names or agreement between debug claims and executable facts; disagreement is
@@ -798,7 +884,10 @@ The lowering rule is:
 - map each `BlockId` to a `JumpTarget`
 - rewrite IR terminators into bytecode jumps and branches
 
-The `JumpTarget` representation used by the VM is instruction-stream based, not block-id based.
+The `JumpTarget` representation used by the VM is final-instruction-stream based,
+not block-ID or semantic-origin based. Selection repacks PCs after removing eligible
+transport or selecting predicates/constants; it then rewrites all branch arms,
+origin mappings and optional debug offsets/ranges.
 
 ## Constant Handling
 
@@ -809,7 +898,24 @@ verifier rejects out-of-range indices, duplicate pool entries and destination
 representation mismatches. Semantic integer-range analysis reads the indexed
 operand. Artifacts serialize indices and portable constants, never runtime handles.
 
+`ScalarOperand::Constant { constant, ty }` also references this pool, retaining the
+complete numeric `BuiltinType` rather than just a shared physical carrier. Validation
+checks canonical pool tag, width/range and operation contract. For example, an i8
+operand must fit i8 even though its pool carrier is `ConstantOperand::I32`; float
+operands preserve exact f32/f64 bits. Unit, Boolean and string constants are not
+numeric constant operands.
+
+Compiler selection removes only eligible single-definition, block-local numeric
+loads whose uses accept constants and whose debug states agree. It does not absorb
+cross-block hoisted constants or mandate a literal/immediate byte encoding.
+
 Runtime preparation embeds scalar payload bits in physical scalar operations.
+For `BinaryOperands` and numeric `PredicateBranch`, immutable function-owned scalar
+sites resolve bits, operand orientation, the existing shared numeric kernel and the
+store/branch destination once. Execution does not look up the constant pool or
+reimplement numeric semantics. Other predicate categories retain their ordinary
+checked comparison path.
+
 Strings are materialized lazily in a runtime-local cache owned by the loaded
 module version; subsequent loads copy its compact Value. The GC traces these
 cache entries with the program graph. Escaped rooted strings remain valid when
@@ -838,30 +944,29 @@ fn add(a: i32, b: i32) -> i32 {
 
 The important semantic steps are:
 
-1. read `a` from a local slot
-2. read `b` from a local slot
-3. compute `a + b`
-4. write the result into local `c`
-5. read `c`
-6. return it
+1. read the admitted parameter homes for `a` and `b`
+2. compute checked `a + b`
+3. publish the result into `c` only on success
+4. return the result
 
 The bytecode shape is:
 
 ```text
-LoadLocal  r0, local0
-LoadLocal  r1, local1
-Add        r2, r0, r1
-StoreLocal local2, r2
-LoadLocal  r3, local2
-Return     r3
+# entry: arg0 -> s0, arg1 -> s1
+Binary     s2, Add, s0, s1
+Return     s2
 ```
 
 In this shape:
 
-- `local0` is `a`
-- `local1` is `b`
-- `local2` is `c`
-- `r0..r3` are virtual registers for intermediate execution results
+- `s0` and `s1` are the explicitly mapped homes of `a` and `b`
+- `s2` is the home of `c` in this illustrative selected form
+- no separate local read/store opcodes or intermediate Boolean/transport values
+  are required; a retained debug-state distinction may still require a `Move`
+
+These are schematic execution shapes, not a promise of exact compiler instruction
+counts or slot numbers. Direct destination selection preserves checked failure and
+commit order, not the historical transport instruction sequence.
 
 ### Example: Conditional Control Flow
 
@@ -878,28 +983,27 @@ The high-level `if` is lowered into explicit control-flow edges.
 The bytecode shape is:
 
 ```text
-LoadLocal r0, local0
-LoadLocal r1, local1
-Gt        r2, r0, r1
-Branch    r2, L_then, L_else
+# entry: arg0 -> s0, arg1 -> s1
+PredicateBranch Gt, Slot(s0), Slot(s1), negated=false, L_then, L_else
 
 L_then:
-LoadLocal r3, local0
-Move      r5, r3
+Move      s2, s0
 Jump      L_join
 
 L_else:
-LoadLocal r4, local1
-Move      r5, r4
+Move      s2, s1
 Jump      L_join
 
 L_join:
-Return    r5
+Return    s2
 ```
 
 This example shows the key execution-model rule:
 
-- high-level structured control flow becomes explicit `Branch` and `Jump` instructions
+- high-level structured control flow becomes explicit `PredicateBranch`/`Branch`
+  and `Jump` instructions
+- the comparison remains `Gt`; no Boolean slot is published when its only use is
+  the branch, and both incoming paths initialize the join result
 
 ### Example: Short-Circuit Boolean Logic
 
@@ -917,26 +1021,25 @@ That means `b` must not be evaluated when `a` is already `false`.
 The bytecode shape is:
 
 ```text
-LoadLocal r0, local0
-Branch    r0, L_rhs, L_false
+# entry: arg0 -> s0, arg1 -> s1
+Branch    s0, L_rhs, L_false
 
 L_false:
-LoadConst r2, false
+LoadConst s2, false
 Jump      L_join
 
 L_rhs:
-LoadLocal r1, local1
-Move      r2, r1
+Move      s2, s1
 Jump      L_join
 
 L_join:
-Return    r2
+Return    s2
 ```
 
 This cannot be lowered to a single eager instruction like:
 
 ```text
-AndAnd r2, r0, r1
+AndAnd s2, s0, s1
 ```
 
 because a single eager instruction would not preserve the required source-level short-circuit behavior.
@@ -1013,7 +1116,7 @@ tables carrying the former heap-object representation are rejected before execut
 
 Iter New accepts a concrete Array, Map, Set or String ABI and returns a GC iterator.
 Iter Next accepts a concrete Iter<Item> ABI and returns Option<Item>. The verifier checks each ABI,
-operand and result register before linking/execution. Iter is a concrete ABI
+operand and result slot before linking/execution. Iter is a concrete ABI
 type whose children participate in generic substitution, validation and layout
 traversal. Runtime operations check handle ownership, generation, source revision
 and item ABI; creation retains the source, captures and code version without
@@ -1038,7 +1141,7 @@ direct resume-body calls and non-suspendable resources, and permits rooted curso
 
 MakeFuture records a local private resume target, all captured arguments and the
 nominal Future type. Verification requires exact physical/semantic capture types,
-the completed output and a suspendable target, with initialized capture registers.
+the completed output and a suspendable target, with initialized capture slots.
 It allocates cold state without invoking the target. A Task role is valid for Await
 but never MakeFuture. Both awaitable roles require exactly one output parameter,
 exact operand and destination semantic types, and a suspendable caller. The same
