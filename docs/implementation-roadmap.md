@@ -402,21 +402,16 @@ original/forms execution gates passed, but lifecycle collection timing acceptanc
 remains outstanding after unrestricted and fixed-affinity runs. The
 [follow-up evaluation](performance-baseline.md#interpreter-follow-up-evaluation-windows-2026-10-17)
 records retained gains, failed candidates and the exact unresolved gate; Lua parity
-remains unmet (2.20-41.07x in the integrated run). Do not add more local optimizations
-before diagnosing collection work/retained shape versus measurement uncertainty.
+remains unmet (2.20-41.07x in the integrated run). Within IP08-IP12, do not add more
+local optimizations before diagnosing collection work/retained shape versus
+measurement uncertainty. The independently prioritized bytecode migration below
+has its own baseline and acceptance and does not require this gate to pass first.
 The plan carries the design constraints,
 versioned Lua/Rust/JVM references, applicability decisions, phase-specific gates and
-the sole follow-up ledger rather than maintaining another decision list here. Keep existing prepared calls, direct
+the sole IP08-IP12 ledger rather than maintaining another decision list here. Keep existing prepared calls, direct
 transfers and exact installed primitives; do not add workload recognition, a second
 semantic path or unchecked boundaries.
 
-The [proposed IP13-IP16 instruction-model extension](interpreter-performance-plan.md#proposed-instruction-model-execution-extension)
-was prepared at the user's request on 2026-10-19. It covers current baseline/design,
-one portable slot/placement replacement, predicate branches/constant operands and
-integrated acceptance. This is planning only, not production or phase-commit
-authorization. Activation requires an explicit scope decision and a recorded IP12
-disposition; the unresolved lifecycle gate is not waived by a new baseline. The
-existing plan remains the sole phase/decision ledger.
 
 Independent-session segmentation and abandoned-owner discovery remain deferred
 outside IP08-IP12. The [earlier attribution](performance-baseline.md#conditional-decisions-and-remaining-attribution)
@@ -436,6 +431,26 @@ Shared generic Add failed MIR lowering with
 `MissingBinding("checked callable requirement")` at the measured revision. Its
 [reproduction](performance-baseline.md#correctness-and-reproduction) remains an
 open compiler follow-up; shared-identity benchmarks do not prove that capability.
+
+## Bytecode optimization
+
+The independent [bytecode optimization plan](bytecode-optimization-plan.md) owns
+BO01-BO04: current baseline/design, unified typed slots and direct destinations,
+predicate branches/constant operands, and integrated acceptance. On 2026-10-19 the
+user explicitly requested separate ownership and priority before the earlier
+interpreter work finishes. BO01 can proceed without completing IP12 or obtaining
+another disposition of its collection timing gate. The user subsequently authorized
+implementation and one commit per phase. BO01 froze the current baseline and
+settled the executable-boundary/slot/proof design; BO02 is next.
+
+Use a current-revision baseline and separate progress/acceptance ledger. The old
+plan retains its outstanding results; BO acceptance neither closes IP12 nor requires
+historical baseline reconstruction. Existing lifecycle/collection workloads remain
+regression checks against BO01, not tasks to optimize collections. Cancellation
+features, specialized loop instructions and numeric-kernel ABI changes remain out
+of scope. Required verifier/debug/native/AOT mapping updates are part of the coherent
+bytecode replacement. The independent plan can be completed and retired regardless
+of whether IP12 remains open. BO phase commits use their own Plan-Phase trailers.
 
 ## Module-owned standard-library registration
 

@@ -54,6 +54,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   IP01-IP07 completed local
   acceptance; preserve their call/window foundations. The roadmap owns activation,
   pending CI and the unmet pure-interpreter Lua-parity objective.
+- [Bytecode optimization](bytecode-optimization-plan.md): independently prioritized
+  BO01-BO04 cover unified typed slots, direct destinations, predicate branches and
+  constant operands. Implementation and phase commits are authorized; BO01 baseline
+  and design are complete, BO02 is next. Its own baseline and acceptance do not
+  require the older IP12 lifecycle gate to pass first.
 - [Cranelift synchronous execution](cranelift-expansion-plan.md): J01-J06 and
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and

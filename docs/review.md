@@ -1089,15 +1089,16 @@ prerequisites for unrelated work.
 
 ## Interpreter instruction and operand model follow-up
 
-**Execution plan drafted; implementation is not activated and no speedup is claimed.**
+**Independent implementation authorized; BO01 baseline/design complete, no speedup claimed.**
 Prefer a compact general value/operand/control-flow model before introducing
 specialized counting-loop instructions. The
-[proposed IP13-IP16 extension](interpreter-performance-plan.md#proposed-instruction-model-execution-extension)
-in the existing interpreter performance plan owns the finite execution sequence,
-slot/commit/observation decisions, verification and performance gates. The user's
-2026-10-19 request authorized plan preparation only, not production edits or phase
-commits. The plan remains the sole progress ledger; activation requires explicit
-scope and a recorded disposition of outstanding IP12 acceptance.
+[bytecode optimization plan](bytecode-optimization-plan.md) owns BO01-BO04,
+slot/commit/observation decisions, verification, performance gates and the sole
+ledger for this migration. On 2026-10-19 the user requested a separate plan that
+can proceed before the earlier interpreter work finishes. Its current-revision
+baseline and acceptance do not depend on IP12 completion; the older plan retains
+its outstanding lifecycle gate. The user's subsequent instruction authorized
+implementation and one commit per BO phase; BO02 is next.
 
 A current `i64` probe initializes `s = 0`, `i = 0`, runs
 `while i < n { s = s + i; i = i + 1; }` and returns s.
