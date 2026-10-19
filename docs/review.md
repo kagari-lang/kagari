@@ -1150,12 +1150,15 @@ prerequisites for unrelated work.
 
 ## Interpreter instruction and operand model follow-up
 
-**Queued design direction, not implementation authorization or a measured speedup.**
+**Execution plan drafted; implementation is not activated and no speedup is claimed.**
 Prefer a compact general value/operand/control-flow model before introducing
-specialized counting-loop instructions. This extends the instruction-model question
-owned by the [existing interpreter performance plan](interpreter-performance-plan.md),
-not a new phase sequence or performance ledger. Its current activation gates and
-unresolved acceptance still apply; adopting a replacement requires explicit scope.
+specialized counting-loop instructions. The
+[proposed IP13-IP16 extension](interpreter-performance-plan.md#proposed-instruction-model-execution-extension)
+in the existing interpreter performance plan owns the finite execution sequence,
+slot/commit/observation decisions, verification and performance gates. The user's
+2026-10-19 request authorized plan preparation only, not production edits or phase
+commits. The plan remains the sole progress ledger; activation requires explicit
+scope and a recorded disposition of outstanding IP12 acceptance.
 
 A current `i64` probe initializes `s = 0`, `i = 0`, runs
 `while i < n { s = s + i; i = i + 1; }` and returns s.

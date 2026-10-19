@@ -410,6 +410,14 @@ the sole follow-up ledger rather than maintaining another decision list here. Ke
 transfers and exact installed primitives; do not add workload recognition, a second
 semantic path or unchecked boundaries.
 
+The [proposed IP13-IP16 instruction-model extension](interpreter-performance-plan.md#proposed-instruction-model-execution-extension)
+was prepared at the user's request on 2026-10-19. It covers current baseline/design,
+one portable slot/placement replacement, predicate branches/constant operands and
+integrated acceptance. This is planning only, not production or phase-commit
+authorization. Activation requires an explicit scope decision and a recorded IP12
+disposition; the unresolved lifecycle gate is not waived by a new baseline. The
+existing plan remains the sole phase/decision ledger.
+
 Independent-session segmentation and abandoned-owner discovery remain deferred
 outside IP08-IP12. The [earlier attribution](performance-baseline.md#conditional-decisions-and-remaining-attribution)
 records non-tail retirement and owner-scan costs; that is not an explanation for
