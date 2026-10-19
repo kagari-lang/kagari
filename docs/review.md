@@ -918,7 +918,10 @@ implementation remain deferred, with no change to the currently accepted grammar
 
 The requested follow-up direction is to replace
 [`Import.path: String`](../crates/kagari-hir/src/hir/item/module.rs) with owned
-`segments: Vec<String>`. Implementation remains deferred. For example:
+`segments: Vec<String>`. The [SA15 execution plan](structured-import-path-plan.md)
+owns the finite SA15-01 through SA15-03 sequence, decisions and acceptance.
+The user activated phased implementation with one commit per phase on 2026-10-19;
+SA15-01 established the baseline, and representation replacement is next. For example:
 
 ```kagari
 use pkg::math::sum as add;
@@ -933,11 +936,11 @@ Proposed: Import { segments: ["pkg", "math", "sum"],
 [Item lowering](../crates/kagari-hir/src/lower/item.rs) currently joins syntax
 segments and stores each accumulated prefix with its physical source site in
 [SourceMap](../crates/kagari-hir/src/source_map.rs). Import analysis copies the
-joined path into `ImportDirective`. Its consumers primarily need structure:
-[normalization](../crates/kagari-hir/src/imports/resolve.rs) splits relative paths
-to process `self`, `super` and `crate`; the
-[namespace catalog](../crates/kagari-hir/src/imports/catalog.rs) splits paths for
-package/module/member lookup and dependency-prefix matching. Prefix navigation
+joined path into `ImportDirective`.
+[Resolution orchestration](../crates/kagari-hir/src/imports/resolve.rs) passes it to
+the [namespace catalog](../crates/kagari-hir/src/imports/catalog.rs), whose
+`package_path` normalizes `self`, `super` and `crate`; catalog traversal and
+syntactic dependency-prefix matching also consume components. Prefix navigation
 resolves `pkg`, `pkg::math` and `pkg::math::sum` separately. Diagnostics and host
 lookup interfaces also consume complete path text. `ModuleIdentity.path` already
 uses `Vec<String>`; it is a resolved module identity, distinct from written import
@@ -972,8 +975,8 @@ all affected callers together and update source-to-field documentation. The
 motivation is to retain structure used by current consumers and reduce conversion
 steps; no correctness failure or measured performance bottleneck was established.
 Measure allocations/time before claiming a memory or speed improvement. This
-entry records the future representation change only and does not activate code
-migration.
+entry records the future representation change only. The linked plan owns progress;
+the phased implementation and commits are authorized, not SA9 or SA1 expansion.
 
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access

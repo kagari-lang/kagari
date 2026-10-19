@@ -680,11 +680,17 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
+| 1 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths ([execution plan](structured-import-path-plan.md)) | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
 | 2 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
 | 3 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
 | 4 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
 | 5 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+
+The [SA15 execution plan](structured-import-path-plan.md) was activated on
+2026-10-19 for phased implementation and one commit per phase. SA15-01 confirmed
+baseline/recovery and source-site contracts; SA15-02 owns the coherent segment/
+source-map/lookup migration, followed by focused dependent acceptance and handoff.
+SA9 and SA1 remain separate queued tasks. The plan owns the sole SA15 ledger.
 
 Important ordering constraints and limits:
 

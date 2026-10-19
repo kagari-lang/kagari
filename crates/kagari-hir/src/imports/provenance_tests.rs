@@ -1,4 +1,5 @@
 use crate::{
+    hir::item::module::ImportLeaf,
     imports::{
         BindingOrigin, DirectiveResolution, ImportKind, LocalName, ModuleGraph, ModuleOrderError,
         NamespaceId, ResolvedTarget, SourceUnit,
@@ -9,7 +10,10 @@ use crate::{
     lower::lower_module,
     resolver::table::NameResolution,
 };
-use kagari_source::{source::SourceFile, source_database::SourceDatabase};
+use kagari_source::{
+    diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
+};
+use kagari_syntax::parser::parse;
 use kagari_types::declaration::names::NameNamespace;
 use std::sync::Arc;
 
@@ -22,7 +26,7 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
         "m::nested",
         "pub fn value() -> i32 { 7 } pub struct Data {}",
     );
-    let text = "use pkg::m::{nested::value as v, nested::Data}; use pkg::m; fn main(x: m::nested::Data) -> i32 { m::nested::value() + v() }";
+    let text = "// 中文😀\r\nuse pkg::m::{nested::value as v, nested::Data};\r\nuse pkg::m; fn main(x: m::nested::Data) -> i32 { m::nested::value() + v() }";
     let root = insert(&mut sources, "root", text);
     let snapshot = analyze(&sources);
     assert!(
@@ -74,12 +78,187 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
             Some(BindingOrigin::NamedImport(_))
         ));
     }
+    let lowered = lower_module(&SourceFile::new("root", text));
+    for (slot, tokens) in [
+        vec!["pkg", "m", "nested", "value"],
+        vec!["pkg", "m", "nested", "Data"],
+        vec!["pkg", "m"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let sites = lowered.source_map.import_path(slot);
+        assert_eq!(sites.len(), tokens.len());
+        for ((_, span), token) in sites.iter().zip(tokens) {
+            assert_eq!(&text[span.start..span.end], token);
+            let hit = snapshot.source_target_at(root, span.start);
+            if token == "pkg" && slot < 2 {
+                // Source-only package roots have no namespace target or enclosing leaf fallback.
+                assert!(hit.is_none());
+                continue;
+            }
+            let hit = hit.unwrap();
+            match token {
+                "pkg" => assert!(matches!(hit.target,
+                    ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
+                        if unit.module.path == ["m"])),
+                "m" | "nested" => assert!(matches!(hit.target,
+                    ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
+                        if unit.module.path == if token == "m" { vec!["m"] } else { vec!["m", "nested"] })),
+                _ => assert!(matches!(hit.target,
+                    ResolvedTarget::Source(ref source) if source.unit.file == leaf)),
+            }
+        }
+    }
     let grouped_root = text.find("pkg::m").unwrap() + "pkg::".len();
     assert!(
         snapshot
             .module_documentation_at(root, grouped_root)
             .is_some()
     );
+}
+
+#[test]
+fn recovered_import_leaves_preserve_names_and_physical_sites() {
+    for (text, path, syntax_error, leaf) in [
+        ("use ;", "", Some(DiagnosticKind::ExpectedUseTree), " "),
+        (
+            "use a as ;",
+            "a",
+            Some(DiagnosticKind::ExpectedUseAlias),
+            "a as",
+        ),
+        (
+            "use a::;",
+            "a",
+            Some(DiagnosticKind::ExpectedUseTree),
+            "a::",
+        ),
+        ("use {};", "", None, "{}"),
+        ("use a::{};", "a", None, "a::{}"),
+    ] {
+        let source = SourceFile::new("recovery", text);
+        let parsed = parse(&source);
+        assert_eq!(
+            parsed
+                .diagnostics()
+                .iter()
+                .map(|d| d.kind.clone())
+                .collect::<Vec<_>>(),
+            syntax_error.into_iter().collect::<Vec<_>>(),
+            "{text}"
+        );
+        for diagnostic in parsed.diagnostics().iter() {
+            let span = diagnostic.span.unwrap();
+            assert_eq!(span.start, text.len() - 1);
+            assert_eq!(span.end, text.len());
+        }
+        let lowered = lower_module(&source);
+        let [import] = lowered.module.imports.as_slice() else {
+            panic!("one recovered leaf expected for {text}");
+        };
+        assert_eq!(import.path, path);
+        assert_eq!(import.local_name(), Some(path));
+        assert!(matches!(import.kind, ImportLeaf::Named { alias: None }));
+        assert_eq!(import.root_span, import.span);
+        assert_eq!(&text[import.span.start..import.span.end], leaf);
+        let sites = lowered.source_map.import_path(0);
+        assert_eq!(sites.len(), usize::from(!path.is_empty()));
+        if let [(_, span)] = sites {
+            assert_eq!(&text[span.start..span.end], "a");
+            assert_eq!(span.start, 4);
+        }
+        let graph = ModuleGraph::build([&lowered], &Default::default()).unwrap();
+        let facts = graph.imports_for(&SourceUnit::of(&lowered)).unwrap();
+        assert_eq!(
+            facts
+                .diagnostics
+                .iter()
+                .map(|d| d.kind.clone())
+                .collect::<Vec<_>>(),
+            [DiagnosticKind::UnknownName { name: path.into() }]
+        );
+        assert_eq!(facts.diagnostics[0].span, Some(import.span));
+        for namespace in NameNamespace::ALL {
+            assert!(facts.scope.lookup(path, namespace).is_none());
+        }
+    }
+}
+
+#[test]
+fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
+    let mut sources = SourceDatabase::default();
+    let tree = insert(
+        &mut sources,
+        "tree",
+        "pub mod middle; pub fn value() -> i32 { 7 }",
+    );
+    insert(&mut sources, "tree::middle", "pub mod leaf;");
+    let text = "// 中文😀\r\nuse super::super::{value as v, middle::leaf as current};\r\nuse super::super::super::super::value as missing;\r\nfn main() -> i32 { v() }";
+    let file = insert(&mut sources, "tree::middle::leaf", text);
+    let snapshot = analyze(&sources);
+    let facts = &snapshot.file(file).unwrap().result().facts().names.imports;
+    assert_eq!(facts.directives.len(), 3);
+    assert_eq!(
+        facts
+            .diagnostics
+            .iter()
+            .map(|d| d.kind.clone())
+            .collect::<Vec<_>>(),
+        [DiagnosticKind::UnknownName {
+            name: "super::super::super::super::value".into()
+        }]
+    );
+    assert!(snapshot.check_program(file, &Default::default()).is_err());
+    let lowered = lower_module(&SourceFile::new("leaf", text));
+    for (slot, expected) in [
+        vec!["super", "super", "value"],
+        vec!["super", "super", "middle", "leaf"],
+        vec!["super", "super", "super", "super", "value"],
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let sites = lowered.source_map.import_path(slot);
+        assert_eq!(sites.len(), expected.len());
+        for (index, ((_, span), token)) in sites.iter().zip(expected).enumerate() {
+            assert_eq!(&text[span.start..span.end], token);
+            let hit = snapshot.source_target_at(file, span.start);
+            if slot == 2 && index >= 2 {
+                // The third `super` reaches the absent package-root namespace; the fourth underflows.
+                assert!(
+                    hit.is_none(),
+                    "package root/underflow must not resolve at {span:?}"
+                );
+                continue;
+            }
+            let hit = hit.unwrap();
+            if slot == 0 && index == 2 {
+                assert!(matches!(hit.target,
+                    ResolvedTarget::Source(ref source) if source.unit.file == tree));
+            } else {
+                let expected_path = match index {
+                    0 | 2 => vec!["tree", "middle"],
+                    1 => vec!["tree"],
+                    3 => vec!["tree", "middle", "leaf"],
+                    _ => unreachable!(),
+                };
+                assert!(matches!(hit.target,
+                    ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
+                        if unit.module.path == expected_path));
+            }
+        }
+    }
+    let call = snapshot
+        .source_target_at(file, text.rfind("v()").unwrap())
+        .unwrap();
+    assert!(matches!(call.target, ResolvedTarget::Source(ref source) if source.unit.file == tree));
+    assert!(
+        matches!(call.via.first(), Some(BindingOrigin::NamedImport(id)) if id == &facts.directives[0].id)
+    );
+    for namespace in NameNamespace::ALL {
+        assert!(facts.scope.lookup("missing", namespace).is_none());
+    }
 }
 
 #[test]
