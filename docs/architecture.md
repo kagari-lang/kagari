@@ -346,11 +346,14 @@ re-exports share canonical targets. Lowering to a local HIR ID requires the comp
 current source unit to match; retained targets cannot index a newer arena. Duplicate
 logical modules remain ambiguous while each source unit retains its own facts.
 
-A real import leaf produces one `ImportDirective` with its named/glob kind,
-optional explicit alias, leaf/root source ranges, resolution state and direct
-dependency edges. Scope entries always have a local name and retain candidates
-separately by strength: declarations and explicit imports, then globs, then
-package/prelude bindings. Strong collisions stay errors; equal glob targets keep
+A real import leaf produces one `ImportDirective` with its written path segments,
+named/glob kind, optional explicit alias, leaf/root source ranges, resolution state
+and direct dependency edges. The HIR guide's
+[structured import paths and source sites](architecture/hir.md#structured-import-paths-and-source-sites)
+separates written paths, normalized lookup inputs and resolved targets, including
+exclusive prefix-end indices and physical segment spans. Scope entries always have
+a local name and retain candidates separately by strength: declarations and explicit
+imports, then globs, then package/prelude bindings. Strong collisions stay errors; equal glob targets keep
 all origins. An unresolved strong name blocks weaker candidates. Import conflicts
 belong to graph diagnostics; pure declaration conflicts remain declaration-stage
 diagnostics. Entering

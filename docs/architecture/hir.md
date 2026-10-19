@@ -231,6 +231,91 @@ identity. Compiler lowering evaluates explicit operands and the base, reads only
 those checked omitted fields and emits the existing complete MakeStruct contract.
 No backend resolves source fields or introduces a special update/default operation.
 
+## Structured import paths and source sites
+
+[Import](../../crates/kagari-hir/src/hir/item/module.rs) and
+[ImportDirective](../../crates/kagari-hir/src/imports/mod.rs) retain flattened
+written paths as `segments: Vec<String>`. For example, inside module `pkg::app`:
+
+```text
+use super::api::{sum as add, ops::*};
+
+Module.imports[0]: segments = ["super", "api", "sum"], Named { alias: Some("add") }
+Module.imports[1]: segments = ["super", "api", "ops"], Glob
+```
+
+[Item lowering](../../crates/kagari-hir/src/lower/item.rs) copies accumulated
+segments and sites at group branches, preserving leaf order. Each leaf becomes
+one directive identified by its `SourceUnit` and import slot. The alias is not a
+path segment: `local_name()` selects it, otherwise the named terminal; a glob has
+no local name and excludes `*` from its path. Glob expansion contributes bindings,
+not additional HIR leaves or directives.
+
+Keep three representations distinct:
+
+- **Written:** HIR leaves and directives retain `super`, `self`, `crate` and package
+  aliases exactly as written. Resolution does not overwrite these segments.
+- **Normalized lookup input:** the
+  [catalog](../../crates/kagari-hir/src/imports/catalog.rs) selects candidate packages
+  and components relative to the importing module. Here `super::api::sum` selects
+  package `pkg` with components `["api", "sum"]`. Components can name members, not
+  only physical modules. `crate` starts at the package root, `self` at the current
+  module, and repeated leading `super` ascends parents; root underflow fails lookup.
+  Dependency and installed/native aliases follow the catalog's package-selection
+  rules; ambiguity and physical module collisions are not resolved arbitrarily.
+- **Resolved:** `ResolvedTarget`, `NamespaceId` and `SourceDeclRef` identify semantic
+  destinations; binding origins independently retain how they were reached. An
+  `api` re-export can target a declaration in `math`, not the written facade. See
+  [the alias/glob example](#an-alias-through-a-public-glob).
+
+The lowering-local `ImportPath` accumulates `segments` and `sites: Vec<(usize,
+Span)>` together. [SourceMap](../../crates/kagari-hir/src/source_map.rs) stores the
+sites in `import_paths`, keyed by the same flattened import slot:
+
+| Site | Exclusive prefix end | Prefix selected from that leaf | Physical span |
+| --- | --- | --- | --- |
+| Both leaves' `super` | 1 | `segments[..1]` = `["super"]` | Original `super` token |
+| Both leaves' `api` | 2 | `segments[..2]` = `["super", "api"]` | Original shared `api` token |
+| Named leaf's `sum` | 3 | `segments[..3]` = `["super", "api", "sum"]` | Original `sum` token, excluding `as add` |
+| Glob leaf's `ops` | 3 | `segments[..3]` = `["super", "api", "ops"]` | Original `ops` token, excluding `::*` |
+
+Every stored end is nonzero and bounded by the leaf's **written** segment count,
+never the normalized component count. Each span covers only that physical segment,
+not the whole prefix. Shared group ancestors repeat per leaf; aliases and stars
+add no site. The leaf `span` includes alias syntax (`sum as add`); `root_span`
+covers the outer `super::api::{sum as add, ops::*}` tree, excluding `use` and `;`.
+Ranges remain source byte offsets, including UTF-8/CRLF and inline-module routing.
+
+[Import resolution](../../crates/kagari-hir/src/imports/resolve.rs) slices the written
+prefix for each site. Intermediate navigation uses Type; a named terminal retains
+all eligible Type/Value results, while a glob selects a Type namespace. Generated
+native imports retain their validated category restrictions. Queries select the
+most specific physical site; `source_targets_at` preserves categories and origins,
+and `source_target_at` does not choose between dual-category hits.
+
+Recovery retains only available syntax: no root tree means no leaf, and recovered
+empty leaves can have no sites. An empty unaliased path has `local_name() == None`;
+a usable explicit alias still takes precedence. Missing aliases, trailing separators
+and empty groups retain their parser/lowering diagnostics and recovered structure,
+not fabricated segments or unchecked terminal assumptions.
+
+Import normalization, traversal and syntactic dependency-prefix matching consume
+segments directly. Joined text belongs only at diagnostic payloads or necessary
+existing text lookup boundaries; text callers adapt to the shared traversal rather
+than defining another resolver. Syntactic facade dependencies remain distinct from
+canonical target/provenance edges and failed/pending lookup observations. Reuse
+compares written segments alongside kind, visibility, dependencies and outcomes;
+equal canonical targets alone do not authorize reuse across source revisions or
+HIR arenas. Retained snapshots keep their matching source maps and immutable catalogs;
+see [query reuse and publication](#query-work-reuse-and-publication).
+
+The segment separation follows Rust HIR's
+[Path](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.Path.html)
+and [PathSegment](https://doc.rust-lang.org/nightly/nightly-rustc/rustc_hir/hir/struct.PathSegment.html)
+model (rolling nightly API documentation consulted on 2026-10-19). Kagari instead
+owns its strings and snapshot resolution facts; this does not adopt Rust arena
+lifetimes or symbol interning, or establish a measured performance improvement.
+
 ## An alias through a public glob
 
 Bind these source units using `SourceDatabase::bind_module` with package

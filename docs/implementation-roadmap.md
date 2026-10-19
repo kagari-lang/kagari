@@ -680,24 +680,25 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text): structured import paths ([execution plan](structured-import-path-plan.md)) | Keep written path segments through normalization, traversal and prefix navigation before changing internal graph keys. |
-| 2 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
-| 3 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
-| 4 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 5 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 1 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
+| 2 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
+| 3 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 4 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
-The [SA15 execution plan](structured-import-path-plan.md) was activated on
-2026-10-19 for phased implementation and one commit per phase. SA15-01 confirmed
-baseline/recovery and source-site contracts; SA15-02 replaced the segment/source-map/
-lookup representation and passed core/shared-caller contracts. SA15-03 owns remaining
-dependent acceptance and handoff. SA9 and SA1 remain separately queued; the plan owns
-the sole SA15 ledger.
+Structured import paths (SA15) are implemented. The
+[HIR guide](architecture/hir.md#structured-import-paths-and-source-sites) and model
+rustdoc own written segments, normalized lookup boundaries and physical prefix-site
+contracts. Focused import/recovery/visibility/publication, navigation/cache/snapshot,
+native declaration and compiler source-free export checks passed, as did required
+local code-quality checks. Complete feature/backend/platform acceptance remains
+CI-owned; no speed or memory improvement is claimed. The completed SA15 plan is
+retired and Git history owns its phase ledger. SA9 and SA1 remain queued, not activated.
 
 Important ordering constraints and limits:
 
 - SA14's declaration ownership/allocation design must be settled before SA11
   changes function identity storage; the proposed default completes SA14 first.
-- SA15 -> SA9 -> SA1 is a preferred sequence for overlapping import/graph/lowering
+- SA9 -> SA1 is a preferred sequence for overlapping import/graph/lowering
   code, not a semantic requirement. These tasks can be implemented independently
   if their owner interfaces remain suitable. Module handles do not replace written
   import segments or physical source identities.
