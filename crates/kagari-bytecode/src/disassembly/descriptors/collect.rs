@@ -5,7 +5,7 @@ use crate::{
         descriptors::{Category, Reference, References},
         resolution::{Resolution, TraitSource},
     },
-    instruction::{BytecodeInstruction, CallTarget},
+    instruction::{BytecodeInstruction, CallTarget, ScalarOperand},
     module::CallableTarget,
 };
 use kagari_contract::{callable::witness::OperationWitness, types::ConcreteFunctionIdentity};
@@ -20,6 +20,14 @@ impl References {
         pending: &mut Vec<Reference>,
     ) {
         match instruction {
+            BytecodeInstruction::BinaryOperands { lhs, rhs, .. }
+            | BytecodeInstruction::PredicateBranch { lhs, rhs, .. } => {
+                for operand in [lhs, rhs] {
+                    if let ScalarOperand::Constant { constant, .. } = operand {
+                        self.insert((owner, Category::Constant, constant.index()), pending);
+                    }
+                }
+            }
             BytecodeInstruction::LoadConst { constant, .. } => {
                 self.insert((owner, Category::Constant, constant.index()), pending)
             }

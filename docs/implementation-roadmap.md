@@ -442,8 +442,10 @@ interpreter work finishes. BO01 can proceed without completing IP12 or obtaining
 another disposition of its collection timing gate. The user subsequently authorized
 implementation and one commit per phase. BO01 froze the current baseline and
 settled the executable-boundary/slot/proof design; BO02 replaced the slot contract
-and passed its focused correctness/measurement gates. BO03 is next; complete
-retained-byte and integrated regression acceptance remain pending.
+and passed its focused correctness/measurement gates. BO03 added general
+predicate branches and prepared scalar-constant operands. BO04 remains open:
+unrestricted integrated timing failed 16 of 43 gates despite targeted arithmetic/
+branches passing; one fixed-P-core diagnosis is predeclared in the plan.
 
 Use a current-revision baseline and separate progress/acceptance ledger. The old
 plan retains its outstanding results; BO acceptance neither closes IP12 nor requires

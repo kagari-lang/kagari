@@ -406,7 +406,7 @@ fn lower_function(
         metadata,
         instructions,
     };
-    placement::select(function, analysis, &mut bytecode);
+    placement::select(function, analysis, &mut bytecode, &context.constants);
     Ok(bytecode)
 }
 
@@ -471,6 +471,11 @@ fn collect_control_flow_targets(instructions: &[BytecodeInstruction]) -> Vec<Jum
         match instruction {
             BytecodeInstruction::Jump { target } => push_target(&mut targets, *target),
             BytecodeInstruction::Branch {
+                then_target,
+                else_target,
+                ..
+            }
+            | BytecodeInstruction::PredicateBranch {
                 then_target,
                 else_target,
                 ..

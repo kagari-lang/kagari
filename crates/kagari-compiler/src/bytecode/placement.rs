@@ -1,8 +1,10 @@
 //! Conservative interpreter placement changes storage, not semantic MIR.
+mod selection;
+
 use crate::bytecode::collect_control_flow_targets;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction as I, JumpTarget, Slot},
+    instruction::{BytecodeInstruction as I, ConstantOperand, JumpTarget, Slot},
     module::{BytecodeFunction, BytecodeSemanticSlots, RootSlotLayout},
 };
 use kagari_contract::{contracts, operations::BinaryOp};
@@ -94,6 +96,7 @@ pub(super) fn select(
     mir: &MirFunction,
     analysis: &FunctionAnalysis,
     function: &mut BytecodeFunction,
+    constants: &[ConstantOperand],
 ) {
     let count = function.metadata.slots.len();
     let mut definitions = vec![0usize; count];
@@ -222,6 +225,15 @@ pub(super) fn select(
             targets[pc + 1] = pc;
         }
     }
+    selection::select(
+        function,
+        constants,
+        &block_of,
+        mir.locals.len(),
+        &mut retained,
+        &mut targets,
+        |from, to| points[from].debug_available() == points[to].debug_available(),
+    );
     let mut pcs = vec![0; retained.len() + 1];
     let mut next = 0;
     for (pc, &keep) in retained.iter().enumerate() {
@@ -249,6 +261,11 @@ pub(super) fn select(
         match &mut instruction {
             I::Jump { target } => *target = JumpTarget::new(pcs[target.index()]),
             I::Branch {
+                then_target,
+                else_target,
+                ..
+            }
+            | I::PredicateBranch {
                 then_target,
                 else_target,
                 ..

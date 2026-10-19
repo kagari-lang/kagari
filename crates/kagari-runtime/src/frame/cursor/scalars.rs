@@ -2,7 +2,11 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::{cursor::ExecutionCursor, transfer::ReturnValue},
-    module::execution::{ExecutionInstruction, ScalarSlot, managed::PreparedManagedOperation},
+    module::execution::{
+        ExecutionInstruction, ScalarSlot,
+        managed::PreparedManagedOperation,
+        operands::{PreparedOperands, ScalarDestination},
+    },
 };
 
 pub(super) enum ScalarExit {
@@ -94,6 +98,52 @@ impl<'code> ExecutionCursor<'code> {
                         RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason)
                     })?;
                     (dst, value)
+                }
+                ExecutionInstruction::OperandSite { index } => {
+                    let site = self
+                        .function
+                        .scalar_sites
+                        .get(index)
+                        .ok_or_else(|| self.invalid())?;
+                    let (lhs, rhs) = match site.operands {
+                        PreparedOperands::Slots(lhs, rhs) => {
+                            (self.payload(lhs)?, self.payload(rhs)?)
+                        }
+                        PreparedOperands::SlotConstant {
+                            slot,
+                            constant,
+                            constant_left,
+                        } => {
+                            let value = self.payload(slot)?;
+                            if constant_left {
+                                (constant, value)
+                            } else {
+                                (value, constant)
+                            }
+                        }
+                        PreparedOperands::Constants(lhs, rhs) => (lhs, rhs),
+                    };
+                    let value = (site.kernel)(lhs, rhs).map_err(|reason| {
+                        RuntimeError::new(RuntimeErrorKind::ScriptTrap, reason)
+                    })?;
+                    match site.destination {
+                        ScalarDestination::Store(dst) => (dst, value),
+                        ScalarDestination::Branch {
+                            negated,
+                            then_target,
+                            else_target,
+                        } => {
+                            if value > 1 {
+                                return Err(self.invalid());
+                            }
+                            self.jump(if (value == 1) != negated {
+                                then_target.index()
+                            } else {
+                                else_target.index()
+                            })?;
+                            continue;
+                        }
+                    }
                 }
                 ExecutionInstruction::Jump(target) => {
                     self.jump(target.index())?;

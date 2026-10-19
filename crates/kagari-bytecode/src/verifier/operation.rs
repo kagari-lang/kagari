@@ -1,12 +1,12 @@
 use crate::{
-    instruction::{BytecodeInstruction, CallTarget, RuntimeHelper, Slot, UnaryOp},
+    instruction::{BytecodeInstruction, CallTarget, RuntimeHelper, ScalarOperand, Slot, UnaryOp},
     module::{BytecodeFunction, BytecodeModule},
     program::BytecodeProgram,
     trait_bounds::shared,
     verifier::{
         BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
         flow::inline_host, function_ref_exists, ir_binary_op, module_slot_ty, path_record,
-        register_ty, verify_call_dst, verify_dynamic_path_args, verify_jump,
+        register_ty, scalar, verify_call_dst, verify_dynamic_path_args, verify_jump,
         verify_standard_intrinsic_call,
     },
 };
@@ -53,6 +53,10 @@ pub(super) fn verify_instruction(
         });
     }
     match instruction {
+        BytecodeInstruction::BinaryOperands { .. }
+        | BytecodeInstruction::PredicateBranch { .. } => {
+            scalar::verify(module, function, instruction)?
+        }
         BytecodeInstruction::MakeFuture {
             dst,
             function: target,
@@ -218,22 +222,12 @@ pub(super) fn verify_instruction(
             )
             .map_err(|error| contract_error(function, error))?;
             expect_register_ty(function, *dst, ty, "binary dst")?;
-            if matches!(
-                ir_binary_op(*op),
-                operations::BinaryOp::IdentityEq | operations::BinaryOp::IdentityNotEq
-            ) && [lhs, rhs].iter().any(|register| {
-                !function
-                    .metadata
-                    .semantic
-                    .slots
-                    .get(&register.index())
-                    .is_some_and(operations::object_identity_type)
-            }) {
-                return Err(BytecodeVerificationError::InvalidOperation {
-                    function: function.id,
-                    reason: "identity requires statically known object types",
-                });
-            }
+            scalar::verify_identity(
+                function,
+                *op,
+                ScalarOperand::Slot(*lhs),
+                ScalarOperand::Slot(*rhs),
+            )?;
         }
         BytecodeInstruction::Call { dst, callee, args } => {
             verify_call(module, function, *dst, callee, args, program, definitions)?;

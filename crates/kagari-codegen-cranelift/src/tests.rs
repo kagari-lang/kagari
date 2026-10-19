@@ -229,9 +229,11 @@ fn checked_i32_traps_keep_the_exact_mir_point() {
         let overflow_offset = code.artifact.code.traps.last().unwrap().instruction_offset;
         {
             let mut runtime = runtime();
-            let module = runtime
-                .load_program("native", lower_program_to_bytecode(&mir).unwrap())
-                .unwrap();
+            let bytecode = lower_program_to_bytecode(&mir).unwrap();
+            let function =
+                &bytecode.records().modules[bytecode.records().root.index()].functions[0];
+            let origin = function.metadata.origins[overflow_offset].clone();
+            let module = runtime.load_program("native", bytecode).unwrap();
             let installed =
                 unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
             let failure = runtime.invoke_native_function(&installed).unwrap_err();
@@ -239,7 +241,15 @@ fn checked_i32_traps_keep_the_exact_mir_point() {
                 panic!("runtime trap")
             };
             assert_eq!(error.kind(), RuntimeErrorKind::ScriptTrap, "{expression}");
-            assert_eq!(failure.trace.frames[0].instruction_offset, overflow_offset);
+            assert_eq!(
+                failure.trace.frames[0].semantic_origin,
+                Some(overflow_offset)
+            );
+            assert_eq!(
+                failure.trace.frames[0].instruction_offset,
+                origin.instruction
+            );
+            assert_eq!(failure.trace.frames[0].source_span, Some(origin.span));
             assert_eq!(runtime.resources().counters().current_call_depth, 0);
             assert_eq!(runtime.gc().active_roots(), 0);
         }

@@ -10,6 +10,7 @@ pub(crate) mod frames;
 pub(crate) mod indices;
 pub(crate) mod layout;
 pub mod managed;
+pub(crate) mod operands;
 
 use crate::{
     module::execution::{
@@ -20,15 +21,13 @@ use crate::{
         indices::{IndexAccess, PreparedIndexOperation},
         layout::{FrameLayout, Location, scalar_type},
         managed::{ManagedOperation, PreparedManagedOperation},
+        operands::{PreparedScalarSite, binary_kernel},
     },
-    numeric::binary_operation,
     value::{Value, scalar},
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{
-        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot, UnaryOp,
-    },
+    instruction::{BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot, UnaryOp},
     module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
 };
@@ -87,6 +86,9 @@ pub enum ExecutionInstruction {
         rhs: ScalarSlot,
         kernel: ScalarKernel,
     },
+    OperandSite {
+        index: usize,
+    },
     Jump(JumpTarget),
     Branch {
         cond: ScalarSlot,
@@ -119,6 +121,7 @@ pub(crate) struct ExecutionFunction {
     pub calls: Box<[PreparedCall]>,
     pub fields: Box<[PreparedFieldOperation]>,
     pub indices: Box<[PreparedIndexOperation]>,
+    pub scalar_sites: Box<[PreparedScalarSite]>,
     pub native_calls: usize,
     pub has_call_contracts: bool,
     has_linked_constants: bool,
@@ -132,6 +135,13 @@ impl ExecutionFunction {
             || self.has_layout_operands
             || self.native_calls != 0
     }
+}
+
+#[derive(Default)]
+struct OperationTables {
+    fields: Vec<PreparedFieldOperation>,
+    indices: Vec<PreparedIndexOperation>,
+    scalar: Vec<PreparedScalarSite>,
 }
 
 impl ExecutionModule {
@@ -176,8 +186,7 @@ impl ExecutionModule {
                             (point.instruction(), retained.into_boxed_slice())
                         })
                         .collect();
-                    let mut fields = Vec::new();
-                    let mut indices = Vec::new();
+                    let mut sites = OperationTables::default();
                     let mut native_calls = 0;
                     let mut layout_sites = 0;
                     let instructions: Box<[_]> = function
@@ -190,13 +199,30 @@ impl ExecutionModule {
                                     layout_sites += 1;
                                     site
                                 });
+                            if matches!(
+                                instruction,
+                                BytecodeInstruction::BinaryOperands { .. }
+                                    | BytecodeInstruction::PredicateBranch { .. }
+                            ) {
+                                if let Some(site) = PreparedScalarSite::prepare(
+                                    instruction,
+                                    function,
+                                    module,
+                                    slot_layout,
+                                ) {
+                                    let index = sites.scalar.len();
+                                    sites.scalar.push(site);
+                                    return ExecutionInstruction::OperandSite { index };
+                                }
+                                return ExecutionInstruction::Boundary;
+                            }
                             ExecutionInstruction::prepare(
                                 layout_site,
                                 instruction,
                                 slot_layout,
                                 module,
-                                &mut fields,
-                                &mut indices,
+                                &mut sites.fields,
+                                &mut sites.indices,
                                 &mut native_calls,
                             )
                         })
@@ -215,8 +241,9 @@ impl ExecutionModule {
                         awaits,
                         calls: Box::default(),
                         has_layout_operands: layout_sites != 0,
-                        fields: fields.into_boxed_slice(),
-                        indices: indices.into_boxed_slice(),
+                        fields: sites.fields.into_boxed_slice(),
+                        indices: sites.indices.into_boxed_slice(),
+                        scalar_sites: sites.scalar.into_boxed_slice(),
                         native_calls,
                         has_call_contracts: false,
                     }
@@ -337,14 +364,7 @@ impl ExecutionInstruction {
                 Self::managed(ManagedOperation::Index { index: ordinal })
             }
             BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
-                let kernel = match op {
-                    BinaryOp::Numeric(operation) => {
-                        payload::integer_kernel(operation.op, operation.input, operation.rhs)
-                    }
-                    BinaryOp::IdentityEq | BinaryOp::IdentityNotEq => None,
-                    _ => scalar_type(location(lhs).representation)
-                        .and_then(|ty| payload::binary_kernel(binary_operation(op), ty)),
-                };
+                let kernel = binary_kernel(op, location(lhs).representation);
                 scalar(dst, lhs, rhs, kernel)
             }
             BytecodeInstruction::Convert {
@@ -422,6 +442,13 @@ mod tests {
     #[test]
     fn physical_instruction_budget() {
         assert!(size_of::<ExecutionInstruction>() <= 24);
+        eprintln!(
+            "selected scalar storage bytes: operand={}, pair={}, site={}, table={}",
+            size_of::<kagari_bytecode::instruction::ScalarOperand>(),
+            size_of::<operands::PreparedOperands>(),
+            size_of::<PreparedScalarSite>(),
+            size_of::<Box<[PreparedScalarSite]>>()
+        );
         eprintln!(
             "layout metadata bytes: function={}, application={}, operand={}, application_cell={}",
             size_of::<FunctionLayouts>(),

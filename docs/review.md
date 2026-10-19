@@ -1089,7 +1089,7 @@ prerequisites for unrelated work.
 
 ## Interpreter instruction and operand model follow-up
 
-**BO02 slot replacement completed; integrated acceptance remains pending.**
+**BO02/BO03 implementation completed; BO04 integrated acceptance remains pending.**
 Prefer a compact general value/operand/control-flow model before introducing
 specialized counting-loop instructions. The
 [bytecode optimization plan](bytecode-optimization-plan.md) owns BO01-BO04,
@@ -1098,8 +1098,10 @@ ledger for this migration. On 2026-10-19 the user requested a separate plan that
 can proceed before the earlier interpreter work finishes. Its current-revision
 baseline and acceptance do not depend on IP12 completion; the older plan retains
 its outstanding lifecycle gate. The user's subsequent instruction authorized
-implementation and one commit per BO phase; BO03 is next. BO02 removed eligible
-scalar transport, with its focused paired results recorded in the plan. This section's
+implementation and one commit per BO phase. BO02 removed eligible scalar transport;
+BO03 added predicate branches and prepared scalar-constant operands. Targeted
+arithmetic/branches passed, but unrestricted integrated regression gates did not;
+the plan records a bounded measurement diagnosis before any further tuning. This section's
 original counts below describe the pre-migration baseline, not the current product.
 
 A current `i64` probe initializes `s = 0`, `i = 0`, runs

@@ -3,7 +3,7 @@
 ## Status, priority and ownership
 
 **Status: active, implementation and one commit per phase authorized on 2026-10-19;
-BO01-BO02 completed; BO03 is next.**
+BO01-BO03 completed; BO04 integrated timing acceptance is under diagnosis.**
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. This document owns BO01-BO04: general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -518,7 +518,7 @@ methods, conclusions and limitations in this plan/performance document.
 - [x] Independent scope, priority and acceptance ownership established.
 - [x] BO01: current baseline, attribution, slot/point/proof design and fixed gates.
 - [x] BO02: coherent portable slot/placement replacement and selected contracts.
-- [ ] BO03: predicate branches and bounded constant-operand decision/integration.
+- [x] BO03: predicate branches and bounded constant-operand decision/integration.
 - [ ] BO04: integrated performance/correctness acceptance and lasting handoff.
 
 ### Planning checkpoint — 2026-10-19
@@ -671,3 +671,68 @@ execution/lifecycle regression rows remain BO04 acceptance, not established here
 
 BO03 starts from this coherent replacement; no predicate-branch or constant-operand
 instruction was added in BO02.
+
+### BO03 — 2026-10-19
+
+Added a general PredicateBranch retaining the original comparison and explicit
+Boolean polarity, and BinaryOperands with slot/typed canonical scalar-constant
+inputs. Compiler selection fuses only control-only, single-definition comparisons
+(and eligible not chains) with compatible debug states; data bools/source bindings
+and necessary snapshots remain. Constants are numeric, single-definition and
+block-local with complete width facts. Runtime preparation resolves constant bits,
+operand orientation and the existing numeric kernel once. No literal encoding,
+per-execution constant lookup, duplicated numeric semantics or specialized loop is
+introduced. Cross-block hoisted constants remain conservative, including the sum
+probe's constant one; this is a bounded-domain deferral, not an immediate ABI bridge.
+
+The sum now has 12 operations and seven slots, versus BO02's 13/eight and BO01's
+17 operations/15 combined declarations. Its original less-than directly branches;
+actual source-free execution passed. Residual moves are retained by block/debug
+proof requirements. The complete seven-operation illustration is not claimed.
+
+ExecutionInstruction remains 24 bytes; scalar sites are immutable function-owned
+48-byte records with a 16-byte per-function Box header. These hold only prepared
+scalar bits/slots/kernels/destinations, not GC handles. Full memory accounting includes
+them; retaining the hot enum size alone is not a footprint acceptance argument.
+
+Independent review caught primitive comparison protocol proof and static object
+identity-category omissions on new predicate forms. Both now reuse ordinary
+comparison restrictions, also covering BinaryOperands; 10 forged cases exercised
+20 direct/decoded rejections at the existing portable comparison test owner.
+The four selected protocol/identity/constant/NaN tests passed after the repairs.
+No unresolved correctness/build error is carried.
+
+Selected BO03 correctness: compiler validation 21, lowering 19, program points,
+canonical native correspondence and artifact disassembly one each; bytecode
+instruction disassembly 40 and async verifier 3; runtime execution frames 17 and
+physical instruction budget 1; VM numeric 10, debugger 1, owned drive 2; real native
+overflow 1 and AOT 2. Scope/repair runs reuse earlier unaffected evidence and are
+not a workspace sweep. Final workspace Clippy, structure (1,388 Rust files, zero
+violations), fmt and diff checks passed.
+
+The ordinary integrated image SHA-256 is
+`0be79d87ead754147538e8c5b16450f10da3c7475d6a8aa60a8c3a1bee9c7073`,
+27,779,072 bytes (1.00416x BO01). All original/forms/control report checksums match
+the same image and unchanged timed workloads. Seven-pair arithmetic and branches
+medians passed fixed targets at 0.7693863 and 0.7666826; pair ranges were
+0.5155460..1.0106615 and 0.6010461..1.2974597. These meet BO03's targeted gate, not
+BO04's integrated regression gate.
+
+BO04 carried timing failures, disclosed before committing: original maps 1.1428386;
+forms byte_state 1.0840472, capture_cell 1.1036056, field 1.2150740, host_callback
+1.3583237, interface 1.0519814, string_calls 1.2305812; nine of 24 owned lifecycle
+rows also exceed 1.05. Reports are `20261019T181325Z-paired`,
+`20261019T182609Z-forms-paired`, `20261019T182754Z-controls-paired` under
+`target/lua-comparison`. All result checksums pass, but 16 of 43 timing gates fail.
+Some pair ranges span approximately 0.35..3.08, so neither code regression nor
+scheduling noise can be presumed away. These failed results remain evidence.
+
+One bounded BO04 diagnosis is predeclared: use the unchanged image pair and fixed
+seven pairs/three warmups/eleven samples on logical CPU 2 (affinity mask 0x4).
+Windows GetLogicalProcessorInformationEx identifies it as efficiency class 1,
+SMT P-core (mask 0xC); E-cores are class 0. Parent process affinity is inherited by
+both engines and all workload processes. Record the change and run the same three
+suites once; no threshold, fixture, sample count or favorable sample selection may
+change. If failures remain, diagnose the changed execution model using this evidence
+and record rejection/blockage or seek a scope decision; do not start a tuning queue
+or claim unrestricted acceptance from a more favorable isolated sample.

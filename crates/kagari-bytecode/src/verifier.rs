@@ -42,6 +42,7 @@ use std::{collections::HashSet, iter};
 mod async_tests;
 pub(crate) mod flow;
 mod operation;
+mod scalar;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {
@@ -686,6 +687,7 @@ fn verify_function(
             BytecodeInstruction::Return(_)
                 | BytecodeInstruction::Jump { .. }
                 | BytecodeInstruction::Branch { .. }
+                | BytecodeInstruction::PredicateBranch { .. }
                 | BytecodeInstruction::Unreachable
         )
     ) {

@@ -1,7 +1,8 @@
 use crate::{source::lower::lower_to_mir, tests::common};
 use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_common::identity::map::DefinitionContext;
-use kagari_mir::ids::BlockId;
+use kagari_mir::{ids::BlockId, instruction::Instruction};
+use std::iter;
 
 #[test]
 fn semantic_origins_survive_selection_and_nonzero_entry_order() {
@@ -64,11 +65,20 @@ fn semantic_origins_survive_selection_and_nonzero_entry_order() {
         executable.instructions.iter().any(|instruction| {
             matches!(
                 instruction,
-                BytecodeInstruction::Binary { .. } | BytecodeInstruction::Numeric { .. }
+                BytecodeInstruction::Binary { .. }
+                    | BytecodeInstruction::Numeric { .. }
+                    | BytecodeInstruction::BinaryOperands { .. }
             ) && instruction.slot_output() == Some(home)
                 && instruction.slot_inputs().contains(&home)
         }),
         "compound assignment must read and commit its scalar home directly"
+    );
+    assert!(
+        executable
+            .instructions
+            .iter()
+            .any(|instruction| matches!(instruction, BytecodeInstruction::PredicateBranch { .. })),
+        "control-only comparison must not require a bool slot"
     );
     for (id, (facts, span)) in origins.iter().enumerate() {
         assert_eq!(facts.logical_offset(), id);
@@ -76,12 +86,31 @@ fn semantic_origins_survive_selection_and_nonzero_entry_order() {
         assert_eq!(mapped.span, *span);
         assert!(mapped.instruction < executable.instructions.len());
     }
-    for instruction in &executable.instructions {
+    let semantic_operations = function
+        .emission_order()
+        .flat_map(|(_, block)| block.instructions.iter().map(Some).chain(iter::once(None)))
+        .collect::<Vec<_>>();
+    for (pc, instruction) in executable.instructions.iter().enumerate() {
+        let (origin, _) = executable.metadata.instruction_origin(pc).unwrap();
+        if matches!(instruction, BytecodeInstruction::PredicateBranch { .. }) {
+            assert!(
+                matches!(
+                    semantic_operations[origin],
+                    Some(Instruction::Binary { .. })
+                ),
+                "predicate PC must select the actual comparison origin, not a deleted load/branch"
+            );
+        }
         match instruction {
             BytecodeInstruction::Jump { target } => {
                 assert!(target.index() < executable.instructions.len())
             }
             BytecodeInstruction::Branch {
+                then_target,
+                else_target,
+                ..
+            }
+            | BytecodeInstruction::PredicateBranch {
                 then_target,
                 else_target,
                 ..

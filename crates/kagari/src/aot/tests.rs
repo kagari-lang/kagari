@@ -213,7 +213,14 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
         .load_program(overflow.program(), Default::default())
         .unwrap();
     let prepared = overflow.install(&runtime, &loaded).unwrap();
-    let expected_offset = *overflow.manifest.overflow_points.last().unwrap() as usize;
+    let expected_origin = *overflow.manifest.overflow_points.last().unwrap() as usize;
+    let bytecode = overflow.program().bytecode();
+    let function = bytecode.modules()[bytecode.root().index()]
+        .functions
+        .iter()
+        .find(|function| function.name == "main")
+        .unwrap();
+    let origin = &function.metadata.origins[expected_origin];
     let native_error = runtime
         .execute_prepared(
             &loaded,
@@ -229,7 +236,19 @@ fn deployed_failures_keep_origins_cleanup_and_pre_entry_observer_routing() {
     assert_eq!(native_error.code(), interpreted_error.code());
     assert_eq!(
         native_error.error_trace().unwrap().frames[0].instruction_offset,
-        expected_offset
+        origin.instruction
+    );
+    assert_eq!(
+        native_error.error_trace().unwrap().frames[0].semantic_origin,
+        Some(expected_origin)
+    );
+    assert_eq!(
+        interpreted_error.error_trace().unwrap().frames[0].semantic_origin,
+        Some(expected_origin)
+    );
+    assert_eq!(
+        native_error.error_trace().unwrap().frames[0].source_span,
+        Some(origin.span)
     );
     assert_eq!(
         native_error.error_trace().unwrap().frames[0].source_span,

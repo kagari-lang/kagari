@@ -5,7 +5,7 @@ use crate::{
         presentation::DisplayContext,
         resolution::contracts::{access, types},
     },
-    instruction::{BinaryOp, FieldRef, Slot, UnaryOp},
+    instruction::{BinaryOp, FieldRef, ScalarOperand, Slot, UnaryOp},
 };
 use kagari_contract::{
     numeric::NumericOperation,
@@ -13,6 +13,23 @@ use kagari_contract::{
 };
 use kagari_types::{integer::IntegerOp, ty::Ty};
 use std::io::{self, Write};
+
+pub(super) fn scalar_operand(
+    writer: &mut impl Write,
+    context: &DisplayContext<'_>,
+    module: usize,
+    operand: ScalarOperand,
+) -> io::Result<()> {
+    match operand {
+        ScalarOperand::Slot(slot) => write!(writer, "s{}", slot.index()),
+        ScalarOperand::Constant { constant, ty } => write!(
+            writer,
+            "@{module}:const#{}:{}",
+            constant.index(),
+            context.ty(&Ty::Builtin(ty))
+        ),
+    }
+}
 
 pub(super) fn optional_slot(writer: &mut impl Write, value: Option<Slot>) -> io::Result<()> {
     match value {

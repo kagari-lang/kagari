@@ -28,6 +28,10 @@ impl BytecodeInstruction {
             }
             BytecodeInstruction::RepeatArray { value, count, .. } => vec![*value, *count],
             BytecodeInstruction::Binary { lhs, rhs, .. } => vec![*lhs, *rhs],
+            BytecodeInstruction::BinaryOperands { lhs, rhs, .. }
+            | BytecodeInstruction::PredicateBranch { lhs, rhs, .. } => {
+                lhs.slot().into_iter().chain(rhs.slot()).collect()
+            }
             BytecodeInstruction::Call { callee, args, .. } => {
                 let mut values: Vec<Slot> = args.to_vec();
                 if let CallTarget::Slot(value) = callee {
@@ -111,6 +115,7 @@ impl BytecodeInstruction {
             | BytecodeInstruction::Move { dst, .. }
             | BytecodeInstruction::Unary { dst, .. }
             | BytecodeInstruction::Binary { dst, .. }
+            | BytecodeInstruction::BinaryOperands { dst, .. }
             | BytecodeInstruction::MakeTuple { dst, .. }
             | BytecodeInstruction::MakeArray { dst, .. }
             | BytecodeInstruction::RepeatArray { dst, .. }
@@ -145,6 +150,7 @@ impl BytecodeInstruction {
             BytecodeInstruction::Return(_)
             | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. }
+            | BytecodeInstruction::PredicateBranch { .. }
             | BytecodeInstruction::Unreachable => None,
         }
     }
@@ -191,6 +197,15 @@ impl BytecodeInstruction {
             Self::Unary { dst, operand, .. } => {
                 *dst = rewrite(*dst);
                 *operand = rewrite(*operand);
+            }
+            Self::BinaryOperands { dst, lhs, rhs, .. } => {
+                *dst = rewrite(*dst);
+                lhs.rewrite_slot(&mut rewrite);
+                rhs.rewrite_slot(&mut rewrite);
+            }
+            Self::PredicateBranch { lhs, rhs, .. } => {
+                lhs.rewrite_slot(&mut rewrite);
+                rhs.rewrite_slot(&mut rewrite);
             }
             Self::Binary { dst, lhs, rhs, .. } => {
                 *dst = rewrite(*dst);

@@ -96,6 +96,11 @@ impl Flow<'_> {
                     then_target,
                     else_target,
                     ..
+                }
+                | I::PredicateBranch {
+                    then_target,
+                    else_target,
+                    ..
                 } => {
                     leaders.insert(then_target.index());
                     leaders.insert(else_target.index());
@@ -149,6 +154,11 @@ impl Flow<'_> {
             match &code[end - 1] {
                 I::Jump { target } => successor(target.index()),
                 I::Branch {
+                    then_target,
+                    else_target,
+                    ..
+                }
+                | I::PredicateBranch {
                     then_target,
                     else_target,
                     ..

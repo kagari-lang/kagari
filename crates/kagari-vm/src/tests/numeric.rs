@@ -7,6 +7,7 @@ use crate::{
     vm::Vm,
 };
 
+use kagari_bytecode::instruction::BytecodeInstruction;
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -24,6 +25,57 @@ fn local_reads_are_snapshots_across_later_writes_and_captured_calls() {
         &["later_write".into(), "captured_call".into()],
         false,
     );
+}
+
+#[test]
+fn control_predicates_preserve_nan_polarity_and_observable_bools() {
+    let mut source = String::new();
+    let mut entries = Vec::new();
+    for ty in ["f32", "f64"] {
+        for (name, op, expected) in [
+            ("eq", "==", false),
+            ("ne", "!=", true),
+            ("lt", "<", false),
+            ("le", "<=", false),
+            ("gt", ">", false),
+            ("ge", ">=", false),
+        ] {
+            source.push_str(&format!(
+                "fn case_{name}_{ty}(n: {ty}) -> bool {{
+                val value = n {op} 0.0{ty}; var control = false; var inverse = false;
+                if n {op} 0.0{ty} {{ control = true; }}
+                if !(n {op} 0.0{ty}) {{ inverse = true; }}
+                value == {expected} && control == {expected} && inverse == {}
+            }} pub fn main_{name}_{ty}() -> bool {{ case_{name}_{ty}(0.0{ty} / 0.0{ty}) }}\n",
+                !expected
+            ));
+            entries.push(format!("main_{name}_{ty}"));
+        }
+    }
+    source.push_str("pub fn managed_predicates() -> bool { val a = [1]; val same = a; val other = [1]; val label = \"ok\"; var selected = 0; if a === same { selected += 1; } if !(a === other) { selected += 2; } if label == \"ok\" { selected += 4; } selected == 7 }");
+    entries.push("managed_predicates".into());
+    check(&source, &entries, false);
+}
+
+#[test]
+fn mixed_constant_sides_keep_nonloop_arithmetic_effects_and_boundaries() {
+    let mut source = String::from(
+        "fn bound(n: i32) -> i32 { var total = 0; var i = 0; while i < n { total += i; i += 1; } total }\n",
+    );
+    let mut entries = Vec::new();
+    for (ty, _, _) in INTEGERS {
+        source.push_str(&format!(
+            "fn mixed_{ty}(x: {ty}) -> bool {{
+            var value = x; value = 20{ty} - value;
+            value == 16{ty} && 20{ty} / x == 5{ty} && x / 2{ty} == 2{ty}
+                && (3{ty} << 1u32) == 6{ty} && (x << 1u32) == 8{ty}
+        }} pub fn main_{ty}() -> bool {{ mixed_{ty}(4{ty}) }}\n"
+        ));
+        entries.push(format!("main_{ty}"));
+    }
+    source.push_str("pub fn effects() -> bool { var calls = 0; val f = || { calls += 1; 3 }; val a = 20 - f(); val b = f() - 2; a == 17 && b == 1 && calls == 2 && bound(0) == 0 && bound(-2) == 0 && bound(3) == 3 }");
+    entries.push("effects".into());
+    check(&source, &entries, false);
 }
 
 #[derive(Debug)]
@@ -64,6 +116,16 @@ impl ExecutionObserver for CommitObserver {
 fn direct_local_overflow_keeps_the_old_destination_and_prior_commit() {
     let direct = compile_test_bytecode(
         "pub fn main() { var s = 0i8; var i = 127i8; s = s + 1i8; i = i + 1i8; }",
+    );
+    assert!(
+        direct
+            .records()
+            .modules
+            .iter()
+            .flat_map(|module| &module.functions)
+            .flat_map(|function| &function.instructions)
+            .any(|instruction| matches!(instruction, BytecodeInstruction::BinaryOperands { .. })),
+        "failed-commit coverage must execute selected constant operands"
     );
     let decoded = round_trip_bytecode(direct.clone());
     for program in [direct, decoded] {

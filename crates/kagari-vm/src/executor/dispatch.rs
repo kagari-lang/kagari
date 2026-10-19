@@ -1,5 +1,7 @@
 use crate::{error::VmError, executor::Executor};
-use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, PathId, RuntimeHelper, Slot};
+use kagari_bytecode::instruction::{
+    BytecodeInstruction, CallTarget, PathId, RuntimeHelper, ScalarOperand, Slot,
+};
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_runtime::{
     frame::transfer::ReturnValue, host::HostPathDescriptorId, numeric, range::RangeValue,
@@ -79,6 +81,27 @@ impl<'a> Executor<'a> {
                 let value = Self::apply_unary(op, value)?;
                 self.current_frame_mut()?
                     .write_slot(self.runtime, dst, value)?;
+            }
+            BytecodeInstruction::PredicateBranch {
+                op,
+                lhs: ScalarOperand::Slot(lhs),
+                rhs: ScalarOperand::Slot(rhs),
+                negated,
+                then_target,
+                else_target,
+            } => {
+                let lhs = self.current_frame()?.read_slot(self.runtime, lhs)?;
+                let rhs = self.current_frame()?.read_slot(self.runtime, rhs)?;
+                let Value::Bool(value) = self.apply_binary(op, lhs, rhs)? else {
+                    return Err(VmError::TypeMismatch("predicate result must be bool"));
+                };
+                let target = if value != negated {
+                    then_target
+                } else {
+                    else_target
+                };
+                self.current_frame_mut()?
+                    .jump_to(self.runtime, target.index())?;
             }
             BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
                 let lhs = self.current_frame()?.read_slot(self.runtime, lhs)?;
@@ -450,6 +473,8 @@ impl<'a> Executor<'a> {
             | BytecodeInstruction::LoadConst { .. }
             | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. }
+            | BytecodeInstruction::BinaryOperands { .. }
+            | BytecodeInstruction::PredicateBranch { .. }
             | BytecodeInstruction::Move { .. }
             | BytecodeInstruction::Return(_) => {
                 return Err(VmError::UnsupportedInstruction(

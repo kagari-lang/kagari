@@ -3,8 +3,9 @@ use crate::test_support::execution;
 use crate::{BytecodeArtifact, engine::EngineConfig, error::EmbeddingError};
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::{BinaryOp, BytecodeInstruction, CallTarget},
+    instruction::{BinaryOp, BytecodeInstruction, CallTarget, ScalarOperand},
     program::verify_program,
+    verifier::BytecodeVerificationError,
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::types::{InterfaceBridge, PublicItem};
@@ -215,6 +216,14 @@ trait Read { fn read(self) -> i32; }
 struct Item { val value: i32 }
 impl Read for Item { fn read(self) -> i32 { self.value } }
 impl PartialEq for Item { fn eq(self, other: Self) -> bool { false } }
+enum E { Value }
+impl PartialEq for E { fn eq(self, other: Self) -> bool { false } }
+enum Plain { Value }
+enum Other { Value }
+fn enum_probe(a: E, b: E, flag: bool) -> bool { if flag { true } else { false } }
+fn tuple_probe(a: (i32, i32), b: Item, flag: bool) -> bool { if flag { true } else { false } }
+fn interface_probe(a: Read, b: Item, flag: bool) -> bool { if flag { true } else { false } }
+fn distinct_probe(a: Plain, b: Other, flag: bool) -> bool { if flag { true } else { false } }
 fn main() -> bool { val a: Read = Item { value: 1 }; a.read() == a.read() }
 "#,
             ),
@@ -273,6 +282,89 @@ fn main() -> bool { val a: Read = Item { value: 1 }; a.read() == a.read() }
             "identity={identity}, concrete={concrete}"
         );
     }
+    let mut accepted = Vec::new();
+    for (probe, op, reverse) in [
+        ("enum_probe", BinaryOp::Eq, false),
+        ("enum_probe", BinaryOp::NotEq, false),
+        ("enum_probe", BinaryOp::IdentityEq, false),
+        ("enum_probe", BinaryOp::IdentityNotEq, false),
+        ("tuple_probe", BinaryOp::IdentityEq, false),
+        ("tuple_probe", BinaryOp::IdentityNotEq, true),
+        ("interface_probe", BinaryOp::IdentityEq, false),
+        ("interface_probe", BinaryOp::IdentityNotEq, true),
+        ("distinct_probe", BinaryOp::Eq, false),
+        ("distinct_probe", BinaryOp::NotEq, true),
+    ] {
+        let mut program = decoded.program.clone();
+        let function = program
+            .modules
+            .iter_mut()
+            .flat_map(|module| &mut module.functions)
+            .find(|function| function.name == probe)
+            .unwrap();
+        let args = &function.metadata.parameter_slots;
+        let (lhs, rhs) = if reverse {
+            (args[1], args[0])
+        } else {
+            (args[0], args[1])
+        };
+        let instruction = function
+            .instructions
+            .iter_mut()
+            .find(|instruction| matches!(instruction, BytecodeInstruction::Branch { .. }))
+            .unwrap();
+        let BytecodeInstruction::Branch {
+            then_target,
+            else_target,
+            ..
+        } = *instruction
+        else {
+            unreachable!()
+        };
+        *instruction = BytecodeInstruction::PredicateBranch {
+            op,
+            lhs: ScalarOperand::Slot(lhs),
+            rhs: ScalarOperand::Slot(rhs),
+            negated: false,
+            then_target,
+            else_target,
+        };
+        let expected = if matches!(op, BinaryOp::IdentityEq | BinaryOp::IdentityNotEq) {
+            BytecodeVerificationError::InvalidOperation {
+                function: function.id,
+                reason: "identity requires statically known object types",
+            }
+        } else {
+            BytecodeVerificationError::InvalidHostInterface(
+                "trait output or host bound has no unique valid implementation".into(),
+            )
+        };
+        let mut forged = decoded.clone();
+        forged.program = program;
+        let wire = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
+            .unwrap()
+            .import_into(&context, &Default::default())
+            .unwrap();
+        for (route, result) in [
+            (
+                "direct",
+                verify_program(&forged.program, &context.snapshot()),
+            ),
+            (
+                "decoded",
+                verify_program(&wire.records().program, wire.definitions()),
+            ),
+        ] {
+            match result {
+                Ok(()) => accepted.push(format!("{probe} {op:?} reverse={reverse} ({route})")),
+                Err(error) => assert_eq!(error, expected, "{probe} {op:?} ({route})"),
+            }
+        }
+    }
+    assert!(
+        accepted.is_empty(),
+        "forged predicates admitted: {accepted:?}"
+    );
 }
 
 #[test]

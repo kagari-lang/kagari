@@ -22,6 +22,7 @@ fn replace_fixture_code(function: &mut BytecodeFunction, instructions: Vec<Bytec
         })
         .collect();
     function.metadata.debug = Default::default();
+    function.metadata.instruction_origins.clear();
     function.metadata.control_flow_targets.clear();
     function.instructions = instructions;
 }

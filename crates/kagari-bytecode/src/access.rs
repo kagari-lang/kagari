@@ -1,12 +1,15 @@
 //! Access-flow validation runs after physical operand and layout validation.
+mod scalar;
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionTable;
+use kagari_contract::ids::FunctionRef;
 use kagari_contract::representation::builtin_representation;
-use kagari_contract::{ids::FunctionRef, numeric::NumericSignature};
 use std::{collections::BTreeMap, mem, sync::Arc};
 
 use crate::{
-    instruction::{BytecodeInstruction as I, CallTarget, ConstantOperand, RuntimeHelper, Slot},
+    instruction::{
+        BytecodeInstruction as I, CallTarget, ConstantOperand, RuntimeHelper, ScalarOperand, Slot,
+    },
     module::{BytecodeFunction, BytecodeModule, slots::TypeShape},
     program::{BytecodeProgram, ModuleRef},
     suspension::FlowBudget,
@@ -814,6 +817,16 @@ pub(super) fn verify(
                                     });
                             produced = Some((*dst, ty.map(Fact::typed).unwrap_or_default()));
                         }
+                        I::BinaryOperands { dst, op, lhs, rhs } => {
+                            produced = Some((
+                                *dst,
+                                scalar::binary(function, *op, *lhs, *rhs, &get, &invalid)?,
+                            ));
+                        }
+                        I::PredicateBranch { op, lhs, rhs, .. } => {
+                            discarded =
+                                Some(scalar::binary(function, *op, *lhs, *rhs, &get, &invalid)?);
+                        }
                         I::Binary { dst, .. }
                         | I::Unary { dst, .. }
                         | I::TestEnumVariant { dst, .. }
@@ -891,22 +904,16 @@ pub(super) fn verify(
                             lhs,
                             rhs,
                         } => {
-                            let NumericSignature {
-                                left,
-                                right,
-                                output,
-                            } = operation.contract().ok_or_else(invalid)?;
-                            if let Some(value) = get(*lhs)
-                                && !flows(&value, &left)
-                            {
-                                return Err(invalid());
-                            }
-                            if let (Some(value), Some(expected)) = (rhs.and_then(get), right)
-                                && !flows(&value, &expected)
-                            {
-                                return Err(invalid());
-                            }
-                            produced = Some((*dst, Fact::typed(output)));
+                            produced = Some((
+                                *dst,
+                                scalar::numeric(
+                                    *operation,
+                                    ScalarOperand::Slot(*lhs),
+                                    rhs.map(ScalarOperand::Slot),
+                                    &get,
+                                    &invalid,
+                                )?,
+                            ));
                         }
                         I::SetPath { path, value, .. } => {
                             let record = &module.paths[path.index()];

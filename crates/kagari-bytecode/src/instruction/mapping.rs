@@ -191,6 +191,27 @@ impl RemapDefinitions for BytecodeInstruction {
                 op: *(op),
                 operand: *(operand),
             },
+            Self::BinaryOperands { dst, op, lhs, rhs } => Self::BinaryOperands {
+                dst: *dst,
+                op: *op,
+                lhs: *lhs,
+                rhs: *rhs,
+            },
+            Self::PredicateBranch {
+                op,
+                lhs,
+                rhs,
+                negated,
+                then_target,
+                else_target,
+            } => Self::PredicateBranch {
+                op: *op,
+                lhs: *lhs,
+                rhs: *rhs,
+                negated: *negated,
+                then_target: *then_target,
+                else_target: *else_target,
+            },
             Self::Binary { dst, op, lhs, rhs } => BytecodeInstruction::Binary {
                 dst: *(dst),
                 op: *(op),
@@ -474,6 +495,7 @@ impl DefinitionReferences for BytecodeInstruction {
                 dst: _,
                 constant: _,
             } => {}
+            Self::BinaryOperands { .. } | Self::PredicateBranch { .. } => {}
             Self::LoadModule { dst: _, slot: _ } => {}
             Self::StoreModule { slot: _, src: _ } => {}
             Self::Move { dst: _, src: _ } => {}

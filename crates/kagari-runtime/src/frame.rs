@@ -587,6 +587,11 @@ impl ExecutionFrame {
                     then_target,
                     else_target,
                     ..
+                }
+                | BytecodeInstruction::PredicateBranch {
+                    then_target,
+                    else_target,
+                    ..
                 } => then_target.index() == offset || else_target.index() == offset,
                 _ => false,
             });

@@ -10,7 +10,7 @@ use crate::{
     disassembly::{
         instructions::{
             calls::{function, target},
-            operands::{binary, field, iter, numeric, optional_slot, slots, unary},
+            operands::{binary, field, iter, numeric, optional_slot, scalar_operand, slots, unary},
         },
         presentation::DisplayContext,
         resolution::{Resolution, contracts::types},
@@ -100,6 +100,35 @@ pub(crate) fn write_instruction(
             dst.index(),
             operand.index()
         ),
+        BytecodeInstruction::BinaryOperands { dst, op, lhs, rhs } => {
+            write!(writer, "binary_operands.")?;
+            binary(writer, context, *op)?;
+            write!(writer, " dst=s{}, lhs=", dst.index())?;
+            scalar_operand(writer, context, module, *lhs)?;
+            write!(writer, ", rhs=")?;
+            scalar_operand(writer, context, module, *rhs)
+        }
+        BytecodeInstruction::PredicateBranch {
+            op,
+            lhs,
+            rhs,
+            negated,
+            then_target,
+            else_target,
+        } => {
+            write!(writer, "predicate_branch.")?;
+            binary(writer, context, *op)?;
+            write!(writer, " negated={negated}, lhs=")?;
+            scalar_operand(writer, context, module, *lhs)?;
+            write!(writer, ", rhs=")?;
+            scalar_operand(writer, context, module, *rhs)?;
+            write!(
+                writer,
+                ", then=L{}, else=L{}",
+                then_target.index(),
+                else_target.index()
+            )
+        }
         BytecodeInstruction::Binary { dst, op, lhs, rhs } => {
             write!(writer, "binary.")?;
             binary(writer, context, *op)?;

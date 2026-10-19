@@ -52,6 +52,11 @@ pub(crate) fn write_body(
                 cond: _,
                 then_target,
                 else_target,
+            }
+            | BytecodeInstruction::PredicateBranch {
+                then_target,
+                else_target,
+                ..
             } => {
                 labels.insert(then_target.index());
                 labels.insert(else_target.index());

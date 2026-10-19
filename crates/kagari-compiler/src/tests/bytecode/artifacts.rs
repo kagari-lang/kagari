@@ -368,6 +368,24 @@ fn main(flag: bool) -> (i32, bool) {
                     seen.insert("tuple");
                     "make_tuple ".into()
                 }
+                BytecodeInstruction::BinaryOperands {
+                    op: BinaryOp::Add, ..
+                } => {
+                    seen.insert("numeric add");
+                    "binary_operands.add ".into()
+                }
+                BytecodeInstruction::BinaryOperands {
+                    op: BinaryOp::Lt, ..
+                } => {
+                    seen.insert("numeric comparison");
+                    "binary_operands.lt ".into()
+                }
+                BytecodeInstruction::PredicateBranch {
+                    op: BinaryOp::Lt, ..
+                } => {
+                    seen.insert("numeric comparison");
+                    "predicate_branch.lt ".into()
+                }
                 BytecodeInstruction::Binary {
                     op: BinaryOp::Add, ..
                 } => {

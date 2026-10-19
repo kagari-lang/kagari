@@ -9,6 +9,7 @@ use kagari_contract::{
 };
 use kagari_types::{
     reference::ReferenceAccess,
+    scalar::BuiltinType,
     ty::{NominalTy, Ty},
 };
 use serde::{Deserialize, Serialize};
@@ -144,6 +145,31 @@ impl ConstantId {
     }
 }
 
+/// A numeric constant retains its full source width, not just its physical carrier.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ScalarOperand {
+    Slot(Slot),
+    Constant {
+        constant: ConstantId,
+        ty: BuiltinType,
+    },
+}
+
+impl ScalarOperand {
+    pub fn slot(self) -> Option<Slot> {
+        match self {
+            Self::Slot(slot) => Some(slot),
+            Self::Constant { .. } => None,
+        }
+    }
+
+    pub fn rewrite_slot(&mut self, rewrite: &mut impl FnMut(Slot) -> Slot) {
+        if let Self::Slot(slot) = self {
+            *slot = rewrite(*slot);
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConstantOperand {
     Unit,
@@ -154,6 +180,28 @@ pub enum ConstantOperand {
     F32(f32),
     F64(f64),
     Str(String),
+}
+
+impl ConstantOperand {
+    /// Admit canonical numeric constants against their complete semantic width.
+    /// Float payloads are preserved bit-for-bit, including NaNs and signed zero.
+    pub fn numeric_payload(&self, ty: BuiltinType) -> Option<u64> {
+        let (number, bits) = match (self, ty) {
+            (Self::F32(value), BuiltinType::F32) => return Some(u64::from(value.to_bits())),
+            (Self::F64(value), BuiltinType::F64) => return Some(value.to_bits()),
+            (Self::I32(value), BuiltinType::I8 | BuiltinType::I16 | BuiltinType::I32) => {
+                (i128::from(*value), *value as i64 as u64)
+            }
+            (
+                Self::I64(value),
+                BuiltinType::I64 | BuiltinType::U8 | BuiltinType::U16 | BuiltinType::U32,
+            ) => (i128::from(*value), *value as u64),
+            (Self::U64(value), BuiltinType::U64) => (i128::from(*value), *value),
+            _ => return None,
+        };
+        let (min, max) = ty.integer_bounds()?;
+        (min..=max).contains(&number).then_some(bits)
+    }
 }
 
 // Constant-table identity is representation equality, not script equality:
@@ -302,6 +350,23 @@ pub enum BytecodeInstruction {
         op: BinaryOp,
         lhs: Slot,
         rhs: Slot,
+    },
+    /// Numeric binary computation; canonical constants carry complete source widths.
+    BinaryOperands {
+        dst: Slot,
+        op: BinaryOp,
+        lhs: ScalarOperand,
+        rhs: ScalarOperand,
+    },
+    /// Compare and transfer control without publishing a bool. Negation changes
+    /// polarity, never the predicate itself (ordered float inverses differ on NaN).
+    PredicateBranch {
+        op: BinaryOp,
+        lhs: ScalarOperand,
+        rhs: ScalarOperand,
+        negated: bool,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
     },
     Call {
         dst: Option<Slot>,

@@ -233,6 +233,32 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
     let fixture = Fixture::new();
     let cases = vec![
         (
+            BytecodeInstruction::BinaryOperands {
+                dst: r(0),
+                op: BinaryOp::Sub,
+                lhs: ScalarOperand::Constant {
+                    constant: ConstantId::new(9),
+                    ty: BuiltinType::I16,
+                },
+                rhs: ScalarOperand::Slot(r(1)),
+            },
+            "binary_operands.sub dst=s0, lhs=@1:const#9:i16, rhs=s1",
+        ),
+        (
+            BytecodeInstruction::PredicateBranch {
+                op: BinaryOp::Lt,
+                lhs: ScalarOperand::Slot(r(1)),
+                rhs: ScalarOperand::Constant {
+                    constant: ConstantId::new(9),
+                    ty: BuiltinType::F64,
+                },
+                negated: true,
+                then_target: JumpTarget::new(2),
+                else_target: JumpTarget::new(3),
+            },
+            "predicate_branch.lt negated=true, lhs=s1, rhs=@1:const#9:f64, then=L2, else=L3",
+        ),
+        (
             BytecodeInstruction::Await {
                 dst: r(0),
                 value: r(1),

@@ -8,7 +8,7 @@ use bincode::{DefaultOptions, Options};
 use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, ArtifactValidationError, KbcArtifact, encode_program_facts},
-    instruction::ConstantOperand,
+    instruction::{BytecodeInstruction, ConstantOperand},
     native_input::PortableMir,
     program::verified::VerifiedBytecodeProgram,
 };
@@ -226,8 +226,8 @@ fn codec_rejects_impossible_module_counts_before_element_decoding() {
 #[test]
 fn native_preparation_requires_canonical_semantics_not_independent_valid_payloads() {
     let context = DefinitionContext::new().unwrap();
-    let original = program("pub fn main() -> i32 { 42 }");
-    let other = program("pub fn main() -> i32 { 43 }");
+    let original = program("pub fn main(x: i32) -> i32 { if x < 42 { x + 1 } else { x - 1 } }");
+    let other = program("pub fn main(x: i32) -> i32 { if x < 43 { x + 1 } else { x - 1 } }");
     let wire = encode_program(&original, &Default::default()).unwrap();
     let bytecode = VerifiedBytecodeProgram::new(
         lower_program_to_bytecode(&original)
@@ -250,13 +250,35 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
         verify_native_input(&wire, &different_bytecode, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
-    for change_mapping in [false, true] {
+    let code =
+        &bytecode.program().modules[bytecode.program().root.index()].functions[0].instructions;
+    assert!(
+        code.iter()
+            .any(|instruction| matches!(instruction, BytecodeInstruction::PredicateBranch { .. }))
+    );
+    assert!(
+        code.iter()
+            .any(|instruction| matches!(instruction, BytecodeInstruction::BinaryOperands { .. }))
+    );
+    for change_mapping in 0..3 {
         let mut changed_origin = common::adopt_bytecode(&context, bytecode.to_unverified());
         let module = &mut changed_origin.modules[changed_origin.root.index()];
-        if change_mapping {
-            module.functions[0].metadata.origins[0].column = Some(99);
-        } else {
-            module.source_name.push_str("-changed");
+        match change_mapping {
+            0 => module.source_name.push_str("-changed"),
+            1 => module.functions[0].metadata.origins[0].column = Some(99),
+            _ => {
+                let instruction = module.functions[0]
+                    .instructions
+                    .iter_mut()
+                    .find(|instruction| {
+                        matches!(instruction, BytecodeInstruction::PredicateBranch { .. })
+                    })
+                    .unwrap();
+                let BytecodeInstruction::PredicateBranch { negated, .. } = instruction else {
+                    unreachable!()
+                };
+                *negated = !*negated;
+            }
         }
         let changed_origin = VerifiedBytecodeProgram::new(changed_origin, &context).unwrap();
         assert!(matches!(

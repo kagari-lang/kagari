@@ -57,6 +57,11 @@ impl SlotAllocation {
                     then_target,
                     else_target,
                     ..
+                }
+                | BytecodeInstruction::PredicateBranch {
+                    then_target,
+                    else_target,
+                    ..
                 } => {
                     leaders.insert(then_target.index());
                     leaders.insert(else_target.index());
@@ -122,6 +127,11 @@ impl SlotAllocation {
             match code.get(end.checked_sub(1)?)? {
                 BytecodeInstruction::Jump { target } => successor(target.index()),
                 BytecodeInstruction::Branch {
+                    then_target,
+                    else_target,
+                    ..
+                }
+                | BytecodeInstruction::PredicateBranch {
                     then_target,
                     else_target,
                     ..

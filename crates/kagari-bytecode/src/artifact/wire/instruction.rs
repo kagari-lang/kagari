@@ -3,7 +3,7 @@ use crate::{
     artifact::wire::calls::{CallTargetRecord, FieldRefRecord},
     instruction::{
         BinaryOp, BytecodeInstruction, ConstantId, EnumId, InterfaceTableRef, JumpTarget,
-        ModuleSlot, PathId, Slot, StructId, UnaryOp,
+        ModuleSlot, PathId, ScalarOperand, Slot, StructId, UnaryOp,
     },
     program::ModuleRef,
 };
@@ -243,6 +243,20 @@ pub(in crate::artifact) enum BytecodeInstructionRecord {
     },
     Return(Option<Slot>),
     Unreachable,
+    BinaryOperands {
+        dst: Slot,
+        op: BinaryOp,
+        lhs: ScalarOperand,
+        rhs: ScalarOperand,
+    },
+    PredicateBranch {
+        op: BinaryOp,
+        lhs: ScalarOperand,
+        rhs: ScalarOperand,
+        negated: bool,
+        then_target: JumpTarget,
+        else_target: JumpTarget,
+    },
 }
 
 impl BytecodeInstructionRecord {
@@ -255,6 +269,27 @@ impl BytecodeInstructionRecord {
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match value {
+            BytecodeInstruction::BinaryOperands { dst, op, lhs, rhs } => Self::BinaryOperands {
+                dst: *dst,
+                op: *op,
+                lhs: *lhs,
+                rhs: *rhs,
+            },
+            BytecodeInstruction::PredicateBranch {
+                op,
+                lhs,
+                rhs,
+                negated,
+                then_target,
+                else_target,
+            } => Self::PredicateBranch {
+                op: *op,
+                lhs: *lhs,
+                rhs: *rhs,
+                negated: *negated,
+                then_target: *then_target,
+                else_target: *else_target,
+            },
             BytecodeInstruction::Await { dst, value, future } => Self::Await {
                 dst: *dst,
                 value: *value,
@@ -599,6 +634,24 @@ impl BytecodeInstructionRecord {
     ) -> Result<BytecodeInstruction, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(match self {
+            Self::BinaryOperands { dst, op, lhs, rhs } => {
+                BytecodeInstruction::BinaryOperands { dst, op, lhs, rhs }
+            }
+            Self::PredicateBranch {
+                op,
+                lhs,
+                rhs,
+                negated,
+                then_target,
+                else_target,
+            } => BytecodeInstruction::PredicateBranch {
+                op,
+                lhs,
+                rhs,
+                negated,
+                then_target,
+                else_target,
+            },
             Self::Await { dst, value, future } => BytecodeInstruction::Await {
                 dst,
                 value,

@@ -7,7 +7,7 @@ pub(crate) mod shared;
 pub mod views;
 
 use crate::{
-    instruction::{BinaryOp, BytecodeInstruction, CallTarget},
+    instruction::{BinaryOp, BytecodeInstruction, CallTarget, ScalarOperand},
     module::BytecodeModule,
     program::BytecodeProgram,
     trait_bounds::associated::associated_bounds_match,
@@ -22,6 +22,7 @@ use kagari_common::{
 };
 use kagari_contract::{
     callable::interface::dynamic_interface_valid,
+    representation::builtin_representation,
     standard::RuntimePrimitive,
     types as abi,
     types::{
@@ -38,6 +39,8 @@ use kagari_types::{
         substitution::TypeTransformError,
     },
 };
+
+use std::borrow::Cow;
 
 fn contract<'a>(
     id: &DefinitionId,
@@ -230,6 +233,21 @@ fn linked_bounds_match(
                     lhs,
                     rhs,
                     ..
+                } => Some((
+                    Protocol::PartialEq,
+                    vec![ScalarOperand::Slot(*lhs), ScalarOperand::Slot(*rhs)],
+                )),
+                BytecodeInstruction::PredicateBranch {
+                    op: BinaryOp::Eq | BinaryOp::NotEq,
+                    lhs,
+                    rhs,
+                    ..
+                }
+                | BytecodeInstruction::BinaryOperands {
+                    op: BinaryOp::Eq | BinaryOp::NotEq,
+                    lhs,
+                    rhs,
+                    ..
                 } => Some((Protocol::PartialEq, vec![*lhs, *rhs])),
                 BytecodeInstruction::Call {
                     callee:
@@ -244,23 +262,42 @@ fn linked_bounds_match(
                     } else {
                         Protocol::Hash
                     },
-                    args.to_vec(),
+                    args.iter().copied().map(ScalarOperand::Slot).collect(),
                 )),
                 _ => None,
             };
             if let Some((protocol, args)) = primitive {
                 let Some(facts) = args
                     .iter()
-                    .map(|register| {
-                        Some((
-                            *function.metadata.slots.get(register.index())?,
-                            function.metadata.semantic.slots.get(&register.index()),
-                        ))
+                    .map(|operand| match *operand {
+                        ScalarOperand::Slot(slot) => Some((
+                            *function.metadata.slots.get(slot.index())?,
+                            function
+                                .metadata
+                                .semantic
+                                .slots
+                                .get(&slot.index())
+                                .map(Cow::Borrowed),
+                        )),
+                        ScalarOperand::Constant { constant, ty } => {
+                            module
+                                .constants
+                                .get(constant.index())?
+                                .numeric_payload(ty)?;
+                            Some((
+                                builtin_representation(ty),
+                                Some(Cow::Owned(Ty::Builtin(ty))),
+                            ))
+                        }
                     })
                     .collect::<Option<Vec<_>>>()
                 else {
                     return Ok(false);
                 };
+                let facts = facts
+                    .iter()
+                    .map(|(physical, ty)| (*physical, ty.as_deref()))
+                    .collect::<Vec<_>>();
                 if !catalog.primitive_comparison_valid(protocol, &facts, &cancel)? {
                     return Ok(false);
                 }
