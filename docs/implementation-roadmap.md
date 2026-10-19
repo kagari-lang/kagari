@@ -688,9 +688,10 @@ host-registration scope.
 
 The [SA15 execution plan](structured-import-path-plan.md) was activated on
 2026-10-19 for phased implementation and one commit per phase. SA15-01 confirmed
-baseline/recovery and source-site contracts; SA15-02 owns the coherent segment/
-source-map/lookup migration, followed by focused dependent acceptance and handoff.
-SA9 and SA1 remain separate queued tasks. The plan owns the sole SA15 ledger.
+baseline/recovery and source-site contracts; SA15-02 replaced the segment/source-map/
+lookup representation and passed core/shared-caller contracts. SA15-03 owns remaining
+dependent acceptance and handoff. SA9 and SA1 remain separately queued; the plan owns
+the sole SA15 ledger.
 
 Important ordering constraints and limits:
 

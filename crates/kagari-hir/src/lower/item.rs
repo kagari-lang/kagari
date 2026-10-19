@@ -41,8 +41,8 @@ use smallvec::SmallVec;
 /// Accumulated use-tree prefix plus each prefix's physical source site.
 #[derive(Clone, Default)]
 struct ImportPath {
-    text: String,
-    sites: Vec<(String, Span)>,
+    segments: Vec<String>,
+    sites: Vec<(usize, Span)>,
 }
 
 fn lower_visibility(visibility: AstVisibility) -> Visibility {
@@ -162,7 +162,7 @@ impl Lowerer {
     /// Flattens a recursive use tree by extending a copied prefix for each child.
     ///
     /// For `use a::{b, c::d as e}`, leaves become `a::b`/`b` and `a::c::d`/`e`.
-    /// `base` contains the ancestors' joined spelling and prefix sites. Only leaves
+    /// `base` contains written segments and their prefix-end/token sites. Only leaves
     /// allocate imports; this traversal does not resolve names or generate namespace
     /// member imports. Recovery without a root tree yields no leaf.
     fn lower_use_tree(
@@ -176,11 +176,8 @@ impl Lowerer {
         if let Some(local) = tree.path() {
             for segment in local.segments() {
                 if let Some(name) = segment.text() {
-                    if !path.text.is_empty() {
-                        path.text.push_str("::");
-                    }
-                    path.text.push_str(&name);
-                    path.sites.push((path.text.clone(), token_span(&segment)));
+                    path.segments.push(name);
+                    path.sites.push((path.segments.len(), token_span(&segment)));
                 }
             }
         }
@@ -213,7 +210,7 @@ impl Lowerer {
             } else {
                 ImportLeaf::Named { alias: explicit }
             },
-            path: path.text,
+            segments: path.segments,
             span: token_span(tree),
             root_span,
         });

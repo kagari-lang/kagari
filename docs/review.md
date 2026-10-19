@@ -921,7 +921,8 @@ The requested follow-up direction is to replace
 `segments: Vec<String>`. The [SA15 execution plan](structured-import-path-plan.md)
 owns the finite SA15-01 through SA15-03 sequence, decisions and acceptance.
 The user activated phased implementation with one commit per phase on 2026-10-19;
-SA15-01 established the baseline, and representation replacement is next. For example:
+SA15-01 established the baseline and SA15-02 replaced the representation; final
+dependent validation/documentation handoff remains. The migration direction was:
 
 ```kagari
 use pkg::math::sum as add;

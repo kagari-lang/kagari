@@ -36,7 +36,7 @@ pub mod storage;
 /// Module {
 ///     items: [Const(c), Struct(s), Function(f)],
 ///     functions: [main_function], consts: [limit_constant], structs: [point_struct],
-///     imports: [Import { path: "pkg::math::sum", kind: Named { alias: None }, ... }],
+///     imports: [Import { segments: ["pkg", "math", "sum"], kind: Named { alias: None }, ... }],
 ///     modules: [], opaque_types: [], enums: [], traits: [], impls: [],
 ///     body: Body { types, exprs, blocks, ... },
 /// }

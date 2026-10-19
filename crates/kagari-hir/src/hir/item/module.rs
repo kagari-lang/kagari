@@ -35,17 +35,17 @@ pub struct ModuleDecl {
 /// ```text
 /// pub use pkg::math::{sum as add, value, ops::*};
 /// imports = [
-///     Import { visibility: Public, path: "pkg::math::sum",
+///     Import { visibility: Public, segments: ["pkg", "math", "sum"],
 ///              kind: Named { alias: Some("add") }, root_span: root_tree, span: sum_leaf },
-///     Import { visibility: Public, path: "pkg::math::value",
+///     Import { visibility: Public, segments: ["pkg", "math", "value"],
 ///              kind: Named { alias: None }, root_span: root_tree, span: value_leaf },
-///     Import { visibility: Public, path: "pkg::math::ops",
+///     Import { visibility: Public, segments: ["pkg", "math", "ops"],
 ///              kind: Glob, root_span: root_tree, span: glob_leaf },
 /// ]
 /// local_name() -> Some("add"), Some("value"), None respectively
 /// ```
 ///
-/// `path` is the accumulated spelling after flattening, not a resolved declaration.
+/// `segments` retain the flattened written path, not a normalized or resolved target.
 /// `span` is the terminal use-tree leaf token range (including its alias when
 /// present); `root_span` is the outer use-tree token range, here
 /// `pkg::math::{sum as add, value, ops::*}`, excluding `pub use` and the semicolon.
@@ -61,8 +61,9 @@ pub struct Import {
     pub root_span: Span,
     /// Written use visibility, retained for later import/re-export access checks.
     pub visibility: Visibility,
-    /// Accumulated path spelling; a glob path excludes the final `::*`.
-    pub path: String,
+    /// Accumulated written segments, including relative roots; a glob excludes `*`.
+    /// Recovery may leave this empty. Aliases are stored in `kind`, not this path.
+    pub segments: Vec<String>,
     /// This terminal use-tree leaf token range, including any alias syntax.
     pub span: Span,
 }
@@ -89,12 +90,12 @@ pub enum ImportLeaf {
 }
 
 impl Import {
-    /// Returns the written alias/path terminal for a named leaf, or None for a glob.
+    /// Returns the alias or written terminal, or None for a glob/empty recovered path.
     pub fn local_name(&self) -> Option<&str> {
         match &self.kind {
-            ImportLeaf::Named { alias } => {
-                alias.as_deref().or_else(|| self.path.rsplit("::").next())
-            }
+            ImportLeaf::Named { alias } => alias
+                .as_deref()
+                .or_else(|| self.segments.last().map(String::as_str)),
             ImportLeaf::Glob => None,
         }
     }

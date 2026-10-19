@@ -30,7 +30,7 @@ impl ModuleImportFacts {
             && self.dependencies == other.dependencies
             && self.directives.len() == other.directives.len()
             && self.directives.iter().zip(&other.directives).all(|(a, b)| {
-                a.path == b.path
+                a.segments == b.segments
                     && a.kind == b.kind
                     && a.visibility == b.visibility
                     && a.direct_dependencies == b.direct_dependencies

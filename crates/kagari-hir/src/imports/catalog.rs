@@ -270,7 +270,7 @@ impl NamespaceCatalog {
         })
     }
 
-    /// Walks `::`-separated suffix components from an existing root lookup.
+    /// Walks borrowed suffix components from an existing root lookup.
     ///
     /// Empty components are skipped. A failed root/component stops traversal unchanged;
     /// successful steps append provenance. No local bindings or import records are added.
@@ -282,11 +282,11 @@ impl NamespaceCatalog {
         &self,
         ctx: &LookupContext<'_>,
         mut root: LookupResult,
-        suffix: &str,
+        suffix: &[String],
         namespace: NameNamespace,
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
-        let mut components = suffix.split("::").filter(|c| !c.is_empty()).peekable();
+        let mut components = suffix.iter().filter(|c| !c.is_empty()).peekable();
         while let Some(component) = components.next() {
             let category = if components.peek().is_some() {
                 NameNamespace::Type
@@ -316,7 +316,7 @@ impl NamespaceCatalog {
     pub(crate) fn absolute(
         &self,
         ctx: &LookupContext<'_>,
-        path: &str,
+        path: &[String],
         namespace: NameNamespace,
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
@@ -354,8 +354,7 @@ impl NamespaceCatalog {
                     target: ResolvedTarget::Namespace(NamespaceId::Module(units[0].clone())),
                     via: vec![],
                 });
-                let result =
-                    self.resolve_path(ctx, root, &components[end..].join("::"), namespace, cancel)?;
+                let result = self.resolve_path(ctx, root, &components[end..], namespace, cancel)?;
                 let terminal = ModuleIdentity {
                     package: package.clone(),
                     path: components.clone(),
@@ -383,7 +382,7 @@ impl NamespaceCatalog {
                     target: ResolvedTarget::Namespace(prefix),
                     via: vec![],
                 }),
-                &components.join("::"),
+                &components,
                 namespace,
                 cancel,
             );
@@ -494,6 +493,8 @@ impl NamespaceCatalog {
             avoid: None,
         };
         let (root, suffix) = name.split_once("::").unwrap_or((name, ""));
+        // Root lookup stays literal; its category uses raw suffix emptiness even
+        // when parsing below discards every suffix component.
         let result = names.hit(
             root,
             if suffix.is_empty() {
@@ -503,9 +504,19 @@ impl NamespaceCatalog {
             },
         );
         let result = if matches!(result, LookupResult::Missing) {
-            self.absolute(&ctx, name, namespace, cancel).ok()?
+            let path = name
+                .split("::")
+                .filter(|component| !component.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            self.absolute(&ctx, &path, namespace, cancel).ok()?
         } else {
-            self.resolve_path(&ctx, result, suffix, namespace, cancel)
+            let suffix = suffix
+                .split("::")
+                .filter(|component| !component.is_empty())
+                .map(str::to_owned)
+                .collect::<Vec<_>>();
+            self.resolve_path(&ctx, result, &suffix, namespace, cancel)
                 .ok()?
         };
         result.hit()
@@ -752,10 +763,11 @@ impl NamespaceCatalog {
     fn package_path(
         &self,
         importer: &ModuleIdentity,
-        path: &str,
+        path: &[String],
     ) -> Option<(BTreeSet<PackageId>, Vec<String>)> {
         let mut segments = path
-            .split("::")
+            .iter()
+            .map(String::as_str)
             .filter(|segment| !segment.is_empty())
             .peekable();
         let first = segments.next()?;
@@ -811,7 +823,7 @@ impl NamespaceCatalog {
     pub(crate) fn path_dependencies(
         &self,
         importer: &ModuleIdentity,
-        path: &str,
+        path: &[String],
         dependencies: &mut BTreeSet<ModuleIdentity>,
     ) {
         let Some((packages, components)) = self.package_path(importer, path) else {

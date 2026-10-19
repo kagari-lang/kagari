@@ -83,7 +83,7 @@ pub(super) fn resolve_imports(
         };
         let mut directive = ImportDirective {
             id: id.clone(),
-            path: import.path.clone(),
+            segments: import.segments.clone(),
             kind,
             span: location(module, import.span),
             root_span: location(module, import.root_span),
@@ -97,7 +97,7 @@ pub(super) fn resolve_imports(
             },
             direct_dependencies: BTreeSet::new(),
         };
-        let path = &directive.path;
+        let path = &directive.segments;
         catalog.path_dependencies(&unit.module, path, &mut directive.direct_dependencies);
         let categories: &[NameNamespace] =
             if let Some(namespace) = module.native_import_namespaces.get(&slot) {
@@ -208,17 +208,21 @@ pub(super) fn resolve_imports(
         let mut failures = Vec::new();
         for outcome in &outcomes {
             let kind = match outcome {
-                LookupOutcome::Ambiguous => {
-                    Some(DiagnosticKind::AmbiguousImport { path: path.clone() })
-                }
-                LookupOutcome::Inaccessible => {
-                    Some(DiagnosticKind::ImportNotPublic { path: path.clone() })
-                }
+                LookupOutcome::Ambiguous => Some(DiagnosticKind::AmbiguousImport {
+                    path: path.join("::"),
+                }),
+                LookupOutcome::Inaccessible => Some(DiagnosticKind::ImportNotPublic {
+                    path: path.join("::"),
+                }),
                 LookupOutcome::NotNamespace if matches!(import.kind, ImportLeaf::Glob) => {
-                    Some(DiagnosticKind::InvalidGlobTarget { path: path.clone() })
+                    Some(DiagnosticKind::InvalidGlobTarget {
+                        path: path.join("::"),
+                    })
                 }
                 LookupOutcome::NotNamespace | LookupOutcome::StaleSource => {
-                    Some(DiagnosticKind::UnknownName { name: path.clone() })
+                    Some(DiagnosticKind::UnknownName {
+                        name: path.join("::"),
+                    })
                 }
                 _ => None,
             };
@@ -232,7 +236,9 @@ pub(super) fn resolve_imports(
             .iter()
             .all(|outcome| **outcome == LookupOutcome::Absent)
         {
-            failures.push(DiagnosticKind::UnknownName { name: path.clone() });
+            failures.push(DiagnosticKind::UnknownName {
+                name: path.join("::"),
+            });
         }
         result.diagnostics.extend(
             failures
@@ -240,8 +246,9 @@ pub(super) fn resolve_imports(
                 .map(|kind| Diagnostic::error(kind).with_span(directive.span.range)),
         );
         // Prefix navigation is Type-only; a named terminal retains every category.
-        for (prefix, span) in module.source_map.import_path(slot) {
-            let terminal = prefix == &directive.path;
+        for (end, span) in module.source_map.import_path(slot) {
+            let prefix = path.get(..*end).expect("lowered import prefix end");
+            let terminal = *end == path.len();
             for &namespace in if terminal {
                 categories
             } else {
@@ -324,7 +331,7 @@ fn expand_glob(
         _ => {
             diagnostics.push(
                 Diagnostic::error(DiagnosticKind::InvalidGlobTarget {
-                    path: directive.path.clone(),
+                    path: directive.segments.join("::"),
                 })
                 .with_span(directive.span.range),
             );

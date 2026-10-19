@@ -157,8 +157,11 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
         let [import] = lowered.module.imports.as_slice() else {
             panic!("one recovered leaf expected for {text}");
         };
-        assert_eq!(import.path, path);
-        assert_eq!(import.local_name(), Some(path));
+        assert_eq!(
+            import.segments,
+            if path.is_empty() { vec![] } else { vec![path] }
+        );
+        assert_eq!(import.local_name(), (!path.is_empty()).then_some(path));
         assert!(matches!(import.kind, ImportLeaf::Named { alias: None }));
         assert_eq!(import.root_span, import.span);
         assert_eq!(&text[import.span.start..import.span.end], leaf);
@@ -373,7 +376,10 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
         observations: None,
         avoid: None,
     };
-    let path = format!("{}::left", left.source.module_identity());
+    let path = [
+        left.source.module_identity().package.0.clone(),
+        "left".into(),
+    ];
     assert!(matches!(
         graph
             .catalog

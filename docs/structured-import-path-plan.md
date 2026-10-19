@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Status: active; SA15-01 complete, SA15-02 next.** On 2026-10-19 the user authorized
+**Status: active; SA15-01/SA15-02 complete, SA15-03 next.** On 2026-10-19 the user authorized
 phased implementation of [SA15](review.md#sa15-hir-import-paths-should-retain-segments-instead-of-joined-text)
 with one commit per phase. The
 [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation and queue
@@ -276,7 +276,7 @@ SA9 to manufacture a win is outside scope.
 - [x] Planning: inspect current owner chain and prepare this finite plan.
 - [x] Obtain explicit implementation authorization; inspect then-current user work.
 - [x] SA15-01: characterize recovery/source sites, choose shared interfaces and record core baseline/coverage gaps.
-- [ ] SA15-02: replace the import representation coherently; compile and pass selected core contracts.
+- [x] SA15-02: replace the import representation coherently; compile and pass selected core contracts.
 - [ ] SA15-03: complete dependent checks, structural review and lasting documentation handoff.
 
 ### Planning record — 2026-10-19
@@ -326,3 +326,25 @@ No selected test remains skipped. Structure (1,377 files, zero violations), fmt,
 workspace all-target Clippy with denied warnings and diff checks passed. The IDE
 build endpoint timed out; Cargo test compilation and workspace Clippy succeeded.
 No product build failure or performance claim is carried into SA15-02.
+
+### SA15-02 — 2026-10-19
+
+Replaced HIR/directive path strings with owned segments and import SourceMap prefix
+strings with exclusive segment-end indices plus token spans. Lowering produces both
+in lockstep; navigation checks those ends against the matching written segments.
+Catalog normalization, traversal and syntactic dependencies consume borrowed slices;
+only diagnostics join the written import segments. The retained text lookup boundary
+parses into this shared traversal, keeping literal scope roots, raw suffix-emptiness
+category selection and fallback only on Missing. Unqualified successful lookups do
+not allocate a copied root/path vector. Expression/type path storage, module identity,
+solver policy and native import slot order are unchanged.
+
+The five core commands above passed all 11 cases (seven provenance plus four named
+contracts). `cargo test -p kagari-hir --lib analysis::namespace_tests::` passed five
+shared-caller cases after the final text-boundary adjustment; reuse this evidence
+in SA15-03. All changed consumers compile through tests and workspace all-target
+Clippy. Structure (1,377 files, zero violations), fmt and diff checks passed.
+Independent read-only review found no correctness or ownership issue. The planned
+empty-path helper change is covered while diagnostics/no-binding assertions remain.
+No compatibility field, new re-export/dependency, format bump, measured speed claim
+or integration failure is carried. Final downstream acceptance/handoff is SA15-03.

@@ -276,8 +276,9 @@ impl DirectiveResolution {
 pub struct ImportDirective {
     /// Source-unit/leaf identity used by binding provenance.
     pub id: DirectiveId,
-    /// Original flattened path spelling before import-path normalization.
-    pub path: String,
+    /// Flattened written segments before normalization, excluding aliases/glob stars.
+    /// Relative roots and package aliases retain their original spelling.
+    pub segments: Vec<String>,
     /// Named leaf with optional explicit alias, or glob.
     pub kind: ImportKind,
     /// Physical source site of this leaf.

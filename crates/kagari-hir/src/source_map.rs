@@ -69,8 +69,9 @@ pub struct SourceMap {
     expr_reference_spans: HashMap<ExprId, Span>,
     /// Ordered joined-path prefixes and their physical segment sites, keyed by expression.
     expr_paths: HashMap<ExprId, Vec<(String, Span)>>,
-    /// Joined-path prefix sites keyed by the flattened import leaf slot.
-    import_paths: HashMap<usize, Vec<(String, Span)>>,
+    /// Written prefix-end counts and segment-token sites by flattened import slot.
+    /// Each end selects `Import.segments[..end]`; no alias or glob star is included.
+    import_paths: HashMap<usize, Vec<(usize, Span)>>,
     /// Explicit constructor/type-owner sites, independent of the expression's body owner.
     expr_owner_spans: HashMap<ExprId, Span>,
     /// Constructor field-name sites in field order, retaining absent synthetic sites.
@@ -110,11 +111,14 @@ impl SourceMap {
         self.expr_paths.get(&id).map_or(&[], Vec::as_slice)
     }
 
-    pub(crate) fn insert_import_path(&mut self, slot: usize, path: Vec<(String, Span)>) {
+    /// Stores sites produced alongside a leaf's segments by import lowering.
+    /// Ends are nonzero and bounded by that leaf's written segment count; recovery
+    /// can produce a leaf with no sites. Shared group ancestors repeat per leaf.
+    pub(crate) fn insert_import_path(&mut self, slot: usize, path: Vec<(usize, Span)>) {
         self.import_paths.insert(slot, path);
     }
 
-    pub(crate) fn import_path(&self, slot: usize) -> &[(String, Span)] {
+    pub(crate) fn import_path(&self, slot: usize) -> &[(usize, Span)] {
         self.import_paths.get(&slot).map_or(&[], Vec::as_slice)
     }
 
