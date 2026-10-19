@@ -1,4 +1,5 @@
 use super::*;
+use crate::native::adoption::adopt;
 use kagari_common::{cancellation::CancellationToken, identity::map::DefinitionContext};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::catalog;
@@ -7,8 +8,10 @@ use kagari_syntax::parser::parse_declarations;
 #[test]
 fn native_views_preserve_canonical_text_and_scoped_navigation() {
     let left = catalog::shared().unwrap();
-    let right = catalog::declarations().unwrap();
-    let right = right.into_iter().map(Arc::new).collect::<Vec<_>>();
+    let cancel = CancellationToken::default();
+    let context = DefinitionContext::new().unwrap();
+    // Catalog projections share one sealed scope; import explicitly to test another scope.
+    let right = adopt(&left, &context, &cancel).unwrap();
     assert_ne!(left[0].definitions().id(), right[0].definitions().id());
     for (left_module, right_module) in left.iter().zip(&right) {
         let left_source = declaration_source(left_module, &left).unwrap();

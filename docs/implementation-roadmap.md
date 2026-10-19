@@ -749,6 +749,17 @@ Completed implementations have recorded local acceptance with no carried local
 integration failures. Complete GitHub CI feature/backend acceptance remains
 unverified; local validation does not establish that matrix passed.
 
+The latest [CI run](https://github.com/kagari-lang/kagari/actions/runs/39135873310)
+and [Pages run](https://github.com/kagari-lang/kagari/actions/runs/39135873311)
+at `a52f5bf2` failed after the registration migration: HIR fixtures assumed catalog
+projections had independent definition scopes, enum rejection tests expected
+superseded dependency-check diagnostics, and site links targeted deleted catalog
+sources. Follow-up fixes explicitly adopt independent fixture scopes, assert the
+shared application validator's errors and link current foundation owners. Focused
+local coverage selects HIR native declaration/navigation contracts, runtime enum
+contracts and site checks; it does not rerun the workspace/backend matrix. CI must
+still validate the complete Rust matrix and exact WASM-backed Pages build.
+
 [AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
 select affected contracts and a small dependent regression set; full workspace
 and feature/backend matrices belong to CI. Documentation-only changes need

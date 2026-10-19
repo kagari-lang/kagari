@@ -1,5 +1,6 @@
 use crate::{
     Runtime,
+    error::RuntimeError,
     native::{
         binding::{Codec, NativeBinding},
         builder::ModuleBuilder,
@@ -253,12 +254,9 @@ fn enum_payloads_reject_foreign_binders_and_undeclared_or_malformed_applications
         )
         .unwrap();
     holder.finish().unwrap();
-    assert!(
-        invalid
-            .finish()
-            .unwrap_err()
-            .message()
-            .contains("enum application")
+    assert_eq!(
+        invalid.finish().unwrap_err(),
+        RuntimeError::metadata_conflict("type applications: InvalidContract")
     );
 }
 
@@ -312,5 +310,8 @@ fn declared_native_enum_signatures_reject_missing_provider_contracts() {
         )
         .unwrap();
     let error = module.finish().unwrap_err();
-    assert!(error.message().contains("enum is absent"), "{error}");
+    assert_eq!(
+        error,
+        RuntimeError::metadata_conflict("function application: InvalidContract")
+    );
 }

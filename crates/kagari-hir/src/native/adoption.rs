@@ -53,18 +53,18 @@ mod tests {
         let cancel = CancellationToken::default();
         // Alternate providers from independent writers to exercise cross-provider adoption.
         let left = catalog::shared().unwrap();
-        let right = catalog::declarations().unwrap();
+        let right_context = DefinitionContext::new().unwrap();
+        let right = adopt(&left, &right_context, &cancel).unwrap();
+        assert_ne!(left[0].definitions().id(), right[0].definitions().id());
         let providers = left
             .iter()
             .zip(right)
             .enumerate()
-            .map(|(index, (left, right))| {
-                if index % 2 == 0 {
-                    left.clone()
-                } else {
-                    Arc::new(right)
-                }
-            })
+            .map(
+                |(index, (left, right))| {
+                    if index % 2 == 0 { left.clone() } else { right }
+                },
+            )
             .collect::<Vec<_>>();
         let context = DefinitionContext::new().unwrap();
         let adopted = adopt(&providers, &context, &cancel).unwrap();
