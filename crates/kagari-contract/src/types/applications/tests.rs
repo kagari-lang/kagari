@@ -1,4 +1,5 @@
 use super::*;
+use crate::slots::SemanticSlots;
 use crate::types::type_contract;
 use kagari_common::identity::{
     DefinitionKind, ModuleIdentity, map::DefinitionContext, table::DefinitionId,

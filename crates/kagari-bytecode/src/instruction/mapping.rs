@@ -64,7 +64,7 @@ impl RemapDefinitions for CallTarget {
                 contract: Box::new(((contract).as_ref()).remap_definitions(mapper)?),
             },
             Self::Native(field0) => CallTarget::Native(*(field0)),
-            Self::Register(field0) => CallTarget::Register(*(field0)),
+            Self::Slot(field0) => CallTarget::Slot(*(field0)),
             Self::ClosureRegister {
                 register,
                 params,
@@ -107,7 +107,7 @@ impl DefinitionReferences for CallTarget {
                 ((contract).as_ref()).visit_definition_ids(visit, cancel)?;
             }
             Self::Native(_) => {}
-            Self::Register(_) => {}
+            Self::Slot(_) => {}
             Self::ClosureRegister {
                 register: _,
                 params: _,
@@ -174,17 +174,9 @@ impl RemapDefinitions for BytecodeInstruction {
                 dst: *(dst),
                 constant: *constant,
             },
-            Self::LoadLocal { dst, local } => BytecodeInstruction::LoadLocal {
-                dst: *(dst),
-                local: *(local),
-            },
             Self::LoadModule { dst, slot } => BytecodeInstruction::LoadModule {
                 dst: *(dst),
                 slot: *(slot),
-            },
-            Self::StoreLocal { local, src } => BytecodeInstruction::StoreLocal {
-                local: *(local),
-                src: *(src),
             },
             Self::StoreModule { slot, src } => BytecodeInstruction::StoreModule {
                 slot: *(slot),
@@ -482,9 +474,7 @@ impl DefinitionReferences for BytecodeInstruction {
                 dst: _,
                 constant: _,
             } => {}
-            Self::LoadLocal { dst: _, local: _ } => {}
             Self::LoadModule { dst: _, slot: _ } => {}
-            Self::StoreLocal { local: _, src: _ } => {}
             Self::StoreModule { slot: _, src: _ } => {}
             Self::Move { dst: _, src: _ } => {}
             Self::Unary {

@@ -6,12 +6,13 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
         BinaryOp, BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, EnumId, FieldRef,
-        InterfaceTableRef, JumpTarget, LocalSlot, ModuleSlot, NativeImportId, PathId, Register,
-        RuntimeHelper, StructId, UnaryOp,
+        InterfaceTableRef, JumpTarget, ModuleSlot, NativeImportId, PathId, RuntimeHelper, Slot,
+        StructId, UnaryOp,
     },
     module::{
-        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, CallableTarget, FunctionMetadata,
-        FunctionRecord, PathRecord, RootSlotLayout,
+        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, BytecodeSemanticSlots,
+        CallableTarget, FunctionMetadata, FunctionRecord, InstructionOrigin, PathRecord,
+        RootSlotLayout,
     },
     program::{BytecodeProgram, ModuleRef, verify_program},
     verifier::{BytecodeVerificationError, verify_module},
@@ -31,7 +32,7 @@ use kagari_contract::{
 use kagari_mir::{
     analysis::FunctionAnalysis,
     function::{BasicBlock, MirFunction},
-    ids::{BlockId, LocalId, ModuleSlotId, TempId},
+    ids::{BlockId, LocalId, ModuleSlotId},
     instruction::{
         AggregateFieldRef, CallTarget as MirCallTarget, Constant, Instruction, MirValue, PathRef,
         RuntimeHelper as MirRuntimeHelper, Terminator,
@@ -49,6 +50,7 @@ use std::{collections::HashMap, slice};
 mod debug;
 mod defaults;
 mod interfaces;
+mod placement;
 mod views;
 
 #[derive(Debug)]
@@ -189,9 +191,14 @@ struct BytecodeLoweringContext<'a> {
     paths: Vec<PathRecord>,
     constants: Vec<ConstantOperand>,
     constant_ids: HashMap<ConstantOperand, ConstantId>,
+    local_count: usize,
 }
 
 impl BytecodeLoweringContext<'_> {
+    fn value(&self, value: MirValue) -> Slot {
+        Slot::new(self.local_count + value.temp.index())
+    }
+
     fn constant_id(&mut self, value: ConstantOperand) -> ConstantId {
         if let Some(id) = self.constant_ids.get(&value) {
             return *id;
@@ -322,15 +329,10 @@ fn lower_function(
     analysis: &FunctionAnalysis,
     context: &mut BytecodeLoweringContext,
 ) -> Result<BytecodeFunction, BytecodeLoweringError> {
+    context.local_count = function.locals.len();
     let block_offsets = compute_block_offsets(function, analysis);
-    let mut instructions = Vec::with_capacity(
-        function
-            .blocks
-            .iter()
-            .map(|block| block.instructions.len() + usize::from(block.terminator.is_some()))
-            .sum(),
-    );
-    let mut instruction_spans = Vec::with_capacity(instructions.capacity());
+    let mut instructions = Vec::new();
+    let mut instruction_spans = Vec::new();
     for (_, block) in function.emission_order() {
         lower_block(
             block,
@@ -340,48 +342,72 @@ fn lower_function(
             &mut instruction_spans,
         )?;
     }
-
-    let (root_locals, root_temps) = function.root_slots();
+    let mut semantic = BytecodeSemanticSlots {
+        generic: function.semantic.generic.clone(),
+        protocol_adapter: function.semantic.protocol_adapter.clone(),
+        params: function.semantic.params.clone(),
+        result: function.semantic.result.clone(),
+        slots: function.semantic.locals.clone(),
+    };
+    for (index, ty) in &function.semantic.registers {
+        semantic
+            .slots
+            .insert(function.locals.len() + index, ty.clone());
+    }
+    placement::project_scalar_facts(function, &mut semantic);
+    let slots = function
+        .locals
+        .iter()
+        .map(|local| local.ty)
+        .chain(function.temps.iter().map(|temp| temp.ty))
+        .collect::<Vec<_>>();
+    let debug = collect_debug_metadata(
+        function,
+        analysis,
+        &instruction_spans,
+        function
+            .debug
+            .source_module
+            .as_ref()
+            .map(|owner| context.owner_ref(owner)),
+    );
     let metadata = FunctionMetadata {
-        semantic: function.semantic.clone(),
+        semantic,
         params: function.params.iter().map(|param| param.ty).collect(),
+        parameter_slots: function
+            .params
+            .iter()
+            .map(|param| lower_local(param.local))
+            .collect(),
         return_type: function.return_type,
-        locals: function.locals.iter().map(|local| local.ty).collect(),
-        registers: function.temps.iter().map(|temp| temp.ty).collect(),
-        roots: RootSlotLayout {
-            locals: root_locals
-                .into_iter()
-                .map(|local| LocalSlot::new(local.index()))
-                .collect(),
-            registers: root_temps
-                .into_iter()
-                .map(|temp| Register::new(temp.index()))
-                .collect(),
-        },
+        roots: RootSlotLayout::from_types(&slots),
+        slots,
+        origins: instruction_spans
+            .iter()
+            .enumerate()
+            .map(|(instruction, &span)| InstructionOrigin {
+                line: debug.line_table[instruction].line,
+                column: debug.line_table[instruction].column,
+                instruction,
+                span,
+            })
+            .collect(),
+        instruction_origins: Vec::new(),
         control_flow_targets: collect_control_flow_targets(&instructions),
         effects: function.effects,
-        debug: collect_debug_metadata(
-            function,
-            analysis,
-            &instruction_spans,
-            function
-                .debug
-                .source_module
-                .as_ref()
-                .map(|owner| context.owner_ref(owner)),
-        ),
+        debug,
     };
-
-    Ok(BytecodeFunction {
+    let mut bytecode = BytecodeFunction {
         id: FunctionRef::new(function.id.index()),
         identity: Some(function.instance.clone()),
         name: function.name.clone(),
-        parameter_count: function.params.len() as u16,
-        register_count: function.temps.len() as u16,
-        local_count: function.locals.len() as u16,
+        parameter_count: u16::try_from(function.params.len()).expect("verified parameter count"),
+        slot_count: u32::try_from(metadata.slots.len()).expect("bounded MIR slots"),
         metadata,
         instructions,
-    })
+    };
+    placement::select(function, analysis, &mut bytecode);
+    Ok(bytecode)
 }
 
 fn collect_function_table(functions: &[BytecodeFunction]) -> Vec<FunctionRecord> {
@@ -425,8 +451,7 @@ fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
             .metadata
             .params
             .iter()
-            .chain(&function.metadata.locals)
-            .chain(&function.metadata.registers)
+            .chain(&function.metadata.slots)
         {
             push_type(&mut types, *ty);
         }
@@ -507,7 +532,7 @@ fn lower_block(
     }
 
     if let Some(terminator) = &block.terminator {
-        out.push(lower_terminator(terminator, block_offsets)?);
+        out.push(lower_terminator(terminator, block_offsets, context)?);
         spans.push(block.terminator_span.unwrap_or_default());
     }
 
@@ -520,45 +545,45 @@ fn lower_instruction(
 ) -> BytecodeInstruction {
     match instruction {
         Instruction::LoadConst { dst, constant } => BytecodeInstruction::LoadConst {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             constant: context.constant_id(lower_constant(constant)),
         },
-        Instruction::LoadLocal { dst, local } => BytecodeInstruction::LoadLocal {
-            dst: lower_value(*dst),
-            local: lower_local(*local),
+        Instruction::LoadLocal { dst, local } => BytecodeInstruction::Move {
+            dst: context.value(*dst),
+            src: lower_local(*local),
         },
         Instruction::LoadModule { dst, slot } => BytecodeInstruction::LoadModule {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             slot: lower_module_slot(*slot),
         },
-        Instruction::StoreLocal { local, src } => BytecodeInstruction::StoreLocal {
-            local: lower_local(*local),
-            src: lower_value(*src),
+        Instruction::StoreLocal { local, src } => BytecodeInstruction::Move {
+            dst: lower_local(*local),
+            src: context.value(*src),
         },
         Instruction::StoreModule { slot, src } => BytecodeInstruction::StoreModule {
             slot: lower_module_slot(*slot),
-            src: lower_value(*src),
+            src: context.value(*src),
         },
         Instruction::Move { dst, src } => BytecodeInstruction::Move {
-            dst: lower_value(*dst),
-            src: lower_value(*src),
+            dst: context.value(*dst),
+            src: context.value(*src),
         },
         Instruction::Unary { dst, op, operand } => BytecodeInstruction::Unary {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             op: match op {
                 MirUnaryOp::Neg => UnaryOp::Neg,
                 MirUnaryOp::Not => UnaryOp::Not,
             },
-            operand: lower_value(*operand),
+            operand: context.value(*operand),
         },
         Instruction::Binary { dst, op, lhs, rhs } => BytecodeInstruction::Binary {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             op: lower_binary_op(*op),
-            lhs: lower_value(*lhs),
-            rhs: lower_value(*rhs),
+            lhs: context.value(*lhs),
+            rhs: context.value(*rhs),
         },
         Instruction::Call { dst, callee, args } => BytecodeInstruction::Call {
-            dst: dst.map(lower_value),
+            dst: dst.map(|value| context.value(value)),
             callee: match callee {
                 MirCallTarget::SourceFunction(contract) => {
                     let target = context
@@ -636,13 +661,13 @@ fn lower_instruction(
                     CallTarget::Native(context.native_import(contract))
                 }
 
-                MirCallTarget::Value(value) => CallTarget::Register(lower_value(*value)),
+                MirCallTarget::Value(value) => CallTarget::Slot(context.value(*value)),
                 MirCallTarget::Closure {
                     value,
                     params,
                     return_type,
                 } => CallTarget::ClosureRegister {
-                    register: lower_value(*value),
+                    register: context.value(*value),
                     params: params.clone(),
                     return_type: *return_type,
                 },
@@ -653,13 +678,13 @@ fn lower_instruction(
                     CallTarget::RuntimeHelper(lower_runtime_helper(helper))
                 }
             },
-            args: args.iter().map(|arg| lower_value(*arg)).collect(),
+            args: args.iter().map(|arg| context.value(*arg)).collect(),
         },
         Instruction::MakeTuple { dst, elements } => BytecodeInstruction::MakeTuple {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             elements: elements
                 .iter()
-                .map(|element| lower_value(*element))
+                .map(|element| context.value(*element))
                 .collect(),
         },
         Instruction::RangeBound {
@@ -669,8 +694,8 @@ fn lower_instruction(
             bound,
             upper,
         } => BytecodeInstruction::RangeBound {
-            dst: lower_value(*dst),
-            value: lower_value(*value),
+            dst: context.value(*dst),
+            value: context.value(*value),
             range: range.clone(),
             bound: bound.clone(),
             upper: *upper,
@@ -681,9 +706,9 @@ fn lower_instruction(
             end,
             ty,
         } => BytecodeInstruction::MakeRange {
-            dst: lower_value(*dst),
-            start: start.map(lower_value),
-            end: end.map(lower_value),
+            dst: context.value(*dst),
+            start: start.map(|value| context.value(value)),
+            end: end.map(|value| context.value(value)),
             ty: ty.clone(),
         },
         Instruction::RepeatArray {
@@ -693,9 +718,9 @@ fn lower_instruction(
             count,
         } => BytecodeInstruction::RepeatArray {
             element: element.clone(),
-            dst: lower_value(*dst),
-            value: lower_value(*value),
-            count: lower_value(*count),
+            dst: context.value(*dst),
+            value: context.value(*value),
+            count: context.value(*count),
         },
         Instruction::MakeArray {
             dst,
@@ -703,10 +728,10 @@ fn lower_instruction(
             elements,
         } => BytecodeInstruction::MakeArray {
             element: element.clone(),
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             elements: elements
                 .iter()
-                .map(|element| lower_value(*element))
+                .map(|element| context.value(*element))
                 .collect(),
         },
         Instruction::MakeFuture {
@@ -715,9 +740,13 @@ fn lower_instruction(
             arguments,
             future,
         } => BytecodeInstruction::MakeFuture {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             function: FunctionRef::new(function.index()),
-            arguments: arguments.iter().copied().map(lower_value).collect(),
+            arguments: arguments
+                .iter()
+                .copied()
+                .map(|value| context.value(value))
+                .collect(),
             future: future.clone(),
         },
         Instruction::MakeClosure {
@@ -725,21 +754,21 @@ fn lower_instruction(
             function,
             captures,
         } => BytecodeInstruction::MakeClosure {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             function: FunctionRef::new(function.index()),
-            captures: captures.iter().map(|value| lower_value(*value)).collect(),
+            captures: captures.iter().map(|value| context.value(*value)).collect(),
         },
         Instruction::MakeCell { dst, value } => BytecodeInstruction::MakeCell {
-            dst: lower_value(*dst),
-            value: lower_value(*value),
+            dst: context.value(*dst),
+            value: context.value(*value),
         },
         Instruction::ReadCell { dst, cell } => BytecodeInstruction::ReadCell {
-            dst: lower_value(*dst),
-            cell: lower_value(*cell),
+            dst: context.value(*dst),
+            cell: context.value(*cell),
         },
         Instruction::WriteCell { cell, value } => BytecodeInstruction::WriteCell {
-            cell: lower_value(*cell),
-            value: lower_value(*value),
+            cell: context.value(*cell),
+            value: context.value(*value),
         },
         Instruction::UpcastInterface {
             dst,
@@ -747,8 +776,8 @@ fn lower_instruction(
             source,
             target,
         } => BytecodeInstruction::UpcastInterface {
-            dst: lower_value(*dst),
-            value: lower_value(*value),
+            dst: context.value(*dst),
+            value: context.value(*value),
             source: source.clone(),
             target: target.clone(),
         },
@@ -760,8 +789,8 @@ fn lower_instruction(
         } => {
             let (module, implementation) = context.interface_ref(implementation, arguments);
             BytecodeInstruction::MakeInterface {
-                dst: lower_value(*dst),
-                value: lower_value(*value),
+                dst: context.value(*dst),
+                value: context.value(*value),
                 module,
                 implementation,
                 arguments: arguments.clone(),
@@ -772,8 +801,8 @@ fn lower_instruction(
             src,
             conversion,
         } => BytecodeInstruction::Convert {
-            dst: lower_value(*dst),
-            src: lower_value(*src),
+            dst: context.value(*dst),
+            src: context.value(*src),
             conversion: *conversion,
         },
         Instruction::Numeric {
@@ -782,19 +811,19 @@ fn lower_instruction(
             lhs,
             rhs,
         } => BytecodeInstruction::Numeric {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             operation: *operation,
-            lhs: lower_value(*lhs),
-            rhs: rhs.map(lower_value),
+            lhs: context.value(*lhs),
+            rhs: rhs.map(|value| context.value(value)),
         },
         Instruction::Await { dst, value, future } => BytecodeInstruction::Await {
-            dst: lower_value(*dst),
-            value: lower_value(*value),
+            dst: context.value(*dst),
+            value: context.value(*value),
             future: future.clone(),
         },
         Instruction::Iter { dst, value, ty, op } => BytecodeInstruction::Iter {
-            dst: lower_value(*dst),
-            value: value.map(lower_value),
+            dst: context.value(*dst),
+            value: value.map(|value| context.value(value)),
             ty: ty.clone(),
             op: *op,
         },
@@ -805,7 +834,7 @@ fn lower_instruction(
             variant,
             fields,
         } => BytecodeInstruction::MakeEnum {
-            dst: lower_value(*dst),
+            dst: context.value(*dst),
             enumeration: EnumId::new(
                 context
                     .enumerations
@@ -818,7 +847,7 @@ fn lower_instruction(
             ),
             arguments: enumeration.arguments.clone(),
             variant: *variant as u32,
-            fields: fields.iter().map(|value| lower_value(*value)).collect(),
+            fields: fields.iter().map(|value| context.value(*value)).collect(),
         },
         Instruction::TestEnumVariant {
             dst,
@@ -826,8 +855,8 @@ fn lower_instruction(
             enumeration,
             variant,
         } => BytecodeInstruction::TestEnumVariant {
-            dst: lower_value(*dst),
-            value: lower_value(*value),
+            dst: context.value(*dst),
+            value: context.value(*value),
             enumeration: EnumId::new(
                 context
                     .enumerations
@@ -848,8 +877,8 @@ fn lower_instruction(
             variant,
             index,
         } => BytecodeInstruction::ReadEnumPayload {
-            dst: lower_value(*dst),
-            value: lower_value(*value),
+            dst: context.value(*dst),
+            value: context.value(*value),
             enumeration: EnumId::new(
                 context
                     .enumerations
@@ -872,41 +901,41 @@ fn lower_instruction(
             let mut ordered = fields.iter().collect::<Vec<_>>();
             ordered.sort_by_key(|field| field.slot);
             BytecodeInstruction::MakeStruct {
-                dst: lower_value(*dst),
+                dst: context.value(*dst),
                 structure: context.structure_id(structure),
                 arguments: structure.arguments.clone(),
                 fields: ordered
                     .into_iter()
-                    .map(|field| lower_value(field.value))
+                    .map(|field| context.value(field.value))
                     .collect(),
             }
         }
         Instruction::ReadAggregateField { dst, base, field } => {
             BytecodeInstruction::ReadAggregateField {
-                dst: lower_value(*dst),
-                base: lower_value(*base),
+                dst: context.value(*dst),
+                base: context.value(*base),
                 field: context.field_ref(field),
             }
         }
         Instruction::WriteAggregateField { base, field, value } => {
             BytecodeInstruction::WriteAggregateField {
-                base: lower_value(*base),
+                base: context.value(*base),
                 field: context.field_ref(field),
-                value: lower_value(*value),
+                value: context.value(*value),
             }
         }
         Instruction::ReadAggregateIndex { dst, base, index } => {
             BytecodeInstruction::ReadAggregateIndex {
-                dst: lower_value(*dst),
-                base: lower_value(*base),
-                index: lower_value(*index),
+                dst: context.value(*dst),
+                base: context.value(*base),
+                index: context.value(*index),
             }
         }
         Instruction::WriteAggregateIndex { base, index, value } => {
             BytecodeInstruction::WriteAggregateIndex {
-                base: lower_value(*base),
-                index: lower_value(*index),
-                value: lower_value(*value),
+                base: context.value(*base),
+                index: context.value(*index),
+                value: context.value(*value),
             }
         }
         Instruction::ReadPath {
@@ -915,10 +944,10 @@ fn lower_instruction(
             path,
             dynamic_args,
         } => BytecodeInstruction::ReadPath {
-            dst: lower_value(*dst),
-            root_or_view: lower_value(*root_or_view),
+            dst: context.value(*dst),
+            root_or_view: context.value(*root_or_view),
             path: context.path_id(path),
-            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
+            dynamic_args: dynamic_args.iter().map(|arg| context.value(*arg)).collect(),
         },
         Instruction::SetPath {
             root_or_view,
@@ -926,10 +955,10 @@ fn lower_instruction(
             dynamic_args,
             value,
         } => BytecodeInstruction::SetPath {
-            root_or_view: lower_value(*root_or_view),
+            root_or_view: context.value(*root_or_view),
             path: context.path_id(path),
-            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
-            value: lower_value(*value),
+            dynamic_args: dynamic_args.iter().map(|arg| context.value(*arg)).collect(),
+            value: context.value(*value),
         },
         Instruction::ModifyPath {
             dst,
@@ -939,12 +968,12 @@ fn lower_instruction(
             op,
             value,
         } => BytecodeInstruction::ModifyPath {
-            dst: dst.map(lower_value),
-            root_or_view: lower_value(*root_or_view),
+            dst: dst.map(|value| context.value(value)),
+            root_or_view: context.value(*root_or_view),
             path: context.path_id(path),
-            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
+            dynamic_args: dynamic_args.iter().map(|arg| context.value(*arg)).collect(),
             op: lower_binary_op(*op),
-            value: lower_value(*value),
+            value: context.value(*value),
         },
         Instruction::MakePathView {
             dst,
@@ -952,10 +981,10 @@ fn lower_instruction(
             path,
             dynamic_args,
         } => BytecodeInstruction::MakePathView {
-            dst: lower_value(*dst),
-            root_or_view: lower_value(*root_or_view),
+            dst: context.value(*dst),
+            root_or_view: context.value(*root_or_view),
             path: context.path_id(path),
-            dynamic_args: dynamic_args.iter().map(|arg| lower_value(*arg)).collect(),
+            dynamic_args: dynamic_args.iter().map(|arg| context.value(*arg)).collect(),
         },
     }
 }
@@ -963,9 +992,12 @@ fn lower_instruction(
 fn lower_terminator(
     terminator: &Terminator,
     block_offsets: &HashMap<BlockId, JumpTarget>,
+    context: &BytecodeLoweringContext,
 ) -> Result<BytecodeInstruction, BytecodeLoweringError> {
     Ok(match terminator {
-        Terminator::Return(value) => BytecodeInstruction::Return(value.map(lower_value)),
+        Terminator::Return(value) => {
+            BytecodeInstruction::Return(value.map(|value| context.value(value)))
+        }
         Terminator::Jump(target) => BytecodeInstruction::Jump {
             target: lower_jump(*target, block_offsets)?,
         },
@@ -974,7 +1006,7 @@ fn lower_terminator(
             then_block,
             else_block,
         } => BytecodeInstruction::Branch {
-            cond: lower_value(*cond),
+            cond: context.value(*cond),
             then_target: lower_jump(*then_block, block_offsets)?,
             else_target: lower_jump(*else_block, block_offsets)?,
         },
@@ -1027,16 +1059,8 @@ fn lower_runtime_helper(helper: &MirRuntimeHelper) -> RuntimeHelper {
     }
 }
 
-fn lower_temp(temp: TempId) -> Register {
-    Register::new(temp.index())
-}
-
-fn lower_value(value: MirValue) -> Register {
-    lower_temp(value.temp)
-}
-
-fn lower_local(local: LocalId) -> LocalSlot {
-    LocalSlot::new(local.index())
+fn lower_local(local: LocalId) -> Slot {
+    Slot::new(local.index())
 }
 
 fn lower_module_slot(slot: ModuleSlotId) -> ModuleSlot {

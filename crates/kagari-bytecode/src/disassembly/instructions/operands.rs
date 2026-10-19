@@ -5,7 +5,7 @@ use crate::{
         presentation::DisplayContext,
         resolution::contracts::{access, types},
     },
-    instruction::{BinaryOp, FieldRef, Register, UnaryOp},
+    instruction::{BinaryOp, FieldRef, Slot, UnaryOp},
 };
 use kagari_contract::{
     numeric::NumericOperation,
@@ -14,23 +14,20 @@ use kagari_contract::{
 use kagari_types::{integer::IntegerOp, ty::Ty};
 use std::io::{self, Write};
 
-pub(super) fn optional_register(
-    writer: &mut impl Write,
-    value: Option<Register>,
-) -> io::Result<()> {
+pub(super) fn optional_slot(writer: &mut impl Write, value: Option<Slot>) -> io::Result<()> {
     match value {
-        Some(value) => write!(writer, "r{}", value.index()),
+        Some(value) => write!(writer, "s{}", value.index()),
         None => write!(writer, "none"),
     }
 }
 
-pub(super) fn registers(writer: &mut impl Write, values: &[Register]) -> io::Result<()> {
+pub(super) fn slots(writer: &mut impl Write, values: &[Slot]) -> io::Result<()> {
     write!(writer, "[")?;
     for (index, value) in values.iter().enumerate() {
         if index != 0 {
             write!(writer, ", ")?;
         }
-        write!(writer, "r{}", value.index())?;
+        write!(writer, "s{}", value.index())?;
     }
     write!(writer, "]")
 }

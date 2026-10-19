@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 
 /// File-local GenericBody facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
-pub(crate) struct GenericBodyRecord {
+pub struct GenericBodyRecord {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     parameters: Vec<GenericParamRecord>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -38,7 +38,7 @@ pub(crate) struct GenericBodyRecord {
 impl GenericBodyRecord {
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
-    pub(crate) fn encode(
+    pub fn encode(
         value: &GenericBody,
         encoding: &DefinitionEncoding,
         cancel: &CancellationToken,
@@ -60,7 +60,7 @@ impl GenericBodyRecord {
 
     /// Convert using the explicit file table; preserve cancellation and shape errors.
     /// The caller retains the resulting scope and performs semantic verification.
-    pub(crate) fn decode(
+    pub fn decode(
         self,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,

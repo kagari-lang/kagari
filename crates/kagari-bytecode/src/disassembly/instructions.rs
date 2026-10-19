@@ -10,7 +10,7 @@ use crate::{
     disassembly::{
         instructions::{
             calls::{function, target},
-            operands::{binary, field, iter, numeric, optional_register, registers, unary},
+            operands::{binary, field, iter, numeric, optional_slot, slots, unary},
         },
         presentation::DisplayContext,
         resolution::{Resolution, contracts::types},
@@ -36,7 +36,7 @@ pub(crate) fn write_instruction(
     match instruction {
         BytecodeInstruction::Await { dst, value, future } => write!(
             writer,
-            "await r{}, value=r{}, future={}",
+            "await s{}, value=s{}, future={}",
             dst.index(),
             value.index(),
             context.ty(future)
@@ -49,7 +49,7 @@ pub(crate) fn write_instruction(
             let NumericConversion { source, target } = conversion;
             write!(
                 writer,
-                "convert r{}, src=r{}, source={}, target={}",
+                "convert s{}, src=s{}, source={}, target={}",
                 dst.index(),
                 src.index(),
                 context.ty(&Ty::Builtin(*source)),
@@ -64,44 +64,38 @@ pub(crate) fn write_instruction(
         } => {
             write!(writer, "numeric.")?;
             numeric(writer, context, operation)?;
-            write!(writer, " dst=r{}, lhs=r{}, rhs=", dst.index(), lhs.index())?;
-            optional_register(writer, *rhs)
+            write!(writer, " dst=s{}, lhs=s{}, rhs=", dst.index(), lhs.index())?;
+            optional_slot(writer, *rhs)
         }
         BytecodeInstruction::Iter { dst, value, ty, op } => {
-            write!(writer, "iter.{} r{}, value=", iter(*op), dst.index())?;
-            optional_register(writer, *value)?;
+            write!(writer, "iter.{} s{}, value=", iter(*op), dst.index())?;
+            optional_slot(writer, *value)?;
             write!(writer, ", type={}", context.ty(ty))
         }
         BytecodeInstruction::LoadConst { dst, constant } => write!(
             writer,
-            "load_const r{}, @{module}:const#{}",
+            "load_const s{}, @{module}:const#{}",
             dst.index(),
             constant.index()
         ),
-        BytecodeInstruction::LoadLocal { dst, local } => {
-            write!(writer, "load_local r{}, l{}", dst.index(), local.index())
-        }
         BytecodeInstruction::LoadModule { dst, slot } => write!(
             writer,
-            "load_module r{}, @{module}:slot#{}",
+            "load_module s{}, @{module}:slot#{}",
             dst.index(),
             slot.index()
         ),
-        BytecodeInstruction::StoreLocal { local, src } => {
-            write!(writer, "store_local l{}, r{}", local.index(), src.index())
-        }
         BytecodeInstruction::StoreModule { slot, src } => write!(
             writer,
-            "store_module @{module}:slot#{}, r{}",
+            "store_module @{module}:slot#{}, s{}",
             slot.index(),
             src.index()
         ),
         BytecodeInstruction::Move { dst, src } => {
-            write!(writer, "move r{}, r{}", dst.index(), src.index())
+            write!(writer, "move s{}, s{}", dst.index(), src.index())
         }
         BytecodeInstruction::Unary { dst, op, operand } => write!(
             writer,
-            "unary.{} r{}, r{}",
+            "unary.{} s{}, s{}",
             unary(*op),
             dst.index(),
             operand.index()
@@ -111,7 +105,7 @@ pub(crate) fn write_instruction(
             binary(writer, context, *op)?;
             write!(
                 writer,
-                " dst=r{}, lhs=r{}, rhs=r{}",
+                " dst=s{}, lhs=s{}, rhs=s{}",
                 dst.index(),
                 lhs.index(),
                 rhs.index()
@@ -119,15 +113,15 @@ pub(crate) fn write_instruction(
         }
         BytecodeInstruction::Call { dst, callee, args } => {
             write!(writer, "call dst=")?;
-            optional_register(writer, *dst)?;
+            optional_slot(writer, *dst)?;
             write!(writer, ", target=")?;
             target(writer, context, resolution, module, callee)?;
             write!(writer, ", args=")?;
-            registers(writer, args)
+            slots(writer, args)
         }
         BytecodeInstruction::MakeTuple { dst, elements } => {
-            write!(writer, "make_tuple r{}, elements=", dst.index())?;
-            registers(writer, elements)
+            write!(writer, "make_tuple s{}, elements=", dst.index())?;
+            slots(writer, elements)
         }
         BytecodeInstruction::RangeBound {
             dst,
@@ -137,7 +131,7 @@ pub(crate) fn write_instruction(
             upper,
         } => write!(
             writer,
-            "range_bound r{}, value=r{}, range={}, bound={}, upper={upper}",
+            "range_bound s{}, value=s{}, range={}, bound={}, upper={upper}",
             dst.index(),
             value.index(),
             context.ty(range),
@@ -149,10 +143,10 @@ pub(crate) fn write_instruction(
             end,
             ty,
         } => {
-            write!(writer, "make_range r{}, start=", dst.index())?;
-            optional_register(writer, *start)?;
+            write!(writer, "make_range s{}, start=", dst.index())?;
+            optional_slot(writer, *start)?;
             write!(writer, ", end=")?;
-            optional_register(writer, *end)?;
+            optional_slot(writer, *end)?;
             write!(writer, ", type={}", context.ty(ty))
         }
         BytecodeInstruction::RepeatArray {
@@ -162,7 +156,7 @@ pub(crate) fn write_instruction(
             count,
         } => write!(
             writer,
-            "repeat_array r{}, value=r{}, count=r{}, element={}",
+            "repeat_array s{}, value=s{}, count=s{}, element={}",
             dst.index(),
             value.index(),
             count.index(),
@@ -175,11 +169,11 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "make_array r{}, element={}, elements=",
+                "make_array s{}, element={}, elements=",
                 dst.index(),
                 context.ty(element)
             )?;
-            registers(writer, elements)
+            slots(writer, elements)
         }
         BytecodeInstruction::MakeFuture {
             dst,
@@ -187,10 +181,10 @@ pub(crate) fn write_instruction(
             arguments,
             future,
         } => {
-            write!(writer, "make_future r{}, function=", dst.index())?;
+            write!(writer, "make_future s{}, function=", dst.index())?;
             function(writer, context, resolution.program, module, *callee)?;
             write!(writer, ", arguments=")?;
-            registers(writer, arguments)?;
+            slots(writer, arguments)?;
             write!(writer, ", future={}", context.ty(future))
         }
         BytecodeInstruction::MakeClosure {
@@ -198,23 +192,23 @@ pub(crate) fn write_instruction(
             function: callee,
             captures,
         } => {
-            write!(writer, "make_closure r{}, function=", dst.index())?;
+            write!(writer, "make_closure s{}, function=", dst.index())?;
             function(writer, context, resolution.program, module, *callee)?;
             write!(writer, ", captures=")?;
-            registers(writer, captures)
+            slots(writer, captures)
         }
         BytecodeInstruction::MakeCell { dst, value } => write!(
             writer,
-            "make_cell r{}, value=r{}",
+            "make_cell s{}, value=s{}",
             dst.index(),
             value.index()
         ),
         BytecodeInstruction::ReadCell { dst, cell } => {
-            write!(writer, "read_cell r{}, cell=r{}", dst.index(), cell.index())
+            write!(writer, "read_cell s{}, cell=s{}", dst.index(), cell.index())
         }
         BytecodeInstruction::WriteCell { cell, value } => write!(
             writer,
-            "write_cell cell=r{}, value=r{}",
+            "write_cell cell=s{}, value=s{}",
             cell.index(),
             value.index()
         ),
@@ -225,7 +219,7 @@ pub(crate) fn write_instruction(
             target,
         } => write!(
             writer,
-            "upcast_interface r{}, value=r{}, source={}, target={}",
+            "upcast_interface s{}, value=s{}, source={}, target={}",
             dst.index(),
             value.index(),
             context.ty(&Ty::Trait(source.clone())),
@@ -240,7 +234,7 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "make_interface r{}, value=r{}, @{}:interface#{}, arguments=",
+                "make_interface s{}, value=s{}, @{}:interface#{}, arguments=",
                 dst.index(),
                 value.index(),
                 owner.index(),
@@ -256,13 +250,13 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "make_struct r{}, @{module}:struct#{}, arguments=",
+                "make_struct s{}, @{module}:struct#{}, arguments=",
                 dst.index(),
                 structure.index()
             )?;
             types(writer, context, arguments)?;
             write!(writer, ", fields=")?;
-            registers(writer, fields)
+            slots(writer, fields)
         }
         BytecodeInstruction::MakeEnum {
             dst,
@@ -273,13 +267,13 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "make_enum r{}, @{module}:enum#{}, arguments=",
+                "make_enum s{}, @{module}:enum#{}, arguments=",
                 dst.index(),
                 enumeration.index()
             )?;
             types(writer, context, arguments)?;
             write!(writer, ", variant={variant}, fields=")?;
-            registers(writer, fields)
+            slots(writer, fields)
         }
         BytecodeInstruction::TestEnumVariant {
             dst,
@@ -290,7 +284,7 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "test_enum_variant r{}, value=r{}, @{module}:enum#{}, arguments=",
+                "test_enum_variant s{}, value=s{}, @{module}:enum#{}, arguments=",
                 dst.index(),
                 value.index(),
                 enumeration.index()
@@ -308,7 +302,7 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "read_enum_payload r{}, value=r{}, @{module}:enum#{}, arguments=",
+                "read_enum_payload s{}, value=s{}, @{module}:enum#{}, arguments=",
                 dst.index(),
                 value.index(),
                 enumeration.index()
@@ -323,7 +317,7 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "read_aggregate_field r{}, base=r{}, field=",
+                "read_aggregate_field s{}, base=s{}, field=",
                 dst.index(),
                 base.index()
             )?;
@@ -336,22 +330,22 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "write_aggregate_field base=r{}, field=",
+                "write_aggregate_field base=s{}, field=",
                 base.index()
             )?;
             field(writer, context, module, member)?;
-            write!(writer, ", value=r{}", value.index())
+            write!(writer, ", value=s{}", value.index())
         }
         BytecodeInstruction::ReadAggregateIndex { dst, base, index } => write!(
             writer,
-            "read_aggregate_index r{}, base=r{}, index=r{}",
+            "read_aggregate_index s{}, base=s{}, index=s{}",
             dst.index(),
             base.index(),
             index.index()
         ),
         BytecodeInstruction::WriteAggregateIndex { base, index, value } => write!(
             writer,
-            "write_aggregate_index base=r{}, index=r{}, value=r{}",
+            "write_aggregate_index base=s{}, index=s{}, value=s{}",
             base.index(),
             index.index(),
             value.index()
@@ -364,12 +358,12 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "read_path r{}, root_or_view=r{}, @{module}:path#{}, dynamic_args=",
+                "read_path s{}, root_or_view=s{}, @{module}:path#{}, dynamic_args=",
                 dst.index(),
                 root_or_view.index(),
                 path.index()
             )?;
-            registers(writer, dynamic_args)
+            slots(writer, dynamic_args)
         }
         BytecodeInstruction::SetPath {
             root_or_view,
@@ -379,12 +373,12 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "set_path root_or_view=r{}, @{module}:path#{}, dynamic_args=",
+                "set_path root_or_view=s{}, @{module}:path#{}, dynamic_args=",
                 root_or_view.index(),
                 path.index()
             )?;
-            registers(writer, dynamic_args)?;
-            write!(writer, ", value=r{}", value.index())
+            slots(writer, dynamic_args)?;
+            write!(writer, ", value=s{}", value.index())
         }
         BytecodeInstruction::ModifyPath {
             dst,
@@ -395,17 +389,17 @@ pub(crate) fn write_instruction(
             value,
         } => {
             write!(writer, "modify_path dst=")?;
-            optional_register(writer, *dst)?;
+            optional_slot(writer, *dst)?;
             write!(
                 writer,
-                ", root_or_view=r{}, @{module}:path#{}, dynamic_args=",
+                ", root_or_view=s{}, @{module}:path#{}, dynamic_args=",
                 root_or_view.index(),
                 path.index()
             )?;
-            registers(writer, dynamic_args)?;
+            slots(writer, dynamic_args)?;
             write!(writer, ", op=")?;
             binary(writer, context, *op)?;
-            write!(writer, ", value=r{}", value.index())
+            write!(writer, ", value=s{}", value.index())
         }
         BytecodeInstruction::MakePathView {
             dst,
@@ -415,12 +409,12 @@ pub(crate) fn write_instruction(
         } => {
             write!(
                 writer,
-                "make_path_view r{}, root_or_view=r{}, @{module}:path#{}, dynamic_args=",
+                "make_path_view s{}, root_or_view=s{}, @{module}:path#{}, dynamic_args=",
                 dst.index(),
                 root_or_view.index(),
                 path.index()
             )?;
-            registers(writer, dynamic_args)
+            slots(writer, dynamic_args)
         }
         BytecodeInstruction::Jump { target } => write!(writer, "jump L{}", target.index()),
         BytecodeInstruction::Branch {
@@ -429,14 +423,14 @@ pub(crate) fn write_instruction(
             else_target,
         } => write!(
             writer,
-            "branch r{}, then=L{}, else=L{}",
+            "branch s{}, then=L{}, else=L{}",
             cond.index(),
             then_target.index(),
             else_target.index()
         ),
         BytecodeInstruction::Return(value) => {
             write!(writer, "return ")?;
-            optional_register(writer, *value)
+            optional_slot(writer, *value)
         }
         BytecodeInstruction::Unreachable => write!(writer, "unreachable"),
     }

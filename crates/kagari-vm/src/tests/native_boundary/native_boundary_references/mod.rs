@@ -26,7 +26,7 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
     let (_, ty) = forward
         .metadata
         .semantic
-        .registers
+        .slots
         .iter_mut()
         .find(|(_, ty)| matches!(ty, Ty::Reference { .. }))
         .unwrap();
@@ -57,7 +57,7 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
     let reference = tuple
         .metadata
         .semantic
-        .registers
+        .slots
         .iter()
         .find(|(_, ty)| matches!(ty, Ty::Reference { .. }))
         .map(|(i, _)| *i)
@@ -66,7 +66,7 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
         .instructions
         .iter()
         .find_map(|instruction| match instruction {
-            BytecodeInstruction::LoadLocal { dst, .. } if dst.index() == reference => Some(*dst),
+            BytecodeInstruction::Move { dst, .. } if dst.index() == reference => Some(*dst),
             _ => None,
         })
         .unwrap();

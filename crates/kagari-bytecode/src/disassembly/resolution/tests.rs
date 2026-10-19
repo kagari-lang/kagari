@@ -7,7 +7,7 @@ use crate::{
         presentation::DisplayContext,
         resolution::{Resolution, TraitSource},
     },
-    instruction::{BytecodeInstruction, CallTarget, LocalSlot, Register},
+    instruction::{BytecodeInstruction, CallTarget, Slot},
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InterfaceTableRecord,
         RootSlotLayout,
@@ -109,28 +109,31 @@ fn verified_dynamic_dispatch_resolves_declared_member_and_signature_without_an_i
         caller.types = vec![ValueType::HeapObject, ValueType::I32];
         let mut metadata = FunctionMetadata {
             params: vec![ValueType::HeapObject],
-            locals: vec![ValueType::HeapObject],
-            registers: vec![ValueType::HeapObject, ValueType::I32],
             return_type: ValueType::I32,
+            slots: [
+                vec![ValueType::HeapObject, ValueType::I32],
+                vec![ValueType::HeapObject],
+            ]
+            .concat(),
             ..Default::default()
         };
-        metadata.roots = RootSlotLayout::from_types(&metadata.locals, &metadata.registers);
+        metadata.roots = RootSlotLayout::from_types(&metadata.slots);
         metadata
             .semantic
             .params
             .insert(0, Ty::Trait(interface.clone()));
         metadata
             .semantic
-            .locals
+            .slots
             .insert(0, Ty::Trait(interface.clone()));
         metadata
             .semantic
-            .registers
-            .insert(0, Ty::Trait(interface.clone()));
-        metadata.semantic.registers.insert(1, integer());
+            .slots
+            .insert(2, Ty::Trait(interface.clone()));
+        metadata.semantic.slots.insert(1, integer());
         metadata.semantic.result = Some(integer());
         let call = BytecodeInstruction::Call {
-            dst: Some(Register::new(1)),
+            dst: Some(Slot::new(1)),
             callee: CallTarget::InterfaceMethod {
                 module: ModuleRef::new(1),
                 contract: Box::new(InterfaceCallContract {
@@ -142,7 +145,7 @@ fn verified_dynamic_dispatch_resolves_declared_member_and_signature_without_an_i
                     arguments: vec![],
                 }),
             },
-            args: vec![Register::new(0)],
+            args: vec![Slot::new(0)],
         };
         caller.function_table.push(FunctionRecord {
             id: FunctionRef::new(0),
@@ -152,22 +155,40 @@ fn verified_dynamic_dispatch_resolves_declared_member_and_signature_without_an_i
             return_type: metadata.return_type,
             effects: metadata.effects,
         });
-        caller.functions.push(BytecodeFunction {
-            id: FunctionRef::new(0),
-            identity: None,
-            name: "dispatch".into(),
-            parameter_count: 1,
-            local_count: 1,
-            register_count: 2,
-            metadata,
-            instructions: vec![
-                BytecodeInstruction::LoadLocal {
-                    dst: Register::new(0),
-                    local: LocalSlot::new(0),
+        caller.functions.push({
+            let parameter_base: usize = 2;
+            let fixture_instructions = vec![
+                BytecodeInstruction::Move {
+                    dst: Slot::new(0),
+                    src: Slot::new(parameter_base),
                 },
                 call,
-                BytecodeInstruction::Return(Some(Register::new(1))),
-            ],
+                BytecodeInstruction::Return(Some(Slot::new(1))),
+            ];
+            let mut fixture_metadata: crate::module::FunctionMetadata = metadata;
+            if fixture_metadata.parameter_slots.is_empty() {
+                fixture_metadata.parameter_slots =
+                    (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+            }
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| crate::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                id: FunctionRef::new(0),
+                identity: None,
+                name: "dispatch".into(),
+                parameter_count: 1,
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+            }
         });
         let verified = VerifiedBytecodeProgram::new(
             BytecodeProgram {

@@ -14,7 +14,7 @@ use crate::{
     session::ExecutionPhase,
     value::Value,
 };
-use kagari_bytecode::{instruction::Register, module::CallableTarget};
+use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 use kagari_contract::ids::FunctionRef;
 use kagari_types::ty::Ty;
 use std::slice;
@@ -110,7 +110,7 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         value: Value,
-        destination: Option<Register>,
+        destination: Option<Slot>,
         output: &TypeArgument,
     ) -> NativeResult<()> {
         let invalid = || RuntimeError::module_validation("script Future resume contract");

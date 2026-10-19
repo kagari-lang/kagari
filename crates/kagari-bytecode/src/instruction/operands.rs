@@ -1,9 +1,9 @@
 //! Explicit register roles shared by verification and physical allocation.
-use crate::instruction::{BytecodeInstruction, CallTarget, Register};
+use crate::instruction::{BytecodeInstruction, CallTarget, Slot};
 use std::iter;
 
 impl BytecodeInstruction {
-    pub fn register_inputs(&self) -> Vec<Register> {
+    pub fn slot_inputs(&self) -> Vec<Slot> {
         match self {
             BytecodeInstruction::Await { value, .. } => vec![*value],
             BytecodeInstruction::Convert { src, .. } => vec![*src],
@@ -11,11 +11,10 @@ impl BytecodeInstruction {
                 iter::once(*lhs).chain(rhs.iter().copied()).collect()
             }
             BytecodeInstruction::Iter { value, .. } => value.iter().copied().collect(),
-            BytecodeInstruction::LoadConst { .. }
-            | BytecodeInstruction::LoadLocal { .. }
-            | BytecodeInstruction::LoadModule { .. } => vec![],
-            BytecodeInstruction::StoreLocal { src, .. }
-            | BytecodeInstruction::StoreModule { src, .. }
+            BytecodeInstruction::LoadConst { .. } | BytecodeInstruction::LoadModule { .. } => {
+                vec![]
+            }
+            BytecodeInstruction::StoreModule { src, .. }
             | BytecodeInstruction::Move { src, .. } => {
                 vec![*src]
             }
@@ -30,8 +29,8 @@ impl BytecodeInstruction {
             BytecodeInstruction::RepeatArray { value, count, .. } => vec![*value, *count],
             BytecodeInstruction::Binary { lhs, rhs, .. } => vec![*lhs, *rhs],
             BytecodeInstruction::Call { callee, args, .. } => {
-                let mut values: Vec<Register> = args.to_vec();
-                if let CallTarget::Register(value) = callee {
+                let mut values: Vec<Slot> = args.to_vec();
+                if let CallTarget::Slot(value) = callee {
                     values.push(*value);
                 }
                 if let CallTarget::ClosureRegister {
@@ -81,7 +80,7 @@ impl BytecodeInstruction {
                 dynamic_args,
                 ..
             } => {
-                let mut values: Vec<Register> = dynamic_args.to_vec();
+                let mut values: Vec<Slot> = dynamic_args.to_vec();
                 values.push(*root_or_view);
                 values
             }
@@ -97,7 +96,7 @@ impl BytecodeInstruction {
                 value,
                 ..
             } => {
-                let mut values: Vec<Register> = dynamic_args.to_vec();
+                let mut values: Vec<Slot> = dynamic_args.to_vec();
                 values.push(*root_or_view);
                 values.push(*value);
                 values
@@ -105,10 +104,9 @@ impl BytecodeInstruction {
         }
     }
 
-    pub fn register_output(&self) -> Option<Register> {
+    pub fn slot_output(&self) -> Option<Slot> {
         match self {
             BytecodeInstruction::LoadConst { dst, .. }
-            | BytecodeInstruction::LoadLocal { dst, .. }
             | BytecodeInstruction::LoadModule { dst, .. }
             | BytecodeInstruction::Move { dst, .. }
             | BytecodeInstruction::Unary { dst, .. }
@@ -139,8 +137,7 @@ impl BytecodeInstruction {
             BytecodeInstruction::Call { dst, .. } | BytecodeInstruction::ModifyPath { dst, .. } => {
                 *dst
             }
-            BytecodeInstruction::StoreLocal { .. }
-            | BytecodeInstruction::StoreModule { .. }
+            BytecodeInstruction::StoreModule { .. }
             | BytecodeInstruction::WriteAggregateField { .. }
             | BytecodeInstruction::WriteAggregateIndex { .. }
             | BytecodeInstruction::SetPath { .. } => None,
@@ -149,6 +146,240 @@ impl BytecodeInstruction {
             | BytecodeInstruction::Jump { .. }
             | BytecodeInstruction::Branch { .. }
             | BytecodeInstruction::Unreachable => None,
+        }
+    }
+}
+
+impl BytecodeInstruction {
+    /// Rewrite all logical value operands, including destinations, during placement.
+    pub fn rewrite_slots(&mut self, mut rewrite: impl FnMut(Slot) -> Slot) {
+        match self {
+            Self::Await { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+            }
+            Self::Convert { dst, src, .. } => {
+                *dst = rewrite(*dst);
+                *src = rewrite(*src);
+            }
+            Self::Numeric { dst, lhs, rhs, .. } => {
+                *dst = rewrite(*dst);
+                *lhs = rewrite(*lhs);
+                if let Some(slot) = rhs {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::Iter { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                if let Some(slot) = value {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::LoadConst { dst, .. } => {
+                *dst = rewrite(*dst);
+            }
+            Self::LoadModule { dst, .. } => {
+                *dst = rewrite(*dst);
+            }
+            Self::StoreModule { src, .. } => {
+                *src = rewrite(*src);
+            }
+            Self::Move { dst, src, .. } => {
+                *dst = rewrite(*dst);
+                *src = rewrite(*src);
+            }
+            Self::Unary { dst, operand, .. } => {
+                *dst = rewrite(*dst);
+                *operand = rewrite(*operand);
+            }
+            Self::Binary { dst, lhs, rhs, .. } => {
+                *dst = rewrite(*dst);
+                *lhs = rewrite(*lhs);
+                *rhs = rewrite(*rhs);
+            }
+            Self::Call {
+                dst, callee, args, ..
+            } => {
+                if let Some(slot) = dst {
+                    *slot = rewrite(*slot);
+                }
+                match callee {
+                    CallTarget::Slot(slot) | CallTarget::ClosureRegister { register: slot, .. } => {
+                        *slot = rewrite(*slot)
+                    }
+                    _ => {}
+                }
+                for slot in args {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::MakeTuple { dst, elements, .. } => {
+                *dst = rewrite(*dst);
+                for slot in elements {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::RangeBound { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+            }
+            Self::MakeRange {
+                dst, start, end, ..
+            } => {
+                *dst = rewrite(*dst);
+                if let Some(slot) = start {
+                    *slot = rewrite(*slot);
+                }
+                if let Some(slot) = end {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::RepeatArray {
+                dst, value, count, ..
+            } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+                *count = rewrite(*count);
+            }
+            Self::MakeArray { dst, elements, .. } => {
+                *dst = rewrite(*dst);
+                for slot in elements {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::MakeFuture { dst, arguments, .. } => {
+                *dst = rewrite(*dst);
+                for slot in arguments {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::MakeClosure { dst, captures, .. } => {
+                *dst = rewrite(*dst);
+                for slot in captures {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::MakeCell { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+            }
+            Self::ReadCell { dst, cell, .. } => {
+                *dst = rewrite(*dst);
+                *cell = rewrite(*cell);
+            }
+            Self::WriteCell { cell, value, .. } => {
+                *cell = rewrite(*cell);
+                *value = rewrite(*value);
+            }
+            Self::UpcastInterface { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+            }
+            Self::MakeInterface { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+            }
+            Self::MakeStruct { dst, fields, .. } => {
+                *dst = rewrite(*dst);
+                for slot in fields {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::MakeEnum { dst, fields, .. } => {
+                *dst = rewrite(*dst);
+                for slot in fields {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::TestEnumVariant { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+            }
+            Self::ReadEnumPayload { dst, value, .. } => {
+                *dst = rewrite(*dst);
+                *value = rewrite(*value);
+            }
+            Self::ReadAggregateField { dst, base, .. } => {
+                *dst = rewrite(*dst);
+                *base = rewrite(*base);
+            }
+            Self::WriteAggregateField { base, value, .. } => {
+                *base = rewrite(*base);
+                *value = rewrite(*value);
+            }
+            Self::ReadAggregateIndex {
+                dst, base, index, ..
+            } => {
+                *dst = rewrite(*dst);
+                *base = rewrite(*base);
+                *index = rewrite(*index);
+            }
+            Self::WriteAggregateIndex {
+                base, index, value, ..
+            } => {
+                *base = rewrite(*base);
+                *index = rewrite(*index);
+                *value = rewrite(*value);
+            }
+            Self::ReadPath {
+                dst,
+                root_or_view,
+                dynamic_args,
+                ..
+            } => {
+                *dst = rewrite(*dst);
+                *root_or_view = rewrite(*root_or_view);
+                for slot in dynamic_args {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::SetPath {
+                root_or_view,
+                dynamic_args,
+                value,
+                ..
+            } => {
+                *root_or_view = rewrite(*root_or_view);
+                for slot in dynamic_args {
+                    *slot = rewrite(*slot);
+                }
+                *value = rewrite(*value);
+            }
+            Self::ModifyPath {
+                dst,
+                root_or_view,
+                dynamic_args,
+                value,
+                ..
+            } => {
+                if let Some(slot) = dst {
+                    *slot = rewrite(*slot);
+                }
+                *root_or_view = rewrite(*root_or_view);
+                for slot in dynamic_args {
+                    *slot = rewrite(*slot);
+                }
+                *value = rewrite(*value);
+            }
+            Self::MakePathView {
+                dst,
+                root_or_view,
+                dynamic_args,
+                ..
+            } => {
+                *dst = rewrite(*dst);
+                *root_or_view = rewrite(*root_or_view);
+                for slot in dynamic_args {
+                    *slot = rewrite(*slot);
+                }
+            }
+            Self::Branch { cond, .. } => {
+                *cond = rewrite(*cond);
+            }
+            Self::Return(Some(slot)) => {
+                *slot = rewrite(*slot);
+            }
+            _ => {}
         }
     }
 }

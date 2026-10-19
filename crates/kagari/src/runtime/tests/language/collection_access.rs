@@ -244,8 +244,7 @@ fn main() -> i32 { 42 }
     for ty in semantic
         .params
         .values_mut()
-        .chain(semantic.locals.values_mut())
-        .chain(semantic.registers.values_mut())
+        .chain(semantic.slots.values_mut())
     {
         if *ty == original {
             *ty = replacement.clone();

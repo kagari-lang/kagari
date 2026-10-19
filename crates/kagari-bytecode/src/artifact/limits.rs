@@ -569,13 +569,13 @@ pub(super) fn program_count_limit(
             let debug = &metadata.debug;
             if !within_table_limit([
                 metadata.semantic.params.len(),
-                metadata.semantic.locals.len(),
-                metadata.semantic.registers.len(),
+                metadata.semantic.slots.len(),
                 metadata.params.len(),
-                metadata.locals.len(),
-                metadata.registers.len(),
-                metadata.roots.locals.len(),
-                metadata.roots.registers.len(),
+                metadata.parameter_slots.len(),
+                metadata.origins.len(),
+                metadata.instruction_origins.len(),
+                metadata.slots.len(),
+                metadata.roots.slots.len(),
                 metadata.control_flow_targets.len(),
                 debug.source_spans.len(),
                 debug.line_table.len(),
@@ -583,8 +583,7 @@ pub(super) fn program_count_limit(
                 debug.local_live_ranges.len(),
                 debug.captured_bindings.len(),
                 debug.frame_layout.params.len(),
-                debug.frame_layout.locals.len(),
-                debug.frame_layout.registers.len(),
+                debug.frame_layout.slots.len(),
             ]) {
                 return Some("function metadata record limit exceeded");
             }
@@ -610,8 +609,7 @@ pub(super) fn metadata_count_limit(
                 function.local_live_ranges.len(),
                 function.captured_bindings.len(),
                 function.frame_layout.params.len(),
-                function.frame_layout.locals.len(),
-                function.frame_layout.registers.len(),
+                function.frame_layout.slots.len(),
             ])
         }))
     {
@@ -682,13 +680,7 @@ pub(super) fn artifact_count_limit(
             .iter()
             .any(|item| item.targets.len() > MAX_ARTIFACT_TABLE_RECORDS)
         || verification.function_layouts.iter().any(|item| {
-            !within_table_limit([
-                item.params.len(),
-                item.locals.len(),
-                item.registers.len(),
-                item.roots.locals.len(),
-                item.roots.registers.len(),
-            ])
+            !within_table_limit([item.params.len(), item.slots.len(), item.roots.slots.len()])
         })
     {
         return Some("artifact metadata record limit exceeded");

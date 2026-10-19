@@ -1,4 +1,5 @@
 //! Artifact envelope fields and claimed verification summaries, without seals.
+use crate::artifact::wire::slots::BytecodeSemanticSlotsRecord;
 use crate::{
     artifact::{
         ArtifactHeader, ArtifactSignatures, ArtifactTables, ControlFlowTargetMetadataBuffer,
@@ -17,7 +18,7 @@ use kagari_common::{
         table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
-use kagari_contract::{ids::FunctionRef, slots::wire::SemanticSlotsRecord};
+use kagari_contract::ids::FunctionRef;
 use serde::{Deserialize, Serialize};
 
 /// File-local KbcArtifact facts; no verification evidence is serialized.
@@ -148,15 +149,13 @@ impl VerificationMetadataRecord {
 /// File-local FunctionLayoutMetadata facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub(in crate::artifact) struct FunctionLayoutMetadataRecord {
-    semantic: SemanticSlotsRecord,
+    semantic: BytecodeSemanticSlotsRecord,
     function: FunctionRef,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     params: Vec<ValueType>,
     return_type: ValueType,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    locals: Vec<ValueType>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    registers: Vec<ValueType>,
+    slots: Vec<ValueType>,
     roots: RootSlotLayout,
 }
 
@@ -170,12 +169,11 @@ impl FunctionLayoutMetadataRecord {
     ) -> Result<Self, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(Self {
-            semantic: SemanticSlotsRecord::encode(&value.semantic, encoding, cancel)?,
+            semantic: BytecodeSemanticSlotsRecord::encode(&value.semantic, encoding, cancel)?,
             function: value.function,
             params: value.params.clone(),
             return_type: value.return_type,
-            locals: value.locals.clone(),
-            registers: value.registers.clone(),
+            slots: value.slots.clone(),
             roots: value.roots.clone(),
         })
     }
@@ -193,8 +191,7 @@ impl FunctionLayoutMetadataRecord {
             function: self.function,
             params: self.params,
             return_type: self.return_type,
-            locals: self.locals,
-            registers: self.registers,
+            slots: self.slots,
             roots: self.roots,
         })
     }

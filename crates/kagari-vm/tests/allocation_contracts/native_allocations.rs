@@ -1,6 +1,6 @@
 //! Allocation accounting isolates prepared native invocation from frame setup and compilation.
 use super::native_allocations_counter::{Counts, measured, verify_counter};
-use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, LocalSlot, Register};
+use kagari_bytecode::instruction::{BytecodeInstruction, CallTarget, Slot};
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
@@ -121,8 +121,8 @@ fn load() -> (Runtime, LoadedModule) {
 struct CallSite {
     function: FunctionRef,
     pc: usize,
-    arguments: Vec<Register>,
-    destination: Option<Register>,
+    arguments: Vec<Slot>,
+    destination: Option<Slot>,
 }
 
 impl CallSite {
@@ -180,7 +180,7 @@ fn sample(
         stack
             .current_mut()
             .unwrap()
-            .write_register(runtime, *register, *value)
+            .write_slot(runtime, *register, *value)
             .unwrap();
     }
     let invoke = || {
@@ -218,7 +218,7 @@ fn sample(
         stack
             .current()
             .unwrap()
-            .read_register(runtime, site.destination.unwrap())
+            .read_slot(runtime, site.destination.unwrap())
             .unwrap(),
         Value::I32(expected)
     );
@@ -318,7 +318,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
             stack
                 .current()
                 .unwrap()
-                .read_local(&runtime, LocalSlot::new(index))
+                .read_slot(&runtime, Slot::new(index))
                 .unwrap(),
             Value::I32(expected)
         );
@@ -356,7 +356,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                 stack
                     .current_mut()
                     .unwrap()
-                    .write_register(&runtime, *register, *value)
+                    .write_slot(&runtime, *register, *value)
                     .unwrap();
             }
             enter();
@@ -374,7 +374,7 @@ fn warmed_script_argument_windows_match_borrowed_slice_allocation_cost() {
                 stack
                     .current()
                     .unwrap()
-                    .read_register(&runtime, destination.unwrap())
+                    .read_slot(&runtime, destination.unwrap())
                     .unwrap(),
                 Value::I32(42)
             );

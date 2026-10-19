@@ -60,7 +60,7 @@ struct Window {
     ranges: WindowRanges,
     program: LoadedModule,
     environment: Option<TypeEnvironment>,
-    registers: Option<Arc<FrameLayout>>,
+    slot_layout: Option<Arc<FrameLayout>>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +71,7 @@ pub(crate) struct WindowRanges {
 
 impl Window {
     fn location(&self, logical: usize) -> Option<Location> {
-        match &self.registers {
+        match &self.slot_layout {
             Some(layout) => layout.location(logical),
             None if logical < self.ranges.managed.len() => Some(Location {
                 operand: OperandSlot::new(logical, true),
@@ -117,18 +117,17 @@ impl ExecutionValues {
     pub(crate) fn allocate(
         &mut self,
         count: usize,
-        argument_offset: usize,
+        parameter_slots: &[usize],
         arguments: &FrameArguments<'_>,
         metadata: FrameMetadata,
-        registers: Option<Arc<FrameLayout>>,
+        slot_layout: Option<Arc<FrameLayout>>,
     ) -> Result<FrameSlots, RuntimeError> {
-        if argument_offset
-            .checked_add(arguments.len())
-            .is_none_or(|end| end > count)
+        if parameter_slots.len() != arguments.len()
+            || parameter_slots.iter().any(|&slot| slot >= count)
         {
             return Err(RuntimeError::module_validation("frame argument window"));
         }
-        let (scalar_count, managed_count) = match &registers {
+        let (scalar_count, managed_count) = match &slot_layout {
             Some(layout) if layout.locations.len() == count => {
                 (layout.scalar_count, layout.managed_count)
             }
@@ -136,7 +135,7 @@ impl ExecutionValues {
             None => (0, count),
         };
         let destination = |index: usize| {
-            registers.as_ref().map_or(
+            slot_layout.as_ref().map_or(
                 Some(Location {
                     operand: OperandSlot::new(index, true),
                     representation: ValueType::Generic,
@@ -158,14 +157,14 @@ impl ExecutionValues {
         // Admission is transactional: reject an invalid argument before growing
         // any bank or publishing a frame window. No partial roots can escape.
         for (index, source) in arguments.iter().enumerate() {
-            let target = destination(argument_offset + index).expect("checked argument range");
+            let target = destination(parameter_slots[index]).expect("checked argument range");
             let capacity = if target.operand.managed() {
                 managed_count
             } else {
                 scalar_count
             };
             let admitted = match source {
-                ArgumentSource::Value(value) => registers.is_none() || target.admits(value),
+                ArgumentSource::Value(value) => slot_layout.is_none() || target.admits(value),
                 ArgumentSource::Window(location) => self.admits_transfer(
                     source_ranges.as_ref().expect("admitted source window"),
                     location,
@@ -223,7 +222,7 @@ impl ExecutionValues {
         // parameter ranges before publishing their identity and metadata roots.
         for (index, source) in arguments.iter().enumerate() {
             let target =
-                destination(argument_offset + index).expect("admitted argument destination");
+                destination(parameter_slots[index]).expect("admitted argument destination");
             match source {
                 ArgumentSource::Value(value) => {
                     self.write_range(&ranges, target, *value)
@@ -257,7 +256,7 @@ impl ExecutionValues {
             environment: metadata.environment,
             invocation: metadata.invocation,
             native_application: None,
-            registers,
+            slot_layout,
         });
         let slots = FrameSlots {
             owner: self.owner,
@@ -334,7 +333,7 @@ impl ExecutionValues {
     pub(crate) fn get(&self, slots: FrameSlots) -> Option<Vec<Value>> {
         let window = self.window(slots)?;
         let count = window
-            .registers
+            .slot_layout
             .as_ref()
             .map_or(window.ranges.managed.len(), |layout| layout.locations.len());
         (0..count)

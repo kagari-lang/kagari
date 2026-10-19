@@ -2,7 +2,7 @@ use crate::{
     access,
     instruction::{
         BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, FieldRef, JumpTarget,
-        LocalSlot, ModuleSlot, NativeImportId, PathId, Register, StructId,
+        ModuleSlot, NativeImportId, PathId, Slot, StructId,
     },
     module::{
         BytecodeFunction, BytecodeModule, CallableTarget, InterfaceMethodSlot, PathRecord,
@@ -18,6 +18,7 @@ use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
 use kagari_contract::{
     contracts,
     contracts::ContractError,
+    decode_limits::{MAX_INSTRUCTIONS, MAX_TABLE_RECORDS},
     host,
     ids::FunctionRef,
     layout,
@@ -39,7 +40,7 @@ use std::{collections::HashSet, iter};
 
 #[cfg(test)]
 mod async_tests;
-mod flow;
+pub(crate) mod flow;
 mod operation;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
@@ -93,12 +94,7 @@ pub enum BytecodeVerificationError {
     #[error("invalid register {register:?} in {function:?}")]
     InvalidRegister {
         function: FunctionRef,
-        register: Register,
-    },
-    #[error("invalid local {local:?} in {function:?}")]
-    InvalidLocal {
-        function: FunctionRef,
-        local: LocalSlot,
+        register: Slot,
     },
     #[error("invalid module slot {slot:?} in {function:?}")]
     InvalidModuleSlot {
@@ -181,7 +177,6 @@ impl BytecodeVerificationError {
             Self::InvalidRootLayout { .. } => "KG_BYTECODE_INVALID_ROOT_LAYOUT",
             Self::MetadataCountMismatch { .. } => "KG_BYTECODE_METADATA_COUNT_MISMATCH",
             Self::InvalidRegister { .. } => "KG_BYTECODE_INVALID_REGISTER",
-            Self::InvalidLocal { .. } => "KG_BYTECODE_INVALID_LOCAL",
             Self::InvalidModuleSlot { .. } => "KG_BYTECODE_INVALID_MODULE_SLOT",
             Self::InvalidFieldReference { .. } => "KG_BYTECODE_INVALID_FIELD_REFERENCE",
             Self::InvalidPathId { .. } => "KG_BYTECODE_INVALID_PATH_ID",
@@ -353,8 +348,7 @@ pub(super) fn verify_module_with_program(
                     .params
                     .values()
                     .chain(semantic.result.iter())
-                    .chain(semantic.locals.values())
-                    .chain(semantic.registers.values())
+                    .chain(semantic.slots.values())
             })),
         &Default::default(),
     )
@@ -621,17 +615,24 @@ fn bridge_method_matches(
     module: &BytecodeModule,
 ) -> bool {
     let params = function.metadata.params.len();
-    if function.instructions.len() != params + 2 {
-        return false;
-    }
-    let BytecodeInstruction::Call {
-        dst: Some(result),
-        callee,
-        args,
-    } = &function.instructions[params]
+    let [
+        transport @ ..,
+        BytecodeInstruction::Call {
+            dst: Some(result),
+            callee,
+            args,
+        },
+        BytecodeInstruction::Return(Some(value)),
+    ] = function.instructions.as_slice()
     else {
         return false;
     };
+    if value != result
+        || transport.len() > params
+        || function.metadata.parameter_slots.len() != params
+    {
+        return false;
+    }
     let target_matches = match (table.bridge, callee) {
         (Some(InterfaceBridge::Intrinsic), CallTarget::Function(target)) => module
             .functions
@@ -648,15 +649,28 @@ fn bridge_method_matches(
     if args.len() != params || !target_matches {
         return false;
     }
-    function.instructions[..params]
+    let homes = function
+        .metadata
+        .parameter_slots
         .iter()
-        .zip(args)
-        .enumerate()
-        .all(|(index, (instruction, arg))| {
-            matches!(instruction, BytecodeInstruction::LoadLocal { dst, local }
-                if dst == arg && local.index() == index)
-        })
-        && matches!(&function.instructions[params + 1], BytecodeInstruction::Return(Some(value)) if value == result)
+        .collect::<HashSet<_>>();
+    let mut destinations = HashSet::new();
+    let mut transport = transport.iter();
+    homes.len() == params
+        && args
+            .iter()
+            .zip(&function.metadata.parameter_slots)
+            .all(|(arg, home)| {
+                if arg == home {
+                    return true;
+                }
+                // A retained load may not clobber another parameter or an earlier argument.
+                !homes.contains(arg)
+                    && destinations.insert(arg)
+                    && matches!(transport.next(), Some(BytecodeInstruction::Move { dst, src })
+                if dst == arg && src == home)
+            })
+        && transport.next().is_none()
 }
 
 fn verify_function(
@@ -690,14 +704,20 @@ fn verify_function(
     for instruction in &function.instructions {
         verify_instruction(module, function, instruction, program, definitions)?;
     }
-    access::verify(module, function, program, definitions)?;
-    flow::verify(function, flow_budget)
+    let flow = flow::verify(function, flow_budget)?;
+    access::verify(
+        module,
+        function,
+        program,
+        definitions,
+        &flow.blocks,
+        flow_budget,
+    )?;
+    Ok(flow.awaits)
 }
 
 fn verify_root_layout(function: &BytecodeFunction) -> Result<(), BytecodeVerificationError> {
-    if function.metadata.roots
-        != RootSlotLayout::from_types(&function.metadata.locals, &function.metadata.registers)
-    {
+    if function.metadata.roots != RootSlotLayout::from_types(&function.metadata.slots) {
         return Err(BytecodeVerificationError::InvalidRootLayout {
             function: function.id,
         });
@@ -711,8 +731,7 @@ fn verify_metadata_types(
 ) -> Result<(), BytecodeVerificationError> {
     for ty in iter::once(&function.metadata.return_type)
         .chain(&function.metadata.params)
-        .chain(&function.metadata.locals)
-        .chain(&function.metadata.registers)
+        .chain(&function.metadata.slots)
     {
         if !module.types.contains(ty) {
             return Err(BytecodeVerificationError::MissingType {
@@ -725,51 +744,69 @@ fn verify_metadata_types(
 }
 
 fn verify_metadata_counts(function: &BytecodeFunction) -> Result<(), BytecodeVerificationError> {
-    let checks = [
-        (
-            "params",
-            usize::from(function.parameter_count),
-            function.metadata.params.len(),
-        ),
-        (
-            "locals",
-            usize::from(function.local_count),
-            function.metadata.locals.len(),
-        ),
-        (
-            "registers",
-            usize::from(function.register_count),
-            function.metadata.registers.len(),
-        ),
-    ];
-    for (layout, expected, found) in checks {
-        if expected != found {
-            return Err(BytecodeVerificationError::MetadataCountMismatch {
-                function: function.id,
-                layout,
-                expected,
-                found,
-            });
+    let count = function.metadata.slots.len();
+    let invalid = || BytecodeVerificationError::InvalidOperation {
+        function: function.id,
+        reason: "invalid slot or parameter layout",
+    };
+    if usize::try_from(function.slot_count).ok() != Some(count)
+        || count > MAX_TABLE_RECORDS
+        || function.metadata.params.len() != usize::from(function.parameter_count)
+        || function.metadata.parameter_slots.len() != function.metadata.params.len()
+    {
+        return Err(invalid());
+    }
+    let mut entries = HashSet::new();
+    for (index, (&slot, &ty)) in function
+        .metadata
+        .parameter_slots
+        .iter()
+        .zip(&function.metadata.params)
+        .enumerate()
+    {
+        if !entries.insert(slot)
+            || function.metadata.slots.get(slot.index()) != Some(&ty)
+            || function
+                .metadata
+                .semantic
+                .params
+                .get(&index)
+                .is_some_and(|expected| {
+                    function
+                        .metadata
+                        .semantic
+                        .slots
+                        .get(&slot.index())
+                        .is_some_and(|actual| actual != expected)
+                })
+        {
+            return Err(invalid());
         }
     }
-    if usize::from(function.parameter_count) > usize::from(function.local_count) {
-        return Err(BytecodeVerificationError::MetadataCountMismatch {
+    if function
+        .metadata
+        .origins
+        .first()
+        .is_none_or(|origin| origin.instruction != 0)
+        || function.metadata.origins.last().is_none_or(|origin| {
+            origin.instruction.checked_add(1) != Some(function.instructions.len())
+        })
+        || function.metadata.origins.windows(2).any(|pair| {
+            pair[1].instruction < pair[0].instruction
+                || pair[1].instruction.saturating_sub(pair[0].instruction) > 1
+        })
+        || function.metadata.origins.is_empty()
+        || function.metadata.origins.len() > MAX_INSTRUCTIONS
+        || function
+            .metadata
+            .origins
+            .iter()
+            .any(|origin| origin.instruction >= function.instructions.len())
+    {
+        return Err(BytecodeVerificationError::InvalidOperation {
             function: function.id,
-            layout: "params",
-            expected: usize::from(function.local_count),
-            found: usize::from(function.parameter_count),
+            reason: "invalid executable origin mapping",
         });
-    }
-    for (index, param_ty) in function.metadata.params.iter().enumerate() {
-        let local_ty = function.metadata.locals[index];
-        if *param_ty != local_ty {
-            return Err(BytecodeVerificationError::TypeMismatch {
-                function: function.id,
-                context: "parameter local layout",
-                expected: *param_ty,
-                found: local_ty,
-            });
-        }
     }
     Ok(())
 }
@@ -785,7 +822,7 @@ fn verify_debug_metadata(function: &BytecodeFunction) -> Result<(), BytecodeVeri
         verify_instruction_offset(function, point.instruction_offset)?;
     }
     for range in &function.metadata.debug.local_live_ranges {
-        let _ = local_ty(function, range.local)?;
+        let _ = register_ty(function, range.slot)?;
         if range.start > range.end || range.end > function.instructions.len() {
             return Err(BytecodeVerificationError::InvalidJumpTarget {
                 function: function.id,
@@ -838,9 +875,9 @@ fn contract_error(function: &BytecodeFunction, error: ContractError) -> Bytecode
 
 fn verify_standard_intrinsic_call(
     function: &BytecodeFunction,
-    dst: Option<Register>,
+    dst: Option<Slot>,
     intrinsic: RuntimePrimitive,
-    args: &[Register],
+    args: &[Slot],
 ) -> Result<(), BytecodeVerificationError> {
     let args = args
         .iter()
@@ -853,7 +890,7 @@ fn verify_standard_intrinsic_call(
 
 fn verify_call_dst(
     function: &BytecodeFunction,
-    dst: Option<Register>,
+    dst: Option<Slot>,
     return_type: ValueType,
 ) -> Result<(), BytecodeVerificationError> {
     let dst = dst.map(|dst| register_ty(function, dst)).transpose()?;
@@ -903,7 +940,7 @@ fn path_record<'a>(
 
 fn verify_dynamic_path_args(
     function: &BytecodeFunction,
-    dynamic_args: &[Register],
+    dynamic_args: &[Slot],
 ) -> Result<(), BytecodeVerificationError> {
     for arg in dynamic_args {
         let _ = register_ty(function, *arg)?;
@@ -927,11 +964,11 @@ fn verify_jump(
 
 fn register_ty(
     function: &BytecodeFunction,
-    register: Register,
+    register: Slot,
 ) -> Result<ValueType, BytecodeVerificationError> {
     function
         .metadata
-        .registers
+        .slots
         .get(register.index())
         .copied()
         .ok_or(BytecodeVerificationError::InvalidRegister {
@@ -942,7 +979,7 @@ fn register_ty(
 
 fn expect_register_ty(
     function: &BytecodeFunction,
-    register: Register,
+    register: Slot,
     expected: ValueType,
     context: &'static str,
 ) -> Result<(), BytecodeVerificationError> {
@@ -957,18 +994,6 @@ fn expect_register_ty(
             found,
         })
     }
-}
-
-fn local_ty(
-    function: &BytecodeFunction,
-    local: LocalSlot,
-) -> Result<ValueType, BytecodeVerificationError> {
-    function.metadata.locals.get(local.index()).copied().ok_or(
-        BytecodeVerificationError::InvalidLocal {
-            function: function.id,
-            local,
-        },
-    )
 }
 
 fn module_slot_ty(

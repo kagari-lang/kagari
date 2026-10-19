@@ -1,6 +1,5 @@
-//! Physical register intervals are derived from verified control flow, not from
-//! semantic type inference. Canonical register identities remain unchanged for
-//! contracts, native boundaries and debugging. Locals have separate fixed slots.
+//! Physical slot intervals consume verified control flow and binding availability.
+//! Logical identities remain stable; source names do not require a second bank.
 use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeFunction};
 use std::collections::BTreeSet;
 
@@ -8,9 +7,10 @@ const MAX_WORK: usize = 4_000_000;
 const MAX_WORDS: usize = 1_000_000;
 
 #[derive(Debug)]
-pub(crate) struct RegisterAllocation {
+pub(crate) struct SlotAllocation {
     pub slots: Box<[usize]>,
     pub count: usize,
+    pub ranges: Box<[Option<(usize, usize)>]>,
 }
 
 #[derive(Default)]
@@ -24,15 +24,16 @@ struct Block {
     out: Vec<u64>,
 }
 
-impl RegisterAllocation {
+impl SlotAllocation {
     pub(super) fn prepare(function: &BytecodeFunction, work: &mut usize) -> Self {
         Self::allocate(function, work).unwrap_or_else(|| {
             // Bounded preparation may decline allocation without changing code
             // semantics or accepting unchecked data. This is not an old format.
-            let count = usize::from(function.register_count);
+            let count = function.slot_count as usize;
             Self {
                 slots: (0..count).collect(),
                 count,
+                ranges: Box::default(),
             }
         })
     }
@@ -43,7 +44,7 @@ impl RegisterAllocation {
 
     fn allocate(function: &BytecodeFunction, work: &mut usize) -> Option<Self> {
         let code = &function.instructions;
-        let count = usize::from(function.register_count);
+        let count = function.slot_count as usize;
         let words = count.div_ceil(64);
         let mut leaders = BTreeSet::from([0]);
         for (pc, instruction) in code.iter().enumerate() {
@@ -87,7 +88,15 @@ impl RegisterAllocation {
                 ..Default::default()
             };
             for (pc, instruction) in code.iter().enumerate().take(end).skip(start) {
-                for register in instruction.register_inputs() {
+                charge(work, function.metadata.debug.local_live_ranges.len())?;
+                let debug = function
+                    .metadata
+                    .debug
+                    .local_live_ranges
+                    .iter()
+                    .filter(|range| range.start <= pc && pc < range.end)
+                    .map(|range| range.slot);
+                for register in instruction.slot_inputs().into_iter().chain(debug) {
                     charge(work, 1)?;
                     let slot = register.index();
                     touch(&mut ranges[slot], pc);
@@ -96,7 +105,7 @@ impl RegisterAllocation {
                         block.uses[slot / 64] |= bit;
                     }
                 }
-                if let Some(register) = instruction.register_output() {
+                if let Some(register) = instruction.slot_output() {
                     charge(work, 1)?;
                     let slot = register.index();
                     touch(&mut ranges[slot], pc);
@@ -160,6 +169,9 @@ impl RegisterAllocation {
                 }
             }
         }
+        for slot in &function.metadata.parameter_slots {
+            touch(&mut ranges[slot.index()], 0);
+        }
         let mut intervals = ranges
             .iter()
             .enumerate()
@@ -196,6 +208,7 @@ impl RegisterAllocation {
         Some(Self {
             slots: slots.into(),
             count: allocated,
+            ranges: ranges.into(),
         })
     }
 }
@@ -218,14 +231,13 @@ fn charge(work: &mut usize, amount: usize) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_bytecode::instruction::{BinaryOp, ConstantId, JumpTarget, LocalSlot, Register};
+    use kagari_bytecode::instruction::{BinaryOp, ConstantId, JumpTarget, Slot};
 
     #[test]
     fn loop_carried_values_do_not_alias_body_temporaries() {
-        let r = Register::new;
-        let function = BytecodeFunction {
-            register_count: 5,
-            instructions: vec![
+        let r = Slot::new;
+        let function = {
+            let fixture_instructions = vec![
                 BytecodeInstruction::LoadConst {
                     dst: r(0),
                     constant: ConstantId::new(0),
@@ -260,10 +272,30 @@ mod tests {
                     else_target: JumpTarget::new(7),
                 },
                 BytecodeInstruction::Return(Some(r(0))),
-            ],
-            ..Default::default()
+            ];
+            let mut fixture_metadata = kagari_bytecode::module::FunctionMetadata {
+                slots: vec![kagari_abi::representation::ValueType::I32; 5],
+                ..Default::default()
+            };
+
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+                ..Default::default()
+            }
         };
-        let allocation = RegisterAllocation::prepare(&function, &mut 0);
+        let allocation = SlotAllocation::prepare(&function, &mut 0);
         assert_eq!(allocation.count, 4);
         for live in 0..2 {
             for temporary in 2..5 {
@@ -275,13 +307,12 @@ mod tests {
 
     #[test]
     fn backedge_liveness_extends_a_definition_past_its_last_textual_use() {
-        let r = Register::new;
-        let function = BytecodeFunction {
-            register_count: 4,
-            instructions: vec![
-                BytecodeInstruction::LoadLocal {
+        let r = Slot::new;
+        let function = {
+            let fixture_instructions = vec![
+                BytecodeInstruction::Move {
                     dst: r(0),
-                    local: LocalSlot::new(0),
+                    src: Slot::new(0),
                 },
                 BytecodeInstruction::LoadConst {
                     dst: r(1),
@@ -301,10 +332,30 @@ mod tests {
                     else_target: JumpTarget::new(5),
                 },
                 BytecodeInstruction::Return(Some(r(2))),
-            ],
-            ..Default::default()
+            ];
+            let mut fixture_metadata = kagari_bytecode::module::FunctionMetadata {
+                slots: vec![kagari_abi::representation::ValueType::I32; 4],
+                ..Default::default()
+            };
+
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+                ..Default::default()
+            }
         };
-        let allocation = RegisterAllocation::prepare(&function, &mut 0);
+        let allocation = SlotAllocation::prepare(&function, &mut 0);
         assert_ne!(allocation.slots[1], allocation.slots[3]);
         assert_ne!(allocation.slots[0], allocation.slots[3]);
         assert_ne!(allocation.slots[2], allocation.slots[3]);

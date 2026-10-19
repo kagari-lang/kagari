@@ -115,7 +115,7 @@ impl AotBundle {
                 ValueType::Unit | ValueType::Bool | ValueType::I32
             )
             || function.metadata.effects.may_suspend
-            || function.instructions.len() != manifest.safepoints.len()
+            || function.metadata.origins.len() != manifest.safepoints.len()
         {
             return Err(AotError(
                 "native signature/points differ from bytecode".into(),

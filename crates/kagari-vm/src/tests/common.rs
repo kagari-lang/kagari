@@ -170,9 +170,9 @@ pub fn test_function_module(
     constants: Vec<ConstantOperand>,
 ) -> DefinitionMetadata<BytecodeModule> {
     let metadata = FunctionMetadata {
+        roots: RootSlotLayout::from_types(&[registers.to_vec(), [].to_vec()].concat()),
         return_type,
-        roots: RootSlotLayout::from_types(&[], &registers),
-        registers,
+        slots: registers,
         ..FunctionMetadata::default()
     };
     let module = BytecodeModule {
@@ -180,7 +180,7 @@ pub fn test_function_module(
         types: unique_types(
             iter::once(ValueType::Unit)
                 .chain(iter::once(metadata.return_type))
-                .chain(metadata.registers.iter().copied()),
+                .chain(metadata.slots.iter().copied()),
         ),
         function_table: vec![FunctionRecord {
             id: FunctionRef::new(0),
@@ -190,15 +190,29 @@ pub fn test_function_module(
             return_type: metadata.return_type,
             effects: metadata.effects,
         }],
-        functions: vec![BytecodeFunction {
-            id: FunctionRef::new(0),
-            identity: None,
-            name: name.to_owned(),
-            parameter_count: 0,
-            register_count: metadata.registers.len() as u16,
-            local_count: 0,
-            metadata,
-            instructions,
+        functions: vec![{
+            let fixture_instructions = instructions;
+            let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = metadata;
+
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                id: FunctionRef::new(0),
+                identity: None,
+                name: name.to_owned(),
+                parameter_count: 0,
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+            }
         }],
         ..BytecodeModule::default()
     };

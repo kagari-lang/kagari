@@ -66,7 +66,7 @@ impl ExecutionStack<'_> {
             }
             PreparedCallTarget::Closure(contract) => {
                 let caller = self.current()?;
-                let value = caller.read_register(runtime, contract.register)?;
+                let value = caller.read_slot(runtime, contract.register)?;
                 let closure = runtime.resolve_closure(&value)?;
                 caller.validate_closure_call(
                     &closure,
@@ -88,7 +88,7 @@ impl ExecutionStack<'_> {
                 let (invocation, receiver) = {
                     let caller = self.current()?;
                     let receiver = receiver
-                        .map(|register| caller.read_register(runtime, register))
+                        .map(|register| caller.read_slot(runtime, register))
                         .transpose()?;
                     let scoped_call;
                     let call = if *closed {

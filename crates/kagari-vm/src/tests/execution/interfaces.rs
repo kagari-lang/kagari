@@ -570,16 +570,16 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
 
     let (definitions, mut invalid) = module.clone().into_parts();
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
-        dst: Register::new(1),
-        value: Register::new(0),
+        dst: Slot::new(1),
+        value: Slot::new(0),
         module: ModuleRef::new(0),
         implementation: InterfaceTableRef::new(1),
         arguments: vec![],
     };
     assert!(verify_module(&invalid, &definitions).is_err());
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
-        dst: Register::new(1),
-        value: Register::new(1),
+        dst: Slot::new(1),
+        value: Slot::new(1),
         module: ModuleRef::new(0),
         implementation: InterfaceTableRef::new(0),
         arguments: vec![],
@@ -615,17 +615,17 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::MakeInterface {
-                    dst: Register::new(1),
-                    value: Register::new(0),
+                    dst: Slot::new(1),
+                    value: Slot::new(0),
                     module: ModuleRef::new(0),
                     implementation: InterfaceTableRef::new(0),
                     arguments: vec![],
                 },
-                BytecodeInstruction::Return(Some(Register::new(1))),
+                BytecodeInstruction::Return(Some(Slot::new(1))),
             ],
             ValueType::HeapObject,
             vec![ValueType::I32, ValueType::HeapObject],

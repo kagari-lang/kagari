@@ -1,6 +1,7 @@
 //! Direct formatting contracts. These private fixtures deliberately do not model
 //! executable programs: production entrypoints supply verified records instead.
 
+use crate::instruction::Slot;
 mod calls;
 mod operations;
 
@@ -210,8 +211,8 @@ impl Fixture {
     }
 }
 
-fn r(index: usize) -> Register {
-    Register::new(index)
+fn r(index: usize) -> Slot {
+    Slot::new(index)
 }
 
 fn t() -> Ty {
@@ -237,63 +238,63 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 value: r(1),
                 future: t(),
             },
-            "await r0, value=r1, future=i32",
+            "await s0, value=s1, future=i32",
         ),
         (
             BytecodeInstruction::LoadConst {
                 dst: r(0),
                 constant: ConstantId::new(9),
             },
-            "load_const r0, @1:const#9",
+            "load_const s0, @1:const#9",
         ),
         (
-            BytecodeInstruction::LoadLocal {
+            BytecodeInstruction::Move {
                 dst: r(0),
-                local: LocalSlot::new(8),
+                src: Slot::new(8),
             },
-            "load_local r0, l8",
+            "move s0, s8",
         ),
         (
             BytecodeInstruction::LoadModule {
                 dst: r(0),
                 slot: ModuleSlot::new(8),
             },
-            "load_module r0, @1:slot#8",
+            "load_module s0, @1:slot#8",
         ),
         (
-            BytecodeInstruction::StoreLocal {
-                local: LocalSlot::new(8),
+            BytecodeInstruction::Move {
+                dst: Slot::new(8),
                 src: r(1),
             },
-            "store_local l8, r1",
+            "move s8, s1",
         ),
         (
             BytecodeInstruction::StoreModule {
                 slot: ModuleSlot::new(8),
                 src: r(1),
             },
-            "store_module @1:slot#8, r1",
+            "store_module @1:slot#8, s1",
         ),
         (
             BytecodeInstruction::Move {
                 dst: r(0),
                 src: r(1),
             },
-            "move r0, r1",
+            "move s0, s1",
         ),
         (
             BytecodeInstruction::MakeTuple {
                 dst: r(0),
                 elements: vec![r(2), r(1)],
             },
-            "make_tuple r0, elements=[r2, r1]",
+            "make_tuple s0, elements=[s2, s1]",
         ),
         (
             BytecodeInstruction::MakeTuple {
                 dst: r(0),
                 elements: vec![],
             },
-            "make_tuple r0, elements=[]",
+            "make_tuple s0, elements=[]",
         ),
         (
             BytecodeInstruction::RangeBound {
@@ -303,7 +304,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 bound: Ty::Builtin(BuiltinType::U64),
                 upper: true,
             },
-            "range_bound r0, value=r1, range=i32, bound=u64, upper=true",
+            "range_bound s0, value=s1, range=i32, bound=u64, upper=true",
         ),
         (
             BytecodeInstruction::RangeBound {
@@ -313,7 +314,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 bound: t(),
                 upper: false,
             },
-            "range_bound r0, value=r1, range=i32, bound=i32, upper=false",
+            "range_bound s0, value=s1, range=i32, bound=i32, upper=false",
         ),
         (
             BytecodeInstruction::MakeRange {
@@ -322,7 +323,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 end: None,
                 ty: t(),
             },
-            "make_range r0, start=r1, end=none, type=i32",
+            "make_range s0, start=s1, end=none, type=i32",
         ),
         (
             BytecodeInstruction::MakeRange {
@@ -331,7 +332,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 end: Some(r(2)),
                 ty: t(),
             },
-            "make_range r0, start=none, end=r2, type=i32",
+            "make_range s0, start=none, end=s2, type=i32",
         ),
         (
             BytecodeInstruction::RepeatArray {
@@ -340,7 +341,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 value: r(1),
                 count: r(2),
             },
-            "repeat_array r0, value=r1, count=r2, element=i32",
+            "repeat_array s0, value=s1, count=s2, element=i32",
         ),
         (
             BytecodeInstruction::MakeArray {
@@ -348,7 +349,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 dst: r(0),
                 elements: vec![r(2), r(1)],
             },
-            "make_array r0, element=i32, elements=[r2, r1]",
+            "make_array s0, element=i32, elements=[s2, s1]",
         ),
         (
             BytecodeInstruction::MakeFuture {
@@ -357,7 +358,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 arguments: vec![r(2), r(1)],
                 future: t(),
             },
-            "make_future r0, function=@1:0 fixture::app::entry arguments=[i32], arguments=[r2, r1], future=i32",
+            "make_future s0, function=@1:0 fixture::app::entry arguments=[i32], arguments=[s2, s1], future=i32",
         ),
         (
             BytecodeInstruction::MakeClosure {
@@ -365,28 +366,28 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 function: FunctionRef::new(0),
                 captures: vec![r(2), r(1)],
             },
-            "make_closure r0, function=@1:0 fixture::app::entry arguments=[i32], captures=[r2, r1]",
+            "make_closure s0, function=@1:0 fixture::app::entry arguments=[i32], captures=[s2, s1]",
         ),
         (
             BytecodeInstruction::MakeCell {
                 dst: r(0),
                 value: r(1),
             },
-            "make_cell r0, value=r1",
+            "make_cell s0, value=s1",
         ),
         (
             BytecodeInstruction::ReadCell {
                 dst: r(0),
                 cell: r(1),
             },
-            "read_cell r0, cell=r1",
+            "read_cell s0, cell=s1",
         ),
         (
             BytecodeInstruction::WriteCell {
                 cell: r(1),
                 value: r(2),
             },
-            "write_cell cell=r1, value=r2",
+            "write_cell cell=s1, value=s2",
         ),
         (
             BytecodeInstruction::UpcastInterface {
@@ -399,7 +400,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                     associated_types: Default::default(),
                 },
             },
-            "upcast_interface r0, value=r1, source=trait fixture::app::Interface<i32>, target=trait fixture::app::Interface",
+            "upcast_interface s0, value=s1, source=trait fixture::app::Interface<i32>, target=trait fixture::app::Interface",
         ),
         (
             BytecodeInstruction::MakeInterface {
@@ -409,7 +410,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 implementation: InterfaceTableRef::new(5),
                 arguments: vec![t()],
             },
-            "make_interface r0, value=r1, @0:interface#5, arguments=[i32]",
+            "make_interface s0, value=s1, @0:interface#5, arguments=[i32]",
         ),
         (
             BytecodeInstruction::MakeStruct {
@@ -418,7 +419,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 arguments: vec![t()],
                 fields: vec![r(2), r(1)],
             },
-            "make_struct r0, @1:struct#3, arguments=[i32], fields=[r2, r1]",
+            "make_struct s0, @1:struct#3, arguments=[i32], fields=[s2, s1]",
         ),
         (
             BytecodeInstruction::MakeEnum {
@@ -428,7 +429,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 variant: 6,
                 fields: vec![r(2), r(1)],
             },
-            "make_enum r0, @1:enum#4, arguments=[i32], variant=6, fields=[r2, r1]",
+            "make_enum s0, @1:enum#4, arguments=[i32], variant=6, fields=[s2, s1]",
         ),
         (
             BytecodeInstruction::TestEnumVariant {
@@ -438,7 +439,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 arguments: vec![t()],
                 variant: 6,
             },
-            "test_enum_variant r0, value=r1, @1:enum#4, arguments=[i32], variant=6",
+            "test_enum_variant s0, value=s1, @1:enum#4, arguments=[i32], variant=6",
         ),
         (
             BytecodeInstruction::ReadEnumPayload {
@@ -449,7 +450,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 variant: 6,
                 index: 7,
             },
-            "read_enum_payload r0, value=r1, @1:enum#4, arguments=[i32], variant=6, index=7",
+            "read_enum_payload s0, value=s1, @1:enum#4, arguments=[i32], variant=6, index=7",
         ),
         (
             BytecodeInstruction::ReadAggregateField {
@@ -457,7 +458,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 base: r(1),
                 field: field(None),
             },
-            "read_aggregate_field r0, base=r1, field={@1:struct#3, arguments=[i32], slot=7, reference=none}",
+            "read_aggregate_field s0, base=s1, field={@1:struct#3, arguments=[i32], slot=7, reference=none}",
         ),
         (
             BytecodeInstruction::WriteAggregateField {
@@ -465,7 +466,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 field: field(Some(ReferenceAccess::Mutable)),
                 value: r(2),
             },
-            "write_aggregate_field base=r1, field={@1:struct#3, arguments=[i32], slot=7, reference=mutable}, value=r2",
+            "write_aggregate_field base=s1, field={@1:struct#3, arguments=[i32], slot=7, reference=mutable}, value=s2",
         ),
         (
             BytecodeInstruction::ReadAggregateField {
@@ -473,7 +474,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 base: r(1),
                 field: field(Some(ReferenceAccess::Shared)),
             },
-            "read_aggregate_field r0, base=r1, field={@1:struct#3, arguments=[i32], slot=7, reference=shared}",
+            "read_aggregate_field s0, base=s1, field={@1:struct#3, arguments=[i32], slot=7, reference=shared}",
         ),
         (
             BytecodeInstruction::ReadAggregateIndex {
@@ -481,7 +482,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 base: r(1),
                 index: r(2),
             },
-            "read_aggregate_index r0, base=r1, index=r2",
+            "read_aggregate_index s0, base=s1, index=s2",
         ),
         (
             BytecodeInstruction::WriteAggregateIndex {
@@ -489,7 +490,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 index: r(2),
                 value: r(3),
             },
-            "write_aggregate_index base=r1, index=r2, value=r3",
+            "write_aggregate_index base=s1, index=s2, value=s3",
         ),
         (
             BytecodeInstruction::ReadPath {
@@ -498,7 +499,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 path: PathId::new(6),
                 dynamic_args: vec![r(3), r(2)],
             },
-            "read_path r0, root_or_view=r1, @1:path#6, dynamic_args=[r3, r2]",
+            "read_path s0, root_or_view=s1, @1:path#6, dynamic_args=[s3, s2]",
         ),
         (
             BytecodeInstruction::SetPath {
@@ -507,7 +508,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 dynamic_args: vec![r(3), r(2)],
                 value: r(4),
             },
-            "set_path root_or_view=r1, @1:path#6, dynamic_args=[r3, r2], value=r4",
+            "set_path root_or_view=s1, @1:path#6, dynamic_args=[s3, s2], value=s4",
         ),
         (
             BytecodeInstruction::ModifyPath {
@@ -518,7 +519,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 op: BinaryOp::IdentityEq,
                 value: r(4),
             },
-            "modify_path dst=r0, root_or_view=r1, @1:path#6, dynamic_args=[r3, r2], op=identity_eq, value=r4",
+            "modify_path dst=s0, root_or_view=s1, @1:path#6, dynamic_args=[s3, s2], op=identity_eq, value=s4",
         ),
         (
             BytecodeInstruction::ModifyPath {
@@ -529,7 +530,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 op: BinaryOp::Add,
                 value: r(4),
             },
-            "modify_path dst=none, root_or_view=r1, @1:path#6, dynamic_args=[], op=add, value=r4",
+            "modify_path dst=none, root_or_view=s1, @1:path#6, dynamic_args=[], op=add, value=s4",
         ),
         (
             BytecodeInstruction::MakePathView {
@@ -538,7 +539,7 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 path: PathId::new(6),
                 dynamic_args: vec![r(3), r(2)],
             },
-            "make_path_view r0, root_or_view=r1, @1:path#6, dynamic_args=[r3, r2]",
+            "make_path_view s0, root_or_view=s1, @1:path#6, dynamic_args=[s3, s2]",
         ),
         (
             BytecodeInstruction::Jump {
@@ -552,9 +553,9 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
                 then_target: JumpTarget::new(7),
                 else_target: JumpTarget::new(2),
             },
-            "branch r1, then=L7, else=L2",
+            "branch s1, then=L7, else=L2",
         ),
-        (BytecodeInstruction::Return(Some(r(1))), "return r1"),
+        (BytecodeInstruction::Return(Some(r(1))), "return s1"),
         (BytecodeInstruction::Return(None), "return none"),
         (BytecodeInstruction::Unreachable, "unreachable"),
     ];

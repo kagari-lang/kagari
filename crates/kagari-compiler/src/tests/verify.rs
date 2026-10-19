@@ -621,7 +621,7 @@ fn bytecode_initializers_use_layout_order_after_source_order_evaluation() {
         assert_eq!(
             fields
                 .iter()
-                .map(|register| main.metadata.registers[register.index()])
+                .map(|register| main.metadata.slots[register.index()])
                 .collect::<Vec<_>>(),
             [ValueType::I32, ValueType::Bool]
         );

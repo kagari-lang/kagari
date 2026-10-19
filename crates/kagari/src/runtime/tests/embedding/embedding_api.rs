@@ -10,8 +10,7 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::{ArtifactBuildOptions, KbcArtifact},
     instruction::{
-        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, NativeImportId, PathId,
-        Register,
+        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, NativeImportId, PathId, Slot,
     },
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord,
@@ -246,9 +245,9 @@ fn host_path_artifact(
         arguments: vec![],
     };
     let mut metadata = FunctionMetadata {
+        roots: RootSlotLayout::from_types(&[registers.to_vec(), [].to_vec()].concat()),
         return_type,
-        roots: RootSlotLayout::from_types(&[], &registers),
-        registers,
+        slots: registers,
         ..FunctionMetadata::default()
     };
     metadata.semantic.result = Some(match return_type {
@@ -256,11 +255,11 @@ fn host_path_artifact(
         ValueType::I32 => Ty::Builtin(BuiltinType::I32),
         _ => panic!("host path fixture returns only unit or i32"),
     });
-    for (index, ty) in metadata.registers.iter().enumerate() {
+    for (index, ty) in metadata.slots.iter().enumerate() {
         if *ty == ValueType::HostHandle {
             metadata
                 .semantic
-                .registers
+                .slots
                 .insert(index, Ty::Host(schema.declaration));
         }
     }
@@ -310,15 +309,30 @@ fn host_path_artifact(
                         return_type: metadata.return_type,
                         effects: metadata.effects,
                     }],
-                    functions: vec![BytecodeFunction {
-                        id: FunctionRef::new(0),
-                        identity: Some(instance.clone()),
-                        name: "main".to_owned(),
-                        parameter_count: 0,
-                        register_count: metadata.registers.len() as u16,
-                        local_count: 0,
-                        metadata,
-                        instructions,
+                    functions: vec![{
+                        let fixture_instructions = instructions;
+                        let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata =
+                            metadata;
+
+                        if fixture_metadata.origins.is_empty() {
+                            fixture_metadata.origins = (0..fixture_instructions.len())
+                                .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                                    span: Default::default(),
+                                    line: None,
+                                    column: None,
+                                    instruction,
+                                })
+                                .collect();
+                        }
+                        BytecodeFunction {
+                            id: FunctionRef::new(0),
+                            identity: Some(instance.clone()),
+                            name: "main".to_owned(),
+                            parameter_count: 0,
+                            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                            metadata: fixture_metadata,
+                            instructions: fixture_instructions,
+                        }
                     }],
                     ..BytecodeModule::default()
                 },
@@ -692,19 +706,19 @@ fn installed_host_path_mutation_uses_declared_access() {
         "game.Player.hp",
         vec![
             BytecodeInstruction::Call {
-                dst: Some(Register::new(0)),
+                dst: Some(Slot::new(0)),
                 callee: CallTarget::Native(NativeImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::LoadConst {
-                dst: Register::new(1),
+                dst: Slot::new(1),
                 constant: ConstantId::new(0),
             },
             BytecodeInstruction::SetPath {
-                root_or_view: Register::new(0),
+                root_or_view: Slot::new(0),
                 path: PathId::new(0),
                 dynamic_args: vec![],
-                value: Register::new(1),
+                value: Slot::new(1),
             },
             BytecodeInstruction::Return(None),
         ],
@@ -755,17 +769,17 @@ fn installed_host_path_reads_need_no_permission_flags() {
         "game.Player.secure_hp",
         vec![
             BytecodeInstruction::Call {
-                dst: Some(Register::new(0)),
+                dst: Some(Slot::new(0)),
                 callee: CallTarget::Native(NativeImportId::new(0)),
                 args: vec![],
             },
             BytecodeInstruction::ReadPath {
-                dst: Register::new(1),
-                root_or_view: Register::new(0),
+                dst: Slot::new(1),
+                root_or_view: Slot::new(0),
                 path: PathId::new(0),
                 dynamic_args: vec![],
             },
-            BytecodeInstruction::Return(Some(Register::new(1))),
+            BytecodeInstruction::Return(Some(Slot::new(1))),
         ],
         vec![ValueType::HostHandle, ValueType::I32],
         ValueType::I32,

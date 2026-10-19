@@ -63,10 +63,10 @@ fn rejects_unverified_bytecode_before_publication() {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
-                BytecodeInstruction::Return(Some(Register::new(0))),
+                BytecodeInstruction::Return(Some(Slot::new(0))),
             ],
             ValueType::I32,
             vec![ValueType::I32],
@@ -109,12 +109,12 @@ fn rejects_unsupported_bytecode_before_publication() {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Call {
                     dst: None,
-                    callee: CallTarget::Register(Register::new(0)),
+                    callee: CallTarget::Slot(Slot::new(0)),
                     args: vec![],
                 },
                 BytecodeInstruction::Return(None),

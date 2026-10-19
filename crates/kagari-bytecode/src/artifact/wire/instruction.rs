@@ -3,7 +3,7 @@ use crate::{
     artifact::wire::calls::{CallTargetRecord, FieldRefRecord},
     instruction::{
         BinaryOp, BytecodeInstruction, ConstantId, EnumId, InterfaceTableRef, JumpTarget,
-        LocalSlot, ModuleSlot, PathId, Register, StructId, UnaryOp,
+        ModuleSlot, PathId, Slot, StructId, UnaryOp,
     },
     program::ModuleRef,
 };
@@ -26,165 +26,157 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub(in crate::artifact) enum BytecodeInstructionRecord {
     Await {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         future: WireType,
     },
     Convert {
-        dst: Register,
-        src: Register,
+        dst: Slot,
+        src: Slot,
         conversion: NumericConversion,
     },
     Numeric {
-        dst: Register,
+        dst: Slot,
         operation: NumericOperation,
-        lhs: Register,
-        rhs: Option<Register>,
+        lhs: Slot,
+        rhs: Option<Slot>,
     },
     Iter {
-        dst: Register,
-        value: Option<Register>,
+        dst: Slot,
+        value: Option<Slot>,
         ty: WireType,
         op: IterOp,
     },
     LoadConst {
-        dst: Register,
+        dst: Slot,
         constant: ConstantId,
     },
-    LoadLocal {
-        dst: Register,
-        local: LocalSlot,
-    },
     LoadModule {
-        dst: Register,
+        dst: Slot,
         slot: ModuleSlot,
-    },
-    StoreLocal {
-        local: LocalSlot,
-        src: Register,
     },
     StoreModule {
         slot: ModuleSlot,
-        src: Register,
+        src: Slot,
     },
     Move {
-        dst: Register,
-        src: Register,
+        dst: Slot,
+        src: Slot,
     },
     Unary {
-        dst: Register,
+        dst: Slot,
         op: UnaryOp,
-        operand: Register,
+        operand: Slot,
     },
     Binary {
-        dst: Register,
+        dst: Slot,
         op: BinaryOp,
-        lhs: Register,
-        rhs: Register,
+        lhs: Slot,
+        rhs: Slot,
     },
     Call {
-        dst: Option<Register>,
+        dst: Option<Slot>,
         callee: CallTargetRecord,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        args: Vec<Register>,
+        args: Vec<Slot>,
     },
     MakeTuple {
-        dst: Register,
+        dst: Slot,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        elements: Vec<Register>,
+        elements: Vec<Slot>,
     },
     RangeBound {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         range: WireType,
         bound: WireType,
         upper: bool,
     },
     MakeRange {
-        dst: Register,
-        start: Option<Register>,
-        end: Option<Register>,
+        dst: Slot,
+        start: Option<Slot>,
+        end: Option<Slot>,
         ty: WireType,
     },
     RepeatArray {
         element: WireType,
-        dst: Register,
-        value: Register,
-        count: Register,
+        dst: Slot,
+        value: Slot,
+        count: Slot,
     },
     MakeArray {
         element: WireType,
-        dst: Register,
+        dst: Slot,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        elements: Vec<Register>,
+        elements: Vec<Slot>,
     },
     MakeFuture {
-        dst: Register,
+        dst: Slot,
         function: FunctionRef,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        arguments: Vec<Register>,
+        arguments: Vec<Slot>,
         future: WireType,
     },
     MakeClosure {
-        dst: Register,
+        dst: Slot,
         function: FunctionRef,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        captures: Vec<Register>,
+        captures: Vec<Slot>,
     },
     MakeCell {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
     },
     ReadCell {
-        dst: Register,
-        cell: Register,
+        dst: Slot,
+        cell: Slot,
     },
     WriteCell {
-        cell: Register,
-        value: Register,
+        cell: Slot,
+        value: Slot,
     },
     UpcastInterface {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         source: NominalTyRecord,
         target: NominalTyRecord,
     },
     MakeInterface {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         module: ModuleRef,
         implementation: InterfaceTableRef,
         #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
         arguments: Vec<WireType>,
     },
     MakeStruct {
-        dst: Register,
+        dst: Slot,
         structure: StructId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
         arguments: Vec<WireType>,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        fields: Vec<Register>,
+        fields: Vec<Slot>,
     },
     MakeEnum {
-        dst: Register,
+        dst: Slot,
         enumeration: EnumId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
         arguments: Vec<WireType>,
         variant: u32,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        fields: Vec<Register>,
+        fields: Vec<Slot>,
     },
     TestEnumVariant {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         enumeration: EnumId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
         arguments: Vec<WireType>,
         variant: u32,
     },
     ReadEnumPayload {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         enumeration: EnumId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
         arguments: Vec<WireType>,
@@ -192,64 +184,64 @@ pub(in crate::artifact) enum BytecodeInstructionRecord {
         index: u32,
     },
     ReadAggregateField {
-        dst: Register,
-        base: Register,
+        dst: Slot,
+        base: Slot,
         field: FieldRefRecord,
     },
     WriteAggregateField {
-        base: Register,
+        base: Slot,
         field: FieldRefRecord,
-        value: Register,
+        value: Slot,
     },
     ReadAggregateIndex {
-        dst: Register,
-        base: Register,
-        index: Register,
+        dst: Slot,
+        base: Slot,
+        index: Slot,
     },
     WriteAggregateIndex {
-        base: Register,
-        index: Register,
-        value: Register,
+        base: Slot,
+        index: Slot,
+        value: Slot,
     },
     ReadPath {
-        dst: Register,
-        root_or_view: Register,
+        dst: Slot,
+        root_or_view: Slot,
         path: PathId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        dynamic_args: Vec<Register>,
+        dynamic_args: Vec<Slot>,
     },
     SetPath {
-        root_or_view: Register,
+        root_or_view: Slot,
         path: PathId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        dynamic_args: Vec<Register>,
-        value: Register,
+        dynamic_args: Vec<Slot>,
+        value: Slot,
     },
     ModifyPath {
-        dst: Option<Register>,
-        root_or_view: Register,
+        dst: Option<Slot>,
+        root_or_view: Slot,
         path: PathId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        dynamic_args: Vec<Register>,
+        dynamic_args: Vec<Slot>,
         op: BinaryOp,
-        value: Register,
+        value: Slot,
     },
     MakePathView {
-        dst: Register,
-        root_or_view: Register,
+        dst: Slot,
+        root_or_view: Slot,
         path: PathId,
         #[serde(deserialize_with = "kagari_contract::decode_limits::operands")]
-        dynamic_args: Vec<Register>,
+        dynamic_args: Vec<Slot>,
     },
     Jump {
         target: JumpTarget,
     },
     Branch {
-        cond: Register,
+        cond: Slot,
         then_target: JumpTarget,
         else_target: JumpTarget,
     },
-    Return(Option<Register>),
+    Return(Option<Slot>),
     Unreachable,
 }
 
@@ -298,17 +290,9 @@ impl BytecodeInstructionRecord {
                 dst: *dst,
                 constant: *constant,
             },
-            BytecodeInstruction::LoadLocal { dst, local } => Self::LoadLocal {
-                dst: *dst,
-                local: *local,
-            },
             BytecodeInstruction::LoadModule { dst, slot } => Self::LoadModule {
                 dst: *dst,
                 slot: *slot,
-            },
-            BytecodeInstruction::StoreLocal { local, src } => Self::StoreLocal {
-                local: *local,
-                src: *src,
             },
             BytecodeInstruction::StoreModule { slot, src } => Self::StoreModule {
                 slot: *slot,
@@ -647,9 +631,7 @@ impl BytecodeInstructionRecord {
                 op,
             },
             Self::LoadConst { dst, constant } => BytecodeInstruction::LoadConst { dst, constant },
-            Self::LoadLocal { dst, local } => BytecodeInstruction::LoadLocal { dst, local },
             Self::LoadModule { dst, slot } => BytecodeInstruction::LoadModule { dst, slot },
-            Self::StoreLocal { local, src } => BytecodeInstruction::StoreLocal { local, src },
             Self::StoreModule { slot, src } => BytecodeInstruction::StoreModule { slot, src },
             Self::Move { dst, src } => BytecodeInstruction::Move { dst, src },
             Self::Unary { dst, op, operand } => BytecodeInstruction::Unary { dst, op, operand },

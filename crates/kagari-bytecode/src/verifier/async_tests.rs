@@ -1,6 +1,6 @@
 use crate::{
     artifact::KbcArtifact,
-    instruction::{BytecodeInstruction as I, CallTarget, JumpTarget, LocalSlot, Register},
+    instruction::{BytecodeInstruction as I, CallTarget, JumpTarget, Slot},
     module::{
         BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, LocalLiveRange,
         RootSlotLayout,
@@ -31,17 +31,22 @@ fn program(context: &DefinitionContext) -> BytecodeProgram {
     });
     let mut metadata = FunctionMetadata {
         params: vec![ValueType::HeapObject],
-        locals: vec![ValueType::HeapObject],
-        registers: vec![ValueType::HeapObject; 2],
         return_type: ValueType::HeapObject,
-        roots: RootSlotLayout::from_types(&[ValueType::HeapObject], &[ValueType::HeapObject; 2]),
+        roots: RootSlotLayout::from_types(
+            &[
+                [ValueType::HeapObject; 2].to_vec(),
+                [ValueType::HeapObject].to_vec(),
+            ]
+            .concat(),
+        ),
+        slots: [vec![ValueType::HeapObject; 2], vec![ValueType::HeapObject]].concat(),
         ..Default::default()
     };
     metadata.effects.may_suspend = true;
     metadata.semantic.params.insert(0, future.clone());
-    metadata.semantic.locals.insert(0, future.clone());
-    metadata.semantic.registers.insert(0, future.clone());
-    metadata.semantic.registers.insert(1, output.clone());
+    metadata.semantic.slots.insert(2, future.clone());
+    metadata.semantic.slots.insert(0, future.clone());
+    metadata.semantic.slots.insert(1, output.clone());
     metadata.semantic.result = Some(output);
     let record = FunctionRecord {
         id: FunctionRef::new(0),
@@ -69,26 +74,44 @@ fn program(context: &DefinitionContext) -> BytecodeProgram {
                 variants: vec![],
             })],
             function_table: vec![record],
-            functions: vec![BytecodeFunction {
-                id: FunctionRef::new(0),
-                identity: None,
-                name: "wait".into(),
-                parameter_count: 1,
-                register_count: 2,
-                local_count: 1,
-                metadata,
-                instructions: vec![
-                    I::LoadLocal {
-                        dst: Register::new(0),
-                        local: LocalSlot::new(0),
+            functions: vec![{
+                let parameter_base: usize = 2;
+                let fixture_instructions = vec![
+                    I::Move {
+                        dst: Slot::new(0),
+                        src: Slot::new(parameter_base),
                     },
                     I::Await {
-                        dst: Register::new(1),
-                        value: Register::new(0),
+                        dst: Slot::new(1),
+                        value: Slot::new(0),
                         future,
                     },
-                    I::Return(Some(Register::new(1))),
-                ],
+                    I::Return(Some(Slot::new(1))),
+                ];
+                let mut fixture_metadata: crate::module::FunctionMetadata = metadata;
+                if fixture_metadata.parameter_slots.is_empty() {
+                    fixture_metadata.parameter_slots =
+                        (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+                }
+                if fixture_metadata.origins.is_empty() {
+                    fixture_metadata.origins = (0..fixture_instructions.len())
+                        .map(|instruction| crate::module::InstructionOrigin {
+                            span: Default::default(),
+                            line: None,
+                            column: None,
+                            instruction,
+                        })
+                        .collect();
+                }
+                BytecodeFunction {
+                    id: FunctionRef::new(0),
+                    identity: None,
+                    name: "wait".into(),
+                    parameter_count: 1,
+                    slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                    metadata: fixture_metadata,
+                    instructions: fixture_instructions,
+                }
             }],
             ..Default::default()
         }],
@@ -104,74 +127,93 @@ fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
     let function = &mut module.functions[0];
     let array = function.metadata.semantic.result.clone().unwrap();
     function.parameter_count = 4;
-    function.local_count = 5;
-    function.register_count = 6;
+    function.slot_count = 11;
     function.metadata.params.extend([
         ValueType::HeapObject,
         ValueType::Bool,
         ValueType::HostHandle,
     ]);
-    function.metadata.locals = function.metadata.params.clone();
-    function.metadata.locals.push(ValueType::HeapObject);
-    function.metadata.registers.extend([
+    function.metadata.slots = vec![
+        ValueType::HeapObject,
+        ValueType::HeapObject,
         ValueType::Bool,
         ValueType::HeapObject,
         ValueType::HostHandle,
         ValueType::HostHandle,
-    ]);
+        ValueType::HeapObject,
+        ValueType::HeapObject,
+        ValueType::Bool,
+        ValueType::HostHandle,
+        ValueType::HeapObject,
+    ];
+    function.metadata.parameter_slots = (6..10).map(Slot::new).collect();
     function.metadata.semantic.params.insert(1, array.clone());
     function
         .metadata
         .semantic
         .params
         .insert(2, Ty::Builtin(BuiltinType::Bool));
-    function.metadata.semantic.locals = function.metadata.semantic.params.clone();
-    function.metadata.semantic.locals.insert(4, array.clone());
+    function.metadata.semantic.slots.retain(|&slot, _| slot < 2);
+    for (&index, ty) in &function.metadata.semantic.params {
+        function
+            .metadata
+            .semantic
+            .slots
+            .insert(6 + index, ty.clone());
+    }
+    function.metadata.semantic.slots.insert(10, array.clone());
     function
         .metadata
         .semantic
-        .registers
+        .slots
         .insert(2, Ty::Builtin(BuiltinType::Bool));
-    function.metadata.semantic.registers.insert(3, array);
-    function.metadata.roots =
-        RootSlotLayout::from_types(&function.metadata.locals, &function.metadata.registers);
+    function.metadata.semantic.slots.insert(3, array);
+    function.metadata.roots = RootSlotLayout::from_types(&function.metadata.slots);
     let await_instruction = function.instructions[1].clone();
     function.instructions = vec![
-        I::LoadLocal {
-            dst: Register::new(3),
-            local: LocalSlot::new(1),
+        I::Move {
+            dst: Slot::new(3),
+            src: Slot::new(7),
         },
-        I::LoadLocal {
-            dst: Register::new(2),
-            local: LocalSlot::new(2),
+        I::Move {
+            dst: Slot::new(2),
+            src: Slot::new(8),
         },
         I::Branch {
-            cond: Register::new(2),
+            cond: Slot::new(2),
             then_target: JumpTarget::new(3),
             else_target: JumpTarget::new(8),
         },
-        I::LoadLocal {
-            dst: Register::new(4),
-            local: LocalSlot::new(3),
+        I::Move {
+            dst: Slot::new(4),
+            src: Slot::new(9),
         },
-        I::LoadLocal {
-            dst: Register::new(0),
-            local: LocalSlot::new(0),
+        I::Move {
+            dst: Slot::new(0),
+            src: Slot::new(6),
         },
         await_instruction,
-        I::StoreLocal {
-            local: LocalSlot::new(1),
-            src: Register::new(1),
+        I::Move {
+            dst: Slot::new(7),
+            src: Slot::new(1),
         },
         I::Jump {
             target: JumpTarget::new(1),
         },
-        I::LoadLocal {
-            dst: Register::new(1),
-            local: LocalSlot::new(1),
+        I::Move {
+            dst: Slot::new(1),
+            src: Slot::new(7),
         },
-        I::Return(Some(Register::new(1))),
+        I::Return(Some(Slot::new(1))),
     ];
+    function.metadata.origins = (0..function.instructions.len())
+        .map(|instruction| crate::module::InstructionOrigin {
+            span: Default::default(),
+            line: None,
+            column: None,
+            instruction,
+        })
+        .collect();
     // The host parameter is dead after its pre-await read, including the next
     // iteration. Overwrite that local with another host value before a backedge
     // would still make it live, so use a single iteration's terminal path here.
@@ -201,26 +243,26 @@ fn async_flow_validation_contract() {
                 function.instructions[1] = I::Jump {
                     target: JumpTarget::new(2),
                 };
-                "uninitialized slot in resume body"
+                "uninitialized executable slot"
             }
             1 => {
-                function.instructions[4] = I::StoreLocal {
-                    local: LocalSlot::new(1),
-                    src: Register::new(1),
+                function.instructions[4] = I::Move {
+                    dst: Slot::new(7),
+                    src: Slot::new(1),
                 };
-                "uninitialized slot in resume body"
+                "uninitialized executable slot"
             }
             2 => {
-                function.instructions[8] = I::LoadLocal {
-                    dst: Register::new(1),
-                    local: LocalSlot::new(4),
+                function.instructions[8] = I::Move {
+                    dst: Slot::new(1),
+                    src: Slot::new(10),
                 };
-                "uninitialized slot in resume body"
+                "uninitialized executable slot"
             }
             3 => {
                 function.instructions[6] = I::Move {
-                    dst: Register::new(5),
-                    src: Register::new(4),
+                    dst: Slot::new(5),
+                    src: Slot::new(4),
                 };
                 "host capability live across await"
             }
@@ -230,13 +272,14 @@ fn async_flow_validation_contract() {
                     .debug
                     .local_live_ranges
                     .push(LocalLiveRange {
-                        local: LocalSlot::new(3),
+                        slot: Slot::new(9),
                         name: "host".into(),
                         span: Default::default(),
                         start: 0,
                         end: 7,
                         ty: ValueType::HostHandle,
                         is_parameter: true,
+                        binding: 0,
                     });
                 "host capability live across await"
             }
@@ -301,26 +344,26 @@ fn async_artifact_validation_contract() {
                     module.function_table[0].effects.may_suspend = false;
                 }
                 2 => {
-                    function.metadata.semantic.registers.remove(&0);
+                    function.metadata.semantic.slots.remove(&0);
                 }
                 3 => {
                     function
                         .metadata
                         .semantic
-                        .registers
+                        .slots
                         .insert(1, Ty::Array(Box::new(Ty::Builtin(BuiltinType::Bool))));
                 }
                 4 => {
                     let I::Await { value, .. } = &mut function.instructions[1] else {
                         unreachable!()
                     };
-                    *value = Register::new(1);
+                    *value = Slot::new(1);
                 }
                 5 => {
                     function.instructions[1] = I::Call {
-                        dst: Some(Register::new(1)),
+                        dst: Some(Slot::new(1)),
                         callee: CallTarget::Function(FunctionRef::new(0)),
-                        args: vec![Register::new(0)],
+                        args: vec![Slot::new(0)],
                     };
                 }
                 _ => unreachable!(),
@@ -344,15 +387,11 @@ fn async_factory_artifact_contract() {
     factory.name = "factory".into();
     factory.metadata.effects.may_suspend = false;
     factory.metadata.semantic.result = Some(future.clone());
-    factory
-        .metadata
-        .semantic
-        .registers
-        .insert(1, future.clone());
+    factory.metadata.semantic.slots.insert(1, future.clone());
     factory.instructions[1] = I::MakeFuture {
-        dst: Register::new(1),
+        dst: Slot::new(1),
         function: FunctionRef::new(0),
-        arguments: vec![Register::new(0)],
+        arguments: vec![Slot::new(0)],
         future,
     };
     module.function_table.push(FunctionRecord {
@@ -384,7 +423,9 @@ fn async_factory_artifact_contract() {
             };
             ty.kind = TypeDefKind::NativeStorage(NativeStorageLayout::Task);
         } else if mutation == 4 {
-            factory.instructions.remove(0);
+            factory.instructions[0] = I::Jump {
+                target: JumpTarget::new(1),
+            };
         } else {
             let I::MakeFuture {
                 function,

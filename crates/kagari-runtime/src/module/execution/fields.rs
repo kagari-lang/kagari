@@ -26,14 +26,14 @@ impl PreparedFieldOperation {
     pub(super) fn prepare(
         layout_site: LayoutSite,
         instruction: &BytecodeInstruction,
-        registers: &FrameLayout,
+        slot_layout: &FrameLayout,
     ) -> Self {
         let (base, field, access) = match instruction {
             BytecodeInstruction::ReadAggregateField { dst, base, field } => (
                 base,
                 field,
                 FieldAccess::Read {
-                    dst: registers
+                    dst: slot_layout
                         .location(dst.index())
                         .expect("sealed field destination"),
                 },
@@ -42,7 +42,7 @@ impl PreparedFieldOperation {
                 base,
                 field,
                 FieldAccess::Write {
-                    value: registers
+                    value: slot_layout
                         .location(value.index())
                         .expect("sealed field value"),
                 },
@@ -57,7 +57,9 @@ impl PreparedFieldOperation {
             .then_some(scalar_location.semantic)
             .flatten();
         Self {
-            base: registers.location(base.index()).expect("sealed field base"),
+            base: slot_layout
+                .location(base.index())
+                .expect("sealed field base"),
             access,
             layout_site,
             slot: field.slot,

@@ -167,7 +167,7 @@ fn debugger_availability_requires_initialization_on_every_incoming_edge() {
             .debug
             .local_live_ranges
             .iter()
-            .filter(|range| range.local.index() == local.index())
+            .filter(|range| range.slot.index() == local.index())
             .all(|range| !(range.start <= offset && offset < range.end))
     );
 }

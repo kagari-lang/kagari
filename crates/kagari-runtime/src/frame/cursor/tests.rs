@@ -1,6 +1,6 @@
 //! Invalid engine borrows remain a collector fault even though cursors cannot escape.
 use crate::{Runtime, error::RuntimeErrorKind, value::Value};
-use kagari_bytecode::instruction::Register;
+use kagari_bytecode::instruction::Slot;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -43,10 +43,10 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
     drop(values);
     assert!(
         frame
-            .write_register(&runtime, Register::new(0), Value::I32(99))
+            .write_slot(&runtime, Slot::new(0), Value::I32(99))
             .is_err()
     );
-    assert!(frame.read_register(&runtime, Register::new(0)).is_err());
+    assert!(frame.read_slot(&runtime, Slot::new(0)).is_err());
     drop(frame);
     assert!(
         stack

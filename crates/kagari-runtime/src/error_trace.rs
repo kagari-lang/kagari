@@ -27,6 +27,7 @@ pub struct ErrorFrame {
     pub function_name: String,
     pub source_uri: String,
     pub instruction_offset: usize,
+    pub semantic_origin: Option<usize>,
     pub source_span: Option<Span>,
     /// One-based line and UTF-8 byte column, independent of the current disk source.
     pub line: Option<u32>,
@@ -101,6 +102,7 @@ impl ErrorTrace {
                     function_name,
                     source_uri,
                     instruction_offset: 0,
+                    semantic_origin: None,
                     source_span: None,
                     line: None,
                     column: None,
@@ -109,15 +111,13 @@ impl ErrorTrace {
             };
             let offset = frame.instruction_offset();
             let debug = &function.metadata.debug;
-            let line = debug
-                .line_table
-                .iter()
-                .find(|entry| entry.instruction_offset == offset);
-            let source_span = debug
-                .source_spans
-                .iter()
-                .find(|entry| entry.instruction_offset == offset)
-                .map(|entry| entry.span);
+            let semantic_origin = frame.native_origin().or_else(|| {
+                function
+                    .metadata
+                    .instruction_origin(offset)
+                    .map(|(id, _)| id)
+            });
+            let point = semantic_origin.and_then(|id| function.metadata.origins.get(id));
             let origin = debug
                 .source_module
                 .and_then(|slot| frame.loaded().member(slot));
@@ -141,9 +141,10 @@ impl ErrorTrace {
                 function_name,
                 source_uri,
                 instruction_offset: offset,
-                source_span,
-                line: line.and_then(|l| l.line),
-                column: line.and_then(|l| l.column),
+                semantic_origin,
+                source_span: point.map(|origin| origin.span),
+                line: point.and_then(|origin| origin.line),
+                column: point.and_then(|origin| origin.column),
             });
         }
         trace.omitted_frames = frames.len() - trace.frames.len();

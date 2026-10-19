@@ -1,29 +1,33 @@
 use crate::{
-    instruction::{
-        BytecodeInstruction, ConstantOperand, JumpTarget, LocalSlot, NativeImportId, PathId,
-        Register,
-    },
+    instruction::{BytecodeInstruction, ConstantOperand, JumpTarget, NativeImportId, PathId, Slot},
     program::ModuleRef,
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{
-    identity::{ModuleIdentity, table::DefinitionId},
+    cancellation::CancellationToken,
+    identity::{
+        ModuleIdentity,
+        table::{DefinitionId, DefinitionTable},
+    },
     span::Span,
 };
 use kagari_contract::{
+    callable::generic::GenericBody,
     effects::EffectSet,
     ids::{DebugPointId, FunctionRef},
     layout::{EnumLayout, StructLayout},
     native_import::NativeImport,
-    slots::SemanticSlots,
+    representation::semantic_representation,
+    slots::{self as semantic_slots, FunctionTypeFacts},
     types::{ConcreteFunctionIdentity, PublicItem, TraitContract},
 };
 use kagari_types::{
-    declaration::path::HostPathDeclaration,
     declaration::{NativeDeclaration, TypeDeclaration},
+    declaration::{path::HostPathDeclaration, requirement::NativeCallableRequirement},
     ty::{NominalTy, Ty},
 };
 use serde::{Deserialize, Serialize};
+use std::{collections::BTreeMap, iter};
 
 #[derive(Debug, Clone, Default)]
 pub struct BytecodeModule {
@@ -73,20 +77,22 @@ pub struct BytecodeFunction {
     pub identity: Option<ConcreteFunctionIdentity>,
     pub name: String,
     pub parameter_count: u16,
-    pub register_count: u16,
-    pub local_count: u16,
+    pub slot_count: u32,
     pub metadata: FunctionMetadata,
     pub instructions: BytecodeInstructionBuffer,
 }
 
 #[derive(Debug, Clone, Default)]
 pub struct FunctionMetadata {
-    /// Explicit logical charges in emission order; one entry per executable point.
-    pub semantic: SemanticSlots,
+    pub semantic: BytecodeSemanticSlots,
     pub params: TypeLayoutBuffer,
     pub return_type: ValueType,
-    pub locals: TypeLayoutBuffer,
-    pub registers: TypeLayoutBuffer,
+    pub slots: TypeLayoutBuffer,
+    pub parameter_slots: Vec<Slot>,
+    pub origins: Vec<InstructionOrigin>,
+    /// Actual instruction origins for PCs with multiple semantic origins, ordered by PC.
+    /// Every ambiguous PC requires exactly one entry; a unique origin needs no override.
+    pub instruction_origins: Vec<usize>,
     pub roots: RootSlotLayout,
     pub control_flow_targets: ControlFlowTargetBuffer,
     pub effects: EffectSet,
@@ -103,31 +109,102 @@ pub struct FunctionRecord {
     pub effects: EffectSet,
 }
 
-/// Conservative frame roots, indexed by verified local and register slots.
+/// Conservative logical roots derived from the complete executable slot layout.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RootSlotLayout {
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub locals: Vec<LocalSlot>,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub registers: Vec<Register>,
+    pub slots: Vec<Slot>,
 }
 
 impl RootSlotLayout {
-    pub fn from_types(locals: &[ValueType], registers: &[ValueType]) -> Self {
+    pub fn from_types(slots: &[ValueType]) -> Self {
         Self {
-            locals: locals
+            slots: slots
                 .iter()
                 .enumerate()
                 .filter(|(_, ty)| ty.may_contain_gc_reference())
-                .map(|(index, _)| LocalSlot::new(index))
-                .collect(),
-            registers: registers
-                .iter()
-                .enumerate()
-                .filter(|(_, ty)| ty.may_contain_gc_reference())
-                .map(|(index, _)| Register::new(index))
+                .map(|(index, _)| Slot::new(index))
                 .collect(),
         }
+    }
+}
+
+/// A semantic MIR origin maps to a real executable PC; its span is not strippable.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstructionOrigin {
+    pub instruction: usize,
+    pub span: Span,
+    pub line: Option<u32>,
+    pub column: Option<u32>,
+}
+
+/// Full callable and slot facts projected from MIR, independent of MIR namespaces.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BytecodeSemanticSlots {
+    pub generic: Option<GenericBody>,
+    pub protocol_adapter: Option<NativeCallableRequirement>,
+    pub params: BTreeMap<usize, Ty>,
+    pub result: Option<Ty>,
+    pub slots: BTreeMap<usize, Ty>,
+}
+
+impl BytecodeSemanticSlots {
+    pub fn types_valid(
+        &self,
+        identity: Option<&ConcreteFunctionIdentity>,
+        cancel: &CancellationToken,
+        definitions: &DefinitionTable,
+    ) -> bool {
+        semantic_slots::types_valid(self, identity, cancel, definitions)
+    }
+
+    pub fn protocol_adapter_valid(
+        &self,
+        identity: Option<&ConcreteFunctionIdentity>,
+        definitions: &DefinitionTable,
+    ) -> bool {
+        semantic_slots::protocol_adapter_valid(
+            self.protocol_adapter.as_ref(),
+            self.generic.as_ref(),
+            &self.params,
+            self.result.as_ref(),
+            identity,
+            definitions,
+        )
+    }
+
+    pub fn generic_layout_valid(
+        &self,
+        slots: &[ValueType],
+        parameter_slots: &[Slot],
+        result: ValueType,
+    ) -> bool {
+        if parameter_slots
+            .iter()
+            .any(|slot| slot.index() >= slots.len())
+        {
+            return false;
+        }
+        slots
+            .iter()
+            .enumerate()
+            .map(|(index, &repr)| (repr, self.slots.get(&index)))
+            .chain(
+                parameter_slots
+                    .iter()
+                    .enumerate()
+                    .map(|(index, slot)| (slots[slot.index()], self.params.get(&index))),
+            )
+            .chain(iter::once((result, self.result.as_ref())))
+            .all(|(repr, ty)| {
+                let generic =
+                    ty.is_some_and(|ty| semantic_representation(ty) == ValueType::Generic);
+                if repr == ValueType::Generic || generic {
+                    self.generic.is_some() && generic && repr == ValueType::Generic
+                } else {
+                    true
+                }
+            })
     }
 }
 
@@ -233,7 +310,8 @@ pub enum SafeDebugPointKind {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LocalLiveRange {
-    pub local: LocalSlot,
+    pub slot: Slot,
+    pub binding: u32,
     pub name: String,
     pub span: Span,
     /// First instruction offset where the initialized binding is visible.
@@ -256,9 +334,7 @@ pub struct FrameLayout {
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     pub params: TypeLayoutBuffer,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub locals: TypeLayoutBuffer,
-    #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    pub registers: TypeLayoutBuffer,
+    pub slots: TypeLayoutBuffer,
 }
 
 pub type BytecodeFunctionBuffer = Vec<BytecodeFunction>;
@@ -294,4 +370,29 @@ pub type LocalLiveRangeBuffer = Vec<LocalLiveRange>;
 pub type CapturedBindingDebugBuffer = Vec<CapturedBindingDebugInfo>;
 
 mod mapping;
+mod origins;
 mod paths;
+
+pub(crate) mod slots;
+
+impl FunctionTypeFacts for BytecodeSemanticSlots {
+    fn generic(&self) -> Option<&GenericBody> {
+        self.generic.as_ref()
+    }
+
+    fn protocol_adapter(&self) -> Option<&NativeCallableRequirement> {
+        self.protocol_adapter.as_ref()
+    }
+
+    fn params(&self) -> &BTreeMap<usize, Ty> {
+        &self.params
+    }
+
+    fn result(&self) -> Option<&Ty> {
+        self.result.as_ref()
+    }
+
+    fn value_types(&self) -> impl Iterator<Item = &Ty> {
+        self.slots.values()
+    }
+}

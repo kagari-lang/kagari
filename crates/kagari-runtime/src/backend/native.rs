@@ -224,12 +224,12 @@ fn validate_product(
     if artifact
         .safepoints
         .iter()
-        .any(|point| point.instruction_offset >= function.instructions.len())
+        .any(|point| point.instruction_offset >= function.metadata.origins.len())
         || artifact
             .code
             .traps
             .iter()
-            .any(|trap| trap.instruction_offset >= function.instructions.len())
+            .any(|trap| trap.instruction_offset >= function.metadata.origins.len())
     {
         return Err(unsupported(
             "native point offset is outside the verified function",

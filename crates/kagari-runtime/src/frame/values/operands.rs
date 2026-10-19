@@ -33,7 +33,7 @@ impl ExecutionValues {
         // Validate owner/generation once, before any references into the banks escape.
         self.window(slots)?;
         let window = self.windows.get(slots.index)?;
-        window.registers.as_ref()?;
+        window.slot_layout.as_ref()?;
         Some(OperandWindow {
             managed: self.values.get_mut(window.ranges.managed.clone())?,
             payloads: self.payloads.get_mut(window.ranges.scalars.clone())?,

@@ -22,7 +22,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, LocalSlot, Register},
+    instruction::{BytecodeInstruction, Slot},
     module::{BytecodeFunction, CallableTarget},
     program::ModuleRef,
 };
@@ -175,7 +175,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         module: ModuleRef,
         function: FunctionRef,
         args: &[Value],
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         let loaded = {
@@ -205,7 +205,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         runtime: &Runtime,
         method: RootedInterfaceMethod,
         args: &[Value],
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         let view = method.view(runtime)?;
@@ -239,7 +239,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         loaded: LoadedModule,
         target: CallableTarget,
         args: &[Value],
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.push_arguments(
             runtime,
@@ -262,7 +262,7 @@ impl<'runtime> ExecutionStack<'runtime> {
         loaded: LoadedModule,
         target: CallableTarget,
         args: FrameArguments<'_>,
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
         dispatch: FrameDispatch<'_>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
@@ -333,7 +333,7 @@ impl Drop for ExecutionStack<'_> {
 
 #[derive(Clone, Copy)]
 enum ReturnDestination {
-    Register(Option<Register>),
+    Slot(Option<Slot>),
     Prepared(Option<Location>),
 }
 
@@ -353,9 +353,12 @@ pub struct ExecutionFrame {
     native_entry: NativeEntryState,
     ip: usize,
     executing: Option<usize>,
+    // Published at closed-region/result boundaries, never charged per scalar instruction.
+    completed: Option<usize>,
+    native_origin: Option<usize>,
     slots: FrameSlots,
-    register_count: usize,
-    registers: Option<Arc<FrameLayout>>,
+    slot_count: usize,
+    slot_layout: Option<Arc<FrameLayout>>,
     return_to: ReturnDestination,
     invocation: Option<MethodInvocation>,
     mutations: Vec<(Value, CollectionMutation)>,
@@ -415,16 +418,15 @@ impl ExecutionFrame {
         runtime.resources().ensure_execution_allowed()
     }
 
-    /// Temporary storage after preparation. Logical register identities in the
-    /// function metadata remain stable; named locals occupy separate fixed slots.
-    pub fn physical_register_count(&self) -> usize {
-        self.registers
+    /// Total prepared scalar and managed storage for the unified logical slots.
+    pub fn physical_slot_count(&self) -> usize {
+        self.slot_layout
             .as_ref()
-            .map_or(0, |registers| registers.count)
+            .map_or(0, |slot_layout| slot_layout.count)
     }
 
     /// Active scalar payload/initialization slots and managed Value slots,
-    /// including locals or native arguments. Shared prepared metadata is separate.
+    /// including visible bindings and native arguments. Prepared metadata is separate.
     pub fn storage_counts(&self, runtime: &Runtime) -> Result<(usize, usize), RuntimeError> {
         self.validate_runtime(runtime)?;
         let storage = runtime.resources().frame_values.try_borrow().map_err(|_| {
@@ -486,6 +488,7 @@ impl ExecutionFrame {
     pub fn next_instruction(&mut self) -> Option<BytecodeInstruction> {
         let instruction = self.function()?.instructions.get(self.ip).cloned();
         if instruction.is_some() {
+            self.completed = None;
             self.executing = Some(self.ip);
             self.ip += 1;
         }
@@ -505,14 +508,10 @@ impl ExecutionFrame {
         }
     }
 
-    pub fn register_type(
-        &self,
-        runtime: &Runtime,
-        register: Register,
-    ) -> Result<ValueType, RuntimeError> {
+    pub fn slot_type(&self, runtime: &Runtime, register: Slot) -> Result<ValueType, RuntimeError> {
         self.validate_runtime(runtime)?;
         self.function()
-            .and_then(|function| function.metadata.registers.get(register.index()))
+            .and_then(|function| function.metadata.slots.get(register.index()))
             .copied()
             .ok_or_else(|| {
                 runtime
@@ -539,16 +538,22 @@ impl ExecutionFrame {
         offset: usize,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
-        if self
+        let point = self
             .function()
-            .is_none_or(|function| offset >= function.instructions.len())
-        {
-            return Err(runtime
-                .resources()
-                .quarantine("invalid native instruction offset"));
-        }
-        self.executing = Some(offset);
+            .and_then(|function| function.metadata.origins.get(offset))
+            .ok_or_else(|| {
+                runtime
+                    .resources()
+                    .quarantine("invalid native semantic origin")
+            })?;
+        self.executing = Some(point.instruction);
+        self.native_origin = Some(offset);
         Ok(())
+    }
+
+    /// Semantic origin emitted by native code, distinct from the executable PC.
+    pub fn native_origin(&self) -> Option<usize> {
+        self.native_origin
     }
 
     pub fn instruction_offset(&self) -> usize {
@@ -558,8 +563,13 @@ impl ExecutionFrame {
     /// Advance the observable program point only when this frame resumes.
     pub fn prepare_instruction(&mut self) {
         self.executing = None;
+        self.completed = None;
+        self.native_origin = None;
     }
 
+    /// Select a final executable PC without manufacturing a reused logical value.
+    /// Ordinary CFG edges and reexecution of the current instruction are admitted;
+    /// other side entries cannot require a reused nonparameter value.
     pub fn jump_to(&mut self, runtime: &Runtime, offset: usize) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         if self
@@ -568,56 +578,94 @@ impl ExecutionFrame {
         {
             return Err(runtime.resources().quarantine("invalid frame jump target"));
         }
+        let admitted = self
+            .executing
+            .and_then(|pc| self.function()?.instructions.get(pc))
+            .is_some_and(|instruction| match instruction {
+                BytecodeInstruction::Jump { target } => target.index() == offset,
+                BytecodeInstruction::Branch {
+                    then_target,
+                    else_target,
+                    ..
+                } => then_target.index() == offset || else_target.index() == offset,
+                _ => false,
+            });
+        let side_entry =
+            self.slot_layout
+                .as_ref()
+                .zip(self.function())
+                .is_some_and(|(layout, function)| {
+                    layout.admits_side_entry(
+                        self.instruction_offset(),
+                        offset,
+                        &function.metadata.parameter_slots,
+                    )
+                });
+        if !admitted && self.completed != Some(offset) && !side_entry {
+            return Err(RuntimeError::module_validation(
+                "frame jump would enter an uninitialized reused slot lifetime",
+            ));
+        }
         self.ip = offset;
+        self.completed = None;
         Ok(())
     }
 
-    pub fn read_register(
-        &self,
-        runtime: &Runtime,
-        register: Register,
-    ) -> Result<Value, RuntimeError> {
+    fn validate_slot_access(&self, slot: Slot, reading: bool) -> Result<(), RuntimeError> {
+        let parameter = self
+            .function()
+            .is_some_and(|function| function.metadata.parameter_slots.contains(&slot));
+        if self.slot_layout.as_ref().is_some_and(|layout| {
+            !layout.admits_logical_access(
+                slot.index(),
+                self.instruction_offset(),
+                reading && self.completed != Some(self.instruction_offset()),
+                parameter,
+            )
+        }) {
+            return Err(RuntimeError::module_validation(
+                "frame slot is outside its physical lifetime",
+            ));
+        }
+        Ok(())
+    }
+
+    /// Read a logical slot only while its reused physical location belongs to it.
+    pub fn read_slot(&self, runtime: &Runtime, register: Slot) -> Result<Value, RuntimeError> {
         self.validate_runtime(runtime)?;
-        if register.index() >= self.register_count {
+        if register.index() >= self.slot_count {
             return Err(runtime.resources().quarantine("invalid frame register"));
         }
+        self.validate_slot_access(register, true)?;
         self.slots
             .get(&runtime.gc, register.index())
             .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))
     }
 
-    pub fn write_register(
+    /// Write a logical slot without overwriting another slot's active lifetime.
+    pub fn write_slot(
         &mut self,
         runtime: &Runtime,
-        register: Register,
+        register: Slot,
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
-        if register.index() >= self.register_count {
+        if register.index() >= self.slot_count {
             return Err(runtime.resources().quarantine("invalid frame register"));
         }
+        self.validate_slot_access(register, false)?;
         self.slots
             .set(&runtime.gc, register.index(), value)
-            .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))
-    }
-
-    pub fn read_local(&self, runtime: &Runtime, local: LocalSlot) -> Result<Value, RuntimeError> {
-        self.validate_runtime(runtime)?;
-        self.slots
-            .get(&runtime.gc, self.register_count + local.index())
-            .ok_or_else(|| runtime.resources().quarantine("invalid frame local"))
-    }
-
-    pub fn write_local(
-        &mut self,
-        runtime: &Runtime,
-        local: LocalSlot,
-        value: Value,
-    ) -> Result<(), RuntimeError> {
-        self.validate_runtime(runtime)?;
-        self.slots
-            .set(&runtime.gc, self.register_count + local.index(), value)
-            .ok_or_else(|| runtime.resources().quarantine("invalid frame local"))
+            .ok_or_else(|| runtime.resources().quarantine("invalid frame register"))?;
+        if self
+            .executing
+            .and_then(|pc| self.function()?.instructions.get(pc))
+            .and_then(BytecodeInstruction::slot_output)
+            == Some(register)
+        {
+            self.completed = self.executing;
+        }
+        Ok(())
     }
 }
 

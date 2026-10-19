@@ -1,6 +1,6 @@
 //! Public inherent members, including the declaring impl and receiver scope.
 use crate::{
-    slots::SemanticSlots,
+    slots::FunctionTypeFacts,
     types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_common::{
@@ -125,7 +125,7 @@ pub fn native_signatures_match(
 pub fn executable_signature_matches(
     items: &[PublicItem],
     identity: &ConcreteFunctionIdentity,
-    semantic: &SemanticSlots,
+    semantic: &impl FunctionTypeFacts,
     definitions: &DefinitionTable,
 ) -> bool {
     let Some(member) = definitions
@@ -163,7 +163,7 @@ pub fn executable_signature_matches(
         .iter()
         .chain(&method.generic_params)
         .collect::<Vec<_>>();
-    let arguments = match &semantic.generic {
+    let arguments = match semantic.generic() {
         Some(body) if identity.arguments.is_empty() => {
             body.parameters.iter().map(GenericParam::as_type).collect()
         }
@@ -177,11 +177,11 @@ pub fn executable_signature_matches(
         substitution.bind(&parameter.owner, parameter.position, argument);
     }
     let apply = |ty| substitution.apply(ty, &CancellationToken::default()).ok();
-    method.params.len() == semantic.params.len()
+    method.params.len() == semantic.params().len()
         && method
             .params
             .iter()
             .enumerate()
-            .all(|(index, param)| apply(&param.ty).as_ref() == semantic.params.get(&index))
-        && apply(&method.return_type).as_ref() == semantic.result.as_ref()
+            .all(|(index, param)| apply(&param.ty).as_ref() == semantic.params().get(&index))
+        && apply(&method.return_type).as_ref() == semantic.result()
 }

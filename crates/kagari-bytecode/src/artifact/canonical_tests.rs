@@ -1,6 +1,6 @@
 use crate::{
     artifact::*,
-    instruction::{BytecodeInstruction, PathId, Register},
+    instruction::{BytecodeInstruction, PathId, Slot},
     module::{BytecodeFunction, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
@@ -31,10 +31,10 @@ use kagari_types::{
 fn typed_path_operands_preflight_before_decoding_registers() {
     let context = DefinitionContext::new().unwrap();
     let instruction: BytecodeInstruction = BytecodeInstruction::ReadPath {
-        dst: Register::new(0),
-        root_or_view: Register::new(1),
+        dst: Slot::new(0),
+        root_or_view: Slot::new(1),
         path: PathId::new(0),
-        dynamic_args: vec![Register::new(2); MAX_ARTIFACT_NESTED_RECORDS + 1],
+        dynamic_args: vec![Slot::new(2); MAX_ARTIFACT_NESTED_RECORDS + 1],
     };
     let mut artifact = KbcArtifact::from_program(
         BytecodeProgram {
@@ -75,8 +75,8 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
         modules: vec![BytecodeModule::default()],
     };
     let make_tuple = |count| BytecodeInstruction::MakeTuple {
-        dst: Register::new(0),
-        elements: vec![Register::new(0); count],
+        dst: Slot::new(0),
+        elements: vec![Slot::new(0); count],
     };
     let mut oversized = valid.clone();
     let mut function = BytecodeFunction::default();
@@ -249,7 +249,7 @@ fn detached_debug_frame_layout_is_bounded_before_fingerprinting() {
         modules: vec![BytecodeModule::default()],
     };
     let mut debug = BytecodeDebugMetadata::default();
-    debug.frame_layout.locals = vec![ValueType::Unit; MAX_ARTIFACT_TABLE_RECORDS + 1];
+    debug.frame_layout.slots = vec![ValueType::Unit; MAX_ARTIFACT_TABLE_RECORDS + 1];
     let metadata = DebugMetadata {
         stripped: false,
         source_files: Vec::new(),

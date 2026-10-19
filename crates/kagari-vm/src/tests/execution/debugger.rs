@@ -192,7 +192,7 @@ fn debug_session_supports_step_into_and_trap_pause_events() {
         "main",
         vec![
             BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
+                dst: Slot::new(0),
                 constant: ConstantId::new(0),
             },
             BytecodeInstruction::Unreachable,

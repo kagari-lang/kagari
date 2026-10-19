@@ -13,7 +13,7 @@ use crate::{
     },
     module::LoadedModule,
 };
-use kagari_bytecode::{instruction::Register, module::CallableTarget};
+use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 
 impl ExecutionStack<'_> {
     /// Reuse a checked stack only across internal preparation without callbacks.
@@ -23,7 +23,7 @@ impl ExecutionStack<'_> {
         loaded: LoadedModule,
         target: CallableTarget,
         args: FrameArguments<'_>,
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
         dispatch: FrameDispatch<'_>,
     ) -> Result<ExecutionAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
@@ -122,10 +122,9 @@ impl ExecutionStack<'_> {
                     (NativeEntryState::Pending, ExecutionAction::NativeEntry)
                 }
             };
-            let register_count = callee.registers.register_count;
-            let slot_count = callee.registers.locations.len();
-            let argument_offset = callee.argument_offset;
-            let registers = Some(callee.registers.clone());
+            let slot_count = callee.slot_layout.locations.len();
+            let parameter_slots = &callee.parameter_slots;
+            let slot_layout = Some(callee.slot_layout.clone());
 
             heap.ensure_execution_allowed()?;
             if !heap_arguments_valid {
@@ -160,14 +159,14 @@ impl ExecutionStack<'_> {
                 .map_err(|_| resources.quarantine("execution slots borrowed during frame entry"))?
                 .allocate(
                     slot_count,
-                    argument_offset,
+                    parameter_slots,
                     &args,
                     FrameMetadata {
                         program: loaded.clone(),
                         environment: environment.clone(),
                         invocation,
                     },
-                    registers.clone(),
+                    slot_layout.clone(),
                 )?;
             Ok((
                 ExecutionFrame {
@@ -178,10 +177,12 @@ impl ExecutionStack<'_> {
                     native_entry,
                     ip: 0,
                     executing: None,
+                    completed: None,
+                    native_origin: None,
                     slots,
-                    register_count,
-                    registers,
-                    return_to: prepared.map_or(ReturnDestination::Register(return_dst), |call| {
+                    slot_count,
+                    slot_layout,
+                    return_to: prepared.map_or(ReturnDestination::Slot(return_dst), |call| {
                         ReturnDestination::Prepared(call.destination)
                     }),
                     invocation,

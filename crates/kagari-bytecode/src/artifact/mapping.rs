@@ -86,8 +86,7 @@ impl RemapDefinitions for FunctionLayoutMetadata {
             function: self.function,
             params: self.params.clone(),
             return_type: self.return_type,
-            locals: self.locals.clone(),
-            registers: self.registers.clone(),
+            slots: self.slots.clone(),
             roots: self.roots.clone(),
         })
     }

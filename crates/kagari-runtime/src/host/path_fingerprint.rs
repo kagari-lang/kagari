@@ -128,7 +128,7 @@ impl HostRegistry {
                     let expected = types.path_value_type(parameter.ty).ok_or_else(|| {
                         RuntimeError::typed_path_validation("missing path parameter contract")
                     })?;
-                    if function.metadata.registers.get(argument.index()).copied()
+                    if function.metadata.slots.get(argument.index()).copied()
                         != Some(semantic_representation(&expected))
                     {
                         return Err(RuntimeError::typed_path_validation(

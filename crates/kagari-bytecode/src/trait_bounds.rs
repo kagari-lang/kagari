@@ -253,8 +253,8 @@ fn linked_bounds_match(
                     .iter()
                     .map(|register| {
                         Some((
-                            *function.metadata.registers.get(register.index())?,
-                            function.metadata.semantic.registers.get(&register.index()),
+                            *function.metadata.slots.get(register.index())?,
+                            function.metadata.semantic.slots.get(&register.index()),
                         ))
                     })
                     .collect::<Option<Vec<_>>>()

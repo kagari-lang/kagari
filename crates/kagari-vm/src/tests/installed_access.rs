@@ -9,7 +9,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, Register, RuntimeHelper, StructId,
+    BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, RuntimeHelper, Slot, StructId,
 };
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
@@ -70,15 +70,15 @@ fn installed_host_reflection_and_debugger_operations_are_available() {
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
+                        dst: Slot::new(0),
                         constant: ConstantId::new(0),
                     },
                     BytecodeInstruction::Call {
-                        dst: Some(Register::new(1)),
+                        dst: Some(Slot::new(1)),
                         callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                        args: vec![Register::new(0)],
+                        args: vec![Slot::new(0)],
                     },
-                    BytecodeInstruction::Return(Some(Register::new(1))),
+                    BytecodeInstruction::Return(Some(Slot::new(1))),
                 ],
                 ValueType::Str,
                 vec![ValueType::I32, ValueType::Str],
@@ -119,27 +119,27 @@ fn reflection_mutation_and_debugger_control_need_no_permission_flags() {
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
+                        dst: Slot::new(0),
                         constant: ConstantId::new(0),
                     },
                     BytecodeInstruction::MakeStruct {
-                        dst: Register::new(1),
+                        dst: Slot::new(1),
                         structure: StructId::new(0),
                         arguments: vec![],
-                        fields: vec![Register::new(0)],
+                        fields: vec![Slot::new(0)],
                     },
                     BytecodeInstruction::LoadConst {
-                        dst: Register::new(2),
+                        dst: Slot::new(2),
                         constant: ConstantId::new(1),
                     },
                     BytecodeInstruction::Call {
-                        dst: Some(Register::new(3)),
+                        dst: Some(Slot::new(3)),
                         callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
                             "x".to_owned(),
                         )),
-                        args: vec![Register::new(1), Register::new(2)],
+                        args: vec![Slot::new(1), Slot::new(2)],
                     },
-                    BytecodeInstruction::Return(Some(Register::new(3))),
+                    BytecodeInstruction::Return(Some(Slot::new(3))),
                 ],
                 ValueType::HeapObject,
                 vec![

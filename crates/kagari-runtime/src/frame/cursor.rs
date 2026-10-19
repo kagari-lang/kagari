@@ -53,12 +53,20 @@ impl ExecutionStack<'_> {
             )
             .into());
         }
-        match self.execute_admitted_region(runtime, remaining)? {
+        let result = match self.execute_admitted_region(runtime, remaining)? {
             CursorExit::Region(exit) => Ok(exit),
             CursorExit::Transition(transition) => {
                 self.complete_transition(runtime, transition, invoke_script)
             }
+        };
+        if matches!(
+            &result,
+            Ok(RegionExit::Slice | RegionExit::Safepoint | RegionExit::Return(_))
+        ) {
+            let mut frame = self.current_mut()?;
+            frame.completed = frame.executing;
         }
+        result
     }
 
     fn execute_admitted_region(
@@ -68,6 +76,7 @@ impl ExecutionStack<'_> {
     ) -> Result<CursorExit, RegionError> {
         // current_mut admits the active session/frame scope and sticky termination.
         let mut frame = self.current_mut()?;
+        frame.completed = None;
         runtime.gc().ensure_no_native_borrow()?;
         let mut values = runtime
             .resources()

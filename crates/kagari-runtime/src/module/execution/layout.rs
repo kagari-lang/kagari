@@ -1,10 +1,10 @@
 //! Sealed canonical locations map into disjoint scalar and managed banks.
 use crate::{
-    module::execution::{OperandSlot, allocation::RegisterAllocation},
+    module::execution::{OperandSlot, allocation::SlotAllocation},
     value::{Value, scalar},
 };
 use kagari_abi::representation::ValueType;
-use kagari_bytecode::module::BytecodeFunction;
+use kagari_bytecode::{instruction::Slot, module::BytecodeFunction};
 use kagari_contract::{native_import::NativeImport, representation::semantic_representation};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::{collections::BTreeMap, iter};
@@ -47,13 +47,20 @@ impl Location {
     }
 }
 
+/// Cold public-frame access constraints; prepared operations retain only Locations.
+#[derive(Debug)]
+pub(crate) struct ReusedSlot {
+    pub logical: usize,
+    pub range: Option<(usize, usize)>,
+}
+
 #[derive(Debug)]
 pub(crate) struct FrameLayout {
     pub locations: Box<[Location]>,
-    pub register_count: usize,
     pub count: usize,
     pub scalar_count: usize,
     pub managed_count: usize,
+    pub reused_slots: Box<[ReusedSlot]>,
 }
 
 impl FrameLayout {
@@ -77,55 +84,57 @@ impl FrameLayout {
             .collect();
         Self {
             locations,
-            register_count: 0,
             count: 0,
             scalar_count,
             managed_count,
+            reused_slots: Box::default(),
         }
     }
 
     pub(super) fn prepare(function: &BytecodeFunction, work: &mut usize) -> Self {
-        let registers = RegisterAllocation::prepare(function, work);
+        let slot_layout = SlotAllocation::prepare(function, work);
         let mut scalar_count = 0;
         let mut managed_count = 0;
         let mut physical = BTreeMap::new();
         let mut locations = Vec::new();
-        for (logical, &representation) in function.metadata.registers.iter().enumerate() {
+        for (logical, &representation) in function.metadata.slots.iter().enumerate() {
             let managed = scalar_type(representation).is_none();
-            let color = registers.index(logical).expect("verified register");
-            debug_assert!(color < registers.count);
-            let operand = *physical
-                .entry((color, managed))
-                .or_insert_with(|| allocate(managed, &mut scalar_count, &mut managed_count));
+            let color = slot_layout.index(logical).expect("verified register");
+            debug_assert!(color < slot_layout.count);
+            let operand = if managed {
+                allocate(true, &mut scalar_count, &mut managed_count)
+            } else {
+                *physical
+                    .entry(color)
+                    .or_insert_with(|| allocate(false, &mut scalar_count, &mut managed_count))
+            };
             locations.push(Location {
                 operand,
                 representation,
-                semantic: builtin(function.metadata.semantic.registers.get(&logical)),
+                semantic: builtin(function.metadata.semantic.slots.get(&logical)),
             });
         }
-        let count = scalar_count + managed_count;
-        for (logical, &representation) in function.metadata.locals.iter().enumerate() {
-            locations.push(Location {
-                operand: allocate(
-                    scalar_type(representation).is_none(),
-                    &mut scalar_count,
-                    &mut managed_count,
-                ),
-                representation,
-                semantic: builtin(
-                    function
-                        .metadata
-                        .semantic
-                        .locals
-                        .get(&logical)
-                        .or_else(|| function.metadata.semantic.params.get(&logical)),
-                ),
-            });
+        let mut aliases = vec![0usize; scalar_count];
+        for location in &locations {
+            if !location.operand.managed() {
+                aliases[location.operand.index()] += 1;
+            }
         }
+        let reused_slots = locations
+            .iter()
+            .enumerate()
+            .filter(|(_, location)| {
+                !location.operand.managed() && aliases[location.operand.index()] > 1
+            })
+            .map(|(logical, _)| ReusedSlot {
+                logical,
+                range: slot_layout.ranges.get(logical).copied().flatten(),
+            })
+            .collect();
         Self {
             locations: locations.into(),
-            register_count: usize::from(function.register_count),
-            count,
+            reused_slots,
+            count: scalar_count + managed_count,
             scalar_count,
             managed_count,
         }
@@ -133,6 +142,40 @@ impl FrameLayout {
 
     pub(crate) fn location(&self, logical: usize) -> Option<Location> {
         self.locations.get(logical).copied()
+    }
+
+    /// Side entry may preserve entry-initialized parameters, never acquire a later
+    /// logical value merely because a previous alias initialized the physical bank.
+    pub(crate) fn admits_side_entry(&self, from: usize, to: usize, parameters: &[Slot]) -> bool {
+        self.reused_slots.iter().all(|slot| {
+            slot.range.is_none_or(|(start, end)| {
+                to < start
+                    || to > end
+                    || (start <= from
+                        && from <= end
+                        && parameters
+                            .iter()
+                            .any(|parameter| parameter.index() == slot.logical))
+            })
+        })
+    }
+
+    pub(crate) fn admits_logical_access(
+        &self,
+        logical: usize,
+        pc: usize,
+        reading: bool,
+        parameter: bool,
+    ) -> bool {
+        match self
+            .reused_slots
+            .binary_search_by_key(&logical, |slot| slot.logical)
+        {
+            Ok(index) => self.reused_slots[index].range.is_some_and(|(start, end)| {
+                start <= pc && pc <= end && (!reading || start < pc || parameter)
+            }),
+            Err(_) => true,
+        }
     }
 }
 

@@ -3,7 +3,7 @@
 ## Status, priority and ownership
 
 **Status: active, implementation and one commit per phase authorized on 2026-10-19;
-BO01 baseline/design completed; BO02 is next.**
+BO01-BO02 completed; BO03 is next.**
 The user explicitly requested a separate plan that can proceed before the previous
 interpreter performance work finishes. This document owns BO01-BO04: general typed
 slots, direct destinations, predicate branches and constant operands. It replaces
@@ -517,7 +517,7 @@ methods, conclusions and limitations in this plan/performance document.
 
 - [x] Independent scope, priority and acceptance ownership established.
 - [x] BO01: current baseline, attribution, slot/point/proof design and fixed gates.
-- [ ] BO02: coherent portable slot/placement replacement and selected contracts.
+- [x] BO02: coherent portable slot/placement replacement and selected contracts.
 - [ ] BO03: predicate branches and bounded constant-operand decision/integration.
 - [ ] BO04: integrated performance/correctness acceptance and lasting handoff.
 
@@ -599,3 +599,75 @@ has been established; BO02/BO04 must report complete mapping/frame costs rather 
 infer them from enum sizes. No Rust tests or CI acceptance are claimed by this
 baseline/design checkpoint. Documentation links, CRLF and diff checks are its local
 acceptance; production validation starts with BO02.
+
+### BO02 — 2026-10-19
+
+Replaced bytecode Register/LocalSlot and local transport opcodes with checked u32
+Slot identities, explicit parameter homes and a separate full semantic projection.
+MIR's original semantic namespaces remain unchanged. Compiler placement conservatively
+forwards block-local scalar reads and redirects eligible adjacent scalar assignments;
+managed/cell/call/await snapshots remain explicit. Runtime preparation, frame access,
+GC/await, debugger, canonical codec, disassembly and native/AOT consumers now use
+this one format. No compatibility reader or second execution engine remains.
+
+The sum probe changed from 17 operations/3 locals/12 temporary declarations to 13
+operations/8 unified slots; both arithmetic updates write their source homes directly.
+The loop-carried i snapshot and return move remain conservatively necessary under
+the selected block/debug analysis. Do not advertise the seven-operation sketch as
+achieved. The emitted artifact executed successfully without source input.
+
+Independent review identified and resolved: convergence-time type expansion and
+retained inferred-type budgeting; direct-argument intrinsic interface bridge
+validation; generic parameter physical layout with omitted home annotation; exact
+per-instruction origin choice after many-to-one mapping; absent native coordinates;
+and public frame access/side-entry with reused physical storage. Source-free origin
+validation requires an explicit actual-origin choice for ambiguous PCs. Inferred
+types are bounded before combined cloning and charged conservatively on allocation.
+
+Public API impact: Frame read_slot/write_slot/jump_to replace separate local/register
+access. Access outside a reused logical lifetime and jumps that manufacture an
+uninitialized reused value are rejected. The immutable reuse guards are function-owned;
+no second local store, permanent mirror or blanket disabling of reuse is introduced.
+The new format is unpublished: identifiers remain, stale artifacts/caches must be
+regenerated. The phase commit is breaking and records this impact.
+
+Focused correctness passed at the existing owners (counts refer to selected cases,
+not workspace coverage): compiler analysis 8, codec 7, program points 1, lowering 19,
+bytecode validation 19, bytecode artifacts 9 after its failing disassembly case was
+fixed/retested; bytecode async verifier 3 and disassembly 40 after fixture repairs;
+VM numeric 8, optimized execution 1, debugger 1, suspended caller 1, owned drive 2,
+GC/capture/pinned reload 3, await storage 1; runtime storage 7 (manual timing ignored),
+execution frames 14 before additional side-entry/provenance regressions; real native
+overflow 1, AOT 2 and SDK owned native wait 1. Follow-up provenance/side-entry tests
+at their existing owners passed; intrinsic protocol bridge and forged shared-generic
+SDK boundaries each passed. No full-workspace test sweep was run or claimed.
+
+Workspace Clippy, structure (1,384 Rust files, zero violations), fmt and diff checks
+passed. The first structural check found two long use-site constant paths in the
+verifier; explicit imports repaired them. No unresolved compilation/test failure is
+carried. Earlier passing unaffected tests remain evidence rather than being rerun
+for an all-green transcript.
+
+Two fixed seven-pair ordinary comparisons against BO01 passed the predeclared gates:
+
+- Arithmetic candidate/baseline median 0.7061318, pair range 0.4994513..0.8529578;
+  checker target 0.90. Diagnostic artifact_prepare ratio 0.9884, source_to_artifact
+  1.0021 and program_link 0.9781.
+- Branches median 0.8391844, pair range 0.7047686..0.9190460; checker target 0.95.
+  Diagnostic artifact_prepare ratio 0.9932, source_to_artifact 1.0118, program_link
+  1.0025. Wide ranges are disclosed; do not infer precise speedup confidence.
+
+Commands used the existing driver with `--interpreter-only --workload arithmetic`
+and `--workload branches`, each `--baseline-executable target/bytecode-optimization/before`,
+then check_benchmark.py with the corresponding fixed target. Reports are
+`target/lua-comparison/20261019T163705Z-paired/results.json` and
+`20261019T163914Z-paired/results.json`; they record the matched machine/toolchain,
+cache/features/profile and raw samples. Candidate SHA-256
+`e55b939f44a3d0e3a81f57f215d225d547aa38ce7f9a5e380c8b89139a5f9728`,
+27,792,896 bytes (1.00466x BO01), without diagnostic instrumentation. Required fixture
+and timed harness checksums stayed unchanged; only the non-timed profile consumer
+was migrated. Setup totals, complete retained metadata/frame accounting and other
+execution/lifecycle regression rows remain BO04 acceptance, not established here.
+
+BO03 starts from this coherent replacement; no predicate-branch or constant-operand
+instruction was added in BO02.

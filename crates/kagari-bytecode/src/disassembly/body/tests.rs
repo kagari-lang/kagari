@@ -3,7 +3,7 @@ use crate::{
     disassembly::{
         PreparedDisassembly, body::write_body, presentation::DisplayContext, resolution::Resolution,
     },
-    instruction::{BytecodeInstruction, JumpTarget, LocalSlot, Register},
+    instruction::{BytecodeInstruction, JumpTarget, Slot},
     module::{
         BytecodeFunction, BytecodeModule, CapturedBindingDebugInfo, FrameLayout, FunctionMetadata,
         FunctionRecord, InstructionSourceSpan, LineTableEntry, LocalLiveRange, RootSlotLayout,
@@ -21,38 +21,55 @@ use kagari_types::{scalar::BuiltinType, ty::Ty};
 use std::io::{self, Write};
 
 fn function() -> BytecodeFunction {
-    BytecodeFunction {
-        name: "echo".into(),
-        parameter_count: 1,
-        local_count: 2,
-        register_count: 1,
-        metadata: FunctionMetadata {
-            params: vec![ValueType::I32],
-            return_type: ValueType::I32,
-            locals: vec![ValueType::I32; 2],
-            registers: vec![ValueType::I32],
-            ..Default::default()
-        },
-        instructions: vec![
-            BytecodeInstruction::LoadLocal {
-                dst: Register::new(0),
-                local: LocalSlot::new(0),
+    {
+        let parameter_base: usize = 1;
+        let fixture_instructions = vec![
+            BytecodeInstruction::Move {
+                dst: Slot::new(0),
+                src: Slot::new(1),
             },
-            BytecodeInstruction::StoreLocal {
-                local: LocalSlot::new(1),
-                src: Register::new(0),
+            BytecodeInstruction::Move {
+                dst: Slot::new(2),
+                src: Slot::new(0),
             },
             BytecodeInstruction::Jump {
                 target: JumpTarget::new(4),
             },
-            BytecodeInstruction::Return(Some(Register::new(0))),
-            BytecodeInstruction::LoadLocal {
-                dst: Register::new(0),
-                local: LocalSlot::new(1),
+            BytecodeInstruction::Return(Some(Slot::new(0))),
+            BytecodeInstruction::Move {
+                dst: Slot::new(0),
+                src: Slot::new(2),
             },
-            BytecodeInstruction::Return(Some(Register::new(0))),
-        ],
-        ..Default::default()
+            BytecodeInstruction::Return(Some(Slot::new(0))),
+        ];
+        let mut fixture_metadata: crate::module::FunctionMetadata = FunctionMetadata {
+            params: vec![ValueType::I32],
+            return_type: ValueType::I32,
+            slots: [vec![ValueType::I32], vec![ValueType::I32; 2]].concat(),
+            ..Default::default()
+        };
+        if fixture_metadata.parameter_slots.is_empty() {
+            fixture_metadata.parameter_slots =
+                (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+        }
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| crate::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            name: "echo".into(),
+            parameter_count: 1,
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+            ..Default::default()
+        }
     }
 }
 
@@ -122,11 +139,11 @@ fn no_debug_body_preserves_stored_order_unreachable_code_and_execution_facts() {
     let mut body = function();
     body.metadata
         .semantic
-        .locals
-        .insert(0, Ty::Builtin(BuiltinType::I32));
+        .slots
+        .insert(1, Ty::Builtin(BuiltinType::I32));
     body.metadata
         .semantic
-        .registers
+        .slots
         .insert(0, Ty::Builtin(BuiltinType::I32));
     let prepared = prepare(body);
     let output = render(&prepared);
@@ -134,20 +151,20 @@ fn no_debug_body_preserves_stored_order_unreachable_code_and_execution_facts() {
         output,
         concat!(
             "fn @0:0 fixture::body::echo(arg0: physical(i32)) -> physical(i32) ; instructions=6 may_suspend=false recorded_effects=[]\n",
-            "  locals: 2, registers: 1\n",
-            "  entry: arg0 -> l0\n",
-            "  l0: physical=i32 semantic=i32\n",
-            "  l1: physical=i32 semantic=unknown\n",
-            "  r0: physical=i32 semantic=i32\n",
-            "  roots: locals=[] registers=[]\n",
+            "  slots: 3\n",
+            "  entry: arg0 -> s1\n",
+            "  s0: physical=i32 semantic=i32\n",
+            "  s1: physical=i32 semantic=i32\n",
+            "  s2: physical=i32 semantic=unknown\n",
+            "  roots: slots=[]\n",
             "  debug: absent\n",
-            "  0000  load_local r0, l0\n",
-            "  0001  store_local l1, r0\n",
+            "  0000  move s0, s1\n",
+            "  0001  move s2, s0\n",
             "  0002  jump L4\n",
-            "  0003  return r0\n",
+            "  0003  return s0\n",
             "L4:\n",
-            "  0004  load_local r0, l1\n",
-            "  0005  return r0\n",
+            "  0004  move s0, s2\n",
+            "  0005  return s0\n",
         )
     );
     assert_eq!(output, render(&prepared));
@@ -177,13 +194,12 @@ fn span_only_and_source_offset_locations_do_not_require_a_uri_or_source_reads() 
     assert!(output.contains(
         "debug (nonauthoritative): uri=unknown source_module=@0 function_span=unknown\n"
     ));
+    assert!(output.contains("; debug span#1: instruction=0 source_span=unknown\n  0000  move"));
+    assert!(output.contains("; debug line#0: instruction=1 source_offset=11\n  0001  move"));
     assert!(
-        output.contains("; debug span#1: instruction=0 source_span=unknown\n  0000  load_local")
+        output
+            .contains("L4:\n    ; debug span#0: instruction=4 source_span=[20, 28)\n  0004  move")
     );
-    assert!(output.contains("; debug line#0: instruction=1 source_offset=11\n  0001  store_local"));
-    assert!(output.contains(
-        "L4:\n    ; debug span#0: instruction=4 source_span=[20, 28)\n  0004  load_local"
-    ));
     assert!(!output.contains("line="));
     assert!(!output.contains("missing/disassembly"));
     assert!(!output.contains("ambiguous"));
@@ -311,13 +327,14 @@ fn duplicate_unsorted_locations_and_debug_points_keep_original_record_order() {
 
 fn range(local: usize, name: &str, start: usize, end: usize) -> LocalLiveRange {
     LocalLiveRange {
-        local: LocalSlot::new(local),
+        slot: Slot::new(local + 1),
         name: name.into(),
         span: Span::default(),
-        start,
-        end,
         ty: ValueType::Bool,
         is_parameter: local != 0,
+        binding: 0,
+        start,
+        end,
     }
 }
 
@@ -334,40 +351,38 @@ fn overlapping_reused_locals_keep_half_open_names_and_nonauthoritative_claims() 
     ];
     body.metadata.debug.frame_layout = FrameLayout {
         params: vec![ValueType::Str; 3],
-        locals: vec![ValueType::Bool],
-        registers: vec![ValueType::Str],
+        slots: [vec![ValueType::Str], vec![ValueType::Bool]].concat(),
     };
     let output = render(&prepare(body));
-    assert!(output.contains("  entry: arg0 -> l0\n"));
+    assert!(output.contains("  entry: arg0 -> s1\n"));
     assert!(!output.contains("arg1"));
-    assert!(output.contains("  l0: physical=i32 semantic=unknown\n"));
-    assert!(output.contains("  l1: physical=i32 semantic=unknown\n"));
-    assert!(output.contains("  r0: physical=i32 semantic=unknown\n"));
+    assert!(output.contains("  s1: physical=i32 semantic=unknown\n"));
+    assert!(output.contains("  s2: physical=i32 semantic=unknown\n"));
+    assert!(output.contains("  s0: physical=i32 semantic=unknown\n"));
     assert!(output.contains("local ranges (nonauthoritative debug_ty/is_parameter; half-open):"));
-    assert!(output.contains("range#1: l0 name=\"early\\n\\u{202e}\" instructions=[0, 4) debug_ty=bool is_parameter=false span=unknown (overlap; ambiguous)"));
-    assert!(output.contains("range#4: l1 name=\"not_an_argument\" instructions=[2, 6) debug_ty=bool is_parameter=true span=unknown\n"));
-    assert!(output.contains("range#5: l0 name=\"empty\" instructions=[4, 4) debug_ty=bool is_parameter=false span=unknown\n"));
+    assert!(output.contains("range#1: s1 name=\"early\\n\\u{202e}\" instructions=[0, 4) debug_ty=bool is_parameter=false span=unknown (overlap; ambiguous)"));
+    assert!(output.contains("range#4: s2 name=\"not_an_argument\" instructions=[2, 6) debug_ty=bool is_parameter=true span=unknown\n"));
+    assert!(output.contains("range#5: s1 name=\"empty\" instructions=[4, 4) debug_ty=bool is_parameter=false span=unknown\n"));
     assert!(output.contains("debug frame_layout params (nonauthoritative): [str, str, str]"));
-    assert!(output.contains("debug frame_layout locals (nonauthoritative): [bool]"));
-    assert!(output.contains("debug frame_layout registers (nonauthoritative): [str]"));
+    assert!(output.contains("debug frame_layout slots (nonauthoritative): [str, bool]"));
     let names: Vec<_> = output
         .lines()
-        .filter(|line| line.contains("; debug local l0"))
+        .filter(|line| line.contains("; debug local s1"))
         .collect();
     assert_eq!(
         names,
         vec![
-            "    ; debug local l0 at 0: names=[range#1 \"early\\n\\u{202e}\"]",
-            "    ; debug local l0 at 1: names=[range#1 \"early\\n\\u{202e}\"]",
-            "    ; debug local l0 at 2: names=[range#1 \"early\\n\\u{202e}\", range#2 \"overlap\", range#3 \"overlap\"] (ambiguous)",
-            "    ; debug local l0 at 3: names=[range#1 \"early\\n\\u{202e}\", range#2 \"overlap\", range#3 \"overlap\"] (ambiguous)",
-            "    ; debug local l0 at 4: names=[range#0 \"late\", range#2 \"overlap\", range#3 \"overlap\"] (ambiguous)",
-            "    ; debug local l0 at 5: names=[range#0 \"late\"]",
+            "    ; debug local s1 at 0: names=[range#1 \"early\\n\\u{202e}\"]",
+            "    ; debug local s1 at 1: names=[range#1 \"early\\n\\u{202e}\"]",
+            "    ; debug local s1 at 2: names=[range#1 \"early\\n\\u{202e}\", range#2 \"overlap\", range#3 \"overlap\"] (ambiguous)",
+            "    ; debug local s1 at 3: names=[range#1 \"early\\n\\u{202e}\", range#2 \"overlap\", range#3 \"overlap\"] (ambiguous)",
+            "    ; debug local s1 at 4: names=[range#0 \"late\", range#2 \"overlap\", range#3 \"overlap\"] (ambiguous)",
+            "    ; debug local s1 at 5: names=[range#0 \"late\"]",
         ]
     );
-    assert!(!output.contains("debug local r0"));
+    assert!(!output.contains("debug local s0"));
     assert!(!output.contains("names=[range#5"));
-    assert!(output.contains("  0004  load_local r0, l1\n"));
+    assert!(output.contains("  0004  move s0, s2\n"));
 }
 
 #[test]
@@ -376,27 +391,27 @@ fn touching_ranges_do_not_overlap_or_leak_names_past_their_end() {
     body.metadata.debug.local_live_ranges = vec![range(0, "second", 2, 4), range(0, "first", 0, 2)];
     let output = render(&prepare(body));
     assert!(!output.contains("ambiguous"));
-    assert!(output.contains("debug local l0 at 1: names=[range#1 \"first\"]\n"));
-    assert!(output.contains("debug local l0 at 2: names=[range#0 \"second\"]\n"));
-    assert!(!output.contains("debug local l0 at 4"));
-    assert!(!output.contains("debug local l0 at 5"));
+    assert!(output.contains("debug local s1 at 1: names=[range#1 \"first\"]\n"));
+    assert!(output.contains("debug local s1 at 2: names=[range#0 \"second\"]\n"));
+    assert!(!output.contains("debug local s1 at 4"));
+    assert!(!output.contains("debug local s1 at 5"));
 }
 
 #[test]
 fn branch_and_jump_targets_define_each_numeric_label_once() {
     let mut body = function();
-    body.local_count = 1;
+    body.slot_count = 2;
     body.metadata.params = vec![ValueType::Bool];
-    body.metadata.locals = vec![ValueType::Bool];
-    body.metadata.registers = vec![ValueType::Bool];
+    body.metadata.slots = vec![ValueType::Bool; 2];
+    body.metadata.slots = vec![ValueType::Bool; 2];
     body.metadata.return_type = ValueType::Bool;
     body.instructions = vec![
-        BytecodeInstruction::LoadLocal {
-            dst: Register::new(0),
-            local: LocalSlot::new(0),
+        BytecodeInstruction::Move {
+            dst: Slot::new(0),
+            src: Slot::new(1),
         },
         BytecodeInstruction::Branch {
-            cond: Register::new(0),
+            cond: Slot::new(0),
             then_target: JumpTarget::new(3),
             else_target: JumpTarget::new(2),
         },
@@ -406,17 +421,25 @@ fn branch_and_jump_targets_define_each_numeric_label_once() {
         BytecodeInstruction::Jump {
             target: JumpTarget::new(4),
         },
-        BytecodeInstruction::Return(Some(Register::new(0))),
+        BytecodeInstruction::Return(Some(Slot::new(0))),
     ];
+    body.metadata.origins = (0..body.instructions.len())
+        .map(|instruction| crate::module::InstructionOrigin {
+            span: Default::default(),
+            line: None,
+            column: None,
+            instruction,
+        })
+        .collect();
     // Labels follow actual jump/branch operands, not this optional metadata list.
     body.metadata.control_flow_targets = vec![JumpTarget::new(0)];
     let output = render(&prepare(body));
     assert!(output.ends_with(concat!(
-        "  0000  load_local r0, l0\n",
-        "  0001  branch r0, then=L3, else=L2\n",
+        "  0000  move s0, s1\n",
+        "  0001  branch s0, then=L3, else=L2\n",
         "L2:\n  0002  jump L4\n",
         "L3:\n  0003  jump L4\n",
-        "L4:\n  0004  return r0\n",
+        "L4:\n  0004  return s0\n",
     )));
     assert!(!output.contains("L0:"));
     assert_eq!(output.matches("L4:").count(), 1);
@@ -427,18 +450,16 @@ fn physical_gc_roots_are_not_derived_from_debug_layouts() {
     let mut body = function();
     // Str is not a GC-reference representation; use actual traced heap slots.
     body.metadata.params = vec![ValueType::HeapObject];
-    body.metadata.locals = vec![ValueType::HeapObject; 2];
-    body.metadata.registers = vec![ValueType::HeapObject];
+    body.metadata.slots = vec![ValueType::HeapObject; 3];
     body.metadata.return_type = ValueType::HeapObject;
-    body.metadata.roots =
-        RootSlotLayout::from_types(&body.metadata.locals, &body.metadata.registers);
-    body.metadata.debug.frame_layout.locals = vec![ValueType::I32; 2];
+    body.metadata.roots = RootSlotLayout::from_types(&body.metadata.slots);
+    body.metadata.debug.frame_layout.slots = vec![ValueType::I32; 2];
     let output = render(&prepare(body));
-    assert!(output.contains("roots: locals=[l0, l1] registers=[r0]\n"));
-    assert!(output.contains("l0: physical=heap_object semantic=unknown\n"));
-    assert!(output.contains("l1: physical=heap_object semantic=unknown\n"));
-    assert!(output.contains("r0: physical=heap_object semantic=unknown\n"));
-    assert!(output.contains("debug frame_layout locals (nonauthoritative): [i32, i32]\n"));
+    assert!(output.contains("roots: slots=[s0, s1, s2]\n"));
+    assert!(output.contains("s1: physical=heap_object semantic=unknown\n"));
+    assert!(output.contains("s2: physical=heap_object semantic=unknown\n"));
+    assert!(output.contains("s0: physical=heap_object semantic=unknown\n"));
+    assert!(output.contains("debug frame_layout slots (nonauthoritative): [i32, i32]\n"));
 }
 
 struct FailingWriter {

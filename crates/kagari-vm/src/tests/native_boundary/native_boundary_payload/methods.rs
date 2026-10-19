@@ -225,8 +225,7 @@ fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
         .semantic
         .params
         .values_mut()
-        .chain(damage.metadata.semantic.locals.values_mut())
-        .chain(damage.metadata.semantic.registers.values_mut())
+        .chain(damage.metadata.semantic.slots.values_mut())
     {
         if let Ty::Reference { access, .. } = ty {
             *access = ReferenceAccess::Shared;

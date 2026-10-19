@@ -120,8 +120,7 @@ impl RemapDefinitions for BytecodeFunction {
                 .transpose()?,
             name: self.name.clone(),
             parameter_count: self.parameter_count,
-            register_count: self.register_count,
-            local_count: self.local_count,
+            slot_count: self.slot_count,
             metadata: self.metadata.remap_definitions(mapper)?,
             instructions: map_sequence(&self.instructions, |value| {
                 (value).remap_definitions(mapper)
@@ -158,8 +157,10 @@ impl RemapDefinitions for FunctionMetadata {
             semantic: self.semantic.remap_definitions(mapper)?,
             params: self.params.clone(),
             return_type: self.return_type,
-            locals: self.locals.clone(),
-            registers: self.registers.clone(),
+            slots: self.slots.clone(),
+            parameter_slots: self.parameter_slots.clone(),
+            origins: self.origins.clone(),
+            instruction_origins: self.instruction_origins.clone(),
             roots: self.roots.clone(),
             control_flow_targets: self.control_flow_targets.clone(),
             effects: self.effects,

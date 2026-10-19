@@ -92,7 +92,7 @@ impl Runtime {
                             function
                                 .metadata
                                 .semantic
-                                .registers
+                                .slots
                                 .get(&register.index())
                                 .cloned()
                                 .map(Box::new),

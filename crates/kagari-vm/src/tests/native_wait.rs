@@ -7,7 +7,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction as I, CallTarget, LocalSlot, NativeImportId, Register},
+    instruction::{BytecodeInstruction as I, CallTarget, NativeImportId, Slot},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
@@ -64,28 +64,45 @@ fn function(
         semantic_representation(&result),
     ];
     let mut metadata = FunctionMetadata {
-        roots: RootSlotLayout::from_types(&params, &registers),
+        roots: RootSlotLayout::from_types(&[registers.to_vec(), params.to_vec()].concat()),
         params: params.clone(),
-        locals: params,
-        registers,
         return_type: semantic_representation(&result),
+        slots: [registers, params].concat(),
         ..Default::default()
     };
     metadata.effects.may_suspend = suspends;
     metadata.semantic.params.insert(0, parameter.clone());
-    metadata.semantic.locals.insert(0, parameter.clone());
-    metadata.semantic.registers.insert(0, parameter);
-    metadata.semantic.registers.insert(1, result.clone());
+    metadata.semantic.slots.insert(2, parameter.clone());
+    metadata.semantic.slots.insert(0, parameter);
+    metadata.semantic.slots.insert(1, result.clone());
     metadata.semantic.result = Some(result);
-    BytecodeFunction {
-        id: FunctionRef::new(id),
-        identity: None,
-        name: name.into(),
-        parameter_count: 1,
-        register_count: 2,
-        local_count: 1,
-        metadata,
-        instructions,
+    {
+        let parameter_base: usize = 2;
+        let fixture_instructions = instructions;
+        let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = metadata;
+        if fixture_metadata.parameter_slots.is_empty() {
+            fixture_metadata.parameter_slots =
+                (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+        }
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            id: FunctionRef::new(id),
+            identity: None,
+            name: name.into(),
+            parameter_count: 1,
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+        }
     }
 }
 
@@ -226,16 +243,16 @@ impl Fixture {
                 array.clone(),
                 future.clone(),
                 vec![
-                    I::LoadLocal {
-                        dst: Register::new(0),
-                        local: LocalSlot::new(0),
+                    I::Move {
+                        dst: Slot::new(0),
+                        src: Slot::new(2),
                     },
                     I::Call {
-                        dst: Some(Register::new(1)),
+                        dst: Some(Slot::new(1)),
                         callee: CallTarget::Native(NativeImportId::new(0)),
-                        args: vec![Register::new(0)],
+                        args: vec![Slot::new(0)],
                     },
-                    I::Return(Some(Register::new(1))),
+                    I::Return(Some(Slot::new(1))),
                 ],
                 false,
             ),
@@ -245,16 +262,16 @@ impl Fixture {
                 future.clone(),
                 Ty::Builtin(BuiltinType::I32),
                 vec![
-                    I::LoadLocal {
-                        dst: Register::new(0),
-                        local: LocalSlot::new(0),
+                    I::Move {
+                        dst: Slot::new(0),
+                        src: Slot::new(2),
                     },
                     I::Await {
-                        dst: Register::new(1),
-                        value: Register::new(0),
+                        dst: Slot::new(1),
+                        value: Slot::new(0),
                         future: future.clone(),
                     },
-                    I::Return(Some(Register::new(1))),
+                    I::Return(Some(Slot::new(1))),
                 ],
                 true,
             ),
@@ -375,63 +392,77 @@ fn async_wait_live_storage_contract() {
         function.id = FunctionRef::new(2);
         function.name = "wait_with_storage".into();
         function.parameter_count = 3;
-        function.local_count = 3;
-        function.register_count = 5;
+        function.slot_count = 8;
         function.metadata.params.extend([ValueType::HeapObject; 2]);
-        function.metadata.locals = function.metadata.params.clone();
-        function.metadata.registers.extend([
+        function.metadata.slots = vec![
+            ValueType::HeapObject,
+            ValueType::I32,
             ValueType::HeapObject,
             ValueType::HeapObject,
             ValueType::I32,
-        ]);
+            ValueType::HeapObject,
+            ValueType::HeapObject,
+            ValueType::HeapObject,
+        ];
+        function.metadata.parameter_slots = (5..8).map(Slot::new).collect();
         for index in [1, 2] {
             function
                 .metadata
                 .semantic
                 .params
                 .insert(index, array.clone());
+        }
+        function.metadata.semantic.slots.retain(|&slot, _| slot < 2);
+        for (&index, ty) in &function.metadata.semantic.params {
             function
                 .metadata
                 .semantic
-                .locals
-                .insert(index, array.clone());
+                .slots
+                .insert(5 + index, ty.clone());
         }
         for index in [2, 3] {
             function
                 .metadata
                 .semantic
-                .registers
+                .slots
                 .insert(index, array.clone());
         }
         function
             .metadata
             .semantic
-            .registers
+            .slots
             .insert(4, Ty::Builtin(BuiltinType::I32));
-        function.metadata.roots =
-            RootSlotLayout::from_types(&function.metadata.locals, &function.metadata.registers);
+        function.metadata.roots = RootSlotLayout::from_types(&function.metadata.slots);
         let await_instruction = function.instructions[1].clone();
         function.instructions = vec![
-            I::LoadLocal {
-                dst: Register::new(3),
-                local: LocalSlot::new(2),
+            I::Move {
+                dst: Slot::new(3),
+                src: Slot::new(7),
             },
-            I::LoadLocal {
-                dst: Register::new(2),
-                local: LocalSlot::new(1),
+            I::Move {
+                dst: Slot::new(2),
+                src: Slot::new(6),
             },
-            I::LoadLocal {
-                dst: Register::new(0),
-                local: LocalSlot::new(0),
+            I::Move {
+                dst: Slot::new(0),
+                src: Slot::new(5),
             },
             await_instruction,
             I::Call {
-                dst: Some(Register::new(4)),
+                dst: Some(Slot::new(4)),
                 callee: CallTarget::Native(NativeImportId::new(1)),
-                args: vec![Register::new(2), Register::new(1)],
+                args: vec![Slot::new(2), Slot::new(1)],
             },
-            I::Return(Some(Register::new(4))),
+            I::Return(Some(Slot::new(4))),
         ];
+        function.metadata.origins = (0..function.instructions.len())
+            .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                instruction,
+                span: Default::default(),
+                line: None,
+                column: None,
+            })
+            .collect();
         functions.push(function);
     });
     for exit in 0..3 {

@@ -1,3 +1,4 @@
+use crate::module::BytecodeSemanticSlots;
 use crate::{
     artifact::limits::{artifact_count_limit, metadata_count_limit, program_count_limit},
     instruction::{JumpTarget, PathId},
@@ -28,7 +29,6 @@ use kagari_contract::{
     },
     effects::EffectSet,
     ids::FunctionRef,
-    slots::SemanticSlots,
     types::{PublicItem, wire::PublicItemRecord},
 };
 use serde::{Deserialize, Serialize};
@@ -794,8 +794,7 @@ impl VerificationMetadata {
                     semantic: function.metadata.semantic.clone(),
                     params: function.metadata.params.clone(),
                     return_type: function.metadata.return_type,
-                    locals: function.metadata.locals.clone(),
-                    registers: function.metadata.registers.clone(),
+                    slots: function.metadata.slots.clone(),
                     roots: function.metadata.roots.clone(),
                 })
                 .collect(),
@@ -833,12 +832,11 @@ impl VerificationMetadata {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionLayoutMetadata {
-    pub semantic: SemanticSlots,
+    pub semantic: BytecodeSemanticSlots,
     pub function: FunctionRef,
     pub params: Vec<ValueType>,
     pub return_type: ValueType,
-    pub locals: Vec<ValueType>,
-    pub registers: Vec<ValueType>,
+    pub slots: Vec<ValueType>,
     pub roots: RootSlotLayout,
 }
 

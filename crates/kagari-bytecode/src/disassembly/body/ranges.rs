@@ -42,7 +42,7 @@ impl<'a> RangeIndex<'a> {
         for event in events.values() {
             remove_ended(&mut active, ranges, &event.ends);
             for &index in &event.starts {
-                let names = active.entry(ranges[index].local.index()).or_default();
+                let names = active.entry(ranges[index].slot.index()).or_default();
                 if let Some(&other) = names.first() {
                     // If several are already active they have already been marked.
                     // One representative is enough; avoid enumerating overlap pairs.
@@ -70,8 +70,8 @@ impl<'a> RangeIndex<'a> {
         for (index, range) in self.ranges.iter().enumerate() {
             writeln!(
                 writer,
-                "      range#{index}: l{} name={} instructions=[{}, {}) debug_ty={} is_parameter={} span={}{}",
-                range.local.index(),
+                "      range#{index}: s{} name={} instructions=[{}, {}) debug_ty={} is_parameter={} span={}{}",
+                range.slot.index(),
                 quoted(&range.name),
                 range.start,
                 range.end,
@@ -93,13 +93,13 @@ impl<'a> RangeIndex<'a> {
             remove_ended(&mut self.active, self.ranges, &event.ends);
             for &index in &event.starts {
                 self.active
-                    .entry(self.ranges[index].local.index())
+                    .entry(self.ranges[index].slot.index())
                     .or_default()
                     .insert(index);
             }
         }
         for (local, names) in &self.active {
-            write!(writer, "    ; debug local l{local} at {offset}: names=[")?;
+            write!(writer, "    ; debug local s{local} at {offset}: names=[")?;
             for (position, &index) in names.iter().enumerate() {
                 if position != 0 {
                     write!(writer, ", ")?;
@@ -118,7 +118,7 @@ impl<'a> RangeIndex<'a> {
 
 fn remove_ended(active: &mut Active, ranges: &[LocalLiveRange], ends: &[usize]) {
     for &index in ends {
-        let local = ranges[index].local.index();
+        let local = ranges[index].slot.index();
         if let Some(names) = active.get_mut(&local) {
             names.remove(&index);
             if names.is_empty() {

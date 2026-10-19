@@ -2,7 +2,7 @@ use crate::tests::native_boundary::support::round_trip_program;
 use crate::vm::Vm;
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::{BytecodeInstruction, CallTarget, NativeImportId, Register},
+    instruction::{BytecodeInstruction, CallTarget, NativeImportId, Slot},
     program::{BytecodeProgram, verify_program},
 };
 use kagari_common::identity::{
@@ -372,11 +372,11 @@ fn native_storage_writes_reject_element_type_forgery() {
     let wrong = function
         .metadata
         .semantic
-        .registers
+        .slots
         .iter()
         .find_map(|(index, ty)| {
             matches!(ty,Ty::NativeObject(nominal) if nominal.arguments == [Ty::Builtin(BuiltinType::String)])
-                .then_some(Register::new(*index))
+                .then_some(Slot::new(*index))
         })
         .unwrap();
     let instruction = function.instructions.iter_mut().find(|instruction| matches!(instruction, BytecodeInstruction::Call {callee: CallTarget::Native(id), ..} if definitions.resolve(imports[id.index()].binding).unwrap().last().is_some_and(|part| part.name == "push") && matches!(&imports[id.index()].signature.params[0], Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::NativeObject(_)])))).unwrap();

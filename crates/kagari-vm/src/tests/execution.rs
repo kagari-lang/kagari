@@ -5,10 +5,11 @@ use crate::{
     vm::Vm,
 };
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::instruction::Slot;
 use kagari_bytecode::{
     instruction::{
         BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, InterfaceTableRef,
-        ModuleSlot, Register, RuntimeHelper,
+        ModuleSlot, RuntimeHelper,
     },
     module::{
         BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
@@ -47,20 +48,34 @@ fn test_function(
     registers: Vec<ValueType>,
 ) -> BytecodeFunction {
     let metadata = FunctionMetadata {
+        roots: RootSlotLayout::from_types(&[registers.to_vec(), [].to_vec()].concat()),
         return_type,
-        roots: RootSlotLayout::from_types(&[], &registers),
-        registers,
+        slots: registers,
         ..FunctionMetadata::default()
     };
-    BytecodeFunction {
-        id: FunctionRef::new(id),
-        identity: None,
-        name: name.to_owned(),
-        parameter_count: 0,
-        register_count: metadata.registers.len() as u16,
-        local_count: 0,
-        metadata,
-        instructions,
+    {
+        let fixture_instructions = instructions;
+        let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = metadata;
+
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            id: FunctionRef::new(id),
+            identity: None,
+            name: name.to_owned(),
+            parameter_count: 0,
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+        }
     }
 }
 
@@ -72,8 +87,8 @@ fn verified_module(
     for function in &functions {
         for ty in std::iter::once(function.metadata.return_type)
             .chain(function.metadata.params.iter().copied())
-            .chain(function.metadata.locals.iter().copied())
-            .chain(function.metadata.registers.iter().copied())
+            .chain(function.metadata.slots.iter().copied())
+            .chain(function.metadata.slots.iter().copied())
         {
             if !types.contains(&ty) {
                 types.push(ty);
@@ -108,14 +123,14 @@ fn module_with_mutable_slot(value: i32) -> BytecodeModule {
                 "init",
                 vec![
                     BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
+                        dst: Slot::new(0),
                         constant: ConstantId::new(0),
                     },
                     BytecodeInstruction::StoreModule {
                         slot: ModuleSlot::new(0),
-                        src: Register::new(0),
+                        src: Slot::new(0),
                     },
-                    BytecodeInstruction::Return(Some(Register::new(0))),
+                    BytecodeInstruction::Return(Some(Slot::new(0))),
                 ],
                 ValueType::I32,
                 vec![ValueType::I32],
@@ -125,10 +140,10 @@ fn module_with_mutable_slot(value: i32) -> BytecodeModule {
                 "main",
                 vec![
                     BytecodeInstruction::LoadModule {
-                        dst: Register::new(0),
+                        dst: Slot::new(0),
                         slot: ModuleSlot::new(0),
                     },
-                    BytecodeInstruction::Return(Some(Register::new(0))),
+                    BytecodeInstruction::Return(Some(Slot::new(0))),
                 ],
                 ValueType::I32,
                 vec![ValueType::I32],
@@ -151,10 +166,10 @@ fn reloadable_value_module(value: i32) -> BytecodeModule {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
-                BytecodeInstruction::Return(Some(Register::new(0))),
+                BytecodeInstruction::Return(Some(Slot::new(0))),
             ],
             ValueType::I32,
             vec![ValueType::I32],
@@ -188,17 +203,17 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::MakeInterface {
-                    dst: Register::new(1),
-                    value: Register::new(0),
+                    dst: Slot::new(1),
+                    value: Slot::new(0),
                     module: ModuleRef::new(0),
                     implementation: InterfaceTableRef::new(0),
                     arguments: vec![],
                 },
-                BytecodeInstruction::Return(Some(Register::new(1))),
+                BytecodeInstruction::Return(Some(Slot::new(1))),
             ],
             ValueType::HeapObject,
             vec![ValueType::I32, ValueType::HeapObject],

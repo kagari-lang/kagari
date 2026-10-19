@@ -7,7 +7,7 @@ use crate::module::execution::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, Register},
+    instruction::{BytecodeInstruction, CallTarget, Slot},
     module::CallableTarget,
     program::{BytecodeProgram, ModuleRef},
 };
@@ -35,7 +35,7 @@ pub(crate) enum PreparedCallTarget {
     },
     Interface {
         closed: bool,
-        receiver: Option<Register>,
+        receiver: Option<Slot>,
     },
     Closure(Box<PreparedClosureCall>),
 }
@@ -44,7 +44,7 @@ pub(crate) enum PreparedCallTarget {
 /// Runtime links supply lexical types; no active value/window is retained here.
 #[derive(Debug)]
 pub(crate) struct PreparedClosureCall {
-    pub register: Register,
+    pub register: Slot,
     pub signature: PreparedClosureSignature,
 }
 
@@ -137,7 +137,7 @@ impl ExecutionModule {
                     .map(|register| {
                         prepared
                             .frame
-                            .registers
+                            .slot_layout
                             .location(register.index())
                             .expect("sealed caller operand")
                     })
@@ -145,7 +145,7 @@ impl ExecutionModule {
                 let destination = dst.map(|register| {
                     prepared
                         .frame
-                        .registers
+                        .slot_layout
                         .location(register.index())
                         .expect("sealed return operand")
                 });

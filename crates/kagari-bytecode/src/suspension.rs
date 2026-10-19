@@ -1,7 +1,7 @@
 //! Non-serializable suspension facts derived from checked executable flow.
 
 /// Values read by execution or debugging at and after one reachable await.
-/// Logical registers precede locals, matching the canonical frame layout.
+/// Bits index the verified unified logical slot layout.
 #[derive(Debug, Clone)]
 pub struct AwaitLiveness {
     pub(crate) instruction: usize,

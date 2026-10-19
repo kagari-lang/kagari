@@ -274,7 +274,7 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
             if semantic.result == Some(Ty::Builtin(BuiltinType::U8)) {
                 semantic.result = Some(Ty::Builtin(BuiltinType::U16));
             }
-            for ty in semantic.registers.values_mut() {
+            for ty in semantic.slots.values_mut() {
                 if *ty == Ty::Builtin(BuiltinType::U8) {
                     *ty = Ty::Builtin(BuiltinType::U16);
                 }

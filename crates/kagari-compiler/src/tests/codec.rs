@@ -250,15 +250,20 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
         verify_native_input(&wire, &different_bytecode, &Default::default()),
         Err(NativeInputError::Mismatch)
     ));
-    let mut changed_origin = common::adopt_bytecode(&context, bytecode.to_unverified());
-    changed_origin.modules[changed_origin.root.index()]
-        .source_name
-        .push_str("-changed");
-    let changed_origin = VerifiedBytecodeProgram::new(changed_origin, &context).unwrap();
-    assert!(matches!(
-        verify_native_input(&wire, &changed_origin, &Default::default()),
-        Err(NativeInputError::Mismatch)
-    ));
+    for change_mapping in [false, true] {
+        let mut changed_origin = common::adopt_bytecode(&context, bytecode.to_unverified());
+        let module = &mut changed_origin.modules[changed_origin.root.index()];
+        if change_mapping {
+            module.functions[0].metadata.origins[0].column = Some(99);
+        } else {
+            module.source_name.push_str("-changed");
+        }
+        let changed_origin = VerifiedBytecodeProgram::new(changed_origin, &context).unwrap();
+        assert!(matches!(
+            verify_native_input(&wire, &changed_origin, &Default::default()),
+            Err(NativeInputError::Mismatch)
+        ));
+    }
     let mut changed_exports = common::adopt_bytecode(&context, bytecode.to_unverified());
     let root = changed_exports.modules[changed_exports.root.index()]
         .identity

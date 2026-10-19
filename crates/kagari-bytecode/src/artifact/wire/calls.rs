@@ -1,6 +1,6 @@
 //! File-local bytecode call targets and aggregate field references.
 use crate::{
-    instruction::{CallTarget, FieldRef, NativeImportId, Register, RuntimeHelper, StructId},
+    instruction::{CallTarget, FieldRef, NativeImportId, RuntimeHelper, Slot, StructId},
     module::CallableTarget,
     program::ModuleRef,
 };
@@ -93,9 +93,9 @@ pub(in crate::artifact) enum CallTargetRecord {
         contract: Box<InterfaceCallContractRecord>,
     },
     Native(NativeImportId),
-    Register(Register),
+    Slot(Slot),
     ClosureRegister {
-        register: Register,
+        register: Slot,
         #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
         params: Vec<ValueType>,
         return_type: ValueType,
@@ -141,7 +141,7 @@ impl CallTargetRecord {
                 )?),
             },
             CallTarget::Native(field0) => Self::Native(*field0),
-            CallTarget::Register(field0) => Self::Register(*field0),
+            CallTarget::Slot(field0) => Self::Slot(*field0),
             CallTarget::ClosureRegister {
                 register,
                 params,
@@ -183,7 +183,7 @@ impl CallTargetRecord {
                 contract: Box::new((*contract).decode(decoding, cancel)?),
             },
             Self::Native(field0) => CallTarget::Native(field0),
-            Self::Register(field0) => CallTarget::Register(field0),
+            Self::Slot(field0) => CallTarget::Slot(field0),
             Self::ClosureRegister {
                 register,
                 params,

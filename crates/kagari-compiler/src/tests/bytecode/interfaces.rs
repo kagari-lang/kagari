@@ -1,6 +1,6 @@
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget as KagaribytecodeCallTarget, Register},
+    instruction::{BytecodeInstruction, CallTarget as KagaribytecodeCallTarget, Slot},
     module::CallableTarget,
     program::verify_program,
 };
@@ -543,7 +543,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
                     path.path.last_mut().unwrap().name = "Other".into()
                 })
             }
-            "argument" => args[0] = Register::new(999),
+            "argument" => args[0] = Slot::new(999),
             _ => unreachable!(),
         }
         assert!(

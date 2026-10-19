@@ -12,7 +12,7 @@ use crate::{
     native::primitive::NativePrimitive,
 };
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget, Register},
+    instruction::{BytecodeInstruction, CallTarget, Slot},
     module::BytecodeFunction,
 };
 
@@ -44,10 +44,10 @@ impl Runtime {
                     if args.len() != binding.signature.params.len() {
                         return Err(RuntimeError::module_validation("native call arity"));
                     }
-                    let location = |register: Register| {
+                    let location = |register: Slot| {
                         prepared
                             .frame
-                            .registers
+                            .slot_layout
                             .location(register.index())
                             .ok_or_else(|| {
                                 RuntimeError::module_validation("native operand location")

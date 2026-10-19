@@ -39,7 +39,7 @@ pub(super) fn count_lua(lua: &Lua, entry: &Function, expected: i32) {
 #[derive(Debug, Default)]
 struct InstructionCounts {
     counts: RefCell<InstructionCountMap>,
-    layouts: HashMap<String, (u16, usize, u16, usize, usize)>,
+    layouts: HashMap<String, (u32, usize, usize, usize)>,
 }
 
 type InstructionCountMap = HashMap<Discriminant<BytecodeInstruction>, (String, u64)>;
@@ -64,9 +64,8 @@ impl ExecutionObserver for InstructionCounts {
             self.layouts
                 .entry(format!("{}::{}", frame.loaded().name, function.name))
                 .or_insert((
-                    function.register_count,
-                    frame.physical_register_count(),
-                    function.local_count,
+                    function.slot_count,
+                    frame.physical_slot_count(),
                     scalars,
                     managed,
                 ));
@@ -188,9 +187,9 @@ pub(super) fn count(
             .unwrap();
         let mut layouts = observer.layouts.iter().collect::<Vec<_>>();
         layouts.sort_by_key(|(name, _)| *name);
-        for (name, (logical, physical, locals, scalars, managed)) in layouts {
+        for (name, (logical, physical, scalars, managed)) in layouts {
             println!(
-                "FRAME_LAYOUT,{name},logical_registers={logical},physical_registers={physical},locals={locals},scalar_slots={scalars},managed_slots={managed},scalar_payload_bytes={},initialization_bytes={scalars},managed_value_bytes={}",
+                "FRAME_LAYOUT,{name},logical_slots={logical},physical_slots={physical},scalar_slots={scalars},managed_slots={managed},scalar_payload_bytes={},initialization_bytes={scalars},managed_value_bytes={}",
                 scalars * size_of::<u64>(),
                 managed * size_of::<Value>(),
             );

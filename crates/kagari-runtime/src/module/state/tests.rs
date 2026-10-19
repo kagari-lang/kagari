@@ -2,7 +2,7 @@ use super::*;
 use crate::error::RuntimeErrorKind;
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, Register},
+    instruction::{BytecodeInstruction, Slot},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
 };
@@ -11,17 +11,34 @@ use kagari_contract::ids::FunctionRef;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn program(ty: ValueType, mutable: bool) -> DefinitionMetadata<BytecodeProgram> {
-    let function = BytecodeFunction {
-        id: FunctionRef::new(0),
-        name: "main".into(),
-        register_count: 1,
-        metadata: FunctionMetadata {
-            registers: vec![ValueType::HeapObject],
-            roots: RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
+    let function = {
+        let fixture_instructions = vec![BytecodeInstruction::Return(None)];
+        let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = FunctionMetadata {
+            roots: RootSlotLayout::from_types(
+                &[[ValueType::HeapObject].to_vec(), [].to_vec()].concat(),
+            ),
+            slots: [vec![ValueType::HeapObject], vec![].clone()].concat(),
             ..Default::default()
-        },
-        instructions: vec![BytecodeInstruction::Return(None)],
-        ..Default::default()
+        };
+
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "main".into(),
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+            ..Default::default()
+        }
     };
     DefinitionMetadata::checked(
         DefinitionContext::new().unwrap().snapshot(),
@@ -245,7 +262,7 @@ fn corrupt_module_storage_quarantines_and_cleans_frame_resources() {
         stack
             .current_mut()
             .unwrap()
-            .write_register(&runtime, Register::new(0), array(&runtime, &module, 7))
+            .write_slot(&runtime, Slot::new(0), array(&runtime, &module, 7))
             .unwrap();
         assert_eq!(runtime.resources().counters().current_call_depth, 1);
         assert!(runtime.gc().active_roots() > 0);

@@ -100,3 +100,5 @@ pub(super) fn encode_module(
     let records = BytecodeModuleRecord::encode(module, &encoding, cancel)?;
     Ok((records, encoding.table))
 }
+
+mod slots;

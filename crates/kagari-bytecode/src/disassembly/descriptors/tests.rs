@@ -8,7 +8,7 @@ use crate::{
     },
     instruction::{
         BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand, EnumId, FieldRef,
-        InterfaceTableRef, ModuleSlot, NativeImportId, PathId, Register, StructId,
+        InterfaceTableRef, ModuleSlot, NativeImportId, PathId, Slot, StructId,
     },
     module::{
         BytecodeFunction, BytecodeModule, BytecodeModuleSlot, CallableTarget, InterfaceMethodSlot,
@@ -141,7 +141,7 @@ fn constants_preserve_bits_and_escape_text_once_in_slot_order() {
         .rev()
         .chain([9, 0])
         .map(|slot| I::LoadConst {
-            dst: Register::new(0),
+            dst: Slot::new(0),
             constant: ConstantId::new(slot),
         })
         .collect();
@@ -209,11 +209,11 @@ fn layouts_and_module_slots_have_access_types_and_nested_dependencies() {
     owner.functions.push(body(vec![
         I::StoreModule {
             slot: ModuleSlot::new(0),
-            src: Register::new(0),
+            src: Slot::new(0),
         },
         I::ReadAggregateField {
-            dst: Register::new(0),
-            base: Register::new(1),
+            dst: Slot::new(0),
+            base: Slot::new(1),
             field: FieldRef {
                 structure: StructId::new(0),
                 arguments: vec![],
@@ -282,12 +282,12 @@ fn interface_closure_crosses_modules_but_does_not_follow_callee_bodies() {
         .constants
         .push(ConstantOperand::Str("callee-only literal".into()));
     owner.functions.push(body(vec![I::LoadConst {
-        dst: Register::new(0),
+        dst: Slot::new(0),
         constant: ConstantId::new(0),
     }]));
     caller.functions.push(body(vec![I::MakeInterface {
-        dst: Register::new(0),
-        value: Register::new(1),
+        dst: Slot::new(0),
+        value: Slot::new(1),
         module: ModuleRef::new(1),
         implementation: InterfaceTableRef::new(0),
         arguments: vec![],
@@ -544,8 +544,8 @@ fn paths_show_retained_facts_without_rebuilding_declarations() {
         debug_name: "player\nvalues".into(),
     });
     owner.functions.push(body(vec![I::ReadPath {
-        dst: Register::new(0),
-        root_or_view: Register::new(1),
+        dst: Slot::new(0),
+        root_or_view: Slot::new(1),
         path: PathId::new(0),
         dynamic_args: vec![],
     }]));
@@ -558,7 +558,7 @@ fn paths_show_retained_facts_without_rebuilding_declarations() {
 
 #[test]
 fn every_direct_table_operand_is_collected_without_rendering_unselected_bodies() {
-    let r = Register::new(0);
+    let r = Slot::new(0);
     let field = FieldRef {
         structure: StructId::new(0),
         arguments: vec![],
@@ -811,7 +811,7 @@ fn writer_errors_stop_immediately_and_empty_selection_writes_nothing() {
     let mut owner = module("io");
     owner.constants.push(ConstantOperand::Unit);
     owner.functions.push(body(vec![I::LoadConst {
-        dst: Register::new(0),
+        dst: Slot::new(0),
         constant: ConstantId::new(0),
     }]));
     let program = program(vec![owner]);

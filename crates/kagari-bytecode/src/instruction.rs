@@ -18,7 +18,7 @@ use std::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Register(u16);
+pub struct Slot(u32);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct EnumId(u32);
@@ -46,22 +46,9 @@ impl InterfaceTableRef {
     }
 }
 
-impl Register {
+impl Slot {
     pub fn new(index: usize) -> Self {
-        Self(index as u16)
-    }
-
-    pub fn index(self) -> usize {
-        self.0 as usize
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct LocalSlot(u16);
-
-impl LocalSlot {
-    pub fn new(index: usize) -> Self {
-        Self(index as u16)
+        Self(u32::try_from(index).expect("slot ID overflow"))
     }
 
     pub fn index(self) -> usize {
@@ -222,9 +209,9 @@ pub enum CallTarget {
         contract: Box<InterfaceCallContract>,
     },
     Native(NativeImportId),
-    Register(Register),
+    Slot(Slot),
     ClosureRegister {
-        register: Register,
+        register: Slot,
         params: Vec<ValueType>,
         return_type: ValueType,
     },
@@ -268,215 +255,207 @@ pub enum BinaryOp {
 #[derive(Debug, Clone, PartialEq)]
 pub enum BytecodeInstruction {
     Await {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         future: Ty,
     },
     Convert {
-        dst: Register,
-        src: Register,
+        dst: Slot,
+        src: Slot,
         conversion: NumericConversion,
     },
     Numeric {
-        dst: Register,
+        dst: Slot,
         operation: NumericOperation,
-        lhs: Register,
-        rhs: Option<Register>,
+        lhs: Slot,
+        rhs: Option<Slot>,
     },
     Iter {
-        dst: Register,
-        value: Option<Register>,
+        dst: Slot,
+        value: Option<Slot>,
         ty: Ty,
         op: IterOp,
     },
     LoadConst {
-        dst: Register,
+        dst: Slot,
         constant: ConstantId,
     },
-    LoadLocal {
-        dst: Register,
-        local: LocalSlot,
-    },
     LoadModule {
-        dst: Register,
+        dst: Slot,
         slot: ModuleSlot,
-    },
-    StoreLocal {
-        local: LocalSlot,
-        src: Register,
     },
     StoreModule {
         slot: ModuleSlot,
-        src: Register,
+        src: Slot,
     },
     Move {
-        dst: Register,
-        src: Register,
+        dst: Slot,
+        src: Slot,
     },
     Unary {
-        dst: Register,
+        dst: Slot,
         op: UnaryOp,
-        operand: Register,
+        operand: Slot,
     },
     Binary {
-        dst: Register,
+        dst: Slot,
         op: BinaryOp,
-        lhs: Register,
-        rhs: Register,
+        lhs: Slot,
+        rhs: Slot,
     },
     Call {
-        dst: Option<Register>,
+        dst: Option<Slot>,
         callee: CallTarget,
-        args: Vec<Register>,
+        args: Vec<Slot>,
     },
     MakeTuple {
-        dst: Register,
-        elements: Vec<Register>,
+        dst: Slot,
+        elements: Vec<Slot>,
     },
     RangeBound {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         range: Ty,
         bound: Ty,
         upper: bool,
     },
     MakeRange {
-        dst: Register,
-        start: Option<Register>,
-        end: Option<Register>,
+        dst: Slot,
+        start: Option<Slot>,
+        end: Option<Slot>,
         ty: Ty,
     },
     RepeatArray {
         element: Ty,
-        dst: Register,
-        value: Register,
-        count: Register,
+        dst: Slot,
+        value: Slot,
+        count: Slot,
     },
     MakeArray {
         element: Ty,
-        dst: Register,
-        elements: Vec<Register>,
+        dst: Slot,
+        elements: Vec<Slot>,
     },
     /// Capture every resume parameter without entering its body.
     MakeFuture {
-        dst: Register,
+        dst: Slot,
         function: FunctionRef,
-        arguments: Vec<Register>,
+        arguments: Vec<Slot>,
         future: Ty,
     },
     MakeClosure {
-        dst: Register,
+        dst: Slot,
         function: FunctionRef,
-        captures: Vec<Register>,
+        captures: Vec<Slot>,
     },
     MakeCell {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
     },
     ReadCell {
-        dst: Register,
-        cell: Register,
+        dst: Slot,
+        cell: Slot,
     },
     WriteCell {
-        cell: Register,
-        value: Register,
+        cell: Slot,
+        value: Slot,
     },
     UpcastInterface {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         source: NominalTy,
         target: NominalTy,
     },
     MakeInterface {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         module: ModuleRef,
         implementation: InterfaceTableRef,
         arguments: Vec<Ty>,
     },
     MakeStruct {
-        dst: Register,
+        dst: Slot,
         structure: StructId,
         arguments: Vec<Ty>,
-        fields: Vec<Register>,
+        fields: Vec<Slot>,
     },
     MakeEnum {
-        dst: Register,
+        dst: Slot,
         enumeration: EnumId,
         arguments: Vec<Ty>,
         variant: u32,
-        fields: Vec<Register>,
+        fields: Vec<Slot>,
     },
     TestEnumVariant {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         enumeration: EnumId,
         arguments: Vec<Ty>,
         variant: u32,
     },
     ReadEnumPayload {
-        dst: Register,
-        value: Register,
+        dst: Slot,
+        value: Slot,
         enumeration: EnumId,
         arguments: Vec<Ty>,
         variant: u32,
         index: u32,
     },
     ReadAggregateField {
-        dst: Register,
-        base: Register,
+        dst: Slot,
+        base: Slot,
         field: FieldRef,
     },
     WriteAggregateField {
-        base: Register,
+        base: Slot,
         field: FieldRef,
-        value: Register,
+        value: Slot,
     },
     ReadAggregateIndex {
-        dst: Register,
-        base: Register,
-        index: Register,
+        dst: Slot,
+        base: Slot,
+        index: Slot,
     },
     WriteAggregateIndex {
-        base: Register,
-        index: Register,
-        value: Register,
+        base: Slot,
+        index: Slot,
+        value: Slot,
     },
     ReadPath {
-        dst: Register,
-        root_or_view: Register,
+        dst: Slot,
+        root_or_view: Slot,
         path: PathId,
-        dynamic_args: Vec<Register>,
+        dynamic_args: Vec<Slot>,
     },
     SetPath {
-        root_or_view: Register,
+        root_or_view: Slot,
         path: PathId,
-        dynamic_args: Vec<Register>,
-        value: Register,
+        dynamic_args: Vec<Slot>,
+        value: Slot,
     },
     ModifyPath {
-        dst: Option<Register>,
-        root_or_view: Register,
+        dst: Option<Slot>,
+        root_or_view: Slot,
         path: PathId,
-        dynamic_args: Vec<Register>,
+        dynamic_args: Vec<Slot>,
         op: BinaryOp,
-        value: Register,
+        value: Slot,
     },
     MakePathView {
-        dst: Register,
-        root_or_view: Register,
+        dst: Slot,
+        root_or_view: Slot,
         path: PathId,
-        dynamic_args: Vec<Register>,
+        dynamic_args: Vec<Slot>,
     },
     Jump {
         target: JumpTarget,
     },
     Branch {
-        cond: Register,
+        cond: Slot,
         then_target: JumpTarget,
         else_target: JumpTarget,
     },
-    Return(Option<Register>),
+    Return(Option<Slot>),
     Unreachable,
 }
 

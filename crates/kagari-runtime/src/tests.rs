@@ -125,12 +125,28 @@ fn module_with_executable_function() -> BytecodeModule {
             return_type: metadata.return_type,
             effects: metadata.effects,
         }],
-        functions: vec![BytecodeFunction {
-            id: FunctionRef::new(0),
-            name: "main".to_owned(),
-            metadata,
-            instructions: vec![BytecodeInstruction::Return(None)],
-            ..BytecodeFunction::default()
+        functions: vec![{
+            let fixture_instructions = vec![BytecodeInstruction::Return(None)];
+            let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = metadata;
+
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                id: FunctionRef::new(0),
+                name: "main".to_owned(),
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+                ..BytecodeFunction::default()
+            }
         }],
         ..BytecodeModule::default()
     }

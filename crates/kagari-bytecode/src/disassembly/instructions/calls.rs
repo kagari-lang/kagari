@@ -87,7 +87,7 @@ pub(super) fn target(
             contracts::interface(writer, context, resolution, owner.index(), contract)
         }
         CallTarget::Native(native) => write!(writer, "native @{module}:native#{}", native.index()),
-        CallTarget::Register(register) => write!(writer, "register r{}", register.index()),
+        CallTarget::Slot(register) => write!(writer, "register s{}", register.index()),
         CallTarget::ClosureRegister {
             register,
             params,
@@ -95,7 +95,7 @@ pub(super) fn target(
         } => {
             write!(
                 writer,
-                "closure_register r{}, physical_params=[",
+                "closure_register s{}, physical_params=[",
                 register.index()
             )?;
             for (index, param) in params.iter().enumerate() {

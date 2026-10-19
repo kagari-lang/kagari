@@ -4,8 +4,7 @@ use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{
-        BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand, LocalSlot,
-        NativeImportId, Register,
+        BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand, NativeImportId, Slot,
     },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
     program::{BytecodeProgram, ModuleRef},
@@ -58,27 +57,46 @@ fn function(
     let output_repr = semantic_representation(&output);
     let mut metadata = FunctionMetadata {
         params: vec![input_repr],
-        locals: vec![input_repr],
-        registers: vec![input_repr, output_repr],
         return_type: output_repr,
-        roots: RootSlotLayout::from_types(&[input_repr], &[input_repr, output_repr]),
+        roots: RootSlotLayout::from_types(
+            &[[input_repr, output_repr].to_vec(), [input_repr].to_vec()].concat(),
+        ),
+        slots: [vec![input_repr, output_repr], vec![input_repr]].concat(),
         ..Default::default()
     };
     metadata.effects.may_suspend = suspends;
     metadata.semantic.params.insert(0, input.clone());
-    metadata.semantic.locals.insert(0, input.clone());
-    metadata.semantic.registers.insert(0, input);
-    metadata.semantic.registers.insert(1, output.clone());
+    metadata.semantic.slots.insert(2, input.clone());
+    metadata.semantic.slots.insert(0, input);
+    metadata.semantic.slots.insert(1, output.clone());
     metadata.semantic.result = Some(output);
-    BytecodeFunction {
-        id: FunctionRef::new(id),
-        identity: None,
-        name: name.into(),
-        parameter_count: 1,
-        local_count: 1,
-        register_count: 2,
-        metadata,
-        instructions,
+    {
+        let parameter_base: usize = 2;
+        let fixture_instructions = instructions;
+        let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = metadata;
+        if fixture_metadata.parameter_slots.is_empty() {
+            fixture_metadata.parameter_slots =
+                (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+        }
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            id: FunctionRef::new(id),
+            identity: None,
+            name: name.into(),
+            parameter_count: 1,
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+        }
     }
 }
 
@@ -188,11 +206,11 @@ impl Fixture {
             .unwrap();
         let declaration = declaration.into_records();
         let scalar = Ty::Builtin(BuiltinType::I32);
-        let load = I::LoadLocal {
-            dst: Register::new(0),
-            local: LocalSlot::new(0),
+        let load = I::Move {
+            dst: Slot::new(0),
+            src: Slot::new(2),
         };
-        let result = I::Return(Some(Register::new(1)));
+        let result = I::Return(Some(Slot::new(1)));
         let mut functions = vec![
             function(
                 0,
@@ -202,9 +220,9 @@ impl Fixture {
                 vec![
                     load.clone(),
                     I::Call {
-                        dst: Some(Register::new(1)),
+                        dst: Some(Slot::new(1)),
                         callee: CallTarget::Native(NativeImportId::new(0)),
-                        args: vec![Register::new(0)],
+                        args: vec![Slot::new(0)],
                     },
                     result.clone(),
                 ],
@@ -218,8 +236,8 @@ impl Fixture {
                 vec![
                     load,
                     I::Await {
-                        dst: Register::new(1),
-                        value: Register::new(0),
+                        dst: Slot::new(1),
+                        value: Slot::new(0),
                         future: future.clone(),
                     },
                     result,
@@ -234,30 +252,31 @@ impl Fixture {
             scalar.clone(),
             vec![
                 I::LoadConst {
-                    dst: Register::new(1),
+                    dst: Slot::new(1),
                     constant: ConstantId::new(0),
                 },
                 I::Call {
-                    dst: Some(Register::new(0)),
+                    dst: Some(Slot::new(0)),
                     callee: CallTarget::Native(NativeImportId::new(0)),
-                    args: vec![Register::new(1)],
+                    args: vec![Slot::new(1)],
                 },
                 I::Await {
-                    dst: Register::new(1),
-                    value: Register::new(0),
+                    dst: Slot::new(1),
+                    value: Slot::new(0),
                     future: future.clone(),
                 },
-                I::Return(Some(Register::new(1))),
+                I::Return(Some(Slot::new(1))),
             ],
             true,
         );
         run.parameter_count = 0;
-        run.local_count = 0;
+        run.slot_count = 2;
+        run.metadata.parameter_slots.clear();
         run.metadata.params.clear();
-        run.metadata.locals.clear();
+        run.metadata.slots.truncate(2);
         run.metadata.semantic.params.clear();
-        run.metadata.semantic.locals.clear();
-        run.metadata.roots = RootSlotLayout::from_types(&[], &run.metadata.registers);
+        run.metadata.semantic.slots.remove(&2);
+        run.metadata.roots = RootSlotLayout::from_types(&run.metadata.slots);
         functions.push(run);
         // These SDK fixtures test public host entry, so author the full callable
         // contract from their explicit semantic signatures before serialization.

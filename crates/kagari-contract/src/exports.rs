@@ -3,7 +3,7 @@
 mod mapping;
 pub mod wire;
 
-use crate::{slots::SemanticSlots, types::PublicItem};
+use crate::{slots::FunctionTypeFacts, types::PublicItem};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -144,7 +144,7 @@ pub fn public_function_matches(
     id: DefinitionId,
     owner: &ModuleIdentity,
     items: &[PublicItem],
-    semantic: &SemanticSlots,
+    semantic: &impl FunctionTypeFacts,
     definitions: &DefinitionTable,
 ) -> bool {
     let Ok(path) = free_function(id, definitions) else {
@@ -157,16 +157,16 @@ pub fn public_function_matches(
         return false;
     };
     &path.module == owner
-        && semantic.generic.is_none()
+        && semantic.generic().is_none()
         && function.generic_params.is_empty()
         && function.implementation == CallableImplementation::Script
-        && function.params.len() == semantic.params.len()
+        && function.params.len() == semantic.params().len()
         && function
             .params
             .iter()
             .enumerate()
-            .all(|(index, parameter)| semantic.params.get(&index) == Some(&parameter.ty))
-        && semantic.result.as_ref() == Some(&function.return_type)
+            .all(|(index, parameter)| semantic.params().get(&index) == Some(&parameter.ty))
+        && semantic.result() == Some(&function.return_type)
 }
 
 fn free_function(
@@ -190,15 +190,15 @@ pub fn entry_function_matches(
     id: DefinitionId,
     items: &[PublicItem],
     native: &[NativeDeclaration],
-    semantic: &SemanticSlots,
+    semantic: &impl FunctionTypeFacts,
     definitions: &DefinitionTable,
 ) -> bool {
     let Ok(path) = free_function(id, definitions) else {
         return false;
     };
-    semantic.generic.is_none()
-        && semantic.params.is_empty()
-        && semantic.result.is_some()
+    semantic.generic().is_none()
+        && semantic.params().is_empty()
+        && semantic.result().is_some()
         && !native.iter().any(|record| record.declaration == id)
         && (!items.iter().any(
             |item| matches!(item, PublicItem::Function(record) if record.name == path.path[0].name),

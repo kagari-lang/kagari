@@ -4,7 +4,7 @@ use crate::{
         KAGARI_LANGUAGE_VERSION, KBC_ARTIFACT_FORMAT_VERSION, KbcArtifact,
     },
     disassembly::{DisassemblyError, PreparedDisassembly},
-    instruction::{BytecodeInstruction, CallTarget, LocalSlot, NativeImportId, Register},
+    instruction::{BytecodeInstruction, CallTarget, NativeImportId, Slot},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     native_input::PortableMir,
     program::{BytecodeProgram, ModuleRef},
@@ -32,26 +32,43 @@ fn identity(path: &str) -> ModuleIdentity {
 }
 
 fn function(name: &str) -> BytecodeFunction {
-    BytecodeFunction {
-        name: name.into(),
-        parameter_count: 1,
-        local_count: 1,
-        register_count: 1,
-        metadata: FunctionMetadata {
+    {
+        let parameter_base: usize = 1;
+        let fixture_instructions = vec![
+            BytecodeInstruction::Move {
+                dst: Slot::new(0),
+                src: Slot::new(1),
+            },
+            BytecodeInstruction::Return(Some(Slot::new(0))),
+        ];
+        let mut fixture_metadata: crate::module::FunctionMetadata = FunctionMetadata {
             params: vec![ValueType::I32],
             return_type: ValueType::I32,
-            locals: vec![ValueType::I32],
-            registers: vec![ValueType::I32],
+            slots: [vec![ValueType::I32], vec![ValueType::I32]].concat(),
             ..Default::default()
-        },
-        instructions: vec![
-            BytecodeInstruction::LoadLocal {
-                dst: Register::new(0),
-                local: LocalSlot::new(0),
-            },
-            BytecodeInstruction::Return(Some(Register::new(0))),
-        ],
-        ..Default::default()
+        };
+        if fixture_metadata.parameter_slots.is_empty() {
+            fixture_metadata.parameter_slots =
+                (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+        }
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| crate::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            name: name.into(),
+            parameter_count: 1,
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+            ..Default::default()
+        }
     }
 }
 
@@ -204,7 +221,7 @@ fn source_free_preparation_retains_scope_and_deterministic_output() {
     assert_eq!(directory(&first), directory(&second));
     let full = disassembly(&first, None);
     assert_eq!(full, disassembly(&second, None));
-    assert_eq!(full.matches("  0000  load_local").count(), 5);
+    assert_eq!(full.matches("  0000  move s0, s1").count(), 5);
     assert_eq!(full.matches("  0001  return").count(), 5);
     assert!(!full.contains("nonexistent"));
     assert!(!full.contains('\u{202e}'));
@@ -267,7 +284,7 @@ fn exact_selection_uses_raw_names_and_reports_ordered_instance_candidates() {
             full.contains(&filtered[body_start..]),
             "selected body differs from full output"
         );
-        assert_eq!(filtered.matches("  0000  load_local").count(), 1);
+        assert_eq!(filtered.matches("  0000  move s0, s1").count(), 1);
         assert_eq!(filtered.matches("  0001  return").count(), 1);
     }
     for (name, slot) in [
@@ -358,7 +375,7 @@ fn preparation_rejects_decode_compatibility_hash_and_unselected_code_failures() 
     ));
     let mut invalid = artifact;
     invalid.program.modules[1].functions[3].instructions[1] =
-        BytecodeInstruction::Return(Some(Register::new(99)));
+        BytecodeInstruction::Return(Some(Slot::new(99)));
     // Decoding still succeeds. No caller can obtain a prepared directory or select
     // an unaffected function without validating this invalid, unselected body.
     let invalid = invalid.to_bytes(&context.snapshot()).unwrap();
@@ -388,7 +405,7 @@ fn portable_mir_is_reported_but_never_interpreted() {
     assert!(directory(&prepared).contains("portable_mir: present, not semantically checked\n"));
     let output = disassembly(&prepared, Some("@1:0"));
     assert!(output.contains("portable_mir: present, not semantically checked\n"));
-    assert!(output.contains("  0000  load_local"));
+    assert!(output.contains("  0000  move s0, s1"));
 }
 
 struct FailingWriter {
@@ -513,34 +530,49 @@ fn custom_native_calls_render_verified_offline_contracts_without_providers() {
         native_imports: vec![import],
         ..Default::default()
     };
-    let mut caller = BytecodeFunction {
-        name: "call_limit".into(),
-        register_count: 1,
-        metadata: FunctionMetadata {
+    let mut caller = {
+        let fixture_instructions = vec![
+            BytecodeInstruction::Call {
+                dst: Some(Slot::new(0)),
+                callee: CallTarget::Native(NativeImportId::new(0)),
+                args: vec![],
+            },
+            BytecodeInstruction::Call {
+                dst: Some(Slot::new(0)),
+                callee: CallTarget::Native(NativeImportId::new(0)),
+                args: vec![],
+            },
+            BytecodeInstruction::Return(Some(Slot::new(0))),
+        ];
+        let mut fixture_metadata: crate::module::FunctionMetadata = FunctionMetadata {
             return_type: ValueType::I32,
-            registers: vec![ValueType::I32],
+            slots: [vec![ValueType::I32], vec![].clone()].concat(),
             ..Default::default()
-        },
-        instructions: vec![
-            BytecodeInstruction::Call {
-                dst: Some(Register::new(0)),
-                callee: CallTarget::Native(NativeImportId::new(0)),
-                args: vec![],
-            },
-            BytecodeInstruction::Call {
-                dst: Some(Register::new(0)),
-                callee: CallTarget::Native(NativeImportId::new(0)),
-                args: vec![],
-            },
-            BytecodeInstruction::Return(Some(Register::new(0))),
-        ],
-        ..Default::default()
+        };
+
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| crate::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            name: "call_limit".into(),
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+            ..Default::default()
+        }
     };
     caller.metadata.semantic.result = Some(Ty::Builtin(BuiltinType::I32));
     caller
         .metadata
         .semantic
-        .registers
+        .slots
         .insert(0, Ty::Builtin(BuiltinType::I32));
     caller.metadata.effects.calls = true;
     push_function(&mut module, caller);
@@ -558,7 +590,7 @@ fn custom_native_calls_render_verified_offline_contracts_without_providers() {
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let mut invalid = artifact;
     invalid.program.modules[0].functions[0].instructions[0] = BytecodeInstruction::Call {
-        dst: Some(Register::new(0)),
+        dst: Some(Slot::new(0)),
         callee: CallTarget::Native(NativeImportId::new(99)),
         args: vec![],
     };
@@ -599,9 +631,9 @@ fn custom_native_calls_render_verified_offline_contracts_without_providers() {
         )
     );
     let calls = concat!(
-        "  0000  call dst=r0, target=native @0:native#0, args=[]\n",
-        "  0001  call dst=r0, target=native @0:native#0, args=[]\n",
-        "  0002  return r0\n",
+        "  0000  call dst=s0, target=native @0:native#0, args=[]\n",
+        "  0001  call dst=s0, target=native @0:native#0, args=[]\n",
+        "  0002  return s0\n",
     );
     assert!(output.contains(calls), "{output}");
     assert_eq!(output.matches("target=native @0:native#0").count(), 2);

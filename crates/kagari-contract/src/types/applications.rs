@@ -1,7 +1,7 @@
 //! Apply semantic declaration checks to a linked executable closure.
 use crate::{
     layout::{EnumLayout, StructLayout},
-    slots::SemanticSlots,
+    slots::FunctionTypeFacts,
     types::{PublicItem, TraitContract},
 };
 use kagari_common::{
@@ -190,7 +190,7 @@ where
 
 pub fn validate_slots<'declaration, F, G>(
     validator: &ApplicationValidator<'_, F, G>,
-    slots: &SemanticSlots,
+    slots: &impl FunctionTypeFacts,
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<(), TypeTransformError>
@@ -198,32 +198,30 @@ where
     F: Fn(&DefinitionId) -> Option<&'declaration TraitDef>,
     G: Fn(&DefinitionId) -> Option<(TypeDefKind, usize)>,
 {
-    if let Some(body) = &slots.generic {
+    if let Some(body) = slots.generic() {
         validator.bounds(&body.bounds)?;
     }
-    if let Some(required) = &slots.protocol_adapter {
+    if let Some(required) = slots.protocol_adapter() {
         validator.validate_type(&required.receiver)?;
         validator.trait_application_contract(&required.interface)?;
         validator.types(&required.arguments)?;
     }
     dynamic::validate(
         slots
-            .params
+            .params()
             .values()
-            .chain(slots.result.iter())
-            .chain(slots.locals.values())
-            .chain(slots.registers.values()),
+            .chain(slots.result())
+            .chain(slots.value_types()),
         &|id| validator.trait_declaration(id),
         definitions,
         cancel,
     )?;
     validator.types(
         slots
-            .params
+            .params()
             .values()
-            .chain(slots.result.iter())
-            .chain(slots.locals.values())
-            .chain(slots.registers.values()),
+            .chain(slots.result())
+            .chain(slots.value_types()),
     )
 }
 #[cfg(test)]

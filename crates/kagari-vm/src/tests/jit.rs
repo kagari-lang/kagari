@@ -5,7 +5,7 @@ use crate::{
 };
 use kagari_abi::{native::BackendId, representation::ValueType};
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register},
+    instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Slot},
     module::{
         BytecodeModule, InstructionSourceSpan, LineTableEntry, SafeDebugPoint, SafeDebugPointKind,
     },
@@ -96,10 +96,10 @@ fn jit_unsupported_preparation_falls_back_to_interpreter_with_diagnostics() {
         "main",
         vec![
             BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
+                dst: Slot::new(0),
                 constant: ConstantId::new(0),
             },
-            BytecodeInstruction::Return(Some(Register::new(0))),
+            BytecodeInstruction::Return(Some(Slot::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],
@@ -288,10 +288,10 @@ fn jit_native_execution_reports_installed_artifact() {
         "main",
         vec![
             BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
+                dst: Slot::new(0),
                 constant: ConstantId::new(0),
             },
-            BytecodeInstruction::Return(Some(Register::new(0))),
+            BytecodeInstruction::Return(Some(Slot::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],
@@ -330,10 +330,10 @@ fn jit_policy_disablement_falls_back_before_native_entry() {
         "main",
         vec![
             BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
+                dst: Slot::new(0),
                 constant: ConstantId::new(0),
             },
-            BytecodeInstruction::Return(Some(Register::new(0))),
+            BytecodeInstruction::Return(Some(Slot::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],
@@ -456,10 +456,10 @@ fn debug_test_module(value: i32) -> DefinitionMetadata<BytecodeModule> {
         "main",
         vec![
             BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
+                dst: Slot::new(0),
                 constant: ConstantId::new(0),
             },
-            BytecodeInstruction::Return(Some(Register::new(0))),
+            BytecodeInstruction::Return(Some(Slot::new(0))),
         ],
         ValueType::I32,
         vec![ValueType::I32],

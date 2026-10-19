@@ -67,8 +67,7 @@ impl<'a> DebugIndex<'a> {
             && debug.local_live_ranges.is_empty()
             && debug.captured_bindings.is_empty()
             && frame.params.is_empty()
-            && frame.locals.is_empty()
-            && frame.registers.is_empty()
+            && frame.slots.is_empty()
         {
             return writeln!(writer, "  debug: absent");
         }
@@ -92,11 +91,7 @@ impl<'a> DebugIndex<'a> {
             )?;
         }
         // These copies can disagree with execution metadata, even after verification.
-        for (kind, types) in [
-            ("params", &frame.params),
-            ("locals", &frame.locals),
-            ("registers", &frame.registers),
-        ] {
+        for (kind, types) in [("params", &frame.params), ("slots", &frame.slots)] {
             if !types.is_empty() {
                 write!(
                     writer,

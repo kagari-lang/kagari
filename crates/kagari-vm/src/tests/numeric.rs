@@ -7,7 +7,88 @@ use crate::{
     vm::Vm,
 };
 
-use kagari_runtime::{error::RuntimeErrorKind, value::Value};
+use kagari_runtime::{
+    Runtime,
+    error::{RuntimeError, RuntimeErrorKind},
+    frame::ExecutionFrame,
+    session::{ExecutionEvent, ExecutionObserver},
+    value::Value,
+};
+use std::sync::{Arc, Mutex};
+
+#[test]
+fn local_reads_are_snapshots_across_later_writes_and_captured_calls() {
+    check(
+        "pub fn later_write() -> bool { var x = 7; x = x + { x = 40; 2 }; x == 9 }
+         pub fn captured_call() -> bool { var x = 7; val f = || { x = 40; 2 }; x = x + f(); x == 9 }",
+        &["later_write".into(), "captured_call".into()],
+        false,
+    );
+}
+
+#[derive(Debug)]
+struct CommitObserver(Arc<Mutex<Vec<(Value, Value)>>>);
+
+impl ExecutionObserver for CommitObserver {
+    fn observe(
+        &mut self,
+        runtime: &Runtime,
+        event: ExecutionEvent,
+        frames: &[ExecutionFrame],
+    ) -> Result<(), RuntimeError> {
+        if event != ExecutionEvent::Trap {
+            return Ok(());
+        }
+        let frame = frames.last().unwrap();
+        let function = frame.function().unwrap();
+        let read = |name| {
+            let binding = function
+                .metadata
+                .debug
+                .local_live_ranges
+                .iter()
+                .find(|range| {
+                    range.name == name
+                        && range.start <= frame.instruction_offset()
+                        && frame.instruction_offset() < range.end
+                })
+                .unwrap();
+            frame.read_slot(runtime, binding.slot).unwrap()
+        };
+        self.0.lock().unwrap().push((read("s"), read("i")));
+        Ok(())
+    }
+}
+
+#[test]
+fn direct_local_overflow_keeps_the_old_destination_and_prior_commit() {
+    let direct = compile_test_bytecode(
+        "pub fn main() { var s = 0i8; var i = 127i8; s = s + 1i8; i = i + 1i8; }",
+    );
+    let decoded = round_trip_bytecode(direct.clone());
+    for program in [direct, decoded] {
+        let states = Arc::new(Mutex::new(Vec::new()));
+        let mut runtime = standard_runtime(Default::default());
+        runtime
+            .set_execution_observer(CommitObserver(states.clone()))
+            .unwrap();
+        let loaded = runtime.load_program("local-commit", program).unwrap();
+        let vm = Vm::new(runtime);
+        let session = vm
+            .runtime()
+            .begin_execution(&loaded, Default::default())
+            .unwrap();
+        assert!(vm.runtime().attach_execution_observer().unwrap());
+        let error = vm.execute(&loaded, "main").unwrap_err();
+        assert!(
+            matches!(error, VmError::RuntimeError(ref error) if error.kind() == RuntimeErrorKind::ScriptTrap)
+        );
+        assert_eq!(*states.lock().unwrap(), [(Value::I32(1), Value::I32(127))]);
+        drop(session);
+        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+        assert_eq!(vm.runtime().gc().active_roots(), 0);
+    }
+}
 
 const INTEGERS: [(&str, u32, bool); 8] = [
     ("i8", 8, true),

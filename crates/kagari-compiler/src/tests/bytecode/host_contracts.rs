@@ -73,7 +73,7 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
     let valid =
         KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
     for callee in [
-        CallTarget::Register(Register::new(0)),
+        CallTarget::Slot(Slot::new(0)),
         CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
     ] {
         let mut forged = valid.clone();

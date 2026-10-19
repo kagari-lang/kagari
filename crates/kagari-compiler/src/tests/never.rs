@@ -1,6 +1,6 @@
 use crate::{source::lower::lower_to_mir, tests::common};
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, Register},
+    instruction::{BytecodeInstruction, Slot},
     program::verify_program,
     verifier::BytecodeVerificationError,
 };
@@ -50,7 +50,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
         .unwrap();
     let register = function
         .metadata
-        .registers
+        .slots
         .iter()
         .position(|t| *t == ValueType::Never)
         .unwrap();
@@ -59,7 +59,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
         .iter_mut()
         .find(|i| matches!(i, BytecodeInstruction::Unreachable))
         .unwrap();
-    *point = BytecodeInstruction::Return(Some(Register::new(register)));
+    *point = BytecodeInstruction::Return(Some(Slot::new(register)));
     assert!(matches!(
         verify_program(&bytecode, &context.snapshot()).unwrap_err(),
         BytecodeVerificationError::InvalidOperation {

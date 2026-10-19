@@ -1,5 +1,5 @@
 use kagari_bytecode::{
-    instruction::LocalSlot,
+    instruction::Slot,
     module::{BytecodeFunction, CallableTarget, SafeDebugPoint},
 };
 use kagari_common::span::Span;
@@ -134,7 +134,7 @@ pub struct DebugFrame {
 #[derive(Debug, Clone, PartialEq)]
 pub struct DebugBinding {
     pub name: String,
-    pub local: LocalSlot,
+    pub local: Slot,
     pub value: Value,
     pub is_parameter: bool,
     roots: RootSet,
@@ -469,7 +469,7 @@ impl DebugSession {
             .flat_map(|function| &function.metadata.debug.local_live_ranges)
             .filter(|range| range.start <= instruction_offset && instruction_offset < range.end)
             .map(|range| {
-                let value = frame.read_local(runtime, range.local)?;
+                let value = frame.read_slot(runtime, range.slot)?;
                 runtime
                     .validate_debug_value(&value)
                     .map_err(VmError::RuntimeError)?;
@@ -478,7 +478,7 @@ impl DebugSession {
                         VmError::UnsupportedInstruction("invalid heap reference in debug snapshot"),
                     )?,
                     name: range.name.clone(),
-                    local: range.local,
+                    local: range.slot,
                     value,
                     is_parameter: range.is_parameter,
                 })

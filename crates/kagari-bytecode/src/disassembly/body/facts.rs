@@ -1,11 +1,11 @@
 //! Authoritative entry/slot facts, kept separate from optional debug copies.
 
+use crate::module::BytecodeSemanticSlots;
 use crate::{
     disassembly::presentation::{DisplayContext, physical},
     module::BytecodeFunction,
 };
 use kagari_abi::representation::ValueType;
-use kagari_contract::slots::SemanticSlots;
 use kagari_types::ty::Ty;
 use std::{
     collections::BTreeMap,
@@ -18,46 +18,28 @@ pub(super) fn write_facts(
     function: &BytecodeFunction,
 ) -> io::Result<()> {
     let metadata = &function.metadata;
-    writeln!(
-        writer,
-        "  locals: {}, registers: {}",
-        function.local_count, function.register_count
-    )?;
+    writeln!(writer, "  slots: {}", function.slot_count)?;
     write!(writer, "  entry:")?;
-    if function.parameter_count == 0 {
+    if metadata.parameter_slots.is_empty() {
         write!(writer, " []")?;
     }
-    for index in 0..function.parameter_count {
-        write!(writer, " arg{index} -> l{index}")?;
+    for (index, slot) in metadata.parameter_slots.iter().enumerate() {
+        write!(writer, " arg{index} -> s{}", slot.index())?;
     }
     writeln!(writer)?;
     slots(
         writer,
         context,
-        "l",
-        &metadata.locals,
-        &metadata.semantic.locals,
+        "s",
+        &metadata.slots,
+        &metadata.semantic.slots,
     )?;
-    slots(
-        writer,
-        context,
-        "r",
-        &metadata.registers,
-        &metadata.semantic.registers,
-    )?;
-    write!(writer, "  roots: locals=[")?;
-    for (index, local) in metadata.roots.locals.iter().enumerate() {
+    write!(writer, "  roots: slots=[")?;
+    for (index, slot) in metadata.roots.slots.iter().enumerate() {
         if index != 0 {
             write!(writer, ", ")?;
         }
-        write!(writer, "l{}", local.index())?;
-    }
-    write!(writer, "] registers=[")?;
-    for (index, register) in metadata.roots.registers.iter().enumerate() {
-        if index != 0 {
-            write!(writer, ", ")?;
-        }
-        write!(writer, "r{}", register.index())?;
+        write!(writer, "s{}", slot.index())?;
     }
     writeln!(writer, "]")?;
     contracts(writer, context, &metadata.semantic)
@@ -85,7 +67,7 @@ fn slots(
 fn contracts(
     writer: &mut impl Write,
     context: &DisplayContext<'_>,
-    semantic: &SemanticSlots,
+    semantic: &BytecodeSemanticSlots,
 ) -> io::Result<()> {
     if let Some(generic) = &semantic.generic {
         writeln!(writer, "  generic:")?;

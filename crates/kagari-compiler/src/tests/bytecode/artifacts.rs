@@ -335,7 +335,7 @@ fn main(flag: bool) -> (i32, bool) {
                             }
                             CallTarget::ClosureRegister { register, .. } => {
                                 seen.insert("closure call");
-                                format!("target=closure_register r{},", register.index())
+                                format!("target=closure_register s{},", register.index())
                             }
                             _ => continue,
                         }

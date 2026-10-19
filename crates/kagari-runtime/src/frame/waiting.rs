@@ -14,7 +14,7 @@ use crate::{
     task::waiting::TaskWait,
     value::Value,
 };
-use kagari_bytecode::{instruction::Register, module::CallableTarget};
+use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 use kagari_types::{
     declaration::{TypeDefKind, native::NativeStorageLayout},
     ty::Ty,
@@ -23,7 +23,7 @@ use std::{slice, task::Poll};
 
 #[derive(Debug)]
 pub(crate) struct PendingWait {
-    destination: Option<Register>,
+    destination: Option<Slot>,
     pending: PendingOperation,
     output: TypeArgument,
     // Keep the awaitable's exact code/type provenance and cached result alive.
@@ -89,7 +89,7 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         value: Value,
-        destination: Register,
+        destination: Slot,
         future: &Ty,
     ) -> NativeResult<()> {
         self.validate_runtime(runtime)?;
@@ -135,7 +135,7 @@ impl ExecutionStack<'_> {
         &self,
         runtime: &Runtime,
         value: Value,
-        destination: Option<Register>,
+        destination: Option<Slot>,
         output: TypeArgument,
         role: NativeStorageLayout,
     ) -> NativeResult<()> {
@@ -274,7 +274,7 @@ impl ExecutionStack<'_> {
                 }
                 if let Some(destination) = wait.destination {
                     self.current_mut()?
-                        .write_register(runtime, destination, value)?;
+                        .write_slot(runtime, destination, value)?;
                     Ok(Poll::Ready(None))
                 } else {
                     Ok(Poll::Ready(Some(value)))

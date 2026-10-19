@@ -4,7 +4,7 @@ mod driver;
 pub(crate) mod native;
 mod value_ops;
 
-use kagari_bytecode::{instruction::Register, program::ModuleRef};
+use kagari_bytecode::{instruction::Slot, program::ModuleRef};
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::{
     RootedInterfaceMethod, Runtime,
@@ -110,7 +110,7 @@ impl<'a> Executor<'a> {
         module: ModuleRef,
         function: FunctionRef,
         args: &[Value],
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
     ) -> Result<(), VmError> {
         Ok(self
             .stack

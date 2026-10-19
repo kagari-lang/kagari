@@ -1,11 +1,11 @@
 use crate::{error::VmError, executor::Executor};
-use kagari_bytecode::instruction::Register;
+use kagari_bytecode::instruction::Slot;
 use kagari_runtime::value::{EnumTag, Value};
 use kagari_types::ty::Ty;
 
 impl Executor<'_> {
-    pub(crate) fn test_enum_variant(&self, value: Register) -> Result<Value, VmError> {
-        let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
+    pub(crate) fn test_enum_variant(&self, value: Slot) -> Result<Value, VmError> {
+        let Value::Enum(handle) = self.current_frame()?.read_slot(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
         let view = self
@@ -20,8 +20,8 @@ impl Executor<'_> {
         )))
     }
 
-    pub(crate) fn read_enum_payload(&self, value: Register, index: u32) -> Result<Value, VmError> {
-        let Value::Enum(handle) = self.current_frame()?.read_register(self.runtime, value)? else {
+    pub(crate) fn read_enum_payload(&self, value: Slot, index: u32) -> Result<Value, VmError> {
+        let Value::Enum(handle) = self.current_frame()?.read_slot(self.runtime, value)? else {
             return Err(VmError::TypeMismatch("enum pattern expects enum value"));
         };
         let view = self
@@ -39,14 +39,11 @@ impl Executor<'_> {
             .ok_or(VmError::TypeMismatch("invalid enum payload index"))
     }
 
-    pub(crate) fn make_enum(&self, fields: &[Register]) -> Result<Value, VmError> {
+    pub(crate) fn make_enum(&self, fields: &[Slot]) -> Result<Value, VmError> {
         let fields = fields
             .iter()
             .map(|register| {
-                Ok::<_, VmError>(
-                    self.current_frame()?
-                        .read_register(self.runtime, *register)?,
-                )
+                Ok::<_, VmError>(self.current_frame()?.read_slot(self.runtime, *register)?)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let layout = self.current_frame()?.enum_variant(self.runtime)?;
@@ -56,27 +53,21 @@ impl Executor<'_> {
             .map_err(VmError::RuntimeError)
     }
 
-    pub(crate) fn make_tuple(&self, elements: &[Register]) -> Result<Value, VmError> {
+    pub(crate) fn make_tuple(&self, elements: &[Slot]) -> Result<Value, VmError> {
         elements
             .iter()
             .map(|element| {
-                Ok::<_, VmError>(
-                    self.current_frame()?
-                        .read_register(self.runtime, *element)?,
-                )
+                Ok::<_, VmError>(self.current_frame()?.read_slot(self.runtime, *element)?)
             })
             .collect::<Result<Vec<_>, _>>()
             .and_then(|values| self.runtime.gc().alloc_tuple(values).map_err(VmError::from))
     }
 
-    pub(crate) fn make_array(&self, element: &Ty, elements: &[Register]) -> Result<Value, VmError> {
+    pub(crate) fn make_array(&self, element: &Ty, elements: &[Slot]) -> Result<Value, VmError> {
         let elements = elements
             .iter()
             .map(|element| {
-                Ok::<_, VmError>(
-                    self.current_frame()?
-                        .read_register(self.runtime, *element)?,
-                )
+                Ok::<_, VmError>(self.current_frame()?.read_slot(self.runtime, *element)?)
             })
             .collect::<Result<Vec<_>, _>>()?;
         if !elements
@@ -94,12 +85,10 @@ impl Executor<'_> {
         Ok(Value::Array(handle))
     }
 
-    pub(crate) fn make_struct(&self, fields: &[Register]) -> Result<Value, VmError> {
+    pub(crate) fn make_struct(&self, fields: &[Slot]) -> Result<Value, VmError> {
         let fields = fields
             .iter()
-            .map(|field| {
-                Ok::<_, VmError>(self.current_frame()?.read_register(self.runtime, *field)?)
-            })
+            .map(|field| Ok::<_, VmError>(self.current_frame()?.read_slot(self.runtime, *field)?))
             .collect::<Result<Vec<_>, VmError>>()?;
         let layout = self.current_frame()?.struct_layout(self.runtime)?;
         let handle = self

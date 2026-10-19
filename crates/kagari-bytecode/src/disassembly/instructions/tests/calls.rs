@@ -94,20 +94,20 @@ fn call_targets_preserve_owner_kind_arguments_results_and_physical_signature() {
             CallTarget::Native(NativeImportId::new(8)),
             "native @1:native#8",
         ),
-        (CallTarget::Register(r(3)), "register r3"),
+        (CallTarget::Slot(r(3)), "register s3"),
         (
             CallTarget::ClosureRegister {
                 register: r(3),
                 params: vec![ValueType::I32, ValueType::HostHandle],
                 return_type: ValueType::HeapObject,
             },
-            "closure_register r3, physical_params=[i32, host_handle], physical_result=heap_object",
+            "closure_register s3, physical_params=[i32, host_handle], physical_result=heap_object",
         ),
     ];
     for (target, expected) in cases {
         assert_eq!(
             fixture.render(&call(target)),
-            format!("call dst=r0, target={expected}, args=[r2, r1]")
+            format!("call dst=s0, target={expected}, args=[s2, s1]")
         );
     }
     assert_eq!(
@@ -135,7 +135,7 @@ fn call_targets_preserve_owner_kind_arguments_results_and_physical_signature() {
         };
         assert_eq!(
             fixture.render(&call(target)),
-            format!("call dst=r0, target={expected} contract={SHARED}, args=[r2, r1]")
+            format!("call dst=s0, target={expected} contract={SHARED}, args=[s2, s1]")
         );
     }
 }
@@ -155,7 +155,7 @@ fn runtime_primitives_helpers_and_artifact_names_are_not_debug_dumps() {
     ] {
         assert_eq!(
             fixture.render(&call(CallTarget::RuntimePrimitive(primitive))),
-            format!("call dst=r0, target=runtime_primitive.{name}, args=[r2, r1]")
+            format!("call dst=s0, target=runtime_primitive.{name}, args=[s2, s1]")
         );
     }
     for (helper, expected) in [
@@ -173,7 +173,7 @@ fn runtime_primitives_helpers_and_artifact_names_are_not_debug_dumps() {
     ] {
         assert_eq!(
             fixture.render(&call(CallTarget::RuntimeHelper(helper))),
-            format!("call dst=r0, target=runtime_helper.{expected}, args=[r2, r1]")
+            format!("call dst=s0, target=runtime_helper.{expected}, args=[s2, s1]")
         );
     }
     fixture.program.modules[0].functions[0].name = "bad\nname\u{202e}\u{1b}".into();
@@ -212,7 +212,7 @@ fn interface_dispatch_retains_normalizations_receiver_and_forwarded_operations()
         assert_eq!(
             fixture.render(&instruction),
             format!(
-                "call dst=r0, target=interface_method module=@1, contract={{interface=trait fixture::app::Interface<i32>, declaration=@1:trait_contract#0, method_slot=0, member=fixture::app::Interface::method, arguments=[f32], receiver={expected}, normalizations=[{{source=i32, result=u32}}, {{source=i64, result=i32}}], operations=[forward{REQUIREMENT}]}}, args=[r2, r1]"
+                "call dst=s0, target=interface_method module=@1, contract={{interface=trait fixture::app::Interface<i32>, declaration=@1:trait_contract#0, method_slot=0, member=fixture::app::Interface::method, arguments=[f32], receiver={expected}, normalizations=[{{source=i32, result=u32}}, {{source=i64, result=i32}}], operations=[forward{REQUIREMENT}]}}, args=[s2, s1]"
             )
         );
         assert_streaming_failures(&fixture, &instruction);
@@ -279,7 +279,7 @@ fn shared_witness_tree_prints_every_nested_contract_fact_and_propagates_io_error
     assert_eq!(
         fixture.render(&instruction),
         format!(
-            "call dst=r0, target=shared.script @1:0 {INSTANCE} contract={shared}, args=[r2, r1]"
+            "call dst=s0, target=shared.script @1:0 {INSTANCE} contract={shared}, args=[s2, s1]"
         )
     );
     assert_streaming_failures(&fixture, &instruction);
@@ -326,7 +326,7 @@ fn selected_origins_and_executable_targets_are_explicit() {
         assert_eq!(
             fixture.render(&instruction),
             format!(
-                "call dst=r0, target=shared.script @1:0 {INSTANCE} contract={{receiver_access=none, instance={INSTANCE}, implementation=script, arguments=[u8], signature={SIGNATURE}, operations=[{selected}]}}, args=[r2, r1]"
+                "call dst=s0, target=shared.script @1:0 {INSTANCE} contract={{receiver_access=none, instance={INSTANCE}, implementation=script, arguments=[u8], signature={SIGNATURE}, operations=[{selected}]}}, args=[s2, s1]"
             )
         );
     }

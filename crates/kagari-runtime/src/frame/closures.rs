@@ -13,7 +13,7 @@ use crate::{
     },
     value::Value,
 };
-use kagari_bytecode::{instruction::Register, module::CallableTarget};
+use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 use kagari_contract::representation::semantic_representation;
 use kagari_types::ty::Ty;
 
@@ -23,7 +23,7 @@ impl ExecutionStack<'_> {
         runtime: &Runtime,
         value: &Value,
         args: &[Value],
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
     ) -> Result<(), RuntimeError> {
         self.validate_runtime(runtime)?;
         let closure = runtime.resolve_closure(value)?;
@@ -42,7 +42,7 @@ impl ExecutionStack<'_> {
         runtime: &Runtime,
         closure: &ClosureValueSnapshot,
         explicit: FrameArguments<'_>,
-        return_dst: Option<Register>,
+        return_dst: Option<Slot>,
         prepared: Option<&PreparedCall>,
     ) -> Result<ExecutionAction, RuntimeError> {
         runtime.validate_loaded_module(&closure.implementation)?;

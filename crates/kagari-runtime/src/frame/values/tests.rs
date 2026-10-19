@@ -12,7 +12,7 @@ use crate::{
     },
 };
 use kagari_bytecode::{
-    instruction::{NativeImportId, Register},
+    instruction::{NativeImportId, Slot},
     module::{BytecodeModule, CallableTarget},
     program::{BytecodeProgram, ModuleRef},
 };
@@ -53,7 +53,7 @@ fn frame_windows_reject_foreign_and_reused_identities() {
     let first = values
         .allocate(
             2,
-            1,
+            &(1..(1) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
             FrameMetadata {
                 program: module.clone(),
@@ -66,7 +66,7 @@ fn frame_windows_reject_foreign_and_reused_identities() {
     let other = foreign
         .allocate(
             2,
-            1,
+            &(1..(1) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
             FrameMetadata {
                 program: module.clone(),
@@ -82,7 +82,7 @@ fn frame_windows_reject_foreign_and_reused_identities() {
     let second = values
         .allocate(
             2,
-            1,
+            &(1..(1) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
             FrameMetadata {
                 program: module,
@@ -109,7 +109,8 @@ fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
             values
                 .allocate(
                     width,
-                    0,
+                    &(0..FrameArguments::plain(&arguments[..width.min(1)]).len())
+                        .collect::<Vec<_>>(),
                     &FrameArguments::plain(&arguments[..width.min(1)]),
                     FrameMetadata {
                         program: module.clone(),
@@ -129,14 +130,14 @@ fn trimming_out_of_order_holes_preserves_live_and_reused_identities() {
             values
                 .allocate(
                     0,
-                    0,
+                    &(0..FrameArguments::plain(&[Value::I32(99)]).len()).collect::<Vec<_>>(),
                     &FrameArguments::plain(&[Value::I32(99)]),
                     FrameMetadata {
                         program: module.clone(),
                         environment: None,
                         invocation: None
                     },
-                    None,
+                    None
                 )
                 .is_err()
         );
@@ -179,7 +180,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
     let first = values
         .allocate(
             1,
-            0,
+            &(0..FrameArguments::plain(&[Value::I32(1)]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[Value::I32(1)]),
             FrameMetadata {
                 program: module.clone(),
@@ -192,7 +193,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
     let second = values
         .allocate(
             1,
-            0,
+            &(0..FrameArguments::plain(&[Value::I32(2)]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[Value::I32(2)]),
             FrameMetadata {
                 program: module.clone(),
@@ -229,7 +230,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
     let mut previous = values
         .allocate(
             4,
-            0,
+            &(0..FrameArguments::plain(&args).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&args),
             FrameMetadata {
                 program: module.clone(),
@@ -243,7 +244,7 @@ fn retiring_an_outer_window_does_not_unroot_a_suspended_inner_window() {
         let next = values
             .allocate(
                 4,
-                0,
+                &(0..FrameArguments::plain(&args).len()).collect::<Vec<_>>(),
                 &FrameArguments::plain(&args),
                 FrameMetadata {
                     program: module.clone(),
@@ -273,7 +274,8 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
     let caller = values
         .allocate(
             2,
-            0,
+            &(0..FrameArguments::plain(&[Value::I64(11), Value::I64(23)]).len())
+                .collect::<Vec<_>>(),
             &FrameArguments::plain(&[Value::I64(11), Value::I64(23)]),
             FrameMetadata {
                 program: module.clone(),
@@ -283,7 +285,7 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
             None,
         )
         .unwrap();
-    let registers = [Register::new(1), Register::new(0), Register::new(1)];
+    let registers = [Slot::new(1), Slot::new(0), Slot::new(1)];
     let transfers = registers
         .iter()
         .map(|register| {
@@ -298,7 +300,7 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
     let callee = values
         .allocate(
             8192,
-            4096,
+            &(4096..(4096) + arguments.len()).collect::<Vec<_>>(),
             &arguments,
             FrameMetadata {
                 program: module.clone(),
@@ -322,7 +324,7 @@ fn register_arguments_survive_growth_reordering_and_repeated_sources() {
         values
             .allocate(
                 3,
-                0,
+                &(0..arguments.len()).collect::<Vec<_>>(),
                 &arguments,
                 FrameMetadata {
                     program: module,
@@ -360,7 +362,8 @@ fn scalar_layout() -> Arc<FrameLayout> {
             },
         ]
         .into(),
-        register_count: 4,
+
+        reused_slots: Box::default(),
         count: 4,
         scalar_count: 3,
         managed_count: 1,
@@ -381,7 +384,7 @@ fn scalar_windows_preserve_bits_initialization_and_managed_roots() {
     let slots = values
         .allocate(
             4,
-            0,
+            &(0..FrameArguments::plain(&[]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[]),
             FrameMetadata {
                 program: module,
@@ -431,7 +434,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
         values
             .allocate(
                 4,
-                2,
+                &(2..(2) + FrameArguments::plain(&[Value::I32(128)]).len()).collect::<Vec<_>>(),
                 &FrameArguments::plain(&[Value::I32(128)]),
                 FrameMetadata {
                     program: module.clone(),
@@ -447,7 +450,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     let slots = values
         .allocate(
             4,
-            0,
+            &(0..FrameArguments::plain(&[Value::U64(u64::MAX)]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[Value::U64(u64::MAX)]),
             FrameMetadata {
                 program: module.clone(),
@@ -468,7 +471,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
         values
             .allocate(
                 4,
-                0,
+                &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
                 &FrameArguments::frame(slots, &transfers),
                 FrameMetadata {
                     program: module.clone(),
@@ -489,7 +492,7 @@ fn invalid_scalar_admission_never_publishes_a_partial_frame() {
     let accepted = values
         .allocate(
             4,
-            0,
+            &(0..FrameArguments::frame(slots, &transfers).len()).collect::<Vec<_>>(),
             &FrameArguments::frame(slots, &transfers),
             FrameMetadata {
                 program: module,
@@ -570,7 +573,7 @@ fn native_application_eviction_keeps_active_window_edges_without_host_roots() {
         .borrow_mut()
         .allocate(
             0,
-            0,
+            &(0..FrameArguments::plain(&[]).len()).collect::<Vec<_>>(),
             &FrameArguments::plain(&[]),
             FrameMetadata {
                 program: loaded.clone(),

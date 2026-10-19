@@ -18,7 +18,7 @@ fn unary_binary_and_numeric_operations_remain_distinct_and_typed() {
                 op,
                 operand: r(1)
             }),
-            format!("unary.{name} r0, r1")
+            format!("unary.{name} s0, s1")
         );
     }
     for (op, name) in [
@@ -43,7 +43,7 @@ fn unary_binary_and_numeric_operations_remain_distinct_and_typed() {
                 lhs: r(1),
                 rhs: r(2)
             }),
-            format!("binary.{name} dst=r0, lhs=r1, rhs=r2")
+            format!("binary.{name} dst=s0, lhs=s1, rhs=s2")
         );
     }
     for (op, name) in [
@@ -70,7 +70,7 @@ fn unary_binary_and_numeric_operations_remain_distinct_and_typed() {
                 lhs: r(1),
                 rhs: Some(r(2))
             }),
-            format!("numeric.{name}(input=i16, rhs=u8) dst=r0, lhs=r1, rhs=r2")
+            format!("numeric.{name}(input=i16, rhs=u8) dst=s0, lhs=s1, rhs=s2")
         );
         assert_eq!(
             fixture.render(&BytecodeInstruction::Binary {
@@ -79,7 +79,7 @@ fn unary_binary_and_numeric_operations_remain_distinct_and_typed() {
                 lhs: r(1),
                 rhs: r(2)
             }),
-            format!("binary.numeric.{name}(input=i16, rhs=u8) dst=r0, lhs=r1, rhs=r2")
+            format!("binary.numeric.{name}(input=i16, rhs=u8) dst=s0, lhs=s1, rhs=s2")
         );
     }
     let operation = NumericOperation {
@@ -94,7 +94,7 @@ fn unary_binary_and_numeric_operations_remain_distinct_and_typed() {
             lhs: r(1),
             rhs: None
         }),
-        "numeric.bit_not(input=u64, rhs=none) dst=r0, lhs=r1, rhs=none"
+        "numeric.bit_not(input=u64, rhs=none) dst=s0, lhs=s1, rhs=none"
     );
     assert_eq!(
         fixture.render(&BytecodeInstruction::Convert {
@@ -105,7 +105,7 @@ fn unary_binary_and_numeric_operations_remain_distinct_and_typed() {
                 target: BuiltinType::I8
             }
         }),
-        "convert r0, src=r1, source=f64, target=i8"
+        "convert s0, src=s1, source=f64, target=i8"
     );
 }
 
@@ -135,7 +135,7 @@ fn every_iterator_mode_and_optional_input_is_explicit() {
                 ty: t(),
                 op
             }),
-            format!("iter.{name} r0, value=r1, type=i32")
+            format!("iter.{name} s0, value=s1, type=i32")
         );
     }
     assert_eq!(
@@ -145,6 +145,6 @@ fn every_iterator_mode_and_optional_input_is_explicit() {
             ty: t(),
             op: IterOp::New
         }),
-        "iter.new r0, value=none, type=i32"
+        "iter.new s0, value=none, type=i32"
     );
 }

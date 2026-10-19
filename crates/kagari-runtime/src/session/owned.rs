@@ -175,7 +175,7 @@ impl Runtime {
                     || function
                         .metadata
                         .semantic
-                        .locals
+                        .params
                         .get(&index)
                         .is_none_or(|ty| !self.matches_type_in(value, ty, module, None))
             })

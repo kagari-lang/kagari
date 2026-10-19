@@ -1,12 +1,12 @@
 use crate::{
-    instruction::{BytecodeInstruction, CallTarget, Register, RuntimeHelper, UnaryOp},
+    instruction::{BytecodeInstruction, CallTarget, RuntimeHelper, Slot, UnaryOp},
     module::{BytecodeFunction, BytecodeModule},
     program::BytecodeProgram,
     trait_bounds::shared,
     verifier::{
         BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
-        flow::inline_host, function_ref_exists, ir_binary_op, local_ty, module_slot_ty,
-        path_record, register_ty, verify_call_dst, verify_dynamic_path_args, verify_jump,
+        flow::inline_host, function_ref_exists, ir_binary_op, module_slot_ty, path_record,
+        register_ty, verify_call_dst, verify_dynamic_path_args, verify_jump,
         verify_standard_intrinsic_call,
     },
 };
@@ -93,7 +93,7 @@ pub(super) fn verify_instruction(
                 .is_none_or(|ty| ty.kind != TypeDefKind::NativeStorage(NativeStorageLayout::Future))
                 || nominal.arguments.len() != 1
                 || !nominal.associated_types.is_empty()
-                || function.metadata.semantic.registers.get(&dst.index()) != Some(future)
+                || function.metadata.semantic.slots.get(&dst.index()) != Some(future)
                 || !callee.metadata.effects.may_suspend
                 || callee.metadata.semantic.result.as_ref() != nominal.arguments.first()
                 || arguments.len() != callee.metadata.params.len()
@@ -115,7 +115,7 @@ pub(super) fn verify_instruction(
                         .get(&index)
                         .is_some_and(inline_host)
                     || !callee.metadata.semantic.params.contains_key(&index)
-                    || function.metadata.semantic.registers.get(&argument.index())
+                    || function.metadata.semantic.slots.get(&argument.index())
                         != callee.metadata.semantic.params.get(&index)
                 {
                     return Err(invalid());
@@ -162,9 +162,8 @@ pub(super) fn verify_instruction(
             }) || nominal.arguments.len() != 1
                 || !nominal.associated_types.is_empty()
                 || !function.metadata.effects.may_suspend
-                || function.metadata.semantic.registers.get(&value.index()) != Some(future)
-                || function.metadata.semantic.registers.get(&dst.index())
-                    != nominal.arguments.first()
+                || function.metadata.semantic.slots.get(&value.index()) != Some(future)
+                || function.metadata.semantic.slots.get(&dst.index()) != nominal.arguments.first()
             {
                 return Err(invalid());
             }
@@ -184,17 +183,9 @@ pub(super) fn verify_instruction(
             )?;
             expect_register_ty(function, *dst, constant_type(constant), "load const dst")?;
         }
-        BytecodeInstruction::LoadLocal { dst, local } => {
-            let local_ty = local_ty(function, *local)?;
-            expect_register_ty(function, *dst, local_ty, "load local dst")?;
-        }
         BytecodeInstruction::LoadModule { dst, slot } => {
             let slot_ty = module_slot_ty(module, function, *slot)?;
             expect_register_ty(function, *dst, slot_ty, "load module dst")?;
-        }
-        BytecodeInstruction::StoreLocal { local, src } => {
-            let local_ty = local_ty(function, *local)?;
-            expect_register_ty(function, *src, local_ty, "store local src")?;
         }
         BytecodeInstruction::StoreModule { slot, src } => {
             let slot_ty = module_slot_ty(module, function, *slot)?;
@@ -234,7 +225,7 @@ pub(super) fn verify_instruction(
                 !function
                     .metadata
                     .semantic
-                    .registers
+                    .slots
                     .get(&register.index())
                     .is_some_and(operations::object_identity_type)
             }) {
@@ -852,9 +843,9 @@ pub(super) fn verify_instruction(
 pub(super) fn verify_call(
     module: &BytecodeModule,
     function: &BytecodeFunction,
-    dst: Option<Register>,
+    dst: Option<Slot>,
     callee: &CallTarget,
-    args: &[Register],
+    args: &[Slot],
     program: Option<&BytecodeProgram>,
     definitions: &DefinitionTable,
 ) -> Result<(), BytecodeVerificationError> {
@@ -1045,7 +1036,7 @@ pub(super) fn verify_call(
                 .map_err(|error| contract_error(function, error))?;
         }
 
-        CallTarget::Register(_) => {
+        CallTarget::Slot(_) => {
             return Err(BytecodeVerificationError::InvalidOperation {
                 function: function.id,
                 reason: "dynamic register calls have no executable contract",

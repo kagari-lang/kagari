@@ -99,15 +99,15 @@ impl ExecutionStack<'_> {
                     None => ReturnAction::Continue(ExecutionAction::Await),
                 });
         }
-        let caller = frames.last().expect("retained caller");
+        let caller = frames.last_mut().expect("retained caller");
         if matches!(
             destination,
-            ReturnDestination::Register(None) | ReturnDestination::Prepared(None)
+            ReturnDestination::Slot(None) | ReturnDestination::Prepared(None)
         ) {
             return caller.execution_action(runtime).map(ReturnAction::Continue);
         }
-        if let ReturnDestination::Register(Some(register)) = destination
-            && register.index() >= caller.register_count
+        if let ReturnDestination::Slot(Some(register)) = destination
+            && register.index() >= caller.slot_count
         {
             return Err(runtime.resources().quarantine("invalid frame register"));
         }
@@ -118,7 +118,7 @@ impl ExecutionStack<'_> {
             .expect("retirement admitted execution storage");
         let published = if let Some((representation, bits)) = packet.payload() {
             match destination {
-                ReturnDestination::Register(Some(register)) => {
+                ReturnDestination::Slot(Some(register)) => {
                     values.set_scalar(caller.slots, register.index(), representation, bits)
                 }
                 ReturnDestination::Prepared(Some(location)) => {
@@ -134,7 +134,7 @@ impl ExecutionStack<'_> {
                 return Err(runtime.resources().quarantine("invalid return value"));
             }
             match destination {
-                ReturnDestination::Register(Some(register)) => {
+                ReturnDestination::Slot(Some(register)) => {
                     values.set(caller.slots, register.index(), value)
                 }
                 ReturnDestination::Prepared(Some(location)) => {
@@ -144,6 +144,7 @@ impl ExecutionStack<'_> {
             }
         };
         published.ok_or_else(|| runtime.resources().quarantine("invalid return destination"))?;
+        caller.completed = caller.executing;
         caller.execution_action(runtime).map(ReturnAction::Continue)
     }
 }

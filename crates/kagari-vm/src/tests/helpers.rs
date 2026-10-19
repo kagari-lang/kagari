@@ -9,8 +9,8 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
-        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, Register,
-        RuntimeHelper, StructId,
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, PathId, RuntimeHelper, Slot,
+        StructId,
     },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, PathRecord},
 };
@@ -194,15 +194,19 @@ fn path_module(
         native_program::free_function_program(&provider.to_declaration()).into_parts();
     let module = program.modules.remove(0);
     let metadata = FunctionMetadata {
+        slots: [
+            vec![
+                ValueType::HostHandle,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::I32,
+                ValueType::HostHandle,
+            ],
+            vec![].clone(),
+        ]
+        .concat(),
         return_type,
-        registers: vec![
-            ValueType::HostHandle,
-            ValueType::I32,
-            ValueType::I32,
-            ValueType::I32,
-            ValueType::I32,
-            ValueType::HostHandle,
-        ],
         ..Default::default()
     };
     let root = module.external_types[0].declaration;
@@ -241,15 +245,29 @@ fn path_module(
             return_type: metadata.return_type,
             effects: metadata.effects,
         }],
-        functions: vec![BytecodeFunction {
-            id: FunctionRef::new(0),
-            identity: None,
-            name: name.to_owned(),
-            parameter_count: 0,
-            register_count: metadata.registers.len() as u16,
-            local_count: 0,
-            metadata,
-            instructions,
+        functions: vec![{
+            let fixture_instructions = instructions;
+            let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = metadata;
+
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                id: FunctionRef::new(0),
+                identity: None,
+                name: name.to_owned(),
+                parameter_count: 0,
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+            }
         }],
         ..module
     };

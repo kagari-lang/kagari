@@ -12,7 +12,7 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, Register},
+    instruction::{BytecodeInstruction, Slot},
     module::{
         BytecodeFunction, BytecodeModule, CallableTarget, FunctionMetadata, FunctionRecord,
         RootSlotLayout,
@@ -22,6 +22,9 @@ use kagari_bytecode::{
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::ids::FunctionRef;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
+
+mod origins;
+mod slots;
 
 #[derive(Debug)]
 struct ReentrantObserver;
@@ -47,17 +50,34 @@ fn loaded_with_instructions(
     runtime: &mut Runtime,
     instructions: Vec<BytecodeInstruction>,
 ) -> LoadedModule {
-    let function = BytecodeFunction {
-        id: FunctionRef::new(0),
-        name: "main".into(),
-        register_count: 1,
-        metadata: FunctionMetadata {
-            registers: vec![ValueType::HeapObject],
-            roots: RootSlotLayout::from_types(&[], &[ValueType::HeapObject]),
+    let function = {
+        let fixture_instructions = instructions;
+        let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata = FunctionMetadata {
+            roots: RootSlotLayout::from_types(
+                &[[ValueType::HeapObject].to_vec(), [].to_vec()].concat(),
+            ),
+            slots: [vec![ValueType::HeapObject], vec![].clone()].concat(),
             ..Default::default()
-        },
-        instructions,
-        ..Default::default()
+        };
+
+        if fixture_metadata.origins.is_empty() {
+            fixture_metadata.origins = (0..fixture_instructions.len())
+                .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                    instruction,
+                })
+                .collect();
+        }
+        BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "main".into(),
+            slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+            metadata: fixture_metadata,
+            instructions: fixture_instructions,
+            ..Default::default()
+        }
     };
     loaded_function(runtime, function)
 }
@@ -156,23 +176,40 @@ fn call_argument_admission_preserves_failure_precedence_and_atomicity() {
             ..Default::default()
         });
         let params = vec![ValueType::HeapObject; 2];
-        let baseline = loaded_function(
-            &mut runtime,
+        let baseline = loaded_function(&mut runtime, {
+            let parameter_base: usize = 0;
+            let fixture_instructions = vec![BytecodeInstruction::Return(None)];
+            let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata =
+                FunctionMetadata {
+                    roots: RootSlotLayout::from_types(&[[].to_vec(), params.to_vec()].concat()),
+                    slots: [vec![], params.clone()].concat(),
+                    params,
+                    ..Default::default()
+                };
+            if fixture_metadata.parameter_slots.is_empty() {
+                fixture_metadata.parameter_slots =
+                    (0..2).map(|i| Slot::new(parameter_base + i)).collect();
+            }
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
             BytecodeFunction {
                 id: FunctionRef::new(0),
                 name: "main".into(),
                 parameter_count: 2,
-                local_count: 2,
-                metadata: FunctionMetadata {
-                    roots: RootSlotLayout::from_types(&params, &[]),
-                    locals: params.clone(),
-                    params,
-                    ..Default::default()
-                },
-                instructions: vec![BytecodeInstruction::Return(None)],
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
                 ..Default::default()
-            },
-        );
+            }
+        });
         let candidate = candidate_phase.then(|| {
             let (definitions, module) = baseline
                 .to_unverified(&Default::default())
@@ -307,7 +344,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     outer
         .current_mut()
         .unwrap()
-        .write_register(&runtime, Register::new(0), first)
+        .write_slot(&runtime, Slot::new(0), first)
         .unwrap();
     let nested = runtime.enter_execution_stack(&module).unwrap();
     nested
@@ -321,7 +358,7 @@ fn nested_scopes_share_one_stack_and_unwind_only_their_own_roots() {
     nested
         .current_mut()
         .unwrap()
-        .write_register(&runtime, Register::new(0), second)
+        .write_slot(&runtime, Slot::new(0), second)
         .unwrap();
     assert_eq!(outer.frames().unwrap().len(), 2);
     assert_eq!(nested.frames().unwrap()[0].loaded().key(), module.key());
@@ -376,7 +413,7 @@ fn invalid_frame_access_quarantines_but_scope_cleanup_still_releases_every_root(
         stack
             .current()
             .unwrap()
-            .read_register(&runtime, Register::new(9))
+            .read_slot(&runtime, Slot::new(9))
             .unwrap_err()
             .kind(),
         RuntimeErrorKind::EngineFault
@@ -637,17 +674,39 @@ fn native_polling_preserves_cancellation_offsets_and_cleanup() {
         },
         ..Default::default()
     });
-    let module = loaded_with_instructions(
+    let instructions = vec![
+        BytecodeInstruction::Jump {
+            target: kagari_bytecode::instruction::JumpTarget::new(1),
+        },
+        BytecodeInstruction::Jump {
+            target: kagari_bytecode::instruction::JumpTarget::new(1),
+        },
+        BytecodeInstruction::Return(None),
+    ];
+    let origins = [0, 1, 1, 2]
+        .into_iter()
+        .enumerate()
+        .map(
+            |(origin, instruction)| kagari_bytecode::module::InstructionOrigin {
+                instruction,
+                span: kagari_common::span::Span::new(origin * 10, origin * 10 + 2),
+                line: Some(origin as u32 + 1),
+                column: Some(1),
+            },
+        )
+        .collect();
+    let module = loaded_function(
         &mut runtime,
-        vec![
-            BytecodeInstruction::Jump {
-                target: kagari_bytecode::instruction::JumpTarget::new(1),
+        BytecodeFunction {
+            name: "main".into(),
+            metadata: FunctionMetadata {
+                origins,
+                instruction_origins: vec![2],
+                ..Default::default()
             },
-            BytecodeInstruction::Jump {
-                target: kagari_bytecode::instruction::JumpTarget::new(1),
-            },
-            BytecodeInstruction::Return(None),
-        ],
+            instructions,
+            ..Default::default()
+        },
     );
     let token = kagari_common::cancellation::CancellationToken::default();
     let mut options = runtime.execution_options();
@@ -657,21 +716,27 @@ fn native_polling_preserves_cancellation_offsets_and_cleanup() {
     stack
         .push(&runtime, module.slot(), FunctionRef::new(0), &[], None)
         .unwrap();
-    for offset in 0..2 {
+    for origin in 0..3 {
         assert_eq!(
-            unsafe { jit_poll_execution(&runtime, offset) },
+            unsafe { jit_poll_execution(&runtime, origin) },
             JIT_STATUS_OK
         );
     }
     token.cancel();
     assert_eq!(
-        unsafe { jit_poll_execution(&runtime, 2) },
+        unsafe { jit_poll_execution(&runtime, 3) },
         JIT_STATUS_CANCELLED
     );
-
+    let trace = runtime.capture_error_trace();
+    assert_eq!(trace.frames[0].instruction_offset, 2);
+    assert_eq!(trace.frames[0].semantic_origin, Some(3));
     assert_eq!(
-        runtime.capture_error_trace().frames[0].instruction_offset,
-        2
+        trace.frames[0].source_span,
+        Some(kagari_common::span::Span::new(30, 32))
+    );
+    assert_eq!(
+        (trace.frames[0].line, trace.frames[0].column),
+        (Some(4), Some(1))
     );
     drop(stack);
     assert_eq!(runtime.resources().counters().current_call_depth, 0);
@@ -753,13 +818,11 @@ fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point
             .unwrap(),
     );
     let mut frame = stack.current_mut().unwrap();
-    frame
-        .write_register(&runtime, Register::new(0), original)
-        .unwrap();
+    frame.write_slot(&runtime, Slot::new(0), original).unwrap();
     for error in [
-        frame.read_register(&foreign, Register::new(0)).unwrap_err(),
+        frame.read_slot(&foreign, Slot::new(0)).unwrap_err(),
         frame
-            .write_register(&foreign, Register::new(0), Value::Unit)
+            .write_slot(&foreign, Slot::new(0), Value::Unit)
             .unwrap_err(),
         frame.jump_to(&foreign, 0).unwrap_err(),
         frame
@@ -768,10 +831,7 @@ fn frame_access_rejects_a_foreign_context_before_changing_slots_or_program_point
     ] {
         assert_eq!(error.kind(), RuntimeErrorKind::ModuleValidation);
     }
-    assert_eq!(
-        frame.read_register(&runtime, Register::new(0)).unwrap(),
-        original
-    );
+    assert_eq!(frame.read_slot(&runtime, Slot::new(0)).unwrap(), original);
     assert_eq!(frame.instruction_offset(), 0);
     assert!(!runtime.is_quarantined());
     assert!(!foreign.is_quarantined());

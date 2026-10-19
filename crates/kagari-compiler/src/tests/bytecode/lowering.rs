@@ -1,4 +1,5 @@
 use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
+use kagari_bytecode::instruction::Slot;
 use kagari_contract::effects::EffectSet;
 use kagari_types::declaration::host::PathAccess;
 
@@ -18,21 +19,31 @@ fn lowers_function_metadata_into_bytecode() {
     assert_eq!(function.id, FunctionRef::new(0));
     assert_eq!(function.name, "add");
     assert_eq!(function.parameter_count, 2);
-    assert_eq!(function.local_count, 3);
-    assert!(function.register_count >= 4);
+    assert_eq!(
+        function.metadata.parameter_slots,
+        [Slot::new(0), Slot::new(1)]
+    );
+    assert_eq!(
+        function
+            .metadata
+            .debug
+            .local_live_ranges
+            .iter()
+            .map(|range| range.binding)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        3
+    );
     assert_eq!(
         function.metadata.params,
         vec![ValueType::I32, ValueType::I32]
     );
     assert_eq!(function.metadata.return_type, ValueType::I32);
     assert_eq!(
-        function.metadata.locals[..3],
+        function.metadata.slots[..3],
         [ValueType::I32, ValueType::I32, ValueType::I32]
     );
-    assert_eq!(
-        function.metadata.registers.len(),
-        usize::from(function.register_count)
-    );
+    assert_eq!(function.metadata.slots.len(), function.slot_count as usize);
 }
 
 #[test]
@@ -53,10 +64,16 @@ fn main(value: i32) -> i32 {
     let function = &bytecode.modules[bytecode.root.index()].functions[0];
     let debug = &function.metadata.debug;
 
-    assert_eq!(debug.source_spans.len(), function.instructions.len());
-    assert_eq!(debug.line_table.len(), function.instructions.len());
-    assert_eq!(debug.frame_layout.locals, function.metadata.locals);
-    assert_eq!(debug.frame_layout.registers, function.metadata.registers);
+    assert_eq!(debug.source_spans.len(), function.metadata.origins.len());
+    assert_eq!(debug.line_table.len(), function.metadata.origins.len());
+    for (span, origin) in debug.source_spans.iter().zip(&function.metadata.origins) {
+        assert_eq!(
+            (span.instruction_offset, span.span),
+            (origin.instruction, origin.span)
+        );
+        assert!(span.instruction_offset < function.instructions.len());
+    }
+    assert_eq!(debug.frame_layout.slots, function.metadata.slots);
     assert!(
         debug
             .safe_debug_points
@@ -100,9 +117,7 @@ fn main(value: i32) -> i32 {
     let initializing_store = function
         .instructions
         .iter()
-        .position(|instruction| {
-            matches!(instruction, BytecodeInstruction::StoreLocal { local, .. } if *local == next.local)
-        })
+        .position(|instruction| instruction.slot_output() == Some(next.slot))
         .unwrap();
     assert_eq!(parameter.start, 0);
     assert_eq!(next.start, initializing_store + 1);
@@ -452,30 +467,52 @@ fn verifier_accepts_resolved_typed_path_instructions() {
             return_type: ValueType::I32,
             effects: EffectSet::path_read(),
         }],
-        functions: vec![BytecodeFunction {
-            id: FunctionRef::new(0),
-            identity: None,
-            name: "read_health".to_owned(),
-            parameter_count: 1,
-            local_count: 1,
-            register_count: 2,
-            metadata: FunctionMetadata {
-                params: vec![ValueType::HostHandle],
-                return_type: ValueType::I32,
-                locals: vec![ValueType::HostHandle],
-                registers: vec![ValueType::HostHandle, ValueType::I32],
-                effects: EffectSet::path_read(),
-                ..Default::default()
-            },
-            instructions: vec![
+        functions: vec![{
+            let parameter_base: usize = 2;
+            let fixture_instructions = vec![
                 BytecodeInstruction::ReadPath {
-                    dst: Register::new(1),
-                    root_or_view: Register::new(0),
+                    dst: Slot::new(1),
+                    root_or_view: Slot::new(2),
                     path: PathId::new(0),
                     dynamic_args: Vec::new(),
                 },
-                BytecodeInstruction::Return(Some(Register::new(1))),
-            ],
+                BytecodeInstruction::Return(Some(Slot::new(1))),
+            ];
+            let mut fixture_metadata: kagari_bytecode::module::FunctionMetadata =
+                FunctionMetadata {
+                    params: vec![ValueType::HostHandle],
+                    return_type: ValueType::I32,
+                    effects: EffectSet::path_read(),
+                    slots: [
+                        vec![ValueType::HostHandle, ValueType::I32],
+                        vec![ValueType::HostHandle],
+                    ]
+                    .concat(),
+                    ..Default::default()
+                };
+            if fixture_metadata.parameter_slots.is_empty() {
+                fixture_metadata.parameter_slots =
+                    (0..1).map(|i| Slot::new(parameter_base + i)).collect();
+            }
+            if fixture_metadata.origins.is_empty() {
+                fixture_metadata.origins = (0..fixture_instructions.len())
+                    .map(|instruction| kagari_bytecode::module::InstructionOrigin {
+                        span: Default::default(),
+                        line: None,
+                        column: None,
+                        instruction,
+                    })
+                    .collect();
+            }
+            BytecodeFunction {
+                id: FunctionRef::new(0),
+                identity: None,
+                name: "read_health".to_owned(),
+                parameter_count: 1,
+                slot_count: u32::try_from(fixture_metadata.slots.len()).unwrap(),
+                metadata: fixture_metadata,
+                instructions: fixture_instructions,
+            }
         }],
         ..actor_path_module(&context, "health", PathAccess::ReadWrite)
     };
@@ -501,13 +538,13 @@ fn lowers_named_match_pattern_to_local_traffic() {
         function
             .instructions
             .iter()
-            .any(|instruction| matches!(instruction, BytecodeInstruction::StoreLocal { .. }))
+            .any(|instruction| matches!(instruction, BytecodeInstruction::Move { .. }))
     );
     assert!(
         function
             .instructions
             .iter()
-            .any(|instruction| matches!(instruction, BytecodeInstruction::LoadLocal { .. }))
+            .any(|instruction| matches!(instruction, BytecodeInstruction::Move { .. }))
     );
 }
 

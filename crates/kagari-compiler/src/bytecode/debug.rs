@@ -116,8 +116,12 @@ pub(super) fn collect_debug_metadata(
         captured_bindings,
         frame_layout: FrameLayout {
             params: function.params.iter().map(|param| param.ty).collect(),
-            locals: function.locals.iter().map(|local| local.ty).collect(),
-            registers: function.temps.iter().map(|temp| temp.ty).collect(),
+            slots: function
+                .locals
+                .iter()
+                .map(|local| local.ty)
+                .chain(function.temps.iter().map(|temp| temp.ty))
+                .collect(),
         },
     }
 }
@@ -142,7 +146,8 @@ fn collect_local_live_ranges(
             }
             let info = locals[local];
             ranges.push(LocalLiveRange {
-                local: lower_local(*local),
+                slot: lower_local(*local),
+                binding: u32::try_from(local.index()).expect("verified binding"),
                 name: info.name.clone(),
                 span: info.span,
                 start: *start,
@@ -158,7 +163,7 @@ fn collect_local_live_ranges(
             }
         }
     }
-    ranges.sort_by_key(|range| (range.local.index(), range.start));
+    ranges.sort_by_key(|range| (range.slot.index(), range.start));
     ranges
 }
 

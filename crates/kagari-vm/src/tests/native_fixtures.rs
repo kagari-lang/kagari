@@ -1,7 +1,7 @@
 //! Compiler-independent fixtures for VM native-entry and fallback decisions.
 use std::sync::Arc;
 
-use kagari_bytecode::instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Register};
+use kagari_bytecode::instruction::{BytecodeInstruction, ConstantId, ConstantOperand, Slot};
 use kagari_runtime::{
     Runtime, backend::native::InstalledNativeFunction, jit_abi::jit_poll_execution,
     module::LoadedModule,
@@ -63,10 +63,10 @@ pub(super) fn install_i32<const VALUE: i32>(
         function.instructions,
         [
             BytecodeInstruction::LoadConst {
-                dst: Register::new(0),
+                dst: Slot::new(0),
                 constant: ConstantId::new(0)
             },
-            BytecodeInstruction::Return(Some(Register::new(0))),
+            BytecodeInstruction::Return(Some(Slot::new(0))),
         ],
         "the static entry implements only this exact two-instruction function"
     );

@@ -6,8 +6,8 @@ use kagari_bytecode::{
         ArtifactValidationError, DebugMetadata, DependencyFingerprint, KBC_MAGIC, KbcArtifact,
     },
     instruction::{
-        BinaryOp, BytecodeInstruction, CallTarget, FieldRef, JumpTarget, LocalSlot, PathId,
-        Register, RuntimeHelper, StructId, UnaryOp,
+        BinaryOp, BytecodeInstruction, CallTarget, FieldRef, JumpTarget, PathId, RuntimeHelper,
+        Slot, StructId, UnaryOp,
     },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, SafeDebugPointKind},
     verifier::{BytecodeVerificationError, verify_module},

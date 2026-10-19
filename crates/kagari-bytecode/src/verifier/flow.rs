@@ -1,4 +1,4 @@
-//! Independent bounded flow checks for executable resume bodies.
+//! Bounded initialization and suspension flow over executable control flow.
 use crate::{
     instruction::BytecodeInstruction as I,
     module::BytecodeFunction,
@@ -12,12 +12,12 @@ use std::{collections::BTreeSet, mem};
 const MAX_FLOW_BYTES: usize = 64 * 1024 * 1024;
 const MAX_FLOW_WORK: usize = 100_000_000;
 
-struct Block {
-    start: usize,
-    end: usize,
-    successors: Vec<usize>,
-    predecessors: Vec<usize>,
-    reachable: bool,
+pub(crate) struct Block {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+    pub(crate) successors: Vec<usize>,
+    pub(crate) predecessors: Vec<usize>,
+    pub(crate) reachable: bool,
     uses: Vec<u64>,
     defines: Vec<u64>,
     initialized: Vec<u64>,
@@ -35,7 +35,7 @@ struct Flow<'a> {
 pub(super) fn verify(
     function: &BytecodeFunction,
     budget: &mut FlowBudget,
-) -> Result<Vec<AwaitLiveness>, Error> {
+) -> Result<FlowResult, Error> {
     if function.metadata.effects.may_suspend
         && function
             .metadata
@@ -49,26 +49,22 @@ pub(super) fn verify(
             reason: "a scoped reference cannot be retained in a resume body",
         });
     }
-    if !function.metadata.effects.may_suspend
-        && !function
-            .instructions
-            .iter()
-            .any(|instruction| matches!(instruction, I::MakeFuture { .. }))
-    {
-        return Ok(vec![]);
-    }
-    let registers = usize::from(function.register_count);
+    let registers = function.metadata.slots.len();
     let mut flow = Flow {
         function,
         budget,
         blocks: vec![],
         registers,
-        words: (registers + usize::from(function.local_count)).div_ceil(64),
+        words: registers.div_ceil(64),
     };
     flow.graph()?;
     flow.reachability()?;
     flow.fixed_points()?;
-    flow.check_points()
+    let awaits = flow.check_points()?;
+    Ok(FlowResult {
+        awaits,
+        blocks: flow.blocks,
+    })
 }
 
 impl Flow<'_> {
@@ -82,7 +78,7 @@ impl Flow<'_> {
     fn charge(&mut self, count: usize) -> Result<(), Error> {
         self.budget.work = self.budget.work.saturating_add(count);
         if self.budget.work > MAX_FLOW_WORK {
-            return Err(self.invalid("async flow analysis work limit"));
+            return Err(self.invalid("executable flow analysis work limit"));
         }
         Ok(())
     }
@@ -117,7 +113,7 @@ impl Flow<'_> {
                 .saturating_add(mem::size_of::<Block>() + 64),
         );
         if bytes > MAX_FLOW_BYTES {
-            return Err(self.invalid("async flow analysis state limit"));
+            return Err(self.invalid("executable flow analysis state limit"));
         }
         let leaders: Vec<_> = leaders.into_iter().collect();
         for (index, &start) in leaders.iter().enumerate() {
@@ -176,13 +172,10 @@ impl Flow<'_> {
     fn inputs(&mut self, pc: usize) -> Result<Vec<usize>, Error> {
         let instruction = &self.function.instructions[pc];
         let mut inputs = instruction
-            .register_inputs()
+            .slot_inputs()
             .into_iter()
             .map(|r| r.index())
             .collect::<Vec<_>>();
-        if let I::LoadLocal { local, .. } = instruction {
-            inputs.push(self.registers + local.index());
-        }
         self.charge(self.function.metadata.debug.local_live_ranges.len())?;
         inputs.extend(
             self.function
@@ -191,16 +184,13 @@ impl Flow<'_> {
                 .local_live_ranges
                 .iter()
                 .filter(|range| range.start <= pc && pc < range.end)
-                .map(|range| self.registers + range.local.index()),
+                .map(|range| range.slot.index()),
         );
         Ok(inputs)
     }
 
     fn output(&self, instruction: &I) -> Option<usize> {
-        if let I::StoreLocal { local, .. } = instruction {
-            return Some(self.registers + local.index());
-        }
-        instruction.register_output().map(|r| r.index())
+        instruction.slot_output().map(|r| r.index())
     }
 
     fn reachability(&mut self) -> Result<(), Error> {
@@ -219,25 +209,24 @@ impl Flow<'_> {
     }
 
     fn incoming(&self, index: usize) -> Vec<u64> {
-        if index == 0 {
+        let mut state = if index == 0 {
             let mut state = vec![0; self.words];
-            for parameter in 0..usize::from(self.function.parameter_count) {
-                insert(&mut state, self.registers + parameter);
+            for parameter in &self.function.metadata.parameter_slots {
+                insert(&mut state, parameter.index());
             }
             state
         } else {
-            let mut state = vec![u64::MAX; self.words];
-            for &previous in &self.blocks[index].predecessors {
-                if self.blocks[previous].reachable {
-                    for (word, &initialized) in
-                        state.iter_mut().zip(&self.blocks[previous].initialized)
-                    {
-                        *word &= initialized;
-                    }
+            vec![u64::MAX; self.words]
+        };
+        for &previous in &self.blocks[index].predecessors {
+            if self.blocks[previous].reachable {
+                for (word, &initialized) in state.iter_mut().zip(&self.blocks[previous].initialized)
+                {
+                    *word &= initialized;
                 }
             }
-            state
         }
+        state
     }
 
     fn live_out(&self, index: usize) -> Vec<u64> {
@@ -296,7 +285,7 @@ impl Flow<'_> {
                 let inputs = self.inputs(pc)?;
                 self.charge(inputs.len() + 1)?;
                 if inputs.iter().any(|&input| !contains(&initialized, input)) {
-                    return Err(self.invalid("uninitialized slot in resume body"));
+                    return Err(self.invalid("uninitialized executable slot"));
                 }
                 if let Some(output) = self.output(instruction) {
                     insert(&mut initialized, output);
@@ -313,24 +302,9 @@ impl Flow<'_> {
                     insert(&mut live, input);
                 }
                 if matches!(instruction, I::Await { .. }) {
-                    self.charge(self.registers + usize::from(self.function.local_count))?;
-                    for (slot, &physical) in self
-                        .function
-                        .metadata
-                        .registers
-                        .iter()
-                        .chain(&self.function.metadata.locals)
-                        .enumerate()
-                    {
-                        let semantic = if slot < self.registers {
-                            self.function.metadata.semantic.registers.get(&slot)
-                        } else {
-                            self.function
-                                .metadata
-                                .semantic
-                                .locals
-                                .get(&(slot - self.registers))
-                        };
+                    self.charge(self.registers)?;
+                    for (slot, &physical) in self.function.metadata.slots.iter().enumerate() {
+                        let semantic = self.function.metadata.semantic.slots.get(&slot);
                         if contains(&live, slot)
                             && (physical == ValueType::HostHandle
                                 || semantic.is_some_and(inline_host))
@@ -371,4 +345,10 @@ fn contains(words: &[u64], slot: usize) -> bool {
 
 fn insert(words: &mut [u64], slot: usize) {
     words[slot / 64] |= 1 << (slot % 64);
+}
+
+/// Shared, independently checked CFG; access analysis consumes these same edges.
+pub(crate) struct FlowResult {
+    pub(crate) awaits: Vec<AwaitLiveness>,
+    pub(crate) blocks: Vec<Block>,
 }

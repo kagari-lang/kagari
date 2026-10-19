@@ -77,7 +77,7 @@ impl References {
                 }
                 CallTarget::ModuleFunction { .. }
                 | CallTarget::Function(_)
-                | CallTarget::Register(_)
+                | CallTarget::Slot(_)
                 | CallTarget::ClosureRegister { .. }
                 | CallTarget::RuntimePrimitive(_)
                 | CallTarget::RuntimeHelper(_) => {}
@@ -86,8 +86,6 @@ impl References {
             | BytecodeInstruction::Convert { .. }
             | BytecodeInstruction::Numeric { .. }
             | BytecodeInstruction::Iter { .. }
-            | BytecodeInstruction::LoadLocal { .. }
-            | BytecodeInstruction::StoreLocal { .. }
             | BytecodeInstruction::Move { .. }
             | BytecodeInstruction::Unary { .. }
             | BytecodeInstruction::Binary { .. }

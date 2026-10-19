@@ -27,7 +27,7 @@ use crate::{
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::{
-        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Register, UnaryOp,
+        BinaryOp, BytecodeInstruction, CallTarget, ConstantOperand, JumpTarget, Slot, UnaryOp,
     },
     module::{BytecodeModule, CallableTarget},
     suspension::AwaitLiveness,
@@ -162,13 +162,13 @@ impl ExecutionModule {
                 .zip(suspensions)
                 .map(|(function, suspensions)| {
                     let frame = CalleeLayout::script(function, work);
-                    let registers = &frame.registers;
+                    let slot_layout = &frame.slot_layout;
                     let awaits = suspensions
                         .iter()
                         .map(|point| {
-                            let mut retained = vec![0; registers.managed_count.div_ceil(64)];
+                            let mut retained = vec![0; slot_layout.managed_count.div_ceil(64)];
                             for logical in point.live_slots() {
-                                let slot = registers.locations[logical].operand;
+                                let slot = slot_layout.locations[logical].operand;
                                 if slot.managed() {
                                     retained[slot.index() / 64] |= 1 << (slot.index() % 64);
                                 }
@@ -193,7 +193,7 @@ impl ExecutionModule {
                             ExecutionInstruction::prepare(
                                 layout_site,
                                 instruction,
-                                registers,
+                                slot_layout,
                                 module,
                                 &mut fields,
                                 &mut indices,
@@ -230,24 +230,19 @@ impl ExecutionInstruction {
     fn prepare(
         layout_site: Option<LayoutSite>,
         instruction: &BytecodeInstruction,
-        registers: &FrameLayout,
+        slot_layout: &FrameLayout,
         module: &BytecodeModule,
         fields: &mut Vec<PreparedFieldOperation>,
         indices: &mut Vec<PreparedIndexOperation>,
         native_calls: &mut usize,
     ) -> Self {
-        let location = |register: Register| {
-            registers
+        let location = |register: Slot| {
+            slot_layout
                 .location(register.index())
                 .expect("verified register")
         };
-        let slot = |register: Register| location(register).operand;
-        let local_location = |index: usize| {
-            registers
-                .location(registers.register_count + index)
-                .expect("verified local")
-        };
-        let scalar = |dst: Register, lhs: Register, rhs: Register, kernel: Option<ScalarKernel>| {
+        let slot = |register: Slot| location(register).operand;
+        let scalar = |dst: Slot, lhs: Slot, rhs: Slot, kernel: Option<ScalarKernel>| {
             let Some(kernel) = kernel else {
                 return Self::Boundary;
             };
@@ -300,12 +295,6 @@ impl ExecutionInstruction {
                     value: scalar::encode(&value).expect("scalar constant"),
                 }
             }
-            BytecodeInstruction::LoadLocal { dst, local } => {
-                Self::move_slots(location(dst), local_location(local.index()))
-            }
-            BytecodeInstruction::StoreLocal { local, src } => {
-                Self::move_slots(local_location(local.index()), location(src))
-            }
             BytecodeInstruction::Move { dst, src } => {
                 Self::move_slots(location(dst), location(src))
             }
@@ -315,7 +304,7 @@ impl ExecutionInstruction {
                 fields.push(PreparedFieldOperation::prepare(
                     layout_site.expect("field has an aggregate operand"),
                     instruction,
-                    registers,
+                    slot_layout,
                 ));
                 Self::managed(ManagedOperation::Field { index })
             }

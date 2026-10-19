@@ -55,7 +55,8 @@ impl Control {
             .collect();
         let layout = Arc::new(FrameLayout {
             locations,
-            register_count: width,
+
+            reused_slots: Box::default(),
             count: width,
             scalar_count: width / 2,
             managed_count: width / 2,
@@ -88,7 +89,7 @@ impl Control {
         values
             .allocate(
                 self.width,
-                0,
+                &(0..self.arguments.len()).collect::<Vec<_>>(),
                 &FrameArguments::plain(&self.arguments),
                 FrameMetadata {
                     program: module.clone(),

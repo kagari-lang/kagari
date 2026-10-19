@@ -19,15 +19,15 @@ fn executes_runtime_reflect_type_of_helper() {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Call {
-                    dst: Some(Register::new(1)),
+                    dst: Some(Slot::new(1)),
                     callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                    args: vec![Register::new(0)],
+                    args: vec![Slot::new(0)],
                 },
-                BytecodeInstruction::Return(Some(Register::new(1))),
+                BytecodeInstruction::Return(Some(Slot::new(1))),
             ],
             ValueType::Str,
             vec![ValueType::I32, ValueType::Str],
@@ -61,15 +61,15 @@ fn runtime_reflection_helpers_use_declared_metadata() {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::Call {
-                    dst: Some(Register::new(1)),
+                    dst: Some(Slot::new(1)),
                     callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectTypeOf),
-                    args: vec![Register::new(0)],
+                    args: vec![Slot::new(0)],
                 },
-                BytecodeInstruction::Return(Some(Register::new(1))),
+                BytecodeInstruction::Return(Some(Slot::new(1))),
             ],
             ValueType::Str,
             vec![ValueType::I32, ValueType::Str],
@@ -104,23 +104,23 @@ fn declared_reflection_reads_are_available() {
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
+                        dst: Slot::new(0),
                         constant: ConstantId::new(0),
                     },
                     BytecodeInstruction::MakeStruct {
-                        dst: Register::new(1),
+                        dst: Slot::new(1),
                         structure: StructId::new(0),
                         arguments: vec![],
-                        fields: vec![Register::new(0)],
+                        fields: vec![Slot::new(0)],
                     },
                     BytecodeInstruction::Call {
-                        dst: Some(Register::new(2)),
+                        dst: Some(Slot::new(2)),
                         callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
                             "x".to_owned(),
                         )),
-                        args: vec![Register::new(1)],
+                        args: vec![Slot::new(1)],
                     },
-                    BytecodeInstruction::Return(Some(Register::new(2))),
+                    BytecodeInstruction::Return(Some(Slot::new(2))),
                 ],
                 ValueType::I32,
                 vec![ValueType::I32, ValueType::HeapObject, ValueType::I32],
@@ -151,27 +151,27 @@ fn declared_reflection_writes_are_available() {
                 "main",
                 vec![
                     BytecodeInstruction::LoadConst {
-                        dst: Register::new(0),
+                        dst: Slot::new(0),
                         constant: ConstantId::new(0),
                     },
                     BytecodeInstruction::MakeStruct {
-                        dst: Register::new(1),
+                        dst: Slot::new(1),
                         structure: StructId::new(0),
                         arguments: vec![],
-                        fields: vec![Register::new(0)],
+                        fields: vec![Slot::new(0)],
                     },
                     BytecodeInstruction::LoadConst {
-                        dst: Register::new(2),
+                        dst: Slot::new(2),
                         constant: ConstantId::new(1),
                     },
                     BytecodeInstruction::Call {
-                        dst: Some(Register::new(3)),
+                        dst: Some(Slot::new(3)),
                         callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
                             "x".to_owned(),
                         )),
-                        args: vec![Register::new(1), Register::new(2)],
+                        args: vec![Slot::new(1), Slot::new(2)],
                     },
-                    BytecodeInstruction::Return(Some(Register::new(3))),
+                    BytecodeInstruction::Return(Some(Slot::new(3))),
                 ],
                 ValueType::HeapObject,
                 vec![
@@ -196,34 +196,34 @@ fn executes_runtime_reflect_get_and_set_field_helpers() {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::MakeStruct {
-                    dst: Register::new(1),
+                    dst: Slot::new(1),
                     structure: StructId::new(0),
                     arguments: vec![],
-                    fields: vec![Register::new(0)],
+                    fields: vec![Slot::new(0)],
                 },
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(2),
+                    dst: Slot::new(2),
                     constant: ConstantId::new(1),
                 },
                 BytecodeInstruction::Call {
-                    dst: Some(Register::new(3)),
+                    dst: Some(Slot::new(3)),
                     callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetField(
                         "x".to_owned(),
                     )),
-                    args: vec![Register::new(1), Register::new(2)],
+                    args: vec![Slot::new(1), Slot::new(2)],
                 },
                 BytecodeInstruction::Call {
-                    dst: Some(Register::new(4)),
+                    dst: Some(Slot::new(4)),
                     callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField(
                         "x".to_owned(),
                     )),
-                    args: vec![Register::new(3)],
+                    args: vec![Slot::new(3)],
                 },
-                BytecodeInstruction::Return(Some(Register::new(4))),
+                BytecodeInstruction::Return(Some(Slot::new(4))),
             ],
             ValueType::I32,
             vec![
@@ -259,28 +259,28 @@ fn executes_runtime_reflect_set_index_helper() {
             "main",
             vec![
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(0),
+                    dst: Slot::new(0),
                     constant: ConstantId::new(0),
                 },
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(1),
+                    dst: Slot::new(1),
                     constant: ConstantId::new(1),
                 },
                 BytecodeInstruction::MakeArray {
                     element: Ty::Builtin(BuiltinType::I32),
-                    dst: Register::new(2),
-                    elements: vec![Register::new(0), Register::new(1)],
+                    dst: Slot::new(2),
+                    elements: vec![Slot::new(0), Slot::new(1)],
                 },
                 BytecodeInstruction::LoadConst {
-                    dst: Register::new(3),
+                    dst: Slot::new(3),
                     constant: ConstantId::new(2),
                 },
                 BytecodeInstruction::Call {
-                    dst: Some(Register::new(4)),
+                    dst: Some(Slot::new(4)),
                     callee: CallTarget::RuntimeHelper(RuntimeHelper::ReflectSetIndex),
-                    args: vec![Register::new(2), Register::new(3), Register::new(1)],
+                    args: vec![Slot::new(2), Slot::new(3), Slot::new(1)],
                 },
-                BytecodeInstruction::Return(Some(Register::new(4))),
+                BytecodeInstruction::Return(Some(Slot::new(4))),
             ],
             ValueType::HeapObject,
             vec![
