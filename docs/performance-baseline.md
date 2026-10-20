@@ -16,6 +16,155 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Browser compilation latency, 2026-10-20
+
+**Diagnosis, not an implemented optimization or a latency gate.** The user reported
+long Run waits at `https://kagari-lang.github.io/kagari/playground/`. Separate remote
+delivery, session preparation, compilation and execution; the interpreter's steady
+execution benchmarks do not explain this path. The
+[compilation/startup plan](compilation-startup-plan.md) owns the planned source
+handoff and eager-verification corrections; the
+[roadmap](implementation-roadmap.md#browser-wasm-execution) retains browser delivery
+follow-ups. The plan's proposed latency goals are not results of this measurement.
+
+### Live delivery versus repeated execution
+
+Read-only Chrome measurements on the machine below observed the default example's
+first successful Run at 36.30 s and immediate repeat at 4.14 s; the minimal program
+`fn main()->i32{42}` took 25.24 s then 4.44 s. Both repeats made **zero requests**.
+WASM fetches alone took 27.62 s and 15.63 s respectively. A separate minimal adapter
+sample measured 41.27 s download/initialization, 1.085 s construction, 3.840 s
+compile/load, 3.6 ms execution and 1.9 ms reset. Streaming compilation may overlap
+transfer, so fetch duration is not a pure network-versus-V8 decomposition.
+
+The later live WASM response was **23,762,457 decoded bytes / 4,546,825 gzip bytes**,
+HTTP/2 200, `Content-Type: application/wasm`, `Content-Encoding: gzip`,
+`Cache-Control: max-age=600`, `Vary: Accept-Encoding`. Missing compression is not the
+cause. Several WASM and ordinary page-asset requests failed with
+`net::ERR_CONNECTION_CLOSED`; this does not identify which network/CDN/intermediary
+caused the failure. These observations are from this machine's route, not the
+user's connection.
+
+The served representation changed during the 13:13-13:19 UTC investigation
+(earlier WASM: 23,758,722 decoded bytes). The public `.checked-build.json` returned
+404 and no complete live binary hash was obtained. Thus neither live commit nor
+profile was established, and these individual observations are **not a controlled
+build comparison**. Local checked-in product orchestration uses dev; that alone
+is not proof of the deployed profile. No publication or remote setting changed.
+
+### Matched local dev/release comparison
+
+Revision **98f5c39d9d29449b3856bb155f677c48d37aee99**, source/default features,
+`wasm32-unknown-unknown`, default target and build parallelism. Rust 1.99.1
+(58cf8f9c3), LLVM 23.1.1, Cargo 1.99.1, wasm-bindgen crate/CLI 0.2.129. Workspace dev
+uses opt-level 1; standard release uses opt-level 3 with debug assertions disabled.
+No custom profile, wasm-opt, CPU affinity or deliberate throttling. Target build
+outputs were initially absent; Cargo/registry caches were not purged. Both builds
+finished before measurement; no concurrent build/probe was running.
+
+Environment: Windows x64 10.0.26300, Core i9-12900K / 24 logical CPUs / about 64 GiB
+RAM; headless Chrome 155.0.8059.82, Playwright 1.64.1, Node 22.21.1, 1280x900 viewport.
+Local immutable loopback serving with HTTP cache disabled/no-store removed remote
+transfer delays. Three sequential fresh-context samples per profile in one browser
+process, no discarded warmups. OS, allocator, V8 tiering and WASM code caches were
+uncontrolled; this is not a statistically established cold-cache benchmark.
+
+Each context initialized the module, constructed session A, compiled/executed/reset
+and freed it, then constructed B and compiled/executed/reset twice on B before
+freeing it. Source: `fn main()->i32{42}`; all 18 baseline executions returned exact
+`i32 "42"`. Medians in milliseconds:
+
+| Boundary | Dev | Release |
+| --- | ---: | ---: |
+| Import + WASM initialization | 83.5 | 77.9 |
+| First session construction | 1053.5 | 821.9 |
+| First compile/load | 3823.9 | 2817.9 |
+| First construction + compile/load, median of per-sample sums | 4877.4 | 3646.5 |
+| First start + drive | 3.6 | 2.9 |
+| Second fresh session construction | 611.6 | 460.3 |
+| Second session first compile/load | 3643.9 | 2639.2 |
+| Recompile on retained second session after reset | 3565.7 | 2631.5 |
+
+Release reduced the measured fresh construction/compile sum by **25.2%**, but did
+not remove multi-second compilation. Retaining the engine avoids construction,
+not the remaining approximately 2.63 s compilation. Faster second *fresh* construction
+also reflects warm-instance effects; it is not evidence of engine reuse.
+Initialization uses import + adapter init; compile measures the synchronous adapter
+call (analysis, lowering, artifact verification/preparation and runtime loading),
+excluding response JSON decoding. Execution includes start/drive and JSON decoding,
+not Worker scheduling/UI. First reset/free medians were 1.6/8.1 ms dev, 1.4/7.3 ms
+release. These are adapter timings, not end-to-end Run latency.
+
+| JS + WASM product | Raw bytes | gzip level 9 | Brotli quality 5 |
+| --- | ---: | ---: | ---: |
+| Dev | 24,098,645 | 4,373,978 | 3,090,904 |
+| Release | 18,872,247 | 4,058,774 | 2,937,124 |
+
+Each file was compressed separately offline; these are not HTTP transfer sizes.
+Raw WASM SHA-256: dev `ca115d7f9e643de7c91ea09974250d7b78fb836892a26b161e08271b4418a7b2`,
+release `88a642a0f8c386df1c825c57d97d90aefba582fda8a95eb0ee8ebea79e78257b`.
+Both JS files hash to `886d761d598aaff0a18ddf7d05775e610c2739e1fc0b6de6e5471e59972d2be0`.
+
+Reproduce products with `cargo build -p kagari-web --target wasm32-unknown-unknown
+--locked`, adding `--release` for the other profile; run matching wasm-bindgen
+`--target web` on each profile's `kagari_web.wasm`, keeping outputs separate under
+ignored target. Use the phase timing technique in
+[the maintained browser harness](../site/scripts/playground-browser.mjs), with the
+minimal source above and separate fresh/retained sessions as specified here.
+
+### Sampled compile hotspot and architectural cause
+
+One additional release compile, excluded from medians, took 2676.5 ms. CDP CPU
+profiling requested 1000 microsecond intervals; actual intervals varied. Of 1725
+samples, 1719 were under `BrowserSession::compile`. Weight samples by `timeDeltas`
+and classify exact ancestor boundary frames, prioritizing verifier frames over
+their lowering callers; do not match arbitrary substrings in Rust generic names.
+The disjoint approximate sampled attribution was:
+
+| Boundary | Approximate ms | Share |
+| --- | ---: | ---: |
+| Source analysis | 200 | 7.5% |
+| MIR lowering excluding verification | 237 | 8.9% |
+| MIR verification | 340 | 12.7% |
+| Bytecode lowering excluding verification | 298 | 11.1% |
+| Bytecode verification | 1506 | 56.3% |
+| Other | 95 | 3.6% |
+
+Verification accounts for about **69%** of this trace. `verify_trait_bounds`
+accumulates about 1475 ms inclusive across three call paths: compiler bytecode
+emission (477 ms), `VerificationMetadata::from_program` (492 ms), and
+`KbcArtifact::validate_execution` during preparation (505 ms). This establishes
+repeated work at distinct boundaries, not permission to remove safety checks.
+
+Largest self-time entries: `Ty::within_wire_limits` about 613 ms, allocator malloc
+301 ms, free 205 ms. [The limit predicate](../crates/kagari-types/src/ty/wire.rs)
+constructs temporary wire-node vectors merely to return `wire_nodes().is_ok()`;
+[type matching](../crates/kagari-types/src/ty/matching.rs) invokes it on candidate
+and requested receiver types. Sampled stacks connect this to trait proof and
+normalization during verification. Inclusive function, allocator and phase totals
+overlap; do not add them or infer allocation/call counts from sampling.
+
+Source inspection explains the fixed work even for returning 42:
+
+- [Worker](../site/src/playground/worker.js) retains the WASM instance but creates
+  and frees a Rust BrowserSession on each Run. Its engine/native analysis baseline
+  does not survive; stdlib's static authored bundle does survive.
+- [Implicit dependencies](../crates/kagari-hir/src/imports/resolve.rs) add installed
+  native APIs to nonnative modules. Checked closure/lowering therefore carry stdlib
+  contracts even for an import-free program; this does not recompile Rust callbacks.
+- [The adapter](../crates/kagari-web/src/lib.rs) forks a fresh source session, emits
+  an artifact, prepares it and loads a fresh runtime. Existing native syntax caches
+  can be reused within that fork; claiming all stdlib bodies are re-typechecked
+  would overstate the evidence.
+
+The measured priority is allocation-heavy validation/proof preparation and its
+ownership across compile/artifact/load boundaries, not interpreter dispatch.
+Artifact reachability and engine baseline lifetime also need explicit semantics;
+reuse must not retain unlimited user identities or weaken source-free validation,
+GC roots, cancellation, host contracts, reflection or reload generations. No core
+implementation was changed, no optimization speedup is claimed beyond the measured
+profile comparison, and full CI/platform coverage was not run.
+
 ## Root release and occupied discovery work counts, 2026-10-20
 
 **Current R12 implementation evidence, not a timing baseline.** Root registration

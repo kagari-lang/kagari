@@ -46,6 +46,10 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Fast compilation and eager startup](compilation-startup-plan.md): planned
+  CS01-CS06 separate immediate source execution from artifact import/export and
+  make validation efficient without deferring it to first use. Documentation only;
+  implementation has not started. Full incremental compilation remains separate.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11
@@ -74,8 +78,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   CI/live Pages acceptance, upstream dependency patching and separately scoped
   translations. Build and content maintenance belong in the [site guide](../site/README.md).
 - [Browser WASM follow-ups](implementation-roadmap.md#browser-wasm-execution):
-  complete CI/platform and live Pages acceptance, plus separately scoped setup/size
-  optimization. Current source/source-free adapter and Worker contracts belong in
+  complete CI/platform and live Pages acceptance. Compilation/preparation latency
+  and release product recipes belong to the compilation/startup plan above;
+  permanent engine reuse and delivery-size optimization remain separately scoped. Current source/source-free adapter and Worker contracts belong in
   the [browser guide](../crates/kagari-web/README.md); measured Playground costs and
   exact-product builds belong in the [site guide](../site/README.md).
 - [Host API unification](host-api-refactor.md).

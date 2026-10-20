@@ -52,6 +52,23 @@ current source-distribution model. Future persistent compilation caches must pro
 compiler revision/options and provider/source validity before skipping work; current
 shared output storage always checks and compiles inputs.
 
+Deferred discussion, recorded 2026-10-20: package-managed development should keep
+source-project commands as the user entrypoint and use automatic cross-process
+disk compilation caches without requiring a resident compiler service. The build
+system would locate workspace cache records and validate compiler/configuration,
+source, dependency and host-contract identities before reuse. Newly compiled
+in-memory results should execute directly rather than be written and read back.
+Development caches are disposable and distinct from explicitly exported bytecode
+or platform-specific AOT deployment products; deployment loads the selected product,
+not a guessed development cache. Input paths converge on shared runtime contracts,
+while bytecode validation and trusted native-code loading retain different checks.
+Cache units, invalidation, identity remapping, disk validation, atomic/concurrent
+publication and cleanup remain undecided. This is a direction to revisit, not an
+implemented capability or an approved cache design. It does not block or expand the
+[compilation/startup plan](compilation-startup-plan.md): immediate priorities remain
+the direct source path and efficient eager verification. No cache implementation,
+daemon or AOT expansion is activated by this note.
+
 ## Cranelift AOT deployment
 
 [Scalar AOT deployment](spec/aot.md) is implemented for x86_64 Windows MSVC.
@@ -254,18 +271,50 @@ Remaining acceptance and explicitly deferred work:
 - Run the expanded Pages workflow on Linux/Node 24, including cold Cargo and CLI
   acquisition budgets. The nested Unix timeout/interrupt contract passed in WSL,
   but that is not cold GitHub Actions acceptance.
-- Validate the live Playground, Worker/WASM MIME/URLs, transfer encoding and caching
-  after separately authorized push/deployment. No remote activation follows from
-  local build/browser success.
-- Dev-profile source JS/WASM totals about 22.95 MB raw; measured session construction
-  is about 1.1 s and simple compilation about 3.4 s on the documented Windows host.
-  See [methods and limitations](../site/README.md#measured-development-baseline).
-  These are untuned costs, not release or cold-network claims. A performance follow-up
-  must establish a target and profile setup/compiler costs before changing models.
+- Read-only live diagnosis on 2026-10-20 verified successful Run/repeat behavior,
+  WASM MIME, gzip and ten-minute cache headers. First successful Runs took 25-36 s
+  on the measured route, with transfer failures also observed; warm repeats made
+  no requests yet took about 4 s. The served representation changed mid-probe and
+  exact live revision/profile was unavailable. This is not stable-release or full
+  deployment acceptance, nor authorization for pushes/settings changes.
+- [Matched dev/release profiling](performance-baseline.md#browser-compilation-latency-2026-10-20)
+  at 98f5c39d establishes that release alone is insufficient: minimal-program fresh
+  construction/compile medians were 4.88 s dev and 3.65 s release; retained-session
+  release recompilation remained 2.63 s. About 69% of one sampled compile was MIR/
+  bytecode verification, with allocation-heavy type limits/trait proofs and three
+  bytecode verification boundaries. Keep this separate from steady execution gates.
+  The [compilation/startup plan](compilation-startup-plan.md) now owns the finite
+  source/preparation split, efficient eager verification, release product recipe
+  and measured latency goals. It preserves malformed-artifact, type-limit,
+  trait-proof, source-free and lifecycle coverage without making new broad profiling
+  a prerequisite. Permanent engine reuse, artifact pruning and delivery-size work
+  remain separate; no unbounded identity retention or relaxed validation is allowed.
 - Other browsers/platforms, hard heap/compiler quotas, external async wake providers,
   threads/shared memory, WASI, arbitrary JS callbacks, browser live reload, i128/u128
   and a WASM code-generation backend remain outside this delivery. Existing native
   and interpreter optimization work remains separately owned.
+
+## Fast compilation and eager startup
+
+The [execution plan](compilation-startup-plan.md) is drafted; CS01-CS06 have not
+started. Current authorization covers documentation only, not implementation,
+commits, pushes or deployment. This is a cross-target developer-feedback task,
+not a WASM-specific verifier or another interpreter throughput plan.
+
+The intended path prepares source directly through retained verified MIR/bytecode,
+without constructing and re-importing a mutable deployment artifact. External KBC
+inputs retain complete independent validation. Shared type traversal and scoped
+program-level proof preparation remove repeated work while preserving typing,
+host binding, GC/debug metadata, cancellation and generation-pinned reload.
+Necessary static checks finish before execution, not at first use. Development
+uses lightweight interpreter preparation; expensive deployment optimization remains
+explicit, with no weaker development semantics.
+
+The plan owns phase order, consumer migration, local latency goals and the progress
+ledger. Full incremental compilation, permanent engine reuse, R7/R8/R16 follow-ups,
+artifact reachability changes and AOT expansion are not silently activated. Existing
+performance evidence remains in the [baseline](performance-baseline.md#browser-compilation-latency-2026-10-20);
+full feature/platform acceptance remains CI-only.
 
 ## Runtime storage redesign
 
