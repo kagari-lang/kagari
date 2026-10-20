@@ -198,14 +198,46 @@ mod tests {
 
     fn source() -> PathBuf {
         let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/format-writeback");
-        fs::create_dir_all(&root).unwrap();
-        let path = root.join(format!(
-            "{}-{}.kgr",
-            process::id(),
-            NEXT_TEMP.fetch_add(1, Ordering::Relaxed)
-        ));
-        fs::write(&path, "fn f(){}").unwrap();
-        path
+        source_in(&root, &NEXT_TEMP)
+    }
+
+    fn source_in(root: &Path, sequence: &AtomicU64) -> PathBuf {
+        fs::create_dir_all(root).unwrap();
+        loop {
+            let directory = root.join(format!(
+                "{}-{}",
+                process::id(),
+                sequence.fetch_add(1, Ordering::Relaxed)
+            ));
+            // Restored caches and reused process IDs can leave old fixture links.
+            // Claim the whole namespace rather than overwriting just its source.
+            match fs::create_dir(&directory) {
+                Ok(()) => {
+                    let path = directory.join("source.kgr");
+                    fs::write(&path, "fn f(){}").unwrap();
+                    return path;
+                }
+                Err(error) if error.kind() == ErrorKind::AlreadyExists => continue,
+                Err(error) => panic!("cannot create writeback fixture: {error}"),
+            }
+        }
+    }
+
+    #[test]
+    fn reused_fixture_names_preserve_existing_sources_and_links() {
+        let parent = source();
+        let root = parent.parent().unwrap().join("reused-names");
+        let first = source_in(&root, &AtomicU64::new(0));
+        let linked = first.with_extension("link.kgr");
+        fs::hard_link(&first, &linked).unwrap();
+        fs::write(&first, "retained source").unwrap();
+
+        let second = source_in(&root, &AtomicU64::new(0));
+        assert_ne!(first.parent(), second.parent());
+        assert_eq!(fs::read_to_string(&first).unwrap(), "retained source");
+        assert_eq!(fs::read_to_string(&linked).unwrap(), "retained source");
+        assert_eq!(fs::read_to_string(&second).unwrap(), "fn f(){}");
+        fs::hard_link(&second, second.with_extension("link.kgr")).unwrap();
     }
 
     #[test]
