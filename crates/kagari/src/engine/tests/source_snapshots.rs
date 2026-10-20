@@ -44,7 +44,7 @@ fn module_rebinding_changes_analysis_and_artifacts_without_changing_text() {
         .unwrap();
     assert_eq!(old.module_identity(), &first);
     assert_eq!(new.module_identity(), &second);
-    let artifact = engine.emit_bytecode(&new, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&new, Default::default()).unwrap();
     assert_eq!(
         artifact.records().program.modules[artifact.records().program.root.index()].identity,
         second
@@ -116,9 +116,9 @@ fn reused_signature_and_body_facts_emit_the_same_artifact_as_fresh_analysis() {
     let fresh = fresh_engine
         .compile_source(SourceFile::new("memory://reuse.kgr", edited))
         .unwrap();
-    let reused = engine.emit_bytecode(&reused, Default::default()).unwrap();
+    let reused = engine.emit_artifact(&reused, Default::default()).unwrap();
     let fresh = fresh_engine
-        .emit_bytecode(&fresh, Default::default())
+        .emit_artifact(&fresh, Default::default())
         .unwrap();
     assert_eq!(
         reused.records().to_bytes(reused.definitions()).unwrap(),
@@ -206,13 +206,13 @@ fn compilation_and_tools_share_overlay_revision_and_profile() {
         ))
         .unwrap();
     let artifact = engine
-        .emit_bytecode(&checked, ArtifactOptions::default())
+        .emit_artifact(&checked, ArtifactOptions::default())
         .unwrap();
     let from_snapshot = engine
         .compile_snapshot(engine.source_snapshot(), id, &token)
         .unwrap();
     let from_snapshot = engine
-        .emit_bytecode(&from_snapshot, ArtifactOptions::default())
+        .emit_artifact(&from_snapshot, ArtifactOptions::default())
         .unwrap();
     assert_eq!(
         artifact.records().to_bytes(artifact.definitions()).unwrap(),

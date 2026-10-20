@@ -27,7 +27,7 @@ fn compile(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeAr
     let checked = engine
         .compile_source(SourceFile::new("memory://events.kgr", source))
         .unwrap();
-    engine.emit_bytecode(&checked, Default::default()).unwrap()
+    engine.emit_artifact(&checked, Default::default()).unwrap()
 }
 
 fn variant(module: &LoadedModule, name: &str) -> EnumVariantRef {

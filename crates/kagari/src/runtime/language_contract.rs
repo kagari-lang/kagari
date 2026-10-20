@@ -296,7 +296,8 @@ fn compile(case: &Case<'_>) -> Option<DefinitionMetadata<KbcArtifact>> {
     let checked = checked.unwrap_or_else(|error| panic!("{}: {error:?}", case.name));
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let compiled = lower_program_to_bytecode(&mir)
+    let compiled = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
         .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()

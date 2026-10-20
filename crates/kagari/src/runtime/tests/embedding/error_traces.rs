@@ -519,7 +519,7 @@ fn imported_error_frames_keep_their_own_source_locations() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let artifact =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();

@@ -7,7 +7,7 @@ use crate::{
     program::{
         BytecodeProgram, identity,
         verified::{ProgramVerification, VerifiedBytecodeProgram},
-        verify_graph, verify_program,
+        verify_graph,
     },
     verifier::BytecodeVerificationError,
 };
@@ -172,11 +172,31 @@ impl KbcArtifact {
         })
     }
 
+    /// Validate editable executable records before constructing an export envelope.
     pub fn from_program(
         program: BytecodeProgram,
         options: ArtifactBuildOptions,
         context: &DefinitionContext,
     ) -> Result<Self, ArtifactValidationError> {
+        let program = VerifiedBytecodeProgram::new(program, context)?;
+        Self::from_verified(program, options, &CancellationToken::default())
+            .map(DefinitionMetadata::into_records)
+    }
+
+    /// Export an exact sealed program without repeating its executable proof.
+    ///
+    /// Export-only metadata, payload limits and canonical encoding remain checked.
+    /// The resulting editable envelope carries identities but no execution seal;
+    /// importing it requires independent validation even if it has not been edited.
+    pub fn from_verified(
+        program: VerifiedBytecodeProgram,
+        options: ArtifactBuildOptions,
+        cancel: &CancellationToken,
+    ) -> Result<DefinitionMetadata<Self>, ArtifactValidationError> {
+        cancel
+            .check()
+            .map_err(|_| ArtifactValidationError::Identity(DefinitionMappingError::Cancelled))?;
+        let (definitions, program) = program.into_unverified().into_parts();
         if options
             .portable_mir
             .as_ref()
@@ -186,7 +206,7 @@ impl KbcArtifact {
                 "portable MIR byte limit exceeded",
             ));
         }
-        if let Some(reason) = program_count_limit(&program, &context.snapshot()) {
+        if let Some(reason) = program_count_limit(&program, &definitions) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
         if let Some(reason) =
@@ -194,13 +214,12 @@ impl KbcArtifact {
         {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
-        validate_program_resource_limits(&program, &context.snapshot())?;
         if exceeds_encoded_size(&options) {
             return Err(ArtifactValidationError::ResourceLimit(
                 "artifact encoded size limit exceeded",
             ));
         }
-        let verification = VerificationMetadata::from_program(&program, &options, context)?;
+        let verification = VerificationMetadata::build(&program, &options, &definitions)?;
         let module = &program.modules[program.root.index()];
         let debug = options.debug;
         let signatures = options.signatures;
@@ -231,9 +250,10 @@ impl KbcArtifact {
             signatures,
             portable_mir,
         };
-        artifact.validate_resource_limits(&context.snapshot())?;
-        artifact.header.content_hash = artifact.compute_content_hash(&context.snapshot())?;
-        Ok(artifact)
+        artifact.validate_resource_limits(&definitions)?;
+        artifact.header.content_hash = artifact.compute_content_hash(&definitions)?;
+        DefinitionMetadata::checked(definitions, artifact, cancel)
+            .map_err(ArtifactValidationError::Identity)
     }
 
     /// Bound the complete editable envelope and check its reference scope.
@@ -743,17 +763,6 @@ pub struct VerificationMetadata {
 }
 
 impl VerificationMetadata {
-    pub fn from_program(
-        program: &BytecodeProgram,
-        options: &ArtifactBuildOptions,
-        context: &DefinitionContext,
-    ) -> Result<Self, ArtifactValidationError> {
-        let definitions = identity::collect(&program.modules.iter().collect::<Vec<_>>(), context)
-            .map_err(ArtifactValidationError::Bytecode)?;
-        verify_program(program, &definitions).map_err(ArtifactValidationError::Bytecode)?;
-        Ok(Self::build(program, options, &definitions)?)
-    }
-
     fn build(
         program: &BytecodeProgram,
         options: &ArtifactBuildOptions,

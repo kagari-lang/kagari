@@ -34,7 +34,9 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
         ..Default::default()
     };
     let mir = lower_program_to_mir(&checked, &options).unwrap();
-    let code = lower_program_to_bytecode(&mir).unwrap();
+    let code = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let context = DefinitionContext::new().unwrap();
     let mut code = code
         .import_into(&context, &Default::default())

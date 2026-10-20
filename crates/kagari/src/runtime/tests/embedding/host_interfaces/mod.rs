@@ -303,7 +303,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .unwrap();
     let artifact = fixture
         .engine
-        .emit_bytecode(&checked, Default::default())
+        .emit_artifact(&checked, Default::default())
         .unwrap();
     let new = vm
         .reload_artifact(&loaded, "host-interfaces", artifact, &Default::default())
@@ -439,7 +439,7 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let definitions = DefinitionContext::new().unwrap();
     let artifact = artifact
         .import_into(&definitions, &Default::default())

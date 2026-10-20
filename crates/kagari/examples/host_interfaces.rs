@@ -40,7 +40,7 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
     let checked = author
         .compile_snapshot(author.source_snapshot(), file, &Default::default())
         .unwrap();
-    let contract = author.emit_bytecode(&checked, Default::default()).unwrap();
+    let contract = author.emit_artifact(&checked, Default::default()).unwrap();
     let source_module =
         &contract.records().program.modules[contract.records().program.root.index()];
     let reader = source_module
@@ -128,7 +128,7 @@ fn compile_offline() -> (KagariEngine, DefinitionMetadata<BytecodeArtifact>) {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     (engine, artifact)
 }
 

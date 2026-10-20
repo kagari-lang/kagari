@@ -7,7 +7,7 @@ use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedP
 use kagari_bytecode::artifact::KbcArtifact;
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{ModuleIdentity, PackageId, map::DefinitionContext},
+    identity::{ModuleIdentity, PackageId},
 };
 use kagari_compiler::{bytecode, source::program};
 use kagari_source::source_database::SourceLayer;
@@ -91,15 +91,10 @@ fn main() {
             );
         }
     }
-    let program = bytecode::lower_program_to_bytecode(&ir).unwrap();
-    let definitions = DefinitionContext::new().unwrap();
-    let program = program
-        .import_into(&definitions, &Default::default())
-        .unwrap();
+    let program = bytecode::lower_program_to_bytecode(&ir, &Default::default()).unwrap();
     let artifact =
-        KbcArtifact::from_program(program.into_records(), Default::default(), &definitions)
-            .unwrap();
-    let encoded = artifact.to_bytes(&definitions.snapshot()).unwrap();
+        KbcArtifact::from_verified(program, Default::default(), &Default::default()).unwrap();
+    let encoded = artifact.records().to_bytes(artifact.definitions()).unwrap();
     let decoded = KbcArtifact::from_bytes(&encoded).unwrap();
     let decoded_program = &decoded.records().program;
     let root_bytecode = &decoded_program.modules[decoded_program.root.index()];

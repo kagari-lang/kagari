@@ -28,7 +28,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
         NativeInputExport::BytecodeOnly,
     ] {
         let artifact = engine
-            .emit_bytecode(
+            .emit_artifact(
                 &checked,
                 ArtifactOptions {
                     native_input,
@@ -88,10 +88,9 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
 fn prepared_reload_preserves_abi_validation_and_the_previous_version_on_failure() {
     let engine = KagariEngine::default();
     let prepare = |source| {
-        let artifact = engine
-            .compile_to_artifact(SourceFile::new("reload", source), Default::default())
-            .unwrap();
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()
+        engine
+            .compile_to_program(SourceFile::new("reload", source), Default::default())
+            .unwrap()
     };
     let first = prepare("pub fn main() -> i32 { 1 }");
     let second = prepare("pub fn main() -> i32 { 2 }");

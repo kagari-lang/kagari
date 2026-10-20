@@ -127,7 +127,7 @@ fn imported_child_bounds_keep_hidden_parent_declarations_and_projections() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     execute(artifact);
 }
 

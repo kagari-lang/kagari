@@ -132,7 +132,9 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
         wire,
         encode_program(&restored, &Default::default()).unwrap()
     );
-    let bytecode = lower_program_to_bytecode(&restored).unwrap();
+    let bytecode = lower_program_to_bytecode(&restored, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let bytecode = bytecode
         .import_into(&context, &Default::default())
         .unwrap()

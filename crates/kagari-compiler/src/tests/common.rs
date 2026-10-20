@@ -176,7 +176,9 @@ pub fn mir_ok(text: &str) -> VerifiedMirProgram {
 }
 
 pub fn bytecode_ok(text: &str) -> DefinitionMetadata<BytecodeProgram> {
-    lower_program_to_bytecode(&mir_ok(text)).expect("program bytecode lowering should succeed")
+    lower_program_to_bytecode(&mir_ok(text), &Default::default())
+        .map(|program| program.into_unverified())
+        .expect("program bytecode lowering should succeed")
 }
 
 /// Module transformation tests revalidate the edited root within its original
@@ -208,7 +210,9 @@ pub fn bytecode_with_edited_root(
         .into_records();
     let verified = verify_program(members, &context, &Default::default())
         .expect("edited program should verify");
-    lower_program_to_bytecode(&verified).expect("edited program bytecode lowering should succeed")
+    lower_program_to_bytecode(&verified, &Default::default())
+        .map(|program| program.into_unverified())
+        .expect("edited program bytecode lowering should succeed")
 }
 
 fn analysis_database() -> AnalysisDatabase {

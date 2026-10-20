@@ -458,7 +458,9 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     ));
     let bytecode = common::adopt(
         &context,
-        crate::bytecode::lower_program_to_bytecode(&ir).unwrap(),
+        crate::bytecode::lower_program_to_bytecode(&ir, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap(),
     );
     let root_module = &bytecode.modules[bytecode.root.index()];
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(

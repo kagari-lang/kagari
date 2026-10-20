@@ -225,7 +225,7 @@ fn imported_families_and_defaults_keep_declaration_owned_binders() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     for encoded in [false, true] {
         let artifact = if encoded {
             BytecodeArtifact::from_bytes(

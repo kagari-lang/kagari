@@ -39,7 +39,8 @@ fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
     )
     .unwrap();
     let artifact = KbcArtifact::from_program(
-        lower_program_to_bytecode(&mir)
+        lower_program_to_bytecode(&mir, &Default::default())
+            .map(|program| program.into_unverified())
             .map(|metadata| common::adopt_bytecode(&context, metadata))
             .unwrap(),
         Default::default(),

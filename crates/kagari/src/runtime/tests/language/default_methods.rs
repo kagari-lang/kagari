@@ -262,7 +262,7 @@ fn imported_defaults_preserve_private_helpers_and_definition_context() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let module = &artifact.records().program.modules[artifact.records().program.root.index()];
     let default = module
         .functions
@@ -719,7 +719,7 @@ fn shared_helpers_are_materialized_in_their_declaring_module() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let decoded =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();

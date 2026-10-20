@@ -76,7 +76,9 @@ fn finalized_code_and_installed_runtimes_move_execute_and_release_on_other_threa
     shareable::<NativeCompilationProduct>();
     shareable::<InstalledNativeFunction>();
     let mir = mir("fn main() -> i32 { 40 + 2 }");
-    let bytecode = lower_program_to_bytecode(&mir).unwrap();
+    let bytecode = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let mut backend = CraneliftBackend::for_host().unwrap();
     let product = Arc::new(compile(&mut backend, &mir).unwrap());
     let owner = Arc::downgrade(&product.owner);
@@ -154,7 +156,12 @@ fn cranelift_backend_compiles_scalar_mir_and_products_outlive_the_backend() {
     for (mir, code, expected, _points) in products {
         let mut runtime = runtime();
         let module = runtime
-            .load_program("native", lower_program_to_bytecode(&mir).unwrap())
+            .load_program(
+                "native",
+                lower_program_to_bytecode(&mir, &Default::default())
+                    .map(|program| program.into_unverified())
+                    .unwrap(),
+            )
             .unwrap();
         let installed = unsafe { runtime.install_native_function(&module, code.clone()) }.unwrap();
         drop(code);
@@ -229,7 +236,9 @@ fn checked_i32_traps_keep_the_exact_mir_point() {
         let overflow_offset = code.artifact.code.traps.last().unwrap().instruction_offset;
         {
             let mut runtime = runtime();
-            let bytecode = lower_program_to_bytecode(&mir).unwrap();
+            let bytecode = lower_program_to_bytecode(&mir, &Default::default())
+                .map(|program| program.into_unverified())
+                .unwrap();
             let function =
                 &bytecode.records().modules[bytecode.records().root.index()].functions[0];
             let origin = function.metadata.origins[overflow_offset].clone();

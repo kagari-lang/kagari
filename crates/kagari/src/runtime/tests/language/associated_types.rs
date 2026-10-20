@@ -170,7 +170,7 @@ fn imported_associated_types_keep_trait_identity_and_interface_bindings() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     execute_artifact(&engine, artifact);
 }
 
@@ -381,7 +381,7 @@ fn imported_generic_interfaces_materialize_all_methods_in_the_owning_module() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let model = artifact
         .records()
         .program

@@ -30,8 +30,8 @@ fn main() {
         .check_program(root, &Default::default())
         .expect("checked applied trait implementation");
     let ir = lower_program_to_mir(&checked, &Default::default()).expect("verified IR");
-    let program = lower_program_to_bytecode(&ir).expect("verified bytecode");
-    let bytecode = &program.records().modules[program.records().root.index()];
+    let program = lower_program_to_bytecode(&ir, &Default::default()).expect("verified bytecode");
+    let bytecode = &program.program().modules[program.program().root.index()];
     let table = bytecode
         .public_items
         .iter()
@@ -73,17 +73,16 @@ fn main() {
         table.name,
         executable.methods.len()
     );
-    let context = DefinitionContext::new().unwrap();
-    let program = program.import_into(&context, &Default::default()).unwrap();
-    let artifact = KbcArtifact::from_program(
-        program.into_records(),
+    let artifact = KbcArtifact::from_verified(
+        program,
         ArtifactBuildOptions::default(),
-        &context,
+        &Default::default(),
     )
     .expect("artifact");
     let decoded = KbcArtifact::from_bytes(
         &artifact
-            .to_bytes(&context.snapshot())
+            .records()
+            .to_bytes(artifact.definitions())
             .expect("encoded artifact"),
     )
     .expect("decoded artifact");

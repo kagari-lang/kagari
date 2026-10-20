@@ -8,6 +8,7 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{
         map::DefinitionContext,
+        mapping::DefinitionMappingError,
         metadata::DefinitionMetadata,
         table::{DefinitionId, DefinitionTable},
     },
@@ -44,6 +45,30 @@ pub struct VerifiedBytecodeProgram {
 }
 
 impl VerifiedBytecodeProgram {
+    /// Validate already scoped records and retain their exact immutable identities.
+    ///
+    /// Compiler output has already collected implicit declaration names. This
+    /// entrypoint checks the same resource and graph obligations as editable
+    /// input; possessing scoped metadata alone grants no executable authority.
+    pub fn from_metadata(
+        metadata: DefinitionMetadata<BytecodeProgram>,
+        cancel: &CancellationToken,
+    ) -> Result<Self, ArtifactValidationError> {
+        cancel
+            .check()
+            .map_err(|_| ArtifactValidationError::Identity(DefinitionMappingError::Cancelled))?;
+        validate_program_resource_limits(metadata.records(), metadata.definitions())?;
+        let verification = verify_graph(metadata.records(), metadata.definitions())
+            .map_err(ArtifactValidationError::Bytecode)?;
+        cancel
+            .check()
+            .map_err(|_| ArtifactValidationError::Identity(DefinitionMappingError::Cancelled))?;
+        Ok(Self {
+            metadata,
+            verification,
+        })
+    }
+
     pub fn new(
         program: BytecodeProgram,
         context: &DefinitionContext,

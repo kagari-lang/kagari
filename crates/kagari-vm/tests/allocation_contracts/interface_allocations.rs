@@ -36,7 +36,9 @@ fn unused_interface_methods_do_not_increase_repeated_dispatch_allocations() {
             .unwrap();
         let checked = snapshot.check_program(root, &Default::default()).unwrap();
         let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-        let program = lower_program_to_bytecode(&mir).unwrap();
+        let program = lower_program_to_bytecode(&mir, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap();
         let main = program.records().modules[program.records().root.index()]
             .functions
             .iter()
@@ -294,7 +296,9 @@ fn load(source: &str) -> (Vm, LoadedModule) {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let program = lower_program_to_bytecode(&mir).unwrap();
+    let program = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let mut runtime = Runtime::default();
     kagari_runtime::native::module::NativeModule::install_all(
         &kagari_stdlib::modules().unwrap(),

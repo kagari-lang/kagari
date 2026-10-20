@@ -120,7 +120,10 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         None
     );
     let mir = verify_program(editable, &context, &Default::default()).unwrap();
-    let bytecode = lower_program_to_bytecode(&mir).unwrap().into_records();
+    let bytecode = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap()
+        .into_records();
     let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let fresh = DefinitionContext::new().unwrap();
@@ -164,7 +167,8 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
     let program = compiled();
     let bytes = encode_program(&program, &Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let bytecode = lower_program_to_bytecode(&program)
+    let bytecode = lower_program_to_bytecode(&program, &Default::default())
+        .map(|program| program.into_unverified())
         .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()

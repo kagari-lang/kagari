@@ -185,7 +185,9 @@ fn program(
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let bytecode = lower_program_to_bytecode(&mir).unwrap();
+    let bytecode = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let context = DefinitionContext::new().unwrap();
     let bytecode = bytecode.import_into(&context, &Default::default()).unwrap();
     let artifact =

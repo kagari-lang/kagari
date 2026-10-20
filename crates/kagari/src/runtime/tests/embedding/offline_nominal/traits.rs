@@ -18,7 +18,7 @@ fn anonymous_source_trait_qualifiers_remain_scoped_to_native_importers() {
     let checked = author
         .compile_snapshot(author.source_snapshot(), file, &Default::default())
         .unwrap();
-    let artifact = author.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = author.emit_artifact(&checked, Default::default()).unwrap();
     let root = &artifact.records().program.modules[artifact.records().program.root.index()];
     let abi = root
         .trait_contracts
@@ -122,7 +122,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .compile_snapshot(author.source_snapshot(), file, &Default::default())
         .unwrap();
     let contract = author
-        .emit_bytecode(&checked, ArtifactOptions::default())
+        .emit_artifact(&checked, ArtifactOptions::default())
         .unwrap();
     let definition = contract
         .records()
@@ -296,7 +296,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .compile_snapshot(engine.source_snapshot(), main, &Default::default())
         .unwrap();
     let artifact = engine
-        .emit_bytecode(&checked, ArtifactOptions::default())
+        .emit_artifact(&checked, ArtifactOptions::default())
         .unwrap();
     let artifact =
         KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
@@ -363,7 +363,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .unwrap();
     assert!(
         engine
-            .emit_bytecode(&changed, ArtifactOptions::default())
+            .emit_artifact(&changed, ArtifactOptions::default())
             .is_err()
     );
 
@@ -373,7 +373,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .set_source("mem://readable", changed_source.into(), SourceLayer::Base)
         .unwrap();
     let source_contract = author
-        .emit_bytecode(
+        .emit_artifact(
             &author
                 .compile_snapshot(author.source_snapshot(), file, &Default::default())
                 .unwrap(),
@@ -422,7 +422,7 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .unwrap();
     changed_engine.set_source("mem://counter-main", "use demo::counter::make; use pkg::api::Readable; pub fn main() -> i32 { make().again() }".into(), SourceLayer::Base).unwrap();
     let changed = changed_engine
-        .emit_bytecode(
+        .emit_artifact(
             &changed_engine
                 .compile_snapshot(changed_engine.source_snapshot(), main, &Default::default())
                 .unwrap(),
@@ -480,7 +480,7 @@ fn host_trait_table_is_checked_against_script_trait_signatures() {
         )
         .unwrap();
     let artifact = author
-        .emit_bytecode(
+        .emit_artifact(
             &author
                 .compile_snapshot(author.source_snapshot(), file, &Default::default())
                 .unwrap(),
@@ -696,7 +696,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
         .set_source("mem://host-trait-bound", contract_source, SourceLayer::Base)
         .unwrap();
     let contract = author
-        .emit_bytecode(
+        .emit_artifact(
             &author
                 .compile_snapshot(author.source_snapshot(), file, &Default::default())
                 .unwrap(),
@@ -827,7 +827,7 @@ fn host_trait_bound_calls_use_bound_methods_across_execution_routes() {
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), file, &Default::default())
         .unwrap();
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let executable = &artifact.records().program.modules[artifact.records().program.root.index()];
     assert_eq!(executable.trait_contracts.len(), 1);
     assert_eq!(executable.trait_contracts[0].abi.name, "Readable");

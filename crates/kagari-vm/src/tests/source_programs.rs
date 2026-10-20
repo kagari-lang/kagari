@@ -44,7 +44,9 @@ fn fixture(dependency_source: &str) -> DefinitionMetadata<BytecodeProgram> {
         .check_program(root.unwrap(), &Default::default())
         .unwrap();
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    lower_program_to_bytecode(&ir).unwrap()
+    lower_program_to_bytecode(&ir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap()
 }
 
 #[test]

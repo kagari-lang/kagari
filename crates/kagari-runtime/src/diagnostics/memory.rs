@@ -40,7 +40,9 @@ fn compile(source: &str, provider: Option<&NativeModule>) -> DefinitionMetadata<
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    lower_program_to_bytecode(&mir).unwrap()
+    lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap()
 }
 
 fn provider() -> NativeModule {

@@ -59,7 +59,8 @@ missing dependencies, unrelated modules, unresolved calls, signature
 mismatches and conflicting layouts for the same nominal struct declaration.
 Editing any module invalidates the program's verification and link bindings.
 
-`lower_program_to_bytecode` consumes VerifiedMirProgram and emits BytecodeProgram:
+`lower_program_to_bytecode` borrows VerifiedMirProgram and accepts caller cancellation.
+It returns an immutable `VerifiedBytecodeProgram` retaining the verified graph:
 one root ModuleRef and a stable vector of BytecodeModule members. Each
 member stores its dependency ModuleRefs. Module identities are unique; all members
 must be reachable from the root. Calls to dependencies use

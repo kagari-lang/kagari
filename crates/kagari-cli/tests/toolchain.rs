@@ -292,7 +292,7 @@ fn workspace_tools_preserve_semantics_and_agree_with_direct_sdk_checking() {
 fn execute(engine: &KagariEngine, inputs: &ProgramInputs) -> Value {
     let checked = engine.compile_package(inputs, &Default::default()).unwrap();
     let artifact = engine
-        .emit_bytecode(&checked, ArtifactOptions::default())
+        .emit_artifact(&checked, ArtifactOptions::default())
         .unwrap();
     let context = ExecutionContext::default();
     let program = PreparedProgram::from_artifact(

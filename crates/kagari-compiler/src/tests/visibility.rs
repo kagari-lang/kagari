@@ -24,7 +24,8 @@ fn field_visibility_survives_source_free_artifacts() {
     let mir = common::mir_ok(SOURCE);
     let bytes = encode_program(&mir, &Default::default()).unwrap();
     let decoded = decode_program(&bytes, &Default::default()).unwrap();
-    let bytecode = lower_program_to_bytecode(&decoded)
+    let bytecode = lower_program_to_bytecode(&decoded, &Default::default())
+        .map(|program| program.into_unverified())
         .map(|metadata| common::adopt_bytecode(&context, metadata))
         .unwrap();
     let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
@@ -124,7 +125,8 @@ fn inherent_visibility_and_receiver_survive_source_free_artifacts() {
         &Default::default(),
     )
     .unwrap();
-    let bytecode = lower_program_to_bytecode(&decoded)
+    let bytecode = lower_program_to_bytecode(&decoded, &Default::default())
+        .map(|program| program.into_unverified())
         .map(|metadata| common::adopt_bytecode(&context, metadata))
         .unwrap();
     let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();

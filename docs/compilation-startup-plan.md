@@ -109,7 +109,7 @@ is not a prerequisite.
 
 | Owner | Current responsibility and problem |
 | --- | --- |
-| [SDK source compilation](../crates/kagari/src/engine/source.rs) | `emit_bytecode` lowers MIR/bytecode, optionally encodes portable MIR, imports identities and constructs `KbcArtifact`; `compile_to_artifact` is also used for immediate execution. |
+| [SDK source compilation](../crates/kagari/src/engine/source.rs) | Original `emit_bytecode` lowers MIR/bytecode, optionally encodes portable MIR, imports identities and constructs `KbcArtifact`; `compile_to_artifact` is also used for immediate execution. |
 | [Compiler bytecode lowering](../crates/kagari-compiler/src/bytecode.rs) | Checks the lowered graph but returns editable records, losing reusable verification evidence. |
 | [Bytecode evidence](../crates/kagari-bytecode/src/program/verified.rs) | Existing `VerifiedBytecodeProgram` owns exact scoped records, export targets and suspension evidence. Mutation/extraction discards the seal. Reuse this owner. |
 | [Artifact envelope](../crates/kagari-bytecode/src/artifact.rs) | Construction creates verification metadata; consuming preparation verifies externally mutable input again. Serialized flags/hashes do not establish trust. |
@@ -616,7 +616,7 @@ in tracked documentation. No new measurements are required before CS02 begins.
 | --- | --- | --- |
 | Plan | Drafted | Browser evidence, Lua/wasmparser/Rust/JVMS mechanisms, Vela comparison and cross-machine handoff recorded; no implementation or performance improvement claimed. |
 | CS01 | Complete | Source-inspected API/provenance, obligation/cancellation and consumer inventories above; package output contract and focused workload fixed. Documentation-only validation: content/link review and `git diff --check` passed. |
-| CS02 | Not started | Direct sealed compilation/preparation. |
+| CS02 | Complete | Direct sealed compilation/preparation and explicit sealed export; 22 selected tests, SDK check, structure, fmt, workspace all-target Clippy and diff checks passed. |
 | CS03 | Not started | Shared read-only type validation. |
 | CS04 | Not started | Scoped program-level verification preparation. |
 | CS05 | Not started | Immediate-run consumers and release browser products. |
@@ -626,3 +626,34 @@ CS01 changed documentation only; no Rust test result is claimed. A matched
 pre-change release WASM product build is in progress for final performance evidence. Existing CI/performance findings remain with their current
 owners. Update this ledger with actual commands, selected-scope rationale, remaining
 CI scope and any carried errors when implementation changes it.
+
+### CS02 implementation evidence
+
+The paired source owner and APIs follow CS01. Compiler output now returns the
+bytecode seal with caller cancellation at admission/completion; external and
+editable artifact paths still validate independently. Explicit source artifact
+export avoids remapping and derives envelope metadata from the retained seal.
+Removed the unused standalone `VerificationMetadata::from_program` public entry;
+metadata derivation is internal to the artifact owner. Low-level inspection,
+mutation and source-free test helpers explicitly extract editable scoped records;
+export examples retain the seal. `emit_bytecode` is replaced by `emit_artifact`
+without a forwarding alias. Artifact/runtime identifiers are unchanged.
+
+Selected local validation: `cargo check -p kagari --lib`; five bytecode
+`artifact::identity_tests`; seventeen SDK `program::tests` covering detached
+source preparation, separate runtime binding, cancellation, native pairing,
+actual Cranelift execution, forged/mismatched input and reload. All passed.
+Structure (1392 files, zero findings), formatting, workspace all-target Clippy and
+diff checks passed. Manual review found no new re-exports, compatibility aliases,
+production glob imports or structural exceptions; the paired source owner has
+private fields and no constructor accepting independently supplied products.
+The remaining cancellation work inside existing graph/declaration/proof loops is
+owned by CS04 as specified in CS01, not claimed complete by admission polling.
+Full workspace/feature/platform matrices remain unrun locally and CI-owned.
+
+Pre-change release WASM built successfully on this machine using default Cargo
+parallelism. The installed wasm-bindgen 0.2.122 could not process the locked
+0.2.129 schema; installing 0.2.129 under ignored `target/compilation-startup/tools`
+and generating the saved baseline web product succeeded. This was a tooling
+version mismatch, not a source/build failure. Browser timing and matched native
+baseline remain CS06 work; no speed improvement is claimed yet.

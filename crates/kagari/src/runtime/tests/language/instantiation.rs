@@ -250,7 +250,7 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
         ))
         .unwrap();
     let error = engine
-        .emit_bytecode(
+        .emit_artifact(
             &checked,
             ArtifactOptions {
                 lowering: MirLoweringOptions {
@@ -273,7 +273,7 @@ fn instance_limits_report_revision_owned_diagnostics_without_poisoning_compilati
         }),
         "{diagnostics:?}"
     );
-    let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     assert_eq!(
         artifact.records().program.modules[artifact.records().program.root.index()]
             .functions
@@ -294,10 +294,10 @@ fn cancelled_instantiation_keeps_the_checked_module_reusable() {
     let options = ArtifactOptions::default();
     options.lowering.cancel.cancel();
     assert!(matches!(
-        engine.emit_bytecode(&checked, options),
+        engine.emit_artifact(&checked, options),
         Err(EmbeddingError::Cancelled)
     ));
-    engine.emit_bytecode(&checked, Default::default()).unwrap();
+    engine.emit_artifact(&checked, Default::default()).unwrap();
 }
 
 #[test]

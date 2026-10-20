@@ -1,32 +1,26 @@
-//! Source analysis and artifact emission are optional SDK capabilities.
+//! Optional source analysis, direct executable preparation and artifact export.
 
 pub mod analysis;
+pub(crate) mod compilation;
 
 use crate::{
     BytecodeArtifact, CompileResult,
-    engine::{KagariEngine, packages::PackageBuildInput, source::analysis::SourceAnalysis},
-    error::{CompilationPhase, EmbeddingError},
+    engine::{
+        KagariEngine,
+        packages::PackageBuildInput,
+        source::{analysis::SourceAnalysis, compilation::Compilation},
+    },
+    error::EmbeddingError,
+    program::PreparedProgram,
 };
 
 use blake3::Hasher;
-use kagari_bytecode::{
-    artifact::{ArtifactBuildOptions, KAGARI_COMPILER_FINGERPRINT, KbcArtifact},
-    native_input::PortableMir,
-};
+use kagari_bytecode::artifact::{ArtifactBuildOptions, KAGARI_COMPILER_FINGERPRINT};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{
-        ModuleIdentity, map::DefinitionContext, mapping::DefinitionMappingError,
-        metadata::DefinitionMetadata, table::DefinitionId,
-    },
+    identity::{ModuleIdentity, metadata::DefinitionMetadata, table::DefinitionId},
 };
-use kagari_compiler::{
-    bytecode::lower_program_to_bytecode,
-    source::{
-        lower::instances::MirLoweringOptions,
-        program::{SourceProgramError, lower_program_to_mir},
-    },
-};
+use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_hir::{
     analysis::{
         AnalysisSnapshot, body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
@@ -35,11 +29,7 @@ use kagari_hir::{
     program::CheckedProgram,
     typeck::const_budget::ConstLimits,
 };
-use kagari_mir::{
-    codec::{MirCodecError, encode_program},
-    passes::PassOptions,
-    program::ProgramErrorKind,
-};
+use kagari_mir::passes::PassOptions;
 use kagari_package::{error::PackageError, snapshot::ProgramInputs};
 use kagari_source::{
     identity::FileId,
@@ -95,6 +85,30 @@ impl CheckedModule {
         self.package_inputs
             .as_ref()
             .map(PackageBuildInput::fingerprint)
+    }
+}
+
+/// Controls one source preparation request independently of Cargo features.
+///
+/// Bounded MIR simplification is enabled by default. Native support being built
+/// into the SDK does not retain compiler input unless this request asks for it.
+#[derive(Debug, Clone)]
+pub struct PreparationOptions {
+    pub lowering: MirLoweringOptions,
+    #[cfg(feature = "native")]
+    pub retain_native_input: bool,
+}
+
+impl Default for PreparationOptions {
+    fn default() -> Self {
+        Self {
+            lowering: MirLoweringOptions {
+                optimization: Some(PassOptions::default()),
+                ..MirLoweringOptions::default()
+            },
+            #[cfg(feature = "native")]
+            retain_native_input: false,
+        }
     }
 }
 
@@ -344,59 +358,44 @@ impl KagariEngine {
         .check(cancel)
     }
 
-    pub fn emit_bytecode(
+    /// Lower captured checked source directly into reusable executable input.
+    ///
+    /// The result owns its identities and debug facts independently of this engine.
+    /// Runtime installation still checks host bindings and reload compatibility.
+    pub fn prepare(
+        &self,
+        checked: &CheckedModule,
+        options: PreparationOptions,
+    ) -> CompileResult<PreparedProgram> {
+        let compilation = Compilation::lower(checked, &options.lowering)?;
+        let prepared = PreparedProgram::from_compilation(compilation, &options);
+        options
+            .lowering
+            .cancel
+            .check()
+            .map_err(|_| EmbeddingError::Cancelled)?;
+        Ok(prepared)
+    }
+
+    /// Check and prepare source for execution without constructing an artifact.
+    pub fn compile_to_program(
+        &self,
+        source: SourceFile,
+        options: PreparationOptions,
+    ) -> CompileResult<PreparedProgram> {
+        let checked = self
+            .analyze_source(source, &options.lowering.cancel)?
+            .check(&options.lowering.cancel)?;
+        self.prepare(&checked, options)
+    }
+
+    /// Explicitly export checked source as an editable portable artifact.
+    pub fn emit_artifact(
         &self,
         checked: &CheckedModule,
         options: ArtifactOptions,
     ) -> CompileResult<DefinitionMetadata<BytecodeArtifact>> {
-        let ir =
-            lower_program_to_mir(&checked.program, &options.lowering).map_err(
-                |error| match error {
-                    SourceProgramError::Lowering { module, error } => {
-                        let source = &checked
-                            .program
-                            .modules()
-                            .iter()
-                            .find(|item| item.lowered.source.module_identity() == module.as_ref())
-                            .expect("lowered program source")
-                            .lowered
-                            .source;
-                        EmbeddingError::ir_lowering(error, source)
-                    }
-                    SourceProgramError::Verification(error) => match error.kind {
-                        ProgramErrorKind::Cancelled => EmbeddingError::Cancelled,
-                        kind => EmbeddingError::Compilation {
-                            phase: CompilationPhase::MirLowering,
-                            message: format!("{}: {kind:?}", error.module),
-                        },
-                    },
-                },
-            )?;
-        let program = lower_program_to_bytecode(&ir).map_err(EmbeddingError::bytecode_lowering)?;
-        let mut build = options.build;
-        build.portable_mir = match options.native_input {
-            NativeInputExport::PortableMir => Some(PortableMir {
-                bytes: encode_program(&ir, &options.lowering.cancel).map_err(
-                    |error| match error {
-                        MirCodecError::Cancelled => EmbeddingError::Cancelled,
-                        error => EmbeddingError::Compilation {
-                            phase: CompilationPhase::ArtifactEncoding,
-                            message: error.to_string(),
-                        },
-                    },
-                )?,
-            }),
-            NativeInputExport::BytecodeOnly => None,
-        };
-        let context =
-            DefinitionContext::new().map_err(|error| artifact_identity_error(error.into()))?;
-        let program = program
-            .import_into(&context, &options.lowering.cancel)
-            .map_err(artifact_identity_error)?;
-        let artifact = KbcArtifact::from_program(program.into_records(), build, &context)
-            .map_err(EmbeddingError::artifact_validation)?;
-        DefinitionMetadata::checked(context.snapshot(), artifact, &options.lowering.cancel)
-            .map_err(artifact_identity_error)
+        Compilation::lower(checked, &options.lowering)?.export(options)
     }
 
     pub fn compile_to_artifact(
@@ -404,14 +403,9 @@ impl KagariEngine {
         source: SourceFile,
         artifact_options: ArtifactOptions,
     ) -> CompileResult<DefinitionMetadata<BytecodeArtifact>> {
-        let checked = self.compile_source(source)?;
-        self.emit_bytecode(&checked, artifact_options)
-    }
-}
-
-fn artifact_identity_error(error: DefinitionMappingError) -> EmbeddingError {
-    match error {
-        DefinitionMappingError::Cancelled => EmbeddingError::Cancelled,
-        error => EmbeddingError::artifact_validation(error.into()),
+        let checked = self
+            .analyze_source(source, &artifact_options.lowering.cancel)?
+            .check(&artifact_options.lowering.cancel)?;
+        self.emit_artifact(&checked, artifact_options)
     }
 }

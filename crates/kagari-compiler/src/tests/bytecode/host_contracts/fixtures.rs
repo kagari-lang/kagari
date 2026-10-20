@@ -61,7 +61,12 @@ pub(super) fn readable_sources(
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let original = common::adopt_bytecode(context, lower_program_to_bytecode(&ir).unwrap());
+    let original = common::adopt_bytecode(
+        context,
+        lower_program_to_bytecode(&ir, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap(),
+    );
     let source_module = &original.modules[original.root.index()];
     let contract = source_module
         .public_items
@@ -171,7 +176,12 @@ pub(super) fn readable_sources(
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    common::adopt_bytecode(context, lower_program_to_bytecode(&ir).unwrap())
+    common::adopt_bytecode(
+        context,
+        lower_program_to_bytecode(&ir, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap(),
+    )
 }
 
 pub(super) fn replace_readable_result(program: &mut BytecodeProgram, result: Ty) {

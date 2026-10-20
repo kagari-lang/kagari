@@ -1,7 +1,10 @@
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
-    engine::{KagariEngine, source::ArtifactOptions},
+    engine::{
+        KagariEngine,
+        source::{ArtifactOptions, PreparationOptions},
+    },
     program::PreparedProgram,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -21,17 +24,24 @@ fn source_and_encoded_mir_use_real_native_code_after_backend_and_program_drop() 
         )
         .unwrap();
     for encoded in [false, true] {
-        let artifact = if encoded {
-            BytecodeArtifact::from_bytes(
+        let program = if encoded {
+            let artifact = BytecodeArtifact::from_bytes(
                 &artifact.records().to_bytes(artifact.definitions()).unwrap(),
             )
-            .unwrap()
-        } else {
-            artifact.clone()
-        };
-        let program =
+            .unwrap();
             PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+                .unwrap()
+        } else {
+            engine
+                .compile_to_program(
+                    SourceFile::new("native.kgr", "fn main() -> i32 { 40 + 2 % 5 }"),
+                    PreparationOptions {
+                        retain_native_input: true,
+                        ..Default::default()
+                    },
+                )
+                .unwrap()
+        };
         let context = ExecutionContext {
             jit_policy: JitPolicy::Enabled,
             ..Default::default()

@@ -80,8 +80,12 @@ fn shared_associated_output_preserves_primitive_and_distinct_custom_results() {
         match lower_program_to_mir(&checked, &Default::default()) {
             Ok(mir) => {
                 let context = DefinitionContext::new().unwrap();
-                let program =
-                    common::adopt_bytecode(&context, lower_program_to_bytecode(&mir).unwrap());
+                let program = common::adopt_bytecode(
+                    &context,
+                    lower_program_to_bytecode(&mir, &Default::default())
+                        .map(|program| program.into_unverified())
+                        .unwrap(),
+                );
                 let artifact =
                     KbcArtifact::from_program(program, Default::default(), &context).unwrap();
                 let decoded =

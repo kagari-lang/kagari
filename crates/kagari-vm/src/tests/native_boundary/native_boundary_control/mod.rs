@@ -106,7 +106,9 @@ fn compile_test_bytecode(text: &str) -> DefinitionMetadata<BytecodeProgram> {
         .unwrap();
     let checked = snapshot.check_program(file, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    lower_program_to_bytecode(&mir).unwrap()
+    lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap()
 }
 
 fn runtime(limits: RuntimeLimits) -> Runtime {

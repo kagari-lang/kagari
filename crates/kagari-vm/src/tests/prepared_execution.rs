@@ -50,7 +50,9 @@ fn compile(source: &str, optimize: bool) -> DefinitionMetadata<BytecodeProgram> 
         },
     )
     .unwrap();
-    lower_program_to_bytecode(&mir).unwrap()
+    lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap()
 }
 
 fn setup(bytecode: DefinitionMetadata<BytecodeProgram>) -> (Vm, LoadedModule) {

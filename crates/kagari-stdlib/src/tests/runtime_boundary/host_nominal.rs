@@ -272,9 +272,12 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
         .snapshot(sources.snapshot(), &Default::default())
         .unwrap();
     let checked = snapshot.check_program(file, &Default::default()).unwrap();
-    let bytecode =
-        lower_program_to_bytecode(&lower_program_to_mir(&checked, &Default::default()).unwrap())
-            .unwrap();
+    let bytecode = lower_program_to_bytecode(
+        &lower_program_to_mir(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .map(|program| program.into_unverified())
+    .unwrap();
     let context = DefinitionContext::new().unwrap();
     let bytecode = bytecode.import_into(&context, &Default::default()).unwrap();
     let artifact =

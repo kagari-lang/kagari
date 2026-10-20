@@ -4,6 +4,7 @@ use crate::bytecode::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
+    artifact::ArtifactValidationError,
     instruction::{
         BinaryOp, BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, EnumId, FieldRef,
         InterfaceTableRef, JumpTarget, ModuleSlot, NativeImportId, PathId, RuntimeHelper, Slot,
@@ -14,10 +15,11 @@ use kagari_bytecode::{
         CallableTarget, FunctionMetadata, FunctionRecord, InstructionOrigin, PathRecord,
         RootSlotLayout,
     },
-    program::{BytecodeProgram, ModuleRef, verify_program},
+    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
     verifier::{BytecodeVerificationError, verify_module},
 };
 use kagari_common::{
+    cancellation::CancellationToken,
     identity::{ModuleIdentity, metadata::DefinitionMetadata, table::DefinitionId},
     span::Span,
 };
@@ -58,6 +60,7 @@ pub enum BytecodeLoweringError {
     UnlinkedSourceModules,
     InvalidBranchTarget(BlockId),
     Verification(BytecodeVerificationError),
+    ProgramValidation(ArtifactValidationError),
     InvalidNativeInterface,
 }
 
@@ -1082,17 +1085,17 @@ fn lower_jump(
         .ok_or(BytecodeLoweringError::InvalidBranchTarget(block))
 }
 
-/// Lower and verify linked MIR in its existing immutable identity scope.
+/// Lower linked MIR and retain complete bytecode verification evidence.
 ///
-/// The result retains that scope. Extracting records does not retain bytecode
-/// verification evidence; execution requires the ordinary artifact/seal boundary.
+/// The seal owns its immutable definition scope, export targets and suspension
+/// facts. Extracting editable records explicitly discards this evidence.
 pub fn lower_program_to_bytecode(
     program: &VerifiedMirProgram,
-) -> Result<DefinitionMetadata<BytecodeProgram>, BytecodeLoweringError> {
+    cancel: &CancellationToken,
+) -> Result<VerifiedBytecodeProgram, BytecodeLoweringError> {
     let bytecode = lower_program_for_comparison(program)?;
-    verify_program(bytecode.records(), bytecode.definitions())
-        .map_err(BytecodeLoweringError::Verification)?;
-    Ok(bytecode)
+    VerifiedBytecodeProgram::from_metadata(bytecode, cancel)
+        .map_err(BytecodeLoweringError::ProgramValidation)
 }
 
 /// This unsealed result is only suitable for comparison with independently

@@ -176,7 +176,9 @@ fn compile_native_test_bytecode_with_options(
         .check_program(root, &Default::default())
         .expect("program analysis should succeed");
     let ir = lower_program_to_mir(&checked, options).expect("program MIR lowering should succeed");
-    lower_program_to_bytecode(&ir).expect("program bytecode lowering should succeed")
+    lower_program_to_bytecode(&ir, &Default::default())
+        .map(|program| program.into_unverified())
+        .expect("program bytecode lowering should succeed")
 }
 
 pub fn test_function_module(

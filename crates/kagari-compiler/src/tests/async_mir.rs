@@ -107,7 +107,12 @@ fn async_mir_suspension_contract() {
     let verified = verified(&context, modules.clone(), root);
     let bytes = encode_program(&verified, &Default::default()).unwrap();
     let decoded = decode_program(&bytes, &Default::default()).unwrap();
-    let bytecode = common::adopt_bytecode(&context, lower_program_to_bytecode(&decoded).unwrap());
+    let bytecode = common::adopt_bytecode(
+        &context,
+        lower_program_to_bytecode(&decoded, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap(),
+    );
     assert!(
         bytecode
             .modules

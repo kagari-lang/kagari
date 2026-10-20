@@ -164,7 +164,9 @@ fn same_batch_override_executes_its_compiler_selected_requirement_in_both_orders
             .check_program(root, &Default::default())
             .unwrap();
         let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-        let bytecode = lower_program_to_bytecode(&mir).unwrap();
+        let bytecode = lower_program_to_bytecode(&mir, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap();
         let mut runtime = Runtime::default();
         NativeModule::install_all(&modules, &mut runtime).unwrap();
         let loaded = runtime.load_program("forward-call", bytecode).unwrap();

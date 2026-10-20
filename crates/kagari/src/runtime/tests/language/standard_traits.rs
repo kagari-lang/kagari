@@ -683,7 +683,7 @@ pub fn make()->HashMap<Key,i32> {val m:HashMap<Key,i32> = HashMap::new();m.inser
             continue;
         }
         let artifact = engine
-            .emit_bytecode(&checked.unwrap(), Default::default())
+            .emit_artifact(&checked.unwrap(), Default::default())
             .unwrap();
         let artifact = BytecodeArtifact::from_bytes(
             &artifact.records().to_bytes(artifact.definitions()).unwrap(),

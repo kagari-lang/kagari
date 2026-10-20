@@ -81,7 +81,7 @@ fn virtual_inputs(base: i32) -> VirtualSources {
 }
 
 fn prepare(engine: &KagariEngine, checked: &CheckedModule) -> PreparedProgram {
-    let artifact = engine.emit_bytecode(checked, Default::default()).unwrap();
+    let artifact = engine.emit_artifact(checked, Default::default()).unwrap();
     let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
     PreparedProgram::from_artifact(
         BytecodeArtifact::from_bytes(&bytes).unwrap(),

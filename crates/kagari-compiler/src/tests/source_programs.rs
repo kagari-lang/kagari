@@ -846,7 +846,12 @@ fn adopt<T: RemapDefinitions>(context: &DefinitionContext, metadata: DefinitionM
 }
 
 fn bytecode(context: &DefinitionContext, program: &VerifiedMirProgram) -> BytecodeProgram {
-    let program = adopt(context, lower_program_to_bytecode(program).unwrap());
+    let program = adopt(
+        context,
+        lower_program_to_bytecode(program, &Default::default())
+            .map(|program| program.into_unverified())
+            .unwrap(),
+    );
     identity::collect(&program.modules.iter().collect::<Vec<_>>(), context).unwrap();
     program
 }

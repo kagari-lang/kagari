@@ -105,9 +105,9 @@ fn main() {
             .kind,
         MirVerificationErrorKind::Cancelled,
     );
-    let program = lower_program_to_bytecode(&mir_program).unwrap();
+    let program = lower_program_to_bytecode(&mir_program, &Default::default()).unwrap();
     let definitions = program.definitions();
-    let bytecode = &program.records().modules[program.records().root.index()];
+    let bytecode = &program.program().modules[program.program().root.index()];
     assert!(bytecode.functions.iter().all(|function| {
         function.identity.as_ref().is_some_and(|identity| {
             definitions.resolve(identity.declaration).unwrap().module() == &bytecode.identity

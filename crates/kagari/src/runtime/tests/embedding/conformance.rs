@@ -64,7 +64,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .expect("source should compile");
 
     let artifact = engine
-        .emit_bytecode(
+        .emit_artifact(
             &checked,
             ArtifactOptions {
                 lowering: Default::default(),

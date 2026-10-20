@@ -19,7 +19,7 @@ fn compile(engine: &KagariEngine, root: FileId) -> DefinitionMetadata<BytecodeAr
     let checked = engine
         .compile_snapshot(engine.source_snapshot(), root, &Default::default())
         .unwrap();
-    engine.emit_bytecode(&checked, Default::default()).unwrap()
+    engine.emit_artifact(&checked, Default::default()).unwrap()
 }
 
 fn insert(engine: &KagariEngine, name: &str, text: &str) -> FileId {

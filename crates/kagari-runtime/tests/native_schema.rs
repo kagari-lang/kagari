@@ -129,12 +129,15 @@ fn program_for_source(module: &NativeModule, text: &str) -> DefinitionMetadata<B
         .unwrap();
     let checked = snapshot.check_program(file, &Default::default()).unwrap();
     let context = DefinitionContext::new().unwrap();
-    let bytecode =
-        lower_program_to_bytecode(&lower_program_to_mir(&checked, &Default::default()).unwrap())
-            .unwrap()
-            .import_into(&context, &Default::default())
-            .unwrap()
-            .into_records();
+    let bytecode = lower_program_to_bytecode(
+        &lower_program_to_mir(&checked, &Default::default()).unwrap(),
+        &Default::default(),
+    )
+    .map(|program| program.into_unverified())
+    .unwrap()
+    .import_into(&context, &Default::default())
+    .unwrap()
+    .into_records();
     let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     KbcArtifact::from_bytes(&bytes)

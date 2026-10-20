@@ -10,6 +10,8 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
+#[cfg(feature = "source")]
+use crate::engine::source::{PreparationOptions, compilation::Compilation};
 use kagari_bytecode::artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -82,6 +84,23 @@ impl From<NativeInputError> for ProgramPreparationError {
 }
 
 impl PreparedProgram {
+    /// Adopt products paired by the SDK's private source lowering owner.
+    #[cfg(feature = "source")]
+    pub(crate) fn from_compilation(compilation: Compilation, options: &PreparationOptions) -> Self {
+        let (bytecode, mir) = compilation.into_parts();
+        #[cfg(not(feature = "native"))]
+        let _ = (mir, options);
+        Self {
+            state: Rc::new(ProgramState {
+                bytecode: VerifiedProgram::from_bytecode(bytecode),
+                #[cfg(feature = "native")]
+                mir: options.retain_native_input.then_some(mir),
+                #[cfg(feature = "native")]
+                native: RefCell::default(),
+            }),
+        }
+    }
+
     /// Validate the artifact before runtime linking or script effects. Native-enabled
     /// builds additionally validate all supplied compiler input; bytecode-only builds
     /// check the opaque payload bounds and integrity without interpreting MIR.

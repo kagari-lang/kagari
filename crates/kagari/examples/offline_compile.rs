@@ -330,21 +330,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         .check_program(root, &Default::default())
         .expect("checked offline declarations");
     let ir = lower_program_to_mir(&checked, &Default::default()).expect("MIR lowering");
-    let program = lower_program_to_bytecode(&ir)
-        .expect("bytecode lowering")
-        .import_into(&definitions, &Default::default())?;
-    let artifact = KbcArtifact::from_program(
-        program.into_records(),
+    let program = lower_program_to_bytecode(&ir, &Default::default()).expect("bytecode lowering");
+    let artifact = KbcArtifact::from_verified(
+        program,
         ArtifactBuildOptions {
             portable_mir: Some(PortableMir {
                 bytes: encode_program(&ir, &Default::default())?,
             }),
             ..Default::default()
         },
-        &definitions,
+        &Default::default(),
     )?;
-    let artifact =
-        DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default())?;
     let function_records: usize = artifact
         .records()
         .program

@@ -189,7 +189,7 @@ impl Fixture {
         let checked = engine
             .compile_snapshot(engine.source_snapshot(), file, &Default::default())
             .unwrap();
-        let artifact = engine.emit_bytecode(&checked, Default::default()).unwrap();
+        let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
         assert!(
             trace.lock().unwrap().is_empty(),
             "cold compilation called Rust"
@@ -247,7 +247,7 @@ pub fn source_contract(
     let checked = author
         .compile_snapshot(author.source_snapshot(), file, &Default::default())
         .unwrap();
-    author.emit_bytecode(&checked, Default::default()).unwrap()
+    author.emit_artifact(&checked, Default::default()).unwrap()
 }
 
 pub fn reference_trait(

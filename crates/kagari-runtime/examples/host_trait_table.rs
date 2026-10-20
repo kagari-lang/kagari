@@ -72,13 +72,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         .check_program(root, &Default::default())
         .expect("checked explicit trait impl");
     let mir = lower_program_to_mir(&checked, &Default::default()).expect("checked MIR");
-    let bytecode = lower_program_to_bytecode(&mir).expect("checked bytecode");
+    let bytecode = lower_program_to_bytecode(&mir, &Default::default()).expect("checked bytecode");
     // The artifact contains declarations and checked trait tables, never Rust code.
+    let artifact = KbcArtifact::from_verified(bytecode, Default::default(), &Default::default())?;
+    let decoded = KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions())?)?;
     let definitions = DefinitionContext::new()?;
-    let bytecode = bytecode.import_into(&definitions, &Default::default())?;
-    let artifact =
-        KbcArtifact::from_program(bytecode.into_records(), Default::default(), &definitions)?;
-    let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&definitions.snapshot())?)?;
     let decoded = decoded.import_into(&definitions, &Default::default())?;
     decoded
         .records()

@@ -80,7 +80,9 @@ fn native_completion_fixture(
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let code = lower_program_to_bytecode(&mir).unwrap();
+    let code = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let code = if discard {
         let (definitions, mut program) = code.into_parts();
         for function in &mut program.modules[program.root.index()].functions {
@@ -226,7 +228,9 @@ fn collection_during_an_operand_borrow_quarantines_without_further_execution() {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let code = lower_program_to_bytecode(&mir).unwrap();
+    let code = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let mut runtime = Runtime::default();
     let loaded = runtime.load_program("borrow", code).unwrap();
     let entry = loaded

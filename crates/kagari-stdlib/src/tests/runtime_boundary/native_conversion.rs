@@ -58,7 +58,9 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, LoadedMo
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let program = lower_program_to_bytecode(&mir).unwrap();
+    let program = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),

@@ -29,7 +29,7 @@ fn main() {
         .compile_package(&project.programs()["gameplay"], &cancel)
         .expect("checked package");
     let artifact = engine
-        .emit_bytecode(&checked, Default::default())
+        .emit_artifact(&checked, Default::default())
         .expect("artifact");
     let program = PreparedProgram::from_artifact(artifact, &Default::default(), &cancel)
         .expect("verified program");

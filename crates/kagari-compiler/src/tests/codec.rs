@@ -30,8 +30,12 @@ fn program(source: &str) -> VerifiedMirProgram {
 }
 
 fn assert_same_bytecode(before: &VerifiedMirProgram, after: &VerifiedMirProgram) {
-    let before = lower_program_to_bytecode(before).unwrap();
-    let after = lower_program_to_bytecode(after).unwrap();
+    let before = lower_program_to_bytecode(before, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
+    let after = lower_program_to_bytecode(after, &Default::default())
+        .map(|program| program.into_unverified())
+        .unwrap();
     assert_eq!(
         encode_program_facts(before.records(), before.definitions(), &Default::default()).unwrap(),
         encode_program_facts(after.records(), after.definitions(), &Default::default()).unwrap()
@@ -230,7 +234,8 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
     let other = program("pub fn main(x: i32) -> i32 { if x < 43 { x + 1 } else { x - 1 } }");
     let wire = encode_program(&original, &Default::default()).unwrap();
     let bytecode = VerifiedBytecodeProgram::new(
-        lower_program_to_bytecode(&original)
+        lower_program_to_bytecode(&original, &Default::default())
+            .map(|program| program.into_unverified())
             .map(|metadata| common::adopt_bytecode(&context, metadata))
             .unwrap(),
         &context,
@@ -239,7 +244,8 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
     let prepared = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
     assert_same_bytecode(&original, &prepared);
     let different_bytecode = VerifiedBytecodeProgram::new(
-        lower_program_to_bytecode(&other)
+        lower_program_to_bytecode(&other, &Default::default())
+            .map(|program| program.into_unverified())
             .map(|metadata| common::adopt_bytecode(&context, metadata))
             .unwrap(),
         &context,
@@ -374,7 +380,8 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
             let original = verify_program(modules, &context, &Default::default()).unwrap();
             let wire = encode_program(&original, &Default::default()).unwrap();
             let bytecode = VerifiedBytecodeProgram::new(
-                lower_program_to_bytecode(&original)
+                lower_program_to_bytecode(&original, &Default::default())
+                    .map(|program| program.into_unverified())
                     .map(|metadata| common::adopt_bytecode(&context, metadata))
                     .unwrap(),
                 &context,
@@ -417,7 +424,8 @@ fn artifact_integrity_does_not_substitute_for_native_correspondence() {
     let second = program("fn main() -> i32 { 43 }");
     for (mir, matches) in [(&first, true), (&second, false)] {
         let artifact = KbcArtifact::from_program(
-            lower_program_to_bytecode(&first)
+            lower_program_to_bytecode(&first, &Default::default())
+                .map(|program| program.into_unverified())
                 .map(|metadata| common::adopt_bytecode(&context, metadata))
                 .unwrap(),
             ArtifactBuildOptions {

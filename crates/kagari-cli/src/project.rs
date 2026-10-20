@@ -87,7 +87,7 @@ fn run_from(
             continue;
         }
         let artifact = engine
-            .emit_bytecode(&checked, ArtifactOptions::default())
+            .emit_artifact(&checked, ArtifactOptions::default())
             .map_err(|error| print_source_error(&engine, error))?;
         let bytes = artifact
             .records()

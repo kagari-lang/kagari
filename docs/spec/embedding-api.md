@@ -22,6 +22,26 @@ publication rules, and the [runnable host](../../crates/kagari/examples/package_
 for several calls into one package Program. Artifact-only SDK configurations have
 no package acquisition or source-analysis dependency.
 
+## Direct source preparation
+
+`KagariEngine::compile_to_program` checks source and prepares it for execution;
+`prepare` accepts an already checked module or captured package. Both return the
+same `PreparedProgram` used by artifact import. One private lowering owner pairs
+verified MIR with bytecode emitted from that exact MIR. The bytecode seal retains
+scoped identities, exports and suspension facts. Preparation does not construct a
+KBC envelope, encode/decode MIR or repeat unchanged bytecode graph verification.
+Dropping the source engine does not invalidate the program; independent runtimes
+still perform their own host binding and generation checks before execution.
+
+`PreparationOptions` enables bounded MIR simplification by default. With native
+support compiled in, `retain_native_input` explicitly preserves the paired MIR for
+native preparation; it defaults to false even if Cargo unifies the native feature.
+This does not remove required MIR verification. Explicit artifact export remains
+`compile_to_artifact` or `emit_artifact` on checked input, with separate portable
+MIR options. Export derives metadata from the exact seal, while editable/imported
+artifacts remain untrusted and independently validated. Caller cancellation is
+carried by lowering options through source checking and preparation admission.
+
 ## Source snapshots
 
 `FileAnalysis::signatures_reused()` and `FileSignatures::reused()` report whether
@@ -427,7 +447,7 @@ The embedding API must expose operations equivalent to:
 
 ```text
 compile_source(source, compile_options) -> CompileResult<CheckedModule>
-emit_bytecode(checked_module, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
+emit_artifact(checked_module, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 compile_to_artifact(source, artifact_options) -> CompileResult<DefinitionMetadata<BytecodeArtifact>>
 prepare_artifact(artifact, compatibility, cancellation) -> PreparedProgram
 load_program(prepared_program, load_options) -> LoadResult<LoadedModule>

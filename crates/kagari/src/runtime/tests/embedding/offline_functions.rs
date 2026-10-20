@@ -89,7 +89,7 @@ fn offline_host_facades_preserve_linking_and_backend_call_traces() {
         .compile_snapshot(engine.source_snapshot(), root.unwrap(), &Default::default())
         .unwrap();
     let artifact = engine
-        .emit_bytecode(&checked, ArtifactOptions::default())
+        .emit_artifact(&checked, ArtifactOptions::default())
         .unwrap();
     let comparison = DefinitionContext::new().unwrap();
     let artifact = artifact

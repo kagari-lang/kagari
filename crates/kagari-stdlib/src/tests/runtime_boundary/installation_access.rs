@@ -286,7 +286,8 @@ fn reserved_core_roles_require_exact_installed_declarations_without_calls() {
         .unwrap();
     let checked = snapshot.check_program(root, &Default::default()).unwrap();
     let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let modules = lower_program_to_bytecode(&mir)
+    let modules = lower_program_to_bytecode(&mir, &Default::default())
+        .map(|program| program.into_unverified())
         .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()
