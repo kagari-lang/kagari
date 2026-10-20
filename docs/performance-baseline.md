@@ -16,9 +16,213 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Direct source preparation, 2026-10-21
+
+The compilation/startup work is measured separately from the historical Windows
+investigation below. Baseline `77ef42e8` and implementation `48f3ba40` use matching
+release settings on this Mac. CS02-CS05 replace source artifact round trips, retain
+verification evidence, remove wire allocation from type-limit predicates, and share
+graph proof resources. The CS06 bounded repair shares admission for identical
+closures and prepares the lowering native-default catalog once per graph. The
+[active plan](compilation-startup-plan.md) owns remaining acceptance and scope.
+
+### Environment and method
+
+macOS 26.6.2 (25G83), MacBookPro18,2, Apple M1 Max, 10 logical CPUs, 32 GiB RAM;
+Rust/Cargo 1.98.1, rustc `48a229ceaefd4985c50990b14116b6d856af0985`, LLVM 22.1.8;
+Chrome 155.0.8059.82; Node 22.20.0, npm 10.9.3; wasm-bindgen crate/CLI 0.2.129.
+Standard Cargo release profile (opt-level 3), default target directories and build
+parallelism, no wasm-opt or custom profile. All builds finished before timing;
+no other task builds or benchmarks ran during sampling. Host/browser background
+activity, CPU frequency and V8 code caching were not controlled.
+
+The baseline native workspace was reconstructed with `git archive 77ef42e8` under
+ignored `target/`. The baseline release WASM was built before source changes and
+retained with its matching bindgen wrapper. Current exact source/artifact products
+were rebuilt by `node site/scripts/wasm-products.mjs`. Native probes use default
+SDK source+native features with interpreter execution and no JIT compilation;
+source WASM uses the web adapter's default source feature, without native. These
+feature sets differ across native and WASM; percentages must not be extrapolated.
+
+Browser measurements serve immutable local products with the maintained
+`startProductServer`/`launchBrowser` helpers. For each minimal and generic-trait
+workload, five samples alternate baseline/current, each in a fresh browser context
+in one Chrome process. After WASM initialization, each context constructs a first
+session, compiles, executes twice, resets and frees it; constructs a second session
+and repeats; then recompiles/executes on that retained second session. The external
+artifact control uses a new session and the same fixture in both versions. Import/
+initialization, construction, compile/load, first/repeat execution, reset/free and
+external admission are separate observations. No sample is discarded as warmup.
+Fresh construction+compile is computed per sample before taking its median. It
+excludes WASM import/network initialization, as the plan's goal specifies.
+
+The minimal source is `fn main()->i32{42}`. The generic-trait fixture defines
+`Echo<T>`, `Pair { number: i32 }`, `impl Echo<i32> for Pair`, and
+`read<U: Echo<i32>>(value: U) -> i32 { value.get() }`; main reads a Pair containing
+42. It exercises generic trait dispatch, not a broad stress test. Both browser
+executions assert 42. The external fixture asserts u64 max and `artifact hello 😀`.
+
+Native timing uses five observations per workload in one process per revision;
+baseline ran first, then current, with no discarded warmup. Each observation creates
+an engine, checks/prepares source, constructs/loads a runtime, executes, repeats,
+explicitly exports/encodes outside the measured regions, separately decodes/prepares
+and loads that artifact, then checks/prepares again on the retained engine. Source
+and external results are checked. The old preparation uses `emit_bytecode` followed
+by `PreparedProgram::from_artifact`; current uses `engine.prepare`. This is the
+intended public operation replacement, including the old default native-input
+serialization costs. No native-backend timing claim is made.
+
+The growth inputs add 1/8/32 leaf modules, each calling one shared function returning
+42; root sums their results. On the 8-leaf graph, body edit returns 43, then public
+signature edit adds an i32 parameter and updates callers with zero. Both edits
+assert 344. The helper rebinds all module URIs on each preparation, including retained
+and edit samples. Thus these measurements describe this workload's costs, not cache
+hit rates, minimal invalidation or incremental dependency reuse. Record counts
+include standard-library records. Table-bound constraints are counted, not dynamic
+solver invocations; maximum type nodes covers function semantic parameters/results/
+slots, not every carried contract or a worst-case type-limit workload.
+
+A separate allocator-counting executable measures requested live Rust heap bytes
+using the existing architecture-baseline `System` wrapper. It drops the checking
+engine and checked module before measuring the prepared program, then binds to a
+separate engine/runtime, and finally drops all owners. This is not allocation
+traffic, peak memory, allocator overhead or RSS. The first observation includes
+process-wide initialization; it is retained and labelled. Browser linear-memory
+page counts are committed high-water storage and cannot establish live heap or
+cleanup by themselves. Reset/failure/cancellation behavior is checked by the exact
+browser and Worker suites, not inferred from page counts.
+
+### Results and acceptance
+
+All values below are milliseconds, median [minimum, maximum], with five samples
+per condition. [Complete observations, product hashes and probe sources](measurements/compilation-startup-2026-10-21.json)
+retain every timing/memory sample, including first-process initialization and the
+separate excluded profile. Zero browser execution samples reflect timer resolution,
+not a zero-cost execution claim.
+
+| Browser workload / revision | First compile/load | Fresh construction + compile/load | Retained compile/load | External artifact admission |
+| --- | ---: | ---: | ---: | ---: |
+| minimal / baseline | 2748.8 [2731.5, 2799.9] | 3554.6 [3538.7, 3623.6] | 2574.4 [2556.5, 2606.5] | 541.0 [539.2, 554.3] |
+| minimal / current | 708.9 [702.8, 808.4] | 1458.2 [1448.3, 1646.4] | 587.0 [585.7, 688.7] | 142.4 [141.8, 159.4] |
+| trait / baseline | 2743.1 [2733.8, 2755.2] | 3543.1 [3536.7, 3572.0] | 2569.4 [2566.6, 2580.2] | 541.9 [540.4, 546.4] |
+| trait / current | 717.8 [713.9, 734.1] | 1461.3 [1459.9, 1478.2] | 600.9 [595.3, 611.7] | 142.6 [141.6, 148.3] |
+
+The minimal fresh-session median meets the 1500 ms goal, but its 1646.4 ms maximum
+exceeds it; this is a median target, not a tail guarantee. First compile/load still
+misses the 500 ms goal, including on the retained session. CS06 therefore remains
+incomplete. These are matched Mac results, not acceptance on the historical Windows
+machine or measurements of deployed network delivery.
+
+For the minimal workload, first execution is 2.6 [2.5, 2.7] ms baseline versus
+3.8 [3.4, 4.1] ms current; generic-trait first execution is 4.3 [4.2, 4.7] versus
+4.6 [4.4, 4.6] ms. Repeat executions are 0.0-0.1 ms at browser timer resolution.
+The first-call difference is reported rather than hidden inside compile savings;
+there is no deferred graph verifier in the execution path. Current minimal reset
+is 1.3 [1.2, 1.4] ms and free is 7.7 [7.5, 8.1] ms. WASM import/initialization is
+50.1 [48.3, 54.9] ms current versus 59.6 [50.4, 61.5] ms baseline on loopback;
+this is not a CDN/download claim. Second fresh-session construction and compile
+observations are retained in the linked data, separately from retained-session reuse.
+
+| Native workload | Baseline source check/prepare | Current source check/prepare | Baseline external decode/prepare | Current external decode/prepare |
+| --- | ---: | ---: | ---: | ---: |
+| minimal | 4152.2 [4141.7, 4165.1] | 576.9 [570.6, 624.9] | 1536.5 [1526.2, 1553.4] | 181.0 [178.8, 185.9] |
+| trait | 4160.5 [4147.0, 4265.1] | 575.7 [574.4, 581.8] | 1532.6 [1528.5, 1554.1] | 180.2 [179.6, 183.8] |
+| growth1 | 4292.0 [4277.6, 4297.1] | 584.0 [582.4, 592.7] | 1585.3 [1579.6, 1602.0] | 180.1 [179.9, 180.5] |
+| growth8 | 4847.5 [4842.7, 4857.8] | 689.9 [680.1, 739.9] | 1784.3 [1775.7, 1793.9] | 182.8 [181.7, 184.3] |
+| growth32 | 6864.0 [6828.9, 6923.8] | 1128.1 [1125.8, 1129.5] | 2446.5 [2437.2, 2455.7] | 192.3 [189.3, 197.2] |
+
+| Native minimal phase | Baseline | Current |
+| --- | ---: | ---: |
+| Engine construction | 434.380 [432.437, 672.033] | 428.379 [420.423, 561.675] |
+| Runtime construction/load | 5.615 [5.547, 5.993] | 4.349 [4.234, 4.686] |
+| First execution | 0.016 [0.015, 0.107] | 0.016 [0.015, 0.112] |
+| Repeat execution | 0.002 [0.002, 0.002] | 0.002 [0.002, 0.002] |
+| External runtime construction/load | 5.506 [5.456, 5.538] | 4.242 [4.099, 4.317] |
+| Retained engine check/prepare | 4158.833 [4148.038, 4262.450] | 574.334 [572.387, 575.456] |
+
+Growth's remaining source preparation increases from 584.0 ms (1 leaf) to 1128.1 ms
+(32 leaves), while external preparation increases from 180.1 to 192.3 ms. This
+supports reduced shared verifier setup on these inputs; it does not establish
+linear source compilation or a bound for generic fan-out or dense dependency graphs.
+Body-only edit check/prepare is 4870.9 [4855.9, 4906.8] ms baseline versus
+697.5 [697.3, 707.7] ms current. Public-signature edit is 4858.4 [4847.2, 4876.9]
+versus 704.4 [703.1, 704.8] ms. All bindings are refreshed as described above;
+these are not R8 incremental-reuse results.
+
+| Workload | Modules | Functions | Instructions | Declarations | Table-bound constraints | Physical type records | Max measured semantic type nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| minimal | 37 | 1 | 2 | 618 | 89 | 47 | 1 |
+| trait | 37 | 3 | 10 | 621 | 89 | 48 | 1 |
+| growth1 | 39 | 3 | 6 | 620 | 89 | 49 | 1 |
+| growth8 | 46 | 10 | 34 | 627 | 89 | 56 | 1 |
+| growth32 | 70 | 34 | 130 | 651 | 89 | 80 | 1 |
+
+### Retained memory and remaining diagnosis
+
+After source analysis/engine disposal, minimal prepared-program live requested heap
+is 5,791,387 bytes baseline versus 2,382,713 current for samples 1-4. The first
+minimal sample is 18,700,868 versus 15,292,194 bytes, including 12,909,481 bytes of
+one-time global initialization in each executable. Generic-trait prepared retention
+is 5,819,191 versus 2,394,746 bytes across all five samples. Old default artifact
+preparation retains portable native input; current interpreter preparation does not
+request MIR retention. These are whole-route comparisons, not a claim that the seal
+representation alone saves those bytes.
+
+All samples after the first return to zero net requested live heap after dropping
+program, independent runtime and engines; the first retains that same global
+initialization. Current minimal runtime+program median is 49,520,279 bytes versus
+52,917,937 baseline (all five observations, including the first, are retained).
+Browser minimal linear memory ends at 71,041,024 bytes baseline versus 70,975,488
+current; generic-trait ends at 71,237,632 versus 71,106,560. These high-water page
+counts do not shrink on reset/free and must not be interpreted as leaked live objects.
+
+The plan's one bounded reassessment/repair batch is complete. A separate retained
+minimal compile with CDP profiling took 597.3 ms, after one explicit warmup compile.
+Requested sample interval was 1000 us; actual intervals vary. Disjoint ancestry
+weights are approximately 179.2 ms source analysis, 195.6 ms MIR lowering excluding
+verification, 36.1 ms MIR verification, 36.0 ms bytecode lowering excluding
+verification, and 62.7 ms bytecode graph verification. Remaining samples include
+teardown and profiler/JS overhead. These are sampled weights, not exact phase timers
+or a proven attainable floor. The initial excluded profile's linked-catalog
+validation was about 253 ms inclusive; the final profile is about 16.5 ms inclusive.
+Do not add inclusive costs to the disjoint phase totals.
+
+Source inspection connects the remaining profile to two ownership boundaries:
+`AnalysisDatabase::prepare_signatures` constructs imported type bindings for each
+file before deciding whether the old signature result can be reused; MIR lowering
+builds callable/interface ABI facts and resolves native-default applications through
+HIR aggregate normalization. Inclusive samples identify about 81.3 ms in type
+bindings, 67.7 ms in namespace reachability, 94.7 ms in interface instance recording
+and 72.2 ms in ABI collection, with substantial overlap. This justifies a focused
+review of snapshot-owned signature inputs and checked lowering facts, not an
+unmeasured cache or a blanket removal of verification. It does not prove an R7
+round-count cause, activate R7/R8/R16, or authorize permanent browser engine reuse.
+Further optimization requires the plan's explicit scope decision; no extra repair
+batch or lowered goal is assumed.
+
+### Correctness and product boundaries
+
+Selected local seal/provenance, shape limits, dependency visibility, associated
+outputs, host binding, cancellation, reload, package, debugger and shared source/
+artifact/JIT contracts passed at their implementation checkpoints. The final repair
+reran affected verification/host contracts and representative runtime boundaries;
+separate Cargo invocations passed source-free portable and Cranelift artifact
+execution. The exact final browser source/artifact products passed all maintained
+adapter boundary cases. The selected real Worker `cooperative-loop-reset-effects`
+case and its Node protocol suite passed. Product hashes were checked unchanged
+through each browser run. Full workspace tests and feature/backend/platform matrices
+remain CI-owned and were not run locally; the complete Playground UI matrix was
+not rerun for this internal adapter/recipe change.
+
+Source WASM is 18,986,115 bytes baseline and 17,832,439 current; the final artifact-only
+WASM is 10,589,141 bytes. SHA-256 values, wrapper sizes and the 929,790-byte external
+fixture identity are retained in the measurement data. These local products were
+not pushed or deployed. Structure checks (1400 Rust files), formatting, workspace
+all-target Clippy and diff checks passed for implementation `48f3ba40`.
+
 ## Browser compilation latency, 2026-10-20
 
-**Diagnosis, not an implemented optimization or a latency gate.** The user reported
+**Historical diagnosis at the recorded revision, not a current latency gate.** The user reported
 long Run waits at `https://kagari-lang.github.io/kagari/playground/`. Separate remote
 delivery, session preparation, compilation and execution; the interpreter's steady
 execution benchmarks do not explain this path. The
@@ -49,7 +253,7 @@ The served representation changed during the 13:13-13:19 UTC investigation
 (earlier WASM: 23,758,722 decoded bytes). The public `.checked-build.json` returned
 404 and no complete live binary hash was obtained. Thus neither live commit nor
 profile was established, and these individual observations are **not a controlled
-build comparison**. Local checked-in product orchestration uses dev; that alone
+build comparison**. At that revision, local checked-in product orchestration used dev; that alone
 is not proof of the deployed profile. No publication or remote setting changed.
 
 ### Matched local dev/release comparison

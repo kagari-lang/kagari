@@ -46,10 +46,11 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Fast compilation and eager startup](compilation-startup-plan.md): planned
-  CS01-CS06 separate immediate source execution from artifact import/export and
-  make validation efficient without deferring it to first use. Documentation only;
-  implementation has not started. Full incremental compilation remains separate.
+- [Fast compilation and eager startup](compilation-startup-plan.md): CS01-CS05
+  implement direct source preparation and efficient eager verification. CS06's
+  focused checks and matched measurements pass their recorded local scopes, but
+  the 500 ms compile/load goal remains unmet after the bounded repair. Further
+  optimization awaits a scope decision. Full incremental compilation stays separate.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11

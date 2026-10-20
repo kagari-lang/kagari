@@ -614,16 +614,17 @@ in tracked documentation. No new measurements are required before CS02 begins.
 
 | Phase | Status | Evidence / next action |
 | --- | --- | --- |
-| Plan | Drafted | Browser evidence, Lua/wasmparser/Rust/JVMS mechanisms, Vela comparison and cross-machine handoff recorded; no implementation or performance improvement claimed. |
+| Plan | Active | Initial browser evidence and mature-runtime comparisons establish the scope; implementation and measured results are recorded below. |
 | CS01 | Complete | Source-inspected API/provenance, obligation/cancellation and consumer inventories above; package output contract and focused workload fixed. Documentation-only validation: content/link review and `git diff --check` passed. |
 | CS02 | Complete | Direct sealed compilation/preparation and explicit sealed export; 22 selected tests, SDK check, structure, fmt, workspace all-target Clippy and diff checks passed. |
 | CS03 | Complete | Shared bounded shape traversal; 17 type-owner tests, extended wire edges, 2 trait and 9 compiler host-contract tests passed; zero measured predicate allocations. Required local checks passed. |
 | CS04 | Complete (local scope) | Graph-owned proof resources, exact dependency views, cancellation and focused checks pass. Exhaustive matrices remain CI-owned. |
 | CS05 | Complete (local scope) | Immediate-run consumers and release browser products. |
-| CS06 | In progress | Source-free controls pass; exact products, matched release measurements and remaining integration underway. |
+| CS06 | Awaiting scope decision | Focused correctness and exact products pass; matched release medians are 708.9 ms compile/load and 1458.2 ms fresh construction+compile. The 500 ms goal remains unmet after the one permitted repair batch. |
 
-CS01 changed documentation only; no Rust test result is claimed. A matched
-pre-change release WASM product build is in progress for final performance evidence. Existing CI/performance findings remain with their current
+CS01 changed documentation only; no Rust test result is claimed for that phase.
+Matched pre-change release products and final measurements are now recorded with
+their environment and raw samples. Existing CI/performance findings retain their
 owners. Update this ledger with actual commands, selected-scope rationale, remaining
 CI scope and any carried errors when implementation changes it.
 
@@ -801,7 +802,7 @@ coverage or relabelling it as Source. Manual structure review found no new
 re-exports/globs, compatibility facades or exceptions. Complete matrices remain CI-owned.
 
 
-### CS06 evidence (in progress)
+### CS06 evidence and outstanding scope decision
 
 Independent Cargo invocations passed the source-free portable artifact execution,
 forged native-signature rejection, and native-enabled source-free Cranelift entry
@@ -871,3 +872,40 @@ Manual review found no new re-exports, production globs, visibility bridges or
 structural exceptions. No correctness failures are carried. Final rebuilt-product
 measurements and the resulting latency/scope decision remain outstanding; this
 repair checkpoint does not complete CS06 or establish CI acceptance.
+
+#### Final local checkpoint
+
+Implementation `48f3ba40` passes the rebuilt exact WASM adapter suite and real
+Worker `cooperative-loop-reset-effects` case, including Node protocol contracts and
+unchanged-product checks. No code changes followed that implementation's passing
+structure/format/workspace-Clippy checks. Full workspace tests and complete
+backend/feature/platform matrices remain CI-only and unrun locally.
+
+[Final measurements](performance-baseline.md#direct-source-preparation-2026-10-21)
+own methods, environment, product hashes, all five samples per condition, native
+growth/edit observations and retained memory. Minimal browser compile/load is
+708.9 ms versus 2748.8 ms baseline; fresh construction+compile is 1458.2 versus
+3554.6 ms. Only the 1500 ms median goal is met; the maximum is 1646.4 ms and the
+500 ms compile/load goal is still missed. Native minimal preparation is 576.9
+versus 4152.2 ms, with first execution about 0.016 ms in each. No deferred verifier
+or deployment change is involved. Prepared-program steady requested live heap is
+2,382,713 versus 5,791,387 bytes; default native-input retention differs intentionally.
+After first-process initialization, all measured owner-disposal deltas return to zero.
+
+The final excluded 597.3 ms retained-compile profile attributes approximately
+179.2 ms to source analysis and 195.6 ms to MIR lowering outside verification.
+MIR and bytecode verification weigh approximately 36.1 and 62.7 ms. Source inspection
+identifies per-file imported binding construction before signature reuse, and HIR
+aggregate normalization during callable/interface ABI and native-default lowering.
+These are evidence for reviewing snapshot/lowering fact ownership, not proof that
+R7 specialization rounds or R16 flow scheduling caused this remaining miss.
+
+The proposed scope decision is one additional bounded preparation phase focused
+on signature input environments and checked lowering facts: establish their
+snapshot/definition/visibility lifetime, remove measured repeated preparation at
+that owner, and validate source edits, defaults, cancellation and the same matched
+500/1500 ms goals. No implementation of that phase is authorized by this ledger.
+Permanent browser engine reuse, global caches, general incremental compilation and
+unrelated R7/R8/R16 changes remain excluded. The other decision is to accept this
+checkpoint with the 500 ms goal explicitly left unresolved. Until the user chooses,
+CS06 and the goal remain incomplete; this plan is retained instead of removed.

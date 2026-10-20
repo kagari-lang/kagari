@@ -304,8 +304,12 @@ passed. CS03 shares bounded shape validation without wire-output allocation and
 passes its selected type/trait/host contracts. CS04 prepares graph-owned proof
 resources with dependency-scoped views and caller cancellation; its selected local
 checks pass. CS05 migrates immediate-run consumers and release WASM product recipes;
-its selected local checks pass. CS06 integration, exact products and matched
-measurements are next. Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
+its selected local checks pass. CS06's bounded repair and selected correctness,
+source-free and real-browser checks pass. Matched Mac release measurements reduce
+minimal first compile/load from 2748.8 to 708.9 ms and fresh construction+compile
+from 3554.6 to 1458.2 ms. The 500 ms compile/load goal remains unmet after the
+permitted repair batch; the plan retains the scope decision and is not complete.
+Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
 not a WASM-specific verifier or another interpreter throughput plan.
 
 The intended path prepares source directly through retained verified MIR/bytecode,
@@ -320,7 +324,7 @@ explicit, with no weaker development semantics.
 The plan owns phase order, consumer migration, local latency goals and the progress
 ledger. Full incremental compilation, permanent engine reuse, R7/R8/R16 follow-ups,
 artifact reachability changes and AOT expansion are not silently activated. Existing
-performance evidence remains in the [baseline](performance-baseline.md#browser-compilation-latency-2026-10-20);
+performance evidence remains in the [baseline](performance-baseline.md#direct-source-preparation-2026-10-21);
 full feature/platform acceptance remains CI-only.
 
 ## Runtime storage redesign

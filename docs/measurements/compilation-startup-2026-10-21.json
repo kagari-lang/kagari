@@ -1,0 +1,2475 @@
+{
+  "schema": 1,
+  "date": "2026-10-21 Asia/Shanghai",
+  "baseline_revision": "77ef42e8",
+  "implementation_revision": "48f3ba409c340fdbff797050ec9f5d2b1fa3d90a",
+  "environment": {
+    "os": "macOS 26.6.2 (25G83)",
+    "machine": "MacBookPro18,2 Apple M1 Max",
+    "logical_cpus": 10,
+    "memory_bytes": 34359738368,
+    "node": "22.20.0",
+    "npm": "10.9.3",
+    "tools": {
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)\nbinary: rustc\ncommit-hash: 48a229ceaefd4985c50990b14116b6d856af0985\ncommit-date: 2026-09-01\nhost: aarch64-apple-darwin\nrelease: 1.98.1\nLLVM version: 22.1.8",
+      "cargo": "cargo 1.98.1 (797e8a9bc 2026-08-05)",
+      "bindgen": "wasm-bindgen 0.2.129",
+      "environment": {}
+    },
+    "profile": "Cargo release (opt-level 3), default parallelism and target, no wasm-opt",
+    "native_features": "SDK default source+native; interpreter execution, no JIT",
+    "wasm_features": "web default source; separate artifact product --no-default-features",
+    "warmup": "No discarded timing or memory sample; separate profile explicitly warmed once."
+  },
+  "products": {
+    "baseline_source": {
+      "kagari_web.js": {
+        "bytes": 13442,
+        "sha256": "886d761d598aaff0a18ddf7d05775e610c2739e1fc0b6de6e5471e59972d2be0"
+      },
+      "kagari_web_bg.wasm": {
+        "bytes": 18986115,
+        "sha256": "35920b677810814d6d3f4bd6bb3589f52a070187d236e5f5ff3db0ae49f7f391"
+      }
+    },
+    "current": {
+      "source/kagari_web.js": {
+        "sha256": "40236de529be12dd97fc30a6f67382914c81b43751e99a83adfc57838ff5387b",
+        "bytes": 13445
+      },
+      "source/kagari_web_bg.wasm": {
+        "sha256": "51bb196aa43ef412660a3d1d6fd6a98fc91171cdb664b9b6e8d625904ac96b7d",
+        "bytes": 17832439
+      },
+      "source/kagari_web.d.ts": {
+        "sha256": "c6335571bbabac3324269e9f67e007b80cfd8959be3f20847d8bfd26d6b7426e",
+        "bytes": 3761
+      },
+      "source/kagari_web_bg.wasm.d.ts": {
+        "sha256": "3b49d85f4bae6fb16681323673348d6edbf1ac1c598b6403018020d4fdea0f25",
+        "bytes": 1196
+      },
+      "artifact/kagari_web.js": {
+        "sha256": "f4962807daf8560fd422d4bfa748b9b75314a4807d2766106b60e389a9c6be0b",
+        "bytes": 11305
+      },
+      "artifact/kagari_web_bg.wasm": {
+        "sha256": "e5c4e34805726d146bcd6a00c6fa7990afcabf48cf27e35a290cb5c2eafe154d",
+        "bytes": 10589141
+      },
+      "artifact/kagari_web.d.ts": {
+        "sha256": "fbe83e9816df6baa07fa91526c28a7b4de9ea5a1706e8333a66e36cfef757cc5",
+        "bytes": 3365
+      },
+      "artifact/kagari_web_bg.wasm.d.ts": {
+        "sha256": "9547b0ee25faa722e46f89e763b36a9579de20700773c4471c1dff24ba9f6fa3",
+        "bytes": 1015
+      },
+      "browser-basic.kbc": {
+        "sha256": "5e2de427aaac877cc290f3dcb4b6ffed0f851e9dbf7918b6626a38cfeda268db",
+        "bytes": 929790
+      }
+    },
+    "current_input_sha256": "434672612391e2a7b626cd12edc9e95d1055b3493536a7ec6fd5020c979c6ef9",
+    "current_recipe": {
+      "version": 1,
+      "target": "wasm32-unknown-unknown",
+      "profile": "release",
+      "cargoDirectory": "release",
+      "features": {
+        "source": [
+          "default",
+          "source"
+        ],
+        "artifact": [
+          "--no-default-features"
+        ]
+      },
+      "bindgenTarget": "web"
+    }
+  },
+  "browser": {
+    "browser": "155.0.8059.82",
+    "executablePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "attempts": [
+      {
+        "executablePath": "/Users/mikai/Library/Caches/ms-playwright/chromium-1248/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing",
+        "result": "not available"
+      },
+      {
+        "executablePath": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+        "result": "launched"
+      }
+    ],
+    "samples": [
+      {
+        "mode": "baseline",
+        "workload": "minimal",
+        "sample": 0,
+        "initializationMs": 61.5,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 823.6999998092651,
+            "label": "first",
+            "compileMs": 2799.899999856949,
+            "firstMs": 2.5,
+            "repeatMs": 0,
+            "resetMs": 1.1000001430511475,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.5,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 469.7999999523163,
+            "label": "second",
+            "compileMs": 2639.2000000476837,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.200000047683716,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2606.5,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024
+          }
+        ],
+        "externalLoadMs": 554.2999999523163,
+        "externalFirstMs": 1.7000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71041024
+      },
+      {
+        "mode": "current",
+        "workload": "minimal",
+        "sample": 0,
+        "initializationMs": 54.90000009536743,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 754.2999999523163,
+            "label": "first",
+            "compileMs": 713.5999999046326,
+            "firstMs": 3.799999952316284,
+            "repeatMs": 0,
+            "resetMs": 1.2999999523162842,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.700000047683716,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 454.2000000476837,
+            "label": "second",
+            "compileMs": 604.5999999046326,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.199999809265137,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 591.9000000953674,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.8000001907348633,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488
+          }
+        ],
+        "externalLoadMs": 142.80000019073486,
+        "externalFirstMs": 1.7999999523162842,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 70975488
+      },
+      {
+        "mode": "baseline",
+        "workload": "minimal",
+        "sample": 1,
+        "initializationMs": 53.09999990463257,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 805.7999999523163,
+            "label": "first",
+            "compileMs": 2748.7999999523163,
+            "firstMs": 2.700000047683716,
+            "repeatMs": 0,
+            "resetMs": 1.2999999523162842,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.5,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 472.30000019073486,
+            "label": "second",
+            "compileMs": 2586.5999999046326,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.1000001430511475,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2575.9000000953674,
+            "firstMs": 0,
+            "repeatMs": 0.10000014305114746,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024
+          }
+        ],
+        "externalLoadMs": 539.9000000953674,
+        "externalFirstMs": 1.7000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71041024
+      },
+      {
+        "mode": "current",
+        "workload": "minimal",
+        "sample": 1,
+        "initializationMs": 50.09999990463257,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 747.7000000476837,
+            "label": "first",
+            "compileMs": 708.8999998569489,
+            "firstMs": 3.8000001907348633,
+            "repeatMs": 0,
+            "resetMs": 1.2999999523162842,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.5,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 456.10000014305115,
+            "label": "second",
+            "compileMs": 601.3999998569489,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 0.7999999523162842,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.200000047683716,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 586.0999999046326,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 0.7999999523162842,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488
+          }
+        ],
+        "externalLoadMs": 142.40000009536743,
+        "externalFirstMs": 1.7999999523162842,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 70975488
+      },
+      {
+        "mode": "baseline",
+        "workload": "minimal",
+        "sample": 2,
+        "initializationMs": 59.60000014305115,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 805.3999998569489,
+            "label": "first",
+            "compileMs": 2755,
+            "firstMs": 2.5999999046325684,
+            "repeatMs": 0.10000014305114746,
+            "resetMs": 1.1999998092651367,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.6000001430511475,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 467,
+            "label": "second",
+            "compileMs": 2593.5,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.200000047683716,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2556.5,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024
+          }
+        ],
+        "externalLoadMs": 541,
+        "externalFirstMs": 1.8000001907348633,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71041024
+      },
+      {
+        "mode": "current",
+        "workload": "minimal",
+        "sample": 2,
+        "initializationMs": 48.299999952316284,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 745.5,
+            "label": "first",
+            "compileMs": 702.7999999523163,
+            "firstMs": 3.700000047683716,
+            "repeatMs": 0.09999990463256836,
+            "resetMs": 1.2000000476837158,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.699999809265137,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 454.10000014305115,
+            "label": "second",
+            "compileMs": 606.5,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.7999999523162842,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.099999904632568,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 587,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 0.7999999523162842,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488
+          }
+        ],
+        "externalLoadMs": 142.40000009536743,
+        "externalFirstMs": 1.5999999046325684,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 70975488
+      },
+      {
+        "mode": "baseline",
+        "workload": "minimal",
+        "sample": 3,
+        "initializationMs": 50.40000009536743,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 807.2000000476837,
+            "label": "first",
+            "compileMs": 2731.5,
+            "firstMs": 2.5999999046325684,
+            "repeatMs": 0,
+            "resetMs": 1.2000000476837158,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.5,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 469,
+            "label": "second",
+            "compileMs": 2594,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.200000047683716,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2574.4000000953674,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024
+          }
+        ],
+        "externalLoadMs": 539.2000000476837,
+        "externalFirstMs": 1.7999999523162842,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71041024
+      },
+      {
+        "mode": "current",
+        "workload": "minimal",
+        "sample": 3,
+        "initializationMs": 49.700000047683716,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 749.7999999523163,
+            "label": "first",
+            "compileMs": 708.3999998569489,
+            "firstMs": 3.4000000953674316,
+            "repeatMs": 0,
+            "resetMs": 1.2000000476837158,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.5,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 454.69999980926514,
+            "label": "second",
+            "compileMs": 599.4000000953674,
+            "firstMs": 0,
+            "repeatMs": 0.10000014305114746,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.300000190734863,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 585.7000000476837,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 0.6999998092651367,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488
+          }
+        ],
+        "externalLoadMs": 141.79999995231628,
+        "externalFirstMs": 1.7000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 70975488
+      },
+      {
+        "mode": "baseline",
+        "workload": "minimal",
+        "sample": 4,
+        "initializationMs": 59.90000009536743,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 806.9000000953674,
+            "label": "first",
+            "compileMs": 2735.4000000953674,
+            "firstMs": 2.5999999046325684,
+            "repeatMs": 0,
+            "resetMs": 1.3000001907348633,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.599999904632568,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 476,
+            "label": "second",
+            "compileMs": 2593.2999999523163,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024,
+            "freeMs": 7.300000190734863,
+            "memoryAfterFree": 71041024
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2561.7999999523163,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 0.7999999523162842,
+            "memoryAfterCompile": 71041024,
+            "memoryAfterReset": 71041024
+          }
+        ],
+        "externalLoadMs": 541.2000000476837,
+        "externalFirstMs": 1.7000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71041024
+      },
+      {
+        "mode": "current",
+        "workload": "minimal",
+        "sample": 4,
+        "initializationMs": 50.200000047683716,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 838,
+            "label": "first",
+            "compileMs": 808.3999998569489,
+            "firstMs": 4.1000001430511475,
+            "repeatMs": 0,
+            "resetMs": 1.3999998569488525,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 8.099999904632568,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 534,
+            "label": "second",
+            "compileMs": 707.9000000953674,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488,
+            "freeMs": 7.599999904632568,
+            "memoryAfterFree": 70975488
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 688.7000000476837,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 70975488,
+            "memoryAfterReset": 70975488
+          }
+        ],
+        "externalLoadMs": 159.39999985694885,
+        "externalFirstMs": 1.6000001430511475,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 70975488
+      },
+      {
+        "mode": "baseline",
+        "workload": "trait",
+        "sample": 0,
+        "initializationMs": 59,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 804.2000000476837,
+            "label": "first",
+            "compileMs": 2750.0999999046326,
+            "firstMs": 4.700000047683716,
+            "repeatMs": 0.10000014305114746,
+            "resetMs": 1.3999998569488525,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 8.100000143051147,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 476.2999999523163,
+            "label": "second",
+            "compileMs": 2585,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 6.700000047683716,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2577.7999999523163,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632
+          }
+        ],
+        "externalLoadMs": 540.7999999523163,
+        "externalFirstMs": 1.0999999046325684,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71237632
+      },
+      {
+        "mode": "current",
+        "workload": "trait",
+        "sample": 0,
+        "initializationMs": 49.69999980926514,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 745.8999998569489,
+            "label": "first",
+            "compileMs": 714,
+            "firstMs": 4.5,
+            "repeatMs": 0,
+            "resetMs": 1.2000000476837158,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.599999904632568,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 460.7000000476837,
+            "label": "second",
+            "compileMs": 609.6000001430511,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0.09999990463256836,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.199999809265137,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 595.2999999523163,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560
+          }
+        ],
+        "externalLoadMs": 141.79999995231628,
+        "externalFirstMs": 1.2000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71106560
+      },
+      {
+        "mode": "baseline",
+        "workload": "trait",
+        "sample": 1,
+        "initializationMs": 52.90000009536743,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 800,
+            "label": "first",
+            "compileMs": 2743.0999999046326,
+            "firstMs": 4.200000047683716,
+            "repeatMs": 0.10000014305114746,
+            "resetMs": 1.2999999523162842,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 7.400000095367432,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 459.7999999523163,
+            "label": "second",
+            "compileMs": 2571.9000000953674,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 6.8999998569488525,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2569.4000000953674,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632
+          }
+        ],
+        "externalLoadMs": 540.4000000953674,
+        "externalFirstMs": 1.1000001430511475,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71237632
+      },
+      {
+        "mode": "current",
+        "workload": "trait",
+        "sample": 1,
+        "initializationMs": 49.80000019073486,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 743.2999999523163,
+            "label": "first",
+            "compileMs": 717.7999999523163,
+            "firstMs": 4.6000001430511475,
+            "repeatMs": 0,
+            "resetMs": 1.2000000476837158,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.5,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 458.09999990463257,
+            "label": "second",
+            "compileMs": 621.6000001430511,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.1000001430511475,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 599.2999999523163,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560
+          }
+        ],
+        "externalLoadMs": 142.59999990463257,
+        "externalFirstMs": 1.1000001430511475,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71106560
+      },
+      {
+        "mode": "baseline",
+        "workload": "trait",
+        "sample": 2,
+        "initializationMs": 58.89999985694885,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 801.7999999523163,
+            "label": "first",
+            "compileMs": 2735.7000000476837,
+            "firstMs": 4.299999952316284,
+            "repeatMs": 0,
+            "resetMs": 1.2999999523162842,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 7.5,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 457.39999985694885,
+            "label": "second",
+            "compileMs": 2571.600000143051,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0.10000014305114746,
+            "resetMs": 0.7999999523162842,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 6.799999952316284,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2566.600000143051,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.7999999523162842,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632
+          }
+        ],
+        "externalLoadMs": 546.3999998569489,
+        "externalFirstMs": 1.2000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71237632
+      },
+      {
+        "mode": "current",
+        "workload": "trait",
+        "sample": 2,
+        "initializationMs": 50.200000047683716,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 746.7999999523163,
+            "label": "first",
+            "compileMs": 721.2999999523163,
+            "firstMs": 4.400000095367432,
+            "repeatMs": 0.09999990463256836,
+            "resetMs": 1.2000000476837158,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.6000001430511475,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 457.59999990463257,
+            "label": "second",
+            "compileMs": 604.9000000953674,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0.09999990463256836,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.200000047683716,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 600.9000000953674,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560
+          }
+        ],
+        "externalLoadMs": 141.60000014305115,
+        "externalFirstMs": 1.1999998092651367,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71106560
+      },
+      {
+        "mode": "baseline",
+        "workload": "trait",
+        "sample": 3,
+        "initializationMs": 51.59999990463257,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 802.8999998569489,
+            "label": "first",
+            "compileMs": 2733.7999999523163,
+            "firstMs": 4.300000190734863,
+            "repeatMs": 0,
+            "resetMs": 1.3999998569488525,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 7.5,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 459.89999985694885,
+            "label": "second",
+            "compileMs": 2571.2999999523163,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 6.8999998569488525,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2568.800000190735,
+            "firstMs": 0,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632
+          }
+        ],
+        "externalLoadMs": 543.7000000476837,
+        "externalFirstMs": 1.2000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71237632
+      },
+      {
+        "mode": "current",
+        "workload": "trait",
+        "sample": 3,
+        "initializationMs": 49.09999990463257,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 747.4000000953674,
+            "label": "first",
+            "compileMs": 713.9000000953674,
+            "firstMs": 4.599999904632568,
+            "repeatMs": 0.09999990463256836,
+            "resetMs": 1.3000001907348633,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.599999904632568,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 459,
+            "label": "second",
+            "compileMs": 609.4000000953674,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.299999952316284,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 611.7000000476837,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560
+          }
+        ],
+        "externalLoadMs": 145.29999995231628,
+        "externalFirstMs": 1.4000000953674316,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71106560
+      },
+      {
+        "mode": "baseline",
+        "workload": "trait",
+        "sample": 4,
+        "initializationMs": 53.89999985694885,
+        "memoryAfterInit": 1441792,
+        "sessions": [
+          {
+            "constructionMs": 816.8000001907349,
+            "label": "first",
+            "compileMs": 2755.2000000476837,
+            "firstMs": 4.299999952316284,
+            "repeatMs": 0,
+            "resetMs": 1.4000000953674316,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 7.700000047683716,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 463.39999985694885,
+            "label": "second",
+            "compileMs": 2569.5,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0.09999990463256836,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632,
+            "freeMs": 6.799999952316284,
+            "memoryAfterFree": 71237632
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 2580.2000000476837,
+            "firstMs": 0.09999990463256836,
+            "repeatMs": 0,
+            "resetMs": 0.9000000953674316,
+            "memoryAfterCompile": 71237632,
+            "memoryAfterReset": 71237632
+          }
+        ],
+        "externalLoadMs": 541.9000000953674,
+        "externalFirstMs": 1.2000000476837158,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71237632
+      },
+      {
+        "mode": "current",
+        "workload": "trait",
+        "sample": 4,
+        "initializationMs": 54.60000014305115,
+        "memoryAfterInit": 1376256,
+        "sessions": [
+          {
+            "constructionMs": 744.0999999046326,
+            "label": "first",
+            "compileMs": 734.0999999046326,
+            "firstMs": 4.6000001430511475,
+            "repeatMs": 0,
+            "resetMs": 1.2999999523162842,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.400000095367432,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 459.19999980926514,
+            "label": "second",
+            "compileMs": 612.5999999046326,
+            "firstMs": 0.10000014305114746,
+            "repeatMs": 0,
+            "resetMs": 1,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560,
+            "freeMs": 7.300000190734863,
+            "memoryAfterFree": 71106560
+          },
+          {
+            "constructionMs": 0,
+            "label": "retained",
+            "compileMs": 601.0999999046326,
+            "firstMs": 0,
+            "repeatMs": 0.10000014305114746,
+            "resetMs": 0.8999998569488525,
+            "memoryAfterCompile": 71106560,
+            "memoryAfterReset": 71106560
+          }
+        ],
+        "externalLoadMs": 148.29999995231628,
+        "externalFirstMs": 1.0999999046325684,
+        "externalResult": {
+          "tag": "u64",
+          "value": "18446744073709551615"
+        },
+        "externalOutput": [
+          "artifact hello 😀"
+        ],
+        "memoryFinal": 71106560
+      }
+    ]
+  },
+  "native": {
+    "baseline": [
+      {
+        "label": "minimal",
+        "sample": 0,
+        "engine_ms": 672.032625,
+        "prepare_ms": 4159.277084,
+        "link_ms": 5.9933749999999995,
+        "first_ms": 0.107042,
+        "repeat_ms": 0.002208,
+        "external_prepare_ms": 1529.0167079999999,
+        "external_link_ms": 5.538,
+        "retained_prepare_ms": 4149.756874999999,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 1,
+        "engine_ms": 433.001458,
+        "prepare_ms": 4141.660083,
+        "link_ms": 5.547375000000001,
+        "first_ms": 0.014916,
+        "repeat_ms": 0.001959,
+        "external_prepare_ms": 1526.1555,
+        "external_link_ms": 5.45625,
+        "retained_prepare_ms": 4148.037834,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 2,
+        "engine_ms": 434.775917,
+        "prepare_ms": 4152.2191250000005,
+        "link_ms": 5.615209,
+        "first_ms": 0.014959,
+        "repeat_ms": 0.002,
+        "external_prepare_ms": 1553.3519170000002,
+        "external_link_ms": 5.492375,
+        "retained_prepare_ms": 4164.194,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 3,
+        "engine_ms": 432.437,
+        "prepare_ms": 4143.2055,
+        "link_ms": 5.736458,
+        "first_ms": 0.015542000000000002,
+        "repeat_ms": 0.002,
+        "external_prepare_ms": 1536.514,
+        "external_link_ms": 5.528207999999999,
+        "retained_prepare_ms": 4158.833375,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 4,
+        "engine_ms": 434.380167,
+        "prepare_ms": 4165.064583,
+        "link_ms": 5.593458,
+        "first_ms": 0.015958,
+        "repeat_ms": 0.002,
+        "external_prepare_ms": 1537.8362920000002,
+        "external_link_ms": 5.505707999999999,
+        "retained_prepare_ms": 4262.449541,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 0,
+        "engine_ms": 448.557208,
+        "prepare_ms": 4265.095417,
+        "link_ms": 5.6515,
+        "first_ms": 0.082958,
+        "repeat_ms": 0.015791,
+        "external_prepare_ms": 1528.507709,
+        "external_link_ms": 5.657042000000001,
+        "retained_prepare_ms": 4161.665667,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 1,
+        "engine_ms": 436.80445899999995,
+        "prepare_ms": 4146.959917,
+        "link_ms": 5.582791,
+        "first_ms": 0.026792,
+        "repeat_ms": 0.003875,
+        "external_prepare_ms": 1554.070042,
+        "external_link_ms": 5.523917,
+        "retained_prepare_ms": 4206.017208,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 2,
+        "engine_ms": 442.703083,
+        "prepare_ms": 4148.358166999999,
+        "link_ms": 5.660125,
+        "first_ms": 0.029207999999999998,
+        "repeat_ms": 0.003958,
+        "external_prepare_ms": 1537.5316249999998,
+        "external_link_ms": 5.594834,
+        "retained_prepare_ms": 4158.301583,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 3,
+        "engine_ms": 432.06204199999996,
+        "prepare_ms": 4167.565291,
+        "link_ms": 5.6165,
+        "first_ms": 0.029792,
+        "repeat_ms": 0.003875,
+        "external_prepare_ms": 1531.092416,
+        "external_link_ms": 5.5478749999999994,
+        "retained_prepare_ms": 4154.030917,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 4,
+        "engine_ms": 431.36920899999996,
+        "prepare_ms": 4160.454542,
+        "link_ms": 5.515833000000001,
+        "first_ms": 0.026375,
+        "repeat_ms": 0.003917,
+        "external_prepare_ms": 1532.6452499999998,
+        "external_link_ms": 5.522917,
+        "retained_prepare_ms": 4180.87475,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 0,
+        "engine_ms": 434.7715,
+        "prepare_ms": 4277.56175,
+        "link_ms": 5.563667,
+        "first_ms": 0.017041,
+        "repeat_ms": 0.0025830000000000002,
+        "external_prepare_ms": 1585.291125,
+        "external_link_ms": 5.545083,
+        "retained_prepare_ms": 4277.646125,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 1,
+        "engine_ms": 431.141375,
+        "prepare_ms": 4293.819292,
+        "link_ms": 5.817417,
+        "first_ms": 0.017666,
+        "repeat_ms": 0.002833,
+        "external_prepare_ms": 1586.10475,
+        "external_link_ms": 5.507625,
+        "retained_prepare_ms": 4282.713417,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 2,
+        "engine_ms": 431.920708,
+        "prepare_ms": 4297.118667000001,
+        "link_ms": 5.632334,
+        "first_ms": 0.016667,
+        "repeat_ms": 0.00275,
+        "external_prepare_ms": 1579.593375,
+        "external_link_ms": 5.575166,
+        "retained_prepare_ms": 4300.068333,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 3,
+        "engine_ms": 434.286542,
+        "prepare_ms": 4285.475,
+        "link_ms": 5.629875,
+        "first_ms": 0.017541,
+        "repeat_ms": 0.0026249999999999997,
+        "external_prepare_ms": 1601.965542,
+        "external_link_ms": 5.567416000000001,
+        "retained_prepare_ms": 4350.992375,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 4,
+        "engine_ms": 432.074,
+        "prepare_ms": 4291.971667000001,
+        "link_ms": 5.632708,
+        "first_ms": 0.016458,
+        "repeat_ms": 0.0027080000000000003,
+        "external_prepare_ms": 1581.961375,
+        "external_link_ms": 5.534791,
+        "retained_prepare_ms": 4294.9745840000005,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 0,
+        "prepare_ms": 4861.001166999999
+      },
+      {
+        "label": "edit-signature",
+        "sample": 0,
+        "prepare_ms": 4867.639166
+      },
+      {
+        "label": "growth8",
+        "sample": 0,
+        "engine_ms": 429.513708,
+        "prepare_ms": 4847.456915999999,
+        "link_ms": 5.802708,
+        "first_ms": 0.022542,
+        "repeat_ms": 0.007583,
+        "external_prepare_ms": 1782.30575,
+        "external_link_ms": 5.796,
+        "retained_prepare_ms": 4822.622541999999,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 1,
+        "prepare_ms": 4855.9148749999995
+      },
+      {
+        "label": "edit-signature",
+        "sample": 1,
+        "prepare_ms": 4858.3559159999995
+      },
+      {
+        "label": "growth8",
+        "sample": 1,
+        "engine_ms": 431.83612500000004,
+        "prepare_ms": 4842.708208,
+        "link_ms": 5.821542,
+        "first_ms": 0.022917,
+        "repeat_ms": 0.007542,
+        "external_prepare_ms": 1784.2822919999999,
+        "external_link_ms": 5.731,
+        "retained_prepare_ms": 4809.596375,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 2,
+        "prepare_ms": 4895.676292
+      },
+      {
+        "label": "edit-signature",
+        "sample": 2,
+        "prepare_ms": 4847.180959
+      },
+      {
+        "label": "growth8",
+        "sample": 2,
+        "engine_ms": 436.325916,
+        "prepare_ms": 4851.541625000001,
+        "link_ms": 5.735084,
+        "first_ms": 0.022834,
+        "repeat_ms": 0.007500000000000001,
+        "external_prepare_ms": 1784.946666,
+        "external_link_ms": 5.675708,
+        "retained_prepare_ms": 4796.981750000001,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 3,
+        "prepare_ms": 4870.873750000001
+      },
+      {
+        "label": "edit-signature",
+        "sample": 3,
+        "prepare_ms": 4853.257458
+      },
+      {
+        "label": "growth8",
+        "sample": 3,
+        "engine_ms": 434.28375,
+        "prepare_ms": 4846.085083,
+        "link_ms": 5.7376249999999995,
+        "first_ms": 0.022708,
+        "repeat_ms": 0.007625,
+        "external_prepare_ms": 1775.748417,
+        "external_link_ms": 5.680875,
+        "retained_prepare_ms": 4810.590583,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 4,
+        "prepare_ms": 4906.798125
+      },
+      {
+        "label": "edit-signature",
+        "sample": 4,
+        "prepare_ms": 4876.932584
+      },
+      {
+        "label": "growth8",
+        "sample": 4,
+        "engine_ms": 431.749541,
+        "prepare_ms": 4857.848083000001,
+        "link_ms": 5.768542,
+        "first_ms": 0.022834,
+        "repeat_ms": 0.007625,
+        "external_prepare_ms": 1793.875208,
+        "external_link_ms": 5.944833,
+        "retained_prepare_ms": 4868.876583,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 0,
+        "engine_ms": 431.456208,
+        "prepare_ms": 6828.9378750000005,
+        "link_ms": 6.253875,
+        "first_ms": 0.039208,
+        "repeat_ms": 0.027,
+        "external_prepare_ms": 2455.706041,
+        "external_link_ms": 6.198042,
+        "retained_prepare_ms": 6732.630375000001,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 1,
+        "engine_ms": 435.339083,
+        "prepare_ms": 6863.961625,
+        "link_ms": 6.336125,
+        "first_ms": 0.039709,
+        "repeat_ms": 0.024584,
+        "external_prepare_ms": 2437.212375,
+        "external_link_ms": 6.162875,
+        "retained_prepare_ms": 6751.841542,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 2,
+        "engine_ms": 433.226,
+        "prepare_ms": 6846.107583,
+        "link_ms": 6.313375000000001,
+        "first_ms": 0.04075,
+        "repeat_ms": 0.024417,
+        "external_prepare_ms": 2451.022959,
+        "external_link_ms": 6.134292,
+        "retained_prepare_ms": 6810.947833,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 3,
+        "engine_ms": 434.30987500000003,
+        "prepare_ms": 6867.618291000001,
+        "link_ms": 6.200375,
+        "first_ms": 0.045208,
+        "repeat_ms": 0.025667,
+        "external_prepare_ms": 2439.659958,
+        "external_link_ms": 6.123458,
+        "retained_prepare_ms": 6750.111666999999,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 4,
+        "engine_ms": 436.0675,
+        "prepare_ms": 6923.840542,
+        "link_ms": 6.477333,
+        "first_ms": 0.039708,
+        "repeat_ms": 0.023958,
+        "external_prepare_ms": 2446.49075,
+        "external_link_ms": 6.20125,
+        "retained_prepare_ms": 6739.211,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      }
+    ],
+    "current": [
+      {
+        "label": "minimal",
+        "sample": 0,
+        "engine_ms": 561.6754579999999,
+        "prepare_ms": 577.436417,
+        "link_ms": 4.6865,
+        "first_ms": 0.11237499999999999,
+        "repeat_ms": 0.0022919999999999998,
+        "external_prepare_ms": 183.087167,
+        "external_link_ms": 4.302834,
+        "retained_prepare_ms": 575.455625,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 1,
+        "engine_ms": 422.41145800000004,
+        "prepare_ms": 624.857833,
+        "link_ms": 4.447833,
+        "first_ms": 0.015708,
+        "repeat_ms": 0.002042,
+        "external_prepare_ms": 180.960458,
+        "external_link_ms": 4.215041,
+        "retained_prepare_ms": 574.586625,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 2,
+        "engine_ms": 420.422625,
+        "prepare_ms": 574.458167,
+        "link_ms": 4.2335,
+        "first_ms": 0.014834,
+        "repeat_ms": 0.0018750000000000001,
+        "external_prepare_ms": 178.846458,
+        "external_link_ms": 4.099292,
+        "retained_prepare_ms": 574.333916,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 3,
+        "engine_ms": 428.37925,
+        "prepare_ms": 576.884375,
+        "link_ms": 4.2760419999999995,
+        "first_ms": 0.015290999999999999,
+        "repeat_ms": 0.001916,
+        "external_prepare_ms": 185.850291,
+        "external_link_ms": 4.31675,
+        "retained_prepare_ms": 572.3870410000001,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "minimal",
+        "sample": 4,
+        "engine_ms": 429.673375,
+        "prepare_ms": 570.649042,
+        "link_ms": 4.34875,
+        "first_ms": 0.015959,
+        "repeat_ms": 0.002,
+        "external_prepare_ms": 180.932792,
+        "external_link_ms": 4.242167,
+        "retained_prepare_ms": 573.024083,
+        "modules": 37,
+        "functions": 1,
+        "instructions": 2,
+        "declarations": 618,
+        "table_constraints": 89,
+        "physical_type_records": 47,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 0,
+        "engine_ms": 422.842292,
+        "prepare_ms": 575.642375,
+        "link_ms": 4.362459,
+        "first_ms": 0.101209,
+        "repeat_ms": 0.015000000000000001,
+        "external_prepare_ms": 180.109625,
+        "external_link_ms": 4.163125,
+        "retained_prepare_ms": 580.966,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 1,
+        "engine_ms": 421.580459,
+        "prepare_ms": 574.422208,
+        "link_ms": 4.391583,
+        "first_ms": 0.027166,
+        "repeat_ms": 0.003917,
+        "external_prepare_ms": 179.593584,
+        "external_link_ms": 4.4323749999999995,
+        "retained_prepare_ms": 582.6960829999999,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 2,
+        "engine_ms": 421.577875,
+        "prepare_ms": 575.731625,
+        "link_ms": 4.260541,
+        "first_ms": 0.02775,
+        "repeat_ms": 0.003875,
+        "external_prepare_ms": 183.77554199999997,
+        "external_link_ms": 4.411625,
+        "retained_prepare_ms": 574.173167,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 3,
+        "engine_ms": 420.200375,
+        "prepare_ms": 581.829209,
+        "link_ms": 6.811333,
+        "first_ms": 0.027333,
+        "repeat_ms": 0.004042,
+        "external_prepare_ms": 181.96354200000002,
+        "external_link_ms": 4.223916,
+        "retained_prepare_ms": 577.648583,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "trait",
+        "sample": 4,
+        "engine_ms": 421.77125,
+        "prepare_ms": 577.506791,
+        "link_ms": 4.28375,
+        "first_ms": 0.029458,
+        "repeat_ms": 0.003875,
+        "external_prepare_ms": 180.196375,
+        "external_link_ms": 4.181125,
+        "retained_prepare_ms": 588.250458,
+        "modules": 37,
+        "functions": 3,
+        "instructions": 10,
+        "declarations": 621,
+        "table_constraints": 89,
+        "physical_type_records": 48,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 0,
+        "engine_ms": 420.774834,
+        "prepare_ms": 582.965333,
+        "link_ms": 4.40325,
+        "first_ms": 0.018458,
+        "repeat_ms": 0.0027089999999999996,
+        "external_prepare_ms": 180.059916,
+        "external_link_ms": 4.239917,
+        "retained_prepare_ms": 587.624417,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 1,
+        "engine_ms": 423.107584,
+        "prepare_ms": 584.007125,
+        "link_ms": 4.43875,
+        "first_ms": 0.019708,
+        "repeat_ms": 0.0026249999999999997,
+        "external_prepare_ms": 180.527792,
+        "external_link_ms": 4.2027920000000005,
+        "retained_prepare_ms": 588.178791,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 2,
+        "engine_ms": 420.506125,
+        "prepare_ms": 592.7082919999999,
+        "link_ms": 4.342124999999999,
+        "first_ms": 0.017625000000000002,
+        "repeat_ms": 0.002542,
+        "external_prepare_ms": 180.465875,
+        "external_link_ms": 4.176583,
+        "retained_prepare_ms": 589.986,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 3,
+        "engine_ms": 419.444791,
+        "prepare_ms": 582.436917,
+        "link_ms": 4.310542,
+        "first_ms": 0.017583,
+        "repeat_ms": 0.002833,
+        "external_prepare_ms": 179.959958,
+        "external_link_ms": 4.198,
+        "retained_prepare_ms": 590.440875,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth1",
+        "sample": 4,
+        "engine_ms": 423.13683299999997,
+        "prepare_ms": 586.369083,
+        "link_ms": 4.317083,
+        "first_ms": 0.016833,
+        "repeat_ms": 0.0025,
+        "external_prepare_ms": 179.923791,
+        "external_link_ms": 4.159583,
+        "retained_prepare_ms": 584.225583,
+        "modules": 39,
+        "functions": 3,
+        "instructions": 6,
+        "declarations": 620,
+        "table_constraints": 89,
+        "physical_type_records": 49,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 0,
+        "prepare_ms": 697.5408749999999
+      },
+      {
+        "label": "edit-signature",
+        "sample": 0,
+        "prepare_ms": 703.09425
+      },
+      {
+        "label": "growth8",
+        "sample": 0,
+        "engine_ms": 422.66074999999995,
+        "prepare_ms": 680.0549169999999,
+        "link_ms": 4.465208,
+        "first_ms": 0.023,
+        "repeat_ms": 0.007333999999999999,
+        "external_prepare_ms": 181.936708,
+        "external_link_ms": 4.3125,
+        "retained_prepare_ms": 655.5409589999999,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 1,
+        "prepare_ms": 697.265875
+      },
+      {
+        "label": "edit-signature",
+        "sample": 1,
+        "prepare_ms": 704.112125
+      },
+      {
+        "label": "growth8",
+        "sample": 1,
+        "engine_ms": 423.282542,
+        "prepare_ms": 697.8758330000001,
+        "link_ms": 4.448875,
+        "first_ms": 0.022625000000000003,
+        "repeat_ms": 0.007625,
+        "external_prepare_ms": 182.781292,
+        "external_link_ms": 4.341417,
+        "retained_prepare_ms": 646.6316250000001,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 2,
+        "prepare_ms": 697.367
+      },
+      {
+        "label": "edit-signature",
+        "sample": 2,
+        "prepare_ms": 704.358042
+      },
+      {
+        "label": "growth8",
+        "sample": 2,
+        "engine_ms": 424.803584,
+        "prepare_ms": 739.8655,
+        "link_ms": 4.4265,
+        "first_ms": 0.02325,
+        "repeat_ms": 0.007458,
+        "external_prepare_ms": 182.76220800000002,
+        "external_link_ms": 4.323042,
+        "retained_prepare_ms": 642.839375,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 3,
+        "prepare_ms": 706.835208
+      },
+      {
+        "label": "edit-signature",
+        "sample": 3,
+        "prepare_ms": 704.813
+      },
+      {
+        "label": "growth8",
+        "sample": 3,
+        "engine_ms": 423.81566599999996,
+        "prepare_ms": 682.46425,
+        "link_ms": 4.446958,
+        "first_ms": 0.023208,
+        "repeat_ms": 0.007500000000000001,
+        "external_prepare_ms": 184.341416,
+        "external_link_ms": 4.373917,
+        "retained_prepare_ms": 644.708292,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "edit-body",
+        "sample": 4,
+        "prepare_ms": 707.661958
+      },
+      {
+        "label": "edit-signature",
+        "sample": 4,
+        "prepare_ms": 704.68925
+      },
+      {
+        "label": "growth8",
+        "sample": 4,
+        "engine_ms": 420.69795799999997,
+        "prepare_ms": 689.91475,
+        "link_ms": 4.474542,
+        "first_ms": 0.023083,
+        "repeat_ms": 0.007500000000000001,
+        "external_prepare_ms": 181.723916,
+        "external_link_ms": 4.297667,
+        "retained_prepare_ms": 670.023917,
+        "modules": 46,
+        "functions": 10,
+        "instructions": 34,
+        "declarations": 627,
+        "table_constraints": 89,
+        "physical_type_records": 56,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 0,
+        "engine_ms": 421.869125,
+        "prepare_ms": 1125.8167919999999,
+        "link_ms": 4.907500000000001,
+        "first_ms": 0.040834,
+        "repeat_ms": 0.024083,
+        "external_prepare_ms": 189.328792,
+        "external_link_ms": 4.766375,
+        "retained_prepare_ms": 999.644958,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 1,
+        "engine_ms": 424.056125,
+        "prepare_ms": 1129.461792,
+        "link_ms": 4.875916999999999,
+        "first_ms": 0.03975,
+        "repeat_ms": 0.023458,
+        "external_prepare_ms": 192.284875,
+        "external_link_ms": 4.86725,
+        "retained_prepare_ms": 992.609333,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 2,
+        "engine_ms": 421.359375,
+        "prepare_ms": 1129.468959,
+        "link_ms": 4.917917,
+        "first_ms": 0.040166,
+        "repeat_ms": 0.023958,
+        "external_prepare_ms": 189.89195899999999,
+        "external_link_ms": 4.808542,
+        "retained_prepare_ms": 992.167541,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 3,
+        "engine_ms": 420.57766699999996,
+        "prepare_ms": 1128.139875,
+        "link_ms": 4.917667,
+        "first_ms": 0.039958,
+        "repeat_ms": 0.023584,
+        "external_prepare_ms": 197.240542,
+        "external_link_ms": 4.874833000000001,
+        "retained_prepare_ms": 1000.45275,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      },
+      {
+        "label": "growth32",
+        "sample": 4,
+        "engine_ms": 420.80675,
+        "prepare_ms": 1126.440834,
+        "link_ms": 4.966625,
+        "first_ms": 0.0405,
+        "repeat_ms": 0.023958999999999998,
+        "external_prepare_ms": 194.92337500000002,
+        "external_link_ms": 4.934625,
+        "retained_prepare_ms": 1008.232458,
+        "modules": 70,
+        "functions": 34,
+        "instructions": 130,
+        "declarations": 651,
+        "table_constraints": 89,
+        "physical_type_records": 80,
+        "max_semantic_type_nodes": 1
+      }
+    ]
+  },
+  "memory": {
+    "baseline": [
+      {
+        "label": "minimal",
+        "sample": 0,
+        "retained_program_bytes": 18700868,
+        "with_independent_runtime_bytes": 65827922,
+        "after_drop_bytes": 12909481
+      },
+      {
+        "label": "minimal",
+        "sample": 1,
+        "retained_program_bytes": 5791387,
+        "with_independent_runtime_bytes": 52908257,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "minimal",
+        "sample": 2,
+        "retained_program_bytes": 5791387,
+        "with_independent_runtime_bytes": 52927737,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "minimal",
+        "sample": 3,
+        "retained_program_bytes": 5791387,
+        "with_independent_runtime_bytes": 52917937,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "minimal",
+        "sample": 4,
+        "retained_program_bytes": 5791387,
+        "with_independent_runtime_bytes": 52916889,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 0,
+        "retained_program_bytes": 5819191,
+        "with_independent_runtime_bytes": 52960457,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 1,
+        "retained_program_bytes": 5819191,
+        "with_independent_runtime_bytes": 52969409,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 2,
+        "retained_program_bytes": 5819191,
+        "with_independent_runtime_bytes": 52960529,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 3,
+        "retained_program_bytes": 5819191,
+        "with_independent_runtime_bytes": 52971057,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 4,
+        "retained_program_bytes": 5819191,
+        "with_independent_runtime_bytes": 52970425,
+        "after_drop_bytes": 0
+      }
+    ],
+    "current": [
+      {
+        "label": "minimal",
+        "sample": 0,
+        "retained_program_bytes": 15292194,
+        "with_independent_runtime_bytes": 62417640,
+        "after_drop_bytes": 12909481
+      },
+      {
+        "label": "minimal",
+        "sample": 1,
+        "retained_program_bytes": 2382713,
+        "with_independent_runtime_bytes": 49518695,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "minimal",
+        "sample": 2,
+        "retained_program_bytes": 2382713,
+        "with_independent_runtime_bytes": 49520279,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "minimal",
+        "sample": 3,
+        "retained_program_bytes": 2382713,
+        "with_independent_runtime_bytes": 49520063,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "minimal",
+        "sample": 4,
+        "retained_program_bytes": 2382713,
+        "with_independent_runtime_bytes": 49521791,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 0,
+        "retained_program_bytes": 2394746,
+        "with_independent_runtime_bytes": 49525452,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 1,
+        "retained_program_bytes": 2394746,
+        "with_independent_runtime_bytes": 49546004,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 2,
+        "retained_program_bytes": 2394746,
+        "with_independent_runtime_bytes": 49555412,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 3,
+        "retained_program_bytes": 2394746,
+        "with_independent_runtime_bytes": 49545340,
+        "after_drop_bytes": 0
+      },
+      {
+        "label": "trait",
+        "sample": 4,
+        "retained_program_bytes": 2394746,
+        "with_independent_runtime_bytes": 49543716,
+        "after_drop_bytes": 0
+      }
+    ]
+  },
+  "excluded_profile": {
+    "elapsed_ms": 597.3000001907349,
+    "requested_interval_us": 1000,
+    "disjoint_sample_weights_ms": {
+      "other_including_profile_overhead": 98.105,
+      "source_analysis": 179.192,
+      "mir_lowering_excluding_verification": 195.611,
+      "mir_verification": 36.12,
+      "bytecode_lowering_excluding_verification": 35.967,
+      "bytecode_verification": 62.673
+    },
+    "inclusive_sample_weights_ms": {
+      "<kagari_web::BrowserSession>::compile": 533.606,
+      "<kagari::engine::KagariEngine>::compile_to_program": 527.594,
+      "<kagari_hir::analysis::AnalysisDatabase>::prepare_signatures": 129.435,
+      "<kagari_hir::analysis::AnalysisDatabase>::prepare_declarations": 21.044,
+      "<kagari_hir::analysis::AnalysisDatabase>::snapshot": 179.192,
+      "<kagari::engine::KagariEngine>::analyze_source": 179.192,
+      "<kagari_hir::imports::catalog::NamespaceCatalog>::lookup_member": 79.854,
+      "<kagari_hir::imports::catalog::NamespaceCatalog>::same_namespace_inputs": 37.707,
+      "<kagari_hir::imports::BindingCandidate as core::clone::Clone>::clone": 10.535,
+      "<kagari_hir::imports::NamespaceId as core::hash::Hash>::hash::<std::hash::random::DefaultHasher>": 16.565,
+      "<kagari_hir::imports::types::TypeCatalog>::bindings": 81.313,
+      "<kagari_hir::imports::types::TypeCatalog>::resolve": 15.048,
+      "<kagari_hir::imports::types::TypeCatalog>::surface": 10.526,
+      "<kagari_hir::imports::catalog::NamespaceCatalog>::reachable_sources": 67.726,
+      "<kagari_hir::resolver::table::NameTable>::candidates": 10.551,
+      "<kagari_hir::aggregates::AggregateCatalog>::trait_closure": 30.195,
+      "<kagari_common::identity::table::DefinitionTable>::compare": 12.056,
+      "kagari_hir::typeck::associated::normalize::walk::<<kagari_hir::aggregates::AggregateCatalog>::normalize_type::{closure#0}>": 127.877,
+      "<kagari_hir::aggregates::AggregateCatalog>::normalize_type::{closure#0}": 127.877,
+      "kagari_hir::language::semantics::iteration_outputs": 126.372,
+      "<kagari_hir::aggregates::AggregateCatalog>::concrete_interface_implementation": 142.904,
+      "<kagari_hir::aggregates::AggregateCatalog>::implementation_matches": 145.904,
+      "<kagari_hir::types::TypeId as core::clone::Clone>::clone": 19.554,
+      "<kagari_hir::aggregates::AggregateCatalog>::canonical_value_type::walk": 45.194,
+      "<kagari_hir::aggregates::AggregateCatalog>::interface_closure": 42.196,
+      "<kagari_hir::types::TypeId>::map_children::<<kagari_hir::aggregates::AggregateCatalog>::canonical_interface_application::{closure#0}>": 39.078,
+      "<kagari_hir::aggregates::AggregateCatalog>::canonical_interface_application": 10.503,
+      "<kagari_hir::analysis::signature_queries::SignatureSnapshot>::body_environments": 25.581,
+      "<kagari::engine::source::compilation::Compilation>::lower": 330.371,
+      "kagari_compiler::source::program::lower_program_to_mir": 231.731,
+      "<kagari::engine::KagariEngine>::prepare": 339.384,
+      "kagari_compiler::source::lower::lower_to_mir_with_requests": 182.032,
+      "<kagari_hir::aggregates::AggregateCatalog>::normalize_type": 121.853,
+      "kagari_compiler::source::lower::abi::collect_module_abi": 72.238,
+      "kagari_compiler::source::lower::abi::function_abi": 21.051,
+      "<kagari_hir::types::TypeId>::instantiate": 12.078,
+      "kagari_compiler::source::lower::abi::method_abi": 21.051,
+      "<kagari_hir::types::TypeId>::map_children::<kagari_hir::typeck::associated::normalize::walk<<kagari_hir::aggregates::AggregateCatalog>::normalize_type::{closure#0}>::{closure#0}>": 28.597,
+      "<kagari_compiler::source::lower::instances::InstancePlanner>::record_interface": 94.745,
+      "<kagari_compiler::source::lower::instances::InstancePlanner>::native_callables": 12.014,
+      "<kagari_compiler::source::lower::instances::InstancePlanner>::enqueue_interface_method": 91.744,
+      "<kagari_compiler::source::lower::instances::InstancePlanner>::bind_operations": 12.014,
+      "<kagari_compiler::source::lower::instances::InstancePlanner>::prepare_native_target": 91.744,
+      "<kagari_compiler::source::lower::instances::InstancePlanner>::native_target_import": 45.129,
+      "<kagari_compiler::source::lower::instances::InstancePlanner>::native_default_import": 64.662,
+      "<kagari_types::ty::shape::ShapeBudget>::visit": 36.186,
+      "<kagari_types::ty::substitution::TypeSubstitution>::apply_nominal": 10.534,
+      "<kagari_types::ty::substitution::TypeSubstitution>::apply_bounds": 31.632,
+      "<kagari_hir::types::TypeId>::contains_interface": 13.507,
+      "<kagari_types::ty::GenericBound>::normalize::<alloc::vec::Vec<kagari_types::ty::GenericBound>>": 19.608,
+      "<kagari_types::ty::Ty>::canonical_cmp": 15.094,
+      "<kagari_types::ty::order::TypeOrder>::ty": 10.559,
+      "<kagari_types::ty::NominalTy>::normalize_bounds::<alloc::vec::Vec<kagari_types::ty::NominalTy>>": 12.077,
+      "<kagari_types::ty::Ty>::definition_references": 16.364,
+      "<kagari_types::ty::substitution::Transform>::nominal": 16.53,
+      "kagari_mir::program::verify_program": 36.12,
+      "<kagari_contract::types::proofs::ProofCatalog>::validate_linked": 16.548,
+      "<kagari_mir::program::proofs::ProofResources>::scope": 10.421,
+      "<kagari_types::ty::substitution::Transform>::visit": 34.107,
+      "<kagari_contract::types::proofs::ProofCatalog>::constraints_hold": 46.755,
+      "<kagari_contract::types::InterfaceTable>::instantiate": 10.572,
+      "<kagari_contract::types::proofs::ProofCatalog>::prove": 43.765,
+      "kagari_mir::program::native::validate": 15.132,
+      "<kagari_contract::types::proofs::ProofCatalog>::resolve_native_default_in": 37.752,
+      "kagari_types::ty::matching::match_pattern": 37.666,
+      "<kagari_contract::types::proofs::ProofCatalog>::obligations": 43.593,
+      "<kagari_contract::types::proofs::ProofCatalog>::explicit": 40.602,
+      "kagari_compiler::bytecode::lower_program_for_comparison": 31.676,
+      "kagari_compiler::bytecode::lower_program_to_bytecode": 98.64,
+      "kagari_types::ty::matching::projection_output": 10.473,
+      "kagari_types::ty::substitution::normalize_projections": 26.56,
+      "<kagari_contract::types::proofs::ProofCatalog>::normalize_with::{closure#0}": 22.042,
+      "kagari_compiler::bytecode::interfaces::collect_interface_tables": 25.644,
+      "kagari_compiler::bytecode::lower_linked_module": 25.644,
+      "<kagari_bytecode::program::verified::VerifiedBytecodeProgram>::from_metadata": 66.964,
+      "kagari_bytecode::program::verify_graph": 62.673,
+      "kagari_bytecode::trait_bounds::verify_trait_bounds": 49.159,
+      "kagari_contract::types::verify::method_contract_matches::<kagari_bytecode::trait_bounds::linked_bounds_match::{closure#22}>::{closure#0}": 14.572,
+      "kagari_contract::types::verify::interface_methods_match::<kagari_bytecode::trait_bounds::linked_bounds_match::{closure#22}>": 17.553,
+      "<kagari_contract::types::proofs::ProofCatalog>::normalize": 17.579,
+      "kagari_bytecode::trait_bounds::methods::valid": 22.563
+    }
+  },
+  "reproduction": {
+    "browser_probe": "import { readFile, writeFile } from 'node:fs/promises';\nimport { join } from 'node:path';\nimport { startProductServer } from '../../site/scripts/wasm-browser.mjs';\nimport { launchBrowser } from '../../site/scripts/browser-support.mjs';\nconst root=process.cwd();\nconst files=new Map();\nfor(const mode of ['baseline','current']){\n const dir=join(root,mode==='baseline'?'target/compilation-startup/baseline/source':'target/wasm-browser/source');\n for(const name of ['kagari_web.js','kagari_web_bg.wasm']) files.set(`${mode}/${name}`,await readFile(join(dir,name)));\n}\nfiles.set('browser-basic.kbc',await readFile(join(root,'target/fixtures/browser-basic.kbc')));\nconst server=await startProductServer({files});const attempts=[];const {browser,executablePath}=await launchBrowser(undefined,attempts);\nconst results={browser:browser.version(),executablePath,attempts,samples:[]};\nconst workloads={minimal:'fn main()->i32{42}',trait:'pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(Pair { number: 42 }) }'};\ntry{\n for(const [workload,source] of Object.entries(workloads))for(let sample=0;sample<5;sample++)for(const mode of ['baseline','current']){\n  const context=await browser.newContext({viewport:{width:1280,height:900}});const page=await context.newPage();await page.goto(`${server.origin}/kagari/wasm/`);\n  const result=await page.evaluate(async({mode,source})=>{\n   const get=(s)=>JSON.parse(s);const assert=(yes,message)=>{if(!yes)throw new Error(message)};\n   let t=performance.now();const api=await import(`/kagari/wasm/${mode}/kagari_web.js`);const wasm=await api.default();const initializationMs=performance.now()-t;\n   const memory=()=>wasm.memory.buffer.byteLength;\n   const out={initializationMs,memoryAfterInit:memory(),sessions:[]};\n   function run(session,label){\n    let t=performance.now();let text=session.compile(source);const compileMs=performance.now()-t;let r=get(text);assert(r.status==='ready',text);const memoryAfterCompile=memory();\n    t=performance.now();r=get(session.start());let slices=0;while(r.status==='runnable'&&slices++<1000)r=get(session.drive(1000));const firstMs=performance.now()-t;assert(r.status==='complete'&&r.result?.tag==='i32'&&r.result.value==='42',JSON.stringify(r));\n    t=performance.now();r=get(session.start());slices=0;while(r.status==='runnable'&&slices++<1000)r=get(session.drive(1000));const repeatMs=performance.now()-t;assert(r.status==='complete'&&r.result?.value==='42',JSON.stringify(r));\n    t=performance.now();r=get(session.reset());const resetMs=performance.now()-t;assert(r.status==='idle',JSON.stringify(r));return {label,compileMs,firstMs,repeatMs,resetMs,memoryAfterCompile,memoryAfterReset:memory()};\n   }\n   for(const label of ['first','second']){\n    t=performance.now();const session=new api.BrowserSession();const constructionMs=performance.now()-t;\n    const item={constructionMs,...run(session,label)};out.sessions.push(item);\n    if(label==='second')out.sessions.push({constructionMs:0,...run(session,'retained')});\n    t=performance.now();session.free();item.freeMs=performance.now()-t;item.memoryAfterFree=memory();\n   }\n   const bytes=new Uint8Array(await(await fetch('/kagari/wasm/browser-basic.kbc')).arrayBuffer());const external=new api.BrowserSession();t=performance.now();const loaded=get(external.load_artifact(bytes));out.externalLoadMs=performance.now()-t;assert(loaded.status==='ready',JSON.stringify(loaded));t=performance.now();let r=get(external.start());let slices=0;let output=[];while(r.status==='runnable'&&slices++<1000){r=get(external.drive(1000));output.push(...r.output)}out.externalFirstMs=performance.now()-t;assert(r.status==='complete',JSON.stringify(r));out.externalResult=r.result;out.externalOutput=output;external.free();out.memoryFinal=memory();return out;\n  },{mode,source});\n  results.samples.push({mode,workload,sample,...result});await context.close();\n  await writeFile(join(root,'target/compilation-startup/browser-results.json'),JSON.stringify(results,null,2));\n  console.log(JSON.stringify({mode,workload,sample,first:result.sessions[0].compileMs,total:result.sessions[0].constructionMs+result.sessions[0].compileMs,retained:result.sessions[2].compileMs}));\n }\n}finally{await browser.close();await server.close()}\n",
+    "native_probe_template": "use kagari::{engine::{KagariEngine, source::CheckedModule}, program::PreparedProgram, BytecodeArtifact};\nuse kagari_source::{source::SourceFile, source_database::SourceLayer};\nuse kagari_common::identity::{ModuleIdentity,PackageId};\nuse kagari_runtime::{module::entry::ProgramEntry,value::Value};\nuse kagari_contract::types::PublicItem;\nuse kagari_types::ty::Ty;\nuse std::time::Instant;\n\nconst TRAIT: &str = \"pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(Pair { number: 42 }) }\";\nfn millis(start: Instant) -> f64 { start.elapsed().as_secs_f64()*1000.0 }\nfn prepare(engine:&KagariEngine, checked:&CheckedModule) -> PreparedProgram { PREPARE_BODY }\nfn nodes(ty:&Ty)->usize {\n    1+match ty {\n        Ty::Builtin(_) | Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter{..}=>0,\n        Ty::Reference{target,..} | Ty::Range(target,_) | Ty::Iter(target) | Ty::Array(target) | Ty::Set(target,_)=>nodes(target),\n        Ty::Map{key,value,..}=>nodes(key)+nodes(value),\n        Ty::Tuple(items)=>items.iter().map(nodes).sum(),\n        Ty::Function{params,result}=>params.iter().map(nodes).sum::<usize>()+nodes(result),\n        Ty::Struct(n)|Ty::NativeObject(n)|Ty::Enum(n)|Ty::Trait(n)=>n.arguments.iter().chain(n.associated_types.values()).map(nodes).sum(),\n        Ty::Projection{receiver,interface,arguments,..}=>nodes(receiver)+interface.arguments.iter().chain(interface.associated_types.values()).chain(arguments).map(nodes).sum::<usize>(),\n    }\n}\nfn checked(engine:&KagariEngine, condition:&str, growth:usize)->CheckedModule {\n    if growth==0 { return engine.compile_source(SourceFile::new(\"probe.kgr\",if condition==\"trait\" {TRAIT}else{\"fn main()->i32{42}\"})).unwrap(); }\n    let insert=|name:&str,source:String| {\n        let uri=format!(\"memory://{name}.kgr\");\n        engine.bind_module(&uri,ModuleIdentity{package:PackageId(\"probe\".into()),path:vec![name.into()]}).unwrap();\n        engine.set_source(&uri,source,SourceLayer::Base).unwrap()\n    };\n    insert(\"shared\",match condition {\n        \"body\" => \"pub fn value() -> i32 { 43 }\",\n        \"signature\" => \"pub fn value(input: i32) -> i32 { 43 + input }\",\n        _ => \"pub fn value() -> i32 { 42 }\",\n    }.into());\n    for i in 0..growth { insert(&format!(\"leaf{i}\"),if condition==\"signature\" {\"use probe::shared; pub fn read() -> i32 { shared::value(0) }\"} else {\"use probe::shared; pub fn read() -> i32 { shared::value() }\"}.into()); }\n    let imports=(0..growth).map(|i|format!(\"use probe::leaf{i};\")).collect::<String>();\n    let body=(0..growth).map(|i|format!(\"leaf{i}::read()\")).collect::<Vec<_>>().join(\" + \");\n    let root=insert(\"root\",format!(\"{imports} fn main() -> i32 {{ {body} }}\"));\n    engine.compile_snapshot(engine.source_snapshot(),root,&Default::default()).unwrap()\n}\nfn main(){\n    for (label,growth) in [(\"minimal\",0),(\"trait\",0),(\"growth1\",1),(\"growth8\",8),(\"growth32\",32)] {\n        for sample in 0..5 {\n            let t=Instant::now(); let engine=KagariEngine::default(); let engine_ms=millis(t);\n            let t=Instant::now(); let input=checked(&engine,label,growth); let program=prepare(&engine,&input); let prepare_ms=millis(t);\n            let t=Instant::now(); let context=Default::default(); let mut runtime=engine.runtime(context); let loaded=runtime.load_program(&program,Default::default()).unwrap(); let link_ms=millis(t);\n            let t=Instant::now(); let result=runtime.execute(&loaded,ProgramEntry::Main,&[],&Default::default()).unwrap(); let first_ms=millis(t);\n            let expected=42*if growth==0 {1}else{growth as i32}; assert_eq!(result.return_value.value(runtime.runtime().gc()).unwrap(),Value::I32(expected)); drop(result);\n            let t=Instant::now(); let result=runtime.execute(&loaded,ProgramEntry::Main,&[],&Default::default()).unwrap(); let repeat_ms=millis(t); drop(result);\n            let artifact=engine.EMIT_METHOD(&input,Default::default()).unwrap();\n            let bytes=artifact.records().to_bytes(artifact.definitions()).unwrap();\n            let t=Instant::now(); let external=PreparedProgram::from_artifact(BytecodeArtifact::from_bytes(&bytes).unwrap(),&Default::default(),&Default::default()).unwrap();let external_prepare_ms=millis(t);\n            let t=Instant::now(); let mut external_runtime=engine.runtime(Default::default());let external_loaded=external_runtime.load_program(&external,Default::default()).unwrap();let external_link_ms=millis(t);\n            let result=external_runtime.execute(&external_loaded,ProgramEntry::Main,&[],&Default::default()).unwrap();assert_eq!(result.return_value.value(external_runtime.runtime().gc()).unwrap(),Value::I32(expected));drop(result);\n            let mut functions=0;let mut instructions=0;let mut declarations=0;let mut obligations=0;let mut types=0;let mut max_nodes=0;\n            for module in program.bytecode().modules(){\n                declarations+=module.public_items.len()+module.trait_contracts.len()+module.native_declarations.len();types+=module.types.len();\n                for item in &module.public_items {if let PublicItem::InterfaceTable(table)=item {obligations+=table.bounds.iter().map(|b|b.constraints.len()).sum::<usize>();}}\n                for f in &module.functions {functions+=1;instructions+=f.instructions.len();for ty in f.metadata.semantic.params.values().chain(f.metadata.semantic.result.iter()).chain(f.metadata.semantic.slots.values()){max_nodes=max_nodes.max(nodes(ty));}}\n            }\n            let t=Instant::now();let retained_input=checked(&engine,label,growth);let retained=prepare(&engine,&retained_input);let retained_prepare_ms=millis(t);drop(retained);\n            if growth==8 {\n                for edit in [\"body\",\"signature\"] {\n                    let t=Instant::now();let input=checked(&engine,edit,growth);let changed=prepare(&engine,&input);let edit_ms=millis(t);\n                    let mut runtime=engine.runtime(Default::default());let loaded=runtime.load_program(&changed,Default::default()).unwrap();let result=runtime.execute(&loaded,ProgramEntry::Main,&[],&Default::default()).unwrap();assert_eq!(result.return_value.value(runtime.runtime().gc()).unwrap(),Value::I32(43*growth as i32));\n                    println!(\"{{\\\"label\\\":\\\"edit-{edit}\\\",\\\"sample\\\":{sample},\\\"prepare_ms\\\":{edit_ms}}}\");\n                }\n            }\n            println!(\"{{\\\"label\\\":\\\"{label}\\\",\\\"sample\\\":{sample},\\\"engine_ms\\\":{engine_ms},\\\"prepare_ms\\\":{prepare_ms},\\\"link_ms\\\":{link_ms},\\\"first_ms\\\":{first_ms},\\\"repeat_ms\\\":{repeat_ms},\\\"external_prepare_ms\\\":{external_prepare_ms},\\\"external_link_ms\\\":{external_link_ms},\\\"retained_prepare_ms\\\":{retained_prepare_ms},\\\"modules\\\":{},\\\"functions\\\":{functions},\\\"instructions\\\":{instructions},\\\"declarations\\\":{declarations},\\\"table_constraints\\\":{obligations},\\\"physical_type_records\\\":{types},\\\"max_semantic_type_nodes\\\":{max_nodes}}}\",program.bytecode().modules().len());\n        }\n    }\n}\n",
+    "memory_probe_template": "use kagari::{engine::{KagariEngine, source::CheckedModule}, program::PreparedProgram, BytecodeArtifact};\nuse kagari_source::{source::SourceFile, source_database::SourceLayer};\nuse kagari_common::identity::{ModuleIdentity,PackageId};\nuse kagari_runtime::{module::entry::ProgramEntry,value::Value};\nuse kagari_contract::types::PublicItem;\nuse kagari_types::ty::Ty;\nuse std::time::Instant;\n\nconst TRAIT: &str = \"pub trait Echo<T> { fn get(self) -> T; } pub struct Pair { val number: i32 } impl Echo<i32> for Pair { fn get(self) -> i32 { self.number } } fn read<U: Echo<i32>>(value: U) -> i32 { value.get() } fn main() -> i32 { read(Pair { number: 42 }) }\";\nfn millis(start: Instant) -> f64 { start.elapsed().as_secs_f64()*1000.0 }\nfn prepare(engine:&KagariEngine, checked:&CheckedModule) -> PreparedProgram { PREPARE_BODY }\nfn nodes(ty:&Ty)->usize {\n    1+match ty {\n        Ty::Builtin(_) | Ty::Host(_) | Ty::SelfType(_) | Ty::Parameter{..}=>0,\n        Ty::Reference{target,..} | Ty::Range(target,_) | Ty::Iter(target) | Ty::Array(target) | Ty::Set(target,_)=>nodes(target),\n        Ty::Map{key,value,..}=>nodes(key)+nodes(value),\n        Ty::Tuple(items)=>items.iter().map(nodes).sum(),\n        Ty::Function{params,result}=>params.iter().map(nodes).sum::<usize>()+nodes(result),\n        Ty::Struct(n)|Ty::NativeObject(n)|Ty::Enum(n)|Ty::Trait(n)=>n.arguments.iter().chain(n.associated_types.values()).map(nodes).sum(),\n        Ty::Projection{receiver,interface,arguments,..}=>nodes(receiver)+interface.arguments.iter().chain(interface.associated_types.values()).chain(arguments).map(nodes).sum::<usize>(),\n    }\n}\nfn checked(engine:&KagariEngine, condition:&str, growth:usize)->CheckedModule {\n    if growth==0 { return engine.compile_source(SourceFile::new(\"probe.kgr\",if condition==\"trait\" {TRAIT}else{\"fn main()->i32{42}\"})).unwrap(); }\n    let insert=|name:&str,source:String| {\n        let uri=format!(\"memory://{name}.kgr\");\n        engine.bind_module(&uri,ModuleIdentity{package:PackageId(\"probe\".into()),path:vec![name.into()]}).unwrap();\n        engine.set_source(&uri,source,SourceLayer::Base).unwrap()\n    };\n    insert(\"shared\",match condition {\n        \"body\" => \"pub fn value() -> i32 { 43 }\",\n        \"signature\" => \"pub fn value(input: i32) -> i32 { 43 + input }\",\n        _ => \"pub fn value() -> i32 { 42 }\",\n    }.into());\n    for i in 0..growth { insert(&format!(\"leaf{i}\"),if condition==\"signature\" {\"use probe::shared; pub fn read() -> i32 { shared::value(0) }\"} else {\"use probe::shared; pub fn read() -> i32 { shared::value() }\"}.into()); }\n    let imports=(0..growth).map(|i|format!(\"use probe::leaf{i};\")).collect::<String>();\n    let body=(0..growth).map(|i|format!(\"leaf{i}::read()\")).collect::<Vec<_>>().join(\" + \");\n    let root=insert(\"root\",format!(\"{imports} fn main() -> i32 {{ {body} }}\"));\n    engine.compile_snapshot(engine.source_snapshot(),root,&Default::default()).unwrap()\n}\nmod memory;\n#[global_allocator]\nstatic ALLOCATOR: memory::CountingAllocator = memory::CountingAllocator;\nfn main() {\n for label in [\"minimal\",\"trait\"] {for sample in 0..5 {\n  let before=memory::live_bytes() as isize;\n  let program={let engine=KagariEngine::default();let input=checked(&engine,label,0);prepare(&engine,&input)};\n  let retained=memory::live_bytes() as isize-before;\n  let engine=KagariEngine::default();let mut runtime=engine.runtime(Default::default());let loaded=runtime.load_program(&program,Default::default()).unwrap();\n  let loaded_bytes=memory::live_bytes() as isize-before;\n  let result=runtime.execute(&loaded,ProgramEntry::Main,&[],&Default::default()).unwrap();assert_eq!(result.return_value.value(runtime.runtime().gc()).unwrap(),Value::I32(42));drop(result);drop(loaded);drop(runtime);drop(engine);drop(program);\n  let cleanup=memory::live_bytes() as isize-before;\n  println!(\"{{\\\"label\\\":\\\"{label}\\\",\\\"sample\\\":{sample},\\\"retained_program_bytes\\\":{retained},\\\"with_independent_runtime_bytes\\\":{loaded_bytes},\\\"after_drop_bytes\\\":{cleanup}}}\");\n }}\n}\n",
+    "baseline_prepare_body": "let artifact=engine.emit_bytecode(checked,Default::default()).unwrap(); PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap()",
+    "current_prepare_body": "engine.prepare(checked,Default::default()).unwrap()",
+    "baseline_emit_method": "emit_bytecode",
+    "current_emit_method": "emit_artifact",
+    "allocator_source": "crates/kagari/examples/architecture_baseline/memory.rs",
+    "instructions": "Write native templates under each revision examples/startup_probe/main.rs and examples/startup_memory/main.rs; substitute PREPARE_BODY/EMIT_METHOD and place allocator as startup_memory/memory.rs. Build with cargo build -p kagari --release --example startup_probe --example startup_memory, then remove temporary examples before WASM provenance/build. Run the two executables separately. Place browser probe under target/compilation-startup so relative helper imports resolve; products must already be built. No builds or another benchmark during sampling."
+  }
+}
