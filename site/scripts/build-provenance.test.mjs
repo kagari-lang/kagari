@@ -42,7 +42,7 @@ async function fixture(t) {
   await writeFile(paths.fixture, files.get('browser-basic.kbc'));
   for (const name of ['client.js', 'protocol.js', 'worker.js']) await put(paths.clientRoot, name, `// ${name}\n`);
   const record = {
-    recipe: { target: 'wasm32-unknown-unknown', profile: 'dev', features: { source: ['default', 'source'], artifact: ['--no-default-features'] } },
+    recipe: { target: 'wasm32-unknown-unknown', profile: 'release', features: { source: ['default', 'source'], artifact: ['--no-default-features'] } },
     tools: { rustc: 'fixture rustc', cargo: 'fixture cargo', bindgen: 'wasm-bindgen 0.2.129', environment: {} },
     inputs: { sha256: 'fixture input identity', files: {} },
     sourceFreeGraph: 'kagari-web v0.0.0\nkagari-runtime v0.0.0\n',

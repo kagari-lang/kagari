@@ -619,7 +619,7 @@ in tracked documentation. No new measurements are required before CS02 begins.
 | CS02 | Complete | Direct sealed compilation/preparation and explicit sealed export; 22 selected tests, SDK check, structure, fmt, workspace all-target Clippy and diff checks passed. |
 | CS03 | Complete | Shared bounded shape traversal; 17 type-owner tests, extended wire edges, 2 trait and 9 compiler host-contract tests passed; zero measured predicate allocations. Required local checks passed. |
 | CS04 | Complete (local scope) | Graph-owned proof resources, exact dependency views, cancellation and focused checks pass. Exhaustive matrices remain CI-owned. |
-| CS05 | Not started | Immediate-run consumers and release browser products. |
+| CS05 | Complete (local scope) | Immediate-run consumers and release browser products. |
 | CS06 | Not started | Focused integration, measured goals and documentation handoff. |
 
 CS01 changed documentation only; no Rust test result is claimed. A matched
@@ -759,3 +759,43 @@ Manual review found no new production globs/re-exports, widened compatibility AP
 handwritten includes or structural exceptions. Synchronous lower-level consumers
 without a cancellation API explicitly supply a fresh token; source preparation and
 SDK external artifact admission propagate their existing caller token.
+
+
+### CS05 implementation evidence
+
+Browser source compile and CLI standalone/package run now prepare sealed source
+products directly. CLI native-input retention is explicitly tied to `--jit`, not
+feature unification. Package run retains acquisition/lockfile/declaration behavior
+but no longer publishes incidental artifacts or prints a built-product path;
+existing build/export code and tests remain. Browser candidate rollback still
+stages preparation and runtime loading before publication.
+
+Ordinary embedding examples, the VM source-loading helper, SDK embedding/reload
+cases, and shared source/JIT language routes now consume direct preparation.
+Artifact/tampering/source-free helpers retain their explicit purposes. The shared
+language contract harness uses SDK checked snapshots and the same source preparation
+owner, retains MIR explicitly for its JIT route, and independently exports/decodes
+its artifact controls. Its vector-observation compilation provider is a sealed,
+compilation-only fixture; execution retains the existing observable recording host.
+Async examples choose direct preparation unless an output file is explicitly
+requested; their shared source-free host consumes a prepared program from either
+entry path. Inspection/mutation and baseline artifact measurements are intentionally
+not renamed into source routes.
+
+WASM products use the standard workspace release profile and default parallelism,
+with the recipe, input provenance, output path, exact command assertions and public
+build instructions changed together. No wasm-opt or special Cargo profile was added.
+The focused product/provenance Node suite passes 23 cases. Structure checks 1398
+Rust files with zero findings. CLI/browser/shared-contract validation passes;
+CS06 owns exact browser products and matched performance measurements.
+
+Selected local validation passes: CLI package build/root/output coverage (updated
+old run-publication expectation to assert no new product, then explicitly build
+and verify the edited result); browser exclusive run/cancel/reset/failed candidate
+and source-origin cases; shared four-route heap cancellation and actual scalar JIT;
+SDK dependency-pinned reload; shared direct/artifact default-method dispatch.
+Workspace all-target Clippy, formatting, structure and diff checks pass. API helper
+migration initially exposed the SDK diagnostic-record field and a deliberately
+artifact-only inspection helper; both were corrected without dropping artifact
+coverage or relabelling it as Source. Manual structure review found no new
+re-exports/globs, compatibility facades or exceptions. Complete matrices remain CI-owned.

@@ -3,7 +3,7 @@ use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{BytecodeInstruction, ConstantOperand},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, RootSlotLayout},
-    program::{BytecodeProgram, ModuleRef},
+    program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_compiler::{
@@ -15,7 +15,7 @@ use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     host::{HostCallContext, HostError},
-    module::LoadedModule,
+    module::{LoadedModule, VerifiedProgram},
     native::{builder::ModuleBuilder, module::NativeModule},
     value::Value,
 };
@@ -103,7 +103,12 @@ pub fn load_bytecode_program_with_runtime(
 }
 
 pub fn load_test_module(source_text: &str) -> (Runtime, LoadedModule) {
-    load_bytecode_program("test.kgr", compile_test_bytecode(source_text))
+    let program = compile_native_test_bytecode_with_options(source_text, &[], &Default::default());
+    let mut runtime = standard_runtime(Default::default());
+    let loaded = runtime
+        .load_verified_program("test.kgr", VerifiedProgram::from_bytecode(program))
+        .expect("test program should load");
+    (runtime, loaded)
 }
 
 /// Bind the fixed print service through ordinary common native registration.
@@ -141,20 +146,21 @@ pub fn compile_native_test_bytecode(
     modules: &[&NativeModule],
 ) -> DefinitionMetadata<BytecodeProgram> {
     compile_native_test_bytecode_with_options(source_text, modules, &Default::default())
+        .into_unverified()
 }
 
 pub fn compile_test_bytecode_with_options(
     source_text: &str,
     options: &MirLoweringOptions,
 ) -> DefinitionMetadata<BytecodeProgram> {
-    compile_native_test_bytecode_with_options(source_text, &[], options)
+    compile_native_test_bytecode_with_options(source_text, &[], options).into_unverified()
 }
 
 fn compile_native_test_bytecode_with_options(
     source_text: &str,
     modules: &[&NativeModule],
     options: &MirLoweringOptions,
-) -> DefinitionMetadata<BytecodeProgram> {
+) -> VerifiedBytecodeProgram {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kgr", source_text.into(), SourceLayer::Base)
@@ -179,7 +185,6 @@ fn compile_native_test_bytecode_with_options(
         .expect("program analysis should succeed");
     let ir = lower_program_to_mir(&checked, options).expect("program MIR lowering should succeed");
     lower_program_to_bytecode(&ir, &Default::default())
-        .map(|program| program.into_unverified())
         .expect("program bytecode lowering should succeed")
 }
 

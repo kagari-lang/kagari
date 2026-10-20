@@ -1,6 +1,6 @@
 //! One registered method set serves runtime-owned and externally borrowed players.
 use kagari::runtime::KagariRuntime;
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::{
     native::{
         builder::ModuleBuilder,
@@ -55,8 +55,8 @@ fn main() {
         .unwrap();
     builder.install(module.finish().unwrap()).unwrap();
     let engine = builder.build().unwrap();
-    let artifact = engine
-        .compile_to_artifact(
+    let program = engine
+        .compile_to_program(
             SourceFile::new(
                 "scoped.kgr",
                 r#"
@@ -69,8 +69,7 @@ fn main() {
             Default::default(),
         )
         .unwrap();
-    let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

@@ -71,7 +71,9 @@ cargo run --locked -p kagari-cli --bin kg -- check --manifest-path examples/pack
 Do not combine an explicit source/artifact path with project selectors. Source
 discovery follows declared modules and dependencies rather than compiling every
 `.kgr` file it finds. Project formatting selects declared workspace members;
-check/lint also resolve their dependencies.
+check/lint also resolve their dependencies. Source and package `run` prepare code
+directly without writing a `.kbc` file or printing a `built` path. Use `build` or
+`emit` to save an artifact; package `run` still follows the same lockfile policy.
 
 Project resolution accepts `--locked`, `--offline` and `--frozen` (both).
 Acquisition is currently local only; these flags do not imply a package registry.

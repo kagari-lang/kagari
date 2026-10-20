@@ -14,8 +14,8 @@ macro_rules! syntax_examples {
             #[test]
             fn $name() {
                 let engine = execution::engine(Default::default());
-                let artifact = engine.compile_to_artifact(
-                    SourceFile::new($path, include_str!($source)), Default::default(),
+                let artifact = engine.compile_source(
+                    SourceFile::new($path, include_str!($source)),
                 ).unwrap();
                 execution::assert_returns_i32(&engine, artifact,
                     &[execution::Route::Source, execution::Route::Artifact], 42);
@@ -78,10 +78,9 @@ syntax_examples! {
 fn struct_pattern_rest_executes_in_existing_contexts() {
     let engine = execution::engine(Default::default());
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new(
-                "struct-pattern-rest.kgr",
-                r#"
+        .compile_source(SourceFile::new(
+            "struct-pattern-rest.kgr",
+            r#"
 struct Pair<T> { val first: T, val spare: i32 }
 fn main() -> i32 {
     val pair = Pair { first: 10, spare: 99 };
@@ -94,9 +93,7 @@ fn main() -> i32 {
     selected + sum + rest
 }
 "#,
-            ),
-            Default::default(),
-        )
+        ))
         .unwrap();
     execution::assert_returns_i32(
         &engine,

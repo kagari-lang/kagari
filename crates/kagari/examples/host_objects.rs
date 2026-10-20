@@ -1,12 +1,12 @@
 //! Prepare field/method bindings once, then work with retained script objects.
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::native::objects::Object;
 use kagari_source::source::SourceFile;
 
 fn main() {
     let engine = KagariEngine::builder().unwrap().build().unwrap();
-    let artifact = engine
-        .compile_to_artifact(
+    let prepared = engine
+        .compile_to_program(
             SourceFile::new(
                 "player.kgr",
                 r#"
@@ -24,8 +24,7 @@ fn main() {
             Default::default(),
         )
         .unwrap();
-    let prepared =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+
     let execution = ExecutionContext::default();
     let mut runtime = engine.runtime(execution.clone());
     let loaded = runtime.load_program(&prepared, Default::default()).unwrap();

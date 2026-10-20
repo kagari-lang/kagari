@@ -8,19 +8,19 @@ import { buildProductFiles, productsRoot, repositoryRoot, runCommand } from './w
 
 const validTree = 'kagari-web v0.0.0\nkagari-runtime v0.0.0\n';
 
-test('product commands have explicit budgets inside the 16-minute aggregate, unchanged profiles and parallelism', async () => {
+test('product commands have explicit budgets inside the 16-minute aggregate, release products and default parallelism', async () => {
   const calls = [];
   assert.equal(await buildProductFiles('fixture-bindgen', async (...args) => {
     calls.push(args);
     return { stdout: validTree };
   }), validTree);
   const target = 'wasm32-unknown-unknown';
-  const binding = (mode) => ['fixture-bindgen', [join(repositoryRoot, `target/${target}/debug/kagari_web.wasm`), '--target', 'web', '--out-dir', join(productsRoot, mode), '--out-name', 'kagari_web'], { timeout: 30_000, mirror: true }];
+  const binding = (mode) => ['fixture-bindgen', [join(repositoryRoot, `target/${target}/release/kagari_web.wasm`), '--target', 'web', '--out-dir', join(productsRoot, mode), '--out-name', 'kagari_web'], { timeout: 30_000, mirror: true }];
   assert.deepEqual(calls, [
     ['cargo', ['tree', '-p', 'kagari-web', '--no-default-features', '--target', target, '--edges', 'normal', '--prefix', 'none', '--locked'], { timeout: 30_000 }],
-    ['cargo', ['build', '-p', 'kagari-web', '--target', target, '--locked'], { timeout: 240_000, mirror: true }],
+    ['cargo', ['build', '-p', 'kagari-web', '--target', target, '--release', '--locked'], { timeout: 240_000, mirror: true }],
     binding('source'),
-    ['cargo', ['build', '-p', 'kagari-web', '--no-default-features', '--target', target, '--locked'], { timeout: 240_000, mirror: true }],
+    ['cargo', ['build', '-p', 'kagari-web', '--no-default-features', '--target', target, '--release', '--locked'], { timeout: 240_000, mirror: true }],
     binding('artifact'),
     ['cargo', ['test', '-p', 'kagari-web', '--lib', '--locked', 'tests::generate_browser_artifact', '--', '--exact'], { timeout: 240_000, mirror: true }],
   ]);

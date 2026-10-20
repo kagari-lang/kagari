@@ -95,10 +95,10 @@ impl ArithmeticCase {
         config.default_runtime.gc.collection_threshold = Some(1);
         let engine = execution::engine(config);
         let artifact = engine
-            .compile_to_artifact(
-                SourceFile::new("shared-arithmetic.kgr", self.source(custom)),
-                Default::default(),
-            )
+            .compile_source(SourceFile::new(
+                "shared-arithmetic.kgr",
+                self.source(custom),
+            ))
             .unwrap_or_else(|error| {
                 panic!(
                     "{} (custom={custom}) compilation failed: {error:?}",

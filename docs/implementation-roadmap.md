@@ -303,7 +303,9 @@ implements direct sealed source preparation and export; its selected local check
 passed. CS03 shares bounded shape validation without wire-output allocation and
 passes its selected type/trait/host contracts. CS04 prepares graph-owned proof
 resources with dependency-scoped views and caller cancellation; its selected local
-checks pass. CS05 consumer/product migration is next. Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
+checks pass. CS05 migrates immediate-run consumers and release WASM product recipes;
+its selected local checks pass. CS06 integration, exact products and matched
+measurements are next. Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
 not a WASM-specific verifier or another interpreter throughput plan.
 
 The intended path prepares source directly through retained verified MIR/bytecode,

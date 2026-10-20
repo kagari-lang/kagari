@@ -1,6 +1,6 @@
 //! Load one source package closure and explicitly call several public entries.
 
-use kagari::{engine::KagariEngine, program::PreparedProgram};
+use kagari::engine::KagariEngine;
 use kagari_common::cancellation::CancellationToken;
 use kagari_package::{
     filesystem::FilesystemSources,
@@ -28,10 +28,8 @@ fn main() {
     let checked = engine
         .compile_package(&project.programs()["gameplay"], &cancel)
         .expect("checked package");
-    let artifact = engine
-        .emit_artifact(&checked, Default::default())
-        .expect("artifact");
-    let program = PreparedProgram::from_artifact(artifact, &Default::default(), &cancel)
+    let program = engine
+        .prepare(&checked, Default::default())
         .expect("verified program");
     let mut runtime = engine.runtime(Default::default());
     let loaded = runtime

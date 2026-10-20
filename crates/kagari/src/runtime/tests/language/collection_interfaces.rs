@@ -14,10 +14,7 @@ fn execute(source: &str) {
     config.default_runtime.gc.collection_threshold = Some(1);
     let engine = execution::engine(config);
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("standard-traits.kgr", source),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new("standard-traits.kgr", source))
         .unwrap();
     execution::assert_returns_i32(
         &engine,

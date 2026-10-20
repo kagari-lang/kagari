@@ -1,5 +1,5 @@
 //! A synchronous host callback invokes the pinned script version and retains its result.
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -91,7 +91,7 @@ fn main() {
     builder.install(module.finish().unwrap()).unwrap();
     let engine = builder.build().unwrap();
     let context = ExecutionContext::default();
-    let artifact = engine.compile_to_artifact(
+    let program = engine.compile_to_program(
         SourceFile::new(
             "reentry.kgr",
             "use example::reentry::notify; fn main() -> i32 { notify(\"make\"); 42 } fn make() -> [i32] { [7, 8] }",
@@ -99,8 +99,7 @@ fn main() {
         Default::default(),
     ).unwrap();
     let mut runtime = engine.runtime(context.clone());
-    let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+
     let loaded = runtime.load_program(&program, Default::default()).unwrap();
     runtime
         .runtime()

@@ -6,7 +6,7 @@ mod host;
 #[path = "../../examples/async_tasks/provider.rs"]
 mod provider;
 
-use kagari::{BytecodeArtifact, engine::KagariEngine};
+use kagari::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
 use provider::FakeIo;
@@ -48,5 +48,7 @@ fn source_free_async_execution_contract() {
     }
     let bytes = fs::read(path).expect("emit the async_tasks example artifact first");
     let artifact = BytecodeArtifact::from_bytes(&bytes).unwrap();
-    host::run(engine, artifact, io).unwrap();
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    host::run(engine, program, io).unwrap();
 }

@@ -22,7 +22,7 @@ npm run build:pages
 Install the Rust `wasm32-unknown-unknown` target and the exact wasm-bindgen CLI
 0.2.129 first; see the [product instructions](../crates/kagari-web/README.md#reproducible-products-and-focused-validation).
 `build:pages` explicitly builds both WASM modes and a native artifact fixture, then
-runs the site build and exact 25-route checks. Products use the workspace dev
+runs the site build and exact 25-route checks. Products use the workspace release
 profile, default target and parallelism. Every child is bounded; failures/timeouts
 are reported, never replaced with cached success. CI acquires tools separately.
 

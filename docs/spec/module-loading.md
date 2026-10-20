@@ -127,7 +127,10 @@ and dependencies are captured, with the loader's canonical-path and resource lim
 Workspace ownership, dependency names and source visibility remain package/HIR rules.
 
 All project members share `<workspace>/target/kagari`: generated native declaration
-views live under `declarations`, and complete `.kbc` products under `programs`.
+views live under `declarations`, and `build` writes complete `.kbc` products under
+`programs`. Source/package `run` prepares verified code directly: it publishes no
+incidental artifact and prints no `built` path. Package acquisition, lockfile policy
+and declaration views remain the same; `run --output` is invalid.
 Products are addressed by checked source/selection/alias inputs, native and offline
 Host contracts, query limits, the compiler contract identifier and emitted bytes.
 Matching complete inputs and output bytes can share a file; edits retain earlier

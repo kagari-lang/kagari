@@ -1,39 +1,38 @@
 //! Standard provider preparation shared by independent contract cases.
-use kagari_hir::analysis::AnalysisDatabase;
-use kagari_runtime::native::installation::NativeInstallation;
-use kagari_source::source_database::SourceDatabase;
-use std::sync::{Arc, Mutex, OnceLock};
+use crate::{engine::KagariEngine, test_support::execution};
+use kagari_runtime::{
+    host::{HostCallContext, HostError},
+    native::{builder::ModuleBuilder, installation::NativeInstallation},
+    value::Value,
+};
+use std::sync::{Mutex, OnceLock};
 
-pub(super) fn analysis() -> AnalysisDatabase {
-    static BASELINE: OnceLock<Mutex<AnalysisDatabase>> = OnceLock::new();
-    BASELINE
+pub(super) fn engine(vector: bool) -> KagariEngine {
+    if !vector {
+        return execution::engine(Default::default());
+    }
+    static VECTOR: OnceLock<Mutex<KagariEngine>> = OnceLock::new();
+    VECTOR
         .get_or_init(|| {
-            let mut analysis = AnalysisDatabase::default();
-            analysis.set_native_modules(
-                kagari_stdlib::modules()
-                    .unwrap()
-                    .iter()
-                    .map(|module| Arc::new(module.to_declaration()))
-                    .collect(),
-            );
-            let snapshot = analysis
-                .snapshot(SourceDatabase::default().snapshot(), &Default::default())
+            let mut builder = KagariEngine::builder().unwrap();
+            let mut module = ModuleBuilder::from_declaration(
+                super::observe_vector(),
+                builder.declarations(),
+                Default::default(),
+            )
+            .unwrap();
+            let vector = module.declared_function("vector").unwrap();
+            module
+                .bind(vector, |_: &HostCallContext<'_>, _: &[Value]| {
+                    Err(HostError::new("compilation-only provider must not execute"))
+                })
                 .unwrap();
-            for declaration in snapshot.declaration_snapshot().files() {
-                assert!(
-                    snapshot
-                        .file(declaration.source().id())
-                        .unwrap()
-                        .result()
-                        .diagnostics()
-                        .is_empty()
-                );
-            }
-            Mutex::new(analysis)
+            builder.install(module.finish().unwrap()).unwrap();
+            Mutex::new(builder.build().unwrap())
         })
         .lock()
         .unwrap()
-        .clone()
+        .new_session(Default::default())
 }
 
 pub(super) fn installation() -> &'static NativeInstallation {

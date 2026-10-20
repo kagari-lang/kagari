@@ -3,7 +3,7 @@
 use crate::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
-    engine::{EngineConfig, KagariEngine},
+    engine::{EngineConfig, KagariEngine, source::CheckedModule},
     program::PreparedProgram,
 };
 use kagari_codegen_cranelift::CraneliftBackend;
@@ -33,21 +33,56 @@ pub enum Route {
 
 pub fn assert_returns_i32(
     engine: &KagariEngine,
-    artifact: DefinitionMetadata<BytecodeArtifact>,
+    checked: CheckedModule,
     routes: &[Route],
+    expected: i32,
+) {
+    let direct = engine.prepare(&checked, Default::default()).unwrap();
+    let encoded = routes
+        .iter()
+        .any(|route| !matches!(route, Route::Source))
+        .then(|| {
+            let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
+            let decoded = BytecodeArtifact::from_bytes(
+                &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+            )
+            .unwrap();
+            PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default())
+                .unwrap()
+        });
+    assert_prepared_returns_i32(engine, Some(&direct), encoded.as_ref(), routes, expected);
+}
+
+pub fn assert_artifact_returns_i32(
+    engine: &KagariEngine,
+    artifact: DefinitionMetadata<BytecodeArtifact>,
     expected: i32,
 ) {
     let decoded =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
             .unwrap();
-    let direct =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    let decoded =
+    let program =
         PreparedProgram::from_artifact(decoded, &Default::default(), &Default::default()).unwrap();
+    assert_prepared_returns_i32(
+        engine,
+        None,
+        Some(&program),
+        &[Route::Artifact, Route::ArtifactJit],
+        expected,
+    );
+}
+
+fn assert_prepared_returns_i32(
+    engine: &KagariEngine,
+    direct: Option<&PreparedProgram>,
+    encoded: Option<&PreparedProgram>,
+    routes: &[Route],
+    expected: i32,
+) {
     for route in routes {
         let program = match route {
-            Route::Source => &direct,
-            Route::Artifact | Route::ArtifactJit => &decoded,
+            Route::Source => direct.unwrap(),
+            Route::Artifact | Route::ArtifactJit => encoded.unwrap(),
         };
         let jit = matches!(route, Route::ArtifactJit);
         let context = ExecutionContext {

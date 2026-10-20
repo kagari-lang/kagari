@@ -13,14 +13,17 @@ fn main() -> Result<(), Box<dyn Error>> {
     builder.install(io.module("demo::rpc", builder.declarations())?)?;
     builder.install(io.module("demo::database", builder.declarations())?)?;
     let engine = builder.build().map_err(|error| format!("{error:?}"))?;
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("memory://async-tasks.kgr", include_str!("script.kgr")),
-            Default::default(),
-        )
+    let checked = engine
+        .compile_source(SourceFile::new(
+            "memory://async-tasks.kgr",
+            include_str!("script.kgr"),
+        ))
         .map_err(|error| format!("{error:?}"))?;
     // The optional destination emits the exact product for source-free hosts.
     if let Some(destination) = env::args_os().nth(1) {
+        let artifact = engine
+            .emit_artifact(&checked, Default::default())
+            .map_err(|error| format!("{error:?}"))?;
         let destination = Path::new(&destination);
         if let Some(parent) = destination
             .parent()
@@ -35,6 +38,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("Wrote {}", destination.display());
         Ok(())
     } else {
-        host::run(engine, artifact, io)
+        let program = engine
+            .prepare(&checked, Default::default())
+            .map_err(|error| format!("{error:?}"))?;
+        host::run(engine, program, io)
     }
 }

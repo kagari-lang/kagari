@@ -46,10 +46,7 @@ fn main() -> i32 {
 }
 "#;
     let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("interface-identity.kgr", source),
-            Default::default(),
-        )
+        .compile_source(SourceFile::new("interface-identity.kgr", source))
         .unwrap();
     execution::assert_returns_i32(
         &engine,

@@ -10,23 +10,20 @@ use kagari_source::{source::SourceFile, source_database::SourceLayer};
 use kagari_types::{scalar::BuiltinType, ty::Ty};
 
 fn execute_artifact(engine: &KagariEngine, artifact: DefinitionMetadata<BytecodeArtifact>) {
-    execution::assert_returns_i32(
-        engine,
-        artifact,
-        &[Route::Source, Route::Artifact, Route::ArtifactJit],
-        42,
-    );
+    execution::assert_artifact_returns_i32(engine, artifact, 42);
 }
 
 fn execute(source: &str) {
     let engine = execution::engine(Default::default());
-    let artifact = engine
-        .compile_to_artifact(
-            SourceFile::new("associated.kgr", source),
-            Default::default(),
-        )
+    let checked = engine
+        .compile_source(SourceFile::new("associated.kgr", source))
         .unwrap();
-    execute_artifact(&engine, artifact);
+    execution::assert_returns_i32(
+        &engine,
+        checked,
+        &[Route::Source, Route::Artifact, Route::ArtifactJit],
+        42,
+    );
 }
 
 #[test]

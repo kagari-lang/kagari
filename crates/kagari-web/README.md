@@ -157,7 +157,7 @@ own normal root, loan, reentry and pinned-generation cleanup contracts.
 ## Reproducible products and focused validation
 
 Run from the repository root with installed `wasm32-unknown-unknown`. Use the
-default target directory and workspace dev profile. The product runner budgets
+default target directory and workspace release profile. The product runner budgets
 each Cargo build/fixture test to 240 seconds, binding generation and graph checks
 to 30 seconds, and tool probes to 10 seconds. The complete product stage is bounded
 to 16 minutes; explicit CLI installation in CI is separately bounded to 15 minutes.
@@ -175,10 +175,10 @@ installed). Generate the source bindings **before** the next build overwrites th
 shared Cargo `.wasm` path:
 
 ```sh
-cargo build -p kagari-web --target wasm32-unknown-unknown --locked
-target/wasm-tools/bin/wasm-bindgen target/wasm32-unknown-unknown/debug/kagari_web.wasm --target web --out-dir target/wasm-browser/source --out-name kagari_web
-cargo build -p kagari-web --no-default-features --target wasm32-unknown-unknown --locked
-target/wasm-tools/bin/wasm-bindgen target/wasm32-unknown-unknown/debug/kagari_web.wasm --target web --out-dir target/wasm-browser/artifact --out-name kagari_web
+cargo build -p kagari-web --target wasm32-unknown-unknown --release --locked
+target/wasm-tools/bin/wasm-bindgen target/wasm32-unknown-unknown/release/kagari_web.wasm --target web --out-dir target/wasm-browser/source --out-name kagari_web
+cargo build -p kagari-web --no-default-features --target wasm32-unknown-unknown --release --locked
+target/wasm-tools/bin/wasm-bindgen target/wasm32-unknown-unknown/release/kagari_web.wasm --target web --out-dir target/wasm-browser/artifact --out-name kagari_web
 cargo test -p kagari-web --lib --locked
 cargo test -p kagari-web --no-default-features --lib --locked
 cargo tree -p kagari-web --no-default-features --target wasm32-unknown-unknown --edges normal

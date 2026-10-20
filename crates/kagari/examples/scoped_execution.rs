@@ -14,15 +14,13 @@ use kagari_source::source::SourceFile;
 
 fn main() {
     let engine = KagariEngine::default();
-    let artifact = engine
-        .compile_to_artifact(
+    let program = engine
+        .compile_to_program(
             SourceFile::new("scoped.kgr", "fn main() -> i32 { 42 }"),
-            ArtifactOptions::default(),
+            Default::default(),
         )
         .unwrap();
     let mut runtime = engine.runtime(ExecutionContext::default());
-    let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
     let loaded = runtime
         .load_program(&program, LoadOptions::default())
         .unwrap();

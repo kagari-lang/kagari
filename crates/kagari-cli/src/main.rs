@@ -14,7 +14,11 @@ use crate::{
 use kagari::{
     BytecodeArtifact,
     context::{ExecutionContext, JitPolicy},
-    engine::{KagariEngine, builder::KagariEngineBuilder, source::ArtifactOptions},
+    engine::{
+        KagariEngine,
+        builder::KagariEngineBuilder,
+        source::{ArtifactOptions, PreparationOptions},
+    },
     error::EmbeddingError,
     program::{PreparedProgram, ProgramPreparationError},
     runtime::{KagariRuntime, LoadOptions},
@@ -128,15 +132,24 @@ fn emit_artifact(path: &Path, output: &Path) -> Result<(), CliError> {
     Ok(())
 }
 
+fn source_preparation(jit: bool) -> PreparationOptions {
+    let _ = jit;
+    PreparationOptions {
+        #[cfg(feature = "jit")]
+        retain_native_input: jit,
+        ..Default::default()
+    }
+}
+
 fn run_source(path: &Path, jit: bool) -> Result<(), CliError> {
     let source = read_source(path)?;
     let engine = source_engine("target/kagari-declarations")?;
-    let artifact = engine
-        .compile_to_artifact(source, ArtifactOptions::default())
+    let program = engine
+        .compile_to_program(source, source_preparation(jit))
         .map_err(|error| print_source_error(&engine, error))?;
-    run_loaded_artifact(
+    run_prepared_program(
         &engine,
-        artifact,
+        &program,
         LoadOptions {
             module_name: Some(path.display().to_string()),
         },
@@ -163,6 +176,21 @@ fn run_loaded_artifact(
 
     jit: bool,
 ) -> Result<(), CliError> {
+    let program = PreparedProgram::from_artifact(
+        artifact,
+        &ArtifactCompatibility::default(),
+        &Default::default(),
+    )
+    .map_err(print_program_error)?;
+    run_prepared_program(engine, &program, load_options, jit)
+}
+
+fn run_prepared_program(
+    engine: &KagariEngine,
+    program: &PreparedProgram,
+    load_options: LoadOptions,
+    jit: bool,
+) -> Result<(), CliError> {
     let context = ExecutionContext {
         jit_policy: if jit {
             JitPolicy::Enabled
@@ -171,18 +199,12 @@ fn run_loaded_artifact(
         },
         ..Default::default()
     };
-    let program = PreparedProgram::from_artifact(
-        artifact,
-        &ArtifactCompatibility::default(),
-        &context.cancellation,
-    )
-    .map_err(print_program_error)?;
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
-        .load_program(&program, load_options)
+        .load_program(program, load_options)
         .map_err(print_embedding_error)?;
 
-    let report = execute_entry(&mut runtime, &program, &loaded, &context, jit)?;
+    let report = execute_entry(&mut runtime, program, &loaded, &context, jit)?;
     if let Some(failure) = report.failure {
         return Err(CliError::message(1, format!("Result::Err: {failure}")));
     }

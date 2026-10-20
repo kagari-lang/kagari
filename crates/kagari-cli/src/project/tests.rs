@@ -67,6 +67,8 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
     // The unselected tool's bad body is irrelevant to this check.
     run_from(ProjectAction::Check, Default::default(), false, &directory).unwrap();
     let lock = fs::read(directory.join("Kagari.lock")).unwrap();
+    run_from(ProjectAction::Run, Default::default(), false, &directory).unwrap();
+    assert_eq!(fs::read(directory.join("Kagari.lock")).unwrap(), lock);
     assert!(!directory.join("target/kagari/programs").exists());
     let all = ProjectArgs {
         workspace: true,
@@ -136,10 +138,10 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
     assert_eq!(
         artifacts(&directory),
         previous,
-        "an unchanged build reuses the complete output"
+        "run does not publish a product"
     );
     // A local body edit is permitted by the unchanged shared lock. Explicit run
-    // uses the member's private root entry and stores a new complete product.
+    // uses the member's private root entry without publishing a product.
     fs::write(
         directory.join("rules/src/lib.kgr"),
         "pub fn value() -> i32 { 43 }",
@@ -157,6 +159,22 @@ fn project_builds_select_roots_and_store_independent_artifacts() {
     )
     .unwrap();
     assert_eq!(fs::read(directory.join("Kagari.lock")).unwrap(), lock);
+    assert_eq!(
+        artifacts(&directory),
+        previous,
+        "edited source run still emits no artifact"
+    );
+    run_from(
+        ProjectAction::Build,
+        ProjectArgs {
+            locked: true,
+            offline: true,
+            ..Default::default()
+        },
+        false,
+        &directory.join("app/src"),
+    )
+    .unwrap();
     let current = artifacts(&directory);
     assert_eq!(current.len(), 4);
     assert!(previous.is_subset(&current));

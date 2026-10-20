@@ -1,5 +1,5 @@
 //! An embedding consumer defines DTOs and an Opaque payload without core edits.
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_derive::KagariValue;
 use kagari_runtime::native::{
     binding::NativeResult, builder::ModuleBuilder, conversion::KagariType,
@@ -54,8 +54,8 @@ fn main() {
         .unwrap();
     builder.install(module.finish().unwrap()).unwrap();
     let engine = builder.build().unwrap();
-    let artifact = engine
-        .compile_to_artifact(
+    let program = engine
+        .compile_to_program(
             SourceFile::new(
                 "value.kgr",
                 r#"
@@ -66,8 +66,7 @@ fn main() {
             Default::default(),
         )
         .unwrap();
-    let program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime.load_program(&program, Default::default()).unwrap();

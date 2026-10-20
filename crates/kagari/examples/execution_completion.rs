@@ -3,7 +3,6 @@ use kagari::{
     context::ExecutionContext,
     engine::KagariEngine,
     error::{EmbeddingError, RuntimeFailureKind},
-    program::PreparedProgram,
     runtime::{KagariRuntime, owned::DriveResult},
 };
 use kagari_runtime::{
@@ -81,15 +80,13 @@ struct Fixture {
 impl Fixture {
     fn new() -> Self {
         let engine = KagariEngine::default();
-        let artifact = engine
-            .compile_to_artifact(
+        let program = engine
+            .compile_to_program(
                 SourceFile::new("completion.kgr", SOURCE),
                 Default::default(),
             )
             .unwrap();
-        let program =
-            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap();
+
         let context = ExecutionContext::default();
         let mut runtime = engine.runtime(context.clone());
         let module = runtime.load_program(&program, Default::default()).unwrap();

@@ -200,19 +200,24 @@ fn reload_rejects_same_named_dependency_type_changes_before_publication() {
 #[test]
 fn old_program_calls_keep_their_dependency_versions_after_reload() {
     let engine = KagariEngine::default();
+    let prepare = |engine: &KagariEngine, root| {
+        let checked = engine
+            .compile_snapshot(engine.source_snapshot(), root, &Default::default())
+            .unwrap();
+        engine.prepare(&checked, Default::default()).unwrap()
+    };
     insert(&engine, "dependency", "pub fn value() -> i32 { 1 }");
     let root = insert(
         &engine,
         "root",
         "use pkg::dependency::value; fn main() -> i32 { value() }",
     );
-    let first = compile(&engine, root);
+    let first = prepare(&engine, root);
     insert(&engine, "dependency", "pub fn value() -> i32 { 2 }");
-    let second = compile(&engine, root);
+    let second = prepare(&engine, root);
     let context = ExecutionContext::default();
     let mut runtime = engine.runtime(context.clone());
-    let old_program =
-        PreparedProgram::from_artifact(first, &Default::default(), &Default::default()).unwrap();
+    let old_program = first;
     let old = runtime
         .load_program(&old_program, Default::default())
         .unwrap();
@@ -231,16 +236,7 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
         .retain_module(&dependency, ModuleEpochRetention::ActiveCall)
         .unwrap();
     let new = runtime
-        .reload_program(
-            &old,
-            &PreparedProgram::from_artifact(
-                second.clone(),
-                &Default::default(),
-                &Default::default(),
-            )
-            .unwrap(),
-            Default::default(),
-        )
+        .reload_program(&old, &second.clone(), Default::default())
         .unwrap();
     assert!(
         runtime
@@ -263,12 +259,7 @@ fn old_program_calls_keep_their_dependency_versions_after_reload() {
     }
     assert!(
         runtime
-            .reload_program(
-                &old,
-                &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
-                    .unwrap(),
-                Default::default()
-            )
+            .reload_program(&old, &second, Default::default())
             .is_err()
     );
     drop(retention);

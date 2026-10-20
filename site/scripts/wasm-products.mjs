@@ -13,7 +13,7 @@ export const fixturePath = join(repositoryRoot, 'target/fixtures/browser-basic.k
 const target = 'wasm32-unknown-unknown';
 const productNames = ['kagari_web.js', 'kagari_web_bg.wasm', 'kagari_web.d.ts', 'kagari_web_bg.wasm.d.ts'];
 const modes = ['source', 'artifact'];
-const recipe = { version: 1, target, profile: 'dev', cargoDirectory: 'debug', features: { source: ['default', 'source'], artifact: ['--no-default-features'] }, bindgenTarget: 'web' };
+const recipe = { version: 1, target, profile: 'release', cargoDirectory: 'release', features: { source: ['default', 'source'], artifact: ['--no-default-features'] }, bindgenTarget: 'web' };
 export const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 // Internal inherited contract, not a user setting: only the outer helper creates
@@ -223,14 +223,14 @@ export async function copyProducts(destination, { modes: selected = modes, inclu
  * Cargo compilations: 4m each; graph: 30s; two bindings: 30s each. Together with
  * up to nine 10s tool/target probes, commands consume at most 15m of the Pages
  * 16m products stage, leaving 1m for IO/validation/teardown. These are budgets,
- * not measured cold-host timings. Workspace profiles and parallelism are unchanged.
+ * not measured cold-host timings. Products use the standard workspace release profile and default parallelism.
  */
 export async function buildProductFiles(bindgen, run = runCommand) {
   const tree = (await run('cargo', ['tree', '-p', 'kagari-web', '--no-default-features', '--target', target, '--edges', 'normal', '--prefix', 'none', '--locked'], { timeout: 30_000 })).stdout;
   assertSourceFreeGraph(tree);
   for (const mode of modes) {
-    await run('cargo', ['build', '-p', 'kagari-web', ...(mode === 'artifact' ? ['--no-default-features'] : []), '--target', target, '--locked'], { timeout: 240_000, mirror: true });
-    await run(bindgen, [join(repositoryRoot, `target/${target}/debug/kagari_web.wasm`), '--target', 'web', '--out-dir', join(productsRoot, mode), '--out-name', 'kagari_web'], { timeout: 30_000, mirror: true });
+    await run('cargo', ['build', '-p', 'kagari-web', ...(mode === 'artifact' ? ['--no-default-features'] : []), '--target', target, '--release', '--locked'], { timeout: 240_000, mirror: true });
+    await run(bindgen, [join(repositoryRoot, `target/${target}/release/kagari_web.wasm`), '--target', 'web', '--out-dir', join(productsRoot, mode), '--out-name', 'kagari_web'], { timeout: 30_000, mirror: true });
   }
   await run('cargo', ['test', '-p', 'kagari-web', '--lib', '--locked', 'tests::generate_browser_artifact', '--', '--exact'], { timeout: 240_000, mirror: true });
   return tree;
@@ -265,7 +265,7 @@ export async function buildProducts() {
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const args = process.argv.slice(2);
-    if (args.length === 1 && args[0] === '--help') console.log('Usage: node scripts/wasm-products.mjs [--verify]\nBuilds both dev-profile WASM modes and native fixture. No installs.\nBounds: each Cargo build/fixture 240s; graph/bindings 30s; tool/target probes 10s.\nPages orchestration gives products 16m total; nested commands inherit its supervised process group.\n--verify checks freshness without rebuilding. Products/provenance: ../target/wasm-browser/.');
+    if (args.length === 1 && args[0] === '--help') console.log('Usage: node scripts/wasm-products.mjs [--verify]\nBuilds both release-profile WASM modes and native fixture. No installs.\nBounds: each Cargo build/fixture 240s; graph/bindings 30s; tool/target probes 10s.\nPages orchestration gives products 16m total; nested commands inherit its supervised process group.\n--verify checks freshness without rebuilding. Products/provenance: ../target/wasm-browser/.');
     else if (args.length === 1 && args[0] === '--verify') { await verifyProducts(); console.log('WASM products are current'); }
     else { assert.equal(args.length, 0, 'Usage: node scripts/wasm-products.mjs [--verify]'); await buildProducts(); }
   } catch (error) { console.error(error); process.exitCode = 1; }

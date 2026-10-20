@@ -7,7 +7,7 @@ mod tests;
 use crate::{
     CliError,
     args::{ProjectAction, ProjectArgs},
-    checking, print_source_error, run_loaded_artifact, source_engine,
+    checking, print_source_error, run_prepared_program, source_engine, source_preparation,
 };
 use kagari::{engine::source::ArtifactOptions, runtime::LoadOptions};
 use kagari_common::cancellation::CancellationToken;
@@ -82,8 +82,18 @@ fn run_from(
             .compile_package(inputs, &cancel)
             .map_err(|error| print_source_error(&engine, error))?;
         let name = inputs.root().family.name();
-        if action == ProjectAction::Check {
-            println!("checked {name}");
+        if action == ProjectAction::Run {
+            let program = engine
+                .prepare(&checked, source_preparation(jit))
+                .map_err(|error| print_source_error(&engine, error))?;
+            run_prepared_program(
+                &engine,
+                &program,
+                LoadOptions {
+                    module_name: Some(name.into()),
+                },
+                jit,
+            )?;
             continue;
         }
         let artifact = engine
@@ -107,16 +117,6 @@ fn run_from(
             )?
         };
         println!("built {name}: {}", path.display());
-        if action == ProjectAction::Run {
-            run_loaded_artifact(
-                &engine,
-                artifact,
-                LoadOptions {
-                    module_name: Some(name.into()),
-                },
-                jit,
-            )?;
-        }
     }
     Ok(())
 }

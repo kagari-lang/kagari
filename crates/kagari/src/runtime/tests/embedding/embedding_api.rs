@@ -380,14 +380,23 @@ fn logging_module(
 fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
-    let first = compile_artifact(&engine, "game/main.kgr", "fn main() -> i32 { 1 }");
-    let second = compile_artifact(&engine, "game/main.kgr", "fn main() -> i32 { 2 }");
+    let first = engine
+        .compile_to_program(
+            SourceFile::new("game/main.kgr", "fn main() -> i32 { 1 }"),
+            Default::default(),
+        )
+        .unwrap();
+    let second = engine
+        .compile_to_program(
+            SourceFile::new("game/main.kgr", "fn main() -> i32 { 2 }"),
+            Default::default(),
+        )
+        .unwrap();
 
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(first, &Default::default(), &Default::default())
-                .unwrap(),
+            &first,
             LoadOptions {
                 module_name: Some("game.main".to_owned()),
             },
@@ -407,8 +416,7 @@ fn compiles_loads_executes_and_reloads_through_embedding_api() {
     let reloaded = runtime
         .reload_program(
             &loaded,
-            &PreparedProgram::from_artifact(second, &Default::default(), &Default::default())
-                .unwrap(),
+            &second,
             ReloadOptions {
                 module_name: Some("game.main".to_owned()),
             },
@@ -481,13 +489,14 @@ fn analysis_failures_return_structured_diagnostics() {
 fn each_execute_uses_its_cancellation_without_changing_runtime_defaults() {
     let engine = KagariEngine::default();
     let mut runtime = engine.runtime(ExecutionContext::default());
-    let artifact = compile_artifact(&engine, "scoped.kgr", "fn main() -> i32 { 42 }");
-    let loaded = runtime
-        .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
-            LoadOptions::default(),
+    let artifact = engine
+        .compile_to_program(
+            SourceFile::new("scoped.kgr", "fn main() -> i32 { 42 }"),
+            Default::default(),
         )
+        .unwrap();
+    let loaded = runtime
+        .load_program(&artifact, LoadOptions::default())
         .unwrap();
     let context = ExecutionContext::default();
 
@@ -659,12 +668,16 @@ fn reload_rejects_typed_path_fingerprint_changes_without_publishing_epoch() {
 fn execute_entry_accepts_args_boundary_and_rejects_unimplemented_arguments() {
     let engine = KagariEngine::default();
     let context = ExecutionContext::default();
-    let artifact = compile_artifact(&engine, "args.kgr", "fn main() -> i32 { 1 }");
+    let artifact = engine
+        .compile_to_program(
+            SourceFile::new("args.kgr", "fn main() -> i32 { 1 }"),
+            Default::default(),
+        )
+        .unwrap();
     let mut runtime = engine.runtime(context.clone());
     let loaded = runtime
         .load_program(
-            &PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
-                .unwrap(),
+            &artifact,
             LoadOptions {
                 module_name: Some("args".to_owned()),
             },

@@ -1,6 +1,6 @@
 //! Manual construction attribution; frozen workload setup remains the acceptance owner.
 //! Build with --release and run paired baseline/current binaries without concurrent work.
-use kagari::{context::ExecutionContext, engine::KagariEngine, program::PreparedProgram};
+use kagari::{context::ExecutionContext, engine::KagariEngine};
 use kagari_runtime::{Runtime, native::installation::NativeInstallation};
 use kagari_source::source::SourceFile;
 use kagari_stdlib::modules;
@@ -13,14 +13,13 @@ fn measure_compiled<T>(name: &str, mut create: impl FnMut(&KagariEngine) -> T) {
     let source = include_str!("../../../benchmarks/lua-comparison/workloads/calls.kgr")
         .replace("__N__", "10000");
     let engine = KagariEngine::default();
-    let artifact = engine
-        .compile_to_artifact(
+    let prepared = engine
+        .compile_to_program(
             SourceFile::new("benchmark_calls.kgr", source),
             Default::default(),
         )
         .unwrap();
-    let prepared =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+
     let start = Instant::now();
     let runtime = black_box(create(&engine));
     let elapsed = start.elapsed().as_nanos();

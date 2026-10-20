@@ -2,13 +2,12 @@
 //! No bytecode layouts or arena IDs appear in the fixture expectations.
 use crate::{
     context::{ExecutionContext, JitPolicy},
+    engine::source::PreparationOptions,
+    error::EmbeddingError,
     program::PreparedProgram,
     runtime::KagariRuntime,
 };
-use kagari_bytecode::{
-    artifact::{ArtifactBuildOptions, ArtifactCompatibility, KbcArtifact},
-    native_input::PortableMir,
-};
+use kagari_bytecode::artifact::{ArtifactCompatibility, KbcArtifact};
 use kagari_codegen_cranelift::CraneliftBackend;
 use kagari_common::{
     cancellation::CancellationToken,
@@ -17,8 +16,6 @@ use kagari_common::{
         metadata::DefinitionMetadata,
     },
 };
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
-use kagari_hir::program::ProgramCheckError;
 use kagari_runtime::{
     Runtime, RuntimeConfig,
     error::{RuntimeError, RuntimeErrorKind},
@@ -245,8 +242,7 @@ fn observe_vector() -> DefinitionMetadata<ModuleDecl> {
     DefinitionMetadata::checked(definitions, declaration, &Default::default()).unwrap()
 }
 
-fn compile(case: &Case<'_>) -> Option<DefinitionMetadata<KbcArtifact>> {
-    let observe = observe_vector();
+fn compile(case: &Case<'_>) -> Option<RoutePrograms> {
     let mut sources = SourceDatabase::default();
     let mut root = None;
     for (name, text) in case
@@ -267,54 +263,41 @@ fn compile(case: &Case<'_>) -> Option<DefinitionMetadata<KbcArtifact>> {
             .unwrap();
         root = Some(sources.set(&uri, text.into(), SourceLayer::Base).unwrap());
     }
-    let mut analysis = preparation::analysis();
-    if case.vector.is_some() {
-        let mut providers = kagari_stdlib::modules()
-            .unwrap()
-            .iter()
-            .map(|module| Arc::new(module.to_declaration()))
-            .collect::<Vec<_>>();
-        providers.push(Arc::new(observe));
-        analysis.set_native_modules(providers);
-    }
-    let snapshot = analysis
-        .snapshot(sources.snapshot(), &Default::default())
-        .unwrap();
-    let checked = snapshot.check_program(root.unwrap(), &Default::default());
+    let engine = preparation::engine(case.vector.is_some());
+    let checked = engine.compile_snapshot(sources.snapshot(), root.unwrap(), &Default::default());
     if let Expected::Diagnostic(code) = case.expected {
-        let Err(ProgramCheckError::Diagnostics(diagnostics)) = checked else {
+        let Err(EmbeddingError::Diagnostics { diagnostics }) = checked else {
             let outcome = checked.map(|_| "checked successfully");
             panic!("{}: expected diagnostic {code}, got {outcome:?}", case.name);
         };
         assert!(
-            diagnostics.iter().any(|d| d.diagnostic.kind.code() == code),
+            diagnostics.iter().any(|d| d.code == code),
             "{}: {diagnostics:?}",
             case.name
         );
         return None;
     }
     let checked = checked.unwrap_or_else(|error| panic!("{}: {error:?}", case.name));
-    let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
-    let context = DefinitionContext::new().unwrap();
-    let compiled = lower_program_to_bytecode(&mir, &Default::default())
-        .map(|program| program.into_unverified())
-        .unwrap()
-        .import_into(&context, &Default::default())
-        .unwrap()
-        .into_records();
-    let artifact = KbcArtifact::from_program(
-        compiled,
-        ArtifactBuildOptions {
-            portable_mir: Some(PortableMir {
-                bytes: kagari_mir::codec::encode_program(&mir, &Default::default()).unwrap(),
-            }),
-            ..Default::default()
-        },
-        &context,
+    let source = engine
+        .prepare(
+            &checked,
+            PreparationOptions {
+                retain_native_input: true,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
+    let encoded =
+        KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+            .unwrap();
+    let encoded = PreparedProgram::from_artifact(
+        encoded,
+        &ArtifactCompatibility::default(),
         &Default::default(),
     )
     .unwrap();
-    Some(DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap())
+    Some(RoutePrograms { source, encoded })
 }
 
 struct RoutePrograms {
@@ -323,24 +306,6 @@ struct RoutePrograms {
 }
 
 impl RoutePrograms {
-    fn new(artifact: DefinitionMetadata<KbcArtifact>) -> Self {
-        let encoded =
-            KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
-                .unwrap();
-        let prepare = |artifact| {
-            PreparedProgram::from_artifact(
-                artifact,
-                &ArtifactCompatibility::default(),
-                &Default::default(),
-            )
-            .unwrap()
-        };
-        Self {
-            source: prepare(artifact),
-            encoded: prepare(encoded),
-        }
-    }
-
     fn get(&self, route: Route) -> &PreparedProgram {
         match route {
             Route::Source | Route::Jit => &self.source,
@@ -350,15 +315,14 @@ impl RoutePrograms {
 }
 
 fn run_routes(case: &Case<'_>) {
-    let Some(artifact) = compile(case) else {
+    let Some(programs) = compile(case) else {
         return;
     };
     // Interpreter and JIT routes consume the same checked input. Validate direct
     // and serialized products separately; every route still gets a fresh runtime.
-    let programs = RoutePrograms::new(artifact);
     let candidate = case
         .published_reload
-        .map(|case| RoutePrograms::new(compile(case).expect("published candidate must compile")));
+        .map(|case| compile(case).expect("published candidate must compile"));
     for route in Route::ALL {
         run(
             case,

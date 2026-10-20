@@ -230,7 +230,7 @@ fn explicit_struct_arguments_emit_distinct_phantom_layouts() {
 fn execute_contextual_source(source: &str, expected: i32) {
     let engine = execution::engine(Default::default());
     let artifact = engine
-        .compile_to_artifact(SourceFile::new("context.kgr", source), Default::default())
+        .compile_source(SourceFile::new("context.kgr", source))
         .unwrap();
     execution::assert_returns_i32(
         &engine,

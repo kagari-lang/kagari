@@ -71,7 +71,7 @@ impl BrowserSession {
         })
     }
 
-    /// Compile one `memory://main.kgr`, validate its artifact and load a fresh runtime.
+    /// Compile one `memory://main.kgr` directly to verified code and load a fresh runtime.
     /// Rejected candidates leave the previously loaded program intact.
     #[cfg(feature = "source")]
     pub fn compile(&mut self, source: &str) -> String {
@@ -86,11 +86,11 @@ impl BrowserSession {
         }
         // A fresh analysis session bounds retained source history between requests.
         let engine = self.engine.new_session(Default::default());
-        let artifact = match engine.compile_to_artifact(
+        let program = match engine.compile_to_program(
             SourceFile::new("memory://main.kgr", source),
             Default::default(),
         ) {
-            Ok(artifact) => artifact,
+            Ok(program) => program,
             Err(error) => {
                 let mut response = Response::error(WebError::sdk(&error));
                 if let EmbeddingError::Diagnostics {
@@ -108,10 +108,7 @@ impl BrowserSession {
                 return self.respond(response);
             }
         };
-        match PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()) {
-            Ok(program) => self.load(program),
-            Err(error) => self.reject("WEB_ARTIFACT_VALIDATION", error),
-        }
+        self.load(program)
     }
 
     /// Decode and verify a bounded current artifact without requiring source support.
