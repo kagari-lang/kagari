@@ -39,6 +39,7 @@ pub(super) fn fixture(source: &str, module: Option<&NativeModule>) -> (Vm, Loade
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         limits: RuntimeLimits {
             max_call_depth: Some(16),

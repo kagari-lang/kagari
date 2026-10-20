@@ -98,6 +98,7 @@ fn serde_schema_roundtrips_renames_skips_composites_and_all_variant_shapes() {
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         ..Default::default()
     });

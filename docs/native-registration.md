@@ -328,6 +328,25 @@ not imply native storage. Map/Set builtins are not nominal storage bindings. For
 parameters exactly. Payload tracing, scoped host borrowing and runtime ownership
 remain mandatory; assembly is not a route to unrestricted Rust references.
 
+Advanced payload implementations supply
+`NativePayload::charge(&self) -> NativeResult<HeapCharge>`, not `units()`.
+Use `HeapCharge` from `kagari_runtime::resource`: logical units exclude the heap
+identity, and retained bytes cover exclusively owned indirect backing, such as a
+byte vector's capacity. Do not add the payload's shallow Rust size: preparation
+adds the erased Box size exactly once. Do not charge referenced GC objects, shared
+metadata or external host resources. Label capacity-based estimates and excluded
+unobservable allocations; these numbers are GC pressure, not exact allocator/RSS
+measurements or quotas.
+
+Preparation samples the side-effect-free, non-reentrant callback once. The runtime
+records the result, updates it through checked storage mutations and releases it
+without calling the provider during sweep or take. A provider must not change
+installed units or resize attributed backing through interior mutability. Prefer
+the fixed-data or managed storage capabilities when they fit; a custom payload
+charge does not grant arbitrary editing. See the
+[host accounting contract](spec/host-interop.md#native-payload-accounting) and
+[runtime coverage](spec/runtime.md#gc-heap).
+
 ## The standard bundle and runtime boundaries
 
 The standard library's private [Bundle](../crates/kagari-stdlib/src/assembly.rs)

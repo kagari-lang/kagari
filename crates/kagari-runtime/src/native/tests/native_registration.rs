@@ -12,6 +12,7 @@ use crate::{
         types::{TraitRef, Type},
         views::{SequenceHandle, SequenceMutHandle},
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_types::{declaration::module::ModuleDecl, scalar::BuiltinType};
@@ -30,8 +31,8 @@ struct EmptyPayload;
 impl NativePayload for EmptyPayload {
     fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
 
-    fn units(&self) -> usize {
-        0
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(0, 0))
     }
 }
 

@@ -8,6 +8,7 @@ use crate::{
         binding::NativeResult,
         future::{ColdFuture, FuturePayload},
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_types::ty::Ty;
@@ -79,7 +80,7 @@ impl GcHeap {
             let Some(object) = self.native_mut(&mut objects, id) else {
                 return Err(RuntimeError::module_validation("invalid Future receiver"));
             };
-            object
+            let cold = object
                 .payload_mut::<FuturePayload>()?
                 .cold
                 .take()
@@ -88,9 +89,16 @@ impl GcHeap {
                         RuntimeErrorKind::ScriptTrap,
                         "Future has already been awaited",
                     )
-                })?
+                })?;
+            let remaining = object.storage_charge(HeapCharge::default());
+            let released = HeapCharge::new(
+                object.charge.logical_units - remaining.logical_units,
+                object.charge.retained_bytes - remaining.retained_bytes,
+            );
+            object.charge = remaining;
+            self.resources.release_heap_charge(released);
+            cold
         };
-        self.release_heap_units(cold.values().len());
         Ok(cold)
     }
 }

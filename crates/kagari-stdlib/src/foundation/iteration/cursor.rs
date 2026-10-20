@@ -3,6 +3,7 @@ use crate::foundation::{
     enumerations::value::{self as enums, EnumSymbols, option},
     iteration::operations::increment,
 };
+
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
@@ -14,6 +15,7 @@ use kagari_runtime::{
         storage::{NativePayload, NativeStorage},
         views::ValueHandle,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use std::cell::Cell;
@@ -51,8 +53,8 @@ impl NativePayload for Adapter {
         }
     }
 
-    fn units(&self) -> usize {
-        5
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(5, 0))
     }
 }
 

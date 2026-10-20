@@ -62,6 +62,7 @@ fn fixture_with(extra: Option<NativeModule>, source: &str) -> (Runtime, LoadedMo
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         ..Default::default()
     });

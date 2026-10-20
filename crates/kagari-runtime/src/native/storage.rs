@@ -16,17 +16,17 @@ use crate::{
         storage_type::StorageType,
         stored_selection::StoredSelection,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_types::{declaration::native::NativeStorageLayout, ty::Ty};
-#[cfg(feature = "execution-diagnostics")]
-use std::mem::size_of_val;
 use std::{
     any::{Any, TypeId},
     fmt,
     fmt::Debug,
+    mem::size_of_val,
     slice,
     sync::Arc,
 };
@@ -38,8 +38,19 @@ use std::{
 pub trait NativePayload: Any + Debug + Send {
     fn trace<'payload>(&'payload self, visit: &mut dyn FnMut(&'payload Value));
 
-    /// Logical heap units retained by the payload, excluding its object header.
-    fn units(&self) -> usize;
+    /// Describe a new payload before publication. Logical units exclude the heap
+    /// identity; bytes include exclusively owned indirect backing, not this Rust
+    /// value's shallow size (the runtime adds that exactly once), referenced GC
+    /// objects, shared metadata or external host resources. State whether indirect
+    /// bytes are known capacity or an estimate. Document unobservable allocations
+    /// as excluded rather than claiming an exact zero; external host resources stay
+    /// outside this charge. This is GC pressure, not a quota or allocator/RSS total.
+    ///
+    /// This callback must be side-effect-free and cannot reenter the runtime.
+    /// The description is sampled once; release never calls it. Installed charge
+    /// must remain stable except through checked runtime storage mutations; a
+    /// provider must not resize attributed backing through interior mutability.
+    fn charge(&self) -> NativeResult<HeapCharge>;
 
     /// Local storage policy for automatic Opaque schema registration. The default
     /// grants traced read access only. Explicit take/data policies must carry their
@@ -130,14 +141,14 @@ type Factory =
 
 type Trace = dyn for<'payload> Fn(&'payload dyn Any, &mut dyn FnMut(&'payload Value)) + Send + Sync;
 
-type Units = dyn Fn(&dyn Any) -> usize + Send + Sync;
+type Charge = dyn Fn(&dyn Any) -> NativeResult<HeapCharge> + Send + Sync;
 
 struct StorageEntries {
     rust_type: TypeId,
     layout: NativeStorageLayout,
     factory: Option<Box<Factory>>,
     trace: Box<Trace>,
-    units: Box<Units>,
+    charge: Box<Charge>,
     editable_data: bool,
     takeable: bool,
     managed: Option<Arc<ManagedSchema>>,
@@ -245,11 +256,11 @@ impl NativeStorage {
                         .expect("factory and trace entries share the sealed Rust payload type")
                         .trace(visit)
                 }),
-                units: Box::new(|payload| {
+                charge: Box::new(|payload| {
                     payload
                         .downcast_ref::<S>()
                         .expect("factory and size entries share the sealed Rust payload type")
-                        .units()
+                        .charge()
                 }),
                 editable_data: false,
                 takeable: false,
@@ -320,7 +331,10 @@ impl NativeStorage {
                 "native factory retained an invalid script value",
             ));
         }
+        let charge = (self.entries.charge)(payload.as_ref())?
+            .with_shallow_bytes(size_of_val(payload.as_ref()))?;
         Ok(NativeObject {
+            charge,
             storage: self.clone(),
             payload,
             ty: ty.clone(),
@@ -341,6 +355,9 @@ pub(crate) struct NativeObject {
     /// Runtime-owned mutation state travels with this identity's native record.
     /// Replacing its Rust payload preserves it; a new allocation starts at zero.
     pub(crate) revision: u64,
+    /// Authoritative committed payload charge, including the erased Box's shallow
+    /// allocation but excluding the heap identity. Moves preserve this record.
+    pub(crate) charge: HeapCharge,
     payload: Box<dyn Any + Send>,
     pub(crate) ty: Ty,
     _owner: LoadedModule,
@@ -358,7 +375,6 @@ impl Debug for NativeObject {
 }
 
 impl NativeObject {
-    #[cfg(feature = "execution-diagnostics")]
     pub(crate) fn payload_bytes(&self) -> usize {
         size_of_val(self.payload.as_ref())
     }
@@ -396,8 +412,12 @@ impl NativeObject {
         (self.storage.entries.trace)(self.payload.as_ref(), visit);
     }
 
-    pub(crate) fn units(&self) -> usize {
-        (self.storage.entries.units)(self.payload.as_ref())
+    /// Sealed storage owners describe the completed edit without invoking an
+    /// erased provider callback. All indirect allocations are disjoint from Box.
+    pub(crate) fn storage_charge(&self, charge: HeapCharge) -> HeapCharge {
+        charge
+            .with_shallow_bytes(self.payload_bytes())
+            .expect("owned storage allocations fit the address space")
     }
 
     pub(crate) fn replaced_payload<S: NativePayload>(&self, payload: S) -> NativeResult<Self> {
@@ -406,7 +426,11 @@ impl NativeObject {
                 "native replacement payload type mismatch",
             ));
         }
+        let charge = payload
+            .charge()?
+            .with_shallow_bytes(size_of_val(&payload))?;
         Ok(Self {
+            charge,
             storage: self.storage.clone(),
             payload: Box::new(payload),
             ty: self.ty.clone(),

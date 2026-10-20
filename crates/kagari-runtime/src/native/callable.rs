@@ -11,6 +11,7 @@ use crate::{
         scalar::NativeScalar,
         storage::NativePayload,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_types::ty::Ty;
@@ -188,8 +189,8 @@ impl NativePayload for StoredCallable {
         visit(&self.0.value);
     }
 
-    fn units(&self) -> usize {
-        1
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(1, 0))
     }
 }
 

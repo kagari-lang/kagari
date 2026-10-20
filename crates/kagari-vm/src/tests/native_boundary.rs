@@ -3,6 +3,7 @@ use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
 use kagari_hir::analysis::AnalysisDatabase;
+
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -18,6 +19,7 @@ use kagari_runtime::{
         types::Type,
         views::{SequenceHandle, SequenceMutHandle},
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_source::source_database::{SourceDatabase, SourceLayer};
@@ -326,8 +328,8 @@ impl NativePayload for TracedCounter {
         visit(&self.values);
     }
 
-    fn units(&self) -> usize {
-        1
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(1, 0))
     }
 }
 

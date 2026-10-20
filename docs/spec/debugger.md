@@ -189,6 +189,16 @@ preparation remains one-to-one with final bytecode and cannot silently fuse its
 boundaries. Recompilation need not preserve internal PCs, observer event ordinals
 or slice/drive counts. No extra phase engine replays deleted micro-steps.
 
+Source provenance identifies where an operation originated; it does not by itself
+prove that execution reached that source path. While instruction spans also supply
+executable observations, scalar constants must remain on their control-flow path:
+loading a constant from an untaken branch at function entry must not fire that
+branch's breakpoint. MIR constant reuse is therefore block-local rather than
+cross-block hoisting. For `if flag { y + 7 } else { y }`, a breakpoint on the first
+arm is reached only when `flag` is true, with `y` available; checked overflow still
+reports the addition's origin. Wider code motion needs an explicit observation
+contract, not erased spans, changed binding states or historical-PC replay.
+
 ## Stepping
 
 The baseline step operations are:

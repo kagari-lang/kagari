@@ -337,10 +337,11 @@ fn live_float_arithmetic_and_potentially_trapping_casts_are_preserved() {
 }
 
 #[test]
-fn local_forwarding_keeps_stores_and_moves_loop_constants_to_entry() {
-    let result = optimized(checked(
+fn local_forwarding_keeps_stores_and_constant_control_flow_origins() {
+    let original = checked(
         "fn main(n: i32) -> i32 { var i = 0; var sum = 0; while i < n { val old = i; sum += old % 7; i = old + 1; } sum }",
-    ));
+    );
+    let result = optimized(original.clone());
     assert!(result.statistics.copies_removed > 0);
     assert!(result.statistics.constants_reused > 0);
     let function = &result.module.functions[0];
@@ -351,29 +352,43 @@ fn local_forwarding_keeps_stores_and_moves_loop_constants_to_entry() {
             .flat_map(|block| &block.instructions)
             .any(|instruction| matches!(instruction, Instruction::StoreLocal { .. }))
     );
-    for (index, block) in function.blocks.iter().enumerate() {
-        if index != function.entry.index() {
-            assert!(!block.instructions.iter().any(|instruction| matches!(
-                instruction,
-                Instruction::LoadConst {
-                    constant: Constant::I32(7 | 1),
-                    ..
-                }
-            )));
-        }
-    }
-    assert!(
-        function.blocks[function.entry.index()]
-            .instructions
+    let origins = |module: &VerifiedMirModule| {
+        module.functions[0]
+            .blocks
             .iter()
-            .any(|instruction| matches!(
-                instruction,
-                Instruction::LoadConst {
-                    constant: Constant::I32(7),
-                    ..
-                }
-            ))
+            .enumerate()
+            .flat_map(|(block_index, block)| {
+                block
+                    .instructions
+                    .iter()
+                    .enumerate()
+                    .filter_map(move |(index, instruction)| {
+                        if let Instruction::LoadConst {
+                            constant: Constant::I32(value @ (7 | 1)),
+                            ..
+                        } = instruction
+                        {
+                            Some((
+                                block_index,
+                                *value,
+                                block.instruction_spans[index],
+                                block.instruction_scopes[index],
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .collect::<Vec<_>>()
+    };
+    let expected = origins(&original);
+    assert_eq!(expected.len(), 2);
+    assert!(
+        expected
+            .iter()
+            .all(|(block, ..)| *block != function.entry.index())
     );
+    assert_eq!(origins(&result.module), expected);
 }
 
 #[test]

@@ -4,11 +4,25 @@ use crate::{
 };
 use std::{
     mem,
-    sync::{Arc, Weak},
+    sync::{
+        Arc, Weak,
+        mpsc::{self, Receiver, Sender},
+    },
 };
 
 #[derive(Debug)]
-struct RootLease;
+struct RootLease {
+    id: RootId,
+    released: Sender<RootId>,
+}
+
+impl Drop for RootLease {
+    fn drop(&mut self) {
+        // Only IDs cross threads. Sending may allocate; a destroyed table simply
+        // disconnects the receiver, without retaining or accessing heap storage.
+        let _ = self.released.send(self.id);
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RootId {
@@ -162,22 +176,43 @@ struct RootSlot {
     entry: Option<RootEntry>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(super) struct RootTable {
+    owner: u64,
     slots: Vec<RootSlot>,
     free: Vec<usize>,
+    released: Sender<RootId>,
+    releases: Receiver<RootId>,
+    #[cfg(test)]
+    release_visits: usize,
 }
 
 impl RootTable {
+    pub(super) fn new(owner: u64) -> Self {
+        let (released, releases) = mpsc::channel();
+        Self {
+            owner,
+            slots: Vec::new(),
+            free: Vec::new(),
+            released,
+            releases,
+            #[cfg(test)]
+            release_visits: 0,
+        }
+    }
+
     fn entry(&self, root: &RootSet) -> Option<&RootEntry> {
+        if root.id.owner != self.owner {
+            return None;
+        }
         let slot = self.slots.get(root.id.slot)?;
         let entry = slot.entry.as_ref()?;
         (slot.generation == root.id.generation && entry.lease.ptr_eq(&Arc::downgrade(&root.lease)))
             .then_some(entry)
     }
 
-    fn insert(&mut self, owner: u64, values: Vec<Value>) -> RootSet {
-        self.prune();
+    fn insert(&mut self, values: Vec<Value>) -> RootSet {
+        self.drain_released();
         let index = self.free.pop().unwrap_or_else(|| {
             self.slots.push(RootSlot {
                 generation: 0,
@@ -186,34 +221,47 @@ impl RootTable {
             self.slots.len() - 1
         });
         let slot = &mut self.slots[index];
-        let lease = Arc::new(RootLease);
+        let id = RootId {
+            owner: self.owner,
+            slot: index,
+            generation: slot.generation,
+        };
+        let lease = Arc::new(RootLease {
+            id,
+            released: self.released.clone(),
+        });
         slot.entry = Some(RootEntry {
             lease: Arc::downgrade(&lease),
             values,
             metadata: Vec::new(),
         });
-        RootSet {
-            id: RootId {
-                owner,
-                slot: index,
-                generation: slot.generation,
-            },
-            lease,
-        }
+        RootSet { id, lease }
     }
 
-    pub(super) fn prune(&mut self) {
-        for (index, slot) in self.slots.iter_mut().enumerate() {
-            if slot
-                .entry
-                .as_ref()
-                .is_some_and(|entry| entry.lease.strong_count() == 0)
+    pub(super) fn drain_released(&mut self) {
+        while let Ok(id) = self.releases.try_recv() {
+            #[cfg(test)]
             {
-                slot.entry = None;
-                if let Some(generation) = slot.generation.checked_add(1) {
-                    slot.generation = generation;
-                    self.free.push(index);
-                }
+                self.release_visits += 1;
+            }
+            if id.owner != self.owner {
+                continue;
+            }
+            let Some(slot) = self.slots.get_mut(id.slot) else {
+                continue;
+            };
+            if slot.generation != id.generation
+                || !slot
+                    .entry
+                    .as_ref()
+                    .is_some_and(|entry| entry.lease.strong_count() == 0)
+            {
+                continue;
+            }
+            slot.entry = None;
+            if let Some(generation) = slot.generation.checked_add(1) {
+                slot.generation = generation;
+                self.free.push(id.slot);
             }
         }
     }
@@ -231,29 +279,26 @@ impl RootTable {
 
     /// Hold each live lease while copying its roots. A concurrent last drop can
     /// conservatively retain an object for this collection, never remove a live root.
-    fn snapshots(&mut self) -> Vec<Value> {
-        self.prune();
-        let mut values = Vec::new();
+    fn visit_snapshots(&mut self, mut visit: impl FnMut(&RootEntry)) {
+        self.drain_released();
         for slot in &self.slots {
             if let Some(entry) = &slot.entry
                 && let Some(_lease) = entry.lease.upgrade()
             {
-                values.extend_from_slice(&entry.values);
+                visit(entry);
             }
         }
+    }
+
+    fn snapshots(&mut self) -> Vec<Value> {
+        let mut values = Vec::new();
+        self.visit_snapshots(|entry| values.extend_from_slice(&entry.values));
         values
     }
 
     fn metadata_snapshots(&mut self) -> Vec<MetadataRoot> {
-        self.prune();
         let mut metadata = Vec::new();
-        for slot in &self.slots {
-            if let Some(entry) = &slot.entry
-                && let Some(_lease) = entry.lease.upgrade()
-            {
-                metadata.extend_from_slice(&entry.metadata);
-            }
-        }
+        self.visit_snapshots(|entry| metadata.extend_from_slice(&entry.metadata));
         metadata
     }
 }
@@ -297,7 +342,7 @@ impl GcHeap {
         if !values.iter().all(|value| self.validate_value(value)) {
             return None;
         }
-        Some(self.roots.try_borrow_mut().ok()?.insert(self.owner, values))
+        Some(self.roots.try_borrow_mut().ok()?.insert(values))
     }
 
     pub(super) fn root_snapshots(&self) -> Option<Vec<Value>> {

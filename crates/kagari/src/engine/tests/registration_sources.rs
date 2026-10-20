@@ -7,6 +7,7 @@ use crate::{
 };
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_hir::declarations::DeclarationId;
+
 use kagari_runtime::{
     module::entry::ProgramEntry,
     native::{
@@ -20,6 +21,7 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
@@ -151,8 +153,8 @@ struct Payload;
 impl NativePayload for Payload {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
 
-    fn units(&self) -> usize {
-        0
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(0, 0))
     }
 }
 

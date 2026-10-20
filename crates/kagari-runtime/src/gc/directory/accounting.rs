@@ -47,6 +47,7 @@ impl ObjectStorage {
                 BufferUsage::new("enums", &stores.enums),
                 BufferUsage::new("struct_records", &stores.structs),
                 BufferUsage::new("struct_fields", &stores.struct_bytes),
+                BufferUsage::new("interface_directories", &stores.interface_directories),
                 BufferUsage::new("closures", &stores.closures),
                 BufferUsage::new("cells", &stores.cells),
                 free_identities,

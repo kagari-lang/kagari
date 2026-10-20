@@ -238,6 +238,7 @@ fn conversion_fixture() -> (Runtime, kagari_runtime::module::LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         ..Default::default()
     });

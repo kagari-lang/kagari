@@ -1,8 +1,109 @@
 use super::*;
-use crate::{tests::common::standard_runtime, vm::fixtures::FixtureExecution};
+use crate::{
+    tests::common::{compile_test_bytecode_with_options, round_trip_bytecode, standard_runtime},
+    vm::fixtures::FixtureExecution,
+};
 use kagari_bytecode::program::{BytecodeProgram, ModuleRef};
+use kagari_compiler::source::lower::instances::MirLoweringOptions;
 use kagari_contract::ids::FunctionRef;
 use kagari_runtime::module::entry::ProgramEntry;
+
+#[test]
+fn optimized_breakpoints_preserve_branch_paths_and_binding_state() {
+    let source = r#"
+fn choose(flag: bool, x: i32) -> i32 {
+    val y = x;
+    if flag {
+        y + 7
+    } else {
+        y
+    }
+}
+pub fn taken() -> i32 { choose(true, 5) }
+pub fn untaken() -> i32 { choose(false, 5) }
+pub fn overflow() -> i32 { choose(true, 2147483647) }
+"#;
+    for optimized in [false, true] {
+        let program = compile_test_bytecode_with_options(
+            source,
+            &MirLoweringOptions {
+                optimization: optimized.then(Default::default),
+                ..Default::default()
+            },
+        );
+        for program in [program.clone(), round_trip_bytecode(program)] {
+            for (entry, should_pause, expected) in [
+                ("untaken", false, Some(5)),
+                ("taken", true, Some(12)),
+                ("overflow", true, None),
+            ] {
+                let mut runtime = debug_runtime("branch-debug.kgr");
+                let loaded = runtime
+                    .load_program("branch-debug.kgr", program.clone())
+                    .unwrap();
+                let mut session = DebugSession::new(&runtime).unwrap();
+                let offset = source.find("y + 7").unwrap();
+                let breakpoint = session
+                    .add_breakpoint(SourceBreakpoint {
+                        source_uri: "branch-debug.kgr".into(),
+                        line: Some(
+                            source[..offset]
+                                .bytes()
+                                .filter(|&byte| byte == b'\n')
+                                .count() as u32
+                                + 1,
+                        ),
+                        column: None,
+                        source_offset: None,
+                        temporary: false,
+                    })
+                    .unwrap();
+                let mut vm = Vm::new(runtime);
+                vm.attach_debug_session(session).unwrap();
+                let result = vm.execute(&loaded, entry);
+                if let Some(expected) = expected {
+                    assert_eq!(
+                        result.unwrap().return_value.value(vm.runtime().gc()),
+                        Some(Value::I32(expected))
+                    );
+                } else {
+                    let error = result.unwrap_err();
+                    let trace = error.trace().expect("overflow origin");
+                    assert!(
+                        trace.frames.iter().any(|frame| frame
+                            .source_span
+                            .is_some_and(|span| span.start == offset))
+                    );
+                }
+                let debug = vm.debug_session().unwrap();
+                let pauses = debug.pauses();
+                let hits: Vec<_> = pauses
+                    .iter()
+                    .filter(|pause| pause.reason == DebugPauseReason::Breakpoint(breakpoint))
+                    .collect();
+                assert_eq!(
+                    !hits.is_empty(),
+                    should_pause,
+                    "optimized={optimized}, entry={entry}"
+                );
+                for pause in hits {
+                    let frame = pause.top_frame().unwrap();
+                    assert_eq!(frame.function_name, "choose");
+                    assert_eq!(
+                        pause
+                            .evaluate_watch(
+                                vm.runtime(),
+                                frame.id,
+                                &DebugWatch::Binding("y".into())
+                            )
+                            .unwrap(),
+                        Value::I32(if expected.is_some() { 5 } else { i32::MAX })
+                    );
+                }
+            }
+        }
+    }
+}
 
 #[test]
 fn debug_session_resolves_breakpoints_and_inspects_live_locals() {

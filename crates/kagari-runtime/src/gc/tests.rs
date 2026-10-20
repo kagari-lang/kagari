@@ -2,9 +2,11 @@ use super::*;
 use crate::{
     Runtime,
     closure::ClosureTarget,
+    execution_metadata::MetadataRoot,
     host::{HostBorrowTable, HostObjectId, HostRootHandle, HostSchemaEpoch},
     metadata::{AbiFingerprint, TypeId},
-    test_support::layouts::{allocation_owner, path_view_value},
+    native::storage::NativeStorage,
+    test_support::layouts::{allocation_owner, interface_value, path_view_value},
 };
 use kagari_contract::ids::FunctionRef;
 
@@ -316,6 +318,167 @@ fn sparse_collection_preserves_aliases_and_mutation_across_payload_relocation() 
     assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
     heap.alloc_cell(ValueType::I32, Value::I32(1)).unwrap();
     assert!(!heap.validate_value(&Value::Cell(stale)));
+}
+
+fn reset_discovery_visits(heap: &GcHeap) {
+    heap.objects.borrow().discovery_visits.set(0);
+}
+
+fn discovery_visits(heap: &GcHeap) -> usize {
+    heap.objects.borrow().discovery_visits.get()
+}
+
+#[test]
+fn occupied_discovery_follows_live_payloads_not_directory_peak() {
+    for peak in [64, 4096] {
+        let runtime = Runtime::default();
+        let heap = runtime.gc();
+        let schema = layout("Sparse", "value", Ty::Builtin(BuiltinType::I32));
+        let mut roots = Vec::new();
+        for index in 0..peak {
+            let text = heap.alloc_string(index.to_string()).unwrap();
+            let cell = heap.alloc_cell(ValueType::I32, Value::I32(index)).unwrap();
+            let record = heap
+                .alloc_struct(schema.clone(), vec![Value::I32(index)])
+                .unwrap();
+            let tuple = heap
+                .alloc_tuple(vec![text, Value::Cell(cell), Value::Struct(record)])
+                .unwrap();
+            if index == 0 || index == peak - 1 {
+                roots.push((heap.root_value(tuple).unwrap(), cell, record, index));
+            }
+        }
+        reset_discovery_visits(heap);
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 8);
+        assert_eq!(discovery_visits(heap), peak as usize * 4);
+        let history = heap.objects.borrow().slots.len();
+        for _ in 0..3 {
+            reset_discovery_visits(heap);
+            assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
+            assert_eq!(discovery_visits(heap), 8);
+            assert_eq!(heap.objects.borrow().slots.len(), history);
+            for (_, cell, record, expected) in &roots {
+                assert_eq!(
+                    heap.cell_get(*cell, ValueType::I32).unwrap(),
+                    Value::I32(*expected)
+                );
+                assert_eq!(
+                    heap.struct_get_slot(*record, &schema, 0),
+                    Some(Value::I32(*expected))
+                );
+            }
+        }
+        let stale = roots[1].2;
+        drop(roots);
+        reset_discovery_visits(heap);
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 8);
+        assert_eq!(discovery_visits(heap), 8);
+        reset_discovery_visits(heap);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(discovery_visits(heap), 0);
+        heap.alloc_struct(schema, vec![Value::I32(42)]).unwrap();
+        assert!(!heap.validate_value(&Value::Struct(stale)));
+        eprintln!("object directory peak={history}: fixed-live visits=8, empty visits=0");
+    }
+}
+
+#[test]
+fn interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history() {
+    for peak in [64, 4096] {
+        let mut runtime = Runtime::default();
+        let original = interface_value(&mut runtime);
+        let Value::Interface(original_id) = original else {
+            unreachable!()
+        };
+        let heap = runtime.gc();
+        let snapshot = heap.interface_snapshot_id(original_id).unwrap();
+        let metadata = runtime
+            .root_metadata(vec![MetadataRoot::Interface(snapshot)])
+            .unwrap();
+        let mut roots = Vec::new();
+        for index in 0..peak {
+            let wrapper = Value::Interface(heap.alloc_interface(snapshot).unwrap());
+            if index == 0 || index == peak - 1 {
+                roots.push(heap.root_value(wrapper).unwrap());
+            }
+        }
+        reset_discovery_visits(heap);
+        assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+        assert_eq!(discovery_visits(heap), peak + 1);
+        assert!(!heap.validate_value(&original));
+        reset_discovery_visits(heap);
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 0);
+        assert_eq!(discovery_visits(heap), 2);
+        drop(roots.pop());
+        reset_discovery_visits(heap);
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+        assert_eq!(discovery_visits(heap), 2);
+        assert!(roots[0].value(heap).is_some());
+        drop(roots);
+        reset_discovery_visits(heap);
+        assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 1);
+        assert_eq!(discovery_visits(heap), 1);
+        reset_discovery_visits(heap);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(discovery_visits(heap), 0);
+        assert!(heap.interface_metadata(snapshot).is_some());
+        let replacement = Value::Interface(heap.alloc_interface(snapshot).unwrap());
+        assert!(!heap.validate_value(&original));
+        drop(metadata);
+        reset_discovery_visits(heap);
+        let collected = runtime.collect_garbage().unwrap();
+        assert_eq!(discovery_visits(heap), 1);
+        assert_eq!(collected.reclaimed_objects, 1);
+        assert_eq!(collected.reclaimed_interface_snapshots, 1);
+        assert!(!heap.validate_value(&replacement));
+        assert_eq!(heap.stats().current_heap_units, 0);
+        eprintln!(
+            "interface peak={}: visits=2/2/1/0/1, metadata-only snapshot retained",
+            peak + 1
+        );
+    }
+}
+
+#[test]
+fn occupied_discovery_excludes_taken_native_identity_after_slot_reuse() {
+    let mut runtime = Runtime::default();
+    let owner = allocation_owner(&mut runtime);
+    let heap = runtime.gc();
+    let storage = NativeStorage::takeable::<i32>();
+    let mut roots = Vec::new();
+    for value in [7_i32, 9] {
+        let object = storage
+            .prepare_payload(heap, &Ty::Builtin(BuiltinType::I32), value, &owner)
+            .unwrap();
+        let id = heap.alloc_native(object).unwrap();
+        roots.push((heap.root_value(Value::GcHandle(id)).unwrap(), id));
+    }
+    let taken = roots[0].1;
+    assert_eq!(heap.take_native::<i32>(taken).unwrap(), 7);
+    assert!(!heap.validate_value(&Value::GcHandle(taken)));
+    let replacement = heap.alloc_cell(ValueType::I32, Value::I32(42)).unwrap();
+    assert_eq!(replacement.index(), taken.index());
+    assert_ne!(replacement.generation(), taken.generation());
+    let replacement_root = heap.root_value(Value::Cell(replacement)).unwrap();
+    reset_discovery_visits(heap);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 2);
+    assert_eq!(discovery_visits(heap), 2);
+    assert!(heap.moved.borrow().contains(&taken));
+    assert_eq!(
+        heap.with_native::<i32, _>(roots[1].1, |value| Ok(*value))
+            .unwrap(),
+        9
+    );
+    drop((roots, replacement_root));
+    reset_discovery_visits(heap);
+    assert_eq!(runtime.collect_garbage().unwrap().reclaimed_objects, 2);
+    assert_eq!(discovery_visits(heap), 2);
+    assert!(heap.moved.borrow().is_empty());
+    assert_eq!(heap.stats().current_heap_units, 0);
+    assert_eq!(heap.stats().current_retained_bytes, 0);
+    reset_discovery_visits(heap);
+    runtime.collect_garbage().unwrap();
+    assert_eq!(discovery_visits(heap), 0);
 }
 
 #[test]

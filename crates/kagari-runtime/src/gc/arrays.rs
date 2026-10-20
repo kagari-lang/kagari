@@ -6,6 +6,7 @@ use crate::{
         sequence::{SequencePayload, SequenceStorage},
         storage_type::StorageType,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_types::ty::Ty;
@@ -42,7 +43,7 @@ impl GcHeap {
             self,
             &ty,
             SequencePayload {
-                leased_units: None,
+                detached: false,
                 element,
                 contract,
                 values,
@@ -84,7 +85,10 @@ impl GcHeap {
         let units = count
             .checked_add(1)
             .ok_or_else(|| self.resource_limit("array length"))?;
-        drop(self.resources.prepare_heap_growth(units)?);
+        drop(
+            self.resources
+                .prepare_heap_change(HeapCharge::default(), units)?,
+        );
         let mut values = SequenceStorage::empty(&element);
         values
             .try_reserve(count)
@@ -98,7 +102,7 @@ impl GcHeap {
             self,
             &ty,
             SequencePayload {
-                leased_units: None,
+                detached: false,
                 element,
                 contract,
                 values,

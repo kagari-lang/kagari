@@ -543,6 +543,31 @@ require a concrete task; implemented foundations are not prerequisites to replay
 
 ## Open review and documentation work
 
+The authorized R15 -> R11 -> R12 repairs are implemented. The
+[debugger observation contract](spec/debugger.md#safe-debug-points) keeps scalar
+constants on their control-flow paths; the [GC contract](spec/runtime.md#gc-heap)
+owns committed backing pressure, release-driven roots and occupied-object discovery.
+The unpublished native API replaces `NativePayload::units()` with fallible
+`charge() -> NativeResult<HeapCharge>`; providers and configuration consumers have
+been migrated without compatibility aliases. Attributed bytes are not RSS or a
+quota, and the 64 KiB collection floor is policy, not a measured optimum.
+
+Focused local validation selected optimized/unoptimized debugger behavior and
+artifact round-trip, all 12 MIR-pass contract tests, committed native storage and
+mutation/cleanup accounting, cross-thread/stale root leases, sparse relocation,
+interface snapshot independence and native take/reuse. These passed, as did the
+runtime `execution-diagnostics` feature check, structure, formatting, workspace
+all-target Clippy and diff checks. The old loop-hoisting test was replaced with
+original block/span/scope preservation while retaining forwarding/reuse assertions.
+[Deterministic work counts](performance-baseline.md#root-release-and-occupied-discovery-work-counts-2026-10-20)
+establish only the selected release/discovery algorithm bounds, not timing gains.
+
+Full-workspace tests and the complete feature/backend/platform matrix remain
+CI-owned and unrun locally. BO04/IP12 historical timing failures remain open;
+their measured hoisted images do not validate the current constant-placement policy.
+Other review findings and native/frontend expansions are not activated by these
+repairs.
+
 [The consolidated review](review.md) owns unresolved SA and R findings. SA entries
 include inline AST reuse, compact module handles, HIR model cleanup, local
 functions, patterns, generic interface construction and host-registration unification. Resolved definition-identity,
@@ -564,7 +589,7 @@ Structure, formatting, workspace all-target Clippy and diff checks passed.
 Full-workspace tests and the complete feature/backend/platform matrix were not
 run locally and remain CI-owned. This scoped handoff is not a
 whole-runtime audit or performance acceptance. The
-[runtime review](review.md#runtime-architecture-review) now prioritizes R11-R14;
+[runtime review](review.md#runtime-architecture-review) now prioritizes R13/R14;
 R7/R8 and unrelated open findings remain unchanged and are not activated here.
 
 [Architecture findings](review.md#architecture-findings)

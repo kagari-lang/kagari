@@ -11,6 +11,7 @@ use crate::{
         storage::{NativePayload, NativeStorage},
         types::TypeRef,
     },
+    resource::HeapCharge,
     task::{ScopeId, TaskFailure, TaskId, control::ScopeControl},
     value::Value,
 };
@@ -27,6 +28,15 @@ pub(crate) struct TaskPayload {
     pub outcome: Option<Result<Value, TaskFailure>>,
 }
 
+impl TaskPayload {
+    pub(crate) fn outcome_bytes(outcome: Option<&Result<Value, TaskFailure>>) -> usize {
+        match outcome {
+            Some(Err(failure)) => failure.error.message_capacity(),
+            _ => 0,
+        }
+    }
+}
+
 impl NativePayload for TaskPayload {
     fn trace<'a>(&'a self, visit: &mut dyn FnMut(&'a Value)) {
         if let Some(Ok(value)) = &self.outcome {
@@ -34,8 +44,11 @@ impl NativePayload for TaskPayload {
         }
     }
 
-    fn units(&self) -> usize {
-        1
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            1,
+            Self::outcome_bytes(self.outcome.as_ref()),
+        ))
     }
 }
 
@@ -48,8 +61,8 @@ pub(crate) struct ScopePayload {
 impl NativePayload for ScopePayload {
     fn trace<'a>(&'a self, _: &mut dyn FnMut(&'a Value)) {}
 
-    fn units(&self) -> usize {
-        1
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(1, 0))
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::tests::native_boundary::{compile, compile_program};
+
 use kagari_runtime::{
     Runtime,
     error::RuntimeError,
@@ -16,6 +17,7 @@ use kagari_runtime::{
         types::Type,
         views::ValueHandle,
     },
+    resource::HeapCharge,
     session::{ExecutionEvent, ExecutionObserver},
     value::Value,
 };
@@ -39,8 +41,8 @@ struct Counter {
 impl NativePayload for Counter {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
 
-    fn units(&self) -> usize {
-        0
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(0, 0))
     }
 }
 

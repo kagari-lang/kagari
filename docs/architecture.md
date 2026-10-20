@@ -862,8 +862,9 @@ applies cancellation, observation and execution policy to host object operations
 NativeStorage attaches a Rust payload to an ordinary nominal native type.
 NativeData supports short fixed-data edits; ManagedStorage describes private traced
 fields and checked writes. Complete builders root initializers until publication.
-Advanced NativePayload supplies tracing, logical size and destruction. Its scoped
-borrows validate the registered Rust type and cannot span collection or reentry.
+Advanced NativePayload supplies tracing, a fallible `HeapCharge` description and
+Rust destruction. Its scoped borrows validate the registered Rust type and cannot
+span collection or reentry.
 Advanced CallContext and borrowed views remain for storage operations; StoredCallable
 is a traced heap edge, while host-retained callbacks use PinnedFunction.
 New payloads require no concrete Value/HeapObject variants. Scalar sequences use
@@ -1253,7 +1254,41 @@ keeps generation tombstones, shrinks payload capacity with hysteresis and dispos
 only nonempty detached batches outside storage borrows. Exact per-kind retirement
 counts avoid rescanning unchanged stores; a wholly dead store transfers its buffer.
 Native destructor panics remain isolated per payload and quarantine execution
-while cleanup continues.
+while cleanup continues. Dead-object discovery walks occupied concrete stores via
+their directory back-references rather than scanning generation tombstones.
+Interface wrappers alone need a narrow occupied-directory index: they retain the
+direct snapshot locator, and the index neither owns metadata nor equates snapshot
+liveness with wrapper liveness. This is not a second all-object liveness table or
+a claim that total GC is O(live); root-table snapshots, marking, metadata scans and
+changed-store compaction retain their separate costs.
+
+`ResourceState` owns aggregate logical occupancy and attributed backing pressure.
+`HeapCharge` carries `logical_units` and `retained_bytes`; each `NativeObject` owns
+its committed payload charge, excluding the heap identity. Preparation samples
+`NativePayload::charge()` once and adds the erased Box's shallow size exactly once.
+Checked storage owners update the record on mutation; relocation preserves it and
+sweep/take release it without resampling providers. Strings and native buffers use
+known capacities; hash tables use capacity-based estimates. Shared metadata,
+referenced objects, external host resources and runtime arenas are not attributed
+to a native payload. The byte ledger is deliberately partial, not RSS or a quota;
+[GC accounting](spec/runtime.md#gc-heap) defines its coverage and exclusions.
+
+A reserve can increase byte pressure without increasing logical occupancy. Clear
+or truncate can reduce occupancy while retaining capacity; detached editing still
+charges its buffer. If a later preparation step fails, successfully reserved backing
+remains charged even though no element was published. Release and sealed cleanup
+accounting remain available after termination/quarantine, without allowing new
+execution. Either logical/metadata occupancy or retained-byte pressure can schedule
+collection, only at safepoints. The byte floor defaults to 64 KiB; after collection
+its threshold is `max(floor, 2 * live retained bytes)`. Setting
+`collection_threshold` to None disables both automatic triggers.
+
+The accounting mechanism follows the successful allocation/reallocation delta
+boundary in Lua 5.4.8 [lmem.c](https://github.com/lua/lua/blob/v5.4.8/lmem.c) and
+[lgc.h](https://github.com/lua/lua/blob/v5.4.8/lgc.h): charge retained storage, not a
+requested allocation that failed. Kagari owns Rust buffers and records their
+charges at checked storage transitions; it does not copy Lua's emergency collection
+inside allocation or incremental GC-debt policy.
 
 Script struct records share a closed physical layout and locate their initialized
 bytes in one heap-owned arena. Scalar fields use exact semantic widths, Unit uses
@@ -1330,7 +1365,25 @@ the old module state. Standard string input operations borrow scoped UTF-8 views
 owned Rust String conversion remains an explicit copy at the host boundary.
 
 Persistent root values live in a heap-owned generational table. Host/debug handles
-carry Arc leases and checked root identities; value access requires the owning heap.
+carry Arc leases and checked root identities; value access requires the owning heap
+and validates the exact lease pointer. Final lease Drop sends only the complete
+owner/slot/generation ID through MPSC, including from another thread. The table
+drains releases during registration and collection/snapshot preparation, checking
+the ID and that no strong lease remains before reuse. No registration-wide prune
+scan remains. Snapshot copying still upgrades and temporarily holds weak leases;
+a delayed notification cannot make a dead lease live. The channel retains neither
+values nor runtime ownership, and late drops tolerate receiver destruction.
+
+OpenJDK 25 GA [OopStorage](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.hpp),
+its [iteration](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.inline.hpp)
+and [maintenance](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.cpp)
+provide the applicable mechanisms: occupied-entry traversal and release-driven
+maintenance. OpenJDK clears allocation bits immediately and defers selected block
+list work; it does not use Kagari's root-ID queue. Kagari instead has exclusive
+heap ownership, cross-thread Arc drops, checked generations and existing dense
+stores, not concurrent raw oop access. Neither mechanism removes graph tracing or
+establishes an unmeasured timing improvement.
+
 Execution values instead occupy reusable contiguous runtime-owned frame windows
 in separate scalar and managed banks. Scalar slots hold complete 64-bit payloads
 and explicit initialization flags; managed slots retain ordinary Values and full

@@ -1,5 +1,6 @@
 //! Application-owned provider shared by source emission and an independent
 //! source-free embedding consumer. No runtime-private APIs are used.
+
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -18,6 +19,7 @@ use {
             types::Type,
             views::ValueHandle,
         },
+        resource::HeapCharge,
         value::Value,
     },
     kagari_stdlib::declarations::StandardDeclarations,
@@ -87,8 +89,8 @@ impl NativePayload for Handler {
         self.callback.trace(visit);
     }
 
-    fn units(&self) -> usize {
-        2
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(2, 0))
     }
 }
 

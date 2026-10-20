@@ -27,6 +27,9 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(test)]
+use std::cell::Cell;
+
 #[derive(Debug, Clone, Copy)]
 pub(super) enum PayloadKind {
     String,
@@ -70,6 +73,8 @@ pub(super) struct ObjectStorage {
     pub(super) slots: Vec<ObjectSlot>,
     pub(super) initialization_owners: HashMap<HeapObjectId, ModuleKey>,
     payloads: PayloadStores,
+    #[cfg(test)]
+    pub(super) discovery_visits: Cell<usize>,
 }
 
 /// Persistent payloads are dense within their concrete storage family.
@@ -85,6 +90,9 @@ pub(super) struct PayloadStores {
     enums: Vec<Entry<(EnumValueSnapshot, Option<Arc<ErrorTrace>>)>>,
     structs: Vec<Entry<StructRecord>>,
     struct_bytes: Vec<u8>,
+    // Wrappers directly locate metadata; unlike other kinds they have no payload
+    // row carrying a directory back-reference. This index owns no snapshots.
+    interface_directories: Vec<u32>,
     closures: Vec<Entry<ClosureValueSnapshot>>,
     cells: Vec<Entry<(ValueType, Value)>>,
 }
@@ -262,12 +270,17 @@ impl ObjectStorage {
                     index,
                 })
             }
-            HeapObject::Interface { snapshot, .. } => Ok(PayloadLocation {
-                kind: PayloadKind::Interface,
-                index: snapshot
+            HeapObject::Interface { snapshot, .. } => {
+                let index = snapshot
                     .directory_index()
-                    .expect("admitted interface locator"),
-            }),
+                    .expect("admitted interface locator");
+                self.payloads.interface_directories.try_reserve(1)?;
+                self.payloads.interface_directories.push(directory);
+                Ok(PayloadLocation {
+                    kind: PayloadKind::Interface,
+                    index,
+                })
+            }
             HeapObject::Closure { snapshot } => {
                 self.payloads.closures.try_reserve(1)?;
                 let index = u32::try_from(self.payloads.closures.len())
@@ -295,6 +308,29 @@ impl ObjectStorage {
                 })
             }
         }
+    }
+
+    /// Enumerate occupied identities, not the permanent generation tombstones.
+    /// Interface wrappers participate independently of their metadata's liveness.
+    pub(super) fn occupied_directories(&self) -> impl Iterator<Item = usize> + '_ {
+        let stores = &self.payloads;
+        directories(&stores.strings)
+            .chain(directories(&stores.tuples))
+            .chain(directories(&stores.ranges))
+            .chain(directories(&stores.host_roots))
+            .chain(directories(&stores.host_paths))
+            .chain(directories(&stores.ephemerals))
+            .chain(directories(&stores.natives))
+            .chain(directories(&stores.enums))
+            .chain(directories(&stores.structs))
+            .chain(stores.interface_directories.iter().copied())
+            .chain(directories(&stores.closures))
+            .chain(directories(&stores.cells))
+            .map(|index| {
+                #[cfg(test)]
+                self.discovery_visits.set(self.discovery_visits.get() + 1);
+                index as usize
+            })
     }
 
     pub(super) fn native(&self, location: PayloadLocation) -> Option<&NativeObject> {
@@ -489,15 +525,23 @@ impl ObjectStorage {
             .location
             .take()
             .expect("marked live directory entry");
-        // Interface payloads belong to metadata; only their heap identity retires here.
-        if !matches!(location.kind, PayloadKind::Interface) {
-            counts.0[location.kind as usize] += 1;
-        }
+        counts.0[location.kind as usize] += 1;
         self.initialization_owners.remove(&id);
     }
 
     pub(super) fn detach_marked(&mut self, counts: DetachedCounts) -> RetiredPayloads {
-        let mut retired = Vec::with_capacity(counts.0.iter().filter(|&&count| count != 0).count());
+        let interface_count = counts.0[PayloadKind::Interface as usize];
+        let batches = counts.0.iter().filter(|&&count| count != 0).count()
+            - usize::from(interface_count != 0);
+        let mut retired = Vec::with_capacity(batches);
+        if interface_count != 0 {
+            // Metadata owns the payload. Retire only wrapper occupancy, before
+            // any cleared directory slot can be reused by a later allocation.
+            self.payloads
+                .interface_directories
+                .retain(|&index| self.slots[index as usize].location.is_some());
+            shrink(&mut self.payloads.interface_directories);
+        }
         if counts.0[PayloadKind::String as usize] != 0 {
             retired.push(RetiredBatch::String(extract(
                 &mut self.payloads.strings,
@@ -603,6 +647,10 @@ impl ObjectStorage {
             self.initialization_owners.shrink_to_fit();
         }
     }
+}
+
+fn directories<T>(store: &[Entry<T>]) -> impl Iterator<Item = u32> + '_ {
+    store.iter().map(|entry| entry.directory)
 }
 
 fn remove<T>(store: &mut Vec<Entry<T>>, slots: &mut [ObjectSlot], index: usize) -> T {

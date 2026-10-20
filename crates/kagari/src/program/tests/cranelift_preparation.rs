@@ -190,6 +190,7 @@ fn real_native_entries_keep_their_values_after_reload_and_collect_at_safepoints(
             let mut registered = Runtime::new(RuntimeConfig {
                 gc: GcHeapConfig {
                     collection_threshold: Some(1),
+                    ..Default::default()
                 },
                 ..Default::default()
             });

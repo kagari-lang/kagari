@@ -18,7 +18,7 @@ use crate::{
     },
     module::{EnumVariantRef, ModuleKey, StructLayoutRef},
     native::storage::{NativeObject, NativeStorage},
-    resource::ResourceState,
+    resource::{HeapCharge, ResourceState},
     session::ExecutionPhase,
     value::{EnumTag, EnumValueSnapshot, InterfaceObjectId, Value},
     value_check::matches_type_in,
@@ -67,12 +67,18 @@ mod values;
 pub struct GcHeapConfig {
     /// Minimum combined heap-unit/executable-metadata threshold at execution safepoints.
     pub collection_threshold: Option<usize>,
+    /// Minimum attributed backing-byte pressure for automatic collection.
+    /// Independent of logical units; collection_threshold=None disables both.
+    pub retained_byte_threshold: usize,
 }
 
 impl Default for GcHeapConfig {
     fn default() -> Self {
         Self {
             collection_threshold: Some(1024),
+            // A modest 64-KiB batch avoids collecting for each small reserve while
+            // admitting large empty buffers. This is a policy floor, not a tuned optimum.
+            retained_byte_threshold: 64 * 1024,
         }
     }
 }
@@ -89,6 +95,9 @@ pub struct GcHeapStats {
     pub environments: usize,
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
+    /// Known backing capacity plus declared native pressure, not total heap/RSS.
+    pub current_retained_bytes: u128,
+    pub peak_retained_bytes: u128,
     pub allocated_objects: usize,
     pub collections: u64,
     pub reclaimed_objects: usize,
@@ -147,6 +156,7 @@ pub struct GcCollection {
     pub reclaimed_modules: Vec<ModuleKey>,
     pub reclaimed_objects: usize,
     pub reclaimed_units: usize,
+    pub reclaimed_retained_bytes: u128,
     pub live_objects: usize,
     pub pause: Duration,
 }
@@ -195,6 +205,7 @@ pub struct GcHeap {
     stats: RefCell<CollectorStats>,
     resources: ResourceState,
     next_collection: Cell<usize>,
+    next_byte_collection: Cell<u128>,
     mutations: LeaseTable,
     key_lookups: LeaseTable,
     native_operations: LeaseTable,
@@ -255,7 +266,7 @@ impl GcHeap {
             struct_layouts: RefCell::new(StructStorageLayouts::default()),
             free: RefCell::new(Vec::new()),
             moved: RefCell::new(HashSet::new()),
-            roots: RefCell::new(RootTable::default()),
+            roots: RefCell::new(RootTable::new(owner)),
             environments: RefCell::new(EnvironmentStore::new(owner)),
             interfaces: RefCell::new(InterfaceStore::new(owner)),
             applications: RefCell::new(ApplicationStore::new(owner)),
@@ -263,6 +274,7 @@ impl GcHeap {
             stats: RefCell::new(CollectorStats::default()),
             resources,
             next_collection: Cell::new(config.collection_threshold.unwrap_or(usize::MAX).max(1)),
+            next_byte_collection: Cell::new(config.retained_byte_threshold.max(1) as u128),
         }
     }
 
@@ -284,6 +296,8 @@ impl GcHeap {
             environments: self.environments.borrow().count(),
             current_heap_units: counters.current_heap_units,
             peak_heap_units: counters.peak_heap_units,
+            current_retained_bytes: counters.current_retained_bytes,
+            peak_retained_bytes: counters.peak_retained_bytes,
             allocated_objects: stats.allocated_objects,
             collections: stats.collections,
             reclaimed_objects: stats.reclaimed_objects,
@@ -560,7 +574,7 @@ impl GcHeap {
 
     pub(crate) fn collection_due(&self) -> bool {
         self.config.collection_threshold.is_some()
-            && self
+            && (self
                 .resources
                 .counters()
                 .current_heap_units
@@ -569,6 +583,8 @@ impl GcHeap {
                 .saturating_add(self.interfaces.borrow().count())
                 .saturating_add(self.environments.borrow().count())
                 >= self.next_collection.get()
+                || self.resources.counters().current_retained_bytes
+                    >= self.next_byte_collection.get())
     }
 
     pub fn validate_value(&self, value: &Value) -> bool {
@@ -647,10 +663,12 @@ impl GcHeap {
     }
 
     fn alloc_object(&self, object: HeapObject) -> Result<HeapObjectId, RuntimeError> {
-        let units = object.units(&self.interfaces).ok_or_else(|| {
+        let charge = object.charge(&self.interfaces).ok_or_else(|| {
             RuntimeError::module_validation("invalid or borrowed interface accounting")
         })?;
-        let growth = self.resources.prepare_heap_growth(units)?;
+        let growth = self
+            .resources
+            .prepare_heap_change(HeapCharge::default(), charge.logical_units)?;
         let initialization_owner = self
             .resources
             .active_session()
@@ -692,7 +710,7 @@ impl GcHeap {
             objects.initialization_owners.insert(id, owner);
         }
         self.stats.borrow_mut().allocated_objects += 1;
-        growth.commit();
+        growth.commit(charge);
         Ok(id)
     }
 
@@ -768,10 +786,6 @@ impl GcHeap {
     ) -> Option<&'a mut NativeObject> {
         let location = self.readable_location(objects, id)?;
         objects.native_mut(location)
-    }
-
-    fn release_heap_units(&self, units: usize) {
-        self.resources.release_heap_units(units);
     }
 
     fn with_struct<R>(&self, id: HeapObjectId, f: impl FnOnce(StructView<'_>) -> R) -> Option<R> {

@@ -31,10 +31,19 @@ impl Drop for StorageLease<'_> {
             };
             let sequence = object.payload_mut::<SequencePayload>().ok()?;
             mem::swap(&mut sequence.values, &mut self.values);
-            sequence.leased_units = None;
+            sequence.detached = false;
             let after = sequence.values.len();
             object.revision = self.revision;
-            self.heap.release_heap_units(self.before - after);
+            let removed = self
+                .before
+                .checked_sub(after)
+                .expect("sequence edit cannot grow");
+            object.charge.logical_units = object
+                .charge
+                .logical_units
+                .checked_sub(removed)
+                .expect("committed sequence length");
+            self.heap.resources.release_heap_units(removed);
             Some(())
         })();
         if restored.is_none() {
@@ -88,7 +97,7 @@ impl GcHeap {
             &mut sequence.values,
             SequenceStorage::empty(&sequence.element),
         );
-        sequence.leased_units = Some(before);
+        sequence.detached = true;
         drop(objects);
         let mut lease = StorageLease {
             heap: self,

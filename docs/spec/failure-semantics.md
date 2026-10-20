@@ -72,13 +72,33 @@ temporary roots, and host resources on failure, including after quarantine.
 
 Standard container and typed-path mutations validate the target, types,
 declared access, arithmetic, and capacity before committing. Rejection
-leaves the target unchanged by that operation. This does not undo effects of
+leaves the target's logical contents unchanged by that operation; backing-capacity
+reservations have the separate accounting rule below. This does not undo effects of
 evaluating the receiver, indexes, or RHS, nor earlier operations in the call.
 
-Heap allocations and container growth validate types, checked live occupancy and
-capacity before publishing content and counters. Rejected allocations leave both
-unchanged. Removal and GC reduce live occupancy. No cumulative-allocation or heap
-quota is maintained.
+Heap allocations and container growth validate types, checked logical occupancy
+and capacity before publishing logical contents. A rejected new object publishes
+neither its identity nor its charge. `HeapCharge` separates logical units from
+retained backing bytes; checked storage transitions commit the charge for storage
+actually retained, not merely the requested growth. A multi-step reserve can grow
+one backing allocation and then fail at a later step. The operation publishes no
+new entry, but keeps and charges the successfully reserved capacity. For example,
+a hash insertion can retain extra table capacity without inserting its key.
+
+Removal, clear and truncate reduce logical occupancy without necessarily releasing
+backing capacity. Detached sequence edits keep the buffer charged through callback
+failure and restoration. Sweep and native take release the runtime-recorded charge,
+never call a provider's size hook again; take leaves the inert identity's logical
+unit until its remaining aliases are no longer traced. Charge release does not
+poll execution and still works after termination or quarantine. Sealed Task failure
+publication likewise accounts its retained error message during cleanup; it grants
+no permission for new execution or ordinary mutations. Accounting underflow is an
+engine invariant failure, not a wrapping counter or business rejection.
+
+These counters describe attributed occupancy/pressure, not cumulative allocations,
+RSS or a heap quota. See [GC accounting](runtime.md#gc-heap) for byte coverage and
+safepoint scheduling. Resource failure does not cause emergency collection inside
+allocation or a scoped storage mutation.
 
 Standard removals returning an Option prepare that result before removing the
 entry. Result allocation failure leaves the entry present. Peak heap occupancy

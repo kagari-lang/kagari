@@ -6,7 +6,7 @@ use crate::{
     },
     metadata::{TypeKind, TypeRegistration},
     native::{
-        binding::{Codec, NativeBinding},
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         catalog::{DeclarationCatalog, import::CatalogImports},
         declarations::{FunctionDecl, MethodDecl},
@@ -15,6 +15,7 @@ use crate::{
         storage::{NativePayload, NativeStorage},
         types::Type,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_common::identity::{DefinitionKind, metadata::DefinitionMetadata};
@@ -45,8 +46,8 @@ struct CatalogOnlyPayload;
 impl NativePayload for CatalogOnlyPayload {
     fn trace<'payload>(&'payload self, _visit: &mut dyn FnMut(&'payload Value)) {}
 
-    fn units(&self) -> usize {
-        0
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(0, 0))
     }
 }
 

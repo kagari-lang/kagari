@@ -3,12 +3,13 @@ use kagari_runtime::{
     error::RuntimeErrorKind,
     module::entry::ProgramEntry,
     native::{
-        binding::{Codec, NativeBinding},
+        binding::{Codec, NativeBinding, NativeResult},
         builder::ModuleBuilder,
         declarations::FunctionDecl,
         module::NativeModule,
         storage::{NativePayload, NativeStorage},
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -32,8 +33,8 @@ impl NativePayload for Payload {
         assert!(!self.0.trace.load(Ordering::SeqCst), "fixture trace panic");
     }
 
-    fn units(&self) -> usize {
-        0
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(0, 0))
     }
 }
 

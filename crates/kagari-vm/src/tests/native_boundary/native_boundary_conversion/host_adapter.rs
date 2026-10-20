@@ -388,6 +388,7 @@ fn shared_root_registration_runs_native_methods_and_explicit_traits_source_free(
     let mut runtime = installation.runtime(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         ..Default::default()
     });

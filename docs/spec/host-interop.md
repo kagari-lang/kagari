@@ -442,6 +442,30 @@ snapshot and opaque representation use distinct explicit binding types. The
 [value conversion guide](embedding-api.md#typed-native-registration) describes
 the finite derive/Serde subset and directional converters.
 
+## Native payload accounting
+
+Advanced runtime-owned storage implements
+`NativePayload::charge(&self) -> NativeResult<HeapCharge>` instead of `units()`.
+`HeapCharge` carries logical payload units excluding the heap identity, and bytes
+for exclusively owned indirect backing. The runtime adds the erased payload Box's
+shallow size exactly once; providers must not include it again. Referenced GC
+objects, shared metadata and external host resources do not belong to that charge.
+Report known capacities where available, distinguish estimates, and document
+unobservable allocations as excluded rather than asserting an exact zero.
+These are GC-pressure contributions, not process-memory totals or quotas.
+
+The callback must be side-effect-free and must not reenter the runtime. Payload
+preparation samples it once before publication; a failure publishes no payload or
+charge. The runtime-owned native record then owns the authoritative charge.
+Installed logical units and attributed backing must remain stable except through
+checked runtime storage mutations; interior mutability is not permission to resize
+that backing. Fixed-data loans cannot change its size, and managed replacements
+prepare a new charge before committing. Sweep, extraction and cleanup release the
+recorded charge without calling the provider again, including cleanup after
+termination/quarantine. This does not authorize take or mutation after execution
+has been rejected. See [GC accounting](runtime.md#gc-heap) and the
+[reservation failure contract](failure-semantics.md#modification-guarantees).
+
 ## Registered payload loans
 
 An instance `MethodDecl` may explicitly set `receiver_access` to

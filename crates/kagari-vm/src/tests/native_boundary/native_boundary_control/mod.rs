@@ -113,6 +113,7 @@ fn runtime(limits: RuntimeLimits) -> Runtime {
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
 
         limits,

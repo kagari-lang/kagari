@@ -148,7 +148,8 @@ impl GcHeap {
         self.ensure_no_native_borrow()?;
         self.ensure_execution_allowed()?;
         object
-            .units()
+            .charge
+            .logical_units
             .checked_add(1)
             .ok_or_else(|| self.resource_limit("native object size"))?;
         // A copied payload can originate from an already mutated receiver.
@@ -175,7 +176,7 @@ impl GcHeap {
         let payload = object.payload::<S>()?;
         if object
             .payload::<SequencePayload>()
-            .is_ok_and(|sequence| sequence.leased_units.is_some())
+            .is_ok_and(|sequence| sequence.detached)
         {
             return Err(RuntimeError::module_validation(
                 "sequence storage is exclusively borrowed",
@@ -212,22 +213,12 @@ impl GcHeap {
                 ));
             }
         }
-        let growth = self.resources.prepare_heap_growth(1)?;
-        let mut objects = self
-            .objects
-            .try_borrow_mut()
-            .map_err(|_| RuntimeError::module_validation("conflicting native storage borrow"))?;
-        let Some(object) = self.native_mut(&mut objects, id) else {
-            return Err(RuntimeError::module_validation("invalid sequence receiver"));
-        };
-        let sequence = object.payload_mut::<SequencePayload>()?;
-        sequence
-            .values
-            .try_reserve(1)
-            .map_err(|_| self.resource_limit("allocation capacity"))?;
-        sequence.values.push(value)?;
-        growth.commit();
-        Ok(())
+        self.with_buffer_mut(id, 1, |values| {
+            values
+                .try_reserve(1)
+                .map_err(|_| self.resource_limit("allocation capacity"))?;
+            values.push(value)
+        })?
     }
 
     pub(crate) fn with_sequence_mut<E: NativeElement, R>(

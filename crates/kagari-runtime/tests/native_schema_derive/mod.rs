@@ -4,6 +4,7 @@ use kagari_runtime::{
     Runtime, RuntimeConfig,
     gc::GcHeapConfig,
     native::{
+        binding::NativeResult,
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         conversion::{KagariType, context::ConversionContext},
@@ -13,6 +14,7 @@ use kagari_runtime::{
         typed::NativeContext,
         types::Type,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -45,6 +47,7 @@ fn derived_mixed_dto_keeps_opaque_identity_and_checked_data_capabilities() {
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         ..Default::default()
     });
@@ -110,8 +113,8 @@ struct InvalidStorage;
 impl NativePayload for InvalidStorage {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
 
-    fn units(&self) -> usize {
-        0
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(0, 0))
     }
 
     fn registration_storage() -> NativeStorage {

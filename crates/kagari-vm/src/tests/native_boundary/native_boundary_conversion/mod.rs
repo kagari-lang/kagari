@@ -298,6 +298,7 @@ fn source_free_vm(source: &str, module: &NativeModule) -> (Vm, LoadedModule) {
     let mut runtime = Runtime::new(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         ..Default::default()
     });

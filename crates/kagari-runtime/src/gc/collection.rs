@@ -8,6 +8,7 @@ use crate::{
         storage::append_value_edges,
     },
     module::{ModuleKey, ModuleStore, collection::ProgramGraph},
+    resource::HeapCharge,
     value::Value,
 };
 
@@ -180,19 +181,19 @@ impl GcHeap {
                 }
             }
         }
-        // Evaluate payload accounting before mutating slots: it is a native hook.
+        // Read committed runtime charges before detaching. No provider size hooks.
         let dead = {
             let objects = self.objects.try_borrow().ok()?;
             let mut dead = Vec::new();
-            for (index, slot) in objects.slots.iter().enumerate() {
+            for index in objects.occupied_directories() {
+                let slot = objects.slots.get(index)?;
+                let location = slot.location?;
                 let id = HeapObjectId::new(self.owner, index, slot.generation);
-                if !live.contains(&id)
-                    && let Some(location) = slot.location
-                {
-                    let units = objects
+                if !live.contains(&id) {
+                    let charge = objects
                         .get(location, &self.interfaces)?
-                        .units(&self.interfaces)?;
-                    dead.push((index, units));
+                        .charge(&self.interfaces)?;
+                    dead.push((index, charge));
                 }
             }
             dead
@@ -208,8 +209,15 @@ impl GcHeap {
         let mut moved = self.moved.try_borrow_mut().ok()?;
         let retired_identities = moved.len() - live_moved.len();
         let reclaimed_objects = dead.len();
-        let reclaimed_units =
-            dead.iter().map(|(_, units)| units).sum::<usize>() + retired_identities;
+        let reclaimed_units = dead
+            .iter()
+            .try_fold(retired_identities, |sum, (_, charge)| {
+                sum.checked_add(charge.logical_units)
+            })?;
+        let reclaimed_retained_bytes = dead.iter().try_fold(0u128, |sum, (_, charge)| {
+            sum.checked_add(charge.retained_bytes as u128)
+        })?;
+
         // Extraction maintains its own capacity; sweep only touches changed stores.
         let retired = if dead.is_empty() {
             None
@@ -217,9 +225,10 @@ impl GcHeap {
             let mut objects = self.objects.try_borrow_mut().ok()?;
             let mut free = self.free.try_borrow_mut().ok()?;
             let mut counts = DetachedCounts::default();
-            for (index, _) in dead {
+            for (index, charge) in dead {
                 let id = HeapObjectId::new(self.owner, index, objects.slots[index].generation);
                 objects.mark_detached(id, &mut counts);
+                self.resources.release_heap_charge(charge);
                 let slot = &mut objects.slots[index];
                 if let Some(generation) = slot.generation.checked_add(1) {
                     slot.generation = generation;
@@ -229,6 +238,8 @@ impl GcHeap {
             Some(objects.detach_marked(counts))
         };
         moved.retain(|id| live_moved.contains(id));
+        self.resources
+            .release_heap_charge(HeapCharge::new(retired_identities, 0));
         drop(moved);
         let retired_groups = groups.detach(&graph.metadata.groups);
         let reclaimed_operation_groups = retired_groups.len();
@@ -245,8 +256,8 @@ impl GcHeap {
         let retired_modules = programs.detach(dead_programs);
         let reclaimed_modules = retired_modules.iter().map(|module| module.key).collect();
         drop(programs);
-        self.release_heap_units(reclaimed_units);
-        self.roots.borrow_mut().prune();
+
+        self.roots.borrow_mut().drain_released();
         // Destructors run with no storage-table borrow. Finish disposal even when
         // one panics; the execution gate keeps the affected runtime quarantined.
         if let Some(retired) = retired {
@@ -308,6 +319,13 @@ impl GcHeap {
                 .max(self.config.collection_threshold.unwrap_or(usize::MAX))
                 .max(1),
         );
+        self.next_byte_collection.set(
+            self.resources
+                .counters()
+                .current_retained_bytes
+                .saturating_mul(2)
+                .max(self.config.retained_byte_threshold.max(1) as u128),
+        );
         Some(GcCollection {
             reclaimed_environments,
             reclaimed_operation_groups,
@@ -316,6 +334,7 @@ impl GcHeap {
             reclaimed_modules,
             reclaimed_objects,
             reclaimed_units,
+            reclaimed_retained_bytes,
             live_objects: live.len(),
             pause,
         })

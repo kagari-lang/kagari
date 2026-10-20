@@ -57,6 +57,12 @@ pub struct RuntimeError {
 }
 
 impl RuntimeError {
+    /// Owned message capacity for heap payload attribution; shared trace metadata
+    /// is deliberately excluded, including when several task failures retain it.
+    pub(crate) fn message_capacity(&self) -> usize {
+        self.message.capacity()
+    }
+
     pub fn new(kind: RuntimeErrorKind, message: impl Into<String>) -> Self {
         Self {
             kind,

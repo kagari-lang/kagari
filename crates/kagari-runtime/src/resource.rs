@@ -48,12 +48,43 @@ impl Default for RuntimeLimits {
     }
 }
 
+/// Committed payload occupancy and attributed backing pressure. Bytes exclude
+/// referenced GC objects and host-owned resources; providers document estimates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct HeapCharge {
+    pub logical_units: usize,
+    pub retained_bytes: usize,
+}
+
+impl HeapCharge {
+    pub fn new(logical_units: usize, retained_bytes: usize) -> Self {
+        Self {
+            logical_units,
+            retained_bytes,
+        }
+    }
+
+    pub(crate) fn with_shallow_bytes(self, bytes: usize) -> Result<Self, RuntimeError> {
+        Ok(Self {
+            logical_units: self.logical_units,
+            retained_bytes: self
+                .retained_bytes
+                .checked_add(bytes)
+                .ok_or_else(|| RuntimeError::resource_limit("native retained bytes"))?,
+        })
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct ResourceCounters {
     pub current_call_depth: u32,
     pub peak_call_depth: u32,
     pub current_heap_units: usize,
     pub peak_heap_units: usize,
+    /// Attributed backing bytes, not RSS or total runtime memory. The wide sum
+    /// permits preflighting any usize-sized storage change before reserving it.
+    pub current_retained_bytes: u128,
+    pub peak_retained_bytes: u128,
 }
 
 #[derive(Debug)]
@@ -69,14 +100,36 @@ pub struct ResourceState {
     counters: RefCell<ResourceCounters>,
 }
 
-/// A checked, uncharged growth operation. No user code runs while it is held.
-pub(crate) struct HeapGrowth<'a> {
+/// Exclusive, preflighted transition; no callbacks or reentry while held.
+pub(crate) struct HeapChange<'a> {
     session: Option<Ref<'a, SessionState>>,
     counters: RefMut<'a, ResourceCounters>,
-    live: usize,
+    base_units: usize,
+    base_bytes: u128,
+    max_units: usize,
 }
 
-/// Account temporary native storage until preparation commits or fails.
+impl HeapChange<'_> {
+    pub(crate) fn commit(mut self, charge: HeapCharge) {
+        assert!(
+            charge.logical_units <= self.max_units,
+            "preflighted heap change"
+        );
+        let units = self.base_units + charge.logical_units;
+        let bytes = self.base_bytes + charge.retained_bytes as u128;
+        self.counters.current_heap_units = units;
+        self.counters.peak_heap_units = self.counters.peak_heap_units.max(units);
+        self.counters.current_retained_bytes = bytes;
+        self.counters.peak_retained_bytes = self.counters.peak_retained_bytes.max(bytes);
+        if let Some(session) = self.session {
+            session
+                .peak_heap_units
+                .set(session.peak_heap_units.get().max(units));
+        }
+    }
+}
+
+/// Account temporary logical preparation units, not a backing-byte estimate.
 pub(crate) struct TemporaryHeap<'a> {
     resources: &'a ResourceState,
     units: usize,
@@ -85,18 +138,6 @@ pub(crate) struct TemporaryHeap<'a> {
 impl Drop for TemporaryHeap<'_> {
     fn drop(&mut self) {
         self.resources.release_heap_units(self.units);
-    }
-}
-
-impl HeapGrowth<'_> {
-    pub(crate) fn commit(mut self) {
-        self.counters.current_heap_units = self.live;
-        self.counters.peak_heap_units = self.counters.peak_heap_units.max(self.live);
-        if let Some(session) = self.session {
-            session
-                .peak_heap_units
-                .set(session.peak_heap_units.get().max(self.live));
-        }
     }
 }
 
@@ -255,37 +296,84 @@ impl ResourceState {
         }
     }
 
-    pub(crate) fn prepare_heap_growth(&self, units: usize) -> Result<HeapGrowth<'_>, RuntimeError> {
-        self.poll_execution()?;
-        let counters = self.counters.borrow_mut();
-        let live = counters
-            .current_heap_units
-            .checked_add(units)
-            .ok_or_else(|| self.limit("heap units"))?;
-        Ok(HeapGrowth {
-            session: self.active_session(),
-            counters,
-            live,
-        })
-    }
-
     pub(crate) fn reserve_temporary_heap(
         &self,
         units: usize,
     ) -> Result<TemporaryHeap<'_>, RuntimeError> {
-        self.prepare_heap_growth(units)?.commit();
+        self.prepare_heap_change(HeapCharge::default(), units)?
+            .commit(HeapCharge::new(units, 0));
         Ok(TemporaryHeap {
             resources: self,
             units,
         })
     }
 
-    pub(crate) fn release_heap_units(&self, units: usize) {
-        let mut counters = self.counters.borrow_mut();
-        counters.current_heap_units = counters
+    pub(crate) fn prepare_heap_change(
+        &self,
+        before: HeapCharge,
+        max_units: usize,
+    ) -> Result<HeapChange<'_>, RuntimeError> {
+        self.poll_execution()?;
+        let mut change = self.prepare_cleanup_heap_change(before, max_units)?;
+        change.session = self.active_session();
+        Ok(change)
+    }
+
+    /// Only sealed cleanup may bypass execution admission. It cannot invoke user
+    /// code; already terminated sessions still need to publish Task failures.
+    pub(crate) fn prepare_cleanup_heap_change(
+        &self,
+        before: HeapCharge,
+        max_units: usize,
+    ) -> Result<HeapChange<'_>, RuntimeError> {
+        let counters = self.counters.borrow_mut();
+        let base_units = counters
             .current_heap_units
-            .checked_sub(units)
-            .expect("heap accounting cannot underflow");
+            .checked_sub(before.logical_units)
+            .ok_or_else(|| self.quarantine("heap charge exceeds committed occupancy"))?;
+        let base_bytes = counters
+            .current_retained_bytes
+            .checked_sub(before.retained_bytes as u128)
+            .ok_or_else(|| self.quarantine("heap charge exceeds committed backing"))?;
+        base_units
+            .checked_add(max_units)
+            .ok_or_else(|| self.limit("heap units"))?;
+        // Actual Vec capacity is known only after reserve. Preflight the entire
+        // representable per-object range, not its requested minimum capacity.
+        base_bytes
+            .checked_add(usize::MAX as u128)
+            .ok_or_else(|| self.limit("retained bytes"))?;
+        Ok(HeapChange {
+            session: None,
+            counters,
+            base_units,
+            base_bytes,
+            max_units,
+        })
+    }
+
+    pub(crate) fn release_heap_charge(&self, charge: HeapCharge) {
+        let mut counters = self.counters.borrow_mut();
+        let Some(units) = counters
+            .current_heap_units
+            .checked_sub(charge.logical_units)
+        else {
+            self.quarantine("heap charge underflow during cleanup");
+            return;
+        };
+        let Some(bytes) = counters
+            .current_retained_bytes
+            .checked_sub(charge.retained_bytes as u128)
+        else {
+            self.quarantine("backing charge underflow during cleanup");
+            return;
+        };
+        counters.current_heap_units = units;
+        counters.current_retained_bytes = bytes;
+    }
+
+    pub(crate) fn release_heap_units(&self, units: usize) {
+        self.release_heap_charge(HeapCharge::new(units, 0));
     }
 }
 

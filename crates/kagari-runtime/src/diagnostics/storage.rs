@@ -26,7 +26,7 @@ impl BufferUsage {
 /// are outside these byte counts. Logical GC units are not allocator bytes.
 #[derive(Debug, Clone, Copy)]
 pub struct StorageUsage {
-    pub buffers: [BufferUsage; 14],
+    pub buffers: [BufferUsage; 15],
     pub interface_snapshots: BufferUsage,
     pub distinct_struct_layouts: usize,
     pub initialization_owners: usize,

@@ -16,6 +16,59 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Root release and occupied discovery work counts, 2026-10-20
+
+**Current R12 implementation evidence, not a timing baseline.** Root registration
+drains final-lease IDs from MPSC instead of pruning the historical slot table.
+Dead-object discovery walks occupied concrete stores and a narrow interface-wrapper
+index; it does not scan directory tombstones. The lasting ownership and safety
+contracts are in [the runtime model](spec/runtime.md#gc-heap).
+
+Scope: default-feature `kagari-runtime` library tests with `cfg(test)` counters in
+the actual [release-drain loop](../crates/kagari-runtime/src/gc/roots.rs)
+(`release_visits`) and
+[occupied-directory iterator](../crates/kagari-runtime/src/gc/directory.rs)
+(`discovery_visits`). These count processed release records and yielded occupied
+object identities, not inferred table lengths, elapsed time or total GC work.
+Collections are invoked explicitly; discovery counters are reset before each
+collection. The input sizes and ownership transitions below determine the counts;
+CPU affinity, cache warmth and clock resolution are not measurement inputs.
+
+| Workload / retained history | Counted work |
+| --- | --- |
+| Register and retain 64 / 4,096 distinct roots | 0 release records processed at both peaks |
+| Drop all but four roots, then register once to drain releases | 60 / 4,092 records processed respectively; historical slot capacity remains |
+| Then perform 32 registration/drop reuse iterations | 32 release records processed at either peak; no historical-slot scan |
+| Object directory history 256 / 16,384, with eight occupied objects after the first collection | 8 discovery visits per collection at either history, including the collection reclaiming those eight; 0 on the following empty collection |
+| Interface directory peaks 65 / 4,097, then two retained wrappers | Discovery visits 2 -> 2 -> 1 -> 0 -> 1 at both peaks: retain two, retire one, retire the last, metadata-only snapshot, then create/retire one replacement |
+| Native take with the old identity still rooted, then reuse its slot at a new generation | 2 visits for the actual occupied native/cell objects, 2 when reclaiming them, then 0; the inert old identity is not a third occupied object |
+
+The object workload creates 64 / 4,096 groups of String, cell, struct and tuple;
+the first collection visits all 256 / 16,384 occupied objects, including garbage,
+before retaining two four-object groups. The interface workload's first collection
+likewise visits all 65 / 4,097 wrappers before retaining two. Metadata-only snapshot
+retention neither keeps a wrapper occupied nor prevents its directory slot reuse.
+The native-take case checks the replacement generation, old-identity invalidity and
+inert-identity cleanup as well as work counts.
+
+Reproducibility owners and exact library-test paths:
+
+- [roots/tests.rs](../crates/kagari-runtime/src/gc/roots/tests.rs):
+  `gc::roots::tests::registration_work_follows_releases_not_root_high_water`.
+- [gc/tests.rs](../crates/kagari-runtime/src/gc/tests.rs):
+  `gc::tests::occupied_discovery_follows_live_payloads_not_directory_peak`,
+  `gc::tests::interface_occupancy_tracks_wrappers_not_snapshot_liveness_or_history`,
+  `gc::tests::occupied_discovery_excludes_taken_native_identity_after_slot_reuse`.
+
+Run an individual case with `cargo test -p kagari-runtime --lib <test-path> -- --exact`
+using the workspace test profile, default target and build parallelism. The assertions
+above are algorithm evidence, not a success-command log or a fresh timing run.
+Root snapshots still scan historical root slots; metadata discovery, marking and
+changed-store compaction retain separate costs. Discovery counts occupied objects,
+including not-yet-collected garbage, **not only live objects**. MPSC sending may
+allocate. Neither allocation-free release nor total GC O(live), wall-time improvement
+or closure of BO04/IP12 gates follows from these counters.
+
 ## Bytecode slot and operand evaluation, Windows 2026-10-19
 
 **Implementation is present, but BO04 performance acceptance is blocked.** The
@@ -23,6 +76,13 @@ not significance claims, and local correctness does not imply GitHub CI or Lua p
 and outstanding gate. This result neither completes historical IP12 nor establishes
 Lua parity. Current slot/origin/operand behavior is specified in
 [bytecode](spec/bytecode.md) and [architecture](architecture.md#compilation-pipeline).
+
+**Historical images versus current status:** these BO results and the earlier IP
+measurements used the then-current scalar-constant hoisting behavior. R15 now keeps
+scalar constants block-local, with no cross-block hoisting. Historical hoisted
+images are not validation of that implementation; the focused debugger repair and
+R11/R12 runtime changes establish no new performance result. BO04/IP12 failed gates
+remain recorded below, not converted to passes or remeasured by this update.
 
 ### Images, environment and procedure
 
@@ -712,14 +772,17 @@ constant remainder, addition, immediate increment and backedge. Both fixtures us
 while, not Lua's specialized numeric-for. Kagari's 250,005 local loads/stores are
 about 45.5% of this complete logical stream, not 45.5% of elapsed time.
 
-[Copy propagation](../crates/kagari-mir/src/passes/copies.rs) already reuses and
-hoists scalar constants; they are not loaded every loop iteration. Loop-header
-forwarding declines an unprocessed backedge, and local stores retain debugger
-availability. [Physical preparation](../crates/kagari-runtime/src/module/execution.rs)
-turns local reads/writes into moves while
+At this historical baseline, copy propagation reused and hoisted scalar constants,
+so those constants were not loaded every loop iteration. Current
+[copy propagation](../crates/kagari-mir/src/passes/copies.rs) instead keeps scalar
+constant reuse block-local; this old instruction stream is not current validation.
+At the measured revision, loop-header forwarding declined an unprocessed backedge,
+and local stores retained debugger availability.
+[Physical preparation](../crates/kagari-runtime/src/module/execution.rs) turned
+local reads/writes into moves while
 [register allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
-reuses temporary slots but keeps named locals separate. Thus better slot allocation
-does not itself eliminate local traffic or the comparison-result/branch pair.
+reused temporary slots but kept named locals separate. Thus better slot allocation
+alone did not eliminate that baseline's local traffic or comparison-result/branch pair.
 
 The ordinary, unbounded
 [scalar loop](../crates/kagari-runtime/src/frame/cursor/scalars.rs) was disassembled

@@ -5,13 +5,16 @@ use crate::{
     gc::{GcHeap, GcObjectKind, HeapObjectId, storage::HeapObject},
     module::LoadedModule,
     native::{
+        binding::NativeResult,
         sequence::SequencePayload,
         storage::{NativePayload, NativeStorage},
         storage_type::StorageType,
     },
+    resource::HeapCharge,
     value::{MapKey, Value},
     value_check::matches_type,
 };
+
 use kagari_contract::operations::StringIterKind;
 use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
 
@@ -65,8 +68,14 @@ impl NativePayload for NativeIter {
         }
     }
 
-    fn units(&self) -> usize {
-        1 + self.keys.len()
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            1 + self.keys.len(),
+            self.keys
+                .capacity()
+                .checked_mul(size_of::<MapKey>())
+                .expect("allocated iterator keys"),
+        ))
     }
 }
 
@@ -90,11 +99,7 @@ impl GcHeap {
                     return None;
                 };
                 if object.storage.accepts_payload::<SequencePayload>()
-                    && object
-                        .payload::<SequencePayload>()
-                        .ok()?
-                        .leased_units
-                        .is_some()
+                    && object.payload::<SequencePayload>().ok()?.detached
                 {
                     return None;
                 }

@@ -36,11 +36,11 @@ impl GcHeap {
             }
             _ => return Err(invalid()),
         }
-        let (length, capacity, units) = match value {
-            Value::GcHandle(id) => self.with_buffer(*id, |v| (v.len(), v.capacity(), 1)),
-            Value::Map(id) => self.with_map(*id, |v| (v.len(), v.capacity(), 2)),
-            Value::Set(id) => self.with_set(*id, |v| (v.len(), v.capacity(), 1)),
-            _ => None,
+        let (length, capacity) = match value {
+            Value::GcHandle(id) => self.with_buffer(*id, |v| (v.len(), v.capacity())),
+            Value::Map(id) => self.with_map(*id, |v| (v.len(), v.capacity())),
+            Value::Set(id) => self.with_set(*id, |v| (v.len(), v.capacity())),
+            _ => return Err(invalid()),
         }
         .ok_or_else(invalid)?;
         let desired = length
@@ -49,25 +49,18 @@ impl GcHeap {
         if desired <= capacity {
             return Ok(());
         }
-        let requested = desired
-            .checked_mul(units)
-            .ok_or_else(|| self.resource_limit("collection capacity"))?;
-        // Capacity is not a live Value slot. Charge preparation/allocation work,
-        // while the existing live heap counter continues to count stored values.
-        let _temporary = self.resources.reserve_temporary_heap(requested)?;
         let allocation = || self.resource_limit("collection capacity");
         match value {
-            Value::GcHandle(id) => {
-                self.with_buffer_mut(*id, |v| v.try_reserve(additional).map_err(|_| allocation()))
-            }
-            Value::Map(id) => {
-                self.with_map_mut(*id, |v| v.try_reserve(additional).map_err(|_| allocation()))
-            }
-            Value::Set(id) => {
-                self.with_set_mut(*id, |v| v.try_reserve(additional).map_err(|_| allocation()))
-            }
-            _ => None,
-        }
-        .ok_or_else(invalid)?
+            Value::GcHandle(id) => self.with_buffer_mut(*id, 0, |v| {
+                v.try_reserve(additional).map_err(|_| allocation())
+            }),
+            Value::Map(id) => self.with_map_mut(*id, 0, |v| {
+                v.try_reserve(additional).map_err(|_| allocation())
+            }),
+            Value::Set(id) => self.with_set_mut(*id, 0, |v| {
+                v.try_reserve(additional).map_err(|_| allocation())
+            }),
+            _ => return Err(invalid()),
+        }?
     }
 }

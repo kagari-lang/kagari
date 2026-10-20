@@ -5,20 +5,36 @@ use crate::value::{MapKey, Value};
 use std::collections::{HashMap, HashSet, TryReserveError};
 
 #[derive(Debug, Default)]
-struct CustomBuckets(HashMap<i64, Vec<i64>>);
+struct CustomBuckets {
+    entries: HashMap<i64, Vec<i64>>,
+    // Committed capacity of owned token vectors. Updated at their allocation and
+    // destruction boundaries, never rediscovered by scanning buckets per insert.
+    token_bytes: usize,
+}
 
 impl CustomBuckets {
     fn prepare(&mut self, key: &MapKey) -> Result<(), TryReserveError> {
         if let Some((hash, _)) = key.custom_parts() {
-            self.0.try_reserve(1)?;
-            self.0.entry(hash).or_default().try_reserve(1)?;
+            self.entries.try_reserve(1)?;
+            let bucket = self.entries.entry(hash).or_default();
+            let before = bucket.capacity();
+            let result = bucket.try_reserve(1);
+            self.token_bytes = self
+                .token_bytes
+                .checked_add(
+                    (bucket.capacity() - before)
+                        .checked_mul(size_of::<i64>())
+                        .expect("allocated token capacity"),
+                )
+                .expect("disjoint token allocations fit address space");
+            result?;
         }
         Ok(())
     }
 
     fn insert(&mut self, key: &MapKey) {
         if let Some((hash, token)) = key.custom_parts() {
-            self.0
+            self.entries
                 .get_mut(&hash)
                 .expect("prepared collision bucket")
                 .push(token);
@@ -27,16 +43,33 @@ impl CustomBuckets {
 
     fn remove(&mut self, key: &MapKey) {
         if let Some((hash, token)) = key.custom_parts() {
-            let bucket = self.0.get_mut(&hash).expect("stored collision bucket");
+            let bucket = self
+                .entries
+                .get_mut(&hash)
+                .expect("stored collision bucket");
             bucket.retain(|stored| *stored != token);
             if bucket.is_empty() {
-                self.0.remove(&hash);
+                self.token_bytes -= bucket.capacity() * size_of::<i64>();
+                self.entries.remove(&hash);
             }
         }
     }
 
+    fn pressure_bytes(&self) -> usize {
+        self.entries
+            .capacity()
+            .checked_mul(size_of::<(i64, Vec<i64>)>())
+            .and_then(|bytes| bytes.checked_add(self.token_bytes))
+            .expect("disjoint bucket allocations fit address space")
+    }
+
+    fn clear(&mut self) {
+        self.entries.clear();
+        self.token_bytes = 0;
+    }
+
     fn tokens(&self, hash: i64) -> &[i64] {
-        self.0.get(&hash).map(Vec::as_slice).unwrap_or(&[])
+        self.entries.get(&hash).map(Vec::as_slice).unwrap_or(&[])
     }
 }
 
@@ -56,7 +89,16 @@ impl HashMapStorage {
     }
 
     pub(crate) fn capacity(&self) -> usize {
-        self.entries.capacity()
+        self.entries.capacity() // reported entry capacity
+    }
+
+    /// Capacity-based pressure estimate: std does not expose bucket/control bytes.
+    pub(crate) fn pressure_bytes(&self) -> usize {
+        self.entries
+            .capacity()
+            .checked_mul(size_of::<(MapKey, Value)>())
+            .and_then(|bytes| bytes.checked_add(self.buckets.pressure_bytes()))
+            .expect("disjoint hash allocations fit address space")
     }
 
     pub(crate) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
@@ -105,7 +147,7 @@ impl HashMapStorage {
 
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
-        self.buckets.0.clear();
+        self.buckets.clear();
     }
 
     pub(crate) fn candidate(&self, hash: i64, index: usize) -> Option<(i64, Value)> {
@@ -135,7 +177,16 @@ impl HashSetStorage {
     }
 
     pub(crate) fn capacity(&self) -> usize {
-        self.entries.capacity()
+        self.entries.capacity() // reported entry capacity
+    }
+
+    /// Capacity-based pressure estimate: std does not expose bucket/control bytes.
+    pub(crate) fn pressure_bytes(&self) -> usize {
+        self.entries
+            .capacity()
+            .checked_mul(size_of::<MapKey>())
+            .and_then(|bytes| bytes.checked_add(self.buckets.pressure_bytes()))
+            .expect("disjoint hash allocations fit address space")
     }
 
     pub(crate) fn try_reserve(&mut self, additional: usize) -> Result<(), TryReserveError> {
@@ -174,7 +225,7 @@ impl HashSetStorage {
 
     pub(crate) fn clear(&mut self) {
         self.entries.clear();
-        self.buckets.0.clear();
+        self.buckets.clear();
     }
 
     pub(crate) fn candidate(&self, hash: i64, index: usize) -> Option<(i64, Value)> {

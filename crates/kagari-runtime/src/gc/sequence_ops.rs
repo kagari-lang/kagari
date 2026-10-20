@@ -20,15 +20,12 @@ impl GcHeap {
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
         self.validate_buffer_value(id, &value)?;
-        let growth = self.resources.prepare_heap_growth(1)?;
-        self.with_buffer_mut(id, |values| {
+        self.with_buffer_mut(id, 1, |values| {
             values
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
             values.push(value)
-        })
-        .ok_or_else(invalid)??;
-        growth.commit();
+        })??;
         Ok(())
     }
 
@@ -36,12 +33,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
-        let value = self
-            .with_buffer_mut(id, SequenceStorage::pop)
-            .ok_or_else(invalid)?;
-        if value.is_some() {
-            self.release_heap_units(1);
-        }
+        let value = self.with_buffer_mut(id, 0, SequenceStorage::pop)?;
         Ok(value)
     }
 
@@ -58,15 +50,12 @@ impl GcHeap {
         if index > self.buffer_len(id).ok_or_else(invalid)? {
             return Err(invalid());
         }
-        let growth = self.resources.prepare_heap_growth(1)?;
-        self.with_buffer_mut(id, |values| {
+        self.with_buffer_mut(id, 1, |values| {
             values
                 .try_reserve(1)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
             values.insert(index, value)
-        })
-        .ok_or_else(invalid)??;
-        growth.commit();
+        })??;
         Ok(())
     }
 
@@ -78,12 +67,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
-        let value = self
-            .with_buffer_mut(id, |values| values.remove(index))
-            .ok_or_else(invalid)?;
-        if value.is_some() {
-            self.release_heap_units(1);
-        }
+        let value = self.with_buffer_mut(id, 0, |values| values.remove(index))?;
         Ok(value)
     }
 
@@ -91,14 +75,11 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
-        let removed = self
-            .with_buffer_mut(id, |values| {
-                let length = values.len();
-                values.clear();
-                length
-            })
-            .ok_or_else(invalid)?;
-        self.release_heap_units(removed);
+        let _removed = self.with_buffer_mut(id, 0, |values| {
+            let length = values.len();
+            values.clear();
+            length
+        })?;
         Ok(())
     }
 
@@ -191,12 +172,8 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
-        let count = self.sequence_len(id).ok_or_else(invalid)?;
-        let removed = count.saturating_sub(length);
         self.resources.poll_execution()?;
-        self.with_buffer_mut(id, |values| values.truncate(length))
-            .ok_or_else(invalid)?;
-        self.release_heap_units(removed);
+        self.with_buffer_mut(id, 0, |values| values.truncate(length))?;
         Ok(())
     }
 
@@ -208,12 +185,7 @@ impl GcHeap {
         self.ensure_execution_allowed()?;
         self.ensure_sequence(id)?;
         self.ensure_structure_mutable(id)?;
-        let value = self
-            .with_buffer_mut(id, |values| values.swap_remove(index))
-            .ok_or_else(invalid)?;
-        if value.is_some() {
-            self.release_heap_units(1);
-        }
+        let value = self.with_buffer_mut(id, 0, |values| values.swap_remove(index))?;
         Ok(value)
     }
 
@@ -238,8 +210,7 @@ impl GcHeap {
             .ok_or_else(invalid)??;
         self.ensure_execution_allowed()?;
         self.ensure_sequence(target)?;
-        let growth = self.resources.prepare_heap_growth(length)?;
-        self.with_buffer_mut(target, |values| {
+        self.with_buffer_mut(target, length, |values| {
             values
                 .len()
                 .checked_add(length)
@@ -249,9 +220,7 @@ impl GcHeap {
                 .map_err(|_| self.resource_limit("array capacity"))?;
             values.append_storage(&prepared)?;
             Ok::<_, RuntimeError>(())
-        })
-        .ok_or_else(invalid)??;
-        growth.commit();
+        })??;
         Ok(())
     }
 }

@@ -94,6 +94,7 @@ fn runtime_primitives_follow_installed_bodies_and_exact_signatures() {
         let mut runtime = Runtime::new(RuntimeConfig {
             gc: GcHeapConfig {
                 collection_threshold: Some(1),
+                ..Default::default()
             },
             ..Default::default()
         });

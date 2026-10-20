@@ -15,6 +15,7 @@ use crate::{
         storage_type::StorageType,
         types::Type,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use std::{marker::PhantomData, sync::Arc};
@@ -154,8 +155,18 @@ impl<T: NativeData> NativePayload for Managed<T> {
         }
     }
 
-    fn units(&self) -> usize {
-        self.data.units().saturating_add(self.values.len())
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            self.data
+                .charge()?
+                .logical_units
+                .checked_add(self.values.len())
+                .ok_or_else(invalid)?,
+            self.values
+                .capacity()
+                .checked_mul(size_of::<Value>())
+                .expect("allocated managed fields"),
+        ))
     }
 }
 

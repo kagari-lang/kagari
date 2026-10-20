@@ -73,7 +73,7 @@ impl GcHeap {
                 return Err(invalid());
             }
             HeapObject::Native(original.replaced_payload(SequencePayload {
-                leased_units: None,
+                detached: false,
                 element: payload.element.clone(),
                 contract: payload.contract.clone(),
                 values: input.copy_range(0, input.len())?,
@@ -102,7 +102,7 @@ impl GcHeap {
                         }
                     }
                     HeapObject::Native(original.replaced_payload(SequencePayload {
-                        leased_units: None,
+                        detached: false,
                         element: payload.element.clone(),
                         contract: payload.contract.clone(),
                         values: copy,
@@ -150,7 +150,7 @@ impl GcHeap {
                 _ => return Err(invalid()),
             }
         };
-        let after = prepared.units(&self.interfaces).ok_or_else(invalid)?;
+
         drop(objects);
         self.ensure_execution_allowed()?;
         let mut objects = self.objects_mut()?;
@@ -161,9 +161,13 @@ impl GcHeap {
         else {
             return Err(invalid());
         };
+        let charge = prepared.charge;
+        let change = self
+            .resources
+            .prepare_heap_change(target.charge, charge.logical_units)?;
         *target = prepared;
         target.revision = revision;
-        self.release_heap_units(before - after);
+        change.commit(charge);
         Ok(())
     }
 

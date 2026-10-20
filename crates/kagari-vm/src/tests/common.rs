@@ -6,7 +6,10 @@ use kagari_bytecode::{
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
-use kagari_compiler::{bytecode::lower_program_to_bytecode, source::program::lower_program_to_mir};
+use kagari_compiler::{
+    bytecode::lower_program_to_bytecode,
+    source::{lower::instances::MirLoweringOptions, program::lower_program_to_mir},
+};
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
 use kagari_runtime::{
@@ -135,6 +138,21 @@ pub fn compile_native_test_bytecode(
     source_text: &str,
     modules: &[&NativeModule],
 ) -> DefinitionMetadata<BytecodeProgram> {
+    compile_native_test_bytecode_with_options(source_text, modules, &Default::default())
+}
+
+pub fn compile_test_bytecode_with_options(
+    source_text: &str,
+    options: &MirLoweringOptions,
+) -> DefinitionMetadata<BytecodeProgram> {
+    compile_native_test_bytecode_with_options(source_text, &[], options)
+}
+
+fn compile_native_test_bytecode_with_options(
+    source_text: &str,
+    modules: &[&NativeModule],
+    options: &MirLoweringOptions,
+) -> DefinitionMetadata<BytecodeProgram> {
     let mut sources = SourceDatabase::default();
     let root = sources
         .set("test.kgr", source_text.into(), SourceLayer::Base)
@@ -157,8 +175,7 @@ pub fn compile_native_test_bytecode(
     let checked = snapshot
         .check_program(root, &Default::default())
         .expect("program analysis should succeed");
-    let ir = lower_program_to_mir(&checked, &Default::default())
-        .expect("program MIR lowering should succeed");
+    let ir = lower_program_to_mir(&checked, options).expect("program MIR lowering should succeed");
     lower_program_to_bytecode(&ir).expect("program bytecode lowering should succeed")
 }
 

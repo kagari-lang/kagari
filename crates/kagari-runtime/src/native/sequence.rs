@@ -10,10 +10,10 @@ use crate::{
         storage::{NativePayload, NativeStorage},
         storage_type::StorageType,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_types::{declaration::native::NativeStorageLayout, scalar::BuiltinType, ty::Ty};
-#[cfg(feature = "execution-diagnostics")]
 use std::mem::size_of;
 use std::{any::Any, collections::TryReserveError, sync::Arc};
 
@@ -50,6 +50,13 @@ macro_rules! storage {
 
             pub(crate) fn capacity(&self) -> usize {
                 match self { $(Self::$variant(values) => values.capacity(),)+ Self::Traced(values) => values.capacity() }
+            }
+
+            pub(crate) fn retained_bytes(&self) -> usize {
+                match self {
+                    $(Self::$variant(values) => values.capacity().checked_mul(size_of::<$ty>()).expect("allocated sequence capacity"),)+
+                    Self::Traced(values) => values.capacity().checked_mul(size_of::<Value>()).expect("allocated sequence capacity"),
+                }
             }
 
             #[cfg(feature = "execution-diagnostics")]
@@ -197,7 +204,7 @@ pub(crate) struct SequencePayload {
     pub(crate) element: Ty,
     pub(crate) contract: Arc<StorageType>,
     pub(crate) values: SequenceStorage,
-    pub(crate) leased_units: Option<usize>,
+    pub(crate) detached: bool,
 }
 
 impl NativePayload for SequencePayload {
@@ -207,8 +214,11 @@ impl NativePayload for SequencePayload {
         }
     }
 
-    fn units(&self) -> usize {
-        self.leased_units.unwrap_or_else(|| self.values.len())
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            self.values.len(),
+            self.values.retained_bytes(),
+        ))
     }
 }
 
@@ -221,7 +231,7 @@ impl NativeStorage {
             }
             .ok_or_else(|| RuntimeError::module_validation("sequence element type"))?;
             Ok(SequencePayload {
-                leased_units: None,
+                detached: false,
                 element: item.clone(),
                 contract: context.element_contract(element)?,
                 values: SequenceStorage::empty(item),

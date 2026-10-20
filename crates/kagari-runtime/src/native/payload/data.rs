@@ -1,6 +1,10 @@
 //! Fixed-size Rust data that cannot retain script or executable graph edges.
 use crate::{
-    native::storage::{NativePayload, NativeStorage},
+    native::{
+        binding::NativeResult,
+        storage::{NativePayload, NativeStorage},
+    },
+    resource::HeapCharge,
     value::Value,
 };
 use std::{fmt::Debug, mem::size_of};
@@ -63,8 +67,11 @@ tuple_data!(A, B, C, D, E, F, G, H);
 impl<T: NativeData> NativePayload for T {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
 
-    fn units(&self) -> usize {
-        size_of::<T>().div_ceil(size_of::<usize>())
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            size_of::<T>().div_ceil(size_of::<usize>()),
+            0,
+        ))
     }
 
     fn registration_storage() -> NativeStorage {

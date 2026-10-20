@@ -8,6 +8,7 @@ use crate::{
             data::NativeData,
             managed::{AppliedSchema, Managed, invalid},
         },
+        storage::NativePayload,
     },
     value::Value,
 };
@@ -105,11 +106,19 @@ impl GcHeap {
                 Err(invalid())
             }
         })?;
-        self.with_managed_mut(id, |payload: &mut Managed<T>| {
-            // All old and new edges are available before the single commit.
-            // Data size and field count remain unchanged, including on unwind.
-            *payload = replacement;
-            Ok(())
-        })
+        self.ensure_structure_mutable(id)?;
+        let mut objects = self.objects_mut()?;
+        let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
+        let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
+        let charge = object.storage_charge(replacement.charge()?);
+        let change = self
+            .resources
+            .prepare_heap_change(object.charge, charge.logical_units)?;
+        // Same field count need not mean the same allocation capacity.
+        *object.payload_mut::<Managed<T>>()? = replacement;
+        object.revision = revision;
+        object.charge = charge;
+        change.commit(charge);
+        Ok(())
     }
 }

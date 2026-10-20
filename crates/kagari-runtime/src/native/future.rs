@@ -11,6 +11,7 @@ use crate::{
         conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
         storage::{NativePayload, NativeStorage},
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_types::declaration::native::NativeStorageLayout;
@@ -168,6 +169,24 @@ pub(crate) enum ColdFuture {
 }
 
 impl ColdFuture {
+    pub(crate) fn retained_bytes(&self) -> usize {
+        match self {
+            Self::Native(cold) => cold
+                .values
+                .capacity()
+                .checked_mul(size_of::<Value>())
+                .and_then(|bytes| {
+                    bytes.checked_add(
+                        cold.parameters
+                            .capacity()
+                            .checked_mul(size_of::<TypeArgument>())?,
+                    )
+                })
+                .expect("disjoint cold capture buffers"),
+            Self::Script(_) => 0,
+        }
+    }
+
     pub(crate) fn values(&self) -> &[Value] {
         match self {
             Self::Native(cold) => &cold.values,
@@ -190,8 +209,11 @@ impl NativePayload for FuturePayload {
         }
     }
 
-    fn units(&self) -> usize {
-        self.cold.as_ref().map_or(0, |cold| cold.values().len())
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            self.cold.as_ref().map_or(0, |cold| cold.values().len()),
+            self.cold.as_ref().map_or(0, ColdFuture::retained_bytes),
+        ))
     }
 }
 
@@ -200,5 +222,73 @@ impl NativeStorage {
     /// construct or modify its payload; only registered cold producers can do so.
     pub fn future() -> Self {
         Self::provided_with_layout::<FuturePayload>(NativeStorageLayout::Future)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::layouts::allocation_owner;
+    use kagari_types::{scalar::BuiltinType, ty::Ty};
+
+    #[derive(Debug)]
+    struct Unstarted;
+
+    impl Producer for Unstarted {
+        fn start(
+            &self,
+            _: &mut ConversionContext<'_>,
+            _: &NativeFuture,
+            _: &CompletionRegistry,
+            _: &Waker,
+        ) -> NativeResult<Box<dyn PendingNative>> {
+            panic!("claiming captures must not submit the producer")
+        }
+    }
+
+    #[test]
+    fn cold_claim_transfers_backing_and_sweep_releases_only_remaining_charge() {
+        let mut runtime = Runtime::default();
+        let owner = allocation_owner(&mut runtime);
+        let ty = Ty::Builtin(BuiltinType::Unit);
+        let output = runtime
+            .resolve_type_arguments(&owner, std::slice::from_ref(&ty))
+            .unwrap()
+            .remove(0);
+        let mut values = Vec::with_capacity(64);
+        values.extend([Value::Unit, Value::Unit]);
+        let parameters = Vec::with_capacity(8);
+        let backing = values.capacity() * size_of::<Value>()
+            + parameters.capacity() * size_of::<TypeArgument>();
+        let payload = FuturePayload {
+            cold: Some(ColdFuture::Native(NativeFuture {
+                owner: owner.clone(),
+                parameters,
+                output,
+                values,
+                producer: Arc::new(Unstarted),
+            })),
+        };
+        let object = NativeStorage::future()
+            .prepare_payload(runtime.gc(), &ty, payload, &owner)
+            .unwrap();
+        let id = runtime.gc().alloc_native(object).unwrap();
+        let root = runtime.root_value(Value::GcHandle(id)).unwrap();
+        assert_eq!(
+            runtime.gc().stats().current_retained_bytes,
+            (backing + size_of::<FuturePayload>()) as u128
+        );
+        let cold = runtime.gc().take_cold_future(id).unwrap();
+        assert_eq!(runtime.gc().stats().current_heap_units, 1);
+        assert_eq!(
+            runtime.gc().stats().current_retained_bytes,
+            size_of::<FuturePayload>() as u128
+        );
+        assert!(runtime.gc().take_cold_future(id).is_err());
+        drop(root);
+        runtime.collect_garbage().unwrap();
+        assert_eq!(runtime.gc().stats().current_heap_units, 0);
+        assert_eq!(runtime.gc().stats().current_retained_bytes, 0);
+        assert_eq!(cold.values(), [Value::Unit, Value::Unit]);
     }
 }

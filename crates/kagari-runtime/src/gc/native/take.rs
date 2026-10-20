@@ -28,7 +28,7 @@ impl GcHeap {
                 ));
             }
             object.payload::<T>()?;
-            let units = object.units();
+            let charge = object.charge;
             let mut moved = self.moved.try_borrow_mut().map_err(|_| {
                 RuntimeError::module_validation("moved identity registry is borrowed")
             })?;
@@ -52,7 +52,7 @@ impl GcHeap {
             }
             // Keep the existing header unit for the inert identity until its last
             // traced alias disappears. Payload storage is no longer heap-owned.
-            self.release_heap_units(units);
+            self.resources.release_heap_charge(charge);
             object
         };
         // Metadata and descriptor destruction occur with no storage-table borrow.

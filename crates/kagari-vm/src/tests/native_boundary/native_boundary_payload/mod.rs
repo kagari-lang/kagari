@@ -15,6 +15,7 @@ use kagari_runtime::{
         typed::{NativeContext, loans::LoanContext},
         types::{Type, TypeRef},
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_stdlib::declarations::StandardDeclarations;
@@ -204,8 +205,8 @@ impl Drop for Counter {
 impl NativePayload for Counter {
     fn trace<'payload>(&'payload self, _: &mut dyn FnMut(&'payload Value)) {}
 
-    fn units(&self) -> usize {
-        1
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(1, 0))
     }
 }
 
@@ -217,8 +218,8 @@ impl NativePayload for Edge {
         visit(&self.0);
     }
 
-    fn units(&self) -> usize {
-        1
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(1, 0))
     }
 }
 

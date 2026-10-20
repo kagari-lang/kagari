@@ -10,8 +10,10 @@ architecture review numbering. Neither series is renumbered when resolved entrie
 are removed. Current contracts live in the specifications and architecture; CI
 status and activation belong to the [roadmap](implementation-roadmap.md).
 
-- [Runtime architecture review](#runtime-architecture-review): current system map,
-  evidence, priorities and bounded recommendations at `88acbdb5`.
+- [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
+  assessment at `5b57c9a8`, updated optimization boundaries and findings R16-R19.
+- [Runtime architecture review](#runtime-architecture-review): system map and
+  historical evidence at `88acbdb5`, updated for current R11/R12 remediation.
 - [Repository findings](#sa1-inline-modules-are-parsed-again): unresolved SA entries.
 - [Architecture findings](#architecture-findings): retained R findings checked
   against the current implementation; validation limits are recorded below.
@@ -28,6 +30,314 @@ have their described representation or missing feature. Test preparation progres
 and pending measurements belong to the [existing task](test-preparation-plan.md),
 not a separate review finding. Reconfirm affected behavior when activating a task.
 
+## Engineering a Compiler chapter review
+
+### Source, scope and conclusion
+
+Reviewed on 2026-10-20 against `5b57c9a8`, after the R9/R10 repair. Reference:
+Keith D. Cooper and Linda Torczon, *Engineering a Compiler*, **second edition**,
+Morgan Kaufmann / Elsevier, 2012, ISBN **978-0-12-088478-0**, using the supplied
+825-page PDF. References below use the book's **printed pages**; in this copy,
+PDF page = printed page + 25 for the main text and appendices. The chapter map
+records selected substantive reading, not an exhaustive reading of every page or
+an audit of every algorithm. No book text or private filesystem dependency is
+required by this repository.
+
+**Conclusion: Kagari can continue performance work on its existing architecture.**
+The source/HIR, verified MIR, bytecode preparation and runtime boundaries are
+useful foundations, not evidence for starting again. Neither a universal new IR,
+an SSA rewrite, a replacement parser, a new GC family nor a Kagari-owned machine
+scheduler/register allocator is justified by this review. More ambitious work is
+conditional on explicit analysis and semantic contracts, not merely on adding
+more optimization passes.
+
+The chapter assessment combines the book with source and test inspection at the
+reviewed baseline. R15 is resolved in the current tree: scalar constant reuse is
+block-local, with no cross-block hoisting. The focused
+[debugger test](../crates/kagari-vm/src/tests/execution/debugger.rs),
+`optimized_breakpoints_preserve_branch_paths_and_binding_state`, passed for taken
+and untaken branches, binding state and overflow origins, both directly and after
+retained-debug artifact round-trip. It compares optimized and unoptimized lowering;
+the lasting contract is specified in [safe debug points](spec/debugger.md#safe-debug-points).
+R16-R19 remain specific algorithm/representation findings. Their examples are source-derived,
+**not executed reproductions or new timing measurements**. Existing tests were
+inspected, not rerun. The recorded BO results below remain historical measurements
+of their identified images. No current whole-workspace/backend acceptance or
+whole-runtime audit is claimed. Review does not activate implementation or change
+the outstanding BO04/IP12 performance gates.
+
+### Chapter map and architectural implications
+
+| Chapter / selected printed pages | Current Kagari assessment and bounded recommendation |
+| --- | --- |
+| **1. Overview of Compilation**, §§1.1-1.3, pp. 5-8, 14-15; §1.4, p. 21 | Keep distinct semantic, transformation and target owners. Evaluate compilation/preparation plus repeated execution, retained memory and lifecycle costs; fewer bytecode instructions alone are not an economic result. |
+| **2. Scanners**, §§2.5.3-2.5.4, pp. 69-73 | Token spans and retained source suit tooling. SA1's repeated full-file processing is a larger ownership issue than selecting a new scanner generator. Identifier/escape classification also has local temporary allocations, discussed below; no scanner rewrite is required. |
+| **3. Parsers**, §3.2.4, pp. 92-95; §§3.3.1-3.3.2, pp. 108-110 | Recursive descent, precedence handling and a lossless tree are appropriate. Lower existing inline-module subtrees under their own contexts (SA1), preserving recovery and physical source offsets. The book does not make LR tables a prerequisite for a fast frontend. |
+| **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. SA14/SA22 require explicit new semantics, not performance shortcuts. |
+| **5. Intermediate Representations**, §§5.1-5.4, selected pp. 221-251; §5.5, selected pp. 253-263 | Typed block MIR plus side metadata is a viable hybrid IR. `TempId` is not an SSA definition. SA9 concerns compact context-owned identity; SA11 is an interface/storage tradeoff, not a required migration. Any SSA proposal must justify its consumers and own merge edges, destruction and origins. |
+| **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13/R14 remain retention/transition issues; the implemented accounting and occupied-discovery contracts do not justify changing GC families. Managed native calls need the existing ABI/root gates. |
+| **7. Code Shape**, §§7.1-7.3.1, pp. 331-345; §7.4, pp. 350-356 | BO02/BO03 already implement direct destinations, control-only predicates and bounded constant operands. Keep checked commit and source observations. Arithmetic reassociation and expression reordering from examples do not override Kagari trap/evaluation order. |
+| **8. Introduction to Optimization**, §§8.1-8.2, selected pp. 405-416; §8.4.1, pp. 420-428; §8.7.1, pp. 458-462 | Legality precedes profitability. Block-local scalar constants preserve executable observations; broader motion still needs an explicit observation/provenance contract. Inlining must additionally preserve pinned dependencies, logical call-depth/cancellation and error origins; ordinary call effects remain conservative. |
+| **9. Data-Flow Analysis**, §§9.1-9.2, selected pp. 475-490; §§9.3.1,9.3.5, pp. 495-497, 510-512; §9.4.1, pp. 519-522; §9.5.2, pp. 530-532 | MIR already has bounded initialization/liveness worklists and immutable analysis ownership. R16 concerns bytecode's different solver, not removal of independent bytecode validation. Add dominance/reaching definitions for concrete consumers; name uniqueness cannot substitute for them. |
+| **10. Scalar Optimizations**, pp. 539-542, 544-560, 565-566, 575-578, 580-582, 591-592 | R18 should replace repeated deletion shifts with one stable sweep. Local forwarding/folding can cooperate under a bounded owner; blindly repeating every pass and verifier is not a first choice. LICM/PRE/strength reduction need explicit trap, alias, zero-trip and cancellation legality. |
+| **11. Instruction Selection**, §§11.1-11.4.1, pp. 597-612; §11.5.1, pp. 622-629 | Bytecode selection belongs to the compiler's checked placement stage; machine selection belongs to Cranelift. Existing placement checks uses, snapshots and debug availability. Do not hide unresolved general costs behind growing superinstructions or infer speed from serialized opcode count. |
+| **12. Instruction Scheduling**, §§12.1-12.3.5, selected pp. 639-658 | Machine latency/resource scheduling is backend-owned. The VM's Rust implementation is compiled by Rust's backend. Preserve call, memory, trap and safepoint dependencies; a custom scheduler cannot remove a required helper call. Native polling attribution belongs to the existing expansion gates. |
+| **13. Register Allocation**, §§13.1-13.2.3, pp. 679-684; §13.3.3, pp. 689-692; §§13.4-13.4.3, pp. 693-701 | VM backing slots are not CPU registers. R19 should separate scalar coloring from managed storage classes while keeping shared liveness and distinct managed roots. Cranelift owns native machine allocation; hardware spill heuristics need not be copied into VM storage preparation. |
+| **Appendix B. Data Structures**, §§B.1-B.3, pp. 737-750; §§B.4.4-B.4.5, pp. 756-758 | Select indexes and set representations for actual operations/density. R17 needs an interval-aware debug query, not stripped debug information. Dense bitsets can remain sensible; replacing every set with a sparse set is not supported. |
+
+The book supplies mechanisms and tradeoffs, not Kagari's embedding contract. Its
+batch-compilation assumptions do not permit skipping source-free verification;
+register examples do not permit dropping roots; reference/readonly examples do
+not imply exclusive access to shared objects. Kagari adds generation-pinned reload,
+scoped host borrows, checked arithmetic, observable failures and cooperative
+execution. Those differences constrain every proposed transformation.
+
+### Foundations to retain and existing findings to reuse
+
+- **Analysis has an owner.** [MIR verification](../crates/kagari-mir/src/verify.rs)
+  seals immutable code and analyses; [optimization](../crates/kagari-mir/src/passes.rs)
+  discards the seal before editing and verifies the result. Revalidation after a
+  real edit is not the same problem as avoidable scans inside that validation.
+  [Bytecode flow](../crates/kagari-bytecode/src/verifier/flow.rs) independently checks
+  changed slot/PC contracts, including artifacts without MIR/source. Preserve it.
+- **Naming and value flow are distinct.**
+  [Conditional lowering](../crates/kagari-compiler/src/source/lower/expr.rs) writes
+  an expression's result temporary from alternative predecessor blocks. This is
+  valid non-SSA code. A global value-numbering pass must use reaching definitions
+  and dominance, or explicitly construct SSA, rather than assume one definition
+  from the name `TempId`. A new permanent IR is not required for that decision.
+- **Frontend reuse needs sharper dependencies, not weaker identity.** SA1, SA9
+  and R8 remain the relevant owners. In particular, an imported function-body edit
+  can change source revision/arena without changing its callable contract; semantic
+  reuse must refresh navigation while preserving old snapshot validity. SA11's
+  redundant self IDs are not established as a performance bottleneck.
+- **Calls and GC already have necessary boundaries.**
+  [Frame admission](../crates/kagari-runtime/src/frame/admission.rs) validates inputs,
+  prepares storage with rollback and publishes the frame only on success. Caller
+  result storage must outlive callee retirement. Native conversion/reentry can
+  collect or mutate; immutable linked facts are reusable, but dynamic value/borrow
+  checks are not redundant solely because the signature was checked. SA21 must reuse
+  the runtime root owner rather than build a second call/root subsystem.
+- **Runtime pressure is a different axis from compiler code shape.** R11/R12 are
+  implemented: runtime-owned committed `HeapCharge` records retain capacity pressure;
+  final root-lease release uses MPSC, and dead-object discovery visits occupied
+  stores plus a narrow interface-wrapper index. See the current
+  [runtime model](architecture.md#runtime-model) and
+  [deterministic work counts](performance-baseline.md#root-release-and-occupied-discovery-work-counts-2026-10-20).
+  R13's ownership and R14's transition proof remain separate from machine-code work.
+
+Two bounded local opportunities do not require additional architecture projects:
+
+1. [Identifier scanning](../crates/kagari-syntax/src/lexer.rs) builds a temporary
+   `String` for keyword classification; string classification calls the allocating
+   [literal decoder](../crates/kagari-source/src/literal.rs) and discards the result.
+   Use borrowed spelling and a shared validation/output decoder core if allocation
+   measurement warrants it. Preserve one escape grammar, interpolation recovery,
+   Unicode/CRLF offsets and the lossless tree. Do not add a cross-stage literal cache
+   or treat this as a substitute for SA1.
+2. `passes::optimize` folds constants before forwarding local snapshots. Forwarding
+   can expose constant operands after folding has finished. This is a conservative
+   missed opportunity, not incorrect execution. A bounded local simplification
+   owner may combine these facts; prove benefit on the same inputs before adding
+   fixed-point whole-pipeline reruns. Existing call/effect barriers remain valid.
+
+### R16 — Bytecode flow mixes propagation directions in full forward sweeps
+
+**P2; source-confirmed scaling mechanism, elapsed impact unmeasured.** Book basis:
+§§9.2.1-9.2.2, pp. 480-487; Appendix B.3.1, pp. 746-747.
+
+[Bytecode flow verification](../crates/kagari-bytecode/src/verifier/flow.rs)
+(`fixed_points`) computes forward initialization and backward liveness together,
+scanning all reachable blocks in ascending PC order until neither changes.
+Ordinary functions without await also take this path. Stable initialization is
+recomputed while liveness is still propagating.
+
+Consider valid bytecode **without debug local ranges**, with fixed slot width:
+
+```text
+B0: jump B1
+B1: jump B2
+...
+Bn: return parameter
+```
+
+The first liveness sweep discovers the parameter use at the end. Each following
+forward sweep carries it backward by one edge: Theta(N) sweeps and Theta(N^2)
+block visits for this family, until the work limit interrupts. This is a derived
+example, not a measured artifact rejection. A debug range exposing the parameter
+throughout the function seeds uses in every block and changes this example; it
+must not be presented as universal source-program behavior. Within one program
+verification request, executable flow and access analysis share a 100-million-unit
+work budget across functions and modules. Exhaustion **rejects** input rather than
+falling back. The runtime allocator has a different, backward iteration order.
+
+**Owner/correction:** separate forward initialization and backward liveness
+scheduling within the bytecode verifier. Use direction-appropriate changed-node
+worklists/graph order, including reachable cycles with no exit. Make liveness's
+consumer explicit: compute suspension facts where needed, or deliberately retain
+facts for a concrete preparation consumer. Do not increase limits or skip input
+verification to mask repeated work; do not reuse MIR proofs after slot/CFG changes.
+The existing [MIR analysis](../crates/kagari-mir/src/verify/analysis.rs) is a local
+worklist reference, not a mandate for a generic solver framework.
+
+**Focused validation:** bounded source-free forward chains and block-permuted
+versions, with and without debug ranges and await; preserve initialization meets
+at entry/backedges, reads-before-writes and host-capability rejection. Compare
+facts and counted work, including no-exit cycles. Preserve independent bytecode
+validation and its limits. Runtime/codegen timing benefits remain to be measured.
+
+### R17 — Debug availability queries repeatedly scan the full range table
+
+**P2; source-confirmed preparation cost and safe fallback mechanism.** Book basis:
+Chapter 5, pp. 223-225; Appendix B.2, pp. 738-743.
+
+`inputs(pc)` in [bytecode flow](../crates/kagari-bytecode/src/verifier/flow.rs)
+filters every debug `local_live_ranges` record. It runs during graph construction
+and both directions of point checking. With P instructions, Q reachable
+instructions and D range records, the range filters alone examine D(P + 2Q)
+records. Independently, [runtime allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
+scans all D records at every PC, even when only one binding is visible there.
+
+For an illustrative P = 10,000 and D = 500, the runtime's scans alone require five
+million work units. Its four-million allocation budget is shared across functions
+and modules in [program preparation](../crates/kagari-runtime/src/module.rs), so
+it can decline reuse for this and subsequent functions. Fallback keeps separate
+logical locations and remains safe; it is not verification bypass or a miscompile.
+Bytecode program verification instead uses the shared flow/access work budget
+described in R16 and rejects on exhaustion. These are arithmetic consequences of
+the charging code, not measured workloads.
+With stripped debug ranges this particular cost is absent.
+
+**Root cause/owner:** debug availability is an interval query represented as a
+repeated full-table search. Provide a bytecode-owned bounded interval traversal
+or index for exact-function metadata, consumable by verification and physical
+preparation. Use sorted start/end events or an appropriate interval structure;
+do not materialize a dense P-by-D table just to avoid scanning. Count index
+construction and active-set work, and handle multiple ranges for one slot correctly.
+
+**Focused validation:** compare active slots with the current scan on small
+fixtures with half-open endpoints, adjacent/disjoint/overlapping admitted ranges,
+repeated slots and joins. Reuse lexical-scope range tests, debug-only host liveness
+across await, initialization and loop-carried allocation coverage. Add a bounded
+sparse-range work/fallback case. Preserve debugger-visible values and mandatory
+root/initialization facts; stripping debug or ignoring its uses is not a repair.
+This finding does not establish the cause of BO04 lifecycle timing failures.
+
+### R18 — Dead-operation deletion repeatedly shifts retained suffixes
+
+**P2; source-confirmed transformation cost and work-accounting gap.** Book basis:
+§10.2.1, pp. 544-546, and §8.2.2, pp. 412-415.
+
+[The optimization driver](../crates/kagari-mir/src/passes.rs) sorts removals in
+reverse order, then calls `Vec::remove` individually on instructions, spans and
+scopes. Reverse order preserves indices, but D dead definitions before L retained
+operations still shift that retained suffix D times in each array: Theta(DL)
+element moves. The deletion loop charges only one unit per removed instruction;
+other scans are charged separately and do not cover these suffix moves.
+
+A source-derived valid MIR family is a prefix of unused Boolean `Not` results
+from an unknown parameter, followed by effectful calls. Constant folding cannot
+resolve the parameter; copy forwarding does not remove general Unary operations;
+[dead detection](../crates/kagari-mir/src/passes/dead.rs) can remove the pure prefix
+while retaining the calls. Existing limits bound input size but do not eliminate
+this cost shape. This is not a measured latency result or a numerical defect.
+
+**Owner/correction:** apply each block's deletion set with one stable compaction
+of instruction/span/scope records. Preserve their alignment and retained order by
+construction, with proportional traversal accounting and cancellation checks.
+The book's mark-and-sweep transformation organization applies even though Kagari
+is not SSA. Do not increase budgets, change eligibility, or add an optimization
+cache to compensate for an unsuitable mutation algorithm.
+
+**Focused validation:** bounded verified-MIR dead-prefix/live-suffix cases, retained
+calls/allocations/checked traps, exact span/scope correspondence, and cancellation
+or limit failure without publishing a partial result. Count compaction work;
+reuse the pass-limit and optimized execution contracts. Continue rebuilding the
+verification seal after edits. Broader performance claims require measurement.
+
+### R19 — Managed intervals influence colors used only by scalar storage
+
+**P2 storage-quality follow-up; source-derived example, magnitude unmeasured.**
+Book basis: §§13.2.2-13.2.3, pp. 682-684; §§13.3.3-13.4.3, pp. 689-701.
+
+[Slot allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
+colors all logical intervals from one active/free pool. [Frame layout](../crates/kagari-runtime/src/module/execution/layout.rs)
+then uses those colors only for scalar locations; each managed location is
+allocated separately. Managed intervals can therefore interfere with scalar color
+choices despite never sharing scalar storage.
+
+For a single block with no extending debug ranges/parameters, consider the
+following illustrative instruction shape and resulting **closed** intervals:
+
+```text
+0: a = scalar constant       a: [0,1], color 0
+1: m = MakeArray([a])        m: [1,2], color 1
+2: call consume(m)           Unit result, no output slot
+3: b = scalar constant      b: [3,4], color 1
+4: return b
+```
+
+At instruction 3, expired colors are pushed as `[0,1]` and the free-list pop
+chooses 1. Layout compacts scalar color numbers, but cannot merge different colors:
+a and b receive two scalar locations although they do not overlap; m receives
+one independent managed location. This does not imply every mixed function wastes
+storage. Debug/CFG liveness may legitimately extend intervals, and budget fallback
+may already have declined reuse. No incorrect alias or missed GC root is alleged.
+
+**Owner/correction:** retain the common liveness facts but color the scalar
+storage class independently. Keep the current distinct managed-location policy;
+this does not authorize managed coalescing, hardware-style spilling or a new
+allocation framework. Coordinate with the existing interpreter placement owner,
+not R13's executable-identity retention or an unapproved BO04 tuning round.
+
+**Focused validation:** mixed-bank interval/layout case; existing loop-carried,
+backedge, backward-join and public reused-frame access contracts; a decoded mixed
+function across collection. Preserve initialization, debug availability, managed
+roots and safe budget fallback. Measure scalar capacity, total retained memory
+and preparation work separately. Fewer backing slots do not prove faster execution.
+
+### Performance feasibility and bounded next decisions
+
+The [retained BO04 measurements](performance-baseline.md#bytecode-slot-and-operand-evaluation-windows-2026-10-19)
+show real historical headroom: arithmetic 0.691811x and branches 0.719951x of the
+identified BO01 baseline. They also retain **four failed lifecycle timing gates**.
+Those results neither measure the current block-local-constant implementation nor
+establish Lua parity or complete acceptance. Historical hoisted images are not
+current validation; no performance claim follows from the R15 repair or R12 work
+counts. Do not attribute those failures to R16-R19 or R14 without measurement.
+
+A finite decision order, not a new implementation plan:
+
+1. **Preserve legality before expanding motion:** keep the block-local constant
+   boundary and require an observation/provenance contract for broader motion.
+   Checked arithmetic, effects and trap order remain optimization constraints.
+2. **Remove demonstrated analysis/representation work:** address R16-R18 at their
+   existing owners, and assess R19's mixed-storage frequency/benefit. These can
+   improve preparation/storage without changing the language or adopting SSA.
+3. **Continue the remaining runtime work by workload:** R13's bounded version-token
+   change and R14's one-transition proof. Preserve the implemented accounting/root
+   contracts and keep pending lifecycle acceptance visible; this update does not
+   reopen or expand unrelated frontend findings.
+4. **Grow optimization only with its evidence:** local value simplification first;
+   dominance/reaching definitions plus conservative alias/effect facts before
+   global redundancy elimination or code motion. An unknown call is a barrier,
+   not evidence of no allocation/write. Checked `x * 2` is not generally replaceable
+   by a truncating shift, and reassociation may change which intermediate traps.
+   An empty or zero-trip loop does not authorize changing cancellation/termination.
+5. **Native expansion follows its existing plan:** runtime/ABI owns calls, roots,
+   failure and safepoints; Cranelift owns machine selection/allocation. Attribute
+   helper-call, spill and code-size costs before discussing a different polling
+   protocol. LLVM, OSR/deoptimization, speculative cross-generation inlining and
+   another universal IR remain unjustified by this review alone.
+
+For each chosen task, separate source/analysis, MIR passes, bytecode verification,
+runtime preparation, warm execution and retirement/collection. Use the same
+workload/output, toolchain, profile/features and cache conditions; track allocations,
+retained bytes and actual visits/moves as well as time. Include semantic equivalence,
+source-free negative validation, GC/reentry, debugger origins and pinned reload
+where affected. The sum of setup and repeated execution matters for short-lived
+embeddings; no benchmark-only unchecked route or automatic tiering is proposed.
+
 ## Runtime architecture review
 
 ### Baseline and assessment
@@ -38,36 +348,32 @@ Reviewed on 2026-10-18 at `88acbdb54e369bde2ca72602cc0f453604dc528d`
 Publication note: this document was rebased onto `350fa1d6` before opening its PR.
 That newer main completes Default/struct updates and the object-overhead task,
 including native mutation revisions and direct interface snapshot locations.
-Its removal of SA26 and the completed plans is preserved. Findings, source paths
-and probe results below describe `88acbdb5`, not a fresh review of those intervening
-changes; affected findings require rechecking before implementation. Lasting
-storage contracts and measurements now live in [architecture](architecture.md)
-and [performance measurements](performance-baseline.md).
+Its removal of SA26 and the completed plans is preserved. The historical review
+and native-test timeout describe `88acbdb5`, not current acceptance. This update
+removes resolved R11/R12 findings and reconciles the system narrative with their
+implemented contracts; R13/R14 remain open. Lasting storage contracts and bounded
+work-count evidence live in [architecture](architecture.md) and
+[performance measurements](performance-baseline.md).
 
-This is review and bounded verification, not implementation authorization. Only
-this review document is changed; temporary probes are disposable. Findings below
-separate **reproduced defects**, **source-confirmed costs/ownership**, and
-**unmeasured risks**. P1-P3 indicate remediation priority, not permission to weaken
+This is review, not implementation authorization. Remaining findings distinguish
+**source-confirmed costs/ownership** from **unmeasured risks**. P1-P3 indicate remediation priority, not permission to weaken
 correctness. Cost classifications are A: architecture, B: local implementation,
 C: required semantics, and D: unmeasured performance hypothesis.
 
 **Overall:** the checked compilation/runtime boundary, generation-pinned ownership
 and explicit roots fit a statically typed embedded language. The main remaining
-problems are memory-pressure accounting and historical-state scaling,
+runtime problems are code/identity retention and repeated suspension proofs,
 not evidence that the language needs a different GC family or a new universal IR.
-Several costs still scale with historical state or repeat a proof unnecessarily.
+The repaired pressure and discovery paths do not eliminate root snapshot,
+metadata, marking or retained-capacity costs.
 Future native expansion needs stronger runtime ABI/root/call contracts, but the
 current scalar backend deliberately refuses the unsupported cases.
 
 Highest-value priorities, in order:
 
-1. **R11:** separate retained allocation pressure from logical heap occupancy;
-   make native accounting a runtime-owned committed fact.
-2. **R12:** remove full-history scans from root registration and sparse sweeping,
-   without weakening stale-handle or cross-thread root-release rules.
-3. **R13:** stop using the original executable payload as its version identity;
+1. **R13:** stop using the original executable payload as its version identity;
    then measure identity-domain and type-only retention separately.
-4. **R14:** perform one suspension proof per transition, sharing traversal across
+2. **R14:** perform one suspension proof per transition, sharing traversal across
    its roots. Do not add a long-lived async-safety cache for mutable graphs.
 
 Preserve the following foundations:
@@ -145,8 +451,9 @@ Identity and release boundaries:
   callback `Value` is not itself an explicit host root; typed/reentry APIs provide
   stronger ownership. Cloning a root lease is not a new root-table registration.
 - **Host/native resources:** Rust host state remains outside the script heap and
-  behind installed interfaces/scoped borrows. Native payloads expose trace and
-  accounting hooks. Completion endpoints transport owned Rust data, not VM borrows.
+  behind installed interfaces/scoped borrows. Native payloads expose tracing and a
+  fallible charge description; runtime native records own committed charges for
+  mutation and release. Completion endpoints transport owned Rust data, not VM borrows.
 - **Reload:** active calls and retained callables keep their old dependency graph.
   Collection traverses object and program edges together before reclaiming retired
   records. Releasing registry records, original bytecode Arcs and interning writers
@@ -176,7 +483,7 @@ Identity and release boundaries:
    See [fields](../crates/kagari-runtime/src/frame/cursor/objects.rs),
    [indices](../crates/kagari-runtime/src/frame/cursor/indices.rs) and
    [cold transitions](../crates/kagari-runtime/src/frame/cursor/transitions.rs).
-   Strings/sequence buffers also retain capacity that logical units miss (R11).
+   String/sequence retained capacity is charged separately from logical occupancy.
 3. **Generics and interface calls.** Source checking supplies selected declarations
    and witnesses; program lowering discovers further specialization demands (R7).
    Runtime type environments and bound interface methods retain their supplying
@@ -216,7 +523,7 @@ Identity and release boundaries:
 
 ### Memory model and collector suitability
 
-On the current 64-bit probe build, `size_of::<Value>()` is **16 bytes**. The retained
+On the historical 64-bit review probe build, `size_of::<Value>()` was **16 bytes**. The retained
 RS layout records describe a 12-byte heap identity and 24-byte directory slot;
 these latter figures are structural/historical evidence, not new allocator
 measurements. A small struct with 8 payload bytes has an approximate occupied
@@ -239,11 +546,11 @@ Current memory risks span different owners:
 | Memory category | Observation and limitation |
 | --- | --- |
 | Payload/header/alignment | RS already reduced directory and object representation; do not revive the obsolete 168-byte directory finding. Small objects still pay directory/back-reference costs. |
-| Native buffers/collection capacity | R11 proves scheduling undercounts retained String capacity. Sequence logical length is likewise not allocated bytes. |
+| Native buffers/collection capacity | Committed `HeapCharge` separates logical occupancy from attributed retained capacity. Its partial byte ledger is not allocator usable size, external host memory or RSS. |
 | Frame/closure/async state | Typed banks and captures are real retained state; parked stacks keep live windows and code. No fresh maximum-frame or suspension-liveness benchmark was run. |
 | Temporary peak | Conversion protection, grow-before-commit and prepare-before-remove deliberately retain old and new values together. Removing this peak without an alternative commit protocol would weaken failure semantics. |
 | Runtime metadata/code | R13 distinguishes remapped/original code, type provenance, append-only identity tables and exact executable leases. No loaded-runtime CST/HIR/MIR retention was found through its descriptor. |
-| Historical capacity | R12 scans root/directory history. Free indices and generation tombstones can outlive most objects; that memory is not live payload. |
+| Historical capacity | Root registration drains releases and object discovery visits occupied stores. Free indices and generation tombstones can still outlive most objects; root snapshots and metadata scans retain separate costs. |
 
 Do not introduce generations, incremental tracing, concurrent collection or raw
 moving references on this evidence. A nursery could reduce scans if measured
@@ -255,105 +562,6 @@ internal compaction possible without exposing moving addresses; they do not make
 untracked native machine registers safe. First measure allocation bytes, survival,
 root/directory scan work and pause distribution separately. Keep logical units,
 requested bytes, allocator usable bytes and process working set distinct.
-
-### R11 — Logical units are not retained allocation pressure
-
-**P1; reproduced scheduling blind spot; A.**
-[String storage](../crates/kagari-runtime/src/gc/storage.rs) charges length;
-[sequence payloads](../crates/kagari-runtime/src/native/sequence.rs) charge element
-count rather than capacity and physical element width. [Capacity reservation](../crates/kagari-runtime/src/gc/capacity.rs)
-uses temporary charges that disappear afterward. Automatic collection in
-[GcHeap](../crates/kagari-runtime/src/gc.rs) is driven by logical occupancy/metadata,
-not a committed backing-allocation ledger.
-
-**Measured minimal scenario:** move an empty `String::with_capacity(8 * 1024 * 1024)`
-into `alloc_string`, retain a root and collect once, drop the root, call
-`gc_safepoint`, then collect manually. Compare an empty zero-capacity string in a
-separate otherwise identical runtime lifecycle. Net allocator-requested live bytes
-relative to runtime setup were:
-
-| Stage | Capacity 0 | Capacity 8 MiB | Heap units / objects / collections |
-| --- | ---: | ---: | --- |
-| Before moving String into GC | 0 | 8,388,608 | 0 / 0 / 0 |
-| After `alloc_string` | 224 | 8,388,832 | 1 / 1 / 0 |
-| Manual collection with root | 512 | 8,389,120 | 1 / 1 / 1 |
-| Drop root, automatic safepoint | 512 | 8,389,120 | 1 / 1 / 1 |
-| Manual collection without root | 416 | 416 | 0 / 0 / 2 |
-
-The buffer pointer was unchanged after transfer and after the automatic safepoint;
-capacity was exactly 8,388,608. The default threshold stayed `Some(1024)`. Manual
-collection reclaimed one object/unit and invalidated its old Value. Both lifecycles
-returned to zero net requested bytes after runtime teardown. This proves retained
-buffer pressure is invisible to this trigger, **not a leak or an 8 MiB RSS rise**:
-empty reserved pages were not deliberately touched. A byte-aware policy need not
-collect immediately merely because a root was dropped; the defect is that the
-retained capacity never enters its pressure input. The remaining 416 bytes before
-runtime teardown were bookkeeping/capacity, not the freed String buffer.
-
-**Related accounting risk:** [NativePayload::units/NativeObject::units](../crates/kagari-runtime/src/native/storage.rs)
-are provider callbacks. [Allocation](../crates/kagari-runtime/src/gc/native.rs),
-[sweep](../crates/kagari-runtime/src/gc/collection.rs) and
-[take](../crates/kagari-runtime/src/gc/native/take.rs) reevaluate them rather than
-releasing an authoritative previously committed charge. A custom interior-mutable
-payload can report a different value later; subtraction in ResourceState assumes
-it matches admitted occupancy. No built-in drifting payload or underflow was
-reproduced. This is an accounting-ownership risk, not evidence that arbitrary
-native hooks may violate their contracts without consequences.
-
-**Recommendation:** keep logical occupancy if useful, but add storage-owned checked
-retained-byte/allocation-debt accounting. Commit actual growth/shrink deltas together
-with storage changes; release recorded charges on detach, not arbitrary fresh size
-queries. Define external provider pressure separately where it cannot be inferred.
-Schedule collection at existing safe boundaries, not inside reserve, unpublished
-allocation or scoped borrowing. Lua's successful-allocation byte deltas and GC debt
-are the relevant mechanism; its emergency collection inside allocation cannot be
-copied into Kagari. This is scheduling, not reintroducing heap quotas or execution
-charging forbidden by the current policy.
-
-**Migration/validation:** medium, spanning storage growth and collection policy.
-First cover String and existing sequence storage, failure/rollback and manual versus
-automatic collection; then make the native charge contract explicit. Measure retained
-bytes, allocation rate, collection count/pause and peak separately on the existing
-[storage measurements](performance-baseline.md) and [collection](native-collections-plan.md)
-workloads. Do not use a benchmark with automatic GC disabled to accept this policy.
-
-### R12 — Root insertion and sparse sweep scale with historical tables
-
-**P1 for scaling, source-confirmed algorithms; A/B, elapsed cost unmeasured.**
-[RootTable::insert](../crates/kagari-runtime/src/gc/roots.rs) invokes `prune`, which
-scans every historical root slot. Registering N distinct simultaneously retained
-roots from empty storage therefore examines approximately N(N−1)/2 slots before
-snapshot/collection work. Reusing one old slot after a large peak still scans that
-peak-sized table. Root-lease clones do not execute this insertion path.
-
-Separately, [collect_inner](../crates/kagari-runtime/src/gc/collection.rs) enumerates
-all directory slots to find dead occupied entries. [Directory](../crates/kagari-runtime/src/gc/directory.rs)
-generation tombstones are retained to reject stale handles. A burst of objects
-followed by a nearly empty steady state still pays that historical scan. At the
-recorded 64-bit layout, one million slots plus one million free indices is about
-24 MB + 8 MB before spare capacity; this is an estimate, not a measured RSS figure.
-
-**Root cause:** stable identity history also acts as the iteration/discovery index.
-The history is necessary for safety; visiting every historical row on each insertion
-or sweep is not. These costs affect host rooting, allocation-heavy workloads and
-future native root publication; they are not proof that every script is slow.
-
-**Recommendation:** let last-root release notify the owning root table, so the owner
-can drain released IDs and reuse slots without a global scan on every insert. Retain
-cross-thread lease-drop safety, owner identity, generation exhaustion and snapshot
-upgrade rules. For sweep, evaluate enumerating occupied typed stores through their
-existing directory back-references; do not reset generations or add a second live
-index without evidence. OpenJDK OopStorage demonstrates occupied-bit iteration and
-release-driven bookkeeping. Its release clears bits immediately and defers selected
-block-list updates; it is not literally a Kagari root-ID queue and its concurrent
-raw-pointer machinery should not be imported wholesale.
-
-**Migration/validation:** medium, two bounded storage-owner changes rather than a
-collector rewrite. Reuse stale-handle, root-clone and sparse-relocation contracts.
-Measure insertion work and sparse/full collection separately at fixed live count
-and increasing historical peaks; include cross-thread final lease release. Keep
-root snapshot safety and full mark validation. Only choose retained-capacity shrink
-policy after measuring churn and reuse; raw slot truncation can create ABA bugs.
 
 ### R13 — Code identity and identity domains retain more than executable liveness
 
@@ -476,7 +684,7 @@ unused-source errors or relax loading validation to make artifacts smaller.
 
 | Class | Current assessment / required work |
 | --- | --- |
-| Already affects execution | R11-R14 affect runtime boundaries independent of LLVM. No miscompile of the currently accepted Cranelift scalar subset was established. Its exact-trap test timed out in this review, so this is not a fresh all-green native validation. |
+| Already affects execution | R13/R14 affect runtime boundaries independent of LLVM. No miscompile of the currently accepted Cranelift scalar subset was established. Its exact-trap test timed out in this review, so this is not a fresh all-green native validation. |
 | Before general managed native/LLVM execution | Runtime-owned call admission, argument/result/root ownership, bounded machine-stack behavior or a driver continuation protocol; registered native root frames before collecting helpers; program-scoped call proofs and pinned target dependencies. An LLVM implementation of only the existing scalar subset does not first need all managed-value machinery. |
 | Before aggressive optimization | Conservative transitive call/memory/GC facts or explicit barriers, exact overflow/trap lowering, shared-alias semantics, origin/PC mapping and dependency/code leases. False individual effect bits are not absence proofs. |
 | Preserve an extension point | Physical PC/location maps if justified instead of registered root frames; code-unit dependency ownership for future direct calls/inlining; logical debug origins and observer fallback. |
@@ -519,11 +727,11 @@ performance evidence for Kagari:
   [iteration](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.inline.hpp),
   [allocation/release](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.cpp).
   Occupied bitmaps, allocation lists and deferred block-list maintenance avoid
-  rediscovering all free slots per allocation. Relevant to R12, not a ready-made
+  rediscovering all free slots per allocation. Background for the implemented release/discovery contract, not a ready-made
   cross-thread Arc-lease queue or stable-generation handle scheme.
 - **Lua 5.4.8:** [lmem.c](https://github.com/lua/lua/blob/v5.4.8/lmem.c) and
   [lgc.h](https://github.com/lua/lua/blob/v5.4.8/lgc.h). Successful malloc/realloc/free
-  adjust byte debt, and conditional GC consumes scheduling debt. Relevant to R11;
+  adjust byte debt, and conditional GC consumes scheduling debt. Background for the implemented accounting boundary;
   debt is not live bytes or RSS. Its emergency allocation-time GC and barriers assume
   Lua's own publication/root model, not Kagari's scoped Rust borrows.
 - **Rust 1.90.0:** [mono collector](https://github.com/rust-lang/rust/blob/1.90.0/compiler/rustc_monomorphize/src/collector.rs)
@@ -553,7 +761,7 @@ activated phases or an implementation ledger.
 
 | Order | Scope / owner | Delete or consolidate when replacing | Acceptance boundary |
 | --- | --- | --- | --- |
-| Near-term high value | R11 storage accounting; R12 root/directory iteration, coordinated with OM/NC | Callback-recomputed release charges; full-table prune on every root insert; directory-history sweep where occupied stores suffice | Checked transactional deltas, stale generations, cross-thread lease drop, sparse relocation; capacity/scan measurements |
+
 | Near-term bounded simplification | R13 exact-version token; R14 one-shot parking, coordinated with IP08-IP12 | Payload-backed version identity and unnecessary original snapshot; duplicate successful park proof and per-frame repeated visits | Cross-context exact identity, pinned dependencies, mutable-graph suspension rejection and cleanup |
 | Measure before expanding | R13 identity-domain/type-only split, R7 worklist, artifact pruning | If justified: shared mutable identity writer across independent lifetimes, whole-module demand rounds; not a cache layered over them | Distinct/reused-name churn, actual bytecode release, compiler scaling, explicit executable roots and unchanged source diagnostics |
 | Existing future gates | Native expansion plan, then appropriate LLVM coverage | Replace scalar-only ABI/consumers coherently as general calls land; no compatibility forwarding ABI or backend-owned duplicate semantics | Assert actual native entry, source-free execution, roots across helpers/reentry, numeric/trap order and old-version calls |
@@ -584,48 +792,29 @@ Implementation, not old prose, determines this baseline:
   already support managed machine registers. RS measurements are historical; the
   older object directory layout and resolved duplication must not be resurrected.
 
-**Actual checks and probes:**
+**Unresolved historical native validation:** at `88acbdb5`,
+`cargo test --locked -p kagari-codegen-cranelift --lib tests::checked_i32_traps_keep_the_exact_mir_point -- --exact`
+completed compilation and started the test, but hit a **180-second timeout** without
+a final result. This is **not passed and not a confirmed assertion failure**. The
+test directly installs/calls native code rather than accepting fallback. The
+historical environment was Windows 11 Pro `10.0.26300`, x86_64-pc-windows-msvc,
+Intel Core i9-12900K, rustc `1.99.0 (b940084d7 2026-09-28)` and Cargo 1.99.0,
+workspace dev/test profiles, default target/parallelism and mixed/warm build cache.
+Builds contended for the target lock; elapsed time is not a benchmark. No longer
+rerun was attempted, and this documentation update does not resolve that result.
 
-Environment: Windows 11 Pro `10.0.26300`, x86_64-pc-windows-msvc, Intel Core
-i9-12900K (16 cores / 24 logical processors), 68,447,940,608 bytes reported physical
-memory; rustc `1.99.0 (b940084d7 2026-09-28)`, Cargo 1.99.0. Cargo used the workspace
-`dev`/`test` profiles (dev opt-level 1), default `target`, default parallelism and
-existing mixed/warm build cache. Builds contended for the target lock. Their wall
-time is **not** a compilation or execution benchmark. Probes used the freshly built
-matching rlibs with `rustc --edition=2024 -C opt-level=1 -C debuginfo=2 -L
-dependency=target/debug/deps`; temporary files were under `target/architecture-review/`.
+This update inspects current source and reconciles previously reported focused
+evidence; it runs no tests or performance probes. R11 probe tables and reproduction
+instructions are retired with the resolved finding. R12 retains only durable
+[algorithm work-count evidence](performance-baseline.md#root-release-and-occupied-discovery-work-counts-2026-10-20),
+not a completed-command log or whole-collector timing claim.
 
-- `cargo test --locked -p kagari-runtime --lib -- gc::tests::sparse_collection_preserves_aliases_and_mutation_across_payload_relocation --exact`:
-  **1 passed**, 307 filtered out. Selected to protect handle/alias semantics during
-  current internal relocation, not to sweep all GC contracts.
-- `cargo test --locked -p kagari-codegen-cranelift --lib tests::checked_i32_traps_keep_the_exact_mir_point -- --exact`:
-  compilation completed and **1 test started**, but the command hit its **180-second
-  timeout** with no final result. **Not passed, not a confirmed assertion failure.**
-  It directly installs/calls native code rather than accepting fallback. No longer
-  rerun was attempted; exact native trap validation remains unresolved for this review.
-- R11 public-API probe: two separate capacity-0/capacity-8-MiB runtime lifecycles;
-  diagnostic allocator counts successful allocation requests minus matching frees.
-  All capacity, pointer, counters, stale-value and teardown assertions passed.
-  Runtime default features; one process, no async load or throughput timing. These
-  are requested-byte observations, not allocator usable size, page residency or RSS.
-- Primary-source links above were accessed at their pinned versions. Documentation
-  receives local link and whitespace checks; no production edits, commits or pushes.
-
-For reproduction without the disposable files, R11 needs public
-`Runtime::default`, `gc().alloc_string`, `root_value`, manual collection and
-`gc_safepoint` in the table's order. Instrument allocation requests independently
-of logical heap counters. The report records the actual results and restrictions;
-it does not depend on retaining ignored logs or probe binaries.
-
-**Not performed:** full-workspace tests, the feature/backend/platform matrix,
-workspace Clippy for this documentation-only change, throughput/pause distributions,
-physical RSS measurements, production-load survival profiling, new root-scaling
-benchmarks, native heap-root execution, exhaustive race/panic injection, version
-retention Weak probes or LLVM implementation validation. Source inspection can
-establish retention edges and repeated traversals, but not their share of total
-latency or a promised speedup. Existing tests remain evidence only for their actual
-contracts, not every adjacent path. CI and future focused remediation validation
-remain separate from this review's local results.
+Full-workspace tests and the complete feature/backend/platform matrix remain CI
+scope. Throughput/pause distributions, physical RSS, production-load survival,
+native heap-root execution, exhaustive race/panic injection, R13 retention probes
+and LLVM validation are not established by this review. Source inspection can
+establish retention edges and repeated traversals, not their share of total latency
+or a promised speedup. Historical BO04/IP12 failed gates remain unresolved.
 
 ## SA1 Inline modules are parsed again
 
@@ -821,15 +1010,6 @@ records those limits and pending exhaustive CI.
 Static review confirms the following remaining preparation costs. These are
 code-derived costs, not benchmark results or speedup claims:
 
-- [RootTable::insert](../crates/kagari-runtime/src/gc/roots.rs) calls `prune` over
-  every slot before each insertion, including when reusable slots already exist.
-  [Vec conversion](../crates/kagari-runtime/src/native/conversion/composites.rs)
-  calls `encode_value` per element; the
-  [conversion context](../crates/kagari-runtime/src/native/conversion/context.rs)
-  retains temporary roots for heap-backed results until the enclosing scope ends.
-  For n such elements and initial slot high-water mark R, scanning can cost
-  O(nR + n^2) when live temporary roots force table growth. Existing free capacity
-  can avoid the quadratic growth term, but not the repeated high-water scan.
 - [Typed native invocation](../crates/kagari-runtime/src/native/typed.rs) builds a
   `Vec<Value>`; [argument decoding](../crates/kagari-runtime/src/native/conversion/arguments.rs)
   copies it into rooted storage and creates a root lease even for scalar packs.
@@ -850,10 +1030,11 @@ code-derived costs, not benchmark results or speedup claims:
   Distinguish stable preparation facts from checks on newly produced values;
   bytecode containing one native call does not expose this work or measure its cost.
 
-The GC root owner should evaluate scope/batch storage or bounded amortized reclaim;
-the typed invocation owner should evaluate borrowed argument windows and reuse of
-checked mapping facts. Preserve snapshot/retention across user conversion and
-reentry, collection during conversion, owner/generation/value checks, cancellation
+The typed invocation owner should evaluate borrowed argument windows and reuse of
+checked mapping facts through the existing runtime root owner. Release-driven root
+reclamation is implemented, not an outstanding full-table-prune optimization.
+Preserve snapshot/retention across user conversion and reentry, collection during
+conversion, owner/generation/value checks, cancellation
 and cleanup on every exit. Separate stable declaration proofs from invocation-time
 facts before relocating validation. Root reclamation must still handle last-lease
 drop and runtime transfer safely. Do not remove roots merely because the simple
@@ -952,8 +1133,10 @@ R7-R8 originated in the 2026-10-03 review of
 `9581f5ad2a754911d1edb92eb35e957a18d7b5df`. Source inspection at `88acbdb5`
 confirms these mechanisms remain; their scaling has not been remeasured.
 Resolved findings and superseded implementation details are not retained as tasks.
-R11-R14 extend this series; their individual evidence levels and the actual
-validation scope are recorded in the current runtime review.
+R13/R14 remain in the runtime review; R16-R19 remain in the
+[chapter review](#engineering-a-compiler-chapter-review). R11/R12/R15 are resolved
+and are not current queue entries.
+Each entry records its own evidence level and validation limits.
 
 | ID | Current finding | Focused follow-up and acceptance |
 | --- | --- | --- |
@@ -992,12 +1175,13 @@ and plan retain failures, accepted boundaries and the required scope decision be
 further tuning. This section's
 original counts below describe the pre-migration baseline, not the current product.
 
-A current `i64` probe initializes `s = 0`, `i = 0`, runs
+The historical pre-migration `i64` probe initializes `s = 0`, `i = 0`, runs
 `while i < n { s = s + i; i = i + 1; }` and returns s.
 Actual `kg emit` / `kg disasm` output contains 17 instructions. Each successful
 iteration traverses ten bytecode positions: load i/n, compare, branch, load s,
 add, store s, add, store i and jump. Constants zero/one are already outside the
-loop. The function declares three locals and twelve temporary registers, not twelve
+loop in that historical hoisted image, not the current block-local implementation.
+The function declares three locals and twelve temporary registers, not twelve
 simultaneously live values. [Physical allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
 reuses temporaries but separates named locals; preparation converts local transport
 into moves. The [scalar execution loop](../crates/kagari-runtime/src/frame/cursor/scalars.rs)
@@ -1092,6 +1276,27 @@ polling semantics. These are not bugs caused merely by lacking a larger backend.
 | Effect interpretation | Script calls carry `calls`/`may_trap`, not transitive allocation/write facts | Treat calls as conservative memory/GC barriers or compute conservative graph summaries before emitting LLVM `readonly`/`readnone`-style assumptions |
 | Tier-neutral callbacks | Synchronous `ScriptInvoker` selected the interpreter | Preserve pinned generation, captures, argument/result checks, shared call depth/cancellation, observers and trap origins when selecting compiled callbacks |
 | Code lifetime and hot reload | Installed handles retain exact versions and their dependency closure | Extend dependency assumptions to direct calls, inlining and module/SCC compilation units; reclaim code only when its owners and retained dependencies permit it |
+
+**Chapter-review attribution at `5b57c9a8`:**
+[Cranelift emission](../crates/kagari-codegen-cranelift/src/emit.rs) inserts a resource
+check before each MIR instruction and return; [the scalar helper lowering](../crates/kagari-codegen-cranelift/src/scalar.rs)
+emits a helper call, status test and continuation/error branch. The
+[runtime helper](../crates/kagari-runtime/src/jit_abi.rs) publishes the origin and
+services ordinary GC/cancellation. This is intentional current behavior, not a
+miscompile. Intermediate values live across these helper calls are subject to the
+machine calling convention; whether they spill or rematerialize requires generated
+code inspection. A textbook instruction scheduler cannot remove that effectful
+boundary.
+
+Within the existing J02 acceptance owner, include actual-native input-dependent
+arithmetic/CFG cases and attribute helper-call count, final frame/spill traffic,
+code bytes and preparation versus execution cost. This is an assessment of the
+existing gate, not activation of J02 or permission to remove/coalesce polls. Any
+later change needs a runtime-owned fast/slow safepoint contract preserving GC,
+sticky cancellation, logical origin and no post-effect fallback. Do not mark the
+helper pure, expose private runtime layout or add a Kagari machine allocator to
+compensate for it. Cranelift `0.136.2` in `Cargo.lock` owns machine register
+allocation; VM scalar-bank colors identify reusable VM storage, not CPU registers.
 
 At the reviewed baseline, the poll helper recorded a logical offset and invoked
 ordinary registered-root GC; it did not publish native stack roots. Cranelift rejected heap-bearing

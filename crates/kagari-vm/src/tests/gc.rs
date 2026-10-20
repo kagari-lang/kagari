@@ -20,6 +20,7 @@ fn runtime() -> Runtime {
     standard_runtime(RuntimeConfig {
         gc: GcHeapConfig {
             collection_threshold: Some(1),
+            ..Default::default()
         },
         limits: RuntimeLimits {
             ..Default::default()

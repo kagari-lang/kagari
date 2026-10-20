@@ -7,6 +7,7 @@ use crate::{
         storage::{NativePayload, NativeStorage, StorageContext},
         storage_type::StorageType,
     },
+    resource::HeapCharge,
     value::Value,
 };
 use kagari_contract::standard::RuntimePrimitive;
@@ -29,8 +30,11 @@ impl NativePayload for MapPayload {
         }
     }
 
-    fn units(&self) -> usize {
-        self.entries.len()
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            self.entries.len(),
+            self.entries.pressure_bytes(),
+        ))
     }
 }
 
@@ -48,8 +52,11 @@ impl NativePayload for SetPayload {
         }
     }
 
-    fn units(&self) -> usize {
-        self.entries.len()
+    fn charge(&self) -> NativeResult<HeapCharge> {
+        Ok(HeapCharge::new(
+            self.entries.len(),
+            self.entries.pressure_bytes(),
+        ))
     }
 }
 

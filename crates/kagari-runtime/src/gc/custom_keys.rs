@@ -153,7 +153,6 @@ impl GcHeap {
         } else {
             token
         };
-        let growth = self.resources.prepare_heap_growth(usize::from(new))?;
         let key = MapKey::custom(hash, token, key);
         let insert = |entries: &mut HashMapStorage| -> Result<(), RuntimeError> {
             if new {
@@ -169,25 +168,22 @@ impl GcHeap {
             Ok(())
         };
         match collection {
-            Value::Map(_) => self.with_map_mut(id, insert).ok_or_else(invalid)??,
-            Value::Set(_) => self
-                .with_set_mut(id, |entries| {
-                    if new {
-                        entries
-                            .try_reserve(1)
-                            .map_err(|_| self.resource_limit("allocation capacity"))?;
-                        entries
-                            .insert(key)
-                            .map_err(|_| self.resource_limit("allocation capacity"))?;
-                    } else if !entries.contains(&key) {
-                        return Err(invalid());
-                    }
-                    Ok(())
-                })
-                .ok_or_else(invalid)??,
+            Value::Map(_) => self.with_map_mut(id, usize::from(new), insert)??,
+            Value::Set(_) => self.with_set_mut(id, usize::from(new), |entries| {
+                if new {
+                    entries
+                        .try_reserve(1)
+                        .map_err(|_| self.resource_limit("allocation capacity"))?;
+                    entries
+                        .insert(key)
+                        .map_err(|_| self.resource_limit("allocation capacity"))?;
+                } else if !entries.contains(&key) {
+                    return Err(invalid());
+                }
+                Ok(())
+            })??,
             _ => unreachable!(),
         }
-        growth.commit();
         Ok(())
     }
 
@@ -205,15 +201,11 @@ impl GcHeap {
         self.ensure_structure_mutable(id)?;
         self.ensure_key_mode(collection, true)?;
         let key = MapKey::custom(hash, token, Value::Unit);
-        let removed = match collection {
-            Value::Map(_) => self.with_map_mut(id, |entries| entries.remove(&key).is_some()),
-            Value::Set(_) => self.with_set_mut(id, |entries| entries.remove(&key)),
-            _ => None,
-        }
-        .ok_or_else(invalid)?;
-        if removed {
-            self.release_heap_units(1);
-        }
+        let _removed = match collection {
+            Value::Map(_) => self.with_map_mut(id, 0, |entries| entries.remove(&key).is_some()),
+            Value::Set(_) => self.with_set_mut(id, 0, |entries| entries.remove(&key)),
+            _ => return Err(invalid()),
+        }?;
         Ok(())
     }
 }

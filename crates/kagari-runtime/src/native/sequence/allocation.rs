@@ -44,7 +44,7 @@ impl Runtime {
             element: contract.ty.clone(),
             contract,
             values,
-            leased_units: None,
+            detached: false,
         };
         let mut object = storage.prepare_payload(self.gc(), applied.ty(), payload, owner)?;
         object.scope = Some(applied.clone());

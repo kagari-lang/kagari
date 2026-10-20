@@ -6,6 +6,7 @@ use crate::{
         hashed::{MapPayload, SetPayload},
         storage_type::StorageType,
     },
+    resource::HeapCharge,
     value::{MapKey, Value},
 };
 use kagari_types::ty::Ty;
@@ -59,22 +60,19 @@ impl GcHeap {
         let key = MapKey::from_value(self, &key)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         self.ensure_key_mutable(id)?;
-        self.with_map_mut(id, |entries| {
+        self.with_map_mut(id, 1, |entries| {
             let units = usize::from(!entries.contains_key(&key));
             if units != 0 {
                 self.ensure_structure_mutable(id)?;
             }
-            let growth = self.resources.prepare_heap_growth(units)?;
             entries
                 .try_reserve(units)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
             entries
                 .insert(key, value)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            growth.commit();
             Ok(())
-        })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
+        })?
     }
 
     pub fn map_remove(&self, id: HeapObjectId, key: &Value) -> Result<Option<Value>, RuntimeError> {
@@ -86,30 +84,18 @@ impl GcHeap {
         }
         let key = MapKey::from_value(self, key)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
-        let value = self
-            .with_map_mut(id, |entries| entries.remove(&key))
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
-            })?;
-        if value.is_some() {
-            self.release_heap_units(1);
-        }
+        let value = self.with_map_mut(id, 0, |entries| entries.remove(&key))?;
         Ok(value)
     }
 
     pub fn map_clear(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
-        let removed = self
-            .with_map_mut(id, |entries| {
-                let removed = entries.len();
-                entries.clear();
-                removed
-            })
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
-            })?;
-        self.release_heap_units(removed);
+        let _removed = self.with_map_mut(id, 0, |entries| {
+            let removed = entries.len();
+            entries.clear();
+            removed
+        })?;
         Ok(())
     }
 
@@ -139,22 +125,19 @@ impl GcHeap {
         let key = MapKey::from_value(self, &value)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
         self.ensure_key_mutable(id)?;
-        self.with_set_mut(id, |values| {
+        self.with_set_mut(id, 1, |values| {
             let units = usize::from(!values.contains(&key));
             if units != 0 {
                 self.ensure_structure_mutable(id)?;
             }
-            let growth = self.resources.prepare_heap_growth(units)?;
             values
                 .try_reserve(units)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
             let inserted = values
                 .insert(key)
                 .map_err(|_| self.resource_limit("allocation capacity"))?;
-            growth.commit();
             Ok(inserted)
-        })
-        .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target"))?
+        })?
     }
 
     pub fn set_remove(&self, id: HeapObjectId, value: &Value) -> Result<bool, RuntimeError> {
@@ -166,30 +149,18 @@ impl GcHeap {
         }
         let key = MapKey::from_value(self, value)
             .ok_or_else(|| RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid hash key"))?;
-        let removed = self
-            .with_set_mut(id, |values| values.remove(&key))
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
-            })?;
-        if removed {
-            self.release_heap_units(1);
-        }
+        let removed = self.with_set_mut(id, 0, |values| values.remove(&key))?;
         Ok(removed)
     }
 
     pub fn set_clear(&self, id: HeapObjectId) -> Result<(), RuntimeError> {
         self.ensure_execution_allowed()?;
         self.ensure_structure_mutable(id)?;
-        let removed = self
-            .with_set_mut(id, |values| {
-                let removed = values.len();
-                values.clear();
-                removed
-            })
-            .ok_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::ScriptTrap, "invalid heap target")
-            })?;
-        self.release_heap_units(removed);
+        let _removed = self.with_set_mut(id, 0, |values| {
+            let removed = values.len();
+            values.clear();
+            removed
+        })?;
         Ok(())
     }
 
@@ -246,21 +217,36 @@ impl GcHeap {
     pub(super) fn with_map_mut<R>(
         &self,
         id: HeapObjectId,
+        growth: usize,
         f: impl FnOnce(&mut HashMapStorage) -> R,
-    ) -> Option<R> {
-        let mut objects = self.objects_mut().ok()?;
-        let object = self.native_mut(&mut objects, id)?;
-        let revision = object.revision.checked_add(1)?;
+    ) -> Result<R, RuntimeError> {
+        let invalid = || RuntimeError::module_validation("invalid hash storage");
+        let mut objects = self.objects_mut()?;
+        let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
+        let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
         if !matches!(object.ty, Ty::Map { .. }) {
-            return None;
+            return Err(invalid());
         }
-        let entries = &mut object.payload_mut::<MapPayload>().ok()?.entries;
+        let max_units = object
+            .charge
+            .logical_units
+            .checked_add(growth)
+            .ok_or_else(|| self.resource_limit("hash length"))?;
+        let change = self
+            .resources
+            .prepare_heap_change(object.charge, max_units)?;
+        let entries = &mut object.payload_mut::<MapPayload>()?.entries;
         let old_len = entries.len();
         let result = f(entries);
-        if entries.len() != old_len {
+        let changed = entries.len() != old_len;
+        let charge = HeapCharge::new(entries.len(), entries.pressure_bytes());
+        let charge = object.storage_charge(charge);
+        if changed {
             object.revision = revision;
         }
-        Some(result)
+        object.charge = charge;
+        change.commit(charge);
+        Ok(result)
     }
 
     pub(super) fn with_set<R>(
@@ -279,20 +265,35 @@ impl GcHeap {
     pub(super) fn with_set_mut<R>(
         &self,
         id: HeapObjectId,
+        growth: usize,
         f: impl FnOnce(&mut HashSetStorage) -> R,
-    ) -> Option<R> {
-        let mut objects = self.objects_mut().ok()?;
-        let object = self.native_mut(&mut objects, id)?;
-        let revision = object.revision.checked_add(1)?;
+    ) -> Result<R, RuntimeError> {
+        let invalid = || RuntimeError::module_validation("invalid hash storage");
+        let mut objects = self.objects_mut()?;
+        let object = self.native_mut(&mut objects, id).ok_or_else(invalid)?;
+        let revision = object.revision.checked_add(1).ok_or_else(invalid)?;
         if !matches!(object.ty, Ty::Set(..)) {
-            return None;
+            return Err(invalid());
         }
-        let entries = &mut object.payload_mut::<SetPayload>().ok()?.entries;
+        let max_units = object
+            .charge
+            .logical_units
+            .checked_add(growth)
+            .ok_or_else(|| self.resource_limit("hash length"))?;
+        let change = self
+            .resources
+            .prepare_heap_change(object.charge, max_units)?;
+        let entries = &mut object.payload_mut::<SetPayload>()?.entries;
         let old_len = entries.len();
         let result = f(entries);
-        if entries.len() != old_len {
+        let changed = entries.len() != old_len;
+        let charge = HeapCharge::new(entries.len(), entries.pressure_bytes());
+        let charge = object.storage_charge(charge);
+        if changed {
             object.revision = revision;
         }
-        Some(result)
+        object.charge = charge;
+        change.commit(charge);
+        Ok(result)
     }
 }

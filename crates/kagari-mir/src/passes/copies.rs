@@ -73,8 +73,7 @@ fn simplify_function(
     let same = |a: MirValue, b: MirValue| {
         a.ty == b.ty && semantic.get(&a.temp.index()) == semantic.get(&b.temp.index())
     };
-    let mut constants = HashMap::new();
-    let mut entry_constants = Vec::new();
+
     let order = function
         .emission_order()
         .map(|(index, _)| index)
@@ -119,6 +118,10 @@ fn simplify_function(
                 }
             }
         }
+        // Provenance currently also supplies source observation points. Keep
+        // constant definitions on their control-flow path until motion can carry
+        // observations independently; numeric purity alone does not permit it.
+        let mut constants = HashMap::new();
         let block = &mut function.blocks[index];
         let mut retained = Vec::with_capacity(block.instructions.len());
         let mut spans = Vec::with_capacity(block.instructions.len());
@@ -140,14 +143,8 @@ fn simplify_function(
                             statistics.constants_reused += 1;
                         } else {
                             constants.insert(key, *dst);
-                            // Scalar constants neither trap nor allocate script objects.
-                            // Put a single definition in the dominating entry block.
-                            if index != function.entry.index() {
-                                entry_constants.push((instruction.clone(), span));
-                            }
                         }
-                        remove =
-                            aliases[dst.temp.index()] != *dst || index != function.entry.index();
+                        remove = aliases[dst.temp.index()] != *dst;
                     }
                 }
                 Instruction::LoadLocal { dst, local } if definitions[dst.temp.index()] == 1 => {
@@ -189,8 +186,7 @@ fn simplify_function(
         block.instruction_scopes = scopes;
         outgoing[index] = Some(locals);
     }
-    // A later block may reuse an earlier constant before that definition's old
-    // location. All constants now dominate every block; resolve transitive aliases.
+    // Resolve transitive aliases from block-local constants and checked snapshots.
     for index in 0..aliases.len() {
         let mut value = aliases[index];
         while aliases[value.temp.index()].temp != value.temp {
@@ -209,12 +205,6 @@ fn simplify_function(
             terminator.rewrite_input(|value| *value = aliases[value.temp.index()]);
         }
     }
-    let entry = &mut function.blocks[function.entry.index()];
-    let count = entry_constants.len();
-    for (instruction, span) in entry_constants {
-        entry.instructions.push(instruction);
-        entry.instruction_spans.push(span);
-    }
-    entry.instruction_scopes.extend(vec![0; count]);
+
     Ok(())
 }
