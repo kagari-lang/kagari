@@ -183,7 +183,6 @@ fn linked_bounds_match(
     let module = resources.modules[index];
     let closure = scope.modules.as_slice();
     let catalog = &scope.catalog;
-    let owners = &scope.owners;
     let declarations = &resources.declarations[index];
     let tables = &resources.tables[index];
     let definitions = catalog.definitions();
@@ -201,9 +200,7 @@ fn linked_bounds_match(
     if !shared::valid(module, closure, program, catalog, cancel)? {
         return Ok(false);
     }
-    if !catalog.overrides_valid(owners, cancel)?
-        || !instruction_contracts_match(module, closure, program, definitions, cancel)
-    {
+    if !instruction_contracts_match(module, closure, program, definitions, cancel) {
         return Ok(false);
     }
     for function in &module.functions {

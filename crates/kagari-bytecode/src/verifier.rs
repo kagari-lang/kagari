@@ -231,8 +231,8 @@ fn verify_module_inner(
     }
     identity::validate(&[module], definitions, cancel)?;
     verify_module_with_program(module, None, &mut FlowBudget::new(cancel), definitions)?;
-    let resources = VerificationResources::new(vec![module], definitions, cancel)?;
-    let scope = resources.scope(&[0], resources.receiver_owners(&[0]), cancel)?;
+    let mut resources = VerificationResources::new(vec![module], definitions, cancel)?;
+    let scope = resources.scope(&[0], cancel)?;
     trait_bounds::verify_trait_bounds(0, None, &resources, &scope, cancel)?;
     Ok(())
 }

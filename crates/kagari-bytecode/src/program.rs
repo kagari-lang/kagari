@@ -118,8 +118,10 @@ fn verify_graph_inner(
             &mut flow_budget,
             definitions,
         )?);
+        #[cfg(test)]
+        tests::after_module(cancel);
     }
-    let resources =
+    let mut resources =
         VerificationResources::new(program.modules.iter().collect(), definitions, cancel)?;
     let mut layouts = HashMap::new();
     let mut enum_layouts = HashMap::new();
@@ -326,7 +328,7 @@ fn verify_graph_inner(
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
-        let scope = resources.scope(&indices, owners, cancel)?;
+        let scope = resources.scope(&indices, cancel)?;
         trait_bounds::verify_trait_bounds(index, Some(program), &resources, &scope, cancel)?;
         for instruction in module
             .functions
@@ -405,3 +407,6 @@ impl BytecodeProgram {
 }
 
 mod mapping;
+
+#[cfg(test)]
+mod tests;

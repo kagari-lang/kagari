@@ -42,6 +42,12 @@ MIR options. Export derives metadata from the exact seal, while editable/importe
 artifacts remain untrusted and independently validated. Caller cancellation is
 carried by lowering options through source checking and preparation admission.
 
+Source options propagate cancellation through checking, lowering and bytecode
+admission. `PreparedProgram::from_artifact` propagates its caller token through
+resource checks, identity adoption and executable graph validation; interruption
+returns `ProgramPreparationError::Cancelled` without a prepared program. Loading
+still validates the receiving runtime's installed bindings before publication.
+
 ## Source snapshots
 
 `FileAnalysis::signatures_reused()` and `FileSignatures::reused()` report whether

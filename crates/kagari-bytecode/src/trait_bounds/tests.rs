@@ -68,12 +68,12 @@ fn with_hash_bounds(context: &DefinitionContext, module: &BytecodeModule) -> boo
         ..Default::default()
     };
     let cancel = CancellationToken::default();
-    let Ok(resources) =
+    let Ok(mut resources) =
         VerificationResources::new(vec![module, &protocol], &context.snapshot(), &cancel)
     else {
         return false;
     };
-    let Ok(scope) = resources.scope(&[0, 1], resources.receiver_owners(&[0, 1]), &cancel) else {
+    let Ok(scope) = resources.scope(&[0, 1], &cancel) else {
         return false;
     };
     verify_trait_bounds(0, None, &resources, &scope, &cancel).is_ok()

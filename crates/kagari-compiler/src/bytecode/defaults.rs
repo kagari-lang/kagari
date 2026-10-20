@@ -9,12 +9,30 @@ use kagari_contract::types::{
     proofs::{ProofCatalog, implementation::Implementation},
 };
 use kagari_mir::verify::VerifiedMirModule;
+use kagari_types::callable::CallableImplementation;
 
 pub(super) fn catalog<'a>(
     modules: &'a [VerifiedMirModule],
     definitions: &DefinitionTable,
     cancel: &CancellationToken,
-) -> Result<ProofCatalog<'a>, BytecodeLoweringError> {
+) -> Result<Option<ProofCatalog<'a>>, BytecodeLoweringError> {
+    let has_defaults = modules
+        .iter()
+        .flat_map(|module| &module.abi.public_items)
+        .filter_map(|item| match item {
+            PublicItem::InterfaceTable(table) => Some(table),
+            _ => None,
+        })
+        .flat_map(|table| &table.methods)
+        .any(|method| {
+            matches!(
+                method.implementation,
+                CallableImplementation::NativeDefault(_)
+            )
+        });
+    if !has_defaults {
+        return Ok(None);
+    }
     let mut contracts = Vec::new();
     for module in modules {
         for item in &module.abi.public_items {
@@ -59,5 +77,6 @@ pub(super) fn catalog<'a>(
         definitions,
         cancel,
     )
+    .map(Some)
     .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
 }

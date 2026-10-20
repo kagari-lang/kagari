@@ -29,7 +29,7 @@ use kagari_contract::{
     native_import::NativeImport,
     operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
     representation::semantic_representation,
-    types::ConcreteFunctionIdentity,
+    types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
 use kagari_mir::{
     analysis::FunctionAnalysis,
@@ -113,7 +113,9 @@ pub fn lower_to_bytecode(
     {
         return Err(BytecodeLoweringError::UnlinkedSourceModules);
     }
-    let mut module = lower_linked_module(ir, None, Vec::new())?;
+    let cancel = CancellationToken::default();
+    let catalog = defaults::catalog(slice::from_ref(ir), ir.definitions(), &cancel)?;
+    let mut module = lower_linked_module(ir, None, Vec::new(), catalog.as_ref(), &cancel)?;
     views::populate(slice::from_mut(&mut module), ir.definitions())?;
     verify_module(&module, ir.definitions(), &Default::default())
         .map_err(BytecodeLoweringError::Verification)?;
@@ -125,6 +127,8 @@ fn lower_linked_module(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
     dependencies: Vec<ModuleRef>,
+    catalog: Option<&ProofCatalog<'_>>,
+    cancel: &CancellationToken,
 ) -> Result<BytecodeModule, BytecodeLoweringError> {
     let mut context = BytecodeLoweringContext {
         program,
@@ -146,7 +150,8 @@ fn lower_linked_module(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let interface_tables = collect_interface_tables(ir, program, &mut context.native_imports)?;
+    let interface_tables =
+        collect_interface_tables(ir, program, &mut context.native_imports, catalog, cancel)?;
     let mut module = BytecodeModule {
         dependencies,
         external_types: ir.external_types.clone(),
@@ -1094,7 +1099,7 @@ pub fn lower_program_to_bytecode(
     program: &VerifiedMirProgram,
     cancel: &CancellationToken,
 ) -> Result<VerifiedBytecodeProgram, BytecodeLoweringError> {
-    let bytecode = lower_program_for_comparison(program)?;
+    let bytecode = lower_program_for_comparison(program, cancel)?;
     VerifiedBytecodeProgram::from_metadata(bytecode, cancel)
         .map_err(BytecodeLoweringError::ProgramValidation)
 }
@@ -1103,7 +1108,9 @@ pub fn lower_program_to_bytecode(
 /// verified bytecode. Public emission must verify it before returning code.
 pub(crate) fn lower_program_for_comparison(
     program: &VerifiedMirProgram,
+    cancel: &CancellationToken,
 ) -> Result<DefinitionMetadata<BytecodeProgram>, BytecodeLoweringError> {
+    let catalog = defaults::catalog(program.modules(), program.definitions(), cancel)?;
     let indices = program
         .modules()
         .iter()
@@ -1122,6 +1129,8 @@ pub(crate) fn lower_program_for_comparison(
                     .iter()
                     .map(|identity| indices[identity])
                     .collect(),
+                catalog.as_ref(),
+                cancel,
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -1131,6 +1140,6 @@ pub(crate) fn lower_program_for_comparison(
         modules,
     };
     views::populate(&mut bytecode.modules, program.definitions())?;
-    DefinitionMetadata::checked(program.definitions().clone(), bytecode, &Default::default())
+    DefinitionMetadata::checked(program.definitions().clone(), bytecode, cancel)
         .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
 }

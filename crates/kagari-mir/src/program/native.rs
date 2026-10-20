@@ -5,23 +5,16 @@ use crate::{
     program::{bridges, shared},
     verify::ValidatedMirModule,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, table::DefinitionTable},
-};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_contract::{
     callable::witness::OperationWitness,
     native_import::callables::NativeCallableOrigin,
     operations::BinaryOp,
     standard::RuntimePrimitive,
-    types::{
-        ConcreteFunctionIdentity, PublicItem,
-        proofs::{ProofCatalog, implementation::Implementation},
-    },
+    types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
 };
 use kagari_types::{
     callable::{CallableImplementation, Signature},
-    declaration::ownership::ReceiverOwners,
     language::Protocol,
     ty::{
         GenericParam,
@@ -32,67 +25,11 @@ use kagari_types::{
 pub(super) fn validate(
     caller: &MirModule,
     closure: &[&ValidatedMirModule],
-    definitions: &DefinitionTable,
+    catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<bool, TypeTransformError> {
+    let definitions = catalog.definitions();
     if !bridges::valid(caller, definitions, cancel)? {
-        return Ok(false);
-    }
-    let tables = closure
-        .iter()
-        .flat_map(|module| &module.abi.public_items)
-        .filter_map(|item| {
-            if let PublicItem::InterfaceTable(table) = item {
-                (table.bridge.is_none()).then_some(Implementation::Interface(table.as_ref()))
-            } else {
-                None
-            }
-        })
-        .collect();
-    let mut declarations = Vec::new();
-    for module in closure {
-        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-        for item in &module.abi.public_items {
-            let PublicItem::Trait(record) = item else {
-                continue;
-            };
-            let owner = definitions
-                .lookup_root(&module.identity)
-                .and_then(|root| {
-                    definitions.lookup_child(root, DefinitionKind::Trait, &record.name, 0)
-                })
-                .ok_or(TypeTransformError::InvalidContract)?;
-            declarations.push((owner, record));
-        }
-        declarations.extend(
-            module
-                .abi
-                .trait_contracts
-                .iter()
-                .map(|contract| (contract.declaration, &contract.abi)),
-        );
-    }
-    let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
-        module.abi.public_items.iter().filter_map(|item| {
-            if let PublicItem::Type(ty) = item {
-                Some((&module.identity, ty))
-            } else {
-                None
-            }
-        })
-    }))
-    .map_err(|_| TypeTransformError::InvalidContract)?;
-    let catalog = ProofCatalog::new(
-        tables,
-        closure.iter().flat_map(|module| &module.enumerations),
-        declarations,
-        closure
-            .iter()
-            .flat_map(|module| &module.abi.native_declarations),
-        definitions,
-        cancel,
-    )?;
-    if !catalog.overrides_valid(&owners, cancel)? {
         return Ok(false);
     }
     for function in &caller.functions {
@@ -187,7 +124,7 @@ pub(super) fn validate(
                 let body = function.semantic.generic.as_ref();
                 if !call.check(
                     contract,
-                    &catalog,
+                    catalog,
                     body.map_or(&[], |body| body.parameters.as_slice()),
                     body.map_or(&[], |body| body.bounds.as_slice()),
                     cancel,
@@ -218,10 +155,10 @@ pub(super) fn validate(
             return Ok(false);
         }
     }
-    if !native_slots_valid(caller, &catalog, cancel)? {
+    if !native_slots_valid(caller, catalog, cancel)? {
         return Ok(false);
     }
-    if !shared::valid(caller, closure, &catalog, cancel)? {
+    if !shared::valid(caller, closure, catalog, cancel)? {
         return Ok(false);
     }
     if caller
@@ -249,7 +186,7 @@ pub(super) fn validate(
         else {
             return Ok(false);
         };
-        if !import.matches_declaration(declaration, &catalog, cancel)? {
+        if !import.matches_declaration(declaration, catalog, cancel)? {
             return Ok(false);
         }
     }

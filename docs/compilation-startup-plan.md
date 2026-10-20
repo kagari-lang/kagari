@@ -620,7 +620,7 @@ in tracked documentation. No new measurements are required before CS02 begins.
 | CS03 | Complete | Shared bounded shape traversal; 17 type-owner tests, extended wire edges, 2 trait and 9 compiler host-contract tests passed; zero measured predicate allocations. Required local checks passed. |
 | CS04 | Complete (local scope) | Graph-owned proof resources, exact dependency views, cancellation and focused checks pass. Exhaustive matrices remain CI-owned. |
 | CS05 | Complete (local scope) | Immediate-run consumers and release browser products. |
-| CS06 | Not started | Focused integration, measured goals and documentation handoff. |
+| CS06 | In progress | Source-free controls pass; exact products, matched release measurements and remaining integration underway. |
 
 CS01 changed documentation only; no Rust test result is claimed. A matched
 pre-change release WASM product build is in progress for final performance evidence. Existing CI/performance findings remain with their current
@@ -799,3 +799,75 @@ migration initially exposed the SDK diagnostic-record field and a deliberately
 artifact-only inspection helper; both were corrected without dropping artifact
 coverage or relabelling it as Source. Manual structure review found no new
 re-exports/globs, compatibility facades or exceptions. Complete matrices remain CI-owned.
+
+
+### CS06 evidence (in progress)
+
+Independent Cargo invocations passed the source-free portable artifact execution,
+forged native-signature rejection, and native-enabled source-free Cranelift entry
+cases after one fixture regeneration. A deterministic external artifact admission
+test cancels after 16 of 32 modules have completed structural verification, and
+returns `BytecodeVerificationError::Cancelled` without an executable seal. This
+complements CS04's proof-record interruption and source/pre-cancel controls.
+
+Matched native baseline uses an archived `77ef42e8` source tree under ignored target,
+the same toolchain/workspace release profile/default features and default build
+parallelism. Timing and requested-live-heap probes are separate executables so
+allocator counting does not distort the timing executable. A temporary probe used
+`params.iter()` where semantic parameters are a map; compilation rejected it and
+the probe was corrected to `.values()` before measurement. Probe source was removed
+from current crate examples after compilation; no probe becomes production API.
+Both baseline and current builds finish before any reported timing samples.
+
+#### Bounded reassessment after the first timing checkpoint
+
+Five fresh browser contexts per version/workload completed, alternating old/new
+within each sample. On this Mac/Chrome, the minimal first compile/load median was
+1055.5 ms versus 2731.6 ms before this plan; the fresh construction+compile sum was
+1802.5 ms versus 3546.1 ms. These miss both 500/1500 ms development goals despite
+the improvement. The trait fixture also completes with the exact result. Raw samples
+are retained for final reporting; these are not original-Windows goal acceptance.
+
+A separate, excluded CDP CPU profile of a retained compile took 962.1 ms. At a
+requested 1000 us sampling interval (actual intervals vary), disjoint bytecode graph
+verification, MIR verification, MIR lowering excluding verification and bytecode
+lowering excluding verification account for approximately 169, 170, 203 and 129 ms.
+`ProofCatalog::validate_linked` is about 253 ms inclusive across handoffs (overlaps
+those phase totals); structural `prepare` is about 51 ms and override audits about
+47 ms. Native default catalog construction in bytecode lowering is about 105 ms.
+This profile does not establish per-operation call counts or an attainable floor.
+
+The one permitted repair batch extends the same graph-resource model to MIR and
+reuses closure-wide catalog/native-default/override admission only for identical
+sorted dependency closures within one immutable verification invocation. Each cache
+is owned by its verifier resources, has at most one entry per caller module, and
+is discarded at verification completion. Keys select exact module slots in the
+same graph/definition snapshot; generic assumptions and local obligations remain
+uncached. Different visibility cannot share results. Cancellation is polled on
+hits as well as misses. This follows the already reviewed module-resource/local
+validator separation; no source-lifetime, R7/R16, global cache or new backend model
+is introduced. A remaining miss after this batch requires a scope decision, not
+another automatic optimization phase.
+
+The same batch lifts native-default catalog construction from each emitted module
+to whole-program bytecode lowering. The previous call already selected the same
+full MIR graph on every iteration; the change preserves that selection and passes
+a borrowed catalog to each module. Standalone lowering prepares its one-module
+catalog. Caller cancellation now also reaches this preparation and native-input
+correspondence lowering, with cancellation preserved as interruption at the API.
+
+Repair validation passes: external mid-graph cancellation; exact graph visibility;
+two associated-bound cases; nine compiler host-contract cases; offline host binding
+and backend call traces; captured package generations; shared-route heap cancellation
+and native scalar arithmetic; optimized debugger branch/binding state. Separate
+source-free portable and native-enabled Cranelift invocations pass again after the
+verifier changes. This selection covers the moved verification ownership, default
+resolution and consumers without reproducing a workspace test sweep.
+
+Structure checks 1400 Rust files with zero findings. Formatting, workspace all-target
+Clippy and diff checks pass. Clippy initially rejected a needless borrow in the new
+cancellation fixture; it was removed and the required workspace command passed.
+Manual review found no new re-exports, production globs, visibility bridges or
+structural exceptions. No correctness failures are carried. Final rebuilt-product
+measurements and the resulting latency/scope decision remain outstanding; this
+repair checkpoint does not complete CS06 or establish CI acceptance.

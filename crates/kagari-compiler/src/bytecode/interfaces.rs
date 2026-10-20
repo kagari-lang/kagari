@@ -1,6 +1,6 @@
 //! Executable interface slots use checked declaration applications, without bodies
 //! or per-library method selection for registered native entries.
-use crate::bytecode::{BytecodeLoweringError, defaults};
+use crate::bytecode::BytecodeLoweringError;
 use kagari_bytecode::{
     instruction::NativeImportId,
     module::{CallableTarget, InterfaceMethodSlot, InterfaceTableRecord},
@@ -12,7 +12,7 @@ use kagari_common::{
 use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
-    types::{ConcreteFunctionIdentity, PublicItem},
+    types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
 };
 use kagari_mir::{
     instruction::Instruction, program::VerifiedMirProgram, verify::VerifiedMirModule,
@@ -105,30 +105,9 @@ pub(super) fn collect_interface_tables(
     ir: &VerifiedMirModule,
     program: Option<&VerifiedMirProgram>,
     imports: &mut Vec<NativeImport>,
+    catalog: Option<&ProofCatalog<'_>>,
+    cancel: &CancellationToken,
 ) -> Result<Vec<InterfaceTableRecord>, BytecodeLoweringError> {
-    let closure = program
-        .map(VerifiedMirProgram::modules)
-        .unwrap_or(slice::from_ref(ir));
-    let cancel = CancellationToken::default();
-    let has_defaults = closure
-        .iter()
-        .flat_map(|module| &module.abi.public_items)
-        .filter_map(|item| match item {
-            PublicItem::InterfaceTable(table) => Some(table),
-            _ => None,
-        })
-        .flat_map(|table| &table.methods)
-        .any(|method| {
-            matches!(
-                method.implementation,
-                CallableImplementation::NativeDefault(_)
-            )
-        });
-    let catalog = if has_defaults {
-        Some(defaults::catalog(closure, ir.definitions(), &cancel)?)
-    } else {
-        None
-    };
     interface_instances(ir, program)
         .into_iter()
         .map(|instance| {
@@ -224,9 +203,8 @@ pub(super) fn collect_interface_tables(
                             .cloned()
                             .collect::<Vec<_>>();
                         let mut instance = catalog
-                            .as_ref()
                             .expect("default catalog")
-                            .resolve_native_default_in(application, &scope, &assumptions, &cancel)
+                            .resolve_native_default_in(application, &scope, &assumptions, cancel)
                             .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)?
                             .ok_or(BytecodeLoweringError::InvalidNativeInterface)?
                             .instance;

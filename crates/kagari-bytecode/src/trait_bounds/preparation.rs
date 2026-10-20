@@ -20,7 +20,10 @@ use kagari_contract::types::{
     },
 };
 use kagari_types::declaration::{TraitDef, ownership::ReceiverOwners};
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 pub(crate) struct VerificationResources<'a> {
     pub modules: Vec<&'a BytecodeModule>,
@@ -29,12 +32,12 @@ pub(crate) struct VerificationResources<'a> {
     pub tables: Vec<Vec<&'a InterfaceTable>>,
     proofs: ProgramProofs<'a>,
     owners: ReceiverOwners,
+    scopes: HashMap<Vec<usize>, Arc<VerificationScope<'a>>>,
 }
 
 pub(crate) struct VerificationScope<'a> {
     pub modules: Vec<&'a BytecodeModule>,
     pub catalog: ProofCatalog<'a>,
-    pub owners: ReceiverOwners,
 }
 
 impl<'a> VerificationResources<'a> {
@@ -93,6 +96,7 @@ impl<'a> VerificationResources<'a> {
             tables: all_tables,
             proofs,
             owners,
+            scopes: HashMap::new(),
         })
     }
 
@@ -104,12 +108,21 @@ impl<'a> VerificationResources<'a> {
         self.owners.restricted_to(|module| visible.contains(module))
     }
 
+    /// Reuse closure-wide admission only for the exact sorted module positions.
+    /// This owner lives for one immutable graph and receives at most one query
+    /// per module; function-local assumptions and proof searches are not cached.
     pub fn scope(
-        &self,
+        &mut self,
         indices: &[usize],
-        owners: ReceiverOwners,
         cancel: &CancellationToken,
-    ) -> Result<VerificationScope<'a>, BytecodeVerificationError> {
+    ) -> Result<Arc<VerificationScope<'a>>, BytecodeVerificationError> {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
+        if let Some(scope) = self.scopes.get(indices) {
+            return Ok(scope.clone());
+        }
+        let owners = self.receiver_owners(indices);
         let catalog = self
             .proofs
             .view(indices.iter().copied(), cancel)
@@ -118,10 +131,14 @@ impl<'a> VerificationResources<'a> {
             .iter()
             .map(|index| self.modules[*index])
             .collect::<Vec<_>>();
-        Ok(VerificationScope {
-            modules,
-            catalog,
-            owners,
-        })
+        if !catalog
+            .overrides_valid(&owners, cancel)
+            .map_err(|error| LinkedValidationError::from(error).into_verification())?
+        {
+            return Err(LinkedValidationError::Contract.into_verification());
+        }
+        let scope = Arc::new(VerificationScope { modules, catalog });
+        self.scopes.insert(indices.to_vec(), scope.clone());
+        Ok(scope)
     }
 }

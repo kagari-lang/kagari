@@ -42,7 +42,13 @@ pub fn verify_native_input(
 ) -> Result<VerifiedMirProgram, NativeInputError> {
     check_cancel(cancel)?;
     let mir = decode_program(bytes, cancel)?;
-    let lowered = lower_program_for_comparison(&mir).map_err(NativeInputError::Lowering)?;
+    let lowered = lower_program_for_comparison(&mir, cancel).map_err(|error| {
+        if cancel.check().is_err() {
+            NativeInputError::Cancelled
+        } else {
+            NativeInputError::Lowering(error)
+        }
+    })?;
     // Compare the complete canonical wire facts, including floating-point bits,
     // layouts, concrete identities, imports and debug origins. The wire owner
     // checks scope and resource bounds before returning either encoding.

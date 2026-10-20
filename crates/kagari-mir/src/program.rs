@@ -3,12 +3,13 @@ mod applications;
 mod bridges;
 pub mod construction;
 mod native;
+mod proofs;
 pub mod records;
 mod shared;
 use crate::{
     ids::InstanceId,
     instruction::{CallTarget, Instruction},
-    program::records::MirProgram,
+    program::{proofs::ProofResources, records::MirProgram},
     verify::{
         MirVerificationError, ValidatedMirModule, VerificationBudget, VerifiedMirModule, ownership,
         verify_with_budget,
@@ -259,6 +260,15 @@ pub fn verify_program(
     if reachable.len() != modules.len() {
         return Err(error(&root, ProgramErrorKind::InvalidGraph));
     }
+    let mut proofs = ProofResources::new(&modules, &definitions, cancel).map_err(|cause| {
+        error(
+            &root,
+            match cause {
+                TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                _ => ProgramErrorKind::InvalidGraph,
+            },
+        )
+    })?;
     // Calls may follow public facades, so their owner can be a transitive dependency.
     for (index, module) in modules.iter().enumerate() {
         let mut dependencies = HashSet::new();
@@ -596,7 +606,19 @@ pub fn verify_program(
                 ));
             }
         }
-        if !native::validate(module, &closure, &definitions, cancel).map_err(|cause| {
+        let visible = (0..modules.len())
+            .filter(|owner| *owner == index || dependencies.contains(owner))
+            .collect();
+        let catalog = proofs.scope(visible, cancel).map_err(|cause| {
+            error(
+                &module.identity,
+                match cause {
+                    TypeTransformError::Cancelled => ProgramErrorKind::Cancelled,
+                    _ => ProgramErrorKind::InvalidGraph,
+                },
+            )
+        })?;
+        if !native::validate(module, &closure, &catalog, cancel).map_err(|cause| {
             error(
                 &module.identity,
                 match cause {
@@ -611,6 +633,7 @@ pub fn verify_program(
     cancel
         .check()
         .map_err(|_| error(&root, ProgramErrorKind::Cancelled))?;
+    drop(proofs);
     construction::verify_closed_interfaces(
         &modules
             .iter()
