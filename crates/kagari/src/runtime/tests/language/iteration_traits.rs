@@ -495,9 +495,10 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
             .iter()
             .collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.records().program, &table).unwrap();
+    verify_program(&artifact.records().program, &table, &Default::default()).unwrap();
     let root = artifact.records().program.root.index();
     let import = artifact.records().program.modules[root]
         .native_imports
@@ -548,8 +549,16 @@ fn malformed_native_iter_operations_are_rejected_before_execution() {
                 })))
             }
         }
-        assert!(verify_program(&program, &context.snapshot()).is_err());
-        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
+        assert!(verify_program(&program, &context.snapshot(), &Default::default()).is_err());
+        assert!(
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err()
+        );
     }
 }
 

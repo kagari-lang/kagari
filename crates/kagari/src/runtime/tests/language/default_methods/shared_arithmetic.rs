@@ -441,7 +441,13 @@ fn main() -> i32 {
         // Reconstruct verified executable data, not source diagnostics or stale
         // fingerprints: each forgery must fail the source-free contract verifier.
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "accepted operator forgery: {mutation:?}"
         );
     }

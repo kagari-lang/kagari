@@ -165,8 +165,13 @@ fn structural_agreement_does_not_authorize_an_unknown_or_wrong_native_entry() {
             *id = altered_binding(&context, *id, change)
         });
         // Consistent unsigned contract assertions remain structurally checkable.
-        let forged =
-            KbcArtifact::from_program(original.program, Default::default(), &context).unwrap();
+        let forged = KbcArtifact::from_program(
+            original.program,
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         let program = PreparedProgram::from_artifact(
             DefinitionMetadata::checked(context.snapshot(), forged, &Default::default()).unwrap(),
             &Default::default(),
@@ -284,7 +289,13 @@ fn a_forged_source_signature_cannot_change_the_installed_native_signature() {
     // Alter only the native result and its caller, leaving the binding identity intact.
     // u8 and u16 share a representation: portable checks accept the forgery,
     // but installation must check the source ABI.
-    let forged = KbcArtifact::from_program(original.program, Default::default(), &context).unwrap();
+    let forged = KbcArtifact::from_program(
+        original.program,
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let program = PreparedProgram::from_artifact(
         DefinitionMetadata::checked(context.snapshot(), forged, &Default::default()).unwrap(),
         &Default::default(),

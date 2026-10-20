@@ -89,17 +89,22 @@ fn ordinary_slot_initialization_requires_the_first_entry_and_every_join_edge() {
             reason: "uninitialized executable slot",
         };
         assert_eq!(
-            verify_program(&forged, &context.snapshot()),
+            verify_program(&forged, &context.snapshot(), &Default::default()),
             Err(expected.clone())
         );
-        let mut artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let mut artifact = KbcArtifact::from_program(
+            valid.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact.program = forged;
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         assert!(
-            matches!(decoded.validate_for_loader(&Default::default(), &context), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
+            matches!(decoded.validate_for_loader(&Default::default(), &context, &Default::default()), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
         );
     }
 }
@@ -181,20 +186,25 @@ fn overwritten_and_joined_constant_facts_cannot_forge_tuple_element_types() {
         code.extend([read, BytecodeInstruction::Return(Some(dst))]);
         replace_fixture_code(function, code);
         assert!(matches!(
-            verify_program(&forged, &context.snapshot()),
+            verify_program(&forged, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidOperation {
                 reason: "invalid collection access flow",
                 ..
             })
         ));
-        let mut artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let mut artifact = KbcArtifact::from_program(
+            valid.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact.program = forged;
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         assert!(matches!(
-            decoded.validate_for_loader(&Default::default(), &context),
+            decoded.validate_for_loader(&Default::default(), &context, &Default::default()),
             Err(ArtifactValidationError::Bytecode(
                 BytecodeVerificationError::InvalidOperation {
                     reason: "invalid collection access flow",
@@ -269,16 +279,18 @@ fn incompatible_semantic_types_at_a_join_do_not_become_unchecked_heap_values() {
         reason: "invalid collection access flow",
     };
     assert_eq!(
-        verify_program(&forged, &context.snapshot()),
+        verify_program(&forged, &context.snapshot(), &Default::default()),
         Err(expected.clone())
     );
-    let mut artifact = KbcArtifact::from_program(valid, Default::default(), &context).unwrap();
+    let mut artifact =
+        KbcArtifact::from_program(valid, Default::default(), &context, &Default::default())
+            .unwrap();
     artifact.program = forged;
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap();
     assert!(
-        matches!(decoded.validate_for_loader(&Default::default(), &context), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
+        matches!(decoded.validate_for_loader(&Default::default(), &context, &Default::default()), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
     );
 }
 
@@ -298,14 +310,20 @@ fn rejects_function_fallthrough_before_loading() {
         ));
         function.instructions.pop();
         assert!(matches!(
-            verify_program(&module, &context.snapshot()),
+            verify_program(&module, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidOperation {
                 reason: "function falls through without a terminator",
                 ..
             })
         ));
         assert!(
-            KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).is_err()
+            KbcArtifact::from_program(
+                module,
+                ArtifactBuildOptions::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err()
         );
     }
 }
@@ -361,7 +379,7 @@ fn verifier_rejects_vec_get_scalar_result_and_wrong_arity() {
         .slots
         .retain(|register| *register != dst);
     assert!(matches!(
-        verify_program(&scalar_result, &context.snapshot()),
+        verify_program(&scalar_result, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::TypeMismatch {
             expected: ValueType::HeapObject,
             found: ValueType::I32,
@@ -383,7 +401,7 @@ fn verifier_rejects_vec_get_scalar_result_and_wrong_arity() {
         }
     }
     assert!(matches!(
-        verify_program(&wrong_arity, &context.snapshot()),
+        verify_program(&wrong_arity, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidOperation {
             reason: "native call arity mismatch",
             ..
@@ -400,9 +418,14 @@ fn encoded_root_layout_must_cover_exact_heap_slots() {
     );
     let function = &module.modules[module.root.index()].functions[0];
     assert!(!function.metadata.roots.slots.is_empty() || !function.metadata.roots.slots.is_empty());
-    verify_program(&module, &context.snapshot()).unwrap();
-    let artifact =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
+    let artifact = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     for corruption in ["missing", "extra"] {
         let mut forged = artifact.clone();
         let roots = &mut forged.program.modules[forged.program.root.index()].functions[0]
@@ -414,14 +437,18 @@ fn encoded_root_layout_must_cover_exact_heap_slots() {
             roots.slots.push(Slot::new(0));
         }
         assert!(matches!(
-            verify_program(&forged.program, &context.snapshot()),
+            verify_program(&forged.program, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidRootLayout { .. })
         ));
         let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         assert!(matches!(
-            decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
+            decoded.validate_for_loader(
+                &ArtifactCompatibility::default(),
+                &context,
+                &Default::default()
+            ),
             Err(ArtifactValidationError::Bytecode(
                 BytecodeVerificationError::InvalidRootLayout { .. }
             ))
@@ -436,6 +463,7 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
         common::adopt_bytecode(&context, common::bytecode_ok("fn main() -> i32 { 1 }")),
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     for duplicate in [false, true] {
@@ -459,14 +487,14 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
             }
         };
         assert_eq!(
-            verify_program(&forged.program, &context.snapshot()).unwrap_err(),
+            verify_program(&forged.program, &context.snapshot(), &Default::default()).unwrap_err(),
             expected
         );
         let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         assert!(
-            matches!(decoded.validate_for_loader(&ArtifactCompatibility::default(), &context), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
+            matches!(decoded.validate_for_loader(&ArtifactCompatibility::default(), &context, &Default::default()), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
         );
     }
     let mut invalid_register =
@@ -477,11 +505,11 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
             constant: ConstantId::new(0),
         };
     assert!(matches!(
-        verify_program(&invalid_register, &context.snapshot()),
+        verify_program(&invalid_register, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidRegister { .. })
     ));
     assert_eq!(
-        verify_program(&invalid_register, &context.snapshot())
+        verify_program(&invalid_register, &context.snapshot(), &Default::default())
             .unwrap_err()
             .code(),
         "KG_BYTECODE_INVALID_REGISTER"
@@ -497,11 +525,11 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
             src: Slot::new(0),
         };
     assert!(matches!(
-        verify_program(&invalid_local, &context.snapshot()),
+        verify_program(&invalid_local, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidRegister { .. })
     ));
     assert_eq!(
-        verify_program(&invalid_local, &context.snapshot())
+        verify_program(&invalid_local, &context.snapshot(), &Default::default())
             .unwrap_err()
             .code(),
         "KG_BYTECODE_INVALID_REGISTER"
@@ -516,11 +544,11 @@ fn verifier_rejects_malformed_register_local_and_control_flow_bytecode() {
         .control_flow_targets
         .push(JumpTarget::new(usize::MAX));
     assert!(matches!(
-        verify_program(&invalid_jump, &context.snapshot()),
+        verify_program(&invalid_jump, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidJumpTarget { .. })
     ));
     assert_eq!(
-        verify_program(&invalid_jump, &context.snapshot())
+        verify_program(&invalid_jump, &context.snapshot(), &Default::default())
             .unwrap_err()
             .code(),
         "KG_BYTECODE_INVALID_JUMP_TARGET"
@@ -541,7 +569,7 @@ fn verifier_rejects_type_inconsistent_bytecode() {
         .push(ValueType::Bool);
 
     assert!(matches!(
-        verify_program(&bytecode, &context.snapshot()),
+        verify_program(&bytecode, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::TypeMismatch {
             context: "return value",
             expected: ValueType::Bool,
@@ -577,7 +605,7 @@ fn main(value: Vec<i32>) -> u64 {
     *call = CallTarget::RuntimePrimitive(RuntimePrimitive::ValueCmp);
 
     assert!(matches!(
-        verify_program(&bytecode, &context.snapshot()),
+        verify_program(&bytecode, &context.snapshot(), &Default::default()),
         Err(
             BytecodeVerificationError::RuntimePrimitiveSignatureMismatch {
                 intrinsic: RuntimePrimitive::ValueCmp,
@@ -587,7 +615,12 @@ fn main(value: Vec<i32>) -> u64 {
         )
     ));
 
-    let artifact = KbcArtifact::from_program(bytecode, ArtifactBuildOptions::default(), &context);
+    let artifact = KbcArtifact::from_program(
+        bytecode,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    );
     assert!(matches!(
         artifact,
         Err(ArtifactValidationError::Bytecode(
@@ -675,7 +708,7 @@ fn verifier_rejects_invalid_aggregate_writes() {
 
     context.intern_root(&module.identity).unwrap();
     assert!(matches!(
-        verify_module(&module, &context.snapshot()),
+        verify_module(&module, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::TypeMismatch {
             context: "aggregate field value",
             expected: ValueType::I32,
@@ -748,7 +781,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         ..actor_path_module(&context, "health", PathAccess::ReadWrite)
     };
     assert!(matches!(
-        verify_module(&unresolved_path, &context.snapshot()),
+        verify_module(&unresolved_path, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPathId { .. })
     ));
 
@@ -812,7 +845,7 @@ fn verifier_rejects_unresolved_and_read_only_typed_paths() {
         ..actor_path_module(&context, "id", PathAccess::ReadOnly)
     };
     assert!(matches!(
-        verify_module(&read_only_path, &context.snapshot()),
+        verify_module(&read_only_path, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::ReadOnlyPath { .. })
     ));
 }
@@ -851,17 +884,22 @@ fn source_free_origin_tables_reject_missing_out_of_range_and_reordered_pcs() {
             reason: "invalid executable origin mapping",
         };
         assert_eq!(
-            verify_program(&forged, &context.snapshot()),
+            verify_program(&forged, &context.snapshot(), &Default::default()),
             Err(expected.clone())
         );
-        let mut artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let mut artifact = KbcArtifact::from_program(
+            valid.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact.program = forged;
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         assert!(
-            matches!(decoded.validate_for_loader(&Default::default(), &context), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
+            matches!(decoded.validate_for_loader(&Default::default(), &context, &Default::default()), Err(ArtifactValidationError::Bytecode(error)) if error == expected)
         );
     }
 }
@@ -922,19 +960,27 @@ fn entry_backedges_meet_parameter_access_facts_without_a_declared_home_type() {
         } else {
             Ok(())
         };
-        assert_eq!(verify_program(&forged, &context.snapshot()), expected);
+        assert_eq!(
+            verify_program(&forged, &context.snapshot(), &Default::default()),
+            expected
+        );
         let artifact_base = if incompatible {
             valid.clone()
         } else {
             forged.clone()
         };
-        let mut artifact =
-            KbcArtifact::from_program(artifact_base, Default::default(), &context).unwrap();
+        let mut artifact = KbcArtifact::from_program(
+            artifact_base,
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact.program = forged;
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
-        match decoded.validate_for_loader(&Default::default(), &context) {
+        match decoded.validate_for_loader(&Default::default(), &context, &Default::default()) {
             Ok(()) => assert_eq!(expected, Ok(())),
             Err(ArtifactValidationError::Bytecode(error)) => assert_eq!(Err(error), expected),
             Err(error) => panic!("unexpected loader failure: {error}"),
@@ -953,7 +999,7 @@ fn verifier_rejects_malformed_debug_metadata() {
     function.metadata.debug.safe_debug_points.push(point);
 
     assert!(matches!(
-        verify_program(&bytecode, &context.snapshot()),
+        verify_program(&bytecode, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidJumpTarget { .. })
     ));
 }
@@ -966,7 +1012,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
         &context,
         common::bytecode_ok("fn main() { val range = 0u64..2u64; range.start_bound(); }"),
     );
-    verify_program(&module, &context.snapshot()).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
     for mutation in 0..6 {
         let mut invalid = module.clone();
         let instruction = invalid.modules[invalid.root.index()]
@@ -997,7 +1043,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
             }
         }
         assert!(
-            verify_program(&invalid, &context.snapshot()).is_err(),
+            verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),
             "range mutation {mutation}"
         );
     }
@@ -1049,7 +1095,7 @@ fn ranges_reject_forged_shapes_endpoints_and_bounds() {
             }
         }
         assert!(
-            verify_program(&invalid, &context.snapshot()).is_err(),
+            verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),
             "bound mutation {mutation}"
         );
     }
@@ -1067,7 +1113,7 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
             "struct Cell {{ var value: i32 }} fn main() {{ val count = 2u64; val value = {value}; val array = [value, value]; }}"
         );
         let mut module = common::adopt_bytecode(&context, common::bytecode_ok(&source));
-        verify_program(&module, &context.snapshot()).unwrap();
+        verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
         let constant = module.modules[module.root.index()]
             .constants
             .iter()
@@ -1113,7 +1159,7 @@ fn forged_repetition_cannot_copy_shared_mutable_identities() {
             count,
         };
         assert!(
-            verify_program(&module, &context.snapshot()).is_err(),
+            verify_program(&module, &context.snapshot(), &Default::default()).is_err(),
             "{value}"
         );
     }

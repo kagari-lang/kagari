@@ -45,12 +45,13 @@ fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
             .unwrap(),
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let artifact = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap();
-    verify_program(&artifact.program, &context.snapshot()).unwrap();
+    verify_program(&artifact.program, &context.snapshot(), &Default::default()).unwrap();
     let facts = artifact
         .program
         .modules
@@ -72,7 +73,7 @@ fn applied_interface_associated_signatures_survive_both_artifact_boundaries() {
         matches!(&facts[0].result, Ty::NativeObject(nominal) if matches!(nominal.arguments.as_slice(), [Ty::Struct(_)]))
     );
     artifact
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
 }
 
@@ -119,11 +120,12 @@ fn interface_signature_normalizations_are_evidence_not_trusted_type_overrides() 
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&forged, &context.snapshot()).is_err(),
+            verify_program(&forged, &context.snapshot(), &Default::default()).is_err(),
             "mutation {mutation}"
         );
         assert!(
-            KbcArtifact::from_program(forged, Default::default(), &context).is_err(),
+            KbcArtifact::from_program(forged, Default::default(), &context, &Default::default())
+                .is_err(),
             "mutation {mutation}"
         );
     }

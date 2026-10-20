@@ -197,6 +197,7 @@ fn verified_dynamic_dispatch_resolves_declared_member_and_signature_without_an_i
                 exports: Default::default(),
             },
             &context,
+            &Default::default(),
         )
         .unwrap();
         let program = verified.program();

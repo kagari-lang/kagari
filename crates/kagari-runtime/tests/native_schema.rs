@@ -138,14 +138,16 @@ fn program_for_source(module: &NativeModule, text: &str) -> DefinitionMetadata<B
     .import_into(&context, &Default::default())
     .unwrap()
     .into_records();
-    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(bytecode, Default::default(), &context, &Default::default())
+            .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     KbcArtifact::from_bytes(&bytes)
         .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records()
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap()
         .into_bytecode()
         .into_unverified()

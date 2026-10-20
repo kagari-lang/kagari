@@ -86,14 +86,19 @@ fn shared_associated_output_preserves_primitive_and_distinct_custom_results() {
                         .map(|program| program.into_unverified())
                         .unwrap(),
                 );
-                let artifact =
-                    KbcArtifact::from_program(program, Default::default(), &context).unwrap();
+                let artifact = KbcArtifact::from_program(
+                    program,
+                    Default::default(),
+                    &context,
+                    &Default::default(),
+                )
+                .unwrap();
                 let decoded =
                     KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
                         .map(|metadata| common::adopt(&context, metadata))
                         .unwrap();
                 decoded
-                    .validate_for_loader(&Default::default(), &context)
+                    .validate_for_loader(&Default::default(), &context, &Default::default())
                     .unwrap();
             }
             Err(error) => failures.push(format!("{name}: {error:?}")),
@@ -287,7 +292,7 @@ fn shared_arithmetic_preserves_source_width_and_checks_callable_evidence() {
             })
             .unwrap();
         operations.clear();
-        assert!(verify_program(&missing, &context.snapshot()).is_err());
+        assert!(verify_program(&missing, &context.snapshot(), &Default::default()).is_err());
     }
 }
 
@@ -351,7 +356,7 @@ fn narrow_arithmetic_retains_source_width_without_assert_expansion() {
                 .unwrap();
             let original = *operation;
             operation.rhs = Some(BuiltinType::F32);
-            assert!(verify_program(&malformed, &context.snapshot()).is_err());
+            assert!(verify_program(&malformed, &context.snapshot(), &Default::default()).is_err());
             let operation = malformed.modules[malformed.root.index()]
                 .functions
                 .iter_mut()
@@ -367,7 +372,7 @@ fn narrow_arithmetic_retains_source_width_without_assert_expansion() {
             *operation = original;
             operation.input = BuiltinType::I64;
             operation.rhs = Some(BuiltinType::I64);
-            assert!(verify_program(&malformed, &context.snapshot()).is_err());
+            assert!(verify_program(&malformed, &context.snapshot(), &Default::default()).is_err());
         }
     }
 }

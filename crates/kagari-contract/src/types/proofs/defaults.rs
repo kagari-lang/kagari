@@ -27,7 +27,7 @@ impl ProofCatalog<'_> {
         cancel: &CancellationToken,
     ) -> Result<bool, TypeTransformError> {
         let budget = Budget::new(cancel);
-        for (owner, contract) in &self.contracts {
+        for (owner, contract) in self.contracts.iter() {
             for method in &contract.methods {
                 budget.step(0)?;
                 let CallableImplementation::NativeDefault(application) = &method.implementation

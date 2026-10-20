@@ -57,8 +57,8 @@ impl VerifiedBytecodeProgram {
         cancel
             .check()
             .map_err(|_| ArtifactValidationError::Identity(DefinitionMappingError::Cancelled))?;
-        validate_program_resource_limits(metadata.records(), metadata.definitions())?;
-        let verification = verify_graph(metadata.records(), metadata.definitions())
+        validate_program_resource_limits(metadata.records(), metadata.definitions(), cancel)?;
+        let verification = verify_graph(metadata.records(), metadata.definitions(), cancel)
             .map_err(ArtifactValidationError::Bytecode)?;
         cancel
             .check()
@@ -72,13 +72,15 @@ impl VerifiedBytecodeProgram {
     pub fn new(
         program: BytecodeProgram,
         context: &DefinitionContext,
+        cancel: &CancellationToken,
     ) -> Result<Self, ArtifactValidationError> {
-        validate_program_resource_limits(&program, &context.snapshot())?;
-        let definitions = identity::collect(&program.modules.iter().collect::<Vec<_>>(), context)
+        validate_program_resource_limits(&program, &context.snapshot(), cancel)?;
+        let definitions =
+            identity::collect(&program.modules.iter().collect::<Vec<_>>(), context, cancel)
+                .map_err(ArtifactValidationError::Bytecode)?;
+        let verification = verify_graph(&program, &definitions, cancel)
             .map_err(ArtifactValidationError::Bytecode)?;
-        let verification =
-            verify_graph(&program, &definitions).map_err(ArtifactValidationError::Bytecode)?;
-        Self::from_verified(program, verification, definitions)
+        Self::from_verified(program, verification, definitions, cancel)
     }
 
     // Only bytecode-owned validation may retain evidence without repeating it.
@@ -86,10 +88,10 @@ impl VerifiedBytecodeProgram {
         program: BytecodeProgram,
         verification: ProgramVerification,
         definitions: DefinitionTable,
+        cancel: &CancellationToken,
     ) -> Result<Self, ArtifactValidationError> {
-        let metadata =
-            DefinitionMetadata::checked(definitions, program, &CancellationToken::default())
-                .map_err(ArtifactValidationError::Identity)?;
+        let metadata = DefinitionMetadata::checked(definitions, program, cancel)
+            .map_err(ArtifactValidationError::Identity)?;
         Ok(Self {
             metadata,
             verification,

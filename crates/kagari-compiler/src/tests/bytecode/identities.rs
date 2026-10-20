@@ -51,7 +51,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
     mismatched_record.modules[mismatched_record.root.index()].function_table[generic].identity =
         None;
     assert!(matches!(
-        verify_program(&mismatched_record, &context.snapshot()),
+        verify_program(&mismatched_record, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::FunctionRecordMismatch { .. })
     ));
     let mut duplicate = module.clone();
@@ -78,7 +78,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&duplicate, &context.snapshot()),
+        verify_program(&duplicate, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
     let mut foreign = module.clone();
@@ -96,7 +96,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&foreign, &context.snapshot()),
+        verify_program(&foreign, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
     let mut wrong_kind = module.clone();
@@ -114,7 +114,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&wrong_kind, &context.snapshot()),
+        verify_program(&wrong_kind, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
     let mut oversized = module.clone();
@@ -131,7 +131,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .identity
             .clone();
     assert!(matches!(
-        KbcArtifact::from_program(oversized, Default::default(), &context),
+        KbcArtifact::from_program(oversized, Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "nested module record limit exceeded"
         ))
@@ -154,7 +154,7 @@ fn executable_function_identities_survive_lowering_and_reject_mismatched_records
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&unresolved, &context.snapshot()),
+        verify_program(&unresolved, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidFunctionIdentity { .. })
     ));
 }
@@ -168,7 +168,13 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
             "struct P { var x: i32, val fixed: bool } fn main() -> i32 { val p = P { fixed: true, x: 1 }; p.x = 2; p.x }",
         ),
     );
-    let valid = KbcArtifact::from_program(original.clone(), Default::default(), &context).unwrap();
+    let valid = KbcArtifact::from_program(
+        original.clone(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     for corruption in 0..7 {
         let mut module = original.clone();
         match corruption {
@@ -210,8 +216,13 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
             }
         }
         assert!(
-            KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default(), &context)
-                .is_err()
+            KbcArtifact::from_program(
+                module.clone(),
+                ArtifactBuildOptions::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err()
         );
         let mut corrupted = valid.clone();
         corrupted.program = module;
@@ -221,7 +232,11 @@ fn artifact_loader_rejects_invalid_struct_layouts_slots_and_initializers() {
             .unwrap();
         assert!(
             matches!(
-                artifact.validate_for_loader(&ArtifactCompatibility::default(), &context),
+                artifact.validate_for_loader(
+                    &ArtifactCompatibility::default(),
+                    &context,
+                    &Default::default()
+                ),
                 Err(ArtifactValidationError::Bytecode(_))
             ),
             "corruption {corruption}"
@@ -254,7 +269,7 @@ fn executable_struct_fields_require_concrete_resolved_types() {
     ] {
         let mut invalid = module.clone();
         invalid.modules[invalid.root.index()].structures[0].fields[0].ty = ty;
-        assert!(verify_program(&invalid, &context.snapshot()).is_err());
+        assert!(verify_program(&invalid, &context.snapshot(), &Default::default()).is_err());
     }
 }
 
@@ -287,7 +302,12 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
             modules: vec![declaration_owner, importer],
         }
     };
-    verify_program(&program(importer.clone()), &context.snapshot()).unwrap();
+    verify_program(
+        &program(importer.clone()),
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     for mutation in 0..4 {
         let mut invalid = owner.clone();
         match mutation {
@@ -309,16 +329,20 @@ fn struct_instances_must_match_public_templates_locally_and_across_modules() {
                 .clear(),
         }
         assert_eq!(
-            verify_program(&invalid, &context.snapshot()),
+            verify_program(&invalid, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidStructLayout)
         );
         importer.structures = invalid.modules[invalid.root.index()].structures.clone();
         // An imported layout can be internally valid without matching its owner.
         let mut standalone = importer.clone();
         standalone.dependencies.clear();
-        verify_module(&standalone, &context.snapshot()).unwrap();
+        verify_module(&standalone, &context.snapshot(), &Default::default()).unwrap();
         assert_eq!(
-            verify_program(&program(importer.clone()), &context.snapshot()),
+            verify_program(
+                &program(importer.clone()),
+                &context.snapshot(),
+                &Default::default()
+            ),
             Err(BytecodeVerificationError::InvalidStructLayout)
         );
     }
@@ -371,7 +395,7 @@ fn executable_layouts_reject_noncanonical_declaration_and_member_identities() {
             }
         }
         assert_eq!(
-            verify_program(&invalid, &context.snapshot()),
+            verify_program(&invalid, &context.snapshot(), &Default::default()),
             Err(if mutation < 3 {
                 BytecodeVerificationError::InvalidStructLayout
             } else {

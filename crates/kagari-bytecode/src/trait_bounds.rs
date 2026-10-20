@@ -3,6 +3,7 @@ mod applications;
 mod associated;
 mod callables;
 mod methods;
+pub(crate) mod preparation;
 pub(crate) mod shared;
 pub mod views;
 
@@ -10,7 +11,10 @@ use crate::{
     instruction::{BinaryOp, BytecodeInstruction, CallTarget, ScalarOperand},
     module::BytecodeModule,
     program::BytecodeProgram,
-    trait_bounds::associated::associated_bounds_match,
+    trait_bounds::{
+        associated::associated_bounds_match,
+        preparation::{VerificationResources, VerificationScope},
+    },
     verifier::BytecodeVerificationError,
 };
 use kagari_common::{
@@ -25,14 +29,10 @@ use kagari_contract::{
     representation::builtin_representation,
     standard::RuntimePrimitive,
     types as abi,
-    types::{
-        PublicItem,
-        proofs::{ProofCatalog, implementation::Implementation},
-        verify,
-    },
+    types::{PublicItem, proofs::ProofCatalog, verify},
 };
 use kagari_types::{
-    declaration::{TraitDef, ownership::ReceiverOwners},
+    declaration::TraitDef,
     language::Protocol,
     ty::{
         GenericBound, GenericParam, NominalTy, Ty, inheritance as trait_inheritance,
@@ -95,13 +95,14 @@ fn executable_interface(
     applied: &NominalTy,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> bool {
     dynamic_interface_valid(
         scope,
         applied,
         &|id| contract(id, closure, definitions),
         definitions,
-        &CancellationToken::default(),
+        cancel,
     )
     .unwrap_or(false)
 }
@@ -132,101 +133,87 @@ fn declarations<'a>(
 }
 
 pub(super) fn verify_trait_bounds(
-    module: &BytecodeModule,
-    closure: &[&BytecodeModule],
+    module: usize,
     program: Option<&BytecodeProgram>,
-    definitions: &DefinitionTable,
+    resources: &VerificationResources<'_>,
+    scope: &VerificationScope<'_>,
+    cancel: &CancellationToken,
 ) -> Result<(), BytecodeVerificationError> {
-    match linked_bounds_match(module, closure, program, definitions) {
+    match linked_bounds_match(module, program, resources, scope, cancel) {
         Ok(true) => Ok(()),
-        Err(LinkedValidationError::InterfaceTable) => {
-            Err(BytecodeVerificationError::InvalidInterfaceTable)
-        }
-        _ => Err(BytecodeVerificationError::InvalidHostInterface(
-            "trait output or host bound has no unique valid implementation".into(),
-        )),
+        Ok(false) => Err(LinkedValidationError::Contract.into_verification()),
+        Err(error) => Err(error.into_verification()),
     }
 }
 
 enum LinkedValidationError {
     InterfaceTable,
     Contract,
+    Cancelled,
+}
+
+impl LinkedValidationError {
+    fn into_verification(self) -> BytecodeVerificationError {
+        match self {
+            Self::Cancelled => BytecodeVerificationError::Cancelled,
+            Self::InterfaceTable => BytecodeVerificationError::InvalidInterfaceTable,
+            Self::Contract => BytecodeVerificationError::InvalidHostInterface(
+                "trait output or host bound has no unique valid implementation".into(),
+            ),
+        }
+    }
 }
 
 impl From<TypeTransformError> for LinkedValidationError {
-    fn from(_: TypeTransformError) -> Self {
-        Self::Contract
+    fn from(error: TypeTransformError) -> Self {
+        match error {
+            TypeTransformError::Cancelled => Self::Cancelled,
+            _ => Self::Contract,
+        }
     }
 }
 
 fn linked_bounds_match(
-    module: &BytecodeModule,
-    closure: &[&BytecodeModule],
+    index: usize,
     program: Option<&BytecodeProgram>,
-    definitions: &DefinitionTable,
+    resources: &VerificationResources<'_>,
+    scope: &VerificationScope<'_>,
+    cancel: &CancellationToken,
 ) -> Result<bool, LinkedValidationError> {
-    let cancel = CancellationToken::default();
-    let declarations = closure
-        .iter()
-        .map(|module| declarations(module, definitions))
-        .collect::<Result<Vec<_>, _>>()?
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-    applications::validate(module, closure, &cancel, definitions)?;
-    let tables: Vec<_> = closure
-        .iter()
-        .flat_map(|dependency| &dependency.public_items)
-        .filter_map(|item| match item {
-            PublicItem::InterfaceTable(table) if table.bridge.is_none() => Some(table.as_ref()),
-            _ => None,
-        })
-        .collect();
-    let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
-        module.public_items.iter().filter_map(|item| {
-            if let PublicItem::Type(ty) = item {
-                Some((&module.identity, ty))
-            } else {
-                None
-            }
-        })
-    }))
-    .map_err(|_| LinkedValidationError::Contract)?;
-    let catalog = ProofCatalog::new(
-        tables
-            .iter()
-            .copied()
-            .map(Implementation::Interface)
-            .collect(),
-        closure.iter().flat_map(|module| &module.enumerations),
-        declarations.iter().copied(),
-        closure
-            .iter()
-            .flat_map(|module| &module.native_declarations),
-        definitions,
-        &cancel,
-    )?;
+    let module = resources.modules[index];
+    let closure = scope.modules.as_slice();
+    let catalog = &scope.catalog;
+    let owners = &scope.owners;
+    let declarations = &resources.declarations[index];
+    let tables = &resources.tables[index];
     let definitions = catalog.definitions();
-    if !views::valid(module, closure, &cancel, definitions)
+    applications::validate(module, closure, cancel, definitions)?;
+    if !views::valid(module, closure, cancel, definitions)
         .map_err(|_| LinkedValidationError::InterfaceTable)?
     {
         return Err(LinkedValidationError::InterfaceTable);
     }
-    if !methods::valid(module, &catalog, &cancel)
+    if !methods::valid(module, catalog, cancel)
         .map_err(|_| LinkedValidationError::InterfaceTable)?
     {
         return Err(LinkedValidationError::InterfaceTable);
     }
-    if !shared::valid(module, closure, program, &catalog, &cancel)? {
+    if !shared::valid(module, closure, program, catalog, cancel)? {
         return Ok(false);
     }
-    if !catalog.overrides_valid(&owners, &cancel)?
-        || !instruction_contracts_match(module, closure, program, definitions)
+    if !catalog.overrides_valid(owners, cancel)?
+        || !instruction_contracts_match(module, closure, program, definitions, cancel)
     {
         return Ok(false);
     }
     for function in &module.functions {
+        cancel
+            .check()
+            .map_err(|_| LinkedValidationError::Cancelled)?;
         for instruction in &function.instructions {
+            cancel
+                .check()
+                .map_err(|_| LinkedValidationError::Cancelled)?;
             let primitive = match instruction {
                 BytecodeInstruction::Binary {
                     op: BinaryOp::Eq | BinaryOp::NotEq,
@@ -298,7 +285,7 @@ fn linked_bounds_match(
                     .iter()
                     .map(|(physical, ty)| (*physical, ty.as_deref()))
                     .collect::<Vec<_>>();
-                if !catalog.primitive_comparison_valid(protocol, &facts, &cancel)? {
+                if !catalog.primitive_comparison_valid(protocol, &facts, cancel)? {
                     return Ok(false);
                 }
             }
@@ -338,7 +325,7 @@ fn linked_bounds_match(
                         &bound.ty,
                         &bound.constraints,
                         body.map_or(&[], |body| body.bounds.as_slice()),
-                        &cancel,
+                        cancel,
                     )? {
                         return Ok(false);
                     }
@@ -356,10 +343,10 @@ fn linked_bounds_match(
                 let body = function.metadata.semantic.generic.as_ref();
                 if !call.check(
                     declaration,
-                    &catalog,
+                    catalog,
                     body.map_or(&[], |body| body.parameters.as_slice()),
                     body.map_or(&[], |body| body.bounds.as_slice()),
-                    &cancel,
+                    cancel,
                 )? {
                     return Ok(false);
                 }
@@ -387,7 +374,7 @@ fn linked_bounds_match(
                         .generic
                         .as_ref()
                         .map_or(&[], |body| body.bounds.as_slice()),
-                    &cancel,
+                    cancel,
                 )?
                 .is_none()
         {
@@ -417,8 +404,8 @@ fn linked_bounds_match(
         else {
             return Ok(false);
         };
-        if !import.matches_declaration(declaration, &catalog, &cancel)?
-            || !views::native_result_valid(import, closure, definitions)
+        if !import.matches_declaration(declaration, catalog, cancel)?
+            || !views::native_result_valid(import, closure, definitions, cancel)
         {
             return Ok(false);
         }
@@ -431,7 +418,10 @@ fn linked_bounds_match(
         }
     }
     // Validate unused declaration graphs and constructor references too.
-    for (id, record) in declarations {
+    for &(id, record) in declarations {
+        cancel
+            .check()
+            .map_err(|_| LinkedValidationError::Cancelled)?;
         let applied = NominalTy {
             declaration: id,
             arguments: record
@@ -441,9 +431,12 @@ fn linked_bounds_match(
                 .collect(),
             associated_types: Default::default(),
         };
-        catalog.ancestry(&applied, &Ty::SelfType(id), &cancel)?;
+        catalog.ancestry(&applied, &Ty::SelfType(id), cancel)?;
     }
     for table in tables {
+        cancel
+            .check()
+            .map_err(|_| LinkedValidationError::Cancelled)?;
         let Ty::Trait(applied) = &table.trait_type else {
             return Ok(false);
         };
@@ -451,15 +444,18 @@ fn linked_bounds_match(
             applied,
             &table.for_type,
             &table.bounds,
-            &catalog,
+            catalog,
             closure,
-            &cancel,
+            cancel,
         )? {
             return Ok(false);
         }
     }
 
     for item in &module.public_items {
+        cancel
+            .check()
+            .map_err(|_| LinkedValidationError::Cancelled)?;
         let PublicItem::InterfaceTable(table) = item else {
             continue;
         };
@@ -476,28 +472,30 @@ fn linked_bounds_match(
                 .filter(|member| member.generic_params.is_empty())
                 .count()
             || !verify::interface_constants_match(table, record, definitions)
-            || !verify::interface_families_match(table, record, &cancel, definitions)
+            || !verify::interface_families_match(table, record, cancel, definitions)
             || !verify::interface_methods_match(
                 table,
                 record,
-                &|ty| catalog.normalize(ty, &cancel),
-                &cancel,
+                &|ty| catalog.normalize(ty, cancel),
+                cancel,
             )
         {
             return Ok(false);
         }
         if table.bridge.is_none()
             && matches!(table.for_type, Ty::Host(_))
-            && catalog.implementation_count(interface, &table.for_type, &table.bounds, &cancel)?
-                != 1
+            && catalog.implementation_count(interface, &table.for_type, &table.bounds, cancel)? != 1
         {
             return Ok(false);
         }
-        if !associated_bounds_match(table, interface, record, &catalog, closure, &cancel)? {
+        if !associated_bounds_match(table, interface, record, catalog, closure, cancel)? {
             return Ok(false);
         }
     }
     for linked in &module.interface_tables {
+        cancel
+            .check()
+            .map_err(|_| LinkedValidationError::Cancelled)?;
         if linked.arguments.is_empty() {
             continue;
         }
@@ -512,7 +510,7 @@ fn linked_bounds_match(
         let Ty::Trait(interface) = &table.trait_type else {
             return Ok(false);
         };
-        if catalog.implementation_count(interface, &table.for_type, &table.bounds, &cancel)? != 1 {
+        if catalog.implementation_count(interface, &table.for_type, &table.bounds, cancel)? != 1 {
             return Ok(false);
         }
     }
@@ -553,6 +551,7 @@ fn instruction_contracts_match(
     closure: &[&BytecodeModule],
     program: Option<&BytecodeProgram>,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> bool {
     for (function, instruction) in module.functions.iter().flat_map(|function| {
         function
@@ -560,11 +559,14 @@ fn instruction_contracts_match(
             .iter()
             .map(move |instruction| (function, instruction))
     }) {
+        if cancel.check().is_err() {
+            return false;
+        }
         if let BytecodeInstruction::UpcastInterface { source, target, .. } = instruction {
             let Ok(parents) = trait_inheritance::interface_upcast_targets(
                 source,
                 &Ty::Trait(source.clone()),
-                &CancellationToken::default(),
+                cancel,
                 definitions,
                 &|id| contract(id, closure, definitions),
             ) else {
@@ -620,6 +622,7 @@ fn instruction_contracts_match(
                 applied,
                 closure,
                 definitions,
+                cancel,
             ) {
                 return false;
             }

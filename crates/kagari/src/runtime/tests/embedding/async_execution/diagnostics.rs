@@ -50,9 +50,13 @@ fn fixture(stripped: bool) -> Fixture {
                 function.metadata.debug = Default::default();
             }
         }
-        let artifact =
-            BytecodeArtifact::from_program(artifact.program, Default::default(), &definitions)
-                .unwrap();
+        let artifact = BytecodeArtifact::from_program(
+            artifact.program,
+            Default::default(),
+            &definitions,
+            &Default::default(),
+        )
+        .unwrap();
         DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap()
     } else {
         artifact

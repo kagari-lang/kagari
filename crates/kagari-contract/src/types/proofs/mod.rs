@@ -10,10 +10,17 @@ pub mod implementation;
 mod normalize;
 mod ownership;
 mod protocols;
+pub mod resources;
 mod search;
 mod structural;
 
-use crate::{layout::EnumLayout, types::proofs::implementation::Implementation};
+use crate::{
+    layout::EnumLayout,
+    types::proofs::{
+        implementation::Implementation,
+        resources::{ProofModule, Record, ScopedMap, ScopedRecords},
+    },
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -46,10 +53,10 @@ const MAX_DEPTH: usize = 64;
 
 pub struct ProofCatalog<'a> {
     definitions: DefinitionTable,
-    implementations: Vec<Implementation<'a>>,
-    enumerations: BTreeMap<NominalTy, Vec<&'a Ty>>,
-    contracts: BTreeMap<DefinitionId, &'a TraitDef>,
-    native_declarations: BTreeMap<DefinitionId, &'a NativeDeclaration>,
+    implementations: ScopedRecords<Implementation<'a>>,
+    enumerations: ScopedMap<NominalTy, Vec<&'a Ty>>,
+    contracts: ScopedMap<DefinitionId, &'a TraitDef>,
+    native_declarations: ScopedMap<DefinitionId, &'a NativeDeclaration>,
 }
 
 struct Budget<'a> {
@@ -123,16 +130,64 @@ impl<'a> ProofCatalog<'a> {
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<Self, TypeTransformError> {
+        let result = Self::prepare(
+            vec![ProofModule {
+                implementations,
+                enumerations: enumerations.into_iter().collect(),
+                contracts: contracts.into_iter().collect(),
+                native_declarations: native_declarations.into_iter().collect(),
+            }],
+            definitions,
+            cancel,
+        )?;
+        result.validate_linked(cancel)?;
+        Ok(result)
+    }
+
+    fn prepare(
+        modules: Vec<ProofModule<'a>>,
+        definitions: &DefinitionTable,
+        cancel: &CancellationToken,
+    ) -> Result<Self, TypeTransformError> {
+        let mut implementation_inputs = Vec::new();
+        let mut enumerations = Vec::new();
+        let mut contracts = Vec::new();
+        let mut native_declarations = Vec::new();
+        for (index, module) in modules.into_iter().enumerate() {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            implementation_inputs.extend(
+                module
+                    .implementations
+                    .into_iter()
+                    .map(|record| (index, record)),
+            );
+            enumerations.extend(
+                module
+                    .enumerations
+                    .into_iter()
+                    .map(|record| (index, record)),
+            );
+            contracts.extend(module.contracts.into_iter().map(|record| (index, record)));
+            native_declarations.extend(
+                module
+                    .native_declarations
+                    .into_iter()
+                    .map(|record| (index, record)),
+            );
+        }
         cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
         let copier = TypeSubstitution::default();
         let mut ids = HashSet::new();
         let mut count = 0;
-        for implementation in &implementations {
+        let mut implementations = Vec::new();
+        for (module, implementation) in implementation_inputs {
+            #[cfg(test)]
+            preparation_tests::record(cancel);
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             definitions
                 .resolve(*implementation.declaration())
                 .map_err(|_| TypeTransformError::InvalidContract)?;
-            match implementation {
+            match &implementation {
                 Implementation::Interface(record) => {
                     validate_references(*record, definitions, cancel)?
                 }
@@ -166,9 +221,12 @@ impl<'a> ProofCatalog<'a> {
             )?;
             copier.apply(implementation.receiver(), cancel)?;
             copier.apply_bounds(implementation.bounds(), definitions, cancel)?;
+            implementations.push(Record::new(implementation, module));
         }
-        let mut payloads = BTreeMap::new();
-        for layout in enumerations {
+        let mut payloads: BTreeMap<NominalTy, Record<Vec<&'a Ty>>> = BTreeMap::new();
+        for (module, layout) in enumerations {
+            #[cfg(test)]
+            preparation_tests::record(cancel);
             validate_references(layout, definitions, cancel)?;
             let key = NominalTy {
                 declaration: layout.declaration,
@@ -184,14 +242,27 @@ impl<'a> ProofCatalog<'a> {
             for ty in &payload {
                 copier.apply(ty, cancel)?;
             }
-            if let Some(old) = payloads.insert(key, payload.clone())
-                && old != payload
-            {
-                return Err(TypeTransformError::InvalidContract);
+            if let Some(old) = payloads.get_mut(&key) {
+                if old.value != payload {
+                    return Err(TypeTransformError::InvalidContract);
+                }
+                old.modules.push(module);
+            } else {
+                payloads.insert(key, Record::new(payload, module));
             }
         }
-        let mut declarations = BTreeMap::new();
-        for (id, contract) in contracts {
+        let mut declarations: BTreeMap<DefinitionId, Record<&'a TraitDef>> = BTreeMap::new();
+        for (module, (id, contract)) in contracts {
+            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+            if let Some(old) = declarations.get_mut(&id) {
+                if old.value != contract {
+                    return Err(TypeTransformError::InvalidContract);
+                }
+                old.modules.push(module);
+                continue;
+            }
+            #[cfg(test)]
+            preparation_tests::record(cancel);
             definitions
                 .resolve(id)
                 .map_err(|_| TypeTransformError::InvalidContract)?;
@@ -201,15 +272,12 @@ impl<'a> ProofCatalog<'a> {
                     .lookup_child(id, DefinitionKind::Method, &method.name, 0)
                     .ok_or(TypeTransformError::InvalidContract)?;
             }
-            cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-            if let Some(old) = declarations.insert(id, contract)
-                && old != contract
-            {
-                return Err(TypeTransformError::InvalidContract);
-            }
+            declarations.insert(id, Record::new(contract, module));
         }
         let mut templates = BTreeMap::new();
-        for template in native_declarations {
+        for (module, template) in native_declarations {
+            #[cfg(test)]
+            preparation_tests::record(cancel);
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             if templates.len() >= MAX_NATIVE_DECLARATIONS {
                 return Err(TypeTransformError::LimitExceeded);
@@ -228,21 +296,27 @@ impl<'a> ProofCatalog<'a> {
                 DeclarationValidationError::Cancelled => TypeTransformError::Cancelled,
                 _ => TypeTransformError::InvalidContract,
             })?;
-            if templates.insert(template.declaration, template).is_some() {
+            if templates
+                .insert(template.declaration, Record::new(template, module))
+                .is_some()
+            {
                 return Err(TypeTransformError::InvalidContract);
             }
         }
-        let result = Self {
+        Ok(Self {
             definitions: definitions.clone(),
-            implementations,
-            enumerations: payloads,
-            contracts: declarations,
-            native_declarations: templates,
-        };
-        for template in result.native_declarations.values() {
+            implementations: ScopedRecords::new(implementations),
+            enumerations: ScopedMap::new(payloads),
+            contracts: ScopedMap::new(declarations),
+            native_declarations: ScopedMap::new(templates),
+        })
+    }
+
+    fn validate_linked(&self, cancel: &CancellationToken) -> Result<(), TypeTransformError> {
+        for template in self.native_declarations.values() {
             for required in &template.callable_requirements {
-                if !result.callable_requirement_valid(required)
-                    || !result.holds(
+                if !self.callable_requirement_valid(required)
+                    || !self.holds(
                         &required.interface,
                         &required.receiver,
                         &template.function.bounds,
@@ -253,10 +327,10 @@ impl<'a> ProofCatalog<'a> {
                 }
             }
         }
-        if !result.native_defaults_valid(cancel)? {
+        if !self.native_defaults_valid(cancel)? {
             return Err(TypeTransformError::InvalidContract);
         }
-        Ok(result)
+        Ok(())
     }
 
     pub fn ancestry(
@@ -331,3 +405,6 @@ fn validate_references<T: DefinitionReferences>(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod preparation_tests;

@@ -341,7 +341,13 @@ fn source_trait_reference_uses_explicit_binding_and_portable_abi() {
         .find(|module| !module.trait_references.is_empty())
         .unwrap();
     provider.trait_references.clear();
-    let omitted = KbcArtifact::from_program(omitted, Default::default(), &definitions).unwrap();
+    let omitted = KbcArtifact::from_program(
+        omitted,
+        Default::default(),
+        &definitions,
+        &Default::default(),
+    )
+    .unwrap();
     let omitted =
         DefinitionMetadata::checked(definitions.snapshot(), omitted, &Default::default()).unwrap();
     let omitted =

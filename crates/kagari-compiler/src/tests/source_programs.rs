@@ -1,3 +1,5 @@
+mod proof_visibility;
+
 use crate::{
     bytecode::{BytecodeLoweringError, lower_program_to_bytecode, lower_to_bytecode},
     source::{
@@ -99,7 +101,7 @@ fn public_generic_dependency_functions_specialize_through_source_aliases() {
     );
     let context = DefinitionContext::new().unwrap();
     let program = bytecode(&context, &mir);
-    verify_bytecode_program(&program, &context.snapshot()).unwrap();
+    verify_bytecode_program(&program, &context.snapshot(), &Default::default()).unwrap();
 }
 
 #[test]
@@ -242,14 +244,18 @@ fn public_abi_distinguishes_same_named_imported_types_and_constraints() {
         );
         let root = insert(&mut db, "root", &source);
         let ir = lower_program_to_mir(&checked(&db, root), &Default::default()).unwrap();
-        let artifact =
-            KbcArtifact::from_program(bytecode(&context, &ir), Default::default(), &context)
-                .unwrap();
+        let artifact = KbcArtifact::from_program(
+            bytecode(&context, &ir),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| adopt(&context, metadata))
             .unwrap();
         decoded
-            .validate_for_loader(&Default::default(), &context)
+            .validate_for_loader(&Default::default(), &context, &Default::default())
             .unwrap();
         artifacts.push(decoded);
     }
@@ -371,7 +377,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
     assert_ne!(layouts[0].arguments, layouts[1].arguments);
     assert_ne!(layouts[0].fields[0].ty, layouts[1].fields[0].ty);
     let mut program = bytecode(&context, &ir);
-    verify_bytecode_program(&program, &context.snapshot()).unwrap();
+    verify_bytecode_program(&program, &context.snapshot(), &Default::default()).unwrap();
     // The owner need not execute an instance for its public template to be checked.
     // Installed standard enum layouts are independent of that user declaration.
     let owner = program
@@ -397,7 +403,7 @@ fn generic_layouts_keep_arguments_across_facades_and_share_program_limits() {
         unreachable!()
     };
     template.variants[0].payload[0] = Ty::Builtin(BuiltinType::Bool);
-    assert!(verify_bytecode_program(&program, &context.snapshot()).is_err());
+    assert!(verify_bytecode_program(&program, &context.snapshot(), &Default::default()).is_err());
     let error = lower_program_to_mir(
         &checked,
         &MirLoweringOptions {
@@ -852,6 +858,11 @@ fn bytecode(context: &DefinitionContext, program: &VerifiedMirProgram) -> Byteco
             .map(|program| program.into_unverified())
             .unwrap(),
     );
-    identity::collect(&program.modules.iter().collect::<Vec<_>>(), context).unwrap();
+    identity::collect(
+        &program.modules.iter().collect::<Vec<_>>(),
+        context,
+        &Default::default(),
+    )
+    .unwrap();
     program
 }

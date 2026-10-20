@@ -71,10 +71,12 @@ pub fn validate_load_candidate(
     bytecode: BytecodeProgram,
     context: &DefinitionContext,
 ) -> Result<VerifiedBytecodeProgram, ReloadValidationError> {
-    VerifiedBytecodeProgram::new(bytecode, context).map_err(|error| match error {
-        ArtifactValidationError::Bytecode(error) => ReloadValidationError::Bytecode(error),
-        error => ReloadValidationError::Artifact(error),
-    })
+    VerifiedBytecodeProgram::new(bytecode, context, &Default::default()).map_err(
+        |error| match error {
+            ArtifactValidationError::Bytecode(error) => ReloadValidationError::Bytecode(error),
+            error => ReloadValidationError::Artifact(error),
+        },
+    )
 }
 
 pub fn validate_reload_artifact_candidate(
@@ -86,7 +88,7 @@ pub fn validate_reload_artifact_candidate(
     context: &DefinitionContext,
 ) -> Result<VerifiedArtifact, ReloadValidationError> {
     let artifact = artifact
-        .into_verified(compatibility, context)
+        .into_verified(compatibility, context, &Default::default())
         .map_err(ReloadValidationError::Artifact)?;
     validate_reload_target(active, candidate_name, active_latest)?;
     let bytecode = artifact.bytecode();

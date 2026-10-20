@@ -273,7 +273,8 @@ fn source_free_native_imports_reject_forged_signatures() {
             _ => import.signature.params[0] = import.signature.result.clone(),
         }
         assert!(
-            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+                .is_err(),
             "forgery {corrupt}"
         );
     }
@@ -289,11 +290,12 @@ fn native_payload_interpretation_follows_the_feature_boundary() {
             ..Default::default()
         },
         &context,
+        &Default::default(),
     )
     .unwrap();
     // The envelope is valid in both builds; only native-enabled preparation reads MIR.
     malformed
-        .validate_for_loader(&Default::default(), &context)
+        .validate_for_loader(&Default::default(), &context, &Default::default())
         .unwrap();
     let malformed =
         DefinitionMetadata::checked(context.snapshot(), malformed, &Default::default()).unwrap();
@@ -589,8 +591,13 @@ fn structurally_valid_library_binding_mismatch_is_rejected_on_load() {
         });
     }
     assert!(changed);
-    let artifact =
-        KbcArtifact::from_program(artifact.program, Default::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        artifact.program,
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let artifact =
         DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap();
     let program =
@@ -645,8 +652,9 @@ fn editable_artifact() -> (DefinitionContext, KbcArtifact) {
     let table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &table).unwrap();
+    verify_program(&artifact.program, &table, &Default::default()).unwrap();
     (context, artifact)
 }

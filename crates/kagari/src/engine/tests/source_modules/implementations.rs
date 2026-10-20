@@ -154,9 +154,10 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
             .iter()
             .collect::<Vec<_>>(),
         &definitions,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.records().program, &table).unwrap();
+    verify_program(&artifact.records().program, &table, &Default::default()).unwrap();
     let mut wrong_contract = artifact.records().program.clone();
     let api = wrong_contract
         .modules
@@ -169,11 +170,16 @@ fn imported_applied_trait_impl_runs_through_source_artifact_and_jit() {
     });
     method.unwrap().return_type = Ty::Builtin(BuiltinType::Bool);
     assert!(matches!(
-        verify_program(&wrong_contract, &table),
+        verify_program(&wrong_contract, &table, &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     assert!(matches!(
-        KbcArtifact::from_program(wrong_contract, Default::default(), &definitions),
+        KbcArtifact::from_program(
+            wrong_contract,
+            Default::default(),
+            &definitions,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::InvalidInterfaceTable
         ))

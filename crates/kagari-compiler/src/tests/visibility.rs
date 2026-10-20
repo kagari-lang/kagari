@@ -28,12 +28,14 @@ fn field_visibility_survives_source_free_artifacts() {
         .map(|program| program.into_unverified())
         .map(|metadata| common::adopt_bytecode(&context, metadata))
         .unwrap();
-    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(bytecode, Default::default(), &context, &Default::default())
+            .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let decoded = KbcArtifact::from_bytes(&bytes)
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
     let program = decoded.bytecode().program();
     let module = &program.modules[program.root.index()];
@@ -99,8 +101,11 @@ fn executable_and_declared_field_access_must_agree() {
                 .unwrap();
             layout.fields[0].visibility = Visibility::Public;
         }
-        assert!(verify_program(&forged, &context.snapshot()).is_err());
-        assert!(KbcArtifact::from_program(forged, Default::default(), &context).is_err());
+        assert!(verify_program(&forged, &context.snapshot(), &Default::default()).is_err());
+        assert!(
+            KbcArtifact::from_program(forged, Default::default(), &context, &Default::default())
+                .is_err()
+        );
     }
 }
 
@@ -129,11 +134,13 @@ fn inherent_visibility_and_receiver_survive_source_free_artifacts() {
         .map(|program| program.into_unverified())
         .map(|metadata| common::adopt_bytecode(&context, metadata))
         .unwrap();
-    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(bytecode, Default::default(), &context, &Default::default())
+            .unwrap();
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
     let program = decoded.bytecode().program();
     let module = &program.modules[program.root.index()];
@@ -179,8 +186,11 @@ fn inherent_declaration_receiver_and_executable_signature_are_checked() {
         } else {
             table.methods[0].params[1].ty = Ty::Builtin(BuiltinType::Bool);
         }
-        assert!(verify_program(&forged, &context.snapshot()).is_err());
-        assert!(KbcArtifact::from_program(forged, Default::default(), &context).is_err());
+        assert!(verify_program(&forged, &context.snapshot(), &Default::default()).is_err());
+        assert!(
+            KbcArtifact::from_program(forged, Default::default(), &context, &Default::default())
+                .is_err()
+        );
     }
     let mir = common::mir_ok(METHODS);
     let root = mir.root().clone();
@@ -239,8 +249,11 @@ fn native_inherent_exports_cannot_redefine_registered_signatures() {
                 .native_declarations
                 .retain(|declaration| declaration.function.name != "len"),
         }
-        assert!(verify_program(&forged, &context.snapshot()).is_err());
-        assert!(KbcArtifact::from_program(forged, Default::default(), &context).is_err());
+        assert!(verify_program(&forged, &context.snapshot(), &Default::default()).is_err());
+        assert!(
+            KbcArtifact::from_program(forged, Default::default(), &context, &Default::default())
+                .is_err()
+        );
     }
 }
 
@@ -277,5 +290,5 @@ fn same_named_inherent_members_keep_distinct_owners_and_private_changes_stay_pri
     forged.modules[forged.root.index()]
         .public_items
         .push(tables[0].clone());
-    assert!(verify_program(&forged, &context.snapshot()).is_err());
+    assert!(verify_program(&forged, &context.snapshot(), &Default::default()).is_err());
 }

@@ -110,7 +110,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
             _ => path.path[0].name = "fabricated".into(),
         });
         assert!(matches!(
-            verify_program(&module, &context.snapshot()),
+            verify_program(&module, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidPublicAbi)
         ));
     }
@@ -127,7 +127,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
             _ => table.methods[0].params[0].ty = Ty::Builtin(BuiltinType::I32),
         }
         assert!(matches!(
-            verify_program(&module, &context.snapshot()),
+            verify_program(&module, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidPublicAbi)
         ));
     }
@@ -144,7 +144,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
         path.path[0].occurrence = 1
     });
     assert!(matches!(
-        verify_program(&wrong_trait, &context.snapshot()),
+        verify_program(&wrong_trait, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     let mut duplicate = original.clone();
@@ -154,7 +154,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
         .public_items
         .push(duplicate_table);
     assert!(matches!(
-        verify_program(&duplicate, &context.snapshot()),
+        verify_program(&duplicate, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     for corruption in 0..3 {
@@ -170,7 +170,7 @@ fn interface_tables_require_distinct_local_impl_identities() {
             _ => table.methods.push(table.methods[0].clone()),
         }
         assert!(matches!(
-            verify_program(&module, &context.snapshot()),
+            verify_program(&module, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidPublicAbi)
         ));
     }
@@ -245,7 +245,7 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
                     .insert(0, constraint);
             }
         }
-        let error = verify_program(&module, &context.snapshot()).unwrap_err();
+        let error = verify_program(&module, &context.snapshot(), &Default::default()).unwrap_err();
         if corruption == 5 {
             // A generic declaration cannot back the retained concrete export.
             // The package export contract rejects this before public ABI checks.
@@ -283,7 +283,7 @@ fn public_signatures_reject_foreign_parameters_invalid_arity_and_escaped_self() 
         "Other",
     ));
     assert!(matches!(
-        verify_program(&module, &context.snapshot()),
+        verify_program(&module, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
 }

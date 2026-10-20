@@ -265,7 +265,7 @@ fn common_bind_accepts_free_borrowed_packs_and_rejects_overlap_before_callbacks(
             .unwrap();
         assert_eq!(field.reference, Some(ReferenceAccess::Shared));
         field.reference = reference;
-        assert!(verify_program(&forged, owner.definitions()).is_err());
+        assert!(verify_program(&forged, owner.definitions(), &Default::default()).is_err());
     }
     let stats_field = vm
         .runtime()

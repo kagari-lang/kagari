@@ -332,7 +332,15 @@ fn source_host_handles_link_offline_contracts_and_execute_across_backends() {
     );
     let mut invalid = artifact.records().program.clone();
     invalid.modules[invalid.root.index()].external_types.clear();
-    assert!(KbcArtifact::from_program(invalid, Default::default(), &definitions).is_err());
+    assert!(
+        KbcArtifact::from_program(
+            invalid,
+            Default::default(),
+            &definitions,
+            &Default::default()
+        )
+        .is_err()
+    );
     for (encoded, jit) in [(false, false), (true, false), (true, true)] {
         trace.lock().unwrap().clear();
         let context = context(jit);
@@ -418,7 +426,7 @@ fn annotation_only_host_dependencies_are_verified_and_linked() {
     );
     let mut invalid = artifact.records().program.clone();
     invalid.modules[invalid.root.index()].external_types.clear();
-    assert!(verify_program(&invalid, artifact.definitions()).is_err());
+    assert!(verify_program(&invalid, artifact.definitions(), &Default::default()).is_err());
 }
 
 fn context(jit: bool) -> ExecutionContext {

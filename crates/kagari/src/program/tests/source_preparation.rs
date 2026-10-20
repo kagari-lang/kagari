@@ -2,6 +2,7 @@ use crate::{
     context::ExecutionContext,
     engine::{KagariEngine, source::PreparationOptions},
     error::EmbeddingError,
+    program::{PreparedProgram, ProgramPreparationError},
 };
 use kagari_runtime::{module::entry::ProgramEntry, value::Value};
 use kagari_source::source::SourceFile;
@@ -38,13 +39,18 @@ fn prepared_source_survives_session_disposal_and_independent_runtime_binding() {
 }
 
 #[test]
-fn cancelled_source_preparation_rejects_both_source_and_checked_input() {
+fn cancelled_preparation_rejects_source_checked_and_artifact_input() {
     let engine = KagariEngine::default();
     let checked = engine
         .compile_source(SourceFile::new("cancelled.kgr", "fn main() -> i32 { 42 }"))
         .unwrap();
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
     let options = PreparationOptions::default();
     options.lowering.cancel.cancel();
+    assert!(matches!(
+        PreparedProgram::from_artifact(artifact, &Default::default(), &options.lowering.cancel),
+        Err(ProgramPreparationError::Cancelled)
+    ));
     assert!(matches!(
         engine.prepare(&checked, options.clone()),
         Err(EmbeddingError::Cancelled)

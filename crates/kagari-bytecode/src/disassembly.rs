@@ -66,7 +66,11 @@ impl PreparedDisassembly {
         let header = artifact.header.clone();
         let has_portable_mir = artifact.portable_mir.is_some();
         let program = artifact
-            .into_verified(&ArtifactCompatibility::default(), &context)
+            .into_verified(
+                &ArtifactCompatibility::default(),
+                &context,
+                &Default::default(),
+            )
             .map_err(|error| DisassemblyError::Validation(Box::new(error)))?
             .into_bytecode();
         Ok(Self {

@@ -161,9 +161,10 @@ fn invalid_host_associated_schemas_and_dispatch_targets_are_rejected() {
     let table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &definitions,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &table).unwrap();
+    verify_program(&artifact.program, &table, &Default::default()).unwrap();
     let native = artifact
         .program
         .modules
@@ -221,10 +222,18 @@ fn invalid_host_associated_schemas_and_dispatch_targets_are_rejected() {
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&program, &definitions.snapshot()).is_err(),
+            verify_program(&program, &definitions.snapshot(), &Default::default()).is_err(),
             "accepted mutation {mutation}"
         );
-        assert!(BytecodeArtifact::from_program(program, Default::default(), &definitions).is_err());
+        assert!(
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &definitions,
+                &Default::default()
+            )
+            .is_err()
+        );
     }
 }
 
@@ -448,9 +457,10 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
     let table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &definitions,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &table).unwrap();
+    verify_program(&artifact.program, &table, &Default::default()).unwrap();
     let mut program = artifact.program;
     let module = program
         .modules
@@ -480,8 +490,16 @@ fn host_associated_outputs_are_checked_against_trait_bounds_without_calls() {
     module.public_items.retain(
         |item| !matches!(item, PublicItem::InterfaceTable(table) if table.declaration == removed),
     );
-    assert!(verify_program(&program, &definitions.snapshot()).is_err());
-    assert!(BytecodeArtifact::from_program(program, Default::default(), &definitions).is_err());
+    assert!(verify_program(&program, &definitions.snapshot(), &Default::default()).is_err());
+    assert!(
+        BytecodeArtifact::from_program(
+            program,
+            Default::default(),
+            &definitions,
+            &Default::default()
+        )
+        .is_err()
+    );
 }
 
 #[test]

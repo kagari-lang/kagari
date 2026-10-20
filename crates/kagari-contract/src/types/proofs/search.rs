@@ -335,7 +335,7 @@ impl ProofCatalog<'_> {
         }
         let result = (|| {
             let mut count = 0;
-            for implementation in &self.implementations {
+            for implementation in self.implementations.iter() {
                 budget.step(depth)?;
                 let Some(substitution) = match_pattern(
                     implementation

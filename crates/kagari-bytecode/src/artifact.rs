@@ -65,11 +65,12 @@ fn exceeds_encoded_size(value: &impl Serialize) -> bool {
 pub fn validate_program_resource_limits(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<(), ArtifactValidationError> {
     if let Some(reason) = program_count_limit(program, definitions) {
         return Err(ArtifactValidationError::ResourceLimit(reason));
     }
-    let portable = wire::encode_program(program, definitions, &CancellationToken::default())?;
+    let portable = wire::encode_program(program, definitions, cancel)?;
     if exceeds_encoded_size(&portable) {
         return Err(ArtifactValidationError::ResourceLimit(
             "artifact encoded size limit exceeded",
@@ -160,13 +161,15 @@ impl KbcArtifact {
         self,
         requirements: &ArtifactCompatibility,
         context: &DefinitionContext,
+        cancel: &CancellationToken,
     ) -> Result<VerifiedArtifact, ArtifactValidationError> {
-        let verification = self.validate_execution(requirements, context)?;
+        let verification = self.validate_execution(requirements, context, cancel)?;
         Ok(VerifiedArtifact {
             bytecode: VerifiedBytecodeProgram::from_verified(
                 self.program,
                 verification,
                 context.snapshot(),
+                cancel,
             )?,
             portable_mir: self.portable_mir,
         })
@@ -177,10 +180,10 @@ impl KbcArtifact {
         program: BytecodeProgram,
         options: ArtifactBuildOptions,
         context: &DefinitionContext,
+        cancel: &CancellationToken,
     ) -> Result<Self, ArtifactValidationError> {
-        let program = VerifiedBytecodeProgram::new(program, context)?;
-        Self::from_verified(program, options, &CancellationToken::default())
-            .map(DefinitionMetadata::into_records)
+        let program = VerifiedBytecodeProgram::new(program, context, cancel)?;
+        Self::from_verified(program, options, cancel).map(DefinitionMetadata::into_records)
     }
 
     /// Export an exact sealed program without repeating its executable proof.
@@ -250,7 +253,7 @@ impl KbcArtifact {
             signatures,
             portable_mir,
         };
-        artifact.validate_resource_limits(&definitions)?;
+        artifact.validate_resource_limits(&definitions, cancel)?;
         artifact.header.content_hash = artifact.compute_content_hash(&definitions)?;
         DefinitionMetadata::checked(definitions, artifact, cancel)
             .map_err(ArtifactValidationError::Identity)
@@ -261,14 +264,14 @@ impl KbcArtifact {
     pub fn validate_resource_limits(
         &self,
         definitions: &DefinitionTable,
+        cancel: &CancellationToken,
     ) -> Result<(), ArtifactValidationError> {
         if let Some(reason) = artifact_count_limit(self, definitions) {
             return Err(ArtifactValidationError::ResourceLimit(reason));
         }
         // Check every envelope reference against the input prefix before verification
         // collects implicit declaration names in the append-only context.
-        let cancel = CancellationToken::default();
-        let portable = wire::encode_artifact(self, definitions, &cancel)?;
+        let portable = wire::encode_artifact(self, definitions, cancel)?;
         if exceeds_encoded_size(&portable) {
             return Err(ArtifactValidationError::ResourceLimit(
                 "artifact encoded size limit exceeded",
@@ -281,22 +284,28 @@ impl KbcArtifact {
         &self,
         requirements: &ArtifactCompatibility,
         context: &DefinitionContext,
+        cancel: &CancellationToken,
     ) -> Result<(), ArtifactValidationError> {
-        self.validate_execution(requirements, context).map(|_| ())
+        self.validate_execution(requirements, context, cancel)
+            .map(|_| ())
     }
 
     fn validate_execution(
         &self,
         requirements: &ArtifactCompatibility,
         context: &DefinitionContext,
+        cancel: &CancellationToken,
     ) -> Result<ProgramVerification, ArtifactValidationError> {
-        self.validate_resource_limits(&context.snapshot())?;
+        self.validate_resource_limits(&context.snapshot(), cancel)?;
         self.validate_header(requirements)?;
-        let definitions =
-            identity::collect(&self.program.modules.iter().collect::<Vec<_>>(), context)
-                .map_err(ArtifactValidationError::Bytecode)?;
-        let verification =
-            verify_graph(&self.program, &definitions).map_err(ArtifactValidationError::Bytecode)?;
+        let definitions = identity::collect(
+            &self.program.modules.iter().collect::<Vec<_>>(),
+            context,
+            cancel,
+        )
+        .map_err(ArtifactValidationError::Bytecode)?;
+        let verification = verify_graph(&self.program, &definitions, cancel)
+            .map_err(ArtifactValidationError::Bytecode)?;
         if self.header.content_hash != self.compute_content_hash(&definitions)? {
             return Err(ArtifactValidationError::ContentHashMismatch);
         }

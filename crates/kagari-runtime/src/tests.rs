@@ -194,6 +194,7 @@ fn artifact_with_loader_fingerprints(context: &DefinitionContext) -> KbcArtifact
             ..Default::default()
         },
         context,
+        &Default::default(),
     )
     .unwrap()
 }
@@ -604,6 +605,7 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let dependency_v2 = KbcArtifact::from_program(
@@ -617,6 +619,7 @@ fn reload_invalidates_interpreter_caches_with_stale_dependency_fingerprints() {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let dependency_v1_snapshot =

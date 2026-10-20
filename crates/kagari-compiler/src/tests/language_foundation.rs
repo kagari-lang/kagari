@@ -18,7 +18,12 @@ fn compile(text: &str) {
     let bytecode = lower_program_to_bytecode(&mir, &Default::default())
         .map(|program| program.into_unverified())
         .unwrap();
-    kagari_bytecode::program::verify_program(bytecode.records(), bytecode.definitions()).unwrap();
+    kagari_bytecode::program::verify_program(
+        bytecode.records(),
+        bytecode.definitions(),
+        &Default::default(),
+    )
+    .unwrap();
 }
 
 #[test]

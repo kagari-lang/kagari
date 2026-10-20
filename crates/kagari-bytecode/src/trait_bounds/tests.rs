@@ -67,7 +67,16 @@ fn with_hash_bounds(context: &DefinitionContext, module: &BytecodeModule) -> boo
         public_items: vec![PublicItem::Trait(record("Hash"))],
         ..Default::default()
     };
-    verify_trait_bounds(module, &[module, &protocol], None, &context.snapshot()).is_ok()
+    let cancel = CancellationToken::default();
+    let Ok(resources) =
+        VerificationResources::new(vec![module, &protocol], &context.snapshot(), &cancel)
+    else {
+        return false;
+    };
+    let Ok(scope) = resources.scope(&[0, 1], resources.receiver_owners(&[0, 1]), &cancel) else {
+        return false;
+    };
+    verify_trait_bounds(0, None, &resources, &scope, &cancel).is_ok()
 }
 
 #[test]

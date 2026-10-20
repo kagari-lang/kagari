@@ -91,7 +91,11 @@ fn main() {
         .import_into(&loader_context, &Default::default())
         .unwrap()
         .records()
-        .validate_for_loader(&ArtifactCompatibility::default(), &loader_context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &loader_context,
+            &Default::default(),
+        )
         .expect("loadable artifact");
 }
 

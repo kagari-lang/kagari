@@ -76,6 +76,7 @@ impl Flow<'_> {
     }
 
     fn charge(&mut self, count: usize) -> Result<(), Error> {
+        self.budget.cancel.check().map_err(|_| Error::Cancelled)?;
         self.budget.work = self.budget.work.saturating_add(count);
         if self.budget.work > MAX_FLOW_WORK {
             return Err(self.invalid("executable flow analysis work limit"));

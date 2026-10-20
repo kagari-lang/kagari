@@ -21,6 +21,7 @@ fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
             common::adopt_bytecode(&context, common::bytecode_ok(source)),
             Default::default(),
             &context,
+            &Default::default(),
         )
         .unwrap()
     };
@@ -50,7 +51,8 @@ fn const_abi_uses_evaluated_values_and_preserves_float_bits() {
                     format_version: version,
                     ..Default::default()
                 },
-                &context
+                &context,
+                &Default::default()
             ),
             Err(ArtifactValidationError::FormatVersionMismatch { .. })
         ));
@@ -131,6 +133,7 @@ fn main() -> i32 { add(1, 2) }
             ..Default::default()
         },
         &context,
+        &Default::default(),
     )
     .unwrap();
     assert_eq!(artifact.header.magic, KBC_MAGIC);
@@ -162,7 +165,7 @@ fn main() -> i32 { add(1, 2) }
     };
     assert!(
         artifact
-            .validate_for_loader(&requirements, &context)
+            .validate_for_loader(&requirements, &context, &Default::default())
             .is_ok()
     );
 }
@@ -171,8 +174,13 @@ fn main() -> i32 { add(1, 2) }
 fn serializes_kbc_artifact_bytes_for_loader_execution() {
     let context = DefinitionContext::new().unwrap();
     let module = common::adopt_bytecode(&context, common::bytecode_ok("fn main() -> i32 { 1 }"));
-    let artifact =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
 
     let bytes = artifact
         .to_bytes(&context.snapshot())
@@ -191,7 +199,11 @@ fn serializes_kbc_artifact_bytes_for_loader_execution() {
             .len()
     );
     decoded
-        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
         .expect("decoded artifact should validate");
 }
 
@@ -241,10 +253,15 @@ fn main(flag: bool) -> (i32, bool) {
 "#,
             ),
         );
-        KbcArtifact::from_program(program, ArtifactBuildOptions::default(), &context)
-            .unwrap()
-            .to_bytes(&context.snapshot())
-            .unwrap()
+        KbcArtifact::from_program(
+            program,
+            ArtifactBuildOptions::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap()
+        .to_bytes(&context.snapshot())
+        .unwrap()
     };
     // Compilation and its definition context are gone; only serialized KBC enters
     // the offline path. No engine, provider installation or execution is needed.
@@ -553,8 +570,13 @@ pub fn greet(player: Player) -> String {
             ))
     );
 
-    let artifact =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let names = artifact
         .verification
         .public_abi_fingerprints
@@ -583,6 +605,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         common::adopt_bytecode(&context, common::bytecode_ok("pub fn main() -> i32 { 1 }")),
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let second = KbcArtifact::from_program(
@@ -592,6 +615,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         ),
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let first_main = first
@@ -619,6 +643,7 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     assert_eq!(path_artifact.verification.typed_path_fingerprints.len(), 1);
@@ -632,8 +657,13 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
     );
     let mut renamed = path_artifact.program.clone();
     renamed.modules[0].paths[0].debug_name = "diagnostic label only".into();
-    let renamed =
-        KbcArtifact::from_program(renamed, ArtifactBuildOptions::default(), &context).unwrap();
+    let renamed = KbcArtifact::from_program(
+        renamed,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     assert_eq!(
         path_artifact.verification.typed_path_fingerprints,
         renamed.verification.typed_path_fingerprints
@@ -647,8 +677,13 @@ fn abi_fingerprints_change_with_public_signatures_and_path_descriptors() {
         .unwrap()
         .fingerprint(&definitions)
         .unwrap();
-    let changed =
-        KbcArtifact::from_program(changed, ArtifactBuildOptions::default(), &context).unwrap();
+    let changed = KbcArtifact::from_program(
+        changed,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     assert_ne!(
         path_artifact.verification.typed_path_fingerprints,
         changed.verification.typed_path_fingerprints
@@ -668,6 +703,7 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
                 ..Default::default()
             },
             &context,
+            &Default::default(),
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
@@ -679,7 +715,7 @@ fn rejects_previous_runtime_abis_even_when_loader_requests_them() {
                 ..Default::default()
             };
             assert!(matches!(
-                decoded.validate_for_loader(&requirements, &context),
+                decoded.validate_for_loader(&requirements, &context, &Default::default()),
                 Err(ArtifactValidationError::RuntimeAbiMismatch { .. })
             ));
         }
@@ -701,6 +737,7 @@ fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
                 ..Default::default()
             },
             &context,
+            &Default::default(),
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
@@ -712,7 +749,7 @@ fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
                 ..Default::default()
             };
             assert!(matches!(
-                decoded.validate_for_loader(&requirements, &context),
+                decoded.validate_for_loader(&requirements, &context, &Default::default()),
                 Err(ArtifactValidationError::RuntimeHelperAbiMismatch { .. })
             ));
         }
@@ -723,20 +760,25 @@ fn rejects_helper_abis_without_commit_fault_or_cancellation_status() {
 fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
     let context = DefinitionContext::new().unwrap();
     let module = common::adopt_bytecode(&context, common::bytecode_ok("fn main() -> i32 { 1 }"));
-    let mut artifact =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    let mut artifact = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let requirements = ArtifactCompatibility {
         runtime_abi_version: "other-runtime".to_owned(),
         ..Default::default()
     };
 
     assert!(matches!(
-        artifact.validate_for_loader(&requirements, &context),
+        artifact.validate_for_loader(&requirements, &context, &Default::default()),
         Err(ArtifactValidationError::RuntimeAbiMismatch { .. })
     ));
     assert_eq!(
         artifact
-            .validate_for_loader(&requirements, &context)
+            .validate_for_loader(&requirements, &context, &Default::default())
             .unwrap_err()
             .code(),
         "KG_ARTIFACT_RUNTIME_ABI_MISMATCH"
@@ -747,12 +789,12 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         .source_name
         .push_str("changed");
     assert!(matches!(
-        artifact.validate_for_loader(&requirements, &context),
+        artifact.validate_for_loader(&requirements, &context, &Default::default()),
         Err(ArtifactValidationError::ContentHashMismatch)
     ));
     assert_eq!(
         artifact
-            .validate_for_loader(&requirements, &context)
+            .validate_for_loader(&requirements, &context, &Default::default())
             .unwrap_err()
             .code(),
         "KG_ARTIFACT_CONTENT_HASH_MISMATCH"
@@ -762,6 +804,7 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         common::adopt_bytecode(&context, common::bytecode_ok("fn main() -> i32 { 1 }")),
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let requirements = ArtifactCompatibility {
@@ -772,12 +815,12 @@ fn rejects_incompatible_kbc_artifact_metadata_before_loading() {
         ..Default::default()
     };
     assert!(matches!(
-        artifact.validate_for_loader(&requirements, &context),
+        artifact.validate_for_loader(&requirements, &context, &Default::default()),
         Err(ArtifactValidationError::DependencyFingerprintMismatch)
     ));
     assert_eq!(
         artifact
-            .validate_for_loader(&requirements, &context)
+            .validate_for_loader(&requirements, &context, &Default::default())
             .unwrap_err()
             .code(),
         "KG_ARTIFACT_DEPENDENCY_FINGERPRINT_MISMATCH"

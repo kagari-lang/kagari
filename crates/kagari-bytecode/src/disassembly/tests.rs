@@ -143,6 +143,7 @@ fn fixture() -> (DefinitionContext, KbcArtifact) {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     (context, artifact)
@@ -398,6 +399,7 @@ fn portable_mir_is_reported_but_never_interpreted() {
             ..Default::default()
         },
         &context,
+        &Default::default(),
     )
     .unwrap();
     let prepared =
@@ -585,6 +587,7 @@ fn custom_native_calls_render_verified_offline_contracts_without_providers() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();

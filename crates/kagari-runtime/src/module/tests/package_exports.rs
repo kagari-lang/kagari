@@ -287,8 +287,13 @@ fn source_free_reload_validators_use_the_same_public_contract() {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-        let artifact =
-            KbcArtifact::from_program(program.clone(), Default::default(), &context).unwrap();
+        let artifact = KbcArtifact::from_program(
+            program.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         let raw = validate_reload_candidate(&loaded, "exports", program, Some(&loaded), &context);
         let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
         let decoded_context = DefinitionContext::new().unwrap();

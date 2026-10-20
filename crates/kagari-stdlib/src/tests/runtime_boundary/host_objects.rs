@@ -69,14 +69,16 @@ fn program(source: &str) -> DefinitionMetadata<BytecodeProgram> {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    let artifact = KbcArtifact::from_program(program, Default::default(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     KbcArtifact::from_bytes(&bytes)
         .unwrap()
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records()
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap()
         .into_bytecode()
         .into_unverified()

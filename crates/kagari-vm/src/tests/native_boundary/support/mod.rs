@@ -49,7 +49,9 @@ pub fn round_trip_program(
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    let artifact = KbcArtifact::from_program(program, Default::default(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let receiver = DefinitionContext::new().unwrap();
     let decoded = KbcArtifact::from_bytes(&bytes)
@@ -58,7 +60,7 @@ pub fn round_trip_program(
         .unwrap()
         .into_records();
     decoded
-        .validate_for_loader(&Default::default(), &receiver)
+        .validate_for_loader(&Default::default(), &receiver, &Default::default())
         .unwrap();
     DefinitionMetadata::checked(receiver.snapshot(), decoded.program, &Default::default()).unwrap()
 }

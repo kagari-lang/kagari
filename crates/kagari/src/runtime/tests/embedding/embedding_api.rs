@@ -351,6 +351,7 @@ fn host_path_artifact(
         },
         ArtifactBuildOptions::default(),
         &definitions,
+        &Default::default(),
     )
     .unwrap();
     DefinitionMetadata::checked(definitions.snapshot(), artifact, &Default::default()).unwrap()

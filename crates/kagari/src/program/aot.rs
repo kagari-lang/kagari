@@ -110,6 +110,7 @@ impl AotBuild {
                 ..Default::default()
             },
             &context,
+            cancel,
         )
         .map_err(|e| AotError(e.to_string()))?
         .to_bytes(&context.snapshot())

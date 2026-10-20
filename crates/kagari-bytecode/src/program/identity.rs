@@ -2,7 +2,10 @@
 use crate::{module::BytecodeModule, verifier::BytecodeVerificationError};
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{map::DefinitionContext, scoped::DefinitionReferences, table::DefinitionTable},
+    identity::{
+        map::DefinitionContext, mapping::DefinitionMappingError, scoped::DefinitionReferences,
+        table::DefinitionTable,
+    },
 };
 use kagari_contract::types::identity;
 
@@ -11,19 +14,22 @@ use kagari_contract::types::identity;
 pub fn collect(
     modules: &[&BytecodeModule],
     context: &DefinitionContext,
+    cancel: &CancellationToken,
 ) -> Result<DefinitionTable, BytecodeVerificationError> {
-    let cancel = CancellationToken::default();
     let input = context.snapshot();
-    validate(modules, &input)?;
+    validate(modules, &input, cancel)?;
     for module in modules {
         identity::collect(
             &module.identity,
             &module.public_items,
             &module.trait_contracts,
             context,
-            &cancel,
+            cancel,
         )
-        .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+        .map_err(|error| match error {
+            DefinitionMappingError::Cancelled => BytecodeVerificationError::Cancelled,
+            _ => BytecodeVerificationError::InvalidPublicAbi,
+        })?;
     }
     Ok(context.snapshot())
 }
@@ -31,12 +37,15 @@ pub fn collect(
 pub(crate) fn validate(
     modules: &[&BytecodeModule],
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<(), BytecodeVerificationError> {
-    let cancel = CancellationToken::default();
     for module in modules {
         module
-            .visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), &cancel)
-            .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+            .visit_definition_ids(&mut |id| Ok(definitions.resolve(*id).map(|_| ())?), cancel)
+            .map_err(|error| match error {
+                DefinitionMappingError::Cancelled => BytecodeVerificationError::Cancelled,
+                _ => BytecodeVerificationError::InvalidPublicAbi,
+            })?;
     }
     Ok(())
 }

@@ -211,7 +211,7 @@ fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
         })
         .unwrap();
     inspect.receiver_access = Some(ReferenceAccess::Mutable);
-    assert!(verify_program(&forged, program.definitions()).is_err());
+    assert!(verify_program(&forged, program.definitions(), &Default::default()).is_err());
 
     let mut forged = program.records().clone();
     let module = &mut forged.modules[root];
@@ -243,7 +243,7 @@ fn scoped_members_reject_capability_forgery_and_unregistered_rust_traits() {
         panic!("view parameter")
     };
     *access = ReferenceAccess::Shared;
-    assert!(verify_program(&forged, program.definitions()).is_err());
+    assert!(verify_program(&forged, program.definitions(), &Default::default()).is_err());
 }
 
 #[test]

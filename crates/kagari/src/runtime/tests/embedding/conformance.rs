@@ -114,7 +114,7 @@ fn embedding_conformance_preserves_module_identity_through_artifact_loading() {
         .import_into(&definitions, &Default::default())
         .unwrap()
         .records()
-        .validate_for_loader(&compatibility, &definitions)
+        .validate_for_loader(&compatibility, &definitions, &Default::default())
         .expect("artifact should satisfy exact loader compatibility");
 
     let context = ExecutionContext::default();

@@ -618,7 +618,7 @@ in tracked documentation. No new measurements are required before CS02 begins.
 | CS01 | Complete | Source-inspected API/provenance, obligation/cancellation and consumer inventories above; package output contract and focused workload fixed. Documentation-only validation: content/link review and `git diff --check` passed. |
 | CS02 | Complete | Direct sealed compilation/preparation and explicit sealed export; 22 selected tests, SDK check, structure, fmt, workspace all-target Clippy and diff checks passed. |
 | CS03 | Complete | Shared bounded shape traversal; 17 type-owner tests, extended wire edges, 2 trait and 9 compiler host-contract tests passed; zero measured predicate allocations. Required local checks passed. |
-| CS04 | Not started | Scoped program-level verification preparation. |
+| CS04 | Complete (local scope) | Graph-owned proof resources, exact dependency views, cancellation and focused checks pass. Exhaustive matrices remain CI-owned. |
 | CS05 | Not started | Immediate-run consumers and release browser products. |
 | CS06 | Not started | Focused integration, measured goals and documentation handoff. |
 
@@ -701,3 +701,61 @@ old-versus-new speed ratio was measured. Temporary probe code was removed from
 crate examples after running. This establishes eliminated predicate allocation for
 these shapes, not an end-to-end startup latency result or an allocation guarantee
 for the encoder/proof solver.
+
+
+### CS04 implementation evidence
+
+`ProgramProofs` prepares immutable structural records once per graph operation;
+`VerificationResources` also owns module/declaration/table indexes and validated
+receiver-constructor ownership. Module queries select the exact dependency closure.
+Resources retain the modules that physically carry each contract, rather than
+assuming the declaration owner is the only module carrying it. Equal duplicate
+trait contracts share validated records; conflicting copies still reject. Linked
+native/default obligations and local bound queries remain visibility-dependent,
+uncached and bounded by the existing proof budgets. No global cache or alternate
+proof solver was introduced.
+
+Graph and standalone verification, editable/sealed bytecode admission, artifact
+admission, layout/declaration loops and control-flow work now accept/propagate the
+caller's cancellation token. SDK preparation classifies cancellation distinctly.
+Existing synchronous compatibility fingerprint/codec operations retain their
+bounded synchronous contracts; no new async/hash API is introduced here.
+Runtime adoption consumes the bytecode seal and prepares runtime metadata; it does
+not repeat graph verification. Native MIR pairing remains at its existing owner.
+
+Initial compilation errors from the required cancellation argument in macro-contained
+test calls were repaired across consumers. The graph fixture initially still reached
+the provider indirectly because source lowering carries package-wide lookup edges;
+it now explicitly narrows executable dependencies for this contract. The case passes:
+a visible implementation satisfies the output bound, a root-only implementation
+cannot satisfy the consumer, and an invisible competitor does not add ambiguity;
+making the competitor visible rejects. Constructor identities use the canonical
+empty-name implementation segment. No production visibility rule was broadened.
+
+A test-only structural-work counter passes for 1/8/32 dependent views (including
+equal carried copies), with one structural contract preparation in each case. It
+also deterministically cancels after the second structural record and returns
+`Cancelled` without completing admission.
+Full workspace/feature/backend/platform test matrices remain CI-owned.
+
+Structural validation now precedes linked queries for all modules. A deliberately
+foreign private-trait owner is diagnosed as `InvalidPublicAbi` at its defining
+module, instead of the old traversal-dependent `InvalidInterfaceTable` from an
+earlier consumer. The regression keeps an exact error assertion for this intentional
+stage-order change; no rejection or validation was removed. Shared proof-input
+errors remain distinct from cancellation. The expanded cancellation arguments made
+`default_methods.rs` exceed 1200 effective lines; generic constraint-member cases
+were moved intact to an ordinary child test module, without exceptions or coverage
+changes.
+
+Selected local results: the graph visibility case, two bytecode trait/associated
+output cases, nine compiler host-contract cases (eight initially passed; the precise
+stage-order diagnostic was updated and the remaining case rerun successfully), and
+two SDK source/checked/artifact cancellation and independent-runtime binding cases
+pass. The test-only preparation accounting/cancellation case passes. Structure checks
+1398 Rust files with zero findings; formatting, workspace all-target Clippy and diff
+checks pass. The intermediate missing scope argument in a test adapter was repaired.
+Manual review found no new production globs/re-exports, widened compatibility APIs,
+handwritten includes or structural exceptions. Synchronous lower-level consumers
+without a cancellation API explicitly supply a fresh token; source preparation and
+SDK external artifact admission propagate their existing caller token.

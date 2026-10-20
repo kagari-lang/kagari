@@ -251,7 +251,7 @@ fn static_bound_calls_preserve_explicit_self_typed_arguments_and_checked_signatu
             2 => *dst = Some(args[1]),
             _ => unreachable!(),
         }
-        let error = verify_program(&forged, &definitions).unwrap_err();
+        let error = verify_program(&forged, &definitions, &Default::default()).unwrap_err();
         assert!(
             matches!(
                 error,
@@ -566,7 +566,7 @@ fn interface_method_rejects_wrong_nominal_argument_before_execution() {
 #[test]
 fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     let module = interface_instruction_module();
-    verify_module(module.records(), module.definitions()).unwrap();
+    verify_module(module.records(), module.definitions(), &Default::default()).unwrap();
 
     let (definitions, mut invalid) = module.clone().into_parts();
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
@@ -576,7 +576,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         implementation: InterfaceTableRef::new(1),
         arguments: vec![],
     };
-    assert!(verify_module(&invalid, &definitions).is_err());
+    assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
         dst: Slot::new(1),
         value: Slot::new(1),
@@ -584,7 +584,7 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
         implementation: InterfaceTableRef::new(0),
         arguments: vec![],
     };
-    assert!(verify_module(&invalid, &definitions).is_err());
+    assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
 
     let decoded = round_trip_bytecode(module_program(module));
     let mut runtime = standard_runtime(Default::default());
@@ -639,12 +639,16 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
         root: ModuleRef::new(1),
         modules: vec![dependency, consumer],
     };
-    let definitions =
-        identity::collect(&program.modules.iter().collect::<Vec<_>>(), &context).unwrap();
-    verify_program(&program, &definitions).unwrap();
+    let definitions = identity::collect(
+        &program.modules.iter().collect::<Vec<_>>(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    verify_program(&program, &definitions, &Default::default()).unwrap();
     let mut detached = program.clone();
     detached.modules[1].dependencies.clear();
-    assert!(verify_program(&detached, &definitions).is_err());
+    assert!(verify_program(&detached, &definitions, &Default::default()).is_err());
 
     let decoded = round_trip_bytecode(
         DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),

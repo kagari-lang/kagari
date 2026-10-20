@@ -165,9 +165,15 @@ fn main() { val values = Vec::from([1, 2]); inspect(values); }
             .iter()
             .collect::<Vec<_>>(),
         &definitions,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.records().program, &definitions.snapshot()).unwrap();
+    verify_program(
+        &artifact.records().program,
+        &definitions.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     let root = artifact.records().program.root.index();
     let index = artifact.records().program.modules[root]
         .functions
@@ -179,14 +185,14 @@ fn main() { val values = Vec::from([1, 2]); inspect(values); }
     if let Some(Ty::Trait(interface)) = function.metadata.semantic.params.get_mut(&0) {
         interface.declaration = mutable_list(&definitions, interface.declaration);
     }
-    assert!(verify_program(&forged, &definitions.snapshot()).is_err());
+    assert!(verify_program(&forged, &definitions.snapshot(), &Default::default()).is_err());
     let mut forged = artifact.records().program.clone();
     forged.modules[root].functions[index]
         .metadata
         .semantic
         .params
         .clear();
-    assert!(verify_program(&forged, &definitions.snapshot()).is_err());
+    assert!(verify_program(&forged, &definitions.snapshot(), &Default::default()).is_err());
     let mut forged = artifact.into_records();
     let table = forged.program.modules.iter_mut().flat_map(|module| &mut module.public_items).find_map(|item| match item {
         PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(interface) if definitions.snapshot().resolve(interface.declaration).unwrap().last().unwrap().name == "List") => Some(table),
@@ -197,7 +203,7 @@ fn main() { val values = Vec::from([1, 2]); inspect(values); }
     }
     assert!(
         forged
-            .validate_for_loader(&Default::default(), &definitions)
+            .validate_for_loader(&Default::default(), &definitions, &Default::default())
             .is_err()
     );
 }
@@ -228,9 +234,15 @@ fn main() -> i32 { 42 }
             .iter()
             .collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.records().program, &context.snapshot()).unwrap();
+    verify_program(
+        &artifact.records().program,
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     let mut program = artifact.records().program.clone();
     let root = program.root.index();
     let function = program.modules[root]
@@ -260,7 +272,7 @@ fn main() -> i32 { 42 }
         .unwrap();
     declaration.params[0].ty = replacement;
     assert!(
-        verify_program(&program, &context.snapshot()).is_err(),
+        verify_program(&program, &context.snapshot(), &Default::default()).is_err(),
         "a raw heap value cannot satisfy boxed-interface dispatch by sharing its physical representation"
     );
 }

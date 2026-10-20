@@ -54,7 +54,9 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(bytecode, Default::default(), &context, &Default::default())
+            .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let receiver = DefinitionContext::new().unwrap();
     let decoded = KbcArtifact::from_bytes(&bytes)
@@ -62,7 +64,7 @@ fn direct_calls_use_public_paths_and_require_explicit_private_entry_selection() 
         .import_into(&receiver, &Default::default())
         .unwrap()
         .into_records()
-        .into_verified(&Default::default(), &receiver)
+        .into_verified(&Default::default(), &receiver, &Default::default())
         .unwrap();
     let mut runtime = Runtime::default();
     let loaded = runtime

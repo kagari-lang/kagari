@@ -267,9 +267,10 @@ fn unused_family_metadata_is_verified_before_loading() {
     let table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &table).unwrap();
+    verify_program(&artifact.program, &table, &Default::default()).unwrap();
     let root = table
         .lookup_root(&artifact.program.modules[artifact.program.root.index()].identity)
         .unwrap();
@@ -365,7 +366,13 @@ fn unused_family_metadata_is_verified_before_loading() {
             }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "accepted mutation {mutation}"
         );
     }
@@ -401,9 +408,10 @@ fn complete_family_metadata_cannot_make_a_dynamic_interface() {
     let table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &table).unwrap();
+    verify_program(&artifact.program, &table, &Default::default()).unwrap();
     let mut program = artifact.program.clone();
     let module = &mut program.modules[program.root.index()];
     let (interface, implementation) = module
@@ -453,7 +461,10 @@ fn complete_family_metadata_cannot_make_a_dynamic_interface() {
             _ => {}
         }
     }
-    assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
+    assert!(
+        BytecodeArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .is_err()
+    );
 }
 
 #[test]

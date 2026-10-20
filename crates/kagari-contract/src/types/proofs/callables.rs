@@ -205,7 +205,7 @@ impl ProofCatalog<'_> {
             return Ok(None);
         }
         let mut selected = None;
-        for table in &self.implementations {
+        for table in self.implementations.iter() {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             let Some(bindings) = match_pattern(
                 table.pattern().ok_or(TypeTransformError::InvalidContract)?,

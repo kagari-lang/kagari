@@ -93,8 +93,13 @@ fn main() {
         .unwrap();
     program.modules[root].functions[alternative].name = "main".into();
     program.modules[root].function_table[alternative].name = "main".into();
-    let ambiguous =
-        BytecodeArtifact::from_program(program, Default::default(), &definitions).unwrap();
+    let ambiguous = BytecodeArtifact::from_program(
+        program,
+        Default::default(),
+        &definitions,
+        &Default::default(),
+    )
+    .unwrap();
     let ambiguous =
         DefinitionMetadata::checked(definitions.snapshot(), ambiguous, &Default::default())
             .unwrap();

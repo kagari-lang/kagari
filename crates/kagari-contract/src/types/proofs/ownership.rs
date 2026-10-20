@@ -18,7 +18,7 @@ impl ProofCatalog<'_> {
     ) -> Result<bool, TypeTransformError> {
         let budget = Budget::new(cancel);
 
-        for table in &self.implementations {
+        for table in self.implementations.iter() {
             budget.step(0)?;
             if !self.table_override_valid(table, owners, &budget)? {
                 return Ok(false);
@@ -38,7 +38,7 @@ impl ProofCatalog<'_> {
         } else {
             Protocol::Iterator
         };
-        for table in &self.implementations {
+        for table in self.implementations.iter() {
             budget.step(0)?;
             if let Some(applied) = table.interface()
                 && Protocol::from_definition(&applied.declaration, &self.definitions) == Some(other)

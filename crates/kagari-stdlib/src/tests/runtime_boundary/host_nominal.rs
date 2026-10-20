@@ -280,14 +280,19 @@ fn nested_signature_types_must_be_bound_before_program_publication() {
     .unwrap();
     let context = DefinitionContext::new().unwrap();
     let bytecode = bytecode.import_into(&context, &Default::default()).unwrap();
-    let artifact =
-        KbcArtifact::from_program(bytecode.into_records(), Default::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        bytecode.into_records(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let decoded =
         KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap()).unwrap();
     let decoded = decoded.import_into(&context, &Default::default()).unwrap();
     decoded
         .records()
-        .validate_for_loader(&Default::default(), &context)
+        .validate_for_loader(&Default::default(), &context, &Default::default())
         .unwrap();
     let (definitions, decoded) = decoded.into_parts();
     let program =

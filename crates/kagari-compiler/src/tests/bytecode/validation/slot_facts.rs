@@ -18,18 +18,22 @@ fn verify_source_free_fixture(
     forged: BytecodeProgram,
     expected: Result<(), BytecodeVerificationError>,
 ) {
-    assert_eq!(verify_program(&forged, &context.snapshot()), expected);
+    assert_eq!(
+        verify_program(&forged, &context.snapshot(), &Default::default()),
+        expected
+    );
     let base = if expected.is_ok() {
         forged.clone()
     } else {
         valid.clone()
     };
-    let mut artifact = KbcArtifact::from_program(base, Default::default(), context).unwrap();
+    let mut artifact =
+        KbcArtifact::from_program(base, Default::default(), context, &Default::default()).unwrap();
     artifact.program = forged;
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(context, metadata))
         .unwrap();
-    match decoded.validate_for_loader(&Default::default(), context) {
+    match decoded.validate_for_loader(&Default::default(), context, &Default::default()) {
         Ok(()) => assert_eq!(expected, Ok(())),
         Err(ArtifactValidationError::Bytecode(error)) => assert_eq!(Err(error), expected),
         Err(error) => panic!("unexpected loader failure: {error}"),

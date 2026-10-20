@@ -311,6 +311,7 @@ fn compile(case: &Case<'_>) -> Option<DefinitionMetadata<KbcArtifact>> {
             ..Default::default()
         },
         &context,
+        &Default::default(),
     )
     .unwrap();
     Some(DefinitionMetadata::checked(context.snapshot(), artifact, &Default::default()).unwrap())

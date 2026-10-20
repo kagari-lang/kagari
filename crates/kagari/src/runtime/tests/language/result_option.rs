@@ -404,7 +404,13 @@ fn malformed_nominal_enum_operations_are_rejected_before_execution() {
             _ => *variant = 1,
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "case {case}"
         );
     }

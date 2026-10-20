@@ -213,9 +213,10 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
             .iter()
             .collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.records().program, &table).unwrap();
+    verify_program(&artifact.records().program, &table, &Default::default()).unwrap();
     for mutation in 0..3 {
         let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -244,10 +245,18 @@ fn tampered_associated_schemas_and_bounds_are_rejected() {
             }
         }
         assert!(
-            verify_program(&program, &context.snapshot()).is_err(),
+            verify_program(&program, &context.snapshot(), &Default::default()).is_err(),
             "accepted mutation {mutation}"
         );
-        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
+        assert!(
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err()
+        );
     }
 }
 
@@ -343,7 +352,7 @@ fn interface_instance_bounds_are_checked_without_method_slots() {
         .unwrap();
     assert!(table.methods.is_empty());
     table.arguments[0] = Ty::Builtin(BuiltinType::F32);
-    assert!(verify_program(&program, artifact.definitions()).is_err());
+    assert!(verify_program(&program, artifact.definitions(), &Default::default()).is_err());
     execute_artifact(&engine, artifact);
 }
 
@@ -413,9 +422,10 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
             .iter()
             .collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.records().program, &table).unwrap();
+    verify_program(&artifact.records().program, &table, &Default::default()).unwrap();
     for mutation in 0..6 {
         let mut program = artifact.records().program.clone();
         let tables = &mut program.modules[program.root.index()].interface_tables;
@@ -438,9 +448,17 @@ fn malformed_generic_interface_instances_are_rejected_before_execution() {
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&program, &context.snapshot()).is_err(),
+            verify_program(&program, &context.snapshot(), &Default::default()).is_err(),
             "accepted mutation {mutation}"
         );
-        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
+        assert!(
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err()
+        );
     }
 }

@@ -1,4 +1,5 @@
 //! Non-serializable suspension facts derived from checked executable flow.
+use kagari_common::cancellation::CancellationToken;
 
 /// Values read by execution or debugging at and after one reachable await.
 /// Bits index the verified unified logical slot layout.
@@ -22,8 +23,18 @@ impl AwaitLiveness {
 
 pub(crate) type ProgramSuspensions = Vec<Vec<Vec<AwaitLiveness>>>;
 
-#[derive(Default)]
 pub(crate) struct FlowBudget {
+    pub cancel: CancellationToken,
     pub work: usize,
     pub retained_bytes: usize,
+}
+
+impl FlowBudget {
+    pub fn new(cancel: &CancellationToken) -> Self {
+        Self {
+            cancel: cancel.clone(),
+            work: 0,
+            retained_bytes: 0,
+        }
+    }
 }

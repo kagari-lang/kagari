@@ -305,7 +305,7 @@ fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
         .into_records();
     artifact
         .clone()
-        .validate_for_loader(&Default::default(), &definitions)
+        .validate_for_loader(&Default::default(), &definitions, &Default::default())
         .unwrap();
     for target in [BuiltinType::Bool, BuiltinType::String] {
         let mut forged = artifact.clone();
@@ -323,7 +323,7 @@ fn invalid_numeric_artifact_contracts_are_rejected_before_execution() {
         conversion.target = target;
         assert!(
             forged
-                .validate_for_loader(&Default::default(), &definitions)
+                .validate_for_loader(&Default::default(), &definitions, &Default::default())
                 .is_err()
         );
     }

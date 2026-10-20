@@ -89,6 +89,7 @@ fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
@@ -98,7 +99,7 @@ fn reused_bindings(runtime: &mut Runtime) -> LoadedModule {
         .unwrap()
         .into_records();
     let verified = artifact
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
     runtime
         .load_verified_program(

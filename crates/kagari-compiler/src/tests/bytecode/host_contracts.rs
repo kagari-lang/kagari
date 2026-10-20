@@ -36,7 +36,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
             .native_declarations(&context.snapshot())
             .unwrap()
     );
-    verify_program(&module, &context.snapshot()).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
     for mode in 0..4 {
         let mut invalid = module.clone();
         let declarations = &mut invalid.modules[provider].native_declarations;
@@ -60,7 +60,7 @@ fn host_imports_are_interned_and_checked_before_execution() {
             _ => declarations.push(declarations[0].clone()),
         }
         assert!(
-            verify_program(&invalid, &context.snapshot()).is_err(),
+            verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),
             "mode {mode}"
         );
     }
@@ -70,8 +70,13 @@ fn host_imports_are_interned_and_checked_before_execution() {
 fn unsupported_dynamic_calls_fail_before_artifact_execution() {
     let context = DefinitionContext::new().unwrap();
     let module = common::adopt_bytecode(&context, common::bytecode_ok("fn main() {}"));
-    let valid =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    let valid = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     for callee in [
         CallTarget::Slot(Slot::new(0)),
         CallTarget::RuntimeHelper(RuntimeHelper::DynamicCall),
@@ -92,7 +97,11 @@ fn unsupported_dynamic_calls_fail_before_artifact_execution() {
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         assert!(matches!(
-            decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
+            decoded.validate_for_loader(
+                &ArtifactCompatibility::default(),
+                &context,
+                &Default::default()
+            ),
             Err(ArtifactValidationError::Bytecode(
                 BytecodeVerificationError::InvalidOperation { .. }
             ))
@@ -113,10 +122,15 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
             .trait_contracts
             .is_empty()
     );
-    verify_program(&module, &context.snapshot()).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
 
-    let valid =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    let valid = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let provider = valid
         .program
         .modules
@@ -151,7 +165,11 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
             .unwrap();
         assert!(
             matches!(
-                decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
+                decoded.validate_for_loader(
+                    &ArtifactCompatibility::default(),
+                    &context,
+                    &Default::default()
+                ),
                 Err(ArtifactValidationError::Bytecode(
                     BytecodeVerificationError::InvalidInterfaceTable
                 ))
@@ -178,10 +196,19 @@ fn public_host_trait_tables_are_rechecked_after_artifact_decode() {
         program.modules.push(importer);
         program
     };
-    verify_program(&imported(importer.clone()), &context.snapshot()).unwrap();
+    verify_program(
+        &imported(importer.clone()),
+        &context.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     importer.trait_references[0].abi.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
     assert!(matches!(
-        verify_program(&imported(importer), &context.snapshot()),
+        verify_program(
+            &imported(importer),
+            &context.snapshot(),
+            &Default::default()
+        ),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -201,14 +228,23 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
             .any(|item| matches!(item, PublicItem::Trait(_)))
     );
     assert_eq!(module.modules[module.root.index()].trait_contracts.len(), 1);
-    verify_program(&module, &context.snapshot()).unwrap();
-    let valid =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
+    let valid = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let decoded = KbcArtifact::from_bytes(&valid.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap();
     decoded
-        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
         .unwrap();
     for corruption in ["missing", "signature"] {
         let mut forged = valid.clone();
@@ -226,7 +262,11 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
             .unwrap();
         assert!(
             matches!(
-                decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
+                decoded.validate_for_loader(
+                    &ArtifactCompatibility::default(),
+                    &context,
+                    &Default::default()
+                ),
                 Err(ArtifactValidationError::Bytecode(
                     BytecodeVerificationError::InvalidInterfaceTable
                 ))
@@ -240,7 +280,7 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
         .trait_contracts
         .push(member.trait_contracts[0].clone());
     assert!(matches!(
-        verify_program(&duplicate, &context.snapshot()),
+        verify_program(&duplicate, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     let mut public_collision = valid.program.clone();
@@ -249,7 +289,7 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
         .public_items
         .push(PublicItem::Trait(member.trait_contracts[0].abi.clone()));
     assert!(matches!(
-        verify_program(&public_collision, &context.snapshot()),
+        verify_program(&public_collision, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     let mut foreign_identity = valid.program.clone();
@@ -274,9 +314,12 @@ fn private_host_trait_contracts_survive_encoding_and_reject_tampering() {
         )
         .is_err()
     );
-    let error = verify_program(&foreign_identity, &context.snapshot()).unwrap_err();
+    let error =
+        verify_program(&foreign_identity, &context.snapshot(), &Default::default()).unwrap_err();
+    // Graph preparation validates every module's own ABI before linked proofs.
+    // The forged foreign owner is rejected at that structural boundary.
     assert!(
-        matches!(error, BytecodeVerificationError::InvalidInterfaceTable),
+        matches!(error, BytecodeVerificationError::InvalidPublicAbi),
         "{error:?}"
     );
 }
@@ -289,16 +332,25 @@ fn host_trait_standard_bounds_are_rechecked_after_decode() {
         "use std::hash::{Hash};\ntrait Readable<T: Eq + Hash> { fn get(self) -> T; } fn main() {}",
         &context,
     );
-    verify_program(&module, &context.snapshot()).unwrap();
-    let valid =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
+    let valid = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let mut forged = valid.clone();
     fixtures::replace_readable_result(&mut forged.program, Ty::Builtin(BuiltinType::F32));
     let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap();
     assert!(matches!(
-        decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
+        decoded.validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::InvalidInterfaceTable
         ))
@@ -317,14 +369,22 @@ fn host_trait_bounds_accept_host_implementation_evidence() {
         true,
         &context,
     );
-    verify_program(&module, &context.snapshot()).unwrap();
-    let artifact =
-        KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default(), &context)
-            .unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
+    let artifact = KbcArtifact::from_program(
+        module.clone(),
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
         .unwrap();
     let provider = module
         .modules
@@ -335,7 +395,7 @@ fn host_trait_bounds_accept_host_implementation_evidence() {
         PublicItem::InterfaceTable(table) if table.methods.iter().any(|method| method.name == "mark")
     ));
     assert!(matches!(
-        verify_program(&module, &context.snapshot()),
+        verify_program(&module, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -348,16 +408,25 @@ fn host_trait_script_bounds_are_rechecked_after_decode() {
         "trait Marker { fn mark(self) -> i32; } impl Marker for i32 { fn mark(self) -> i32 { self } } trait Readable<T: Marker> { fn get(self) -> T; } fn main() {}",
         &context,
     );
-    verify_program(&module, &context.snapshot()).unwrap();
-    let valid =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
+    let valid = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let mut forged = valid.clone();
     fixtures::replace_readable_result(&mut forged.program, Ty::Builtin(BuiltinType::Bool));
     let decoded = KbcArtifact::from_bytes(&forged.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap();
     assert!(matches!(
-        decoded.validate_for_loader(&ArtifactCompatibility::default(), &context),
+        decoded.validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::Bytecode(
             BytecodeVerificationError::InvalidInterfaceTable
         ))
@@ -382,19 +451,28 @@ fn host_trait_bounds_use_imported_script_implementations() {
         false,
         &context,
     );
-    verify_program(&program, &context.snapshot()).unwrap();
+    verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
     let mut forged = program.clone();
     fixtures::replace_readable_result(&mut forged, Ty::Builtin(BuiltinType::Bool));
     assert!(matches!(
-        verify_program(&forged, &context.snapshot()),
+        verify_program(&forged, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
-    let artifact =
-        KbcArtifact::from_program(program, ArtifactBuildOptions::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        program,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
         .unwrap();
 }
 
@@ -430,7 +508,7 @@ fn program_rejects_conflicting_host_types_before_linking() {
         declaration,
         definition,
     });
-    verify_program(&program, &context.snapshot()).unwrap();
+    verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
 
     let TypeDefKind::Host(policy) = &mut program.modules[root]
         .external_types
@@ -443,7 +521,7 @@ fn program_rejects_conflicting_host_types_before_linking() {
     };
     policy.ownership = HostTypeOwnership::HostRoot;
     assert!(matches!(
-        verify_program(&program, &context.snapshot()),
+        verify_program(&program, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidHostInterface(_))
     ));
 }

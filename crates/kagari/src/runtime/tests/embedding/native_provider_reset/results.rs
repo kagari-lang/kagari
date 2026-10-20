@@ -220,7 +220,8 @@ fn forged_native_result_conversions_are_rejected() {
             }
         }
         assert!(
-            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+                .is_err(),
             "corruption {corruption}"
         );
     }

@@ -19,17 +19,24 @@ use kagari_types::ty::{Ty, substitution::TypeSubstitution};
 pub(super) fn verify(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<(), BytecodeVerificationError> {
     let invalid = || BytecodeVerificationError::InvalidInterfaceTable;
     let mut bodies = Vec::new();
     let mut methods = Vec::new();
     for module in &program.modules {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         for function in &module.functions {
             let Some(identity) = &function.identity else {
                 continue;
             };
             let mut steps = Vec::new();
             for instruction in &function.instructions {
+                cancel
+                    .check()
+                    .map_err(|_| BytecodeVerificationError::Cancelled)?;
                 match instruction {
                     BytecodeInstruction::MakeInterface {
                         module: owner,
@@ -178,11 +185,7 @@ pub(super) fn verify(
                 let arguments = slot
                     .arguments
                     .iter()
-                    .map(|ty| {
-                        bindings
-                            .apply(ty, &CancellationToken::default())
-                            .map_err(|_| invalid())
-                    })
+                    .map(|ty| bindings.apply(ty, cancel).map_err(|_| invalid()))
                     .collect::<Result<Vec<_>, _>>()?;
                 methods.push(ConstructionMethod {
                     interface: interface.clone(),
@@ -195,13 +198,8 @@ pub(super) fn verify(
             }
         }
     }
-    let demands = closed_constructions(
-        &bodies,
-        &methods,
-        MAX_ARTIFACT_TABLE_RECORDS,
-        &CancellationToken::default(),
-    )
-    .map_err(|_| invalid())?;
+    let demands = closed_constructions(&bodies, &methods, MAX_ARTIFACT_TABLE_RECORDS, cancel)
+        .map_err(|_| invalid())?;
     for demand in demands {
         let Some((owner, _)) = program.modules.iter().find_map(|module| {
             module.public_items.iter().find_map(|item| match item {

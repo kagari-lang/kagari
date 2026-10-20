@@ -10,11 +10,14 @@ use crate::{
     },
     program::{BytecodeProgram, identity},
     suspension::{AwaitLiveness, FlowBudget},
-    trait_bounds,
+    trait_bounds::{self, preparation::VerificationResources},
     verifier::operation::verify_instruction,
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionKind, table::DefinitionTable};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, table::DefinitionTable},
+};
 use kagari_contract::{
     contracts,
     contracts::ContractError,
@@ -46,6 +49,8 @@ mod scalar;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {
+    #[error("bytecode verification cancelled")]
+    Cancelled,
     #[error("invalid executable module graph")]
     InvalidProgramGraph,
     #[error("invalid public export graph or callable target")]
@@ -159,6 +164,7 @@ pub enum BytecodeVerificationError {
 impl BytecodeVerificationError {
     pub fn code(&self) -> &'static str {
         match self {
+            Self::Cancelled => "KG_BYTECODE_CANCELLED",
             Self::InvalidProgramExports => "KG_BYTECODE_INVALID_PROGRAM_EXPORTS",
             Self::InvalidProgramGraph => "KG_BYTECODE_INVALID_PROGRAM_GRAPH",
             Self::InvalidStructLayout => "KG_BYTECODE_INVALID_STRUCT_LAYOUT",
@@ -203,13 +209,31 @@ impl BytecodeVerificationError {
 pub fn verify_module(
     module: &BytecodeModule,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<(), BytecodeVerificationError> {
+    let result = verify_module_inner(module, definitions, cancel);
+    cancel
+        .check()
+        .map_err(|_| BytecodeVerificationError::Cancelled)?;
+    result
+}
+
+fn verify_module_inner(
+    module: &BytecodeModule,
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<(), BytecodeVerificationError> {
+    cancel
+        .check()
+        .map_err(|_| BytecodeVerificationError::Cancelled)?;
     if !module.dependencies.is_empty() {
         return Err(BytecodeVerificationError::InvalidProgramGraph);
     }
-    identity::validate(&[module], definitions)?;
-    verify_module_with_program(module, None, &mut FlowBudget::default(), definitions)?;
-    trait_bounds::verify_trait_bounds(module, &[module], None, definitions)?;
+    identity::validate(&[module], definitions, cancel)?;
+    verify_module_with_program(module, None, &mut FlowBudget::new(cancel), definitions)?;
+    let resources = VerificationResources::new(vec![module], definitions, cancel)?;
+    let scope = resources.scope(&[0], resources.receiver_owners(&[0]), cancel)?;
+    trait_bounds::verify_trait_bounds(0, None, &resources, &scope, cancel)?;
     Ok(())
 }
 
@@ -219,6 +243,10 @@ pub(super) fn verify_module_with_program(
     flow_budget: &mut FlowBudget,
     definitions: &DefinitionTable,
 ) -> Result<Vec<Vec<AwaitLiveness>>, BytecodeVerificationError> {
+    let cancel = flow_budget.cancel.clone();
+    cancel
+        .check()
+        .map_err(|_| BytecodeVerificationError::Cancelled)?;
     let mut constants = HashSet::with_capacity(module.constants.len());
     if !module
         .constants
@@ -239,6 +267,9 @@ pub(super) fn verify_module_with_program(
         .path_contracts(definitions)
         .map_err(|_| BytecodeVerificationError::InvalidPathLayout)?;
     for record in &module.paths {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         if !path_contracts.iter().any(|(_, contract)| {
             contract.fingerprint(definitions).ok() == Some(record.contract_fingerprint)
                 && semantic_representation(&contract.result) == record.result_ty
@@ -247,18 +278,13 @@ pub(super) fn verify_module_with_program(
             return Err(BytecodeVerificationError::InvalidPathLayout);
         }
     }
-    verify::validate(
-        &module.public_items,
-        &module.identity,
-        &Default::default(),
-        definitions,
-    )
-    .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
+    verify::validate(&module.public_items, &module.identity, &cancel, definitions)
+        .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     validate_native_declarations(
         &module.native_declarations,
         &module.identity,
         definitions,
-        &Default::default(),
+        &cancel,
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
     if !native_signatures_match(
@@ -271,7 +297,7 @@ pub(super) fn verify_module_with_program(
     verify::validate_trait_references(
         &module.trait_references,
         &module.identity,
-        &Default::default(),
+        &cancel,
         definitions,
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
@@ -279,20 +305,20 @@ pub(super) fn verify_module_with_program(
         &module.trait_contracts,
         &module.public_items,
         &module.identity,
-        &Default::default(),
+        &cancel,
         definitions,
     )
     .map_err(|_| BytecodeVerificationError::InvalidPublicAbi)?;
-    layout::validate_layouts(&module.structures, &Default::default(), definitions)
+    layout::validate_layouts(&module.structures, &cancel, definitions)
         .map_err(|_| BytecodeVerificationError::InvalidStructLayout)?;
     if !layout::struct_abi_matches(
         &module.structures,
         &module.identity,
         &module.public_items,
-        &Default::default(),
+        &cancel,
         definitions,
     )
-    .expect("bytecode verification uses an uncancelled token")
+    .map_err(|_| BytecodeVerificationError::Cancelled)?
     {
         return Err(BytecodeVerificationError::InvalidStructLayout);
     }
@@ -300,17 +326,17 @@ pub(super) fn verify_module_with_program(
         &module.enumerations,
         &module.identity,
         &module.public_items,
-        &Default::default(),
+        &cancel,
         definitions,
     )
-    .expect("bytecode verification uses an uncancelled token")
+    .map_err(|_| BytecodeVerificationError::Cancelled)?
     {
         return Err(BytecodeVerificationError::InvalidEnumLayout);
     }
     layout::validate_enum_layouts(
         &module.enumerations,
         &module.structures,
-        &Default::default(),
+        &cancel,
         definitions,
     )
     .map_err(|_| BytecodeVerificationError::InvalidEnumLayout)?;
@@ -319,7 +345,7 @@ pub(super) fn verify_module_with_program(
         &module.public_items,
         &module.structures,
         &module.enumerations,
-        &Default::default(),
+        &cancel,
         definitions,
     )
     .map_err(|error| BytecodeVerificationError::InvalidHostInterface(format!("{error:?}")))?;
@@ -351,9 +377,9 @@ pub(super) fn verify_module_with_program(
                     .chain(semantic.result.iter())
                     .chain(semantic.slots.values())
             })),
-        &Default::default(),
+        &cancel,
     )
-    .expect("bytecode verification uses an uncancelled token")
+    .map_err(|_| BytecodeVerificationError::Cancelled)?
     {
         return Err(BytecodeVerificationError::InvalidHostInterface(
             "missing external type dependency".into(),
@@ -369,6 +395,9 @@ pub(super) fn verify_module_with_program(
     let mut identities = HashSet::new();
     let mut suspensions = Vec::with_capacity(module.functions.len());
     for (index, function) in module.functions.iter().enumerate() {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         let expected_ref = FunctionRef::new(index);
         if function.id != expected_ref {
             return Err(BytecodeVerificationError::FunctionRecordMismatch {
@@ -396,8 +425,7 @@ pub(super) fn verify_module_with_program(
                         matches!(part.kind, DefinitionKind::Function | DefinitionKind::Method)
                     })
             }) || identity.arguments.iter().any(|ty| {
-                !ty.within_wire_limits()
-                    || !concrete_type_valid(ty, &Default::default(), definitions)
+                !ty.within_wire_limits() || !concrete_type_valid(ty, &cancel, definitions)
             }) || !identities.insert(identity))
         {
             return Err(BytecodeVerificationError::InvalidFunctionIdentity {
@@ -412,13 +440,14 @@ pub(super) fn verify_module_with_program(
             definitions,
         )?);
     }
-    verify_interface_tables(module, definitions)?;
+    verify_interface_tables(module, definitions, &cancel)?;
     Ok(suspensions)
 }
 
 fn verify_interface_tables(
     module: &BytecodeModule,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<(), BytecodeVerificationError> {
     let declared = module
         .public_items
@@ -440,6 +469,9 @@ fn verify_interface_tables(
     }
     let mut instances = HashSet::new();
     for table in &module.interface_tables {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         if !instances.insert((&table.declaration, &table.arguments)) {
             return Err(BytecodeVerificationError::InvalidInterfaceTable);
         }
@@ -475,6 +507,9 @@ fn verify_interface_tables(
         }
         let mut used = HashSet::new();
         for slot in &table.methods {
+            cancel
+                .check()
+                .map_err(|_| BytecodeVerificationError::Cancelled)?;
             let Some(segment) = definitions
                 .resolve(slot.method)
                 .ok()
@@ -704,6 +739,10 @@ fn verify_function(
         verify_jump(function, *target)?;
     }
     for instruction in &function.instructions {
+        flow_budget
+            .cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         verify_instruction(module, function, instruction, program, definitions)?;
     }
     let flow = flow::verify(function, flow_budget)?;

@@ -41,8 +41,13 @@ fn applied_trait_bounds_change_public_abi_fingerprint() {
             })
             .unwrap();
         assert_eq!(bag.bounds[0].constraints[0].arguments.len(), 1);
-        let artifact =
-            KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+        let artifact = KbcArtifact::from_program(
+            module,
+            ArtifactBuildOptions::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact
             .verification
             .public_abi_fingerprints
@@ -77,11 +82,16 @@ fn applied_trait_bound_rejects_a_foreign_binder_before_loading() {
     };
     *owner = ty.declaration;
     assert!(matches!(
-        verify_program(&module, &context.snapshot()),
+        verify_program(&module, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPublicAbi)
     ));
     assert!(matches!(
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context),
+        KbcArtifact::from_program(
+            module,
+            ArtifactBuildOptions::default(),
+            &context,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::Bytecode(_))
     ));
 }
@@ -105,13 +115,22 @@ fn applied_trait_interface_table_preserves_method_contract() {
             .len(),
         1
     );
-    verify_program(&module, &context.snapshot()).unwrap();
-    let artifact =
-        KbcArtifact::from_program(module, ArtifactBuildOptions::default(), &context).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
+    let artifact = KbcArtifact::from_program(
+        module,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap()
-        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
         .unwrap();
 }
 
@@ -124,7 +143,7 @@ fn applied_trait_method_bounds_match_across_binder_owners() {
             "pub trait Marker<T> {} pub struct Holder {} impl Marker<i32> for Holder {} pub trait Consumer<T> { fn take<U: Marker<T>>(self, value: U) -> U; } impl Consumer<i32> for Holder { fn take<V: Marker<i32>>(self, value: V) -> V { value } } fn main() {}",
         ),
     );
-    verify_program(&module, &context.snapshot()).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
 }
 
 #[test]
@@ -210,7 +229,7 @@ fn generic_interface_implementation_specializes_reachable_method() {
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&wrong_arity, &context.snapshot()),
+        verify_program(&wrong_arity, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -232,7 +251,7 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
             .sum::<usize>(),
         1
     );
-    verify_program(&module, &context.snapshot()).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
     let mut wrong_instance = module;
     let method = wrong_instance.modules[wrong_instance.root.index()]
         .interface_tables
@@ -252,7 +271,7 @@ fn generic_interface_slot_requires_instantiated_method_layout() {
             .identity
             .clone();
     assert!(matches!(
-        verify_program(&wrong_instance, &context.snapshot()),
+        verify_program(&wrong_instance, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -308,16 +327,24 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         kagari_common::identity::DefinitionKind::Impl
     );
     assert!(identity.arguments.is_empty());
-    verify_program(&module, &context.snapshot()).unwrap();
+    verify_program(&module, &context.snapshot(), &Default::default()).unwrap();
 
-    let artifact =
-        KbcArtifact::from_program(module.clone(), ArtifactBuildOptions::default(), &context)
-            .unwrap();
+    let artifact = KbcArtifact::from_program(
+        module.clone(),
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| common::adopt(&context, metadata))
         .unwrap();
     decoded
-        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
         .unwrap();
     assert_eq!(
         decoded.program.modules[decoded.program.root.index()].interface_tables[0].methods[0].target,
@@ -329,7 +356,7 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         .methods
         .clear();
     assert!(matches!(
-        verify_program(&missing, &context.snapshot()),
+        verify_program(&missing, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut wrong_target = module.clone();
@@ -343,7 +370,7 @@ fn concrete_interface_methods_have_verified_executable_slots() {
                 .id,
         );
     assert!(matches!(
-        verify_program(&wrong_target, &context.snapshot()),
+        verify_program(&wrong_target, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut wrong_method = module.clone();
@@ -353,7 +380,7 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         |path| path.path.last_mut().unwrap().name = "other".into(),
     );
     assert!(matches!(
-        verify_program(&wrong_method, &context.snapshot()),
+        verify_program(&wrong_method, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
     let mut missing_table = module;
@@ -361,7 +388,7 @@ fn concrete_interface_methods_have_verified_executable_slots() {
         .interface_tables
         .clear();
     assert!(matches!(
-        verify_program(&missing_table, &context.snapshot()),
+        verify_program(&missing_table, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidInterfaceTable)
     ));
 }
@@ -469,7 +496,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
         |instruction| matches!(instruction, BytecodeInstruction::Call { callee: KagaribytecodeCallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())
     ));
-    verify_program(&bytecode, &context.snapshot()).unwrap();
+    verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
     let mut invalid = bytecode.clone();
     let call = invalid.modules[bytecode.root.index()]
         .functions
@@ -484,7 +511,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         })
         .unwrap();
     *call = 99;
-    assert!(verify_program(&invalid, &context.snapshot()).is_err());
+    assert!(verify_program(&invalid, &context.snapshot(), &Default::default()).is_err());
     let mut wrong_owner = bytecode.clone();
     let owner_slot = wrong_owner.modules[bytecode.root.index()]
         .functions
@@ -499,7 +526,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         })
         .unwrap();
     *owner_slot = bytecode.root;
-    assert!(verify_program(&wrong_owner, &context.snapshot()).is_err());
+    assert!(verify_program(&wrong_owner, &context.snapshot(), &Default::default()).is_err());
 }
 
 #[test]
@@ -511,7 +538,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
             "trait Tag { fn tag(self) -> i32; } impl Tag for i32 { fn tag(self) -> i32 { self } } fn read(value: Tag) -> i32 { value.tag() } fn main() -> i32 { read(7) }",
         ),
     );
-    verify_program(&original, &context.snapshot()).unwrap();
+    verify_program(&original, &context.snapshot(), &Default::default()).unwrap();
     for corruption in ["slot", "owner", "argument"] {
         let mut forged = original.clone();
         let function = forged.modules[forged.root.index()]
@@ -549,7 +576,7 @@ fn forged_interface_method_slots_are_rejected_before_execution() {
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&forged, &context.snapshot()).is_err(),
+            verify_program(&forged, &context.snapshot(), &Default::default()).is_err(),
             "accepted {corruption}"
         );
     }
@@ -576,7 +603,7 @@ fn private_interface_tables_must_match_their_trait_contract() {
             .len(),
         1
     );
-    verify_program(&original, &context.snapshot()).unwrap();
+    verify_program(&original, &context.snapshot(), &Default::default()).unwrap();
     for corruption in ["result", "roster", "missing trait"] {
         let mut forged = original.clone();
         match corruption {
@@ -601,7 +628,7 @@ fn private_interface_tables_must_match_their_trait_contract() {
         }
         assert!(
             matches!(
-                verify_program(&forged, &context.snapshot()),
+                verify_program(&forged, &context.snapshot(), &Default::default()),
                 Err(BytecodeVerificationError::InvalidPublicAbi)
             ),
             "{corruption}"

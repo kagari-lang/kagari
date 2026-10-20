@@ -589,6 +589,7 @@ fn mismatched_artifact_native_input_is_rejected_before_loading() {
             ..Default::default()
         },
         &definitions,
+        &Default::default(),
     )
     .unwrap();
     let artifact =

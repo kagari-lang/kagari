@@ -34,11 +34,12 @@ fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let verified = artifact
         .clone()
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
     assert_eq!(verified.bytecode().program().modules.len(), 1);
     assert!(verified.portable_mir().is_none());
@@ -46,19 +47,19 @@ fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
     let mut changed = artifact.clone();
     changed.program.modules[0].source_name = "changed".into();
     assert!(matches!(
-        changed.into_verified(&Default::default(), &context),
+        changed.into_verified(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ContentHashMismatch)
     ));
     let mut invalid = artifact.clone();
     invalid.program.root = ModuleRef::new(1);
     assert!(matches!(
-        invalid.into_verified(&Default::default(), &context),
+        invalid.into_verified(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::Bytecode(_))
     ));
     let mut incompatible = artifact;
     incompatible.header.runtime_abi_version = "invalid".into();
     assert!(matches!(
-        incompatible.into_verified(&Default::default(), &context),
+        incompatible.into_verified(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::RuntimeAbiMismatch { .. })
     ));
 
@@ -71,7 +72,7 @@ fn consuming_artifact_verification_rejects_changed_code_and_envelope() {
     let (_, mut extracted) = retained.into_parts();
     extracted.root = ModuleRef::new(1);
     assert!(matches!(
-        VerifiedBytecodeProgram::new(extracted, &context),
+        VerifiedBytecodeProgram::new(extracted, &context, &Default::default()),
         Err(ArtifactValidationError::Bytecode(_))
     ));
 }
@@ -85,7 +86,7 @@ fn bytecode_seal_rejects_in_memory_resource_exhaustion() {
         modules: vec![BytecodeModule::default(); MAX_ARTIFACT_MODULES + 1],
     };
     assert!(matches!(
-        VerifiedBytecodeProgram::new(oversized, &context),
+        VerifiedBytecodeProgram::new(oversized, &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(_))
     ));
 }
@@ -102,16 +103,18 @@ fn memory_artifacts_reject_oversized_strings_before_fingerprinting() {
         let mut program = valid.clone();
         program.modules[0].source_name = "x".repeat(MAX_ARTIFACT_BYTES as usize);
         assert!(matches!(
-            KbcArtifact::from_program(program, Default::default(), &context),
+            KbcArtifact::from_program(program, Default::default(), &context, &Default::default()),
             Err(ArtifactValidationError::ResourceLimit(
                 "artifact encoded size limit exceeded"
             ))
         ));
     }
-    let mut artifact = KbcArtifact::from_program(valid, Default::default(), &context).unwrap();
+    let mut artifact =
+        KbcArtifact::from_program(valid, Default::default(), &context, &Default::default())
+            .unwrap();
     artifact.header.compiler_fingerprint = "x".repeat(MAX_ARTIFACT_BYTES as usize);
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "artifact encoded size limit exceeded"
         ))
@@ -136,6 +139,7 @@ fn decoder_rejects_old_versions_trailing_bytes_and_oversized_lengths() {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
@@ -219,6 +223,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let decoded =
@@ -262,7 +267,7 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     );
     imported
         .records()
-        .validate_for_loader(&Default::default(), &target)
+        .validate_for_loader(&Default::default(), &target, &Default::default())
         .unwrap();
     assert_eq!(
         encode_program_facts(&artifact.program, &context.snapshot(), &Default::default()).unwrap(),
@@ -279,12 +284,12 @@ fn artifact_preserves_portable_virtual_path_declarations() {
     let foreign = imported.records().clone();
     assert!(
         foreign
-            .into_verified(&Default::default(), &context)
+            .into_verified(&Default::default(), &context, &Default::default())
             .is_err()
     );
     let verified = imported
         .into_records()
-        .into_verified(&Default::default(), &target)
+        .into_verified(&Default::default(), &target, &Default::default())
         .unwrap();
     let unverified = verified.into_bytecode().into_unverified();
     drop(target);

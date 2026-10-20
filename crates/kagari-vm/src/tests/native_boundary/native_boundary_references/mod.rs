@@ -14,7 +14,12 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
     "#,
         None,
     ));
-    verify_program(program.records(), program.definitions()).unwrap();
+    verify_program(
+        program.records(),
+        program.definitions(),
+        &Default::default(),
+    )
+    .unwrap();
     let root = program.records().root.index();
 
     let mut invalid = program.records().clone();
@@ -34,7 +39,7 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
         unreachable!()
     };
     *access = ReferenceAccess::Mutable;
-    assert!(verify_program(&invalid, program.definitions()).is_err());
+    assert!(verify_program(&invalid, program.definitions(), &Default::default()).is_err());
 
     let mut invalid = program.records().clone();
     let inspect = invalid.modules[root]
@@ -46,7 +51,7 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
         unreachable!()
     };
     **target = Ty::Builtin(BuiltinType::I32);
-    assert!(verify_program(&invalid, program.definitions()).is_err());
+    assert!(verify_program(&invalid, program.definitions(), &Default::default()).is_err());
 
     let mut invalid = program.records().clone();
     let tuple = invalid.modules[root]
@@ -71,7 +76,7 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
         })
         .unwrap();
     elements[0] = source;
-    assert!(verify_program(&invalid, program.definitions()).is_err());
+    assert!(verify_program(&invalid, program.definitions(), &Default::default()).is_err());
 
     let mut invalid = program.records().clone();
     let module = &mut invalid.modules[root];
@@ -82,5 +87,5 @@ fn source_free_reference_facts_reject_target_upgrade_storage_and_suspension_corr
         .unwrap();
     inspect.metadata.effects.may_suspend = true;
     module.function_table[inspect.id.index()].effects = inspect.metadata.effects;
-    assert!(verify_program(&invalid, program.definitions()).is_err());
+    assert!(verify_program(&invalid, program.definitions(), &Default::default()).is_err());
 }

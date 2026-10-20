@@ -314,6 +314,7 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
         artifact.records().program.clone(),
         Default::default(),
         &definitions,
+        &Default::default(),
     )
     .unwrap();
     let program = &artifact.records().program;
@@ -382,7 +383,13 @@ fn malformed_programs_are_rejected_before_any_member_is_published() {
     let mut runtime = engine.runtime(ExecutionContext::default());
     for bad in malformed {
         assert!(
-            BytecodeArtifact::from_program(bad.clone(), Default::default(), &definitions).is_err()
+            BytecodeArtifact::from_program(
+                bad.clone(),
+                Default::default(),
+                &definitions,
+                &Default::default()
+            )
+            .is_err()
         );
         let mut corrupted = artifact.records().clone();
         corrupted.program = bad;

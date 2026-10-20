@@ -282,8 +282,14 @@ fn adopt_artifact(
     identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         definitions,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &definitions.snapshot()).unwrap();
+    verify_program(
+        &artifact.program,
+        &definitions.snapshot(),
+        &Default::default(),
+    )
+    .unwrap();
     scoped(definitions, artifact)
 }

@@ -49,7 +49,7 @@ fn source_exports_matching_native_input_or_explicit_bytecode_only_artifacts() {
             .import_into(&definitions, &Default::default())
             .unwrap()
             .into_records()
-            .into_verified(&Default::default(), &definitions)
+            .into_verified(&Default::default(), &definitions, &Default::default())
             .unwrap();
         match native_input {
             NativeInputExport::PortableMir => {

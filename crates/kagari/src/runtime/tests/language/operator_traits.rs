@@ -399,9 +399,10 @@ fn main()->i32 {Number{value:20}+22}
     let identity_table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &definitions,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &identity_table).unwrap();
+    verify_program(&artifact.program, &identity_table, &Default::default()).unwrap();
     for corrupt_input in [false, true] {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -428,7 +429,7 @@ fn main()->i32 {Number{value:20}+22}
         } else {
             interface.associated_types.clear();
         }
-        assert!(verify_program(&program, &identity_table).is_err());
+        assert!(verify_program(&program, &identity_table, &Default::default()).is_err());
     }
 }
 

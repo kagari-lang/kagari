@@ -110,6 +110,7 @@ impl VerifiedProgram {
         let definitions = identity::collect(
             &modules.iter().map(Arc::as_ref).collect::<Vec<_>>(),
             context,
+            &Default::default(),
         )
         .map_err(|error| RuntimeError::module_validation(error.to_string()))?;
         Ok(Self {

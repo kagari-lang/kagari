@@ -160,8 +160,12 @@ impl VerifiedProgram {
             }
             error => RuntimeError::module_validation(error.to_string()),
         };
-        validate_program_resource_limits(program.records(), program.definitions())
-            .map_err(invalid)?;
+        validate_program_resource_limits(
+            program.records(),
+            program.definitions(),
+            &Default::default(),
+        )
+        .map_err(invalid)?;
         let program = if program.definitions().id() == context.snapshot().id() {
             program.into_records()
         } else {
@@ -170,7 +174,8 @@ impl VerifiedProgram {
                 .map_err(|error| RuntimeError::module_validation(error.to_string()))?
                 .into_records()
         };
-        let program = VerifiedBytecodeProgram::new(program, context).map_err(invalid)?;
+        let program =
+            VerifiedBytecodeProgram::new(program, context, &Default::default()).map_err(invalid)?;
         Ok(Self::from_bytecode(program))
     }
 

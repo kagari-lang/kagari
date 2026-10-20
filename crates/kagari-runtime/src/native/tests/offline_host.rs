@@ -100,6 +100,7 @@ fn artifact(program: DefinitionMetadata<BytecodeProgram>) -> DefinitionMetadata<
         program.into_records(),
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     scoped(&context.snapshot(), artifact)
@@ -368,7 +369,13 @@ fn offline_encoding_is_canonical_and_rejects_invalid_input() {
         .import_into(&context, &Default::default())
         .unwrap();
     assert!(
-        KbcArtifact::from_program(duplicate.into_records(), Default::default(), &context).is_err()
+        KbcArtifact::from_program(
+            duplicate.into_records(),
+            Default::default(),
+            &context,
+            &Default::default()
+        )
+        .is_err()
     );
 }
 

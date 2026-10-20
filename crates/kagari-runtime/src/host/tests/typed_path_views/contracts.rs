@@ -165,6 +165,7 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let encoded = artifact.to_bytes(&context.snapshot()).unwrap();
@@ -175,7 +176,7 @@ fn index_and_virtual_path_fingerprints_follow_resolved_contracts() {
         .unwrap();
     offline
         .records()
-        .validate_for_loader(&Default::default(), &decode_context)
+        .validate_for_loader(&Default::default(), &decode_context, &Default::default())
         .unwrap();
     let mut bound = path_mutation_runtime();
     bound_module.install(&mut bound).unwrap();

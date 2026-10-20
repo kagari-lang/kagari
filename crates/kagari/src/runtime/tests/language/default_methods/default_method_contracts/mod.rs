@@ -76,7 +76,13 @@ fn shared_tuple_protocol_metadata_is_verified_without_source() {
             _ => unreachable!(),
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "mutation {mutation}"
         );
     }
@@ -135,7 +141,13 @@ fn composed_tuple_operation_witnesses_are_verified_without_source() {
             _ => unreachable!(),
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "composed witness mutation {mutation}"
         );
     }
@@ -185,7 +197,13 @@ fn composed_tuple_operation_witnesses_are_verified_without_source() {
             _ => unreachable!(),
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "conditional receiver dependency mutation {mutation}"
         );
     }

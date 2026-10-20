@@ -4,6 +4,7 @@ use crate::{
     program::{BytecodeProgram, ModuleRef},
     verifier::BytecodeVerificationError,
 };
+use kagari_common::cancellation::CancellationToken;
 use kagari_common::identity::{
     scoped::DefinitionReferences,
     table::{DefinitionId, DefinitionTable},
@@ -24,9 +25,9 @@ pub struct ExportTarget {
 pub(crate) fn verify(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<HashMap<DefinitionId, ExportTarget>, BytecodeVerificationError> {
     let invalid = || BytecodeVerificationError::InvalidProgramExports;
-    let cancel = Default::default();
     let mut required = HashSet::new();
     program
         .exports
@@ -36,12 +37,15 @@ pub(crate) fn verify(
                 required.insert(*id);
                 Ok(())
             },
-            &cancel,
+            cancel,
         )
         .map_err(|_| invalid())?;
     let mut bindings = HashMap::new();
     for (index, module) in program.modules.iter().enumerate() {
         for function in &module.functions {
+            cancel
+                .check()
+                .map_err(|_| BytecodeVerificationError::Cancelled)?;
             let Some(identity) = &function.identity else {
                 continue;
             };
@@ -75,7 +79,7 @@ pub(crate) fn verify(
         .validate(
             &program.modules[program.root.index()].identity,
             definitions,
-            &cancel,
+            cancel,
             |id, entry| {
                 let Some(target) = bindings.get(&id) else {
                     return false;

@@ -198,11 +198,17 @@ fn forged_native_imports_reject_bindings_signatures_and_obligations() {
             _ => unreachable!(),
         }
         assert!(
-            verify_program(&forged, &context.snapshot()).is_err(),
+            verify_program(&forged, &context.snapshot(), &Default::default()).is_err(),
             "accepted corruption {corrupt}"
         );
         assert!(
-            KbcArtifact::from_program(forged.clone(), Default::default(), &context).is_err(),
+            KbcArtifact::from_program(
+                forged.clone(),
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "artifact accepted corruption {corrupt}"
         );
         let mut runtime = Runtime::default();
@@ -309,7 +315,7 @@ pub fn answer() -> i32 {
     missing.modules[owner].native_imports[import]
         .callables
         .clear();
-    assert!(verify_program(&missing, &definitions).is_err());
+    assert!(verify_program(&missing, &definitions, &Default::default()).is_err());
     let mut forged = program.clone();
     let OperationWitness::Selected(selected) =
         &mut forged.modules[owner].native_imports[import].callables[0]
@@ -317,7 +323,7 @@ pub fn answer() -> i32 {
         panic!("concrete callable");
     };
     selected.implementation = CallableImplementation::Required;
-    assert!(verify_program(&forged, &context.snapshot()).is_err());
+    assert!(verify_program(&forged, &context.snapshot(), &Default::default()).is_err());
     let decoded = round_trip_program(
         DefinitionMetadata::checked(definitions.clone(), program, &Default::default()).unwrap(),
     );
@@ -388,8 +394,16 @@ fn native_storage_writes_reject_element_type_forgery() {
     // The values share a physical heap-handle representation; the concrete
     // element contract must reject substituting Vec<String> for Vec<i32>.
     args[1] = wrong;
-    assert!(verify_program(&program, &definitions).is_err());
-    assert!(KbcArtifact::from_program(program.clone(), Default::default(), &context).is_err());
+    assert!(verify_program(&program, &definitions, &Default::default()).is_err());
+    assert!(
+        KbcArtifact::from_program(
+            program.clone(),
+            Default::default(),
+            &context,
+            &Default::default()
+        )
+        .is_err()
+    );
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     assert!(

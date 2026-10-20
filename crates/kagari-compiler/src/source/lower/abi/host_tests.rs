@@ -139,10 +139,14 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    VerifiedBytecodeProgram::new(bytecode.clone(), &context).unwrap();
-    let artifact =
-        KbcArtifact::from_program(bytecode.clone(), ArtifactBuildOptions::default(), &context)
-            .unwrap();
+    VerifiedBytecodeProgram::new(bytecode.clone(), &context, &Default::default()).unwrap();
+    let artifact = KbcArtifact::from_program(
+        bytecode.clone(),
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
     assert_eq!(
@@ -154,7 +158,11 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
         .unwrap()
         .into_records();
     decoded
-        .validate_for_loader(&ArtifactCompatibility::default(), &context)
+        .validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default(),
+        )
         .unwrap();
 
     let mut forged_mir = restored
@@ -189,5 +197,5 @@ fn external_native_abi_preserves_shared_field_policy_and_nominal_scope() {
         .as_mut()
         .unwrap()
         .path_access = PathAccess::ReadOnly;
-    assert!(VerifiedBytecodeProgram::new(forged_bytecode, &context).is_err());
+    assert!(VerifiedBytecodeProgram::new(forged_bytecode, &context, &Default::default()).is_err());
 }

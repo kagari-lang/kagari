@@ -629,6 +629,6 @@ fn aggregate_field_instructions_reject_a_different_nominal_receiver() {
                 _ => {}
             }
         }
-        assert!(verify_program(&bytecode, &definitions).is_err());
+        assert!(verify_program(&bytecode, &definitions, &Default::default()).is_err());
     }
 }

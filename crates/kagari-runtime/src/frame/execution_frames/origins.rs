@@ -67,8 +67,13 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
     );
     let entry = function.id;
     function.metadata.debug = Default::default();
-    let artifact =
-        KbcArtifact::from_program(code, ArtifactBuildOptions::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        code,
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
     let mut runtime = Runtime::default();
@@ -76,7 +81,7 @@ fn selected_fault_origin_survives_stripped_source_free_execution() {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records()
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
     let loaded = runtime
         .load_verified_program(

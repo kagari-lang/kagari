@@ -371,9 +371,10 @@ fn main() -> i32 { val runner: Invoke = Runner {}; runner.invoke(|x| x * 2) }
     let table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &table).unwrap();
+    verify_program(&artifact.program, &table, &Default::default()).unwrap();
     for mutation in 0..5 {
         let mut program = artifact.program.clone();
         let contract = program
@@ -419,7 +420,13 @@ fn main() -> i32 { val runner: Invoke = Runner {}; runner.invoke(|x| x * 2) }
             }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "forged witness {mutation}"
         );
     }

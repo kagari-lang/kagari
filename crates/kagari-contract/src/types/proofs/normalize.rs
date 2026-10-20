@@ -79,7 +79,7 @@ impl ProofCatalog<'_> {
                     }
                 }
                 let mut selected = None;
-                for implementation in &self.implementations {
+                for implementation in self.implementations.iter() {
                     budget.step(depth)?;
                     if let Some(output) = projection_output(
                         implementation

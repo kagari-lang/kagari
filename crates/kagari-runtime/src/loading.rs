@@ -162,8 +162,12 @@ impl Runtime {
         bytecode: DefinitionMetadata<BytecodeProgram>,
     ) -> Result<StagedReload, ReloadValidationError> {
         let name = name.into();
-        validate_program_resource_limits(bytecode.records(), bytecode.definitions())
-            .map_err(ReloadValidationError::Artifact)?;
+        validate_program_resource_limits(
+            bytecode.records(),
+            bytecode.definitions(),
+            &Default::default(),
+        )
+        .map_err(ReloadValidationError::Artifact)?;
         self.validate_loaded_module(active)
             .map_err(ReloadValidationError::Runtime)?;
         let latest = self.modules.latest(&active.name);
@@ -196,7 +200,7 @@ impl Runtime {
         let latest = self.modules.latest(&active.name);
         artifact
             .records()
-            .validate_resource_limits(artifact.definitions())
+            .validate_resource_limits(artifact.definitions(), &Default::default())
             .map_err(ReloadValidationError::Artifact)?;
         let artifact = artifact
             .import_into(self.definition_context(), &CancellationToken::default())

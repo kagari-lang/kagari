@@ -362,9 +362,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let decoded =
         BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions())?)?;
     let decoded = decoded.import_into(&definitions, &Default::default())?;
-    decoded
-        .records()
-        .validate_for_loader(&Default::default(), &definitions)?;
+    decoded.records().validate_for_loader(
+        &Default::default(),
+        &definitions,
+        &Default::default(),
+    )?;
     assert_eq!(
         decoded.records().header.format_version,
         KBC_ARTIFACT_FORMAT_VERSION

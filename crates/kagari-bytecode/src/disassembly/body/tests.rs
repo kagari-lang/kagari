@@ -108,6 +108,7 @@ fn prepare(function: BytecodeFunction) -> PreparedDisassembly {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();

@@ -191,9 +191,10 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
             .iter()
             .collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.records().program, &table).unwrap();
+    verify_program(&artifact.records().program, &table, &Default::default()).unwrap();
     for mutation in 0..5 {
         let mut program = artifact.records().program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -231,10 +232,18 @@ fn malformed_standard_implementations_and_reserved_modules_are_rejected() {
             }
         }
         assert!(
-            verify_program(&program, &context.snapshot()).is_err(),
+            verify_program(&program, &context.snapshot(), &Default::default()).is_err(),
             "mutation {mutation}"
         );
-        assert!(BytecodeArtifact::from_program(program, Default::default(), &context).is_err());
+        assert!(
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err()
+        );
     }
 }
 
@@ -732,7 +741,7 @@ fn main()->i64 {Key{id:1}.hash()}
         let module = &mut program.modules[program.root.index()];
         module.public_items.retain(|item| !matches!(item,PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(t) if Some(t.declaration)==missing.definition(artifact.definitions()))));
         assert!(
-            verify_program(&program, artifact.definitions()).is_err(),
+            verify_program(&program, artifact.definitions(), &Default::default()).is_err(),
             "missing {missing:?}"
         );
     }

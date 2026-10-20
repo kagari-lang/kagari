@@ -115,7 +115,8 @@ pub fn lower_to_bytecode(
     }
     let mut module = lower_linked_module(ir, None, Vec::new())?;
     views::populate(slice::from_mut(&mut module), ir.definitions())?;
-    verify_module(&module, ir.definitions()).map_err(BytecodeLoweringError::Verification)?;
+    verify_module(&module, ir.definitions(), &Default::default())
+        .map_err(BytecodeLoweringError::Verification)?;
     DefinitionMetadata::checked(ir.definitions().clone(), module, &Default::default())
         .map_err(|_| BytecodeLoweringError::InvalidNativeInterface)
 }

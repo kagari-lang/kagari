@@ -386,6 +386,7 @@ impl Fixture {
             },
             Default::default(),
             &definitions,
+            &Default::default(),
         )
         .unwrap();
         let decoded =

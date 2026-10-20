@@ -61,7 +61,7 @@ fn never_functions_reject_even_never_typed_return_operands() {
         .unwrap();
     *point = BytecodeInstruction::Return(Some(Slot::new(register)));
     assert!(matches!(
-        verify_program(&bytecode, &context.snapshot()).unwrap_err(),
+        verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap_err(),
         BytecodeVerificationError::InvalidOperation {
             reason: "Never function cannot return",
             ..
@@ -84,5 +84,5 @@ fn never_calls_terminate_without_emitting_following_effects() {
     );
     let bytecode =
         common::adopt_bytecode(&context, common::bytecode_with_edited_root(&input, &mir));
-    verify_program(&bytecode, &context.snapshot()).unwrap();
+    verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
 }

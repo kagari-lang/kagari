@@ -4,11 +4,13 @@ use crate::{
     module::BytecodeModule,
     program::verified::ProgramVerification,
     suspension::FlowBudget,
-    trait_bounds, verifier,
+    trait_bounds::{self, preparation::VerificationResources},
+    verifier,
     verifier::BytecodeVerificationError,
 };
-use kagari_common::identity::{
-    DefinitionKind, mapping::DefinitionMappingError, table::DefinitionTable,
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{DefinitionKind, mapping::DefinitionMappingError, table::DefinitionTable},
 };
 use kagari_contract::{
     exports::ProgramExports,
@@ -16,11 +18,7 @@ use kagari_contract::{
     layout, types as abi,
     types::{InterfaceBridge, PublicItem, verify},
 };
-use kagari_types::{
-    declaration::{TypeDefKind, ownership::ReceiverOwners},
-    language::Protocol,
-    ty::Ty,
-};
+use kagari_types::{declaration::TypeDefKind, language::Protocol, ty::Ty};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -62,16 +60,37 @@ pub struct BytecodeProgram {
 pub fn verify_program(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<(), BytecodeVerificationError> {
-    verify_graph(program, definitions).map(|_| ())
+    verify_graph(program, definitions, cancel).map(|_| ())
 }
 
 pub(crate) fn verify_graph(
     program: &BytecodeProgram,
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> Result<ProgramVerification, BytecodeVerificationError> {
-    identity::validate(&program.modules.iter().collect::<Vec<_>>(), definitions)?;
-    let mut flow_budget = FlowBudget::default();
+    let result = verify_graph_inner(program, definitions, cancel);
+    cancel
+        .check()
+        .map_err(|_| BytecodeVerificationError::Cancelled)?;
+    result
+}
+
+fn verify_graph_inner(
+    program: &BytecodeProgram,
+    definitions: &DefinitionTable,
+    cancel: &CancellationToken,
+) -> Result<ProgramVerification, BytecodeVerificationError> {
+    cancel
+        .check()
+        .map_err(|_| BytecodeVerificationError::Cancelled)?;
+    identity::validate(
+        &program.modules.iter().collect::<Vec<_>>(),
+        definitions,
+        cancel,
+    )?;
+    let mut flow_budget = FlowBudget::new(cancel);
     let mut suspensions = Vec::with_capacity(program.modules.len());
     let invalid = || BytecodeVerificationError::InvalidProgramGraph;
     if program.modules.len() > u32::MAX as usize || program.root.index() >= program.modules.len() {
@@ -86,12 +105,28 @@ pub(crate) fn verify_graph(
         }
     }
     let mut identities = HashSet::new();
-    let mut layouts = HashMap::new();
-    let mut enum_layouts = HashMap::new();
-    for (index, module) in program.modules.iter().enumerate() {
+    for module in &program.modules {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         if !identities.insert(&module.identity) {
             return Err(invalid());
         }
+        suspensions.push(verifier::verify_module_with_program(
+            module,
+            Some(program),
+            &mut flow_budget,
+            definitions,
+        )?);
+    }
+    let resources =
+        VerificationResources::new(program.modules.iter().collect(), definitions, cancel)?;
+    let mut layouts = HashMap::new();
+    let mut enum_layouts = HashMap::new();
+    for (index, module) in program.modules.iter().enumerate() {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         for layout in &module.structures {
             if let Some(previous) = layouts.insert((&layout.declaration, &layout.arguments), layout)
                 && previous != layout
@@ -100,11 +135,12 @@ pub(crate) fn verify_graph(
             }
         }
         for layout in &module.structures {
-            let Some(owner) = program.modules.iter().find(|owner| {
-                definitions
-                    .resolve(layout.declaration)
-                    .is_ok_and(|view| view.module() == &owner.identity)
-            }) else {
+            let Some(owner) = definitions
+                .resolve(layout.declaration)
+                .ok()
+                .and_then(|view| resources.module_indices.get(view.module()))
+                .map(|index| &program.modules[*index])
+            else {
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
@@ -114,10 +150,10 @@ pub(crate) fn verify_graph(
                 slice::from_ref(layout),
                 &owner.identity,
                 slice::from_ref(template),
-                &Default::default(),
+                cancel,
                 definitions,
             )
-            .expect("bytecode verification uses an uncancelled token")
+            .map_err(|_| BytecodeVerificationError::Cancelled)?
             {
                 return Err(BytecodeVerificationError::InvalidStructLayout);
             }
@@ -131,19 +167,13 @@ pub(crate) fn verify_graph(
             }
         }
 
-        suspensions.push(verifier::verify_module_with_program(
-            module,
-            Some(program),
-            &mut flow_budget,
-            definitions,
-        )?);
-
         for layout in &module.enumerations {
-            let Some(owner) = program.modules.iter().find(|owner| {
-                definitions
-                    .resolve(layout.declaration)
-                    .is_ok_and(|view| view.module() == &owner.identity)
-            }) else {
+            let Some(owner) = definitions
+                .resolve(layout.declaration)
+                .ok()
+                .and_then(|view| resources.module_indices.get(view.module()))
+                .map(|index| &program.modules[*index])
+            else {
                 continue;
             };
             let Some(template) = owner.public_items.iter().find(|item| {
@@ -153,10 +183,10 @@ pub(crate) fn verify_graph(
                 slice::from_ref(layout),
                 &owner.identity,
                 slice::from_ref(template),
-                &Default::default(),
+                cancel,
                 definitions,
             )
-            .expect("bytecode verification uses an uncancelled token")
+            .map_err(|_| BytecodeVerificationError::Cancelled)?
             {
                 return Err(BytecodeVerificationError::InvalidEnumLayout);
             }
@@ -164,17 +194,27 @@ pub(crate) fn verify_graph(
         let mut reachable = HashSet::new();
         let mut pending = module.dependencies.clone();
         while let Some(dependency) = pending.pop() {
+            cancel
+                .check()
+                .map_err(|_| BytecodeVerificationError::Cancelled)?;
             if reachable.insert(dependency) {
                 pending.extend_from_slice(&program.modules[dependency.index()].dependencies);
             }
         }
-        let mut closure = reachable
+        let mut indices = reachable
             .iter()
-            .map(|dependency| &program.modules[dependency.index()])
+            .map(|module| module.index())
             .collect::<Vec<_>>();
         if !reachable.contains(&ModuleRef::new(index)) {
-            closure.push(module);
+            indices.push(index);
         }
+        indices.sort_unstable();
+        let visible_modules = indices
+            .iter()
+            .map(|index| &program.modules[*index])
+            .collect::<Vec<_>>();
+        let closure = &visible_modules;
+        let owners = resources.receiver_owners(&indices);
         if !external_bindings_match(
             &module.external_types,
             |id| {
@@ -182,7 +222,7 @@ pub(crate) fn verify_graph(
                     abi::type_contract(&owner.identity, &owner.public_items, &id, definitions)
                 })
             },
-            &Default::default(),
+            cancel,
         )
         .map_err(|_| BytecodeVerificationError::InvalidProgramGraph)?
         {
@@ -203,22 +243,12 @@ pub(crate) fn verify_graph(
                     )
                 })
             },
-            &Default::default(),
+            cancel,
         )
         .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?
         {
             return Err(BytecodeVerificationError::InvalidInterfaceTable);
         }
-        let owners = ReceiverOwners::from_types(closure.iter().flat_map(|module| {
-            module.public_items.iter().filter_map(|item| {
-                if let PublicItem::Type(ty) = item {
-                    Some((&module.identity, ty))
-                } else {
-                    None
-                }
-            })
-        }))
-        .map_err(|_| BytecodeVerificationError::InvalidInterfaceTable)?;
         for item in &module.public_items {
             let PublicItem::InterfaceTable(table) = item else {
                 continue;
@@ -256,11 +286,10 @@ pub(crate) fn verify_graph(
             {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
-            let Some((owner_index, owner)) = program
-                .modules
-                .iter()
-                .enumerate()
-                .find(|(_, owner)| &owner.identity == trait_id.module())
+            let Some((owner_index, owner)) = resources
+                .module_indices
+                .get(trait_id.module())
+                .map(|index| (*index, &program.modules[*index]))
             else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
@@ -293,16 +322,12 @@ pub(crate) fn verify_graph(
             let Some(interface) = interface else {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             };
-            if !verify::interface_contract_matches(
-                table,
-                interface,
-                &Default::default(),
-                definitions,
-            ) {
+            if !verify::interface_contract_matches(table, interface, cancel, definitions) {
                 return Err(BytecodeVerificationError::InvalidInterfaceTable);
             }
         }
-        trait_bounds::verify_trait_bounds(module, &closure, Some(program), definitions)?;
+        let scope = resources.scope(&indices, owners, cancel)?;
+        trait_bounds::verify_trait_bounds(index, Some(program), &resources, &scope, cancel)?;
         for instruction in module
             .functions
             .iter()
@@ -342,6 +367,9 @@ pub(crate) fn verify_graph(
     let mut reachable = HashSet::new();
     let mut pending = vec![program.root];
     while let Some(module) = pending.pop() {
+        cancel
+            .check()
+            .map_err(|_| BytecodeVerificationError::Cancelled)?;
         if reachable.insert(module) {
             pending.extend_from_slice(&program.modules[module.index()].dependencies);
         }
@@ -349,8 +377,8 @@ pub(crate) fn verify_graph(
     if reachable.len() != program.modules.len() {
         return Err(invalid());
     }
-    construction::verify(program, definitions)?;
-    let exports = exports::verify(program, definitions)?;
+    construction::verify(program, definitions, cancel)?;
+    let exports = exports::verify(program, definitions, cancel)?;
     Ok(ProgramVerification {
         suspensions,
         exports,

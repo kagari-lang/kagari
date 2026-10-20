@@ -163,7 +163,8 @@ fn iterator_view_adaptation_rejects_forged_output_types() {
             *iterator.associated_types.values_mut().next().unwrap() = Ty::Builtin(BuiltinType::I64);
         }
         assert!(
-            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+                .is_err(),
             "forged iterator output (wrong result category: {wrong_result})"
         );
     }

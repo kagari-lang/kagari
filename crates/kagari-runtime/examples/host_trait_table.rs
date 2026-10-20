@@ -78,9 +78,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let decoded = KbcArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions())?)?;
     let definitions = DefinitionContext::new()?;
     let decoded = decoded.import_into(&definitions, &Default::default())?;
-    decoded
-        .records()
-        .validate_for_loader(&Default::default(), &definitions)?;
+    decoded.records().validate_for_loader(
+        &Default::default(),
+        &definitions,
+        &Default::default(),
+    )?;
     let (snapshot, decoded) = decoded.into_parts();
     let mut runtime = Runtime::default();
     NativeModule::install_all(&modules, &mut runtime)?;

@@ -278,7 +278,8 @@ fn main() -> bool { val a: Read = Item { value: 1 }; a.read() == a.read() }
         *lhs = operand;
         *rhs = operand;
         assert!(
-            KbcArtifact::from_program(program, Default::default(), &context).is_err(),
+            KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+                .is_err(),
             "identity={identity}, concrete={concrete}"
         );
     }
@@ -348,11 +349,15 @@ fn main() -> bool { val a: Read = Item { value: 1 }; a.read() == a.read() }
         for (route, result) in [
             (
                 "direct",
-                verify_program(&forged.program, &context.snapshot()),
+                verify_program(&forged.program, &context.snapshot(), &Default::default()),
             ),
             (
                 "decoded",
-                verify_program(&wire.records().program, wire.definitions()),
+                verify_program(
+                    &wire.records().program,
+                    wire.definitions(),
+                    &Default::default(),
+                ),
             ),
         ] {
             match result {
@@ -383,7 +388,13 @@ fn portable_unused_signatures_require_dynamic_compatibility() {
         .unwrap()
         .into_records();
     // Populate all implicit references before mutating the declared trait surface.
-    records = KbcArtifact::from_program(records.program, Default::default(), &context).unwrap();
+    records = KbcArtifact::from_program(
+        records.program,
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let contract = records
         .program
         .modules
@@ -399,11 +410,24 @@ fn portable_unused_signatures_require_dynamic_compatibility() {
     };
     contract.methods[0].return_type = Ty::SelfType(owner);
     assert!(
-        KbcArtifact::from_program(records.program.clone(), Default::default(), &context).is_err()
+        KbcArtifact::from_program(
+            records.program.clone(),
+            Default::default(),
+            &context,
+            &Default::default()
+        )
+        .is_err()
     );
     let bytes = records.to_bytes(&context.snapshot()).unwrap();
     let decoded = KbcArtifact::from_bytes(&bytes).unwrap();
-    assert!(verify_program(&decoded.records().program, decoded.definitions()).is_err());
+    assert!(
+        verify_program(
+            &decoded.records().program,
+            decoded.definitions(),
+            &Default::default()
+        )
+        .is_err()
+    );
     assert!(matches!(
         engine.compile_to_artifact(
             SourceFile::new(
@@ -476,5 +500,8 @@ fn main() -> String { val view: Debug = 42; view.debug() }
         unreachable!()
     };
     *callee = CallTarget::Function(forged);
-    assert!(KbcArtifact::from_program(program, Default::default(), &context).is_err());
+    assert!(
+        KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .is_err()
+    );
 }

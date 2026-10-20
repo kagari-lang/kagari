@@ -291,7 +291,7 @@ fn artifact_inheritance_cycles_and_missing_parent_implementations_are_rejected()
         } else {
             module.public_items.retain(|item| !matches!(item, PublicItem::InterfaceTable(table) if matches!(&table.trait_type, Ty::Trait(ty) if artifact.definitions().resolve(ty.declaration).unwrap().last().unwrap().name == "Parent")));
         }
-        assert!(verify_program(&program, artifact.definitions()).is_err());
+        assert!(verify_program(&program, artifact.definitions(), &Default::default()).is_err());
     }
 }
 

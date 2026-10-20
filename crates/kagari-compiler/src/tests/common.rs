@@ -251,7 +251,12 @@ pub fn adopt_bytecode(
     metadata: DefinitionMetadata<BytecodeProgram>,
 ) -> BytecodeProgram {
     let program = adopt(context, metadata);
-    identity::collect(&program.modules.iter().collect::<Vec<_>>(), context).unwrap();
+    identity::collect(
+        &program.modules.iter().collect::<Vec<_>>(),
+        context,
+        &Default::default(),
+    )
+    .unwrap();
     program
 }
 

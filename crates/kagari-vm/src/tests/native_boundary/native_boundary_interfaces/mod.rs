@@ -125,7 +125,7 @@ fn generic_native_default_uses_the_interface_callers_type_arguments() {
             _ => import.signature.result = Type::bool().abi().clone(),
         }
         assert!(
-            verify_program(&forged, &definitions).is_err(),
+            verify_program(&forged, &definitions, &Default::default()).is_err(),
             "native mutation {mutation}"
         );
     }
@@ -310,7 +310,7 @@ fn dynamic_iterator_adapters_round_trip_and_reject_forged_tables() {
         }
         assert!(
             matches!(
-                verify_program(&forged, &definitions),
+                verify_program(&forged, &definitions, &Default::default()),
                 Err(BytecodeVerificationError::InvalidInterfaceTable)
             ),
             "corruption {corruption}"

@@ -44,6 +44,7 @@ fn typed_path_operands_preflight_before_decoding_registers() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     artifact.program.modules[0]
@@ -85,16 +86,26 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
         .push(make_tuple(MAX_ARTIFACT_NESTED_RECORDS + 1));
     oversized.modules[0].functions.push(function);
     assert!(matches!(
-        KbcArtifact::from_program(oversized.clone(), Default::default(), &context),
+        KbcArtifact::from_program(
+            oversized.clone(),
+            Default::default(),
+            &context,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::ResourceLimit(
             "instruction operand record limit exceeded"
         ))
     ));
-    let mut artifact =
-        KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+    let mut artifact = KbcArtifact::from_program(
+        valid.clone(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     artifact.program = oversized;
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "instruction operand record limit exceeded"
         ))
@@ -122,7 +133,7 @@ fn instruction_operand_vectors_are_bounded_before_verification() {
     };
     aggregate.modules[0].functions.push(function);
     assert!(matches!(
-        KbcArtifact::from_program(aggregate, Default::default(), &context),
+        KbcArtifact::from_program(aggregate, Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "instruction operand aggregate limit exceeded"
         ))
@@ -156,25 +167,37 @@ fn oversized_memory_identity_paths_reject_before_fingerprinting() {
     let mut program = valid.clone();
     program.modules[0].identity = oversized_identity;
     assert!(matches!(
-        KbcArtifact::from_program(program.clone(), Default::default(), &context),
+        KbcArtifact::from_program(
+            program.clone(),
+            Default::default(),
+            &context,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::ResourceLimit(
             "identity path segment limit exceeded"
         ))
     ));
-    let mut artifact =
-        KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+    let mut artifact = KbcArtifact::from_program(
+        valid.clone(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     artifact.program = program;
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "identity path segment limit exceeded"
         ))
     ));
     assert!(artifact.to_bytes(&context.snapshot()).is_err());
-    let mut artifact = KbcArtifact::from_program(valid, Default::default(), &context).unwrap();
+    let mut artifact =
+        KbcArtifact::from_program(valid, Default::default(), &context, &Default::default())
+            .unwrap();
     artifact.header.module_identity.path = vec!["part".into(); MAX_IDENTITY_PATH_SEGMENTS + 1];
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "identity path segment limit exceeded"
         ))
@@ -214,14 +237,19 @@ fn nested_function_layout_tables_are_bounded_on_memory_and_wire_routes() {
         (debug_frame, "function metadata record limit exceeded"),
     ] {
         assert!(matches!(
-            KbcArtifact::from_program(program.clone(), Default::default(), &context),
+            KbcArtifact::from_program(program.clone(), Default::default(), &context, &Default::default()),
             Err(ArtifactValidationError::ResourceLimit(found)) if found == reason
         ));
-        let mut artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let mut artifact = KbcArtifact::from_program(
+            valid.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact.program = program;
         assert!(matches!(
-            artifact.validate_for_loader(&Default::default(), &context),
+            artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
             Err(ArtifactValidationError::ResourceLimit(found)) if found == reason
         ));
         assert!(artifact.to_bytes(&context.snapshot()).is_err());
@@ -263,16 +291,19 @@ fn detached_debug_frame_layout_is_bounded_before_fingerprinting() {
                 debug: Some(metadata.clone()),
                 ..Default::default()
             },
-            &context
+            &context,
+            &Default::default()
         ),
         Err(ArtifactValidationError::ResourceLimit(
             "debug record limit exceeded"
         ))
     ));
-    let mut artifact = KbcArtifact::from_program(valid, Default::default(), &context).unwrap();
+    let mut artifact =
+        KbcArtifact::from_program(valid, Default::default(), &context, &Default::default())
+            .unwrap();
     artifact.debug = Some(metadata);
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "debug record limit exceeded"
         ))
@@ -302,6 +333,7 @@ fn decoder_rejects_forged_header_identity_path_length() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let mut bytes = artifact.to_bytes(&context.snapshot()).unwrap();
@@ -356,6 +388,7 @@ fn decoder_rejects_huge_module_count_before_reading_module_data() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let mut bytes = artifact.to_bytes(&context.snapshot()).unwrap();
@@ -481,16 +514,26 @@ fn deep_abi_types_are_rejected_before_artifact_fingerprinting() {
     });
     for program in [constant, native, import].into_iter().chain(bound_programs) {
         assert!(matches!(
-            KbcArtifact::from_program(program.clone(), Default::default(), &context),
+            KbcArtifact::from_program(
+                program.clone(),
+                Default::default(),
+                &context,
+                &Default::default()
+            ),
             Err(ArtifactValidationError::ResourceLimit(
                 "ABI type resource limit exceeded"
             ))
         ));
-        let mut artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let mut artifact = KbcArtifact::from_program(
+            valid.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact.program = program;
         assert!(matches!(
-            artifact.validate_for_loader(&Default::default(), &context),
+            artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
             Err(ArtifactValidationError::ResourceLimit(
                 "ABI type resource limit exceeded"
             ))
@@ -620,16 +663,26 @@ fn nested_layout_and_host_path_counts_are_bounded_on_all_artifact_routes() {
 
     for (index, program) in cases.into_iter().enumerate() {
         assert!(matches!(
-            KbcArtifact::from_program(program.clone(), Default::default(), &context),
+            KbcArtifact::from_program(
+                program.clone(),
+                Default::default(),
+                &context,
+                &Default::default()
+            ),
             Err(ArtifactValidationError::ResourceLimit(
                 "nested module record limit exceeded"
             ))
         ));
-        let mut artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let mut artifact = KbcArtifact::from_program(
+            valid.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         artifact.program = program;
         assert!(matches!(
-            artifact.validate_for_loader(&Default::default(), &context),
+            artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
             Err(ArtifactValidationError::ResourceLimit(
                 "nested module record limit exceeded"
             ))
@@ -664,13 +717,20 @@ fn module_count_limit_rejects_memory_and_encoded_artifacts_before_verification()
         .modules
         .resize(MAX_ARTIFACT_MODULES + 1, BytecodeModule::default());
     assert!(matches!(
-        KbcArtifact::from_program(excessive.clone(), Default::default(), &context),
+        KbcArtifact::from_program(
+            excessive.clone(),
+            Default::default(),
+            &context,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::ResourceLimit("too many modules"))
     ));
-    let mut artifact = KbcArtifact::from_program(valid, Default::default(), &context).unwrap();
+    let mut artifact =
+        KbcArtifact::from_program(valid, Default::default(), &context, &Default::default())
+            .unwrap();
     artifact.program = excessive;
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit("too many modules"))
     ));
     assert!(
@@ -704,11 +764,12 @@ fn declared_section_counts_are_bounded_independently_of_payload_size() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     artifact.tables.sections[0].record_count = MAX_ARTIFACT_TABLE_RECORDS + 1;
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "artifact metadata record limit exceeded"
         ))
@@ -733,11 +794,12 @@ fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     assert!(
         artifact
-            .validate_for_loader(&Default::default(), &context)
+            .validate_for_loader(&Default::default(), &context, &Default::default())
             .is_ok()
     );
     for change in 0..5 {
@@ -754,7 +816,7 @@ fn recomputed_hash_cannot_hide_inconsistent_artifact_tables() {
         changed.header.content_hash = changed.compute_content_hash(&context.snapshot()).unwrap();
         assert!(
             matches!(
-                changed.validate_for_loader(&Default::default(), &context),
+                changed.validate_for_loader(&Default::default(), &context, &Default::default()),
                 Err(ArtifactValidationError::TableMismatch)
             ),
             "change {change}"
@@ -773,13 +835,14 @@ fn bytecode_cannot_claim_a_different_identity_from_its_header() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     artifact.program.modules[artifact.program.root.index()].identity =
         ModuleIdentity::single_file("forged.kgr");
     artifact.header.content_hash = artifact.compute_content_hash(&context.snapshot()).unwrap();
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ModuleIdentityMismatch { .. })
     ));
 }
@@ -795,6 +858,7 @@ fn legacy_language_semantics_cannot_be_opted_into() {
         },
         Default::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     artifact.header.language_version = "0.1.0".into();
@@ -803,7 +867,7 @@ fn legacy_language_semantics_cannot_be_opted_into() {
         ..Default::default()
     };
     assert!(matches!(
-        artifact.validate_for_loader(&requirements, &context),
+        artifact.validate_for_loader(&requirements, &context, &Default::default()),
         Err(ArtifactValidationError::LanguageVersionMismatch { .. })
     ));
 }
@@ -837,6 +901,7 @@ fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
         },
         ArtifactBuildOptions::default(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     artifact
@@ -846,7 +911,11 @@ fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
         .0
         .push_str("changed");
     assert!(matches!(
-        artifact.validate_for_loader(&ArtifactCompatibility::default(), &context),
+        artifact.validate_for_loader(
+            &ArtifactCompatibility::default(),
+            &context,
+            &Default::default()
+        ),
         Err(ArtifactValidationError::ContentHashMismatch)
     ));
     artifact.header.format_version = 1;
@@ -855,7 +924,7 @@ fn header_metadata_is_covered_and_old_format_cannot_be_opted_into() {
         ..ArtifactCompatibility::default()
     };
     assert!(matches!(
-        artifact.validate_for_loader(&requirements, &context),
+        artifact.validate_for_loader(&requirements, &context, &Default::default()),
         Err(ArtifactValidationError::FormatVersionMismatch { .. })
     ));
 }
@@ -879,15 +948,17 @@ fn recomputed_checksum_cannot_hide_dependency_or_verification_metadata_changes()
             },
         ],
     };
-    let original = KbcArtifact::from_program(program, Default::default(), &context).unwrap();
+    let original =
+        KbcArtifact::from_program(program, Default::default(), &context, &Default::default())
+            .unwrap();
     original
-        .validate_for_loader(&Default::default(), &context)
+        .validate_for_loader(&Default::default(), &context, &Default::default())
         .unwrap();
     let mut artifact = original.clone();
     artifact.program.modules[0].source_name.push_str("changed");
     artifact.header.content_hash = artifact.compute_content_hash(&context.snapshot()).unwrap();
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::DependencyFingerprintMismatch)
     ));
     let mut artifact = original;
@@ -902,7 +973,7 @@ fn recomputed_checksum_cannot_hide_dependency_or_verification_metadata_changes()
         artifact.verification.public_abi_fingerprints.clone();
     artifact.header.content_hash = artifact.compute_content_hash(&context.snapshot()).unwrap();
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::VerificationMetadataMismatch)
     ));
 }
@@ -915,7 +986,13 @@ fn portable_mir_is_opaque_but_integrity_and_manifest_bound() {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
-    let plain = KbcArtifact::from_program(program.clone(), Default::default(), &context).unwrap();
+    let plain = KbcArtifact::from_program(
+        program.clone(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let artifact = KbcArtifact::from_program(
         program,
         ArtifactBuildOptions {
@@ -926,6 +1003,7 @@ fn portable_mir_is_opaque_but_integrity_and_manifest_bound() {
             ..Default::default()
         },
         &context,
+        &Default::default(),
     )
     .unwrap();
     assert_ne!(plain.header.content_hash, artifact.header.content_hash);
@@ -944,7 +1022,7 @@ fn portable_mir_is_opaque_but_integrity_and_manifest_bound() {
         .unwrap()
         .into_records();
     decoded
-        .validate_for_loader(&Default::default(), &context)
+        .validate_for_loader(&Default::default(), &context, &Default::default())
         .unwrap();
     assert_eq!(decoded.to_bytes(&context.snapshot()).unwrap(), bytes);
     assert_eq!(decoded.portable_mir.unwrap().bytes, [1, 2, 3]);
@@ -952,19 +1030,19 @@ fn portable_mir_is_opaque_but_integrity_and_manifest_bound() {
     let mut changed = artifact.clone();
     changed.portable_mir.as_mut().unwrap().bytes[0] = 4;
     assert!(matches!(
-        changed.validate_for_loader(&Default::default(), &context),
+        changed.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ContentHashMismatch)
     ));
     // Even a refreshed outer checksum cannot hide a stale section fingerprint.
     changed.header.content_hash = changed.compute_content_hash(&context.snapshot()).unwrap();
     assert!(matches!(
-        changed.validate_for_loader(&Default::default(), &context),
+        changed.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::TableMismatch)
     ));
     changed.portable_mir = None;
     changed.header.content_hash = changed.compute_content_hash(&context.snapshot()).unwrap();
     assert!(matches!(
-        changed.validate_for_loader(&Default::default(), &context),
+        changed.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::TableMismatch)
     ));
 
@@ -994,13 +1072,18 @@ fn portable_mir_bounds_apply_before_decoding_and_to_combined_envelope_size() {
         root: ModuleRef::new(0),
         modules: vec![BytecodeModule::default()],
     };
-    let mut artifact =
-        KbcArtifact::from_program(program.clone(), Default::default(), &context).unwrap();
+    let mut artifact = KbcArtifact::from_program(
+        program.clone(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     artifact.portable_mir = Some(PortableMir {
         bytes: vec![0; MAX_ARTIFACT_BYTES as usize + 1],
     });
     assert!(matches!(
-        artifact.validate_for_loader(&Default::default(), &context),
+        artifact.validate_for_loader(&Default::default(), &context, &Default::default()),
         Err(ArtifactValidationError::ResourceLimit(
             "portable MIR byte limit exceeded"
         ))
@@ -1020,7 +1103,8 @@ fn portable_mir_bounds_apply_before_decoding_and_to_combined_envelope_size() {
                 portable_mir: Some(payload.clone()),
                 ..Default::default()
             },
-            &context
+            &context,
+            &Default::default()
         ),
         Err(ArtifactValidationError::ResourceLimit(
             "portable MIR byte limit exceeded"
@@ -1035,7 +1119,8 @@ fn portable_mir_bounds_apply_before_decoding_and_to_combined_envelope_size() {
                 portable_mir: Some(payload),
                 ..Default::default()
             },
-            &context
+            &context,
+            &Default::default()
         ),
         Err(ArtifactValidationError::ResourceLimit(
             "artifact encoded size limit exceeded"

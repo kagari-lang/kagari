@@ -228,7 +228,8 @@ fn loop_program(context: &DefinitionContext) -> BytecodeProgram {
 fn async_flow_validation_contract() {
     let context = DefinitionContext::new().unwrap();
     let valid = loop_program(&context);
-    let verified = VerifiedBytecodeProgram::new(valid.clone(), &context).unwrap();
+    let verified =
+        VerifiedBytecodeProgram::new(valid.clone(), &context, &Default::default()).unwrap();
     let points = verified.suspensions(ModuleRef::new(0)).unwrap();
     assert_eq!(points[0].len(), 1);
     let live: Vec<_> = points[0][0].live_slots().collect();
@@ -286,7 +287,7 @@ fn async_flow_validation_contract() {
             _ => unreachable!(),
         };
         assert_eq!(
-            verify_program(&invalid, &context.snapshot()),
+            verify_program(&invalid, &context.snapshot(), &Default::default()),
             Err(BytecodeVerificationError::InvalidOperation {
                 function: FunctionRef::new(0),
                 reason,
@@ -302,7 +303,7 @@ fn async_flow_validation_contract() {
     function.instructions[7] = I::Jump {
         target: JumpTarget::new(1),
     };
-    verify_program(&backedge, &context.snapshot()).unwrap();
+    verify_program(&backedge, &context.snapshot(), &Default::default()).unwrap();
 }
 
 #[test]
@@ -314,8 +315,13 @@ fn async_artifact_validation_contract() {
             unreachable!()
         };
         ty.kind = TypeDefKind::NativeStorage(layout);
-        let artifact =
-            KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+        let artifact = KbcArtifact::from_program(
+            valid.clone(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| {
                 metadata
@@ -325,7 +331,7 @@ fn async_artifact_validation_contract() {
             })
             .unwrap();
         decoded
-            .validate_for_loader(&Default::default(), &context)
+            .validate_for_loader(&Default::default(), &context, &Default::default())
             .unwrap();
         // Every case keeps the physical heap-object representation unchanged.
         for mutation in 0..6 {
@@ -369,7 +375,7 @@ fn async_artifact_validation_contract() {
                 _ => unreachable!(),
             }
             assert!(
-                verify_program(&invalid, &context.snapshot()).is_err(),
+                verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),
                 "invalid {layout:?} await contract {mutation}"
             );
         }
@@ -403,7 +409,13 @@ fn async_factory_artifact_contract() {
         effects: factory.metadata.effects,
     });
     module.functions.push(factory);
-    let artifact = KbcArtifact::from_program(valid.clone(), Default::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        valid.clone(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
         .map(|metadata| {
             metadata
@@ -412,7 +424,7 @@ fn async_factory_artifact_contract() {
                 .into_records()
         })
         .unwrap()
-        .validate_for_loader(&Default::default(), &context)
+        .validate_for_loader(&Default::default(), &context, &Default::default())
         .unwrap();
     for mutation in 0..6 {
         let mut invalid = valid.clone();
@@ -450,7 +462,7 @@ fn async_factory_artifact_contract() {
             }
         }
         assert!(
-            verify_program(&invalid, &context.snapshot()).is_err(),
+            verify_program(&invalid, &context.snapshot(), &Default::default()).is_err(),
             "factory mutation {mutation}"
         );
     }

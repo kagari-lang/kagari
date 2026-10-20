@@ -303,7 +303,7 @@ fn payload_abi_roundtrips_and_rejects_changed_reload_before_publication() {
         .unwrap();
     decoded
         .records()
-        .validate_for_loader(&Default::default(), &definitions)
+        .validate_for_loader(&Default::default(), &definitions, &Default::default())
         .unwrap();
     assert_eq!(
         decoded.records().program.modules[decoded.records().program.root.index()].public_items,

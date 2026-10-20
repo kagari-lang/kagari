@@ -239,6 +239,7 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
             .map(|metadata| common::adopt_bytecode(&context, metadata))
             .unwrap(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     let prepared = verify_native_input(&wire, &bytecode, &Default::default()).unwrap();
@@ -249,6 +250,7 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
             .map(|metadata| common::adopt_bytecode(&context, metadata))
             .unwrap(),
         &context,
+        &Default::default(),
     )
     .unwrap();
     // Both programs are independently valid and have identical function signatures.
@@ -286,7 +288,8 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
                 *negated = !*negated;
             }
         }
-        let changed_origin = VerifiedBytecodeProgram::new(changed_origin, &context).unwrap();
+        let changed_origin =
+            VerifiedBytecodeProgram::new(changed_origin, &context, &Default::default()).unwrap();
         assert!(matches!(
             verify_native_input(&wire, &changed_origin, &Default::default()),
             Err(NativeInputError::Mismatch)
@@ -304,7 +307,8 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
         .functions;
     let declaration = names.remove("main").unwrap();
     names.insert("renamed".into(), declaration);
-    let changed_exports = VerifiedBytecodeProgram::new(changed_exports, &context).unwrap();
+    let changed_exports =
+        VerifiedBytecodeProgram::new(changed_exports, &context, &Default::default()).unwrap();
     // Identical bodies and declarations do not permit a different public-path contract.
     assert!(matches!(
         verify_native_input(&wire, &changed_exports, &Default::default()),
@@ -315,7 +319,7 @@ fn native_preparation_requires_canonical_semantics_not_independent_valid_payload
         .instructions
         .clear();
     assert!(matches!(
-        VerifiedBytecodeProgram::new(forged, &context),
+        VerifiedBytecodeProgram::new(forged, &context, &Default::default()),
         Err(ArtifactValidationError::Bytecode(_))
     ));
     let cancel = CancellationToken::default();
@@ -385,6 +389,7 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                     .map(|metadata| common::adopt_bytecode(&context, metadata))
                     .unwrap(),
                 &context,
+                &Default::default(),
             )
             .unwrap();
             assert_eq!(
@@ -407,7 +412,8 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
                     constant => panic!("expected float constant, got {constant:?}"),
                 }
             }
-            let changed = VerifiedBytecodeProgram::new(changed, &context).unwrap();
+            let changed =
+                VerifiedBytecodeProgram::new(changed, &context, &Default::default()).unwrap();
             assert!(matches!(
                 verify_native_input(&wire, &changed, &Default::default()),
                 Err(NativeInputError::Mismatch)
@@ -435,13 +441,14 @@ fn artifact_integrity_does_not_substitute_for_native_correspondence() {
                 ..Default::default()
             },
             &context,
+            &Default::default(),
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
             .map(|metadata| common::adopt(&context, metadata))
             .unwrap();
         let decoded = decoded
-            .into_verified(&Default::default(), &context)
+            .into_verified(&Default::default(), &context, &Default::default())
             .unwrap();
         let result = verify_native_input(
             &decoded.portable_mir().unwrap().bytes,

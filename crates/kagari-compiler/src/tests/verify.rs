@@ -68,7 +68,7 @@ fn integer_constants_must_match_semantic_range_and_representation() {
         }
         assert!(replaced, "{source}");
         assert!(
-            verify_program(&bytecode, &context.snapshot()).is_err(),
+            verify_program(&bytecode, &context.snapshot(), &Default::default()).is_err(),
             "{source}"
         );
     }
@@ -111,7 +111,7 @@ fn unused_public_enum_templates_validate_parameter_ownership_and_position() {
         } else {
             *position = 1;
         }
-        assert!(verify_program(&bytecode, &context.snapshot()).is_err());
+        assert!(verify_program(&bytecode, &context.snapshot(), &Default::default()).is_err());
     }
 }
 
@@ -188,7 +188,7 @@ fn layout_templates_require_scoped_instruction_arguments() {
             }
         }
         assert!(changed);
-        assert!(verify_program(&bytecode, &context.snapshot()).is_err());
+        assert!(verify_program(&bytecode, &context.snapshot(), &Default::default()).is_err());
     }
 }
 
@@ -272,7 +272,7 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
         .variants[0]
         .payload[0] = encoded;
     assert_eq!(
-        verify_program(&bytecode, &context.snapshot()).unwrap_err(),
+        verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap_err(),
         BytecodeVerificationError::InvalidEnumLayout
     );
 }
@@ -290,7 +290,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     };
     ty.variants[0].payload.clear();
     assert_eq!(
-        verify_program(&public, &context.snapshot()).unwrap_err(),
+        verify_program(&public, &context.snapshot(), &Default::default()).unwrap_err(),
         BytecodeVerificationError::InvalidEnumLayout
     );
     let mut module = raw(&context, source);
@@ -354,7 +354,7 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
                 }
             }
         }
-        assert!(verify_program(&bad, &context.snapshot()).is_err());
+        assert!(verify_program(&bad, &context.snapshot(), &Default::default()).is_err());
     }
     let mut second = good.modules[good.root.index()].clone();
     second.identity = kagari_common::identity::ModuleIdentity::single_file("second.kgr");
@@ -386,12 +386,12 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
         path.module = second.identity.clone();
     });
     program.modules.push(second);
-    verify_program(&program, &context.snapshot()).unwrap();
+    verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
     program.modules[program.root.index()].enumerations[enumeration].variants[0]
         .payload
         .clear();
     assert_eq!(
-        verify_program(&program, &context.snapshot()).unwrap_err(),
+        verify_program(&program, &context.snapshot(), &Default::default()).unwrap_err(),
         BytecodeVerificationError::InvalidEnumLayout
     );
 }
@@ -881,7 +881,7 @@ fn ir_and_bytecode_share_numeric_operation_contracts() {
         }
     }
     assert!(matches!(
-        verify_program(&bytecode, &context.snapshot()),
+        verify_program(&bytecode, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 }
@@ -1035,7 +1035,7 @@ fn unused_public_aggregate_templates_reject_malformed_member_shapes() {
                 Error::InvalidPublicAbi
             );
             assert_eq!(
-                verify_program(&invalid_bytecode, &context.snapshot()),
+                verify_program(&invalid_bytecode, &context.snapshot(), &Default::default()),
                 Err(BytecodeVerificationError::InvalidPublicAbi)
             );
         }

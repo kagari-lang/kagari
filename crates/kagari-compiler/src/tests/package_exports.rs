@@ -124,7 +124,9 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         .map(|program| program.into_unverified())
         .unwrap()
         .into_records();
-    let artifact = KbcArtifact::from_program(bytecode, Default::default(), &context).unwrap();
+    let artifact =
+        KbcArtifact::from_program(bytecode, Default::default(), &context, &Default::default())
+            .unwrap();
     let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
     let fresh = DefinitionContext::new().unwrap();
     let artifact = KbcArtifact::from_bytes(&bytes)
@@ -134,7 +136,7 @@ fn source_free_exports_preserve_aliases_cycles_and_separate_entry() {
         .into_records();
     assert_eq!(bytes, artifact.to_bytes(&fresh.snapshot()).unwrap());
     let verified = artifact
-        .into_verified(&Default::default(), &fresh)
+        .into_verified(&Default::default(), &fresh, &Default::default())
         .unwrap()
         .into_bytecode();
     let program = verified.program();
@@ -173,8 +175,13 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
         .import_into(&context, &Default::default())
         .unwrap()
         .into_records();
-    identity::collect(&bytecode.modules.iter().collect::<Vec<_>>(), &context).unwrap();
-    verify_bytecode(&bytecode, &context.snapshot()).unwrap();
+    identity::collect(
+        &bytecode.modules.iter().collect::<Vec<_>>(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    verify_bytecode(&bytecode, &context.snapshot(), &Default::default()).unwrap();
     let raw = decode_program(&bytes, &Default::default())
         .unwrap()
         .into_unverified()
@@ -298,7 +305,8 @@ fn executable_export_validation_rejects_forged_authority_and_dangling_graphs() {
                 .semantic
                 .result = None;
         }
-        let error = verify_bytecode(&forged_bytecode, &context.snapshot()).unwrap_err();
+        let error = verify_bytecode(&forged_bytecode, &context.snapshot(), &Default::default())
+            .unwrap_err();
         if matches!(corruption, 6 | 7) {
             // Bytecode's existing semantic-flow verifier detects the signature
             // mismatch or omission before the final export binding check.

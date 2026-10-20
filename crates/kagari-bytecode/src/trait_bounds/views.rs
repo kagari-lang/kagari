@@ -62,7 +62,13 @@ pub fn links(
     {
         // Static implementations also have tables, but only structurally dynamic
         // parents have boxed views. Admission checks the entire dynamic closure.
-        if !executable_interface(&template.generic_params, &parent, closure, definitions) {
+        if !executable_interface(
+            &template.generic_params,
+            &parent,
+            closure,
+            definitions,
+            cancel,
+        ) {
             continue;
         }
         parents.push(select(
@@ -326,6 +332,7 @@ pub(super) fn native_result_valid(
     import: &NativeImport,
     closure: &[&BytecodeModule],
     definitions: &DefinitionTable,
+    cancel: &CancellationToken,
 ) -> bool {
     let Some(adapter) = &import.result_adapter else {
         return true;
@@ -338,5 +345,5 @@ pub(super) fn native_result_valid(
         .as_ref()
         .map_or(&[][..], |body| body.parameters.as_slice());
     native_result_target(adapter, closure).is_some()
-        && executable_interface(scope, interface, closure, definitions)
+        && executable_interface(scope, interface, closure, definitions, cancel)
 }

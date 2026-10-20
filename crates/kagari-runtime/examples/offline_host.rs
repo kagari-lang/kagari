@@ -130,6 +130,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         },
         ArtifactBuildOptions::default(),
         &definitions,
+        &Default::default(),
     )?;
     let bytes = artifact.to_bytes(&definitions.snapshot())?;
     let decoded = KbcArtifact::from_bytes(&bytes)?;
@@ -145,9 +146,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut runtime = Runtime::default();
     installed.install(&mut runtime)?;
     let decoded = decoded.import_into(&definitions, &Default::default())?;
-    decoded
-        .records()
-        .validate_for_loader(&Default::default(), &definitions)?;
+    decoded.records().validate_for_loader(
+        &Default::default(),
+        &definitions,
+        &Default::default(),
+    )?;
     let (snapshot, decoded) = decoded.into_parts();
     let loaded = runtime.load_program(
         "offline-demo",

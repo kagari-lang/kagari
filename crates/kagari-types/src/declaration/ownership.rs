@@ -14,6 +14,21 @@ pub struct ReceiverOwners {
 }
 
 impl ReceiverOwners {
+    /// Select a dependency-visible view of already validated constructor owners.
+    ///
+    /// This filters the finite constructor index, not declaration records. Nominal
+    /// ownership still requires the caller's retained identity table.
+    pub fn restricted_to(&self, visible: impl Fn(&ModuleIdentity) -> bool) -> Self {
+        Self {
+            constructors: self
+                .constructors
+                .iter()
+                .filter(|(_, module)| visible(module))
+                .map(|(constructor, module)| (*constructor, module.clone()))
+                .collect(),
+        }
+    }
+
     pub fn from_types<'a>(
         types: impl IntoIterator<Item = (&'a ModuleIdentity, &'a TypeDef)>,
     ) -> Result<Self, DeclarationError> {

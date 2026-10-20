@@ -262,9 +262,10 @@ fn executable_from_adapters_reject_forged_source_types_and_targets() {
     let table = identity::collect(
         &artifact.program.modules.iter().collect::<Vec<_>>(),
         &context,
+        &Default::default(),
     )
     .unwrap();
-    verify_program(&artifact.program, &table).unwrap();
+    verify_program(&artifact.program, &table, &Default::default()).unwrap();
     for mutation in 0..3 {
         let mut program = artifact.program.clone();
         let function = program
@@ -301,7 +302,13 @@ fn executable_from_adapters_reject_forged_source_types_and_targets() {
             }
         }
         assert!(
-            BytecodeArtifact::from_program(program, Default::default(), &context).is_err(),
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &context,
+                &Default::default()
+            )
+            .is_err(),
             "forged adapter {mutation}"
         );
     }

@@ -254,7 +254,7 @@ fn main() -> i32 {
     );
     assert!(main.metadata.effects.calls);
     assert!(main.metadata.effects.touches_runtime);
-    assert!(verify_program(&bytecode, &context.snapshot()).is_ok());
+    assert!(verify_program(&bytecode, &context.snapshot(), &Default::default()).is_ok());
 }
 
 #[test]
@@ -517,10 +517,13 @@ fn verifier_accepts_resolved_typed_path_instructions() {
         ..actor_path_module(&context, "health", PathAccess::ReadWrite)
     };
 
-    assert_eq!(verify_module(&module, &context.snapshot()), Ok(()));
+    assert_eq!(
+        verify_module(&module, &context.snapshot(), &Default::default()),
+        Ok(())
+    );
     module.paths[0].root_ty = ValueType::HeapObject;
     assert_eq!(
-        verify_module(&module, &context.snapshot()),
+        verify_module(&module, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidPathLayout)
     );
 }
@@ -584,7 +587,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     args.clear();
     assert!(matches!(
-        verify_program(&wrong_arity, &context.snapshot()),
+        verify_program(&wrong_arity, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 
@@ -599,7 +602,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     *dst = Some(args[0]);
     assert!(matches!(
-        verify_program(&wrong_result, &context.snapshot()),
+        verify_program(&wrong_result, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
@@ -614,7 +617,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     *callee = CallTarget::RuntimeHelper(RuntimeHelper::ReflectGetField("x".into()));
     assert!(matches!(
-        verify_program(&wrong_field_base, &context.snapshot()),
+        verify_program(&wrong_field_base, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::TypeMismatch { .. })
     ));
 
@@ -640,7 +643,7 @@ fn reflection_helper_operands_are_checked_before_loading() {
     };
     args[1] = args[0];
     assert!(matches!(
-        verify_program(&wrong_index, &context.snapshot()),
+        verify_program(&wrong_index, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidOperation { .. })
     ));
 }

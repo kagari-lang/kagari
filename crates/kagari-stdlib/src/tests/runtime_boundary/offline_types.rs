@@ -190,14 +190,19 @@ fn program(
         .unwrap();
     let context = DefinitionContext::new().unwrap();
     let bytecode = bytecode.import_into(&context, &Default::default()).unwrap();
-    let artifact =
-        KbcArtifact::from_program(bytecode.into_records(), Default::default(), &context).unwrap();
+    let artifact = KbcArtifact::from_program(
+        bytecode.into_records(),
+        Default::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
     let decoded =
         KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap()).unwrap();
     let decoded = decoded.import_into(&context, &Default::default()).unwrap();
     decoded
         .records()
-        .validate_for_loader(&Default::default(), &context)
+        .validate_for_loader(&Default::default(), &context, &Default::default())
         .unwrap();
     let (definitions, artifact) = decoded.into_parts();
     DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap()
@@ -410,10 +415,15 @@ fn type_contract_changes_reject_artifacts_before_publication_but_documentation_d
     let bytes = |program: DefinitionMetadata<BytecodeProgram>| {
         let context = DefinitionContext::new().unwrap();
         let program = program.import_into(&context, &Default::default()).unwrap();
-        KbcArtifact::from_program(program.into_records(), Default::default(), &context)
-            .unwrap()
-            .to_bytes(&context.snapshot())
-            .unwrap()
+        KbcArtifact::from_program(
+            program.into_records(),
+            Default::default(),
+            &context,
+            &Default::default(),
+        )
+        .unwrap()
+        .to_bytes(&context.snapshot())
+        .unwrap()
     };
     assert_eq!(bytes(baseline), bytes(documented.clone()));
     runtime.load_program("types", documented).unwrap();

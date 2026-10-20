@@ -121,9 +121,9 @@ fn async_mir_suspension_contract() {
             .flat_map(|function| &function.instructions)
             .any(|instruction| matches!(instruction, BytecodeInstruction::Await { .. }))
     );
-    KbcArtifact::from_program(bytecode, Default::default(), &context)
+    KbcArtifact::from_program(bytecode, Default::default(), &context, &Default::default())
         .unwrap()
-        .into_verified(&Default::default(), &context)
+        .into_verified(&Default::default(), &context, &Default::default())
         .unwrap();
     for mutation in 0..3 {
         let mut module = modules[root].clone();

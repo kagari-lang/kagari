@@ -12,7 +12,10 @@ use std::rc::Rc;
 
 #[cfg(feature = "source")]
 use crate::engine::source::{PreparationOptions, compilation::Compilation};
-use kagari_bytecode::artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact};
+use kagari_bytecode::{
+    artifact::{ArtifactCompatibility, ArtifactValidationError, KbcArtifact},
+    verifier::BytecodeVerificationError,
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -58,10 +61,22 @@ pub enum ProgramPreparationError {
     #[error("invalid definition scope: {0}")]
     Identity(DefinitionMappingError),
     #[error("invalid artifact: {0}")]
-    Artifact(#[from] ArtifactValidationError),
+    Artifact(ArtifactValidationError),
     #[cfg(feature = "native")]
     #[error("invalid native input: {0}")]
     NativeInput(NativeInputError),
+}
+
+impl From<ArtifactValidationError> for ProgramPreparationError {
+    fn from(error: ArtifactValidationError) -> Self {
+        match error {
+            ArtifactValidationError::Identity(DefinitionMappingError::Cancelled)
+            | ArtifactValidationError::Bytecode(BytecodeVerificationError::Cancelled) => {
+                Self::Cancelled
+            }
+            error => Self::Artifact(error),
+        }
+    }
 }
 
 impl From<DefinitionMappingError> for ProgramPreparationError {
@@ -118,10 +133,10 @@ impl PreparedProgram {
             .map_err(|_| ProgramPreparationError::Cancelled)?;
         artifact
             .records()
-            .validate_resource_limits(artifact.definitions())?;
+            .validate_resource_limits(artifact.definitions(), cancel)?;
         let context = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
         let artifact = artifact.import_into(&context, cancel)?.into_records();
-        let artifact = artifact.into_verified(compatibility, &context)?;
+        let artifact = artifact.into_verified(compatibility, &context, cancel)?;
         #[cfg(feature = "native")]
         let mir = artifact
             .portable_mir()

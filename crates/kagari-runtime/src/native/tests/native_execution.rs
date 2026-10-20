@@ -362,9 +362,13 @@ fn failed_reload_keeps_installed_code_callable_and_its_version_retained() {
         unsafe { runtime.install_native_function(&module, product(execute, dropped.clone())) }
             .unwrap();
     let definitions = DefinitionContext::new().unwrap();
-    let mut candidate =
-        KbcArtifact::from_program(program().into_records(), Default::default(), &definitions)
-            .unwrap();
+    let mut candidate = KbcArtifact::from_program(
+        program().into_records(),
+        Default::default(),
+        &definitions,
+        &Default::default(),
+    )
+    .unwrap();
     candidate.header.content_hash.0 ^= 1;
     let candidate =
         DefinitionMetadata::checked(definitions.snapshot(), candidate, &Default::default())

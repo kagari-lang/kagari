@@ -138,6 +138,7 @@ fn main() {
         artifact.records().program.clone(),
         ArtifactBuildOptions::default(),
         &definitions,
+        &Default::default(),
     )
     .unwrap()
     .to_bytes(&definitions.snapshot())

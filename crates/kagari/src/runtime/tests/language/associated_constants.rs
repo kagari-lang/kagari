@@ -222,8 +222,13 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         .import_into(&definitions, &Default::default())
         .unwrap()
         .into_records();
-    BytecodeArtifact::from_program(artifact.program.clone(), Default::default(), &definitions)
-        .unwrap();
+    BytecodeArtifact::from_program(
+        artifact.program.clone(),
+        Default::default(),
+        &definitions,
+        &Default::default(),
+    )
+    .unwrap();
     for mutation in 0..4 {
         let mut program = artifact.program.clone();
         let module = &mut program.modules[program.root.index()];
@@ -264,15 +269,28 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
                 table.associated_consts[0].value = "const-v1:i32:2147483648".into();
             }
         }
-        assert!(BytecodeArtifact::from_program(program, Default::default(), &definitions).is_err());
+        assert!(
+            BytecodeArtifact::from_program(
+                program,
+                Default::default(),
+                &definitions,
+                &Default::default()
+            )
+            .is_err()
+        );
     }
     let dynamic = engine.compile_to_artifact(SourceFile::new("dynamic.kgr", "pub trait Read { fn read(self) -> i32; } struct Number {} impl Read for Number { fn read(self) -> i32 { 42 } } fn main() -> i32 { val x: Read = Number {}; x.read() }"),  Default::default()).unwrap();
     let dynamic = dynamic
         .import_into(&definitions, &Default::default())
         .unwrap()
         .into_records();
-    BytecodeArtifact::from_program(dynamic.program.clone(), Default::default(), &definitions)
-        .unwrap();
+    BytecodeArtifact::from_program(
+        dynamic.program.clone(),
+        Default::default(),
+        &definitions,
+        &Default::default(),
+    )
+    .unwrap();
     let mut program = dynamic.program;
     let module = &mut program.modules[program.root.index()];
     let identity = module
@@ -306,5 +324,13 @@ fn malformed_constant_records_and_dynamic_interface_forgery_are_rejected() {
         ty: Ty::Builtin(BuiltinType::I32),
         default_value: Some("const-v1:i32:42".into()),
     });
-    assert!(BytecodeArtifact::from_program(program, Default::default(), &definitions).is_err());
+    assert!(
+        BytecodeArtifact::from_program(
+            program,
+            Default::default(),
+            &definitions,
+            &Default::default()
+        )
+        .is_err()
+    );
 }
