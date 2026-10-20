@@ -2,13 +2,13 @@
 
 ## Status and authority
 
-**Planning only; implementation has not started.** Requested after the browser
+**Active; implementation and phase commits authorized on 2026-10-20.** Requested after the browser
 latency investigation at `98f5c39d9d29449b3856bb155f677c48d37aee99` on 2026-10-20.
 This document owns CS01-CS06, their decisions, acceptance and progress. The
 [roadmap](implementation-roadmap.md#fast-compilation-and-eager-startup) owns
 activation; [measurements](performance-baseline.md#browser-compilation-latency-2026-10-20)
-own the existing evidence. Writing this plan does not authorize implementation,
-commits, pushes, deployment or remote configuration changes.
+own the existing evidence. The user activated CS01-CS06 and authorized coherent phase commits on 2026-10-20.
+Pushes, deployment and remote configuration changes remain outside this task.
 
 Follow [project goals](project_goal.md), [architecture](architecture.md), the
 [artifact contract](spec/artifacts.md), [loading contract](spec/module-loading.md)
@@ -33,8 +33,7 @@ At resumption:
    investigation revision above is a reference, not an instruction to reset the
    checkout. Preserve intervening work and recheck affected owners if they changed.
 2. Read this plan, its linked measurement section and the progress ledger. Start
-   at the first incomplete phase after implementation is authorized; currently
-   that is CS01. Record API decisions and carried errors here, not in a new queue.
+   at the first incomplete phase after implementation is authorized; consult the ledger below for the current phase. Record API decisions and carried errors here, not in a new queue.
 3. Use repository-managed toolchain/dependency files and the linked site/browser
    instructions. Install the required WASM target and matching wasm-bindgen CLI
    when browser validation is due; do not depend on tools previously installed
@@ -292,6 +291,117 @@ result or a reason to remove Kagari checks.
 The design therefore adapts existing Kagari seals and proof owners. No new universal
 IR, JVM-style loader or separate trusted bytecode semantics is justified.
 
+## CS01 decisions and migration inventory (2026-10-20)
+
+The starting tree is clean at `77ef42e8`; its only change after the measured
+`98f5c39d` is the plan documentation. User authorization activates implementation
+and local phase commits. The Lua 5.4.9 parser, wasmparser 0.240.0
+`FuncToValidate` and Rust MIR pass references above were rechecked at activation:
+retain in-memory products, share immutable resources, and keep transformation
+obligations at their owner. No new solver, proof format or global cache is needed.
+
+### Concrete ownership and API decisions
+
+- `lower_program_to_bytecode` will return the existing `VerifiedBytecodeProgram`.
+  A bytecode-owned constructor accepts scoped records, checks resource/reference
+  bounds and graph semantics, and retains that exact scope and derived evidence.
+  It does not require a fresh identity context merely to seal compiler output.
+  `program()`/`definitions()` borrow; `into_unverified()` explicitly loses evidence.
+- SDK `engine::source::compilation` owns a private paired compilation result. Its
+  only construction path lowers one checked program to verified MIR and lowers
+  that exact MIR to sealed bytecode. Callers cannot construct or substitute either
+  half. `PreparedProgram` accepts this owner internally; there is no public
+  constructor accepting an arbitrary MIR/bytecode pair and no serialized roundtrip.
+- `KagariEngine::prepare(&CheckedModule, PreparationOptions)` is the checked-source
+  and captured-package route. `compile_to_program(SourceFile, PreparationOptions)`
+  performs source checking then the same preparation. `PreparationOptions` carries
+  lowering options and, when native support is compiled in, an explicit
+  `retain_native_input` request defaulting to false. Feature unification does not
+  change that default. Required MIR verification always runs; interpreter-only
+  preparation drops MIR after bytecode generation.
+- Keep explicit `compile_to_artifact`; rename misleading `emit_bytecode` to
+  `emit_artifact` for checked input. Artifact options retain portable MIR export
+  independently of the preparing process's native feature. Both output routes use
+  the private paired lowering owner. Artifact construction from a seal derives
+  summaries and checks export-only bounds without rerunning the bytecode graph.
+  Editable artifact construction/import still verifies completely.
+- Retain immutable definition-table snapshots from lowering, including compiler
+  collected implicit names. These contain identities, not source text, HIR/query
+  histories or a live engine. No remapping occurs between sealing and preparation.
+  Runtime adoption remains responsible for runtime-local identities. Retained
+  identity-prefix compaction is the separately queued lifetime work; this phase
+  does not add a long-lived shared source engine.
+- `PreparedProgram` remains the canonical SDK execution owner. Its existing
+  runtime representation, native cache and runtime-specific host linking continue
+  to serve both source and external artifact input. AOT export still owns a
+  portable artifact because the deployment bundle requires one.
+
+### Obligation and cancellation call-site inventory
+
+| Current call site | Decision and retained evidence |
+| --- | --- |
+| Compiler `source::program::lower_program_to_mir` / MIR `verify_program` | Retain typed CFG, effects, roots, exports and linked-contract evidence; bytecode lowering still proves its own output. |
+| Compiler `bytecode::lower_program_to_bytecode` | Replace discarded `verify_program` success with the bytecode-owned seal. Standalone single-module lowering is a separate editable inspection contract. |
+| Bytecode `VerifiedBytecodeProgram` | Own bounded admission, exact scoped records, suspension facts and export targets. Mutation/remapping does not inherit the seal. |
+| `KbcArtifact::from_program` / `VerificationMetadata::from_program` | Editable input retains validation. Sealed export uses the same metadata derivation after exact-program admission, without a second graph proof. |
+| `KbcArtifact::validate_execution` / `into_verified` | External bounds, header/version/hash, metadata agreement and graph validation stay mandatory. Stored flags are never evidence. |
+| Compiler `native_input::verify_native_input` | External MIR decoding, verification and canonical correspondence (including origins/float bits) remain. Private source pairing avoids these serialization/comparison costs. |
+| Runtime `VerifiedProgram::from_bytecode` | Prepare executable metadata from retained facts. Audit this and runtime linking in CS04/CS06 for repeated static work; dynamic linking is not removed. |
+| SDK `PreparedProgram::from_artifact` and runtime load/reload | External identity adoption and validation remain separate from transactional runtime binding, host signature/access checks and pinned generations. |
+
+Cancellation is an interface change, not only loop instrumentation. The current
+bytecode graph/seal/artifact entrypoints do not take caller cancellation; trait
+validation creates fresh default tokens. CS02 threads the lowering token through
+new preparation boundaries and classifies cancellation correctly. CS04 threads it
+through graph preparation, scoped trait queries, declaration/layout checks and
+function work, removing default-token substitutions on those paths. Preserve
+budgets, deterministic error traversal and rejection of unused malformed inputs.
+Focused cancellation acceptance covers pre-cancelled admission and cancellation
+during substantial verification work, including external preparation. Dynamic
+execution cancellation retains its existing independent owner and tests.
+
+### Finite consumer migration
+
+| Category | Owners and phase |
+| --- | --- |
+| Low-level compiler output | CS02 updates compiler examples/tests, VM/runtime/stdlib/codegen test helpers and `offline_compile`/`source_modules` examples for the sealed return type. Inspection borrows records; tampering/import tests explicitly extract unverified metadata. Direct execution adopts the seal where its runtime API permits. |
+| SDK explicit export/import | CS02 renames checked emission callers, including package provenance, native-input/forgery tests, fixture generators, AOT and CLI build/emit. Preserve external, opaque-MIR and source-free coverage. |
+| SDK ordinary execution | CS05 migrates ordinary embedding examples, shared language `Source`/`Jit` routes and ordinary runtime/source test helpers. `Artifact`/`ArtifactJit` routes remain serialized, independently validated controls. |
+| Browser | CS05 changes `BrowserSession::compile`; `load_artifact` retains external preparation. Preserve rollback, origins, busy/reset/cancellation and fresh session lifetime. |
+| CLI | CS05 changes standalone source run and package run; `run-artifact`, `emit`, `build`, fixture production and AOT deployment remain explicit artifact consumers. |
+| Debugger/reload | CS02 preserves origins, bindings, suspension/export facts; CS05 migrates applicable source helpers and checks failed-candidate rollback and old pinned calls. |
+
+Package `run` continues acquisition, root selection, source provenance, native
+view generation and the existing lockfile publication policy. It stops publishing
+incidental `target/kagari/programs` output and stops printing a `built ...` path.
+The parser already rejects `run --output`; retain that rule. `build -o`, shared
+build storage and `emit -o` remain unchanged. No lockfile policy migration occurs.
+
+Use the focused test menu below, plus the source-session disposal/independent-runtime
+preparation boundary and cancellation/graph-visibility cases where uncovered.
+CS02 selects seal/identity, native pairing/forgery and prepared reload tests;
+CS03 selects wire plus matching/substitution; CS04 selects graph visibility,
+trait/host calls and cancellation; CS05 selects CLI package and browser lifecycle,
+source origins and representative shared language routes. CS06 owns source-free
+feature invocations, exact browser products and the remaining selected integration.
+Complete feature/platform/workspace tests stay in CI. Low-level API migration does
+not justify running every mechanically affected test locally.
+
+For the representative trait workload, reuse the generic `Echo<T>`/`Pair`/`read`
+source from `crates/kagari-compiler/examples/applied_traits.rs`, returning exactly
+42. Time it alongside the minimal 42 program with normal installed stdlib contracts;
+use the existing offline-host-facade test for host linking correctness. The final
+bounded growth probe adds 1/8/32 modules sharing one dependency. No benchmark
+percentage or general complexity claim is inferred from these selected workloads.
+
+The current machine is macOS arm64, unlike the recorded Windows x64 baseline.
+Preserve a pre-change release browser product and perform matched measurements on
+this machine. Report the original-machine absolute gates as unverified unless
+measured there; do not equate a cross-machine ratio with a speedup. The sampled
+non-verification components total about 830 ms on the old trace; this is not a
+lower bound or forecast, and deleting duplicate checks alone does not establish
+the proposed 500 ms goal.
+
 ## Phases and acceptance
 
 ### CS01 — Freeze obligations and consumer migration
@@ -505,14 +615,14 @@ in tracked documentation. No new measurements are required before CS02 begins.
 | Phase | Status | Evidence / next action |
 | --- | --- | --- |
 | Plan | Drafted | Browser evidence, Lua/wasmparser/Rust/JVMS mechanisms, Vela comparison and cross-machine handoff recorded; no implementation or performance improvement claimed. |
-| CS01 | Not started | Freeze exact API/provenance rules, obligation inventory and package run output contract. |
+| CS01 | Complete | Source-inspected API/provenance, obligation/cancellation and consumer inventories above; package output contract and focused workload fixed. Documentation-only validation: content/link review and `git diff --check` passed. |
 | CS02 | Not started | Direct sealed compilation/preparation. |
 | CS03 | Not started | Shared read-only type validation. |
 | CS04 | Not started | Scoped program-level verification preparation. |
 | CS05 | Not started | Immediate-run consumers and release browser products. |
 | CS06 | Not started | Focused integration, measured goals and documentation handoff. |
 
-No new build/test failures were established by this documentation task; no code
-validation was run. Existing CI/performance findings remain with their current
+CS01 changed documentation only; no Rust test result is claimed. A matched
+pre-change release WASM product build is in progress for final performance evidence. Existing CI/performance findings remain with their current
 owners. Update this ledger with actual commands, selected-scope rationale, remaining
 CI scope and any carried errors when implementation changes it.

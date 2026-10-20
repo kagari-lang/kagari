@@ -296,9 +296,10 @@ Remaining acceptance and explicitly deferred work:
 
 ## Fast compilation and eager startup
 
-The [execution plan](compilation-startup-plan.md) is drafted; CS01-CS06 have not
-started. Current authorization covers documentation only, not implementation,
-commits, pushes or deployment. This is a cross-target developer-feedback task,
+The [execution plan](compilation-startup-plan.md) is active. The user authorized
+CS01-CS06 implementation and phase commits on 2026-10-20. CS01 fixes the API,
+verification ownership, cancellation migration and package output contract; CS02
+is next. Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
 not a WASM-specific verifier or another interpreter throughput plan.
 
 The intended path prepares source directly through retained verified MIR/bytecode,
