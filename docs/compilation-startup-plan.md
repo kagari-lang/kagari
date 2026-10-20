@@ -617,7 +617,7 @@ in tracked documentation. No new measurements are required before CS02 begins.
 | Plan | Drafted | Browser evidence, Lua/wasmparser/Rust/JVMS mechanisms, Vela comparison and cross-machine handoff recorded; no implementation or performance improvement claimed. |
 | CS01 | Complete | Source-inspected API/provenance, obligation/cancellation and consumer inventories above; package output contract and focused workload fixed. Documentation-only validation: content/link review and `git diff --check` passed. |
 | CS02 | Complete | Direct sealed compilation/preparation and explicit sealed export; 22 selected tests, SDK check, structure, fmt, workspace all-target Clippy and diff checks passed. |
-| CS03 | Not started | Shared read-only type validation. |
+| CS03 | Complete | Shared bounded shape traversal; 17 type-owner tests, extended wire edges, 2 trait and 9 compiler host-contract tests passed; zero measured predicate allocations. Required local checks passed. |
 | CS04 | Not started | Scoped program-level verification preparation. |
 | CS05 | Not started | Immediate-run consumers and release browser products. |
 | CS06 | Not started | Focused integration, measured goals and documentation handoff. |
@@ -657,3 +657,47 @@ parallelism. The installed wasm-bindgen 0.2.122 could not process the locked
 and generating the saved baseline web product succeeded. This was a tooling
 version mismatch, not a source/build failure. Browser timing and matched native
 baseline remain CS06 work; no speed improvement is claimed yet.
+
+### CS03 implementation evidence
+
+`kagari-types::ty::shape` owns node/child-count, depth and illegal associated-binding
+rules for both canonical encoding and read-only limit checks. The predicate uses
+bounded recursion (at most 64 admitted type levels, with rejection before further
+descent) and no output/scratch vectors. Encoding retains canonical converted-ID
+ordering, collision detection and bounded pending-node storage. Decoding continues
+to validate untrusted flat nodes and canonical ordering independently.
+
+Matching validates receiver trees and whole nominal trees without identity
+substitution copies. It retains receiver validation before obvious nominal mismatch,
+so unrelated malformed receivers are not silently accepted; cancellation is polled
+inside the new traversal and the existing invalid/oversized receiver error category
+is preserved. No cache, unchecked matching entrypoint or global scratch pool was
+introduced. Consumer inspection included declaration/host validation, ABI/resource
+limits, MIR/bytecode operations, identity mapping, substitution, references,
+canonical ordering and runtime metadata/catalog checks. Existing full bounds
+normalization remains at its semantic owner; it is not removed as a mere copy.
+
+Local type-owner selection (`cargo test -p kagari-types --lib ty::`) passed all 17
+cases. The existing wire boundary cases were then extended with accepted 64-level
+and 4096-node edges and rejected next-step shapes/illegal associated bindings;
+both wire tests passed. Both existing bytecode trait-bound tests passed, including
+unused malformed associated projections and missing parent implementations.
+All 9 compiler host-contract tests and workspace all-target Clippy passed; structure
+checked 1393 Rust files with zero findings, and formatting/diff checks passed.
+Manual review confirmed shared bounds and codec-only canonical ordering remain
+separate, with no new public entrypoints, re-exports or structural exceptions.
+Full workspace and feature/backend/platform matrices remain CI-owned.
+
+Allocation evidence: macOS arm64 / Apple M1 Max (10 logical CPUs, 32 GiB), rustc
+1.98.1 (48a229cea), LLVM 22.1.8, standard workspace release profile, default Cargo
+parallelism/features and target directory. A temporary System-global-allocator
+probe counted allocation and reallocation requests only inside 1000 repetitions
+of four `black_box` predicate inputs constructed beforehand: i32, 63 nested arrays
+around i32, a tuple of 4095 i32 leaves, and a nominal with 32 i32 arguments plus one
+associated tuple of 32 i32 leaves. All 4000 calls accepted and made **zero allocation
+or reallocation requests**. Compilation was outside the counting window; dependency
+artifacts were warm, the probe was freshly built, and no time/retained-memory or
+old-versus-new speed ratio was measured. Temporary probe code was removed from
+crate examples after running. This establishes eliminated predicate allocation for
+these shapes, not an end-to-end startup latency result or an allocation guarantee
+for the encoder/proof solver.

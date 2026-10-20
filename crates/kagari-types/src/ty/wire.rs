@@ -8,6 +8,7 @@ use crate::{
     ty::{
         NominalTy, Ty,
         identity::IdentityTransformError,
+        shape::{self, ShapeBudget},
         substitution::{
             MAX_TYPE_DEPTH as MAX_DEPTH, MAX_TYPE_NODES as MAX_NODES, TypeTransformError,
         },
@@ -123,11 +124,7 @@ fn ordered_bindings<'a, J: Ord>(
 
 impl Ty {
     pub fn within_wire_limits(&self) -> bool {
-        self.wire_nodes().is_ok()
-    }
-
-    fn wire_nodes(&self) -> Result<Vec<Node<DefinitionId>>, IdentityTransformError> {
-        self.wire_nodes_with(&mut |id| Ok(*id), None)
+        shape::validate(self, None).is_ok()
     }
 
     fn wire_nodes_with<J: Ord>(
@@ -137,13 +134,12 @@ impl Ty {
     ) -> Result<Vec<Node<J>>, IdentityTransformError> {
         let mut pending = vec![(self, 1usize)];
         let mut nodes = Vec::new();
+        let mut budget = ShapeBudget::new();
         while let Some((ty, depth)) = pending.pop() {
             if let Some(cancel) = cancel {
                 cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             }
-            if depth > MAX_DEPTH || nodes.len() >= MAX_NODES {
-                return Err(TypeTransformError::LimitExceeded.into());
-            }
+            budget.enter(ty, depth)?;
             let node = match ty {
                 Self::Reference { target, access } => {
                     pending.push((target, depth + 1));
@@ -157,16 +153,10 @@ impl Ty {
                 },
                 Self::Builtin(ty) => Node::Builtin(*ty),
                 Self::Tuple(elements) => {
-                    if elements.len() > MAX_NODES {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     pending.extend(elements.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Tuple(elements.len() as u32)
                 }
                 Self::Function { params, result } => {
-                    if params.len() >= MAX_NODES {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     pending.push((result, depth + 1));
                     pending.extend(params.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Function(params.len() as u32)
@@ -193,12 +183,6 @@ impl Ty {
                     Node::Set(*access)
                 }
                 Self::Struct(nominal) | Self::NativeObject(nominal) => {
-                    if !nominal.associated_types.is_empty() {
-                        return Err(TypeTransformError::InvalidContract.into());
-                    }
-                    if nominal.arguments.len() > MAX_NODES {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     pending.extend(nominal.arguments.iter().rev().map(|ty| (ty, depth + 1)));
                     if matches!(ty, Self::NativeObject(_)) {
                         Node::NativeObject(
@@ -213,22 +197,10 @@ impl Ty {
                     }
                 }
                 Self::Enum(ty) => {
-                    if !ty.associated_types.is_empty() {
-                        return Err(TypeTransformError::InvalidContract.into());
-                    }
-                    if ty.arguments.len() > MAX_NODES {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     pending.extend(ty.arguments.iter().rev().map(|ty| (ty, depth + 1)));
                     Node::Enum(convert(&ty.declaration)?, ty.arguments.len() as u32)
                 }
                 Self::Trait(ty) => {
-                    if ty.arguments.len() > MAX_NODES {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
-                    if ty.associated_types.len() > MAX_NODES {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     let bindings = ordered_bindings(&ty.associated_types, convert)?;
                     pending.extend(bindings.iter().rev().map(|(_, ty)| (*ty, depth + 1)));
                     pending.extend(ty.arguments.iter().rev().map(|ty| (ty, depth + 1)));
@@ -244,13 +216,6 @@ impl Ty {
                     member,
                     arguments,
                 } => {
-                    if arguments.len()
-                        + interface.arguments.len()
-                        + interface.associated_types.len()
-                        > MAX_NODES
-                    {
-                        return Err(TypeTransformError::LimitExceeded.into());
-                    }
                     pending.extend(arguments.iter().rev().map(|ty| (ty, depth + 1)));
                     let bindings = ordered_bindings(&interface.associated_types, convert)?;
                     pending.extend(bindings.iter().rev().map(|(_, ty)| (*ty, depth + 1)));
@@ -466,6 +431,7 @@ mod tests {
             arguments: Vec::new(),
             associated_types: [(scoped_item, Ty::Builtin(BuiltinType::I32))].into(),
         });
+        assert!(!invalid.within_wire_limits());
         assert!(WireType::encode(&invalid, &encoding, &Default::default()).is_err());
     }
 
@@ -497,13 +463,21 @@ mod tests {
                 .map(|_| Node::Builtin(BuiltinType::I32))
                 .collect(),
         );
+        let at_limit = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); MAX_NODES - 1]);
+        assert!(at_limit.within_wire_limits());
+        assert!(PortableTypes::encode(&empty, &[at_limit], &Default::default()).is_ok());
         let too_wide: Ty = Ty::Tuple(vec![Ty::Builtin(BuiltinType::I32); MAX_NODES]);
+        assert!(!too_wide.within_wire_limits());
         assert!(PortableTypes::encode(&empty, &[too_wide], &Default::default()).is_err());
 
         let mut deep = Ty::Builtin(BuiltinType::I32);
-        for _ in 0..MAX_DEPTH {
+        for _ in 1..MAX_DEPTH {
             deep = Ty::Array(Box::new(deep));
         }
+        assert!(deep.within_wire_limits());
+        assert!(PortableTypes::encode(&empty, &[deep.clone()], &Default::default()).is_ok());
+        deep = Ty::Array(Box::new(deep));
+        assert!(!deep.within_wire_limits());
         assert!(PortableTypes::encode(&empty, &[deep], &Default::default()).is_err());
         let mut nodes = (0..MAX_DEPTH).map(|_| Node::Array).collect::<Vec<_>>();
         nodes.push(Node::Builtin(BuiltinType::I32));

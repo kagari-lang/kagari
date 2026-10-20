@@ -300,7 +300,9 @@ The [execution plan](compilation-startup-plan.md) is active. The user authorized
 CS01-CS06 implementation and phase commits on 2026-10-20. CS01 fixes the API,
 verification ownership, cancellation migration and package output contract. CS02
 implements direct sealed source preparation and export; its selected local checks
-passed. CS03 type traversal is next. Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
+passed. CS03 shares bounded shape validation without wire-output allocation and
+passes its selected type/trait/host contracts. CS04 scoped verification preparation
+is next. Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
 not a WASM-specific verifier or another interpreter throughput plan.
 
 The intended path prepares source directly through retained verified MIR/bytecode,

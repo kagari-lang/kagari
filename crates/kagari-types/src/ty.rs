@@ -7,6 +7,7 @@ mod mapping;
 pub mod matching;
 mod order;
 mod reference;
+mod shape;
 pub mod substitution;
 #[doc(hidden)]
 pub mod wire;

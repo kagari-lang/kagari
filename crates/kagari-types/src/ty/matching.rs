@@ -2,7 +2,7 @@
 use crate::{
     declaration::AssociatedTypeFamily,
     ty::{
-        GenericParam, NominalTy, Ty,
+        GenericParam, NominalTy, Ty, shape,
         substitution::{MAX_TYPE_NODES, TypeSubstitution, TypeTransformError},
     },
 };
@@ -31,12 +31,11 @@ pub fn match_pattern<'a>(
     cancel: &CancellationToken,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
     let implemented = pattern.interface;
-    if pattern.parameters.len() > MAX_TYPE_NODES
-        || !pattern.receiver.within_wire_limits()
-        || !receiver.within_wire_limits()
-    {
+    if pattern.parameters.len() > MAX_TYPE_NODES {
         return Err(TypeTransformError::LimitExceeded);
     }
+    shape::validate(pattern.receiver, Some(cancel)).map_err(shape_error)?;
+    shape::validate(receiver, Some(cancel)).map_err(shape_error)?;
     if implemented.declaration != interface.declaration
         || implemented.arguments.len() != interface.arguments.len()
     {
@@ -44,8 +43,8 @@ pub fn match_pattern<'a>(
     }
     // Validate the requested nominal as one tree before comparisons or borrowing
     // nested arguments into the returned substitution.
-    TypeSubstitution::default().apply_nominal(interface, cancel)?;
-    TypeSubstitution::default().apply_nominal(implemented, cancel)?;
+    shape::validate_nominal(interface, cancel).map_err(shape_error)?;
+    shape::validate_nominal(implemented, cancel).map_err(shape_error)?;
     let mut pending = vec![(pattern.receiver, receiver)];
     pending.extend(implemented.arguments.iter().zip(&interface.arguments));
     let Some(bindings) = match_pairs(pattern.parameters, pending, cancel)? else {
@@ -81,12 +80,11 @@ pub fn match_receiver<'a>(
     actual: &'a Ty,
     cancel: &CancellationToken,
 ) -> Result<Option<TypeSubstitution<'a>>, TypeTransformError> {
-    if parameters.len() > MAX_TYPE_NODES
-        || !template.within_wire_limits()
-        || !actual.within_wire_limits()
-    {
+    if parameters.len() > MAX_TYPE_NODES {
         return Err(TypeTransformError::LimitExceeded);
     }
+    shape::validate(template, Some(cancel)).map_err(shape_error)?;
+    shape::validate(actual, Some(cancel)).map_err(shape_error)?;
     let Some(bindings) = match_pairs(parameters, vec![(template, actual)], cancel)? else {
         return Ok(None);
     };
@@ -94,6 +92,15 @@ pub fn match_receiver<'a>(
         return Ok(None);
     }
     Ok(Some(bindings))
+}
+
+// These callers historically report a malformed or oversized tree as a limit
+// error. Keep that admission category while preserving caller cancellation.
+fn shape_error(error: TypeTransformError) -> TypeTransformError {
+    match error {
+        TypeTransformError::Cancelled => error,
+        _ => TypeTransformError::LimitExceeded,
+    }
 }
 
 fn match_pairs<'a>(
