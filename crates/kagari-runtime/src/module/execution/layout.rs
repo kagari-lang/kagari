@@ -52,6 +52,7 @@ impl Location {
 pub(crate) struct ReusedSlot {
     pub logical: usize,
     pub range: Option<(usize, usize)>,
+    pub starts_with_definition: bool,
 }
 
 #[derive(Debug)]
@@ -126,9 +127,26 @@ impl FrameLayout {
             .filter(|(_, location)| {
                 !location.operand.managed() && aliases[location.operand.index()] > 1
             })
-            .map(|(logical, _)| ReusedSlot {
-                logical,
-                range: slot_layout.ranges.get(logical).copied().flatten(),
+            .map(|(logical, _)| {
+                let range = slot_layout.ranges.get(logical).copied().flatten();
+                // Instruction order is not execution order: a join can precede
+                // its defining predecessors. Only a write without an input
+                // requires completion before reading at the interval's start.
+                let starts_with_definition = range.is_some_and(|(start, _)| {
+                    let instruction = &function.instructions[start];
+                    instruction
+                        .slot_output()
+                        .is_some_and(|slot| slot.index() == logical)
+                        && !instruction
+                            .slot_inputs()
+                            .iter()
+                            .any(|slot| slot.index() == logical)
+                });
+                ReusedSlot {
+                    logical,
+                    range,
+                    starts_with_definition,
+                }
             })
             .collect();
         Self {
@@ -172,7 +190,12 @@ impl FrameLayout {
             .binary_search_by_key(&logical, |slot| slot.logical)
         {
             Ok(index) => self.reused_slots[index].range.is_some_and(|(start, end)| {
-                start <= pc && pc <= end && (!reading || start < pc || parameter)
+                start <= pc
+                    && pc <= end
+                    && (!reading
+                        || start < pc
+                        || parameter
+                        || !self.reused_slots[index].starts_with_definition)
             }),
             Err(_) => true,
         }
@@ -204,4 +227,50 @@ pub(crate) fn scalar_type(ty: ValueType) -> Option<BuiltinType> {
         ValueType::F64 => BuiltinType::F64,
         _ => return None,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kagari_bytecode::{
+        instruction::{BytecodeInstruction as I, ConstantId, JumpTarget},
+        module::FunctionMetadata,
+    };
+
+    #[test]
+    fn backward_join_inputs_are_live_at_the_interval_start() {
+        let function = BytecodeFunction {
+            slot_count: 2,
+            metadata: FunctionMetadata {
+                slots: vec![ValueType::I32; 2],
+                ..Default::default()
+            },
+            instructions: vec![
+                I::LoadConst {
+                    dst: Slot::new(0),
+                    constant: ConstantId::new(0),
+                },
+                I::Jump {
+                    target: JumpTarget::new(3),
+                },
+                I::Return(Some(Slot::new(1))),
+                I::LoadConst {
+                    dst: Slot::new(1),
+                    constant: ConstantId::new(0),
+                },
+                I::Jump {
+                    target: JumpTarget::new(2),
+                },
+            ],
+            ..Default::default()
+        };
+        let layout = FrameLayout::prepare(&function, &mut 0);
+        assert_eq!(layout.scalar_count, 1, "retain physical slot reuse");
+        assert!(!layout.admits_logical_access(0, 0, true, false));
+        assert!(layout.admits_logical_access(0, 0, false, false));
+        assert!(layout.admits_logical_access(1, 2, true, false));
+        assert!(!layout.admits_logical_access(1, 1, true, false));
+        assert!(!layout.admits_logical_access(0, 2, true, false));
+        assert!(!layout.admits_side_entry(1, 2, &[]));
+    }
 }

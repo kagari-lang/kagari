@@ -18,8 +18,10 @@ use kagari_abi::{
 };
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::BytecodeInstruction,
-    module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
+    instruction::{BytecodeInstruction, JumpTarget},
+    module::{
+        BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionOrigin,
+    },
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::identity::{
@@ -61,17 +63,26 @@ fn runtime() -> Runtime {
 }
 
 fn program() -> DefinitionMetadata<BytecodeProgram> {
+    let instructions = vec![
+        BytecodeInstruction::Jump {
+            target: JumpTarget::new(1),
+        },
+        BytecodeInstruction::Return(None),
+    ];
     let function = BytecodeFunction {
         name: "main".into(),
         metadata: FunctionMetadata {
+            origins: (0..instructions.len())
+                .map(|instruction| InstructionOrigin {
+                    instruction,
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                })
+                .collect(),
             ..Default::default()
         },
-        instructions: vec![
-            BytecodeInstruction::Jump {
-                target: kagari_bytecode::instruction::JumpTarget::new(1),
-            },
-            BytecodeInstruction::Return(None),
-        ],
+        instructions,
         ..Default::default()
     };
     let program = BytecodeProgram {

@@ -480,9 +480,12 @@ the normal-entry verifier's initialization proof.
 
 Function-owned immutable reuse guards restrict external access to a reused slot's
 logical lifetime. A physical initialization flag for an earlier alias does not
-initialize a later logical value. Reads at a nonparameter lifetime's defining PC
-require successful completion; explicit parameter homes retain admitted entry
-values. Writes cannot overwrite another logical lifetime. `jump_to` admits declared
+initialize a later logical value. At the lowest ordinal of a nonparameter lifetime,
+reads require successful completion only when that instruction defines the slot
+without reading its incoming value. A join may precede its defining predecessors
+in instruction order; its live-in inputs are already initialized by verified CFG
+execution. Explicit parameter homes retain admitted entry values.
+Writes cannot overwrite another logical lifetime. `jump_to` admits declared
 CFG arms and completed-current reexecution, but other side entries must not require
 a reused nonparameter lifetime; entry-initialized parameters may be preserved only
 while still in their lifetime. Defensive runtime reads remain necessary.
@@ -491,6 +494,9 @@ The frame keeps next-execution PC, executing/suspended PC, completed publication
 native origin separately. `instruction_offset()` reports the executing point when
 present; `prepare_instruction()` clears that observation/completion/native state
 only when the frame resumes. A suspended caller therefore stays at its call origin.
+`next_instruction()` fetches and advances without executing an operation. Manual
+drivers must execute fetched operations and apply their control flow before
+advancing again; interval guards do not validate arbitrary fetch-and-skip histories.
 
 Completion publication is owned by the successful operation: the closed-region
 owner marks slice/safepoint/return completion while its frame is admitted; cold

@@ -985,6 +985,8 @@ pub(super) fn verify(
                                         result = Fact::typed(Ty::Builtin(B::String));
                                     } else if matches!(intrinsic, S::ValueDebug | S::ValueDisplay) {
                                         result = Fact::typed(Ty::Builtin(B::String));
+                                    } else if *intrinsic == S::ValueHash {
+                                        result = Fact::typed(Ty::Builtin(B::I64));
                                     }
                                 }
                                 CallTarget::Shared { contract, .. } => {

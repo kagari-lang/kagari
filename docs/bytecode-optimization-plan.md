@@ -800,3 +800,55 @@ The plan remains active solely for its unresolved integrated acceptance and fini
 scope decision; it is not retired, historical IP12 remains separate, and CI/Lua
 parity are not claimed. The BO04 commit records the repair and blocked evaluation,
 not a completed acceptance checkpoint.
+
+### CI correctness repair — 2026-10-20
+
+[Run 39345496193, Rust job 118376967059](https://github.com/kagari-lang/kagari/actions/runs/39345496193/job/118376967059)
+at `503de5c9` exposed 27 failures across four library targets. The user authorized
+this correctness repair separately from further performance tuning. Causes and fixes:
+
+- Physical intervals incorrectly treated their lowest instruction ordinal as a
+  first definition. A match join can appear before its defining predecessors.
+  Immutable reuse guards now distinguish output-only definitions from live-in/read
+  starts; output-only publication, explicit side-entry checks and actual physical
+  reuse remain intact. Frame access errors now identify the slot, PC and access.
+- Access flow omitted the fixed `i64` result of `ValueHash`, rejecting its join with
+  a typed constant in generated enum hash adapters. Restore that fact without
+  relaxing conflicting-type/access checks. Add a source-free serialized join case.
+- Numeric tests assumed only the old `Numeric` instruction, and reference-corruption
+  tests assumed a parameter required a defining `Move`. Assert the same numeric
+  widths/operations across constant operands and select the authoritative parameter
+  slot before corrupting storage; retain all rejection assertions.
+- The native execution fixture omitted mandatory executable origins. Populate them
+  without changing native execution/ABI/ownership assertions.
+- Async provenance tests expected stripping optional debug records to remove spans
+  now retained in executable origins. Assert exact source text in both forms.
+  Block-bodied waiter fixtures supply an explicit await span; the existing bare
+  closure-body span gap in source lowering is not repaired or claimed resolved here.
+
+Local validation passed all 27 originally failing cases: SDK iterator, binding
+patterns, async provenance, three custom-key/hash cases and the standard-traits
+example; two compiler numeric cases; all 16 native execution cases; VM key GC and
+source-free reference corruption. Additional focused coverage passed 22 compiler
+bytecode-validation cases, shared-associated-output numeric behavior, the new
+backward-join layout case, public reused-frame access and native publication.
+Selections target the changed flow/representation/publication boundaries rather
+than reproducing a workspace sweep. The execution specification clarifies that
+manual fetch APIs do not execute skipped instructions or establish their effects.
+
+The additional regression command below did not finish within a 240-second limit
+including build-lock wait and compilation; it is not counted as passed. Earlier
+selected attempts also timed out. No assertion failure was observed for this case.
+
+```sh
+cargo test -p kagari-compiler --lib tests::numeric::narrow_arithmetic_retains_source_width_without_assert_expansion -- --exact
+```
+IDE build validation timed out; successful Cargo tests and Clippy provide the
+compilation evidence instead.
+
+Required structure (1,388 Rust files, zero violations), formatting, workspace
+Clippy (`--all-targets -- -D warnings`) and diff checks passed. Full workspace,
+Linux/backend/platform acceptance remains CI-owned and has not been rerun here.
+No timing or retained-memory measurements were repeated after the reuse-guard
+metadata change: earlier image/layout measurements remain historical evidence,
+not measurements of this repair. BO04's four timing gates remain blocked.

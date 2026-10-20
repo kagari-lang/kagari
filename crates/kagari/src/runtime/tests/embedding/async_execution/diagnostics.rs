@@ -1,4 +1,4 @@
-//! Detached failure origins survive shared waits, report retirement and missing source maps.
+//! Detached failure origins survive shared waits, report retirement and stripped debug records.
 use super::{Fixture, Value};
 use crate::{BytecodeArtifact, program::PreparedProgram, runtime::owned::DriveResult};
 use kagari_bytecode::{instruction::BytecodeInstruction, module::CallableTarget};
@@ -16,6 +16,7 @@ use std::{
     sync::{Arc, atomic::Ordering},
 };
 
+// Block-bodied waiters give Await an explicit tail-expression source span.
 const SOURCE: &str = r#"
 use test::async_sdk::request;
 pub async fn crash() -> i32 { request(10).await; val zero=0; 1/zero }
@@ -23,8 +24,8 @@ fn unwrap(result: Result<Task<i32>, SpawnError>) -> Task<i32> {
     match result { Ok(task) => task, Err(_) => { val zero=0; val bad=1/zero; unwrap(result) } }
 }
 pub fn submit(scope: TaskScope) -> Task<i32> { unwrap(scope.spawn(async || crash().await)) }
-pub fn observe(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || task.await)) }
-pub fn other(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || task.await)) }
+pub fn observe(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || { task.await })) }
+pub fn other(scope: TaskScope, task: Task<i32>) -> Task<i32> { unwrap(scope.spawn(async || { task.await })) }
 pub async fn direct(task: Task<i32>) -> i32 { task.await }
 pub fn factory() -> fn()->Future<i32> { async || 7 }
 "#;
@@ -112,7 +113,13 @@ fn async_failure_provenance_contract() {
             .unwrap();
         let site = report.origin.site.as_ref().unwrap();
         assert_eq!(site.function_name, "submit");
-        assert_eq!(site.source_span.is_none(), stripped);
+        // The nested spawn inherits the enclosing tail expression's lowering span.
+        // Executable origins retain it independently of optional debug records.
+        let span = site.source_span.unwrap();
+        assert_eq!(
+            &SOURCE[span.start..span.end],
+            "unwrap(scope.spawn(async || crash().await))"
+        );
         assert_eq!(
             report.origin.factory.code_fingerprint,
             f.module.program_fingerprint()
@@ -147,7 +154,8 @@ fn async_failure_provenance_contract() {
                 panic!("await site: {observed:?}")
             };
             assert_eq!(*task, producer_id);
-            assert_eq!(site.source_span.is_none(), stripped);
+            let span = site.source_span.unwrap();
+            assert_eq!(&SOURCE[span.start..span.end], "task.await");
             let CallableTarget::Script(function) = site.target else {
                 panic!("script await")
             };

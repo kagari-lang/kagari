@@ -485,6 +485,10 @@ impl ExecutionFrame {
         Ok(())
     }
 
+    /// Fetch and advance without executing the instruction.
+    ///
+    /// Manual drivers must execute the fetched operation and apply its control
+    /// flow before advancing again; slot guards do not validate skipped work.
     pub fn next_instruction(&mut self) -> Option<BytecodeInstruction> {
         let instruction = self.function()?.instructions.get(self.ip).cloned();
         if instruction.is_some() {
@@ -628,9 +632,12 @@ impl ExecutionFrame {
                 parameter,
             )
         }) {
-            return Err(RuntimeError::module_validation(
-                "frame slot is outside its physical lifetime",
-            ));
+            return Err(RuntimeError::module_validation(format!(
+                "frame slot {} is outside its physical lifetime at instruction {} ({})",
+                slot.index(),
+                self.instruction_offset(),
+                if reading { "read" } else { "write" },
+            )));
         }
         Ok(())
     }

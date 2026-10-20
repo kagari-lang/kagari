@@ -2,11 +2,11 @@ use super::replace_fixture_code;
 use crate::tests::bytecode::*;
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::{BinaryOp, ConstantId, ConstantOperand, ScalarOperand, Slot},
+    instruction::{BinaryOp, CallTarget, ConstantId, ConstantOperand, ScalarOperand, Slot},
     module::RootSlotLayout,
     program::{BytecodeProgram, verify_program},
 };
-use kagari_contract::callable::generic::GenericBody;
+use kagari_contract::{callable::generic::GenericBody, standard::RuntimePrimitive};
 use kagari_types::{
     scalar::BuiltinType,
     ty::{GenericParam, Ty, substitution::MAX_TYPE_DEPTH},
@@ -34,6 +34,52 @@ fn verify_source_free_fixture(
         Err(ArtifactValidationError::Bytecode(error)) => assert_eq!(Err(error), expected),
         Err(error) => panic!("unexpected loader failure: {error}"),
     }
+}
+
+#[test]
+fn hash_results_join_scalar_constants_without_declared_slot_types() {
+    let context = DefinitionContext::new().unwrap();
+    let mut valid = common::adopt_bytecode(
+        &context,
+        common::bytecode_ok("fn probe(flag: bool, value: i64) -> i64 { value } fn main() {}"),
+    );
+    let module = &mut valid.modules[valid.root.index()];
+    let zero = ConstantId::new(module.constants.len());
+    module.constants.push(ConstantOperand::I64(0));
+    let function = module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "probe")
+        .unwrap();
+    let flag = function.metadata.parameter_slots[0];
+    let value = function.metadata.parameter_slots[1];
+    let result = Slot::new(function.metadata.slots.len());
+    function.metadata.slots.push(ValueType::I64);
+    function.slot_count += 1;
+    replace_fixture_code(
+        function,
+        vec![
+            BytecodeInstruction::Branch {
+                cond: flag,
+                then_target: JumpTarget::new(1),
+                else_target: JumpTarget::new(3),
+            },
+            BytecodeInstruction::Call {
+                dst: Some(result),
+                callee: CallTarget::RuntimePrimitive(RuntimePrimitive::ValueHash),
+                args: vec![value],
+            },
+            BytecodeInstruction::Jump {
+                target: JumpTarget::new(4),
+            },
+            BytecodeInstruction::LoadConst {
+                dst: result,
+                constant: zero,
+            },
+            BytecodeInstruction::Return(Some(result)),
+        ],
+    );
+    verify_source_free_fixture(&context, &valid, valid.clone(), Ok(()));
 }
 
 #[test]

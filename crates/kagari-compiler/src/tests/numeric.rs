@@ -3,7 +3,7 @@ use crate::{
 };
 use kagari_bytecode::{
     artifact::KbcArtifact,
-    instruction::{BytecodeInstruction, CallTarget},
+    instruction::{BinaryOp, BytecodeInstruction, CallTarget},
     program::verify_program,
 };
 use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
@@ -154,6 +154,7 @@ fn shared_arithmetic_preserves_source_width_and_checks_callable_evidence() {
         assert!(function.instructions.iter().any(|instruction| matches!(
             instruction,
             BytecodeInstruction::Numeric { operation: numeric, .. }
+                | BytecodeInstruction::BinaryOperands { op: BinaryOp::Numeric(numeric), .. }
                 if numeric.op == operation
                     && numeric.input == BuiltinType::I8
                     && numeric.rhs == Some(BuiltinType::I8)
@@ -385,7 +386,10 @@ fn narrow_negation_uses_the_checked_source_domain() {
         assert!(function.instructions.iter().any(|instruction| matches!(
             instruction,
             BytecodeInstruction::Numeric { operation, .. }
-                if operation.op == IntegerOp::CheckedSub && operation.input == input
+                | BytecodeInstruction::BinaryOperands { op: BinaryOp::Numeric(operation), .. }
+                if operation.op == IntegerOp::CheckedSub
+                    && operation.input == input
+                    && operation.rhs == Some(input)
         )));
         assert!(function.instructions.iter().all(|instruction| !matches!(
             instruction,
