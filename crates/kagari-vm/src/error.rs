@@ -8,6 +8,7 @@ use kagari_runtime::{
     frame::cursor::kernel::RegionError,
     host::HostError,
     reflection::ReflectionError,
+    resource::ResourceState,
 };
 use std::sync::Arc;
 
@@ -92,6 +93,25 @@ impl VmError {
                 trace,
             },
         }
+    }
+
+    pub(crate) fn admit_execution_error(self, resources: &ResourceState) -> Self {
+        if matches!(self.cause(), Self::RuntimeError(error) if error.kind() == RuntimeErrorKind::EngineFault)
+        {
+            return self;
+        }
+        // A secondary failure cannot replace root termination; quarantine still wins.
+        if let Err(error) = resources.ensure_execution_allowed() {
+            return Self::RuntimeError(error);
+        }
+        if let Self::RuntimeError(error) = self.cause() {
+            let mut error = error.clone();
+            if let Some(trace) = self.trace() {
+                error = error.with_trace(trace.clone());
+            }
+            return Self::RuntimeError(resources.admit_execution_error(error));
+        }
+        self
     }
 
     pub(crate) fn invariant_reason(&self) -> Option<&'static str> {

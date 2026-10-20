@@ -369,8 +369,10 @@ impl LinkedNativeFunction {
             ));
         }
         context.poll()?;
-        let mut narrowed = context.narrow_arguments()?;
-        self.invoke_narrowed(&mut narrowed)
+        let result = context
+            .narrow_arguments()
+            .and_then(|mut narrowed| self.invoke_narrowed(&mut narrowed));
+        result.map_err(|error| context.runtime.resources().admit_execution_error(error))
     }
 
     fn invoke_narrowed(&self, context: &mut CallContext<'_>) -> NativeResult<Value> {
@@ -382,7 +384,8 @@ impl LinkedNativeFunction {
                     context.argument(index)
                 })
                 .map_err(|error| *error),
-        };
+        }
+        .map_err(|error| context.runtime.resources().admit_execution_error(error));
         context.poll()?;
         let value = result?;
         if (!self.binding.converted_result || self.result_adapter.is_some())

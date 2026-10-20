@@ -142,10 +142,95 @@ impl Executor<'_> {
             if let Some(reason) = error.invariant_reason() {
                 return VmError::RuntimeError(self.runtime.quarantine_execution_invariant(reason));
             }
+            let error = error.admit_execution_error(self.runtime.resources());
             match self.runtime.observe_execution(ExecutionEvent::Trap) {
                 Ok(()) => error,
                 Err(observer_error) => VmError::RuntimeError(observer_error),
             }
+            .admit_execution_error(self.runtime.resources())
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{error::VmError, executor::Executor};
+    use kagari_abi::representation::ValueType;
+    use kagari_bytecode::{
+        instruction::BytecodeInstruction,
+        module::{
+            BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionOrigin,
+        },
+        program::{BytecodeProgram, ModuleRef},
+    };
+    use kagari_common::identity::metadata::DefinitionMetadata;
+    use kagari_contract::ids::FunctionRef;
+    use kagari_runtime::{Runtime, error::RuntimeError};
+
+    #[test]
+    fn driver_admits_resource_errors_before_frames_unwind() {
+        let mut runtime = Runtime::default();
+        let function = BytecodeFunction {
+            id: FunctionRef::new(0),
+            name: "main".into(),
+            instructions: vec![BytecodeInstruction::Return(None)],
+            metadata: FunctionMetadata {
+                origins: vec![InstructionOrigin {
+                    instruction: 0,
+                    span: Default::default(),
+                    line: None,
+                    column: None,
+                }],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let program = BytecodeProgram {
+            root: ModuleRef::new(0),
+            exports: Default::default(),
+            modules: vec![BytecodeModule {
+                types: vec![ValueType::Unit],
+                function_table: vec![FunctionRecord {
+                    id: function.id,
+                    identity: function.identity.clone(),
+                    name: function.name.clone(),
+                    params: vec![],
+                    return_type: function.metadata.return_type,
+                    effects: Default::default(),
+                }],
+                functions: vec![function],
+                ..Default::default()
+            }],
+        };
+        let owner = runtime
+            .load_program(
+                "driver",
+                DefinitionMetadata::checked(
+                    runtime.host().definitions(),
+                    program,
+                    &Default::default(),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        let executor = Executor::new(&runtime, &owner, FunctionRef::new(0), &[]).unwrap();
+        let error = executor
+            .report_operation::<()>(Err(VmError::from(RuntimeError::resource_limit(
+                "driver operation",
+            ))))
+            .unwrap_err();
+        let VmError::RuntimeError(error) = error else {
+            panic!("resource classification")
+        };
+        assert_eq!(runtime.resources().termination(), Some(error.clone()));
+        let trace = error.trace().unwrap();
+        assert!(!trace.incomplete);
+        assert_eq!(trace.frames.len(), 1);
+        assert_eq!(trace.frames[0].function_name, "main");
+        assert_eq!(runtime.resources().poll_execution().unwrap_err(), error);
+        drop(executor);
+        assert!(runtime.resources().termination().is_none());
+        assert_eq!(runtime.resources().counters().current_call_depth, 0);
+        assert_eq!(runtime.gc().active_roots(), 0);
     }
 }

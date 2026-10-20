@@ -55,6 +55,21 @@ impl Registry {
         }
     }
 
+    fn contain<T>(&self, action: impl FnOnce() -> T) -> Option<T> {
+        match catch_unwind(AssertUnwindSafe(action)) {
+            Ok(value) => Some(value),
+            Err(panic) => {
+                self.faulted.store(true, Ordering::Release);
+                // A panic payload is arbitrary host data too. Try to destroy it,
+                // but never recursively unwind through a second panic payload.
+                if let Err(nested) = catch_unwind(AssertUnwindSafe(|| drop(panic))) {
+                    mem::forget(nested);
+                }
+                None
+            }
+        }
+    }
+
     fn release(&self, id: OperationId) {
         let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
         let Some(slot) = slots.get_mut(id.slot) else {
@@ -125,6 +140,7 @@ impl CompletionRegistry {
         };
         drop(slots);
         Ok(Operation {
+            registry: self.inner.clone(),
             lease: Some(Reservation {
                 id,
                 registry: self.inner.clone(),
@@ -187,6 +203,7 @@ pub enum CompletionStatus {
 pub struct Completion<T> {
     id: OperationId,
     state: Weak<Mutex<CompletionState>>,
+    registry: Weak<Registry>,
     marker: PhantomData<fn(T)>,
 }
 
@@ -195,6 +212,7 @@ impl<T> Clone for Completion<T> {
         Self {
             id: self.id,
             state: self.state.clone(),
+            registry: self.registry.clone(),
             marker: PhantomData,
         }
     }
@@ -215,7 +233,12 @@ impl<T: Send + 'static> Completion<T> {
 
     /// Store before waking. Completion during provider start is indistinguishable
     /// from later completion, and a duplicate never overwrites the first result.
+    /// Waker failures fault the registry without undoing publication. Rejected
+    /// results remain producer-side data and are destroyed on the calling thread.
     pub fn complete(&self, result: NativeResult<T>) -> CompletionStatus {
+        let Some(registry) = self.registry.upgrade() else {
+            return CompletionStatus::Stale;
+        };
         let Some(state) = self.state.upgrade() else {
             return CompletionStatus::Stale;
         };
@@ -231,7 +254,10 @@ impl<T: Send + 'static> Completion<T> {
             state.waker.clone()
         };
         if let Some(wake) = wake {
-            wake.wake_by_ref();
+            // Retirement can race publication, leaving this producer with the
+            // final waker reference. Contain its callback and destruction apart.
+            registry.contain(|| wake.wake_by_ref());
+            registry.contain(|| drop(wake));
         }
         CompletionStatus::Accepted
     }
@@ -247,6 +273,7 @@ pub enum OperationPoll<T> {
 /// The driver owns the single consumer and cancellation hook. Polling never
 /// executes script or converts a payload; it only transfers the owned result.
 pub struct Operation<T> {
+    registry: Arc<Registry>,
     lease: Option<Reservation>,
     state: Arc<Mutex<CompletionState>>,
     cancel: Option<Cancel>,
@@ -270,43 +297,49 @@ impl<T: Send + 'static> Operation<T> {
         Ok(Completion {
             id: lease.id,
             state: Arc::downgrade(&self.state),
+            registry: Arc::downgrade(&self.registry),
             marker: PhantomData,
         })
     }
 
     /// Register before parking. Recheck under the publication lock so completion
-    /// between the last poll and waker registration cannot be lost.
+    /// between the last poll and waker registration cannot be lost. Waker callback
+    /// or destruction panics fault the registry; check it before continuing work.
     pub fn set_waker(&self, waker: &Waker) {
-        let registered = Arc::new(waker.clone());
+        if self.lease.is_none() {
+            return;
+        }
+        let Some(registered) = self.registry.contain(|| Arc::new(waker.clone())) else {
+            return;
+        };
         let (ready, previous) = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
-            if matches!(state.status, Status::Retired) {
-                return;
-            }
             let previous = state.waker.replace(registered);
             (matches!(state.status, Status::Ready(_)), previous)
         };
-        drop(previous);
+        self.registry.contain(|| drop(previous));
         if ready {
-            waker.wake_by_ref();
+            self.registry.contain(|| waker.wake_by_ref());
         }
     }
 
     /// Install the provider's bounded, nonblocking cancellation after submission.
+    /// A live operation retains its first hook even when returning EngineFault:
+    /// submitted work still needs cancellation when the operation is retired.
     pub fn on_cancel(&mut self, cancel: impl FnOnce() + Send + 'static) -> NativeResult<()> {
         if self.lease.is_none() || self.cancel.is_some() {
+            self.registry.contain(|| drop(cancel));
+            self.registry.check()?;
             return Err(RuntimeError::module_validation(
                 "operation cancellation hook state",
             ));
         }
         self.cancel = Some(Box::new(cancel));
-        Ok(())
+        self.registry.check()
     }
 
     pub fn poll(&mut self) -> NativeResult<OperationPoll<T>> {
-        if let Some(lease) = &self.lease {
-            lease.registry.check()?;
-        }
+        self.registry.check()?;
         let (payload, wake) = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             match state.status {
@@ -319,46 +352,60 @@ impl<T: Send + 'static> Operation<T> {
             };
             (payload, state.waker.take())
         };
-        drop(wake);
-        // A successful claim retires the endpoint and disarms provider cancellation.
-        // Payload conversion and destruction happen outside the publication lock.
-        self.cancel = None;
-        self.lease = None;
-        let result = payload.and_then(|value| {
-            value.downcast::<T>().map(|value| *value).map_err(|_| {
-                RuntimeError::new(
-                    RuntimeErrorKind::EngineFault,
-                    "native completion payload type",
-                )
+        // Detach all terminal ownership before any host destruction. A claim
+        // disarms the hook even if destroying its captures or the waker fails.
+        let lease = self.lease.take();
+        let cancel = self.cancel.take();
+        self.registry.contain(|| drop(wake));
+        self.registry.contain(|| drop(cancel));
+        if let Err(error) = self.registry.check() {
+            self.registry.contain(|| drop(payload));
+            drop(lease);
+            return Err(error);
+        }
+        let result = self.registry.contain(|| {
+            payload.and_then(|value| {
+                value.downcast::<T>().map(|value| *value).map_err(|value| {
+                    self.registry.faulted.store(true, Ordering::Release);
+                    drop(value);
+                    RuntimeError::new(
+                        RuntimeErrorKind::EngineFault,
+                        "native completion payload type",
+                    )
+                })
             })
         });
-        Ok(OperationPoll::Ready(result))
+        drop(lease);
+        if let Err(error) = self.registry.check() {
+            self.registry.contain(|| drop(result));
+            return Err(error);
+        }
+        Ok(OperationPoll::Ready(
+            result.expect("contained payload claim"),
+        ))
     }
 }
 
 impl<T> Operation<T> {
+    /// Retire once and drain all transport-owned cleanup outside its locks.
+    /// Cleanup continues even if the registry was already faulted. Any fault is
+    /// reported as EngineFault after releasing the reservation, including on retries.
     pub fn cancel(&mut self) -> NativeResult<()> {
         let previous = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
             let wake = state.waker.take();
             (mem::replace(&mut state.status, Status::Retired), wake)
         };
-        drop(previous);
         let lease = self.lease.take();
-        let cancelled = self
-            .cancel
-            .take()
-            .map(|cancel| catch_unwind(AssertUnwindSafe(cancel)));
-        if matches!(cancelled, Some(Err(_))) {
-            if let Some(lease) = &lease {
-                lease.registry.faulted.store(true, Ordering::Release);
-            }
-            return Err(RuntimeError::new(
-                RuntimeErrorKind::EngineFault,
-                "native operation cleanup panicked",
-            ));
+        let cancel = self.cancel.take();
+        let (status, wake) = previous;
+        self.registry.contain(|| drop(status));
+        self.registry.contain(|| drop(wake));
+        if let Some(cancel) = cancel {
+            self.registry.contain(cancel);
         }
-        Ok(())
+        drop(lease);
+        self.registry.check()
     }
 }
 

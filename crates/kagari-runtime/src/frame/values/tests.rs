@@ -3,7 +3,8 @@ mod measurements;
 use super::*;
 use crate::{
     Runtime,
-    frame::types::EnvironmentRecord,
+    error::RuntimeErrorKind,
+    frame::{execution_frames::loaded, types::EnvironmentRecord},
     module::execution::layout::Location,
     native::{
         application::NativeApplication,
@@ -42,6 +43,64 @@ fn module() -> (Runtime, LoadedModule) {
         )
         .unwrap();
     (runtime, module)
+}
+
+#[test]
+fn frame_generation_failure_terminates_session_before_unwind() {
+    let mut runtime = Runtime::default();
+    let owner = loaded(&mut runtime);
+    let stack = runtime.enter_execution_stack(&owner).unwrap();
+    stack
+        .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
+    let generation = {
+        let mut values = runtime.resources().frame_values.borrow_mut();
+        let generation = values.next_generation;
+        values.next_generation = u64::MAX;
+        generation
+    };
+    let error = stack
+        .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
+        .unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+    assert_eq!(
+        error.to_string(),
+        "resource limit exceeded: frame window generations"
+    );
+    assert_eq!(runtime.resources().termination(), Some(error.clone()));
+    let trace = error.trace().unwrap();
+    assert!(!trace.incomplete);
+    assert_eq!(trace.frames.len(), 1);
+    assert_eq!(trace.frames[0].function_name, "main");
+    assert_eq!(runtime.resources().counters().current_call_depth, 1);
+    assert_eq!(
+        runtime.resources().frame_values.borrow().active_windows(),
+        1
+    );
+    assert_eq!(
+        stack
+            .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
+            .unwrap_err(),
+        error
+    );
+    drop(stack);
+    assert_eq!(runtime.resources().counters().current_call_depth, 0);
+    assert_eq!(
+        runtime.resources().frame_values.borrow().active_windows(),
+        0
+    );
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert!(runtime.resources().termination().is_none());
+    // Remove the injected exhaustion, not a real runtime generation rollback.
+    runtime
+        .resources()
+        .frame_values
+        .borrow_mut()
+        .next_generation = generation;
+    let fresh = runtime.enter_execution_stack(&owner).unwrap();
+    fresh
+        .push(&runtime, owner.slot(), FunctionRef::new(0), &[], None)
+        .unwrap();
 }
 
 #[test]

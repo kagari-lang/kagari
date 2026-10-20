@@ -74,7 +74,11 @@ impl<'runtime> ConversionContext<'runtime> {
         let mut fields = Vec::new();
         fields
             .try_reserve_exact(layout.layout().fields.len())
-            .map_err(|_| RuntimeError::resource_limit("struct conversion snapshot"))?;
+            .map_err(|_| {
+                self.runtime()
+                    .resources()
+                    .limit("struct conversion snapshot")
+            })?;
         for slot in 0..layout.layout().fields.len() {
             self.poll()?;
             fields.push(

@@ -6,6 +6,7 @@ mod method_applications;
 mod methods;
 mod native_boxing;
 mod primitives;
+mod resource_termination;
 mod script_values;
 mod selected_methods;
 mod shared_application;

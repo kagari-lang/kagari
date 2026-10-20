@@ -59,10 +59,17 @@ impl ExecutionStack<'_> {
             .sessions
             .frames_mut(self.session.id)
             .ok_or_else(|| resources.quarantine("frame stack is borrowed across execution"))?;
-        frames
-            .try_reserve(1)
-            .map_err(|_| resources.limit("frame capacity"))?;
+        if frames.try_reserve(1).is_err() {
+            drop(frames);
+            return Err(resources.limit("frame capacity"));
+        }
+        // Depth polling must be able to capture the suspended caller frames.
+        drop(frames);
         resources.enter_call()?;
+        let mut frames = resources
+            .sessions
+            .frames_mut(self.session.id)
+            .expect("frame preparation cannot reenter execution");
         // Keep fallible preparation inside the depth rollback boundary. Nothing
         // here can collect, invoke user code or mutate the inspected arguments.
         let prepare = || {
@@ -197,8 +204,9 @@ impl ExecutionStack<'_> {
                 Ok(action)
             }
             Err(error) => {
+                drop(frames);
                 resources.leave_call();
-                Err(error)
+                Err(resources.admit_execution_error(error))
             }
         }
     }

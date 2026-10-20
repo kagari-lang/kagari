@@ -109,7 +109,11 @@ impl ConversionContext<'_> {
         let mut fields = Vec::new();
         fields
             .try_reserve_exact(layout.variant().payload.len())
-            .map_err(|_| RuntimeError::resource_limit("enum conversion payload types"))?;
+            .map_err(|_| {
+                self.runtime()
+                    .resources()
+                    .limit("enum conversion payload types")
+            })?;
         for index in 0..layout.variant().payload.len() {
             let (ty, _) = layout
                 .payload_type(index)

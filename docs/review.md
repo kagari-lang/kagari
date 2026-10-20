@@ -52,8 +52,8 @@ correctness. Cost classifications are A: architecture, B: local implementation,
 C: required semantics, and D: unmeasured performance hypothesis.
 
 **Overall:** the checked compilation/runtime boundary, generation-pinned ownership
-and explicit roots fit a statically typed embedded language. The main immediate
-problems are incomplete failure-state transitions and memory-pressure accounting,
+and explicit roots fit a statically typed embedded language. The main remaining
+problems are memory-pressure accounting and historical-state scaling,
 not evidence that the language needs a different GC family or a new universal IR.
 Several costs still scale with historical state or repeat a proof unnecessarily.
 Future native expansion needs stronger runtime ABI/root/call contracts, but the
@@ -61,15 +61,13 @@ current scalar backend deliberately refuses the unsupported cases.
 
 Highest-value priorities, in order:
 
-1. **R9/R10:** make resource termination and async retirement complete state
-   transitions, including host conversion failures and payload destructor panics.
-2. **R11:** separate retained allocation pressure from logical heap occupancy;
+1. **R11:** separate retained allocation pressure from logical heap occupancy;
    make native accounting a runtime-owned committed fact.
-3. **R12:** remove full-history scans from root registration and sparse sweeping,
+2. **R12:** remove full-history scans from root registration and sparse sweeping,
    without weakening stale-handle or cross-thread root-release rules.
-4. **R13:** stop using the original executable payload as its version identity;
+3. **R13:** stop using the original executable payload as its version identity;
    then measure identity-domain and type-only retention separately.
-5. **R14:** perform one suspension proof per transition, sharing traversal across
+4. **R14:** perform one suspension proof per transition, sharing traversal across
    its roots. Do not add a long-lived async-safety cache for mutable graphs.
 
 Preserve the following foundations:
@@ -125,7 +123,7 @@ supplied native-input MIR against the bytecode before installing a product.
 | Runtime link/install | Remap definition identities, validate installed native declarations, bind layouts/call targets and exact code ownership | Runtime-specific authority and installed host identity cannot be established only by compile-time verification. Cold dependent layouts may be prepared later. |
 | Call admission | Check current runtime/generation, type/environment, depth and arguments; reserve/populate frame windows transactionally | Only successful admission publishes a frame. Host callbacks and reentry retain the same pinned session and termination state. |
 | Execution | Checked scalar operations, dynamic object identity/access/bounds, field/index kernels, calls and safepoints | Prepared scalar locations avoid repeated type resolution. Identity/bounds checks are semantic costs, not automatically removable work. |
-| Suspension/retirement | Retain live frame windows and code leases; detach transient borrows; consume/cancel completion and release windows | Async safety concerns the actual graph, including mutable aliases. R10 and R14 concern this transition, not a missing async model. |
+| Suspension/retirement | Retain live frame windows and code leases; detach transient borrows; consume/cancel completion and release windows | Async safety concerns the actual graph, including mutable aliases. R14 concerns repeated validation at this transition, not a missing async model. |
 
 Identity and release boundaries:
 
@@ -192,17 +190,19 @@ Identity and release boundaries:
    protects conversion inputs/results and invokes a callback without a live cursor
    storage borrow. Reentry adds a suffix to the same session stack, sharing depth,
    cancellation and pinned environment. Normal nested trap cleanup removes only
-   that suffix. Resource exhaustion must instead remain sticky for the whole root;
-   conversion currently violates that distinction (R9). Borrow validation and
-   completed host effects must survive any optimization of this boundary.
+   that suffix. Resource exhaustion instead remains sticky for the whole root;
+   [execution failure semantics](spec/failure-semantics.md) own termination and origin
+   precedence. Borrow validation and completed host effects must survive any
+   optimization of this boundary.
 5. **Captured closure and async wait.** A callable retains captures and versioned
    dependencies. A cold Future retains inputs without running its provider; claim
    protects captures before submission. A pending operation owns its reservation,
    while the suspended session retains live frame roots. Completion carries owned
    host data until conversion on the driver. Park validation rejects scoped values
    reachable through aliases, not just immediate arguments. Finished task results
-   have another explicit owner. R14 repeats the parking proof; R10 can interrupt
-   cancellation before the window-retirement loop.
+   have another explicit owner. R14 repeats the parking proof. The
+   [completion contract](spec/host-interop.md#completion-transport-foundation)
+   owns transport cleanup and fault containment.
 6. **GC, cancellation and old calls.** Safepoints collect only after publication and
    outside invalid storage/host borrows. The collector snapshots roots, traces the
    object/program graph, validates it before detachment, sweeps/relocates storage,
@@ -240,7 +240,7 @@ Current memory risks span different owners:
 | --- | --- |
 | Payload/header/alignment | RS already reduced directory and object representation; do not revive the obsolete 168-byte directory finding. Small objects still pay directory/back-reference costs. |
 | Native buffers/collection capacity | R11 proves scheduling undercounts retained String capacity. Sequence logical length is likewise not allocated bytes. |
-| Frame/closure/async state | Typed banks and captures are real retained state; parked stacks keep live windows and code. No fresh maximum-frame or suspension-liveness benchmark was run. R10 concerns skipped retirement, not proof that every parked frame leaks. |
+| Frame/closure/async state | Typed banks and captures are real retained state; parked stacks keep live windows and code. No fresh maximum-frame or suspension-liveness benchmark was run. |
 | Temporary peak | Conversion protection, grow-before-commit and prepare-before-remove deliberately retain old and new values together. Removing this peak without an alternative commit protocol would weaken failure semantics. |
 | Runtime metadata/code | R13 distinguishes remapped/original code, type provenance, append-only identity tables and exact executable leases. No loaded-runtime CST/HIR/MIR retention was found through its descriptor. |
 | Historical capacity | R12 scans root/directory history. Free indices and generation tombstones can outlive most objects; that memory is not live payload. |
@@ -255,103 +255,6 @@ internal compaction possible without exposing moving addresses; they do not make
 untracked native machine registers safe. First measure allocation bytes, survival,
 root/directory scan work and pause distribution separately. Keep logical units,
 requested bytes, allocator usable bytes and process working set distinct.
-
-### R9 — Resource failure classification does not establish root termination
-
-**P1; reproduced contract defect; A/B.** The failure contract says resource
-exhaustion is sticky for the active root, including synchronous host reentry.
-[ResourceState::limit](../crates/kagari-runtime/src/resource.rs) records termination,
-but [ConversionContext::charge_string/check_elements/enter](../crates/kagari-runtime/src/native/conversion/context.rs)
-construct `RuntimeError::resource_limit` directly. That constructor only creates
-an error. [Binding::invoke_narrowed](../crates/kagari-runtime/src/native/binding.rs)
-polls after callback execution but does not admit the returned resource error into
-session state; [report_operation](../crates/kagari-vm/src/executor/driver.rs) likewise
-reports a trap without establishing termination.
-
-**Reproduction:** compile a program whose `main` calls a logging host binding,
-then emits `after` and returns 42. The first host call reenters `nested`, whose
-typed native `fail() -> String` returns a string beyond the conversion limit.
-The host records that error, reenters a healthy function returning 7 and returns
-success. Both of these bounded cases reproduced the same result:
-
-- `ConversionContext::with_limits(max_string_bytes = 0, other defaults)` encoding
-  the one-byte string `x` inside the native callback.
-- Ordinary typed output conversion of a string of default max-string-bytes + 1
-  (16 MiB + 1); no manually constructed RuntimeError or overridden default limit.
-
-Observed: nested `ResourceLimitExceeded`, trace `nested → main`, session termination
-`None`, next poll successful, second reentry returned 7, `after` ran once, and main
-returned 42. Final depth/root counts were zero and a fresh root returned 7. A control
-that returned a host error instead did stop main before `after`; its explicit
-`HostError` wrapping is not a separate runtime classification finding.
-
-**Root cause and impact:** structured error classification and execution-state
-admission have separate, incompletely connected owners. This is already a semantic
-failure; it is not a GC algorithm defect or a performance benchmark. Native/LLVM
-helpers must not inherit the same split.
-
-**Recommendation:** use the existing session owner to admit execution resource
-failures consistently at their creation/propagation boundary, retaining the first
-termination and origin. Audit conversion and frame-capacity/generation producers
-in the same finite change. Do not globally make a detached error constructor mutate
-state, make ordinary nested traps sticky, or turn task admission business rejection
-into root termination. Standalone conversion with no active root must remain usable.
-This is a correction to Kagari's stronger root-termination contract, not Java or
-Tokio exception behavior copied verbatim; retain scoped boundary ownership rather
-than a VM-only flag (reference mechanisms below).
-
-**Migration/validation:** small-to-medium cross-boundary repair. Extend the existing
-host-reentry contract with actual conversion failures, preserved error origin,
-forbidden same-root effects, unconditional cleanup and successful fresh-root reuse.
-Use the same execution-failure service for native helpers as they expand. Do not
-defer this behind LLVM or performance work.
-
-### R10 — Completion cleanup contains hook panics but not payload destruction
-
-**P1; reproduced transport defect, source-confirmed retirement risk; A/B.**
-[Operation::cancel](../crates/kagari-runtime/src/native/completion.rs) marks status
-Retired, then calls `drop(previous)` **before** taking the reservation and before
-its panic guard around the cancellation hook. `previous` includes the queued owned
-payload and waker. Successful `poll` also drops the hook's captures outside that
-guard. The [completion contract](spec/host-interop.md#completion-transport-foundation)
-says cleanup panic faults the registry, prevents new admission and reports EngineFault.
-
-**Minimal reproduction:** reserve one `Operation<Payload>`, install a counting
-cancel hook, complete with a payload whose `Drop` panics, and call `cancel()` inside
-an outer `catch_unwind`, retaining the operation for inspection. Observed:
-
-```text
-panic_escaped=true active=1 registry_ok=true hooks=0
-after_operation_drop: active=0 registry_ok=true hooks=1
-```
-
-The later Drop retries cancellation and releases capacity; this probe therefore
-**does not demonstrate a permanent reservation leak**. It does prove the documented
-fault/cleanup boundary was not honored. The existing hook-panic test passes because
-it exercises the protected hook invocation, not queued-payload destruction.
-
-**Wider path:** [Runtime::retire_execution](../crates/kagari-runtime/src/session/owned.rs)
-removes the session, cancels its pending wait, then explicitly calls
-`frame.release_values`. [ExecutionFrame](../crates/kagari-runtime/src/frame.rs) owns
-window IDs, not a Drop implementation that releases them. A panic before that loop
-can therefore skip root-window retirement. This downstream retention is a
-source-confirmed risk, **not an end-to-end retained-heap measurement**.
-
-**Recommendation:** commit terminal ownership once; separately contain payload,
-waker and hook destruction, release the reservation and frame windows unconditionally,
-then report/quarantine the failure. Catching the entire drain and ignoring the panic
-would leave skipped cleanup unresolved. Cover successful-claim hook-capture Drop
-as well as explicit cancel. Preserve no-callback-under-lock and at-most-once hook
-invocation. Tokio's task harness is a useful destruction-containment reference, but
-Kagari additionally owes precise root release and EngineFault/quarantine, not merely
-a JoinError or swallowed destructor panic.
-
-**Migration/validation:** medium, bounded to completion/wait/retirement ownership.
-Extend existing completion and owned-wait contracts with a panicking queued payload,
-a panicking hook capture on successful claim, and a live managed value in a retired
-wait. Assert capacity, slot generations, quarantine, frame roots/depth and continued
-cleanup of remaining retired executions. A process-aborting panic configuration
-cannot promise unwind recovery; no such recovery is claimed here.
 
 ### R11 — Logical units are not retained allocation pressure
 
@@ -573,7 +476,7 @@ unused-source errors or relax loading validation to make artifacts smaller.
 
 | Class | Current assessment / required work |
 | --- | --- |
-| Already affects execution | R9-R14 affect runtime boundaries independent of LLVM. No miscompile of the currently accepted Cranelift scalar subset was established. Its exact-trap test timed out in this review, so this is not a fresh all-green native validation. |
+| Already affects execution | R11-R14 affect runtime boundaries independent of LLVM. No miscompile of the currently accepted Cranelift scalar subset was established. Its exact-trap test timed out in this review, so this is not a fresh all-green native validation. |
 | Before general managed native/LLVM execution | Runtime-owned call admission, argument/result/root ownership, bounded machine-stack behavior or a driver continuation protocol; registered native root frames before collecting helpers; program-scoped call proofs and pinned target dependencies. An LLVM implementation of only the existing scalar subset does not first need all managed-value machinery. |
 | Before aggressive optimization | Conservative transitive call/memory/GC facts or explicit barriers, exact overflow/trap lowering, shared-alias semantics, origin/PC mapping and dependency/code leases. False individual effect bits are not absence proofs. |
 | Preserve an extension point | Physical PC/location maps if justified instead of registered root frames; code-unit dependency ownership for future direct calls/inlining; logical debug origins and observer fallback. |
@@ -608,7 +511,8 @@ performance evidence for Kagari:
 
 - **Tokio 1.48.0:** [task harness](https://github.com/tokio-rs/tokio/blob/tokio-1.48.0/tokio/src/runtime/task/harness.rs),
   `cancel_task`, task completion and `drop_future_or_output`: contain user future/
-  output destruction and establish task state before notification. Relevant to R10
+  output destruction and establish task state before notification. Relevant to the
+  [completion contract](spec/host-interop.md#completion-transport-foundation)
   and transition ownership in R14. Its threaded scheduler/JoinError policy does not
   replace Kagari's isolate, roots, host leases or EngineFault contract.
 - **OpenJDK 25 GA:** [OopStorage](https://github.com/openjdk/jdk/blob/jdk-25-ga/src/hotspot/share/gc/shared/oopStorage.hpp),
@@ -649,7 +553,6 @@ activated phases or an implementation ledger.
 
 | Order | Scope / owner | Delete or consolidate when replacing | Acceptance boundary |
 | --- | --- | --- | --- |
-| Must fix | R9 session failure admission; R10 completion/owned retirement | Direct non-sticky execution-limit paths; hook-only cleanup containment and interruptible retirement sequencing | Existing reentry/completion contracts plus the distinct uncovered failures; no forbidden later effects, lost roots or weakened origin/cleanup |
 | Near-term high value | R11 storage accounting; R12 root/directory iteration, coordinated with OM/NC | Callback-recomputed release charges; full-table prune on every root insert; directory-history sweep where occupied stores suffice | Checked transactional deltas, stale generations, cross-thread lease drop, sparse relocation; capacity/scan measurements |
 | Near-term bounded simplification | R13 exact-version token; R14 one-shot parking, coordinated with IP08-IP12 | Payload-backed version identity and unnecessary original snapshot; duplicate successful park proof and per-frame repeated visits | Cross-context exact identity, pinned dependencies, mutable-graph suspension rejection and cleanup |
 | Measure before expanding | R13 identity-domain/type-only split, R7 worklist, artifact pruning | If justified: shared mutable identity writer across independent lifetimes, whole-module demand rounds; not a cache layered over them | Distinct/reused-name churn, actual bytecode release, compiler scaling, explicit executable roots and unchanged source diagnostics |
@@ -695,25 +598,11 @@ dependency=target/debug/deps`; temporary files were under `target/architecture-r
 - `cargo test --locked -p kagari-runtime --lib -- gc::tests::sparse_collection_preserves_aliases_and_mutation_across_payload_relocation --exact`:
   **1 passed**, 307 filtered out. Selected to protect handle/alias semantics during
   current internal relocation, not to sweep all GC contracts.
-- `cargo test -p kagari-vm --lib host_reentry_cannot_swallow_root_termination_and_releases_borrows`:
-  **1 passed**, 321 filtered out. This covers existing cancellation/depth termination;
-  it does not cover the conversion-origin failure demonstrated by R9.
-- `cargo test --locked -p kagari-runtime --lib async_native_completion_contract_cleanup_fault_and_generation_exhaustion`:
-  **1 passed**, 307 filtered out. This establishes the protected cancellation-hook
-  baseline; R10's payload destructor is a distinct missing boundary.
 - `cargo test --locked -p kagari-codegen-cranelift --lib tests::checked_i32_traps_keep_the_exact_mir_point -- --exact`:
   compilation completed and **1 test started**, but the command hit its **180-second
   timeout** with no final result. **Not passed, not a confirmed assertion failure.**
   It directly installs/calls native code rather than accepting fallback. No longer
   rerun was attempted; exact native trap validation remains unresolved for this review.
-- R9 public-API probe: source → checked HIR → MIR → bytecode → runtime, standard
-  native installation and host reentry; both small configured and ordinary default
-  output conversion limits reproduced the defect. Compiler `source`/default enabled,
-  VM and stdlib default feature sets, runtime default, no JIT. A bounded library build
-  for these dependencies completed; no workspace test sweep was run.
-- R10 public-API probe: reserve/complete/cancel one operation with a panicking payload,
-  inspect before/after consumer Drop. All assertions of the **observed defect** passed.
-  Runtime default features; no end-to-end owned-execution leak probe.
 - R11 public-API probe: two separate capacity-0/capacity-8-MiB runtime lifecycles;
   diagnostic allocator counts successful allocation requests minus matching frees.
   All capacity, pointer, counters, stale-value and teardown assertions passed.
@@ -722,12 +611,7 @@ dependency=target/debug/deps`; temporary files were under `target/architecture-r
 - Primary-source links above were accessed at their pinned versions. Documentation
   receives local link and whitespace checks; no production edits, commits or pushes.
 
-For reproduction without the disposable files, R9's required fixture is the
-four-step call chain and two payload sizes specified in its finding; use the existing
-native-boundary registration/compilation helpers. R10 needs only public
-`CompletionRegistry::new(NonZeroUsize::new(1).unwrap())`, `reserve`, `on_cancel`,
-`completion().complete`, and
-`catch_unwind` around `cancel` while retaining the consumer. R11 needs public
+For reproduction without the disposable files, R11 needs public
 `Runtime::default`, `gc().alloc_string`, `root_value`, manual collection and
 `gc_safepoint` in the table's order. Instrument allocation requests independently
 of logical heap counters. The report records the actual results and restrictions;
@@ -1068,7 +952,7 @@ R7-R8 originated in the 2026-10-03 review of
 `9581f5ad2a754911d1edb92eb35e957a18d7b5df`. Source inspection at `88acbdb5`
 confirms these mechanisms remain; their scaling has not been remeasured.
 Resolved findings and superseded implementation details are not retained as tasks.
-R9-R14 below extend this series; their individual evidence levels and the actual
+R11-R14 extend this series; their individual evidence levels and the actual
 validation scope are recorded in the current runtime review.
 
 | ID | Current finding | Focused follow-up and acceptance |

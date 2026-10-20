@@ -549,6 +549,24 @@ functions, patterns, generic interface construction and host-registration unific
 namespace/import/default-body/Array work is described by the current architecture,
 specifications and reading guides, not retained as review tasks.
 
+The scoped R9/R10 runtime repair is handed off to
+[execution failure semantics](spec/failure-semantics.md) and the
+[completion contract](spec/host-interop.md#completion-transport-foundation).
+Shared ResourceState admission covers conversion, native, VM and frame exhaustion,
+retaining the first termination and origin, including observer precedence.
+Completion transport contains payload, waker and hook destruction; the first hook
+is retained after a registry fault. Guarded retirement continues cleanup,
+quarantine drains remaining owned executions, and Runtime Drop also drains
+standalone retained owners. Local validation selected conversion/reentry and
+observer precedence, atomic frame admission, Task business rejection, completion
+transport and source-free owned-retirement contracts; those tests passed.
+Structure, formatting, workspace all-target Clippy and diff checks passed.
+Full-workspace tests and the complete feature/backend/platform matrix were not
+run locally and remain CI-owned. This scoped handoff is not a
+whole-runtime audit or performance acceptance. The
+[runtime review](review.md#runtime-architecture-review) now prioritizes R11-R14;
+R7/R8 and unrelated open findings remain unchanged and are not activated here.
+
 [Architecture findings](review.md#architecture-findings)
 R1/R2/R5/R7/R8 remain supported by source inspection at `b71e0cdd`: raw-kind
 safety, prepared-JIT policy, trait-search cancellation/limits, repeated

@@ -13,6 +13,8 @@ use crate::{
 use kagari_common::cancellation::{CancellationSubscription, CancellationToken};
 use kagari_contract::ids::FunctionRef;
 use std::{
+    mem,
+    panic::{AssertUnwindSafe, catch_unwind},
     slice,
     sync::{
         Arc, Mutex, OnceLock, Weak,
@@ -368,17 +370,32 @@ impl Runtime {
     }
 
     /// Complete owner-drop cleanup even if a provider or dispatcher never replies.
+    /// A cleanup fault quarantines execution but does not stop the drain.
     pub fn drain_retired_executions(&self) -> Result<usize, RuntimeError> {
+        self.drain_owned_executions(self.resources().is_quarantined())
+    }
+
+    pub(crate) fn drain_owned_executions(&self, all: bool) -> Result<usize, RuntimeError> {
         self.require_idle_driver()?;
-        let ids = self
-            .resources()
-            .sessions
-            .retired_owners(self.resources().is_quarantined());
-        let count = ids.len();
+        let ids = self.resources().sessions.retired_owners(all);
+        let mut count = ids.len();
+        let mut failure = None;
         for id in ids {
-            self.retire_execution(id)?;
+            if let Err(error) = self.retire_execution(id) {
+                failure.get_or_insert(error);
+            }
         }
-        Ok(count)
+        // A fault discovered in this batch invalidates even retained owners.
+        // Drain those newly ineligible sessions once, without running their code.
+        if !all && self.resources().is_quarantined() {
+            match self.drain_owned_executions(true) {
+                Ok(retired) => count += retired,
+                Err(error) => {
+                    failure.get_or_insert(error);
+                }
+            }
+        }
+        failure.map_or(Ok(count), Err)
     }
 
     pub(crate) fn require_idle_driver(&self) -> Result<(), RuntimeError> {
@@ -395,18 +412,73 @@ impl Runtime {
         let (mut state, frames) = self.resources().sessions.remove(id).ok_or_else(|| {
             RuntimeError::module_validation("foreign, retired or borrowed execution")
         })?;
-        let cleanup = state
-            .pending
-            .get_mut()
-            .take()
-            .map(|mut wait| wait.cancel())
-            .transpose();
-        for frame in frames {
+        let mut failed = false;
+        if let Some(mut wait) = state.pending.get_mut().take() {
+            failed |= self.retirement_cleanup(|| wait.cancel()).is_err();
+            failed |= self
+                .retirement_cleanup(|| {
+                    drop(wait);
+                    Ok(())
+                })
+                .is_err();
+        }
+        // Release every window before dropping any frame's retained host owners.
+        for frame in &frames {
             frame.release_values(self.resources());
         }
-        drop(state);
-        cleanup
-            .map(|_| ())
-            .map_err(|_| self.quarantine_execution_invariant("native operation cleanup failed"))
+        for frame in frames {
+            failed |= self
+                .retirement_cleanup(|| {
+                    drop(frame);
+                    Ok(())
+                })
+                .is_err();
+        }
+        // A host control waker can have a panicking destructor too. Detach it
+        // before SessionState's Drop so a failed finish is never retried there.
+        if let Some(owner) = state.owner.get_mut().take() {
+            failed |= self
+                .retirement_cleanup(|| {
+                    owner.finish();
+                    Ok(())
+                })
+                .is_err();
+            failed |= self
+                .retirement_cleanup(|| {
+                    drop(owner);
+                    Ok(())
+                })
+                .is_err();
+        }
+        failed |= self
+            .retirement_cleanup(|| {
+                drop(state);
+                Ok(())
+            })
+            .is_err();
+        if failed {
+            Err(self.quarantine_execution_invariant("owned execution cleanup failed"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn retirement_cleanup(
+        &self,
+        cleanup: impl FnOnce() -> Result<(), RuntimeError>,
+    ) -> Result<(), RuntimeError> {
+        match catch_unwind(AssertUnwindSafe(cleanup)) {
+            Ok(Ok(())) => Ok(()),
+            result => {
+                let error = self.quarantine_execution_invariant("owned execution cleanup failed");
+                if let Err(payload) = result
+                    && let Err(nested) = catch_unwind(AssertUnwindSafe(|| drop(payload)))
+                {
+                    // A second hostile panic payload cannot be safely destroyed.
+                    mem::forget(nested);
+                }
+                Err(error)
+            }
+        }
     }
 }

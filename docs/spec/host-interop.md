@@ -197,8 +197,11 @@ must contain valid references owned by this runtime. The return is a RootedValue
 keeping it alive retains the object across subsequent GC and host operations.
 Outer frames and borrow guards remain live while nested calls run. Borrow conflicts
 are checked across these scopes, and each scope releases only its own resources.
-An ordinary nested trap may be handled by the host. Cancellation or call-depth
-termination remains recorded for the root even if the host ignores the error.
+An ordinary nested trap may be handled by the host. Cancellation or resource
+termination, including call-depth and native conversion exhaustion, remains
+recorded for the root even if the host ignores the error. The first termination
+and origin survive ordinary observer failures; EngineFault/quarantine takes
+precedence, as defined by [failure semantics](failure-semantics.md).
 Nested calls share the session's frame stack and debugger observer. Breakpoint and
 trap snapshots include suspended callers at their actual call instruction, plus
 the nested frames. The synchronous callback path currently uses the interpreter.
@@ -1183,10 +1186,29 @@ same lock. Wakes are hints; the payload remains durable until claim or retiremen
 
 The consumer polls Pending/Ready/Retired. Claim disarms the cancellation hook and
 releases capacity; cancel/drop discards queued payload and invokes a bounded hook
-at most once. A cleanup panic faults the registry, prevents new admission and is
-reported as EngineFault. Exhausted generations never wrap or become reusable.
-The producer endpoint keeps only a weak reference to result storage, so retained
-late endpoints cannot keep completed payloads or reservations alive.
+at most once. Terminal cleanup detaches payload, waker, hook and reservation before
+host destruction. Payload/waker destruction, hook invocation and disarmed-hook
+capture destruction are independently contained: one unwinding panic cannot skip
+the other cleanup or reservation release. Repeated retirement does not retry them.
+Host callbacks and destructors run outside transport locks; waker clone and wake
+are also contained. A cleanup panic faults the registry, prevents new admission and
+is reported as EngineFault. If claim cleanup fails, the undelivered payload is
+discarded under containment rather than converted or returned as success.
+
+A live operation retains its first cancellation hook even when registration reports
+an existing registry fault: already submitted external work still needs cancellation
+on retirement. Duplicate or retired hook registrations are rejected. A poll that
+observes an existing fault does not claim the result; the driver must retire that
+operation. Cancel/drop remains available after a fault and releases capacity exactly
+once. Exhausted generations never wrap or become reusable. The producer endpoint
+keeps only weak references to result storage and the registry, so retained late
+endpoints cannot keep completed payloads or reservations alive.
+
+Rejected duplicate/stale payloads remain producer-side data; their destruction is
+not consumer retirement. Containment applies to unwinding Rust panics, not process
+abort or a double panic during unwinding. If destroying a caught panic payload
+itself panics, the secondary panic payload is deliberately retained to prevent
+recursive cleanup failure.
 
 ### Registered cold producers and VM waits
 
@@ -1209,7 +1231,12 @@ nominal type and the resumed output are checked against the waiting frame's scop
 `RuntimeConfig::async_limits.max_pending_operations` defaults to 1024 and must be
 nonzero. A pending wait belongs to the owned execution session. Cancellation,
 owner retirement and runtime destruction release it; provider cleanup panic
-quarantines the runtime. Late endpoints cannot restart or retain the execution.
+quarantines the runtime. Guarded retirement releases all frame windows before
+destroying frame owners, contains pending-consumer and owner-control cleanup
+independently, and continues releasing roots and sessions after a failure. A drain
+that discovers quarantine also retires the remaining inactive owned sessions,
+even if their handles are retained. Runtime destruction includes retained standalone
+owners in this guarded drain. Late endpoints cannot restart or retain the execution.
 MIR lowering, encoded bytecode `Await` and VM Waiting are implemented. Independent
 bounded MIR/bytecode flow checks reject uninitialized resume reads and statically visible host capabilities live across an await.
 Runtime checks remain mandatory for actual values and active native/host resources.

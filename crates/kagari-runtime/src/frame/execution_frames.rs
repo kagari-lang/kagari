@@ -42,7 +42,7 @@ impl ExecutionObserver for ReentrantObserver {
     }
 }
 
-fn loaded(runtime: &mut Runtime) -> LoadedModule {
+pub(super) fn loaded(runtime: &mut Runtime) -> LoadedModule {
     loaded_with_instructions(runtime, vec![BytecodeInstruction::Return(None)])
 }
 

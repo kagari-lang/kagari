@@ -1723,8 +1723,12 @@ owns a runtime across message-receive awaits; no runtime/VM production dependenc
 on Tokio or asynchronous script execution is introduced.
 
 Installation determines exposed native/host APIs; declared visibility, writeability,
-storage access, ownership and generations remain checked. Root cancellation is
-sticky across calls, callbacks and reentry. Calls, loops and long native work poll
+storage access, ownership and generations remain checked. Root cancellation and
+resource termination are sticky across calls, callbacks and reentry. `ResourceState`
+owns failure admission and first-termination provenance; conversion/frame producers
+and native/VM boundaries admit failures before unwind. Ordinary observer errors do
+not replace termination; quarantine retains precedence. See the authoritative
+[failure contract](spec/failure-semantics.md). Calls, loops and long native work poll
 at safe boundaries without splitting indivisible commits. Call depth is bounded.
 Hosts own admission and deadlines; runtime provides no hard preemption or generic
 CPU/memory quota. See [execution](spec/execution.md) and [security](spec/security.md).
@@ -2313,6 +2317,14 @@ fully captured closure with the existing executable/type environment edges.
 Independent verifiers check the Future storage role, resume target, exact capture
 signature and output. Runtime graph checks cover reachable cells/interfaces and
 native traced edges at capture, first drive and safe parking.
+
+Completion transport owns terminal detachment and independent containment of host
+payload, waker and cancellation-hook cleanup outside its locks. `session::owned`
+owns guarded retirement: release frame windows before dropping frame owners,
+continue cleanup after a fault, and drain retained inactive owners on quarantine.
+Runtime destruction uses this path for standalone owners as well as Tasks. These
+boundaries preserve reservations and roots without retrying failed host cleanup;
+see the [completion contract](spec/host-interop.md#completion-transport-foundation).
 
 The SDK/VM `start_future` entry explicitly queues one Future layer. Ordinary calls
 return cold values, including Future-valued outputs without flattening. Nested

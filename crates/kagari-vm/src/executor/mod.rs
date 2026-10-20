@@ -48,7 +48,9 @@ impl<'a> Executor<'a> {
             runtime,
             stack: runtime.enter_execution_stack(loaded)?,
         };
-        executor.push_frame(loaded.slot(), entry, args, None)?;
+        executor
+            .push_frame(loaded.slot(), entry, args, None)
+            .map_err(|error| error.admit_execution_error(runtime.resources()))?;
         Ok(executor)
     }
 
@@ -59,7 +61,9 @@ impl<'a> Executor<'a> {
     ) -> Result<Self, VmError> {
         let loaded = method.implementation(runtime)?;
         let stack = runtime.enter_execution_stack(&loaded)?;
-        stack.push_interface_method(runtime, method, args, None)?;
+        stack
+            .push_interface_method(runtime, method, args, None)
+            .map_err(|error| runtime.resources().admit_execution_error(error))?;
         Ok(Self { runtime, stack })
     }
 
@@ -71,7 +75,11 @@ impl<'a> Executor<'a> {
                     "synchronous entry cannot suspend",
                 )),
             })
-            .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))
+            .map_err(|error| {
+                error
+                    .admit_execution_error(self.runtime.resources())
+                    .with_trace(self.runtime.capture_error_trace())
+            })
     }
 
     pub(crate) fn resume(runtime: &'a Runtime, owner: &OwnedExecution) -> Result<Self, VmError> {
@@ -82,12 +90,20 @@ impl<'a> Executor<'a> {
     }
 
     pub(crate) fn run_slice(mut self, slice: NonZeroUsize) -> Result<DriveOutcome, VmError> {
-        let value = self
-            .run_inner(Some(slice.get()))
-            .map_err(|error| error.with_trace(self.runtime.capture_error_trace()))?;
+        let value = self.run_inner(Some(slice.get())).map_err(|error| {
+            error
+                .admit_execution_error(self.runtime.resources())
+                .with_trace(self.runtime.capture_error_trace())
+        })?;
         match &value {
-            DriveOutcome::Runnable => self.stack.park(self.runtime)?,
-            DriveOutcome::Waiting => self.stack.park_waiting(self.runtime)?,
+            DriveOutcome::Runnable => self
+                .stack
+                .park(self.runtime)
+                .map_err(|error| self.runtime.resources().admit_execution_error(error))?,
+            DriveOutcome::Waiting => self
+                .stack
+                .park_waiting(self.runtime)
+                .map_err(|error| self.runtime.resources().admit_execution_error(error))?,
             DriveOutcome::Complete(_) => {}
         }
         Ok(value)

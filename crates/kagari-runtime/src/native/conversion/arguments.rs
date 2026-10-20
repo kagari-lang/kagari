@@ -49,11 +49,13 @@ pub(crate) fn encode_arguments<A: IntoKagariArguments>(
     expected: &[TypeArgument],
     arguments: A,
 ) -> NativeResult<(RootSet, Vec<Value>)> {
-    let roots = arguments.into_arguments(cx, expected)?;
+    let roots = arguments
+        .into_arguments(cx, expected)
+        .map_err(|error| cx.runtime().resources().admit_execution_error(error))?;
     let mut values = Vec::new();
     values
         .try_reserve_exact(expected.len())
-        .map_err(|_| RuntimeError::resource_limit("typed call arguments"))?;
+        .map_err(|_| cx.runtime().resources().limit("typed call arguments"))?;
     for slot in 0..expected.len() {
         values.push(
             roots

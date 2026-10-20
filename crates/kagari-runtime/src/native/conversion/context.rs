@@ -189,7 +189,9 @@ impl<'runtime> ConversionContext<'runtime> {
     ) -> NativeResult<Value> {
         let (value, root) = {
             let mut frame = self.enter(None)?;
-            let value = value.into_kagari(&mut frame, expected)?;
+            let value = value
+                .into_kagari(&mut frame, expected)
+                .map_err(|error| frame.runtime.resources().admit_execution_error(error))?;
             frame.check_value(expected, &value)?;
             let root = frame.protect(&value)?;
             frame.runtime.gc_safepoint()?;
@@ -198,7 +200,7 @@ impl<'runtime> ConversionContext<'runtime> {
         if let Some(root) = root {
             self.roots
                 .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("conversion temporary roots"))?;
+                .map_err(|_| self.runtime.resources().limit("conversion temporary roots"))?;
             self.roots.push(root);
         }
         Ok(value)
@@ -227,13 +229,15 @@ impl<'runtime> ConversionContext<'runtime> {
         };
         let mut frame = self.enter(tracked)?;
         frame.runtime.gc_safepoint()?;
-        T::from_kagari(&mut frame, expected, value)
+        let result = T::from_kagari(&mut frame, expected, value);
+        result.map_err(|error| frame.runtime.resources().admit_execution_error(error))
     }
 
     /// Reject an oversized owned container before reserving its output buffer.
     pub fn check_elements(&self, count: usize) -> NativeResult<()> {
+        self.poll()?;
         if count > self.limits.max_nodes.saturating_sub(self.nodes) {
-            return Err(RuntimeError::resource_limit("conversion node limit"));
+            return Err(self.runtime.resources().limit("conversion node limit"));
         }
         Ok(())
     }
@@ -244,7 +248,11 @@ impl<'runtime> ConversionContext<'runtime> {
             .string_bytes
             .checked_add(bytes)
             .filter(|bytes| *bytes <= self.limits.max_string_bytes)
-            .ok_or_else(|| RuntimeError::resource_limit("conversion string byte limit"))?;
+            .ok_or_else(|| {
+                self.runtime
+                    .resources()
+                    .limit("conversion string byte limit")
+            })?;
         self.string_bytes = next;
         Ok(())
     }
@@ -252,13 +260,13 @@ impl<'runtime> ConversionContext<'runtime> {
     fn enter(&mut self, identity: Option<HeapObjectId>) -> NativeResult<Frame<'_, 'runtime>> {
         self.poll()?;
         if self.depth >= self.limits.max_depth {
-            return Err(RuntimeError::resource_limit("conversion depth limit"));
+            return Err(self.runtime.resources().limit("conversion depth limit"));
         }
         self.check_elements(1)?;
         if let Some(identity) = identity {
             self.active
                 .try_reserve(1)
-                .map_err(|_| RuntimeError::resource_limit("conversion cycle tracking"))?;
+                .map_err(|_| self.runtime.resources().limit("conversion cycle tracking"))?;
             if !self.active.insert(identity) {
                 return Err(RuntimeError::module_validation(
                     "cycle in owned value conversion",
@@ -304,7 +312,8 @@ impl<'runtime> ConversionContext<'runtime> {
         convert: impl FnOnce(&mut Self) -> NativeResult<R>,
     ) -> NativeResult<R> {
         let mut frame = self.enter(None)?;
-        convert(&mut frame)
+        let result = convert(&mut frame);
+        result.map_err(|error| frame.runtime.resources().admit_execution_error(error))
     }
 
     #[cfg(feature = "serde")]
@@ -318,7 +327,8 @@ impl<'runtime> ConversionContext<'runtime> {
         let _root = self.protect(value)?;
         let mut frame = self.enter(identity(value))?;
         frame.runtime.gc_safepoint()?;
-        decode(&mut frame)
+        let result = decode(&mut frame);
+        result.map_err(|error| frame.runtime.resources().admit_execution_error(error))
     }
 
     /// Validate a raw boundary value against its checked type and supplying

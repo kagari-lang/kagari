@@ -890,4 +890,5 @@ fn exposes_runtime_type_registry() {
     assert_eq!(runtime.types().id_by_name("Player"), Some(type_id));
 }
 
+mod owned_cleanup;
 mod runtime_substrate;

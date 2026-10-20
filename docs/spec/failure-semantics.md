@@ -25,9 +25,13 @@ A general propagation trait and Error/cause protocol are deferred.
   the affected runtime rather than presenting it as an ordinary business error.
 
 Ordinary traps and termination release frames, host leases,
-temporary roots, and reentry state. Cleanup does not poll cancellation or invoke
-arbitrary user code. The runtime may be reused after cleanup; completed business
-mutations are still present. Rust panic recovery is not a transaction mechanism.
+temporary roots, and reentry state. Cleanup does not poll cancellation or resume
+script execution. Owned native waits may invoke their bounded cancellation hooks
+and destroy host-owned payloads, wakers and hook captures under the
+[completion cleanup contract](host-interop.md#completion-transport-foundation).
+The runtime may be reused after ordinary failure cleanup, but a cleanup invariant
+failure quarantines it. Completed business mutations remain present. Rust panic
+recovery is not a transaction mechanism.
 
 The approved foundation collection algorithms likewise provide no operation-wide
 transaction. Sort, reverse, retain and dedup propagate callback, receiver and
@@ -105,9 +109,22 @@ EngineInvariant), not a business Result or ordinary trap. There is no promise of
 target rollback after a broken commit invariant. Other completed effects remain.
 
 Cancellation and resource termination remain recorded for the active session and
-cannot be swallowed to continue executing that root. Releasing its final scope
-clears termination without quarantining the runtime. New root calls use fresh execution state; a reused cancelled token still rejects immediately. Commit actions do not
-poll cancellation, so termination cannot split a field write from its dirty record.
+cannot be swallowed to continue executing that root. `ResourceState` owns admission
+of these failures: native conversion limits and frame preparation failures record
+termination before returning, while native and VM boundaries admit propagated
+errors before unwinding their frames. Constructing a detached error alone does not
+terminate a session. Standalone conversion without an active session returns its
+error without establishing root termination. Business-value admission rejection,
+such as a rejected Task spawn, remains a value rather than resource termination.
+
+Admission retains the first termination and its origin. For example, a host that
+ignores a nested native output-conversion resource failure cannot make another
+successful reentry or return success for that root. An ordinary Trap observer
+failure cannot replace the recorded termination; EngineFault or quarantine still
+takes precedence. Releasing the final session scope clears termination without
+quarantining the runtime. New root calls use fresh execution state; a reused
+cancelled token still rejects immediately. Commit actions do not poll cancellation,
+so termination cannot split a field write from its dirty record.
 
 External database writes, network messages, and other irreversible effects belong
 to explicit host APIs or host transactions. Custom host functions may partially
@@ -141,4 +158,8 @@ Dependent cancellation reports use Dependency while task_origin retains the init
 task's cause. Ordinary owned-root SDK errors also expose task_origin when awaiting a
 failed Task. Traces preserve the original failure snapshot. A host waiter-wake panic
 quarantines the runtime after terminal publication; it cannot rewrite a committed
-producer outcome or restore its already retired execution.
+producer outcome or restore its already retired execution. Guarded owned-session
+retirement continues releasing waits, frames and roots after a host cleanup panic;
+a retirement drain that discovers quarantine also drains the remaining inactive
+owned sessions, including those whose handles the host retains. Runtime destruction
+uses the same guarded path for standalone owners as well as Task-owned executions.

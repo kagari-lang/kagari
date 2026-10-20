@@ -65,8 +65,11 @@ impl KagariType for String {
     ) -> NativeResult<Value> {
         cx.charge_string(self.len())?;
         let mut copy = String::new();
-        copy.try_reserve_exact(self.len())
-            .map_err(|_| RuntimeError::resource_limit("String field snapshot capacity"))?;
+        copy.try_reserve_exact(self.len()).map_err(|_| {
+            cx.runtime()
+                .resources()
+                .limit("String field snapshot capacity")
+        })?;
         copy.push_str(self);
         let value = cx.runtime().gc().alloc_string(copy)?;
         cx.check_value(expected, &value)?;
@@ -101,7 +104,7 @@ impl FromKagari for String {
         let mut result = String::new();
         result
             .try_reserve_exact(value.len())
-            .map_err(|_| RuntimeError::resource_limit("String conversion capacity"))?;
+            .map_err(|_| cx.runtime().resources().limit("String conversion capacity"))?;
         result.push_str(&value);
         Ok(result)
     }

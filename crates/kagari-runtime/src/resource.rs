@@ -1,5 +1,5 @@
 use crate::{
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     execution_state::ExecutionState,
     frame::values::ExecutionValues,
     session::{
@@ -163,12 +163,25 @@ impl ResourceState {
         Ok(())
     }
 
+    /// Admit a failed execution operation before unwinding its frames.
+    ///
+    /// Resource exhaustion and cancellation terminate the active session, preserving
+    /// its first termination and origin. Ordinary traps pass through unchanged.
+    /// Without an active session this only returns the supplied error; detached
+    /// errors and business-value admission rejections must not call this service.
+    pub fn admit_execution_error(&self, error: RuntimeError) -> RuntimeError {
+        if matches!(
+            error.kind(),
+            RuntimeErrorKind::ResourceLimitExceeded | RuntimeErrorKind::Cancelled
+        ) && let Some(session) = self.active_session()
+        {
+            return session.terminate(self, error);
+        }
+        error
+    }
+
     pub(crate) fn limit(&self, name: &'static str) -> RuntimeError {
-        let error = RuntimeError::resource_limit(name);
-        self.active_session().as_ref().map_or_else(
-            || error.clone(),
-            |session| session.terminate(self, error.clone()),
-        )
+        self.admit_execution_error(RuntimeError::resource_limit(name))
     }
 
     pub fn ensure_execution_allowed(&self) -> Result<(), RuntimeError> {

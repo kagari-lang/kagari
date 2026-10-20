@@ -14,7 +14,7 @@ use kagari_common::{
 };
 use kagari_runtime::{
     Runtime, RuntimeConfig,
-    error::RuntimeError,
+    error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
     gc::{GcHeapConfig, roots::RootedValue},
     module::{LoadedModule, entry::ProgramEntry},
@@ -23,7 +23,10 @@ use kagari_runtime::{
         builder::ModuleBuilder,
         catalog::DeclarationCatalog,
         collections::vector::ScriptVec,
-        conversion::{FromKagari, IntoKagari, KagariType, context::ConversionContext},
+        conversion::{
+            FromKagari, IntoKagari, KagariType,
+            context::{ConversionContext, ConversionLimits},
+        },
         declarations::FunctionDecl,
         declarations::MethodDecl,
         module::NativeModule,
@@ -40,6 +43,79 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
+
+#[test]
+fn conversion_limits_terminate_only_active_sessions_and_release_scratch_roots() {
+    let module = ModuleBuilder::new(
+        "example::typed",
+        &StandardDeclarations::default().catalog().unwrap(),
+    )
+    .unwrap()
+    .finish()
+    .unwrap();
+    let (vm, owner) = source_free_vm("pub fn main() {}", &module);
+    let runtime = vm.runtime();
+    let input = ConversionContext::new(runtime, &owner)
+        .unwrap()
+        .encode(("a".to_owned(), "b".to_owned()))
+        .unwrap();
+    for limits in [
+        ConversionLimits {
+            max_depth: 1,
+            ..Default::default()
+        },
+        ConversionLimits {
+            max_nodes: 2,
+            ..Default::default()
+        },
+        ConversionLimits {
+            max_string_bytes: 1,
+            ..Default::default()
+        },
+    ] {
+        for active in [false, true] {
+            for decode in [false, true] {
+                let session = active.then(|| {
+                    runtime
+                        .begin_execution(&owner, runtime.execution_options())
+                        .unwrap()
+                });
+                let roots = runtime.gc().active_roots();
+                let error = {
+                    let mut cx = ConversionContext::with_limits(runtime, &owner, limits).unwrap();
+                    let error = if decode {
+                        cx.decode::<(String, String)>(&input).unwrap_err()
+                    } else {
+                        cx.encode(("a".to_owned(), "b".to_owned())).unwrap_err()
+                    };
+                    assert_eq!(runtime.gc().active_roots(), roots);
+                    error
+                };
+                assert_eq!(error.kind(), RuntimeErrorKind::ResourceLimitExceeded);
+                if active {
+                    assert_eq!(runtime.resources().termination(), Some(error.clone()));
+                    assert_eq!(runtime.resources().poll_execution().unwrap_err(), error);
+                } else {
+                    assert!(runtime.resources().termination().is_none());
+                    runtime.resources().poll_execution().unwrap();
+                }
+                drop(session);
+                assert!(runtime.resources().termination().is_none());
+                let value = ConversionContext::new(runtime, &owner)
+                    .unwrap()
+                    .encode(7i32)
+                    .unwrap();
+                assert_eq!(value.value(runtime.gc()), Some(Value::I32(7)));
+                drop(value);
+                assert_eq!(runtime.gc().active_roots(), roots);
+                assert_eq!(runtime.resources().counters().current_call_depth, 0);
+            }
+        }
+    }
+    drop(input);
+    assert_eq!(runtime.gc().active_roots(), 0);
+    assert_eq!(runtime.collect_garbage().unwrap().live_objects, 0);
+}
 
 #[test]
 fn script_objects_cross_typed_entries_without_exposing_heap_ids() {

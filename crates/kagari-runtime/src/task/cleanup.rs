@@ -141,7 +141,9 @@ impl Drop for Runtime {
             control.close(CancellationCause::RuntimeShutdown);
         }
         // Provider failures quarantine the runtime and still retire their session.
-        // Remaining field destructors are the final cleanup backstop.
         let _ = self.drain_cancelled_tasks();
+        // Standalone owned executions need the same guarded retirement even when
+        // the host still holds their handles during runtime teardown.
+        let _ = self.drain_owned_executions(true);
     }
 }

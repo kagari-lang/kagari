@@ -53,7 +53,7 @@ impl<T: IntoKagari> IntoKagari for Vec<T> {
         let mut values = Vec::new();
         values
             .try_reserve_exact(self.len())
-            .map_err(|_| RuntimeError::resource_limit("Vec conversion capacity"))?;
+            .map_err(|_| cx.runtime().resources().limit("Vec conversion capacity"))?;
         for item in self {
             values.push(cx.encode_value(&element, item)?);
         }
@@ -72,7 +72,7 @@ impl<T: FromKagari> FromKagari for Vec<T> {
         let mut result = Vec::new();
         result
             .try_reserve_exact(count)
-            .map_err(|_| RuntimeError::resource_limit("Vec conversion output"))?;
+            .map_err(|_| cx.runtime().resources().limit("Vec conversion output"))?;
         for index in 0..count {
             let value = roots
                 .get(cx.runtime().gc(), index)
@@ -288,7 +288,7 @@ impl ConversionContext<'_> {
         let mut snapshot = Vec::new();
         snapshot
             .try_reserve_exact(count)
-            .map_err(|_| RuntimeError::resource_limit("Vec conversion snapshot"))?;
+            .map_err(|_| self.runtime().resources().limit("Vec conversion snapshot"))?;
         for index in 0..count {
             self.poll()?;
             snapshot.push(
