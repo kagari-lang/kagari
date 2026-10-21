@@ -231,7 +231,14 @@ impl AnalysisDatabase {
                     .with_bindings(&prepared.lowered, &names, cancel);
             let reuse = previous
                 .filter(|old| {
-                    old.diagnostics().is_empty()
+                    old.file
+                        .declaration
+                        .parsed
+                        .physical()
+                        .diagnostics()
+                        .is_empty()
+                        && file.declaration.parsed.physical().diagnostics().is_empty()
+                        && old.diagnostics().is_empty()
                         && old.file.diagnostics().is_empty()
                         && file.diagnostics().is_empty()
                         && old

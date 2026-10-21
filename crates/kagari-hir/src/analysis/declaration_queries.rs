@@ -1,34 +1,28 @@
 //! Declaration queries stop before body name resolution, typing or const evaluation.
 use crate::{
     DeclaredAnalysis, DiagnosticBuffer,
-    analysis::{AnalysisDatabase, error::AnalysisError, ownership},
+    analysis::{
+        AnalysisDatabase,
+        error::AnalysisError,
+        ownership,
+        source_preparation::{self, ParsedModule},
+    },
     declarations::{Declaration, DeclarationId, Declarations},
     declare_analysis,
     imports::{ModuleGraph, SourceUnit},
-    lower,
     native::{adoption, api as native_api},
     resolver::resolved::DeclarationNames,
 };
 
-use kagari_common::{cancellation::CancellationToken, span::Span};
+use kagari_common::cancellation::CancellationToken;
 use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, Revision},
     source::SourceFile,
     source_database::SourceSnapshot,
 };
-use kagari_syntax::{
-    ast::{
-        item::{Item, SourceFile as AstSourceFile},
-        traits::AstNode,
-    },
-    parser,
-    parser::Parse,
-};
-use std::{
-    collections::{BTreeMap, HashSet, VecDeque},
-    sync::Arc,
-};
+use kagari_syntax::ast::module::ModuleSyntax;
+use std::{collections::BTreeMap, sync::Arc};
 
 #[cfg(test)]
 mod tests;
@@ -39,7 +33,7 @@ mod tests;
 /// [`Self::declarations`] contains declaration sites, not body-local bindings.
 #[derive(Debug)]
 pub struct FileDeclarations {
-    pub(super) parsed: Parse,
+    pub(super) parsed: ParsedModule,
     pub(super) declared: DeclaredAnalysis,
     diagnostics: DiagnosticBuffer,
 }
@@ -56,7 +50,7 @@ impl FileDeclarations {
     }
 
     /// Returns a typed AST view of the retained parse.
-    pub fn syntax(&self) -> AstSourceFile {
+    pub fn syntax(&self) -> ModuleSyntax {
         self.parsed.syntax()
     }
 
@@ -169,9 +163,8 @@ impl AnalysisDatabase {
 
     /// Builds declarations using reusable parses and a newly resolved import graph.
     ///
-    /// Current inline-module discovery copies the enclosing source, blanks bytes outside
-    /// the module body (preserving line breaks/offsets), assigns a synthetic file ID and
-    /// queues that source for parsing/lowering. It does not reuse the existing AST subtree.
+    /// One physical parse supplies attached logical views and independent lowering
+    /// arenas. Inline sources share text and line indexing with their origin.
     /// File results are retained only when source revisions, import facts and reachable
     /// namespace contents permit it. Installed declarations participate through those
     /// ordinary facts. This prepares a value; publication is separate.
@@ -216,61 +209,13 @@ impl AnalysisDatabase {
             }
         };
         for (parsed, lowered) in native_files {
-            lowered_files.insert(lowered.source.id(), (parsed.clone(), lowered.clone()));
+            lowered_files.insert(
+                lowered.source.id(),
+                (ParsedModule::root(parsed.clone()), lowered.clone()),
+            );
         }
-        let mut pending = VecDeque::from_iter(source.files().cloned());
-        let mut generated = HashSet::new();
-        while let Some(file) = pending.pop_front() {
-            cancel.check()?;
-            let old = previous
-                .and_then(|snapshot| snapshot.file(file.id()))
-                .filter(|old| old.source().revision() == file.revision());
-            let (parsed, lowered) = match old {
-                Some(old) => (old.parsed.clone(), old.declared.lowered.clone()),
-                None => {
-                    let parsed = parser::parse_with_limits(&file, self.parse_limits, cancel)?;
-                    let lowered = lower::lower_module_controlled(
-                        file.clone(),
-                        &parsed.syntax().into(),
-                        cancel,
-                    );
-                    (parsed, Arc::new(lowered))
-                }
-            };
-            for item in parsed.syntax().items() {
-                let Item::ModuleDef(module) = item else {
-                    continue;
-                };
-                let (Some(name), Some(block)) = (module.name_text(), module.block()) else {
-                    continue;
-                };
-                if !generated.insert((file.id(), name.clone())) {
-                    continue;
-                }
-                let range = block.syntax().text_range();
-                let start = usize::from(range.start()) + 1;
-                let end = usize::from(range.end()).saturating_sub(1);
-                let mut bytes = file.text().as_bytes().to_vec();
-                for (index, byte) in bytes.iter_mut().enumerate() {
-                    if !(start..end).contains(&index) && !matches!(*byte, b'\r' | b'\n') {
-                        *byte = b' ';
-                    }
-                }
-                let text = String::from_utf8(bytes).expect("inline module spans preserve UTF-8");
-                let id = *self
-                    .inline_ids
-                    .borrow_mut()
-                    .entry((file.id(), name.clone()))
-                    .or_insert_with(|| SourceFile::new(file.name(), "").id());
-                pending.push_back(Arc::new(SourceFile::inline_module(
-                    &file,
-                    &name,
-                    text,
-                    id,
-                    Span::new(start, end),
-                )));
-            }
-            lowered_files.insert(file.id(), (parsed, lowered));
+        for (id, prepared) in source_preparation::prepare(self, &source, previous, cancel)? {
+            lowered_files.insert(id, (prepared.parsed, prepared.lowered));
         }
         #[cfg(test)]
         let limits = self.import_solver_limits;
@@ -312,7 +257,7 @@ impl AnalysisDatabase {
                     cancel,
                 )?;
                 let mut diagnostics = declared.names.diagnostics.clone();
-                diagnostics.extend(parsed.diagnostics().iter().cloned());
+                diagnostics.extend(parsed.diagnostics().cloned());
                 let metadata = ownership::scope(&declared, &self.definitions, cancel)?;
                 let definitions = metadata.definitions().clone();
                 let mut declared = metadata.into_records();

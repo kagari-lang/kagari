@@ -14,7 +14,7 @@ use kagari_source::{
     diagnostic::Severity, identity::FileSpan, literal::decode_string_literal,
     presentation::DiagnosticRecord,
 };
-use kagari_syntax::{ast::traits::AstNode, kind::SyntaxKind};
+use kagari_syntax::kind::SyntaxKind;
 use serde::Deserialize;
 use std::{
     cmp::Reverse,
@@ -53,7 +53,7 @@ pub(crate) fn scopes(
 ) -> Result<Vec<Scope>, Cancelled> {
     // The linter owns accepted policy targets; HIR supplies uninterpreted scopes.
     let mut targets = HashSet::new();
-    for node in file.syntax().syntax().descendants() {
+    for node in file.syntax().descendants() {
         cancel.check()?;
         if matches!(
             node.kind(),

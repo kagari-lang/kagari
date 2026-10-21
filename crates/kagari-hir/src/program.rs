@@ -1,7 +1,7 @@
 //! A checked, snapshot-owned source dependency closure for compilation and linking.
 
 use crate::{program::exports::ProgramExports, typeck::TypedFunction};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub mod exports;
 
@@ -195,6 +195,7 @@ impl AnalysisSnapshot {
         let mut by_file = HashMap::new();
         let mut dependencies = HashMap::new();
         let mut diagnostics = Vec::new();
+        let mut physical_parses = HashSet::new();
         for identity in order {
             cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
             let node = self
@@ -204,7 +205,21 @@ impl AnalysisSnapshot {
             let file = self
                 .file(node.file)
                 .ok_or(ProgramCheckError::MissingFile(node.file))?;
-            for diagnostic in file.result().diagnostics() {
+            let source_diagnostics = &file.result().facts().source_diagnostics;
+            if physical_parses.insert((file.source().origin_id(), file.source().revision())) {
+                for diagnostic in source_diagnostics
+                    .iter()
+                    .filter(|d| d.severity == Severity::Error)
+                {
+                    cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
+                    diagnostics.push(ProgramDiagnostic {
+                        file: file.source().origin_id(),
+                        revision: file.source().revision(),
+                        diagnostic: diagnostic.clone(),
+                    });
+                }
+            }
+            for diagnostic in file.semantic_diagnostics() {
                 cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
                 if diagnostic.severity == Severity::Error {
                     diagnostics.push(ProgramDiagnostic {
@@ -218,11 +233,14 @@ impl AnalysisSnapshot {
             dependencies.insert(identity, node.dependencies().to_vec());
             // Source imports are valid here: every reachable module belongs to this
             // immutable snapshot and is checked before the program is returned.
-            if !file
-                .result()
-                .diagnostics()
+            if !source_diagnostics
                 .iter()
-                .any(|diagnostic| diagnostic.severity == Severity::Error)
+                .any(|d| d.severity == Severity::Error)
+                && !file
+                    .result()
+                    .diagnostics()
+                    .iter()
+                    .any(|diagnostic| diagnostic.severity == Severity::Error)
             {
                 modules.push(
                     CheckedAnalysis::adopt_scoped(

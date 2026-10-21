@@ -42,6 +42,9 @@ use std::sync::Arc;
 fn analysis_error(error: AnalysisError) -> EmbeddingError {
     match error {
         AnalysisError::Cancelled => EmbeddingError::Cancelled,
+        AnalysisError::InvalidSourceRange(file) => EmbeddingError::Source {
+            message: format!("invalid inline source extent for {file:?}"),
+        },
         AnalysisError::Identity(error) => EmbeddingError::Source {
             message: format!("invalid analysis definition metadata: {error}"),
         },

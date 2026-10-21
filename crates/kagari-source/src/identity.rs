@@ -9,7 +9,9 @@ static NEXT_FILE: AtomicU64 = AtomicU64::new(1);
 pub struct FileId(u64);
 
 impl FileId {
-    pub(crate) fn fresh() -> Self {
+    /// Allocates an unassigned source identity without allocating source content.
+    /// This does not register a file or confer a revision or module identity.
+    pub fn fresh() -> Self {
         Self(
             NEXT_FILE
                 .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))

@@ -1,6 +1,6 @@
 # Inline module AST reuse execution plan
 
-Status: activated on 2026-10-21; IA01-IA02 complete, IA03 next. This plan owns
+Status: activated on 2026-10-21; IA01-IA03 complete, IA04 next. This plan owns
 IA01-IA05, design decisions, acceptance and the progress ledger for
 [SA1](review.md#sa1-inline-modules-are-parsed-again). The
 [roadmap](implementation-roadmap.md) owns queue placement. The user authorized goal execution and phase commits. SA14 and SA11 remain queued.
@@ -271,7 +271,7 @@ scope, which would require an explicit scope decision.
 - [x] Execution plan recorded against `9e5113f8`; execution baseline `e7135c16`.
 - [x] IA01 Baseline and contract decisions.
 - [x] IA02 Shared physical content and logical lowering input.
-- [ ] IA03 Analysis/consumer migration and bridge removal.
+- [x] IA03 Analysis/consumer migration and bridge removal.
 - [ ] IA04 Focused integration and local implementation acceptance.
 - [ ] IA05 Measurements, durable documentation and plan retirement.
 
@@ -382,3 +382,43 @@ structure (1402 files, zero findings), formatting, workspace all-target Clippy a
 diff checks. The checker initially found a std::iter use-site path; imported iter
 explicitly and reran it successfully. No carried build/test failures. Manual review:
 no production globs/reexports, no new source dependency, no LOC exception.
+
+
+### IA03 Analysis and consumer migration
+
+Physical Parse storage and its diagnostic evidence are shared. Logical records
+pair an exact retained parse with a ModuleLocation and diagnostic occurrence
+indices. Source preparation discovers attached child views, assigns stable FileIds
+without constructing dummy source text, and lowers/reuses each independent arena.
+The masked constructor argument and byte-masking/child-parser queue are removed.
+SourceFile inline views share text, line index and authored-copy mappings.
+
+FileDeclarations/FileAnalysis now return ModuleSyntax. Docs and lint traverse owned
+nodes; obsolete child-attribute filtering is removed. Signature surface projection
+uses an explicit logical base and maps diagnostics back to physical offsets.
+Attribute traversal also polls cancellation. Standalone inline sources resolve
+against their content extent; inconsistent input returns InvalidSourceRange through
+analysis/SDK. The low-level lower_module convenience documents its invariant panic
+for manually inconsistent extents; recoverable source syntax remains supported.
+
+Physical diagnostics remain shared evidence on AnalyzedModule even when presentation
+is assigned elsewhere. Direct into_codegen checks that evidence. Program checking
+collects physical occurrences once per origin/revision, keeps semantic diagnostics,
+and does not seal a module with physical parse errors. Optional facts and selected
+body reuse retain physical validity checks. Ambiguous missing-end diagnostics can
+refer to several recovered nested blocks; keep those at the physical owner rather
+than guessing a child. Their original diagnostic occurrences and spans are preserved.
+
+Passed: two inline_module-filter tests (navigation and documentation), seven
+ declaration_queries::tests, private_inline_children, body_edits_reuse_other_bodies,
+snapshots_reuse_unchanged, oversized_source_module_identities, and lint
+policy_inherits_external_and_inline_modules. Structure (1403 files, no findings),
+formatting, workspace all-target Clippy and diff checks pass. New ownership/recovery
+cases and compiler/source-origin coverage belong to IA04. No failing checks carried.
+
+Build repairs: FileId allocation was private (now a documented content-independent
+allocator at its existing owner); declaration tests needed an explicit parser import;
+Clippy requested one collapsed condition and removal of obsolete AstNode imports;
+the SDK exhaustive AnalysisError conversion now handles InvalidSourceRange. No
+validation was disabled. Public changes are the inline constructor, logical syntax
+return type and new analysis error; no compatibility facade or version bump.

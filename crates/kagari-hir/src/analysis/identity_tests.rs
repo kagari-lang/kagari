@@ -24,7 +24,6 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
         source = SourceFile::inline_module(
             &source,
             "nested",
-            text.into(),
             SourceFile::new("child.kgr", "").id(),
             Span::new(0, text.len()),
         );
@@ -38,7 +37,6 @@ fn oversized_source_module_identities_are_rejected_without_panicking() {
     source = SourceFile::inline_module(
         &source,
         "overflow",
-        text.into(),
         SourceFile::new("child.kgr", "").id(),
         Span::new(0, text.len()),
     );

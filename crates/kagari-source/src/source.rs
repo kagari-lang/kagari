@@ -72,13 +72,9 @@ impl SourceFile {
         self.origin
     }
 
-    pub fn inline_module(
-        parent: &Self,
-        name: &str,
-        text: String,
-        id: FileId,
-        inline_range: Span,
-    ) -> Self {
+    /// Creates a logical child sharing immutable physical text and line indexing.
+    /// Byte ranges retain parent coordinates; no source text is rewritten or parsed.
+    pub fn inline_module(parent: &Self, name: &str, id: FileId, inline_range: Span) -> Self {
         let mut module = parent.module.clone();
         module.path.push(name.to_owned());
         Self {
@@ -88,11 +84,8 @@ impl SourceFile {
             revision: parent.revision,
             module,
             name: parent.name.clone(),
-            content: Arc::new(SourceContent {
-                lines: LineIndex::new(&text),
-                text,
-            }),
-            copies: vec![],
+            content: parent.content.clone(),
+            copies: parent.copies.clone(),
         }
     }
 
@@ -229,7 +222,6 @@ mod tests {
         let inline = Arc::new(SourceFile::inline_module(
             &original,
             "nested",
-            original.text().to_owned(),
             FileId::fresh(),
             authored,
         ));

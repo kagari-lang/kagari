@@ -10,7 +10,7 @@ use crate::{
     syntax_node::{KagariLanguage, SyntaxNode},
 };
 use kagari_common::span::Span;
-use rowan::{WalkEvent, ast::SyntaxNodePtr};
+use rowan::{NodeOrToken, TextRange, TextSize, WalkEvent, ast::SyntaxNodePtr};
 use std::iter;
 
 /// A physical root or an attached inline body, with original byte offsets.
@@ -31,6 +31,33 @@ impl ModuleSyntax {
             Self::Source(root) => root.syntax(),
             Self::Inline(block) => block.syntax(),
         }
+    }
+
+    /// Finds a logical view by its physical content extent in this exact tree.
+    /// Returns `None` for out-of-bounds or non-module ranges. This is useful when
+    /// a retained inline source is submitted independently of its parent analysis.
+    pub fn at_content_range(root: &SourceFile, range: Span) -> Option<Self> {
+        let view = Self::Source(root.clone());
+        if view.content_range() == Some(range) {
+            return Some(view);
+        }
+        let start = TextSize::from(u32::try_from(range.start).ok()?);
+        let end = TextSize::from(u32::try_from(range.end).ok()?);
+        if start > end {
+            return None;
+        }
+        let range_node = TextRange::new(start, end);
+        if !root.syntax().text_range().contains_range(range_node) {
+            return None;
+        }
+        let node = match root.syntax().covering_element(range_node) {
+            NodeOrToken::Node(node) => node,
+            NodeOrToken::Token(token) => token.parent()?,
+        };
+        node.ancestors()
+            .filter_map(ModuleBlock::cast)
+            .map(Self::Inline)
+            .find(|view| view.content_range() == Some(range))
     }
 
     /// Iterates immediate declarations, including child module headers.

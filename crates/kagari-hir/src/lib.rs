@@ -27,6 +27,7 @@
 //! links the local and cross-module example traces to their implementation owners.
 
 use crate::analysis::error::AnalysisError;
+use crate::analysis::source_preparation::ParsedModule;
 use crate::{
     analysis::ownership::recover_invalid_identity,
     hir::ids::BodySelection,
@@ -64,7 +65,6 @@ use kagari_source::{
     source::SourceFile,
     source_database::SourceSnapshot,
 };
-use kagari_syntax::parser::Parse;
 use kagari_types::declaration::module::ModuleDecl;
 use smallvec::SmallVec;
 use std::{ops::Deref, sync::Arc};
@@ -115,6 +115,8 @@ pub type BoxedDiagnosticBuffer = Box<DiagnosticBuffer>;
 /// reusable type/signature facts support explicit ID-to-ID remapping.
 #[derive(Debug, Clone)]
 pub struct AnalyzedModule {
+    /// Complete physical parse evidence, separate from projected display diagnostics.
+    pub(crate) source_diagnostics: Arc<DiagnosticBuffer>,
     /// Nominal types, traits and implementation facts available to this analysis.
     pub aggregates: aggregates::AggregateCatalog,
     /// Shared matching source, node storage and source ranges.
@@ -491,6 +493,7 @@ fn analyze_prepared(
     diagnostics.extend(typed.diagnostics);
     AnalysisResult {
         facts: AnalyzedModule {
+            source_diagnostics: Arc::default(),
             aggregates,
             lowered,
             names: names.facts,
@@ -557,7 +560,7 @@ pub(crate) struct AnalysisPolicy {
 /// Resolves selected lexical bodies, checks/reuses their facts and merges staged diagnostics.
 pub(crate) fn analyze_parsed(
     prepared: PreparedAnalysis,
-    parsed: &Parse,
+    parsed: &ParsedModule,
     policy: AnalysisPolicy,
     imported_functions: ImportedFunctions,
     aggregates: aggregates::AggregateCatalog,
@@ -573,6 +576,7 @@ pub(crate) fn analyze_parsed(
         cancel,
     );
 
+    analyzed.facts.source_diagnostics = parsed.physical().shared_diagnostics();
     for attribute in &analyzed.facts.lowered.attributes {
         if analyzed
             .facts
@@ -607,9 +611,7 @@ pub(crate) fn analyze_parsed(
                 limit: policy.max_semantic_diagnostics,
             }));
     }
-    analyzed
-        .diagnostics
-        .extend(parsed.diagnostics().iter().cloned());
+    analyzed.diagnostics.extend(parsed.diagnostics().cloned());
     analyzed
 }
 
@@ -628,6 +630,14 @@ impl AnalysisResult<AnalyzedModule> {
     /// metadata. Successful results retain their existing identity prefix in immutable
     /// [`CheckedAnalysis`].
     pub fn into_codegen(self) -> Result<CheckedAnalysis, BoxedDiagnosticBuffer> {
+        if self
+            .facts
+            .source_diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Error)
+        {
+            return Err(Box::new((*self.facts.source_diagnostics).clone()));
+        }
         let module = self.into_checked()?;
         CheckedAnalysis::adopt_scoped(
             &module,

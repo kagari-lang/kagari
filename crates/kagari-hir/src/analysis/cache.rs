@@ -43,7 +43,9 @@ impl FileAnalysis {
     ) -> bool {
         let old = self.result.records().facts();
         let names = &prepared.names.facts;
-        old.names.imports.same_bindings(&names.imports)
+        self.parsed.physical().diagnostics().is_empty()
+            && self.shared_valid
+            && old.names.imports.same_bindings(&names.imports)
             && old
                 .names
                 .catalog

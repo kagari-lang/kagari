@@ -10,7 +10,7 @@ use kagari_hir::{
     hir::item::Item,
 };
 use kagari_source::identity::FileSpan;
-use kagari_syntax::{ast::traits::AstNode, kind::SyntaxKind};
+use kagari_syntax::kind::SyntaxKind;
 
 pub(crate) fn collect(
     file: &FileAnalysis,
@@ -32,7 +32,7 @@ pub(crate) fn collect(
                 .item_name_span(Item::Function(method.function))
         })
         .collect();
-    for node in file.syntax().syntax().descendants() {
+    for node in file.syntax().descendants() {
         cancel.check()?;
         // Inline child modules have separate analyses and policy scopes.
         if node

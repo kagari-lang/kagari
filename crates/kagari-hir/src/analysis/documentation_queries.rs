@@ -54,7 +54,7 @@ impl DeclarationSnapshot {
         let source = file.source();
         Some(ModuleDocumentation {
             module: module.clone(),
-            location: source.span(Span::new(0, source.text().len()))?,
+            location: source.span(file.syntax().content_range()?)?,
             documentation: file.syntax().module_documentation(),
         })
     }
@@ -104,7 +104,7 @@ impl FileDeclarations {
         let source = self.source();
         let local_range = source.local_range(declaration.location)?;
         let (documentation, written_signature) = {
-            let node = self.parsed.syntax().syntax().descendants().find(|node| {
+            let node = self.parsed.syntax().descendants().find(|node| {
                 node.children().filter_map(Name::cast).any(|name| {
                     let range = name
                         .syntax()

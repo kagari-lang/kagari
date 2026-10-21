@@ -1,10 +1,12 @@
 //! Scoped cache publication and recovery for unrepresentable source identities.
 use crate::{
-    AnalysisPolicy, AnalysisResult, AnalyzedModule, aggregates::AggregateCatalog,
-    analysis::error::AnalysisError, analyze_parsed, declare_analysis,
+    AnalysisPolicy, AnalysisResult, AnalyzedModule,
+    aggregates::AggregateCatalog,
+    analysis::{error::AnalysisError, source_preparation::ParsedModule},
+    analyze_parsed, declare_analysis,
     lower::lower_module_controlled,
 };
-use kagari_syntax::parser::parse_with_limits;
+use kagari_syntax::{ast::module::ModuleSyntax, parser::parse_with_limits};
 use std::sync::Arc;
 use {
     kagari_common::{
@@ -47,9 +49,14 @@ pub(crate) fn recover_invalid_identity(
     let cancel = CancellationToken::default();
     let parsed =
         parse_with_limits(source, Default::default(), &cancel).expect("uncancelled recovery parse");
+    let syntax = match source.inline_range() {
+        Some(range) => ModuleSyntax::at_content_range(&parsed.syntax(), range)
+            .ok_or(AnalysisError::InvalidSourceRange(source.id()))?,
+        None => parsed.syntax().into(),
+    };
     let lowered = Arc::new(lower_module_controlled(
         Arc::new(source.clone()),
-        &parsed.syntax().into(),
+        &syntax,
         &cancel,
     ));
     let definitions = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
@@ -72,7 +79,7 @@ pub(crate) fn recover_invalid_identity(
         .expect("uncancelled recovery signatures");
     Ok(analyze_parsed(
         prepared,
-        &parsed,
+        &ParsedModule::root(parsed),
         AnalysisPolicy {
             const_limits: Default::default(),
             max_semantic_diagnostics: super::DEFAULT_MAX_SEMANTIC_DIAGNOSTICS,

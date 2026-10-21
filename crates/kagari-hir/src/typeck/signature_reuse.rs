@@ -11,6 +11,7 @@ use super::ModuleSignatures;
 struct Surface {
     text: String,
     bodies: Vec<BodyRange>,
+    extent: Span,
 }
 
 /// Original/projected body ranges and cumulative displacement used to rebase signature sites.
@@ -32,7 +33,11 @@ impl Surface {
             .collect::<Vec<_>>();
         bodies.sort_by_key(|span| span.start);
         let mut text = String::new();
-        let mut cursor = 0;
+        let extent = module
+            .source
+            .inline_range()
+            .unwrap_or(Span::new(0, source.len()));
+        let mut cursor = extent.start;
         let mut ranges = Vec::with_capacity(bodies.len());
         for body in &bodies {
             cancel.check().ok()?;
@@ -50,14 +55,18 @@ impl Surface {
                 removed_after: body.end - projected.end,
             });
         }
-        text.push_str(source.get(cursor..)?);
+        text.push_str(source.get(cursor..extent.end)?);
         Some(Self {
             text,
             bodies: ranges,
+            extent,
         })
     }
 
     fn project(&self, offset: usize) -> Option<usize> {
+        if offset < self.extent.start || offset > self.extent.end {
+            return None;
+        }
         let count = self
             .bodies
             .partition_point(|body| body.original.end <= offset);
@@ -70,7 +79,7 @@ impl Surface {
         }
         let removed = count
             .checked_sub(1)
-            .map_or(0, |i| self.bodies[i].removed_after);
+            .map_or(self.extent.start, |i| self.bodies[i].removed_after);
         offset.checked_sub(removed)
     }
 
@@ -87,7 +96,7 @@ impl Surface {
         }
         let removed = count
             .checked_sub(1)
-            .map_or(0, |i| self.bodies[i].removed_after);
+            .map_or(self.extent.start, |i| self.bodies[i].removed_after);
         offset.checked_add(removed)
     }
 

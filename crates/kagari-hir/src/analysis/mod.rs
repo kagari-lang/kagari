@@ -2,12 +2,14 @@
 
 mod input_fingerprint;
 mod namespace_queries;
+pub(crate) mod source_preparation;
 
 use crate::{
     AnalysisPolicy, AnalysisResult, AnalyzedModule,
     analysis::{
         body_queries::FunctionAnalysis, declaration_queries::DeclarationSnapshot,
         error::AnalysisError, signature_queries::SignatureSnapshot,
+        source_preparation::ParsedModule,
     },
     analyze_parsed,
     declarations::{Declaration, DeclarationId, Declarations},
@@ -39,12 +41,13 @@ use kagari_common::{
     span::Span,
 };
 use kagari_source::{
+    diagnostic::Diagnostic,
     identity::{FileId, Revision},
     source::SourceFile,
     source_database::{SourceDatabase, SourceSnapshot},
 };
 use kagari_syntax::{
-    ast::item::SourceFile as AstSourceFile,
+    ast::module::ModuleSyntax,
     parser::{Parse, ParseLimits},
 };
 use kagari_types::declaration::module::{DeclarationError, ModuleDecl};
@@ -90,7 +93,7 @@ pub struct FileAnalysis {
     source: Arc<SourceFile>,
     shared_valid: bool,
 
-    parsed: Parse,
+    parsed: ParsedModule,
     /// Semantic facts and diagnostics paired with the table owning their definition IDs.
     result: DefinitionMetadata<AnalysisResult<AnalyzedModule>>,
 }
@@ -218,13 +221,19 @@ impl FileAnalysis {
     }
 
     /// Returns a typed AST view of the retained parse tree.
-    pub fn syntax(&self) -> AstSourceFile {
+    pub fn syntax(&self) -> ModuleSyntax {
         self.parsed.syntax()
     }
 
     /// Borrows the immutable source revision analyzed by this result.
     pub fn source(&self) -> &SourceFile {
         &self.source
+    }
+
+    /// Semantic prefix before this logical view's appended parse diagnostics.
+    pub(crate) fn semantic_diagnostics(&self) -> &[Diagnostic] {
+        let diagnostics = self.result().diagnostics();
+        &diagnostics[..diagnostics.len() - self.parsed.diagnostics().len()]
     }
 
     /// Borrows recoverable semantic facts and diagnostics, including body analysis.
@@ -803,7 +812,7 @@ impl AnalysisDatabase {
         cancel.check()?;
         let signature_snapshot = self.prepare_signatures(source.clone(), cancel)?;
         let shared_valid = signature_snapshot.files.values().all(|file| {
-            file.declaration.parsed.diagnostics().is_empty()
+            file.declaration.parsed.physical().diagnostics().is_empty()
                 && file.prepared.names.diagnostics().is_empty()
                 && file.prepared.signatures.diagnostics().is_empty()
         });

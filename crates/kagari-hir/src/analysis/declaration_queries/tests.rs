@@ -9,6 +9,7 @@ use kagari_source::{
     source_database::{SourceDatabase, SourceLayer},
 };
 use kagari_stdlib::catalog as foundation_catalog;
+use kagari_syntax::parser;
 use kagari_types::declaration::names::NameNamespace;
 
 fn query(db: &mut AnalysisDatabase, sources: &SourceDatabase) -> DeclarationSnapshot {

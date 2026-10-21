@@ -2,11 +2,15 @@
 
 use crate::imports::solver::ImportSolveError;
 use kagari_common::{cancellation::Cancelled, identity::mapping::DefinitionMappingError};
+use kagari_source::identity::FileId;
 use kagari_types::declaration::module::DeclarationError;
 
 /// Failure to construct analysis; ordinary source errors are carried as diagnostics instead.
 #[derive(Debug, thiserror::Error)]
 pub enum AnalysisError {
+    /// An independently supplied inline source no longer identifies a module body.
+    #[error("invalid inline source extent for {0:?}")]
+    InvalidSourceRange(FileId),
     /// Cooperative cancellation interrupted preparation or identity mapping.
     #[error("analysis cancelled")]
     Cancelled,

@@ -10,6 +10,7 @@ mod core;
 mod grammar;
 
 use rowan::GreenNode;
+use std::sync::Arc;
 use {
     kagari_common::cancellation::{CancellationToken, Cancelled},
     kagari_source::source::SourceFile,
@@ -59,7 +60,7 @@ pub struct Parse {
     /// Immutable root storage, shared with cloned parse results and AST handles.
     green: GreenNode,
     /// Ordinary syntax errors and any parser-limit diagnostic, in emission order.
-    diagnostics: DiagnosticBuffer,
+    diagnostics: Arc<DiagnosticBuffer>,
 }
 
 impl Parse {
@@ -67,6 +68,13 @@ impl Parse {
     pub fn syntax(&self) -> AstSourceFile {
         AstSourceFile::cast(syntax_node_from_green(self.green.clone()))
             .expect("parser must always produce a source file node")
+    }
+
+    /// Retains immutable physical diagnostics independently of syntax storage.
+    /// Consumers can project presentation ownership while keeping the full error
+    /// evidence at executable validation boundaries.
+    pub fn shared_diagnostics(&self) -> Arc<DiagnosticBuffer> {
+        self.diagnostics.clone()
     }
 
     /// Borrows diagnostics in emission order; an empty list means no syntax errors were recorded.
@@ -164,7 +172,10 @@ fn parse_with_mode(
     parser.parse_root();
     let (green, diagnostics) = parser.finish();
     cancel.check()?;
-    Ok(Parse { green, diagnostics })
+    Ok(Parse {
+        green,
+        diagnostics: Arc::new(diagnostics),
+    })
 }
 
 /// Parses with default limits and returns an AST only when syntax diagnostics are empty.
@@ -178,7 +189,7 @@ fn parse_with_mode(
 pub fn parse_module(source: &SourceFile) -> Result<AstSourceFile, BoxedDiagnosticBuffer> {
     let parse = parse(source);
     if !parse.diagnostics.is_empty() {
-        return Err(Box::new(parse.diagnostics));
+        return Err(Box::new((*parse.diagnostics).clone()));
     }
     Ok(parse.syntax())
 }

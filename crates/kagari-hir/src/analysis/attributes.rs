@@ -28,20 +28,10 @@ impl FileAnalysis {
         lowered
             .attributes
             .iter()
-            .filter_map(|attribute| {
+            .map(|attribute| {
                 let child = lowered.module.modules.iter().find(|module| {
                     lowered.source_map.module_span(module.id) == attribute.target_span
                 });
-                if child.is_none()
-                    && lowered.module.modules.iter().any(|module| {
-                        let span = lowered.source_map.module_span(module.id);
-                        module.inline
-                            && span.start <= attribute.span.start
-                            && attribute.span.end <= span.end
-                    })
-                {
-                    return None;
-                }
                 let target = if let Some(child) = child {
                     let mut identity = self.source().module_identity().clone();
                     identity.path.push(child.name.clone());
@@ -52,7 +42,7 @@ impl FileAnalysis {
                 } else {
                     AttributeTarget::Declaration(attribute.target_span)
                 };
-                Some(ScopedAttribute { attribute, target })
+                ScopedAttribute { attribute, target }
             })
             .collect()
     }

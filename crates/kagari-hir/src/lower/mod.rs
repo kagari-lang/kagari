@@ -196,9 +196,13 @@ fn attribute_value(value: AstAttributeValue) -> AttributeValue {
     }
 }
 
-pub(crate) fn lower_attributes(module: &ModuleSyntax) -> Vec<AttributeFact> {
+pub(crate) fn lower_attributes(
+    module: &ModuleSyntax,
+    cancel: &CancellationToken,
+) -> Vec<AttributeFact> {
     module
         .descendants()
+        .take_while(|_| cancel.check().is_ok())
         .filter_map(Attribute::cast)
         .filter_map(|attribute| {
             let parent = attribute.syntax().parent()?;
@@ -242,13 +246,18 @@ pub(crate) fn lower_attributes(module: &ModuleSyntax) -> Vec<AttributeFact> {
 /// // Full node ranges can include trailing trivia inherited from the syntax tree.
 /// assert_eq!(&source.text()[span.start..span.end], "x + 1 ");
 /// ```
+/// # Panics
+///
+/// Panics if a manually supplied inline source extent does not identify a module
+/// in its text. AnalysisDatabase validates this association with a recoverable error.
 pub fn lower_module(source: &SourceFile) -> LoweredModule {
     let parsed = parse(source);
-    lower_module_controlled(
-        Arc::new(source.clone()),
-        &parsed.syntax().into(),
-        &Default::default(),
-    )
+    let syntax = match source.inline_range() {
+        Some(range) => ModuleSyntax::at_content_range(&parsed.syntax(), range)
+            .expect("inline source extent must identify its syntax body"),
+        None => parsed.syntax().into(),
+    };
+    lower_module_controlled(Arc::new(source.clone()), &syntax, &Default::default())
 }
 
 /// Lowers an already parsed AST and supplied source together; callers retain diagnostics and check cancellation.
@@ -257,7 +266,7 @@ pub(crate) fn lower_module_controlled(
     module: &ModuleSyntax,
     cancel: &CancellationToken,
 ) -> LoweredModule {
-    let attributes = lower_attributes(module);
+    let attributes = lower_attributes(module, cancel);
     let mut lowerer = Lowerer::new(cancel.clone());
     lowerer.lower_module(module);
     let (module, source_map) = lowerer.finish();
