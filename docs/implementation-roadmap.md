@@ -65,9 +65,9 @@ while bytecode validation and trusted native-code loading retain different check
 Cache units, invalidation, identity remapping, disk validation, atomic/concurrent
 publication and cleanup remain undecided. This is a direction to revisit, not an
 implemented capability or an approved cache design. It does not block or expand the
-[compilation/startup plan](compilation-startup-plan.md): immediate priorities remain
-the direct source path and efficient eager verification. No cache implementation,
-daemon or AOT expansion is activated by this note.
+[completed compilation/startup work](#fast-compilation-and-eager-startup): the
+direct source path and efficient eager verification do not require a persistent
+cache. No cache implementation, daemon or AOT expansion is activated by this note.
 
 ## Cranelift AOT deployment
 
@@ -283,12 +283,13 @@ Remaining acceptance and explicitly deferred work:
   release recompilation remained 2.63 s. About 69% of one sampled compile was MIR/
   bytecode verification, with allocation-heavy type limits/trait proofs and three
   bytecode verification boundaries. Keep this separate from steady execution gates.
-  The [compilation/startup plan](compilation-startup-plan.md) now owns the finite
-  source/preparation split, efficient eager verification, release product recipe
-  and measured latency goals. It preserves malformed-artifact, type-limit,
-  trait-proof, source-free and lifecycle coverage without making new broad profiling
-  a prerequisite. Permanent engine reuse, artifact pruning and delivery-size work
-  remain separate; no unbounded identity retention or relaxed validation is allowed.
+  Subsequent [compilation/startup work](#fast-compilation-and-eager-startup)
+  implements the direct source/preparation path, efficient eager verification and
+  release product recipe. Its matched results retain the unmet compile/load target
+  separately from this historical diagnosis. Malformed-artifact, type-limit,
+  trait-proof, source-free and lifecycle guarantees remain. Permanent engine reuse,
+  artifact pruning and delivery-size work remain separate; no unbounded identity
+  retention or relaxed validation is allowed.
 - Other browsers/platforms, hard heap/compiler quotas, external async wake providers,
   threads/shared memory, WASI, arbitrary JS callbacks, browser live reload, i128/u128
   and a WASM code-generation backend remain outside this delivery. Existing native
@@ -296,36 +297,37 @@ Remaining acceptance and explicitly deferred work:
 
 ## Fast compilation and eager startup
 
-The [execution plan](compilation-startup-plan.md) is active. The user authorized
-CS01-CS06 implementation and phase commits on 2026-10-20. CS01 fixes the API,
-verification ownership, cancellation migration and package output contract. CS02
-implements direct sealed source preparation and export; its selected local checks
-passed. CS03 shares bounded shape validation without wire-output allocation and
-passes its selected type/trait/host contracts. CS04 prepares graph-owned proof
-resources with dependency-scoped views and caller cancellation; its selected local
-checks pass. CS05 migrates immediate-run consumers and release WASM product recipes;
-its selected local checks pass. CS06's bounded repair and selected correctness,
-source-free and real-browser checks pass. Matched Mac release measurements reduce
-minimal first compile/load from 2748.8 to 708.9 ms and fresh construction+compile
-from 3554.6 to 1458.2 ms. The 500 ms compile/load goal remains unmet after the
-permitted repair batch; the plan retains the scope decision and is not complete.
-Pushes and deployment remain outside the authorized task. This is a cross-target developer-feedback task,
-not a WASM-specific verifier or another interpreter throughput plan.
+The implementation is locally closed as of 2026-10-21. The user accepted closure
+with the 500 ms compile/load target explicitly unmet and declined an additional
+optimization phase. The completed execution plan is removed; Git history retains
+its phase decisions and validation ledger.
 
-The intended path prepares source directly through retained verified MIR/bytecode,
-without constructing and re-importing a mutable deployment artifact. External KBC
-inputs retain complete independent validation. Shared type traversal and scoped
-program-level proof preparation remove repeated work while preserving typing,
-host binding, GC/debug metadata, cancellation and generation-pinned reload.
-Necessary static checks finish before execution, not at first use. Development
-uses lightweight interpreter preparation; expensive deployment optimization remains
-explicit, with no weaker development semantics.
+Source runs now use [direct sealed preparation](spec/embedding-api.md#direct-source-preparation),
+with explicit artifact export/import and opt-in native-input retention. Shared
+bounded type traversal, graph-owned proof resources and exact dependency views
+reduce repeated preparation while preserving eager validation, host binding,
+cancellation, debug/GC metadata and generation-pinned reload. Immediate CLI,
+embedding and browser consumers use the direct route, and browser products use
+release builds. [Architecture](architecture.md#compilation-pipeline) owns the
+verification and evidence-lifetime boundaries.
 
-The plan owns phase order, consumer migration, local latency goals and the progress
-ledger. Full incremental compilation, permanent engine reuse, R7/R8/R16 follow-ups,
-artifact reachability changes and AOT expansion are not silently activated. Existing
-performance evidence remains in the [baseline](performance-baseline.md#direct-source-preparation-2026-10-21);
-full feature/platform acceptance remains CI-only.
+[Matched Mac release measurements](performance-baseline.md#direct-source-preparation-2026-10-21)
+reduce minimal first compile/load from 2748.8 to 708.9 ms and fresh construction
+plus compile from 3554.6 to 1458.2 ms. The 1500 ms median startup target is met;
+the 500 ms compile/load target remains unresolved, without changing its threshold.
+Selected local correctness, source-free, real-browser/Worker and implementation
+checks passed. Full workspace tests and complete feature/backend/platform matrices
+remain CI-owned and unrun locally. The products were not pushed or deployed.
+
+Deferred follow-up: source analysis and MIR lowering now dominate the sampled
+remaining compile time. Review snapshot-owned signature input environments and
+checked lowering facts before selecting another optimization; imported binding
+construction precedes signature reuse, and native-default/ABI lowering still uses
+HIR aggregate normalization. The performance record retains the sample weights,
+workload growth, memory results and limits of that diagnosis. This is not proof of
+an R7 specialization-round or R16 flow-scheduling cause. Further work requires a
+separately authorized scope. Full incremental compilation, permanent engine reuse,
+R7/R8/R16 changes, global caches, artifact pruning and AOT expansion remain separate.
 
 ## Runtime storage redesign
 

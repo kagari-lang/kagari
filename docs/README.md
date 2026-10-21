@@ -46,11 +46,11 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Fast compilation and eager startup](compilation-startup-plan.md): CS01-CS05
-  implement direct source preparation and efficient eager verification. CS06's
-  focused checks and matched measurements pass their recorded local scopes, but
-  the 500 ms compile/load goal remains unmet after the bounded repair. Further
-  optimization awaits a scope decision. Full incremental compilation stays separate.
+- [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
+  the source-preparation implementation is closed with the 500 ms compile/load
+  goal explicitly unmet. Further frontend preparation work is deferred; the
+  [measurements](performance-baseline.md#direct-source-preparation-2026-10-21)
+  retain the evidence and limits. Full incremental compilation stays separate.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11
@@ -80,8 +80,9 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   translations. Build and content maintenance belong in the [site guide](../site/README.md).
 - [Browser WASM follow-ups](implementation-roadmap.md#browser-wasm-execution):
   complete CI/platform and live Pages acceptance. Compilation/preparation latency
-  and release product recipes belong to the compilation/startup plan above;
-  permanent engine reuse and delivery-size optimization remain separately scoped. Current source/source-free adapter and Worker contracts belong in
+  remains with the compilation latency follow-up above; release product recipes
+  are implemented. Permanent engine reuse and delivery-size optimization remain
+  separately scoped. Current source/source-free adapter and Worker contracts belong in
   the [browser guide](../crates/kagari-web/README.md); measured Playground costs and
   exact-product builds belong in the [site guide](../site/README.md).
 - [Host API unification](host-api-refactor.md).

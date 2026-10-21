@@ -23,8 +23,10 @@ investigation below. Baseline `77ef42e8` and implementation `48f3ba40` use match
 release settings on this Mac. CS02-CS05 replace source artifact round trips, retain
 verification evidence, remove wire allocation from type-limit predicates, and share
 graph proof resources. The CS06 bounded repair shares admission for identical
-closures and prepares the lowering native-default catalog once per graph. The
-[active plan](compilation-startup-plan.md) owns remaining acceptance and scope.
+closures and prepares the lowering native-default catalog once per graph. On
+2026-10-21 the user accepted closure with the 500 ms compile/load target unmet;
+the [roadmap](implementation-roadmap.md#fast-compilation-and-eager-startup) owns
+that deferred follow-up. The measurements and original thresholds are unchanged.
 
 ### Environment and method
 
@@ -109,9 +111,10 @@ not a zero-cost execution claim.
 
 The minimal fresh-session median meets the 1500 ms goal, but its 1646.4 ms maximum
 exceeds it; this is a median target, not a tail guarantee. First compile/load still
-misses the 500 ms goal, including on the retained session. CS06 therefore remains
-incomplete. These are matched Mac results, not acceptance on the historical Windows
-machine or measurements of deployed network delivery.
+misses the 500 ms goal, including on the retained session. The user accepted this
+remaining gap when closing the implementation; closure is not a claim that the
+latency goal passed. These are matched Mac results, not acceptance on the historical
+Windows machine or measurements of deployed network delivery.
 
 For the minimal workload, first execution is 2.6 [2.5, 2.7] ms baseline versus
 3.8 [3.4, 4.1] ms current; generic-trait first execution is 4.3 [4.2, 4.7] versus
@@ -197,8 +200,9 @@ and 72.2 ms in ABI collection, with substantial overlap. This justifies a focuse
 review of snapshot-owned signature inputs and checked lowering facts, not an
 unmeasured cache or a blanket removal of verification. It does not prove an R7
 round-count cause, activate R7/R8/R16, or authorize permanent browser engine reuse.
-Further optimization requires the plan's explicit scope decision; no extra repair
-batch or lowered goal is assumed.
+The user chose closure with the remaining goal unmet after the bounded repair.
+No additional optimization phase was activated; future work requires a separately
+authorized scope. The 500 ms threshold is retained as an unresolved target.
 
 ### Correctness and product boundaries
 
@@ -225,11 +229,11 @@ all-target Clippy and diff checks passed for implementation `48f3ba40`.
 **Historical diagnosis at the recorded revision, not a current latency gate.** The user reported
 long Run waits at `https://kagari-lang.github.io/kagari/playground/`. Separate remote
 delivery, session preparation, compilation and execution; the interpreter's steady
-execution benchmarks do not explain this path. The
-[compilation/startup plan](compilation-startup-plan.md) owns the planned source
-handoff and eager-verification corrections; the
+execution benchmarks do not explain this path. Subsequent
+[source handoff and eager-verification changes](#direct-source-preparation-2026-10-21)
+have their own matched measurements above; the
 [roadmap](implementation-roadmap.md#browser-wasm-execution) retains browser delivery
-follow-ups. The plan's proposed latency goals are not results of this measurement.
+follow-ups. The later 500/1500 ms goals are not results of this historical measurement.
 
 ### Live delivery versus repeated execution
 
