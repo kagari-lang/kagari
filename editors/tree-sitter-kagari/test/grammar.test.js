@@ -49,7 +49,12 @@ const representative = ['grammar-witnesses', 'pattern-alternatives', 'callables'
 for (const name of [...selected, ...representative]) {
   test(`shared syntax fixture: ${name}`, () => {
     const file = path.join(__dirname, '../../../examples/syntax', `${name}.kgr`);
-    valid(fs.readFileSync(file, 'utf8'));
+    const tree = valid(fs.readFileSync(file, 'utf8'));
+    if (name === 'callables') {
+      const locals = nodes(tree.rootNode, 'function_item').filter(n => n.parent.type === 'block');
+      assert.deepEqual(locals.map(n => n.childForFieldName('name').text),
+        ['identity', 'make_increment', 'increment']);
+    }
   });
 }
 
@@ -177,7 +182,11 @@ test('numbers, adjacency, identity and generic angles remain distinct', () => {
     assert.ok(invalid.rootNode.hasError, `unsupported integer suffix: ${literal}`);
     assert.ok(!nodes(invalid.rootNode, 'integer_literal').some(n => n.text === literal));
   }
-  assert.equal(nodes(tree.rootNode, 'generic_path').length, 1);
+  assert.deepEqual(nodes(tree.rootNode, 'generic_path').map(n => [n.text,
+    n.childForFieldName('name')?.text ?? null]), [
+    ['model::Token<Map<i32, [bool]>>::Empty', 'Empty'],
+    ['f::<Vec<Vec<i32>>>', null],
+  ]);
   for (const op of ['> >', '> /* comment */ >', '< <', '< /* comment */ <']) {
     const invalid = parse(`fn main() { a ${op} b; }`);
     assert.ok(invalid.rootNode.hasError, `must not merge ${op}`);

@@ -1885,6 +1885,10 @@
           "named": true
         },
         {
+          "type": "function_item",
+          "named": true
+        },
+        {
           "type": "if_expression",
           "named": true
         },
@@ -3633,7 +3637,7 @@
     "fields": {
       "name": {
         "multiple": false,
-        "required": true,
+        "required": false,
         "types": [
           {
             "type": "identifier",

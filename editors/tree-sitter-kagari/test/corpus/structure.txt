@@ -114,14 +114,15 @@ fn main() {
                 (type_path (type_identifier))
                 (generic_arguments (type_path (type_identifier)))))))
         (call_expression
-          (path (identifier))
-          (generic_arguments
-            (generic_type
-              (type_path (type_identifier))
-              (generic_arguments
-                (generic_type
-                  (type_path (type_identifier))
-                  (generic_arguments (type_path (type_identifier)))))))
+          (generic_path
+            (path (identifier))
+            (generic_arguments
+              (generic_type
+                (type_path (type_identifier))
+                (generic_arguments
+                  (generic_type
+                    (type_path (type_identifier))
+                    (generic_arguments (type_path (type_identifier))))))))
           (arguments)))
       (expression_statement
         (binary_expression
