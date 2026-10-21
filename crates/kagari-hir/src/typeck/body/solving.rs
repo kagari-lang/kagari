@@ -24,15 +24,40 @@ impl BodyChecker<'_> {
         if env.exprs.contains_key(&site) {
             return;
         }
-        let ExprKind::Call {
-            callee,
-            type_args: Some(types),
-            ..
-        } = &self.lowered.module.expr(site).kind
-        else {
-            return;
+        let (callee, types) = match &self.lowered.module.expr(site).kind {
+            ExprKind::Call {
+                callee,
+                type_args: Some(types),
+                ..
+            } => (*callee, types.as_slice()),
+            expression => {
+                let callee = match expression {
+                    ExprKind::Call { callee, .. } => *callee,
+                    _ => site,
+                };
+                if self.local_function_id(callee).is_none() {
+                    return;
+                }
+                let ExprKind::Name {
+                    explicit_type: Some(application),
+                    ..
+                } = &self.lowered.module.expr(callee).kind
+                else {
+                    return;
+                };
+                let TypeKind::Generic { args, bindings, .. } =
+                    &self.lowered.module.type_ref(*application).kind
+                else {
+                    return;
+                };
+                if !bindings.is_empty() {
+                    self.diagnostics.push(Diagnostic::error(DiagnosticKind::InvalidCallTarget {
+                        type_name: "local function values accept positional type arguments only".into(),
+                    }).with_span(self.lowered.source_map.expr_span(callee)));
+                }
+                (callee, args.as_slice())
+            }
         };
-        let callee = *callee;
         let mut arguments = Vec::new();
         for ty in types {
             self.prepare_annotation_holes(*ty);

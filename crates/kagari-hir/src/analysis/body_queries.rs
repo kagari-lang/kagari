@@ -1,4 +1,5 @@
-//! A function query resolves and checks just that body and its module constants.
+//! A function query checks its selected body and module constants.
+//! Local bodies additionally resolve lexical ancestors without checking their bodies.
 
 use super::signature_queries::BodyEnvironment;
 use crate::{

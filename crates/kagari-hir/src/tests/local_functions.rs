@@ -11,6 +11,7 @@ fn local_function_scope_and_callable_contracts() {
         "fn outer() -> bool { fn even(n: i32) -> bool { if n == 0 { true } else { odd(n - 1) } } fn odd(n: i32) -> bool { if n == 0 { false } else { even(n - 1) } } even(4) }",
         "fn outer<T>(value: T) -> T { fn id<T>(x: T) -> T { x } id(value) }",
         "fn outer() -> fn(i32) -> i32 { fn id<T>(x: T) -> T { x } id }",
+        "fn outer() -> i32 { fn id<T>(x: T) -> T { x } (id::<i32>)(42) }",
         "fn outer() -> fn(i32) -> i32 { fn inc(x: i32) -> i32 { x + 1 } inc }",
         "fn outer() -> i32 { fn f() -> i32 { 1 } val f = || 2; { fn f() -> i32 { 3 } f(); } f() }",
         "fn outer() -> fn() -> i32 { fn make(x: i32) -> fn() -> i32 { || x } make(42) }",
@@ -88,6 +89,18 @@ fn local_function_boundaries_reject_capture_and_leakage() {
         (
             "fn outer() { #[reflect] fn inner() {} }",
             "KG_ATTRIBUTE_UNSUPPORTED",
+        ),
+        (
+            "fn outer() { fn id<T>(x: T) -> T { x } val f = id::<i32, bool>; }",
+            "KG_TYPE_INVALID_CALL_TARGET",
+        ),
+        (
+            "fn outer() { fn id<T>(x: T) -> T { x } val f = id::<i32, Item = i32>; }",
+            "KG_TYPE_INVALID_CALL_TARGET",
+        ),
+        (
+            "fn module<T>(x: T) -> T { x } fn outer() { val f = module::<i32>; }",
+            "KG_TYPE_INVALID_VALUE_TARGET",
         ),
     ] {
         let source = SourceFile::new("locals.kgr", text);

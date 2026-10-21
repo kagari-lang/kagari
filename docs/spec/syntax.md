@@ -634,14 +634,68 @@ Notes:
 
 ### Blocks and Statements
 
-Named local functions support checked calls and escaping function values under
-the [local function contract](../local-functions-plan.md#language-contract).
-They have block-wide visibility and do not capture enclosing values.
+Callable bodies and their nested blocks may declare named `fn` and `async fn`
+functions. A local declaration requires a body and no trailing semicolon. Its
+parameter types and omitted-result-as-unit rule match ordinary functions.
+
+```kagari
+fn outer(base: i32) -> i32 {
+    val result = add(base, 1);
+    fn add(value: i32, delta: i32) -> i32 { value + delta }
+    result
+}
+```
+
+Here `add` is visible before its declaration: the call passes `base` explicitly.
+Calling `outer(41)` returns `42`. Reading `base` directly inside `add` is an error.
+
+- A local function name is visible throughout its declaring block and descendants,
+  including before its declaration. Self recursion and mutual recursion are allowed.
+  Duplicate function names in one block are errors; an inner block may shadow an
+  outer name. A `val`/`var` binding shadows a same-block function after its own
+  initializer, regardless of the function declaration's textual position.
+- Local functions cannot capture enclosing parameters, locals, pattern bindings or
+  method `self`. An inaccessible enclosing value blocks same-named module fallback.
+  Pass outer data as arguments; use a closure when capture is required. Closures
+  inside a local function may capture that function's values, but cannot bypass its
+  barrier to enclosing values. Module declarations/imports and visible named local
+  functions remain accessible.
+- Each local function owns its generic parameters and bounds. Outer function,
+  trait and impl parameters and contextual `Self` are unavailable. A local may
+  declare a new parameter with the same spelling. Callers may pass their own types
+  to that independent declaration.
+- Concrete local functions are ordinary function values and may be stored, passed
+  or returned. Generic values require specialization through explicit arguments or
+  an expected function type, for example `val f = identity::<i32>;` or
+  `val f: fn(i32) -> i32 = identity;`. Polymorphic first-class values are unsupported.
+  Leaving the block does not invalidate the callable. This rule does not add
+  name-as-value support for arbitrary module/native functions or methods.
+- A declaration executes no initialization or body code. Its body is checked even
+  when unused or unreachable. Return, propagation, loop control and await stay
+  inside their own callable boundaries. Recursion retains call-depth limits and
+  cooperative cancellation; async functions retain ordinary future semantics.
+- Local declarations remain private to their block: module paths, imports and
+  exports cannot name them. Visibility modifiers and declarations in constant
+  initializers are rejected. Applicable metadata/tool attributes and lexical lint
+  policy are supported; unsupported reflection, registration and role attributes
+  remain errors. Local types, traits, impls and imports are not introduced.
+
+For example, a returned local value requires no captured environment:
+
+```kagari
+fn make_increment() -> fn(i32) -> i32 {
+    fn increment(value: i32) -> i32 { value + 1 }
+    increment
+}
+```
+
+Retained callable values pin their defining code generation across reload, like
+existing closures. New values use the new implementation.
 
 ```ebnf
 block           ::= "{" stmt* expr? "}" ;
 
-stmt            ::= function_decl
+stmt            ::= attribute* function_decl
                   | binding_stmt
                   | assign_stmt
                   | expr_stmt
@@ -903,6 +957,7 @@ await_suffix    ::= "." "await" ;
 primary_expr    ::= literal
                   | path
                   | explicit_enum_path
+                  | explicit_callable_path
                   | if_expr
                   | parenthesized_expr
                   | tuple_expr
@@ -933,6 +988,8 @@ struct_init     ::= field_init_list
 struct_update_base ::= ".." expr ;
 
 explicit_enum_path ::= path generic_args "::" IDENT ;
+
+explicit_callable_path ::= path "::" generic_args ;
 
 field_init_list ::= field_init ("," field_init)* (",")? ;
 

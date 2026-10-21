@@ -85,6 +85,7 @@ method_param_list	1	?	("," param_list)
 method_param_list	2	?	(",")
 block	1	*	stmt
 block	2	?	expr
+stmt	1	*	attribute
 binding_stmt	1	?	type_annotation
 binding_stmt	2	?	init_expr
 return_stmt	1	?	expr

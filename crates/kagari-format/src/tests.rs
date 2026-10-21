@@ -39,6 +39,7 @@ fn adjacency_interpolation_comments_and_boundaries_are_idempotent() {
         "// heading\nfn f(){/* dangling /* nested */ */}// trailing  ",
         "fn f(){val x=1;// trailing\nconsume(x);}",
         "fn f(){/* before */ val x=1; /* after */}",
+        "fn f(){fn id<T>(x:T)->T{x}val callback=id::<i32>;callback(42);}",
         "fn outer()->i32{val result=inner(41);/* helper */ fn inner(value:i32)->i32{// body\nvalue+1}/* tail */result}",
         "fn outer(){#[tool::allow(\"unused_parameter\")] async fn inner(value:i32)->i32{value}val closure=async || 42;}",
         "fn f(){}\r\n",

@@ -110,6 +110,9 @@ impl<'a> BodyChecker<'a> {
         env: &mut BodyTypeEnv,
         expected: Option<&TypeId>,
     ) -> Option<TypeId> {
+        if self.local_function_id(callee).is_some() {
+            return None;
+        }
         let explicit = match &self.lowered.module.expr(callee).kind {
             ExprKind::Name { explicit_type, .. } => {
                 explicit_type.map(|ty| self.resolve_constructor_type(ty, env))

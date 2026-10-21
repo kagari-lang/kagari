@@ -499,6 +499,18 @@ impl<'a> Parser<'a> {
         self.start_node(SyntaxKind::PathExpr);
         self.parse_path();
         let mut cursor = self.cursor();
+        if self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::ColonColon)
+            && self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::Lt)
+            && self.skip_angle_group(&mut cursor)
+            && self.nth_nontrivia_kind_from(&mut cursor) != Some(TokenKind::LParen)
+        {
+            self.bump_trivia();
+            self.bump();
+            self.parse_generic_arg_list();
+            self.finish_node();
+            return;
+        }
+        let mut cursor = self.cursor();
         if self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::Lt)
             && self.skip_angle_group(&mut cursor)
             && self.nth_nontrivia_kind_from(&mut cursor) == Some(TokenKind::ColonColon)

@@ -810,8 +810,7 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | [LF01-LF06 plan](local-functions-plan.md): noncapturing declarations, block scope, forward references and recursion; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 2 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 1 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
 SA9 context-owned module handles are implemented. The
 [identity architecture](architecture.md#definition-identity-ownership) and
@@ -836,11 +835,18 @@ record allocation reductions and the unchanged nested-query timing limitation;
 these do not establish end-to-end compile latency or finer cache invalidation.
 Complete workspace and backend/feature/platform acceptance remain pending CI.
 The completed IA01-IA05 plan is retired; Git history owns its ledger.
-SA14 is active; LF01-LF06 implementation and phase commits are authorized. The [local function plan](local-functions-plan.md)
-records the user's noncapturing choice and proposed LF01-LF06 scope, phase commits
-and validation. Outer data is passed explicitly; closures retain their existing
-capture rules. R7 scheduling, R8 invalidation and R13 identity-domain retention
-remain separate.
+SA14 named local functions are implemented. The
+[language contract](spec/syntax.md#blocks-and-statements) and
+[HIR ownership model](architecture/hir.md#named-local-function-ownership) own
+noncapturing block scope, forward references/recursion, independent generics,
+function values and async behavior. Source-free artifact, imported default-body,
+query/navigation/lint/formatting and retained-generation lifecycle cases pass.
+Focused checks cover traps, depth exhaustion, cancellation and GC cleanup;
+structure, formatting, workspace all-target Clippy and diff checks pass.
+Complete workspace and backend/feature/platform acceptance remain pending CI.
+The LF01-LF06 plan is retired; Git history owns the phase ledger. SA11 remains
+queued and unstarted. R8 owns finer invalidation for modules containing local
+functions; this delivery conservatively rechecks changed revisions.
 
 Structured import paths (SA15) are implemented. The
 [HIR guide](architecture/hir.md#structured-import-paths-and-source-sites) and model
@@ -853,8 +859,8 @@ retired and Git history owns its phase ledger.
 
 Important ordering constraints and limits:
 
-- SA14's declaration ownership/allocation design must be settled before SA11
-  changes function identity storage; the proposed default completes SA14 first.
+- SA11 must preserve the implemented local-function reservation/finalization,
+  source-map alignment and separate body ownership when reviewing self IDs.
 - Inline syntax views preserve written import segments and physical source
   identities. Module handles do not replace either of those inputs.
 - SA21 consumes ordinary trait declarations and checked interface operations.

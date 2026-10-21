@@ -76,6 +76,52 @@ scoped IDs and use the analysis context for cache keys; callers with an external
 path explicitly look it up in the relevant declaration snapshot first. Source,
 revision and dependency checks still govern reuse.
 
+## Named local function ownership
+
+For `fn outer() { fn inner() {} }`, `Module.functions` stores both records,
+while `Module.items` contains only outer. `StmtKind::Function(inner)` links the
+local declaration from its block. `FunctionKind::Local { block }` identifies the
+declaring block; the block owner identifies the enclosing callable. Inner's body
+has its own `BodyOwner::Function(inner)`. Methods use the same function table;
+closures remain expressions. Traversing an outer statement does not traverse the
+local function body as part of outer's return, capture or control-flow analysis.
+
+Lowering reserves each function ID/source-map slot before descending into children,
+then fills that exact private `Option<Function>` slot. It reserves block rows before
+statements too. Only complete function records enter the published module. For
+outer/inner, allocation order is outer then inner even though inner completes first.
+Semantic definitions are nested under the enclosing named callable, with per-name
+source-order occurrences distinguishing identical spellings in separate blocks.
+These are compilation identities, not public or edit-stable paths. Function self
+IDs remain unchanged; their separate review must preserve row/source-map alignment.
+
+Resolution predeclares block functions, then retains declaration-time active scope
+snapshots. A selected local body resolves its ancestor chain without type-checking
+ancestors or unrelated bodies. Crossing a named function owner excludes enclosing
+value bindings; signatures use only the local's own generic context. Completion
+and navigation use the same lexical ownership. Changed-revision signature/body
+reuse is conservatively disabled for a logical module containing locals on either
+side of the edit; exact-revision caches and unaffected modules retain normal reuse.
+Finer dependency invalidation remains R8.
+
+A local function value records ordinary checked specialization/application facts.
+`identity::<i32>` retains a PathExpr generic application in Name.explicit_type;
+its positional argument types use the same preparation as call type arguments.
+The function name is resolved as a callable, not looked up as a type.
+The compiler consumes those facts through instance planning and an empty-capture
+MakeClosure; no new environment or calling convention is introduced. Imported
+trait default bodies retain authored source/binder ownership while executable
+identities belong to the receiving module. The receiving planner maps each authored
+local declaration to one placement for its lifetime, so recursive value references
+reuse the same identity. Runtime values retain existing GC and generation pinning.
+
+The block-wide static-name and independent-generic mechanisms follow the
+[Rust Reference scope model](https://doc.rust-lang.org/reference/names/scopes.html);
+separate parent links and body records follow the ownership principle documented
+by [rustc HIR](https://rustc-dev-guide.rust-lang.org/hir.html). Kagari retains its own
+checked execution, GC and reload model. Language behavior is specified in
+[blocks and statements](../spec/syntax.md#blocks-and-statements).
+
 ## Mapping source syntax to model fields
 
 Read a model's source fragment together with its expanded payload. For example,

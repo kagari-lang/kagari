@@ -52,6 +52,13 @@ The crate has four direct production dependencies:
 There is no production dependency on HIR, compiler, bytecode or runtime. Grammar
 recognition must remain independent of name resolution and executable state.
 
+Block-local functions reuse the ordinary `FnDef` node and child layout through
+`Stmt::FnDef`; no wrapper node duplicates the function signature/body. Block parsing
+recognizes `fn`, attributed function headers and `async fn`, while `async` followed
+by a closure continues through expression parsing. Recovery preserves following
+siblings and block tails. Syntax retains visibility and unsupported attributes for
+HIR to diagnose; parsing a local header does not establish capture or export rules.
+
 ## 2. Inputs and outputs
 
 The caller supplies a `kagari_source::source::SourceFile`. Its text is already valid UTF-8

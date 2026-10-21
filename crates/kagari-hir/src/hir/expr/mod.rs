@@ -48,6 +48,9 @@ pub struct ExprData {
 /// Pair<i32>::make      -> Name { name: "Pair::make", explicit_type: Some(t_pair) }
 /// t_pair               -> Generic { name: "Pair", args: [t_i32], bindings: [],
 ///                                   positional_after_binding: false, callable_syntax: false }
+/// identity::<i32>      -> Name { name: "identity", explicit_type: Some(t_identity) }
+/// t_identity           -> Generic { name: "identity", args: [t_i32], bindings: [],
+///                                   positional_after_binding: false, callable_syntax: false }
 /// add(41)              -> Call { callee: e_add, args: [e_41], type_args: None }
 /// add::<i32>(41)       -> Call { callee: e_add, args: [e_41], type_args: Some([t_i32]) }
 /// object.run(41)       -> Call { callee: e_member, args: [e_41], type_args: None }
@@ -57,7 +60,9 @@ pub struct ExprData {
 ///
 /// A callee is an expression, not a FunctionId: it can name a free function,
 /// select a method, or evaluate a closure. `explicit_type` qualifies the name's
-/// receiver/type application; `type_args` belongs to the CALL. Neither stores
+/// receiver/type application or a local function value application; `type_args`
+/// belongs to the CALL. Checking resolves only argument types for a local function
+/// application, never the function name as a type. Neither field stores
 /// the callee's checked type. Path component sites live in SourceMap; member
 /// and callable identities are selected by resolution/type checking.
 ///

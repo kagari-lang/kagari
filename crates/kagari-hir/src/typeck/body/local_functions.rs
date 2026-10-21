@@ -1,13 +1,29 @@
 //! Checked applications of noncapturing local declarations as callable values.
 
 use crate::{
-    hir::{expr::ExprKind, ids::ExprId, item::function::FunctionKind},
+    hir::{
+        expr::ExprKind,
+        ids::{ExprId, FunctionId},
+        item::function::FunctionKind,
+    },
     resolver::resolved::ResolvedName,
     typeck::{BodyTypeEnv, body::BodyChecker, inference, table::CallTarget},
     types::{TypeId, TypeSubstitution},
 };
 
 impl BodyChecker<'_> {
+    /// Selects only a lexical named function, never a module function or method.
+    pub(super) fn local_function_id(&self, site: ExprId) -> Option<FunctionId> {
+        let ResolvedName::Function(id) = self.names.expr_resolution(site)? else {
+            return None;
+        };
+        matches!(
+            self.lowered.module.functions[id.index()].kind,
+            FunctionKind::Local { .. }
+        )
+        .then_some(id)
+    }
+
     /// Specializes a local function value using its own binders and ordinary bounds.
     /// The application shares checked callable facts with calls; no body executes here.
     pub(super) fn infer_local_function_value(
@@ -19,15 +35,7 @@ impl BodyChecker<'_> {
         if !matches!(self.lowered.module.expr(site).kind, ExprKind::Name { .. }) {
             return None;
         }
-        let ResolvedName::Function(id) = self.names.expr_resolution(site)? else {
-            return None;
-        };
-        if !matches!(
-            self.lowered.module.functions[id.index()].kind,
-            FunctionKind::Local { .. }
-        ) {
-            return None;
-        }
+        let id = self.local_function_id(site)?;
         let function = self.function_index.by_id.get(&id)?;
         let template = TypeId::Function {
             params: function.params.iter().map(|p| p.ty.clone()).collect(),

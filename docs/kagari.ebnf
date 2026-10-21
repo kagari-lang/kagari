@@ -182,7 +182,7 @@ receiver_param      ::= "self" ;
 
 block               ::= "{" stmt* expr? "}" ;
 
-stmt                ::= function_decl
+stmt                ::= attribute* function_decl
                       | binding_stmt
                       | assign_stmt
                       | expr_stmt
@@ -303,7 +303,10 @@ primary_expr        ::= literal
                       | match_expr
                       | block
                       | qualified_type
-                      | interpolated_string ;
+                      | interpolated_string
+                      | explicit_callable_path ;
+
+explicit_callable_path ::= path "::" generic_args ;
 
 interpolated_string ::= FORMAT_START interpolation_part* FORMAT_END ;
 interpolation_part  ::= FORMAT_TEXT | interpolation ;

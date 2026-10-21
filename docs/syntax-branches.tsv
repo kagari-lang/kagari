@@ -42,17 +42,18 @@ trait_impl_item	1	witnessed	examples/syntax/associated-types.kgr	-	attribute* me
 trait_impl_item	2	witnessed	examples/syntax/associated-types.kgr	-	attribute* associated_type_def
 method_param_list	1	witnessed	examples/syntax/data-model.kgr	-	receiver_param ("," param_list)? (",")?
 method_param_list	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	param_list
-stmt	1	witnessed	examples/syntax/data-model.kgr	-	binding_stmt
-stmt	2	witnessed	examples/syntax/data-model.kgr	-	assign_stmt
-stmt	3	witnessed	examples/syntax/expressions.kgr	-	expr_stmt
-stmt	4	witnessed	examples/standard-library.kgr	-	return_stmt
-stmt	5	witnessed	examples/syntax/expressions.kgr	-	if_stmt
-stmt	6	witnessed	examples/syntax/control-flow.kgr	-	while_stmt
-stmt	7	witnessed	examples/syntax/control-flow.kgr	-	loop_stmt
-stmt	8	witnessed	examples/syntax/control-flow.kgr	-	for_stmt
-stmt	9	witnessed	examples/syntax/control-flow.kgr	-	break_stmt
-stmt	10	witnessed	examples/syntax/control-flow.kgr	-	continue_stmt
-stmt	11	witnessed	examples/syntax/blocks.kgr	-	block
+stmt	1	witnessed	examples/syntax/callables.kgr	-	attribute* function_decl
+stmt	2	witnessed	examples/syntax/data-model.kgr	-	binding_stmt
+stmt	3	witnessed	examples/syntax/data-model.kgr	-	assign_stmt
+stmt	4	witnessed	examples/syntax/expressions.kgr	-	expr_stmt
+stmt	5	witnessed	examples/standard-library.kgr	-	return_stmt
+stmt	6	witnessed	examples/syntax/expressions.kgr	-	if_stmt
+stmt	7	witnessed	examples/syntax/control-flow.kgr	-	while_stmt
+stmt	8	witnessed	examples/syntax/control-flow.kgr	-	loop_stmt
+stmt	9	witnessed	examples/syntax/control-flow.kgr	-	for_stmt
+stmt	10	witnessed	examples/syntax/control-flow.kgr	-	break_stmt
+stmt	11	witnessed	examples/syntax/control-flow.kgr	-	continue_stmt
+stmt	12	witnessed	examples/syntax/blocks.kgr	-	block
 binding_kind	1	witnessed	examples/syntax/expressions.kgr	-	"val"
 binding_kind	2	witnessed	examples/syntax/control-flow.kgr	-	"var"
 assign_op	1	witnessed	examples/standard-library.kgr	-	"="
@@ -134,3 +135,4 @@ range_expr	3	witnessed	examples/syntax/ranges.kgr	-	logic_or_expr
 trait_arguments	1	witnessed	examples/syntax/callables.kgr	-	generic_args
 trait_arguments	2	witnessed	examples/syntax/callables.kgr	-	callable_arguments
 postfix_op	5	witnessed	examples/syntax/async.kgr	-	await_suffix
+primary_expr	15	witnessed	examples/syntax/callables.kgr	-	explicit_callable_path

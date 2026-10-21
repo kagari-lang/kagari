@@ -25,7 +25,8 @@ pub fn mutual() -> i32 {
 pub fn generic() -> i32 {
     fn identity<T>(x: T) -> T { x }
     val selected: fn(i32) -> i32 = identity;
-    selected(identity(42))
+    val explicit = identity::<i32>;
+    selected(explicit(identity(42)))
 }
 pub fn shadowing() -> i32 {
     fn inner() -> i32 { 20 }

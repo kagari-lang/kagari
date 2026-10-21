@@ -40,6 +40,14 @@ calls, generic Fn coercion and ordinary for-body suspension. The
 as a decoded artifact in a standalone consumer without source compilation. No async
 block, async iterator or custom awaitable grammar is implied by this coverage.
 
+Named block-local functions have an executable witness in
+[callables.kgr](../examples/syntax/callables.kgr): forward declaration lookup,
+explicit parameters and a returned local callable. Focused syntax/HIR tests cover
+nested owners, attributes/async declarations, malformed recovery, shadowing and
+capture rejection. Formatter/lint/navigation, source-free artifacts, async execution,
+error traces, GC/cancellation/depth cleanup and retained reload generations have
+separate focused tests. Parse coverage alone does not establish those contracts.
+
 All inventoried EBNF rules and top-level alternatives have parse-clean
 witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)

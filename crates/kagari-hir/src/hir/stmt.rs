@@ -64,6 +64,7 @@ pub struct StmtData {
 /// | `for (x, y) in pairs { work(x); }` | `For { pattern: tuple_pattern, iterable: pairs_expr, body: block }` |
 /// | `break;` / `break n;` / `continue;` | `Break` / `BreakValue(n_expr)` / `Continue` |
 /// | `work();` | `Expr(call)`; the Call itself lives in Body.exprs |
+/// | `fn inner() {}` | `Function(f)`; f indexes Module.functions with a separate body owner |
 ///
 /// Binding names and allocated local IDs live in the pattern's Name leaves;
 /// wildcard leaves allocate no local. The annotation describes the whole value,
@@ -76,8 +77,8 @@ pub struct StmtData {
 /// `if ...` and bare blocks in statement position are Expr statements wrapping
 /// ExprKind::If/Block; there are no separate If/Block statement variants. A final
 /// value-position loop uses ExprKind::Loop. Lowering records syntax; checking
-/// validates writes, conditions, iteration and loop-control scope. Named local
-/// `fn` declarations currently have no statement form.
+/// validates writes, conditions, iteration and loop-control scope. Function
+/// statements link separately checked bodies and emit no runtime instruction.
 #[derive(Debug, Clone)]
 pub enum StmtKind {
     /// `fn inner() {}` links a separately owned callable; it executes no statement.

@@ -70,6 +70,15 @@ ast_node!(
     /// `-- Name (make) [node] -> name()
     /// ```
     ///
+    /// `identity::<i32>` as a function value:
+    ///
+    /// ```text
+    /// PathExpr
+    /// +-- Path (identity) [node] -> path()
+    /// +-- ColonColon "::" [token]
+    /// `-- GenericArgList (<i32>) [node] -> generic_args()
+    /// ```
+    ///
     /// `<T as Read>::make`:
     ///
     /// ```text
@@ -1101,7 +1110,7 @@ impl PathExpr {
         self.syntax().children().find_map(TypeRef::cast)
     }
 
-    /// Returns `<i32>` in `Box<i32>::make`.
+    /// Returns `<i32>` in `Box<i32>::make` or the function value `identity::<i32>`.
     /// Returns `None` for `math::total`; qualified forms use `qualified_type()`.
     pub fn generic_args(&self) -> Option<GenericArgList> {
         support::child(self.syntax())
@@ -1115,12 +1124,13 @@ impl PathExpr {
 
     /// Returns `math::total` for `math :: total`, omitting trivia.
     /// `Box<i32>::make` yields `Box::make`; `<T as Read>::make` yields only `make`.
+    /// The function value `identity::<i32>` yields `identity`, without a member name.
     /// Returns `None` if the required path/name components are missing.
     pub fn name_text(&self) -> Option<String> {
         if let Some(ty) = self.qualified_type() {
             return ty.qualified_type()?.member()?.text();
         }
-        if self.generic_args().is_some() {
+        if self.generic_args().is_some() && self.name().is_some() {
             return Some(format!(
                 "{}::{}",
                 self.path()?.text()?,

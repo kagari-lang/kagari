@@ -73,7 +73,7 @@ the outstanding BO04/IP12 performance gates.
 | **1. Overview of Compilation**, §§1.1-1.3, pp. 5-8, 14-15; §1.4, p. 21 | Keep distinct semantic, transformation and target owners. Evaluate compilation/preparation plus repeated execution, retained memory and lifecycle costs; fewer bytecode instructions alone are not an economic result. |
 | **2. Scanners**, §§2.5.3-2.5.4, pp. 69-73 | Token spans and retained source suit tooling. Inline modules now share their physical parse; that ownership change required no new scanner generator. Identifier/escape classification also has local temporary allocations, discussed below; no scanner rewrite is required. |
 | **3. Parsers**, §3.2.4, pp. 92-95; §§3.3.1-3.3.2, pp. 108-110 | Recursive descent, precedence handling and a lossless tree are appropriate. Inline-module subtrees now lower under their own contexts, preserving recovery and physical source offsets. The book does not make LR tables a prerequisite for a fast frontend. |
-| **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. SA14/SA22 require explicit new semantics, not performance shortcuts. |
+| **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. SA22 requires explicit new semantics, not performance shortcuts. |
 | **5. Intermediate Representations**, §§5.1-5.4, selected pp. 221-251; §5.5, selected pp. 253-263 | Typed block MIR plus side metadata is a viable hybrid IR. `TempId` is not an SSA definition. Context-owned module handles separate local identity from portable paths; SA11 is an interface/storage tradeoff, not a required migration. Any SSA proposal must justify its consumers and own merge edges, destruction and origins. |
 | **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13/R14 remain retention/transition issues; the implemented accounting and occupied-discovery contracts do not justify changing GC families. Managed native calls need the existing ABI/root gates. |
 | **7. Code Shape**, §§7.1-7.3.1, pp. 331-345; §7.4, pp. 350-356 | BO02/BO03 already implement direct destinations, control-only predicates and bounded constant operands. Keep checked commit and source observations. Arithmetic reassociation and expression reordering from examples do not override Kagari trap/evaluation order. |
@@ -110,7 +110,11 @@ execution. Those differences constrain every proposed transformation.
   remains the owner of finer dependency invalidation. In particular, an imported function-body edit
   can change source revision/arena without changing its callable contract; semantic
   reuse must refresh navigation while preserving old snapshot validity. SA11's
-  redundant self IDs are not established as a performance bottleneck.
+  redundant self IDs are not established as a performance bottleneck. Modules with
+  named local functions conservatively reject changed-revision signature/body
+  reuse so edits inside enclosing bodies cannot preserve stale local signatures.
+  Exact-revision caching remains available; finer local-declaration invalidation
+  belongs to R8 and must retain source/navigation ownership.
 - **Calls and GC already have necessary boundaries.**
   [Frame admission](../crates/kagari-runtime/src/frame/admission.rs) validates inputs,
   prepares storage with rollback and publishes the frame only on success. Caller
@@ -847,9 +851,10 @@ that any of the five fields should be removed.
 container-derived self identity as the top-level ADT declarations above:
 `module.functions[index].id.index() == index`. The
 [source map](../crates/kagari-hir/src/source_map.rs) allocates `FunctionId` from
-its function-span vector, and current item/method lowering appends function
-records in the corresponding order. This applies to free functions and the
-trait/impl methods stored in the same collection.
+its function-span vector. Current lowering reserves private slots before
+descending into children and fills each exact slot before publication. This
+applies to module functions, named locals and trait/impl methods in the same
+collection; only module functions also enter Module.items.
 
 The field has active consumers: lowering publishes `Item::Function` and links
 trait/impl method records; signature checking uses `function.id` to index typed
@@ -860,8 +865,9 @@ container and passing the identity explicitly to consumers. `FunctionId` itself
 must remain available for method links, name resolution, source maps and
 `BodyOwner::Function`; only its duplication inside `Function` is under review.
 Any change must preserve allocation/storage order and snapshot identity mapping.
-Future local function support (SA14) must also preserve that relationship if
-parent and child declarations are allocated and appended at different times.
+Named local functions preserve that relationship when parent and child records
+finish at different times. Review this implemented reservation/finalization boundary
+without reintroducing a second function store or exposing incomplete records.
 
 Expression storage uses a different interface:
 [Body::expressions](../crates/kagari-hir/src/hir/body.rs) yields `(ExprId,
@@ -887,51 +893,6 @@ with redundant self IDs, or widen visibility/add forwarding APIs to hide the
 ownership question. Reuse existing declaration, navigation and snapshot contracts
 if implementation is activated; measure any claimed memory or speed benefit.
 This entry records a design review only and does not activate a migration.
-
-## SA14 Function bodies cannot declare named local functions
-
-Named functions cannot currently be declared inside another function's body.
-For example, the following requested source form is rejected:
-
-```kagari
-fn outer() -> i32 {
-    fn inner(x: i32) -> i32 { x + 1 }
-    inner(41)
-}
-```
-
-[Block parsing](../crates/kagari-syntax/src/parser/grammar/stmt.rs) accepts
-bindings, control flow and expressions, but has no function-declaration branch.
-[HIR statements](../crates/kagari-hir/src/hir/stmt.rs) and
-[statement lowering](../crates/kagari-hir/src/lower/stmt.rs) likewise have no
-local function declaration form. Both the current
-[syntax specification](spec/syntax.md#blocks-and-statements) and
-[EBNF](kagari.ebnf) exclude function declarations from block statements, so this
-is a missing language capability rather than an implementation violation of the
-current grammar.
-
-A closure binding such as `val inner = |x: i32| x + 1;` is supported, including
-lexical captures, but does not provide the requested named declaration form.
-The user requests that named local function support be added in later work.
-
-Follow-up owner: language syntax, HIR declaration ownership and lexical name
-resolution. Define block visibility, forward references, recursion, shadowing
-and access to enclosing locals/generic parameters before implementation; capture
-behavior must be specified explicitly rather than inferred from closures.
-Extend the grammar, AST, HIR/lowering and declaration/resolution model together,
-then carry checked local callable identities through typing, executable lowering
-and tooling. Local declarations must not leak into module exports. Review whether
-`FunctionKind` and function ownership need changes instead of automatically treating
-local declarations as module-level `User` functions.
-
-When activated, validate the example through execution and add focused coverage
-for the chosen scope, recursion and capture rules, including diagnostics and
-navigation. Preserve existing module functions, methods and closure contracts.
-The [LF01-LF06 execution plan](local-functions-plan.md) records the user's choice
-of noncapturing local functions with forward references and recursion, plus the
-proposed remaining semantics, ownership changes and focused acceptance gates.
-Implementation remains queued; the currently accepted grammar is unchanged.
-
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access
 
