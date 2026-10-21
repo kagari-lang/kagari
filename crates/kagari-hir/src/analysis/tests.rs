@@ -171,3 +171,55 @@ fn local_function_signature_edits_refresh_facts_and_retain_old_navigation() {
         Some(TypeId::Builtin(BuiltinType::I32))
     );
 }
+
+#[test]
+fn local_function_navigation_distinguishes_shadowed_blocks_and_moved_sources() {
+    let source = "fn outer() -> i32 { fn same() -> i32 { 1 } val first = same(); { fn same() -> i32 { 2 } same(); } same() }";
+    let mut sources = SourceDatabase::default();
+    let mut db = test_analysis();
+    let mut retained = Vec::new();
+    for prefix in ["", "// moved 😀\r\n"] {
+        let text = format!("{prefix}{source}");
+        let file = sources
+            .set("local-navigation.kgr", text.clone(), SourceLayer::Overlay)
+            .unwrap();
+        let snapshot = db
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let facts = snapshot.file(file).unwrap();
+        assert!(facts.result().diagnostics().is_empty());
+        let first = text.find("fn same").unwrap() + 3;
+        let second = text.rfind("fn same").unwrap() + 3;
+        for (call, expected) in [
+            (text.find("= same()").unwrap() + 2, first),
+            (text.find("same(); }").unwrap(), second),
+            (text.rfind("same()").unwrap(), first),
+        ] {
+            assert_eq!(
+                facts.definition_at(call).unwrap().location.range.start,
+                expected
+            );
+            let visible = facts.visible_bindings(call);
+            let named = visible
+                .iter()
+                .filter(|binding| binding.declaration.name == "same")
+                .collect::<Vec<_>>();
+            assert_eq!(named.len(), 1);
+            assert_eq!(named[0].declaration.location.range.start, expected);
+        }
+        retained.push((snapshot, file, text.rfind("same()").unwrap(), first));
+    }
+    for (snapshot, file, call, expected) in retained {
+        assert_eq!(
+            snapshot
+                .file(file)
+                .unwrap()
+                .definition_at(call)
+                .unwrap()
+                .location
+                .range
+                .start,
+            expected
+        );
+    }
+}

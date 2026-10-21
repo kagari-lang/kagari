@@ -1,4 +1,5 @@
 #![cfg(feature = "source")]
+use crate::test_support::cancellation as support;
 use crate::{BytecodeArtifact, engine::KagariEngine};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
@@ -19,6 +20,94 @@ fn prepare(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodePr
             .unwrap()
             .into_parts();
     DefinitionMetadata::checked(definitions, artifact.program, &Default::default()).unwrap()
+}
+
+#[test]
+fn retained_local_function_values_pin_generations_and_clean_up_all_exits() {
+    let source = r#"
+trait Run { fn run(self, mode: i32) -> i32; }
+struct Saved { val callback: fn(i32) -> i32 }
+impl Run for Saved { fn run(self, mode: i32) -> i32 { (self.callback)(mode) } }
+pub fn make() -> Run {
+    fn local(mode: i32) -> i32 {
+        val items = Vec::from([mode]);
+        fn work(items: Vec<i32>) -> i32 {
+            if items[0] == 0 { 42 }
+            else if items[0] == 1 { val zero = items[0] - 1; 1 / zero }
+            else if items[0] == 2 { work(items) }
+            else { loop {} }
+        }
+        work(items)
+    }
+    Saved { callback: local }
+}
+"#;
+    let engine = KagariEngine::default();
+    let program = prepare(&engine, source);
+    let replacement = prepare(&engine, &source.replace("{ 42 }", "{ 43 }"));
+    let mut config = RuntimeConfig::default();
+    config.gc.collection_threshold = Some(1);
+    config.limits.max_call_depth = Some(32);
+    let mut runtime = Runtime::new(config);
+    NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
+    let old = runtime.load_program("local-reload", program).unwrap();
+    let contract = old
+        .bytecode
+        .trait_contracts
+        .iter()
+        .find(|contract| contract.abi.name == "Run")
+        .unwrap();
+    let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
+    let old_key = old.key();
+    let vm = Vm::new(runtime);
+    let saved_root = vm.execute(&old, "make").unwrap().return_value;
+    let saved = saved_root.value(vm.runtime().gc()).unwrap();
+    let current = vm
+        .reload_program(&old, "local-reload", replacement)
+        .unwrap();
+    drop(old);
+    vm.runtime().collect_garbage().unwrap();
+    assert!(vm.runtime().modules().loaded(old_key).is_some());
+    let fresh_root = vm.execute(&current, "make").unwrap().return_value;
+    let fresh = fresh_root.value(vm.runtime().gc()).unwrap();
+    for (value, expected) in [(&saved, 42), (&fresh, 43)] {
+        assert_eq!(
+            vm.invoke_interface_method(value, &run, &[Value::I32(0)])
+                .unwrap(),
+            Value::I32(expected)
+        );
+    }
+    for (mode, expected) in [(1, "division by zero"), (2, "call depth")] {
+        let error = vm
+            .invoke_interface_method(&saved, &run, &[Value::I32(mode)])
+            .unwrap_err();
+        assert!(format!("{error:?}").contains(expected), "{error:?}");
+        assert_eq!(vm.runtime().gc().active_roots(), 2);
+        assert!(!vm.runtime().is_quarantined());
+    }
+    let session = support::cancel_after(vm.runtime(), &current, 48);
+    let error = vm
+        .invoke_interface_method(&fresh, &run, &[Value::I32(3)])
+        .unwrap_err();
+    drop(session);
+    assert!(format!("{error:?}").contains("cancel"), "{error:?}");
+    assert_eq!(vm.runtime().gc().active_roots(), 2);
+    assert!(!vm.runtime().is_quarantined());
+    assert_eq!(
+        vm.invoke_interface_method(&saved, &run, &[Value::I32(0)])
+            .unwrap(),
+        Value::I32(42)
+    );
+    drop((saved_root, fresh_root));
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 0);
+    assert_eq!(
+        vm.runtime()
+            .modules()
+            .retention_counts(old_key)
+            .runtime_values,
+        0
+    );
 }
 
 #[test]

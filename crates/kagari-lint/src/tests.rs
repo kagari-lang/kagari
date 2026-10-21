@@ -154,6 +154,30 @@ fn partial_facts_and_truncation_do_not_authorize_semantic_rules() {
 }
 
 #[test]
+fn local_functions_keep_independent_usage_and_lexical_lint_policy() {
+    let (_, _, snapshot, root) = analyze(
+        &[(
+            "root",
+            r#"
+fn outer(unused: i32) -> i32 {
+    val abandoned = 0;
+    #[tool::allow("non_snake_case", "unused_parameter")]
+    fn QuietHelper(Unused: i32) -> i32 { 40 }
+    fn LoudHelper(value: i32, unused: i32) -> i32 { value + 2 }
+    LoudHelper(QuietHelper(0), 0)
+}
+"#,
+        )],
+        100,
+    );
+    snapshot.check_program(root, &Default::default()).unwrap();
+    let records = findings(&snapshot, root, &Policy::default());
+    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
+    assert_eq!(codes(&records, "unused_parameter"), 2, "{records:?}");
+    assert_eq!(codes(&records, "non_snake_case"), 1, "{records:?}");
+}
+
+#[test]
 fn policy_inherits_external_and_inline_modules_and_validates_even_when_allowed() {
     let (_, _, snapshot, root) = analyze(
         &[

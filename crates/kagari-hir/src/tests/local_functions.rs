@@ -81,6 +81,14 @@ fn local_function_boundaries_reject_capture_and_leakage() {
             "fn outer() { fn inner() {} } fn other() { inner(); }",
             "KG_RESOLVE_UNKNOWN_NAME",
         ),
+        (
+            "fn outer() -> fn(f32) -> f32 { fn id<T: std::hash::Hash>(x: T) -> T { x } id }",
+            "KG_TYPE_GENERIC_BOUND_NOT_SATISFIED",
+        ),
+        (
+            "fn outer() { #[reflect] fn inner() {} }",
+            "KG_ATTRIBUTE_UNSUPPORTED",
+        ),
     ] {
         let source = SourceFile::new("locals.kgr", text);
         let result = analyze_source(&source, catalog::shared().unwrap()).unwrap();

@@ -288,14 +288,14 @@ diagnostic/fallback contract. Never report unrun CI as passed.
 - Planning baseline: `ef2f887d`; working tree was clean before this document.
 - User decision: noncapturing local functions with forward references/recursion;
   outer data is passed explicitly. Goal execution is authorized.
-- Current carried implementation errors: none. LF01-LF04 implementation and selected checks pass.
+- Current carried implementation errors: none. LF01-LF05 implementation and selected checks pass.
 - Structural debt: no new exception requested. LF02 reviews function/block storage;
   LF03 owns bounded conservative reuse; finer invalidation remains R8.
 - [x] LF01 Contract and integration inventory.
 - [x] LF02 Grammar and declaration ownership.
 - [x] LF03 Lexical resolution and typing.
 - [x] LF04 Executable calls and function values.
-- [ ] LF05 Tooling and lifecycle contracts.
+- [x] LF05 Tooling and lifecycle contracts.
 - [ ] LF06 Local acceptance and documentation closure.
 
 During execution, append each phase's changed contracts, actual selected commands,
@@ -413,3 +413,34 @@ restricting block-head async declaration parsing to async followed by fn; async
 closures keep their expression path. Structure check, fmt, workspace all-target
 Clippy and diff checks pass after formatting repair. No carried error or structural
 exception. Full backend/platform coverage remains CI-only.
+
+### LF05 checkpoint
+
+Extended existing formatter/lint/HIR/navigation/debug and reload contract owners.
+No additional production tooling or runtime mechanism was needed: FnDef traversal,
+checked declaration targets, lexical lint spans and ordinary frame/root ownership
+already carry the local function contract. The analyzer currently supplies syntax
+sessions; semantic navigation/completion remains tested at its HIR query owner.
+
+Passed selected SDK tests:
+`retained_local_function_values_pin_generations_and_clean_up_all_exits` and
+`interpreter_traps_capture_frames_and_original_source_locations`. Source-free
+retained values preserve old/new implementations after reload; managed arguments
+survive forced GC, division traps, depth exhaustion and deterministic cancellation.
+Temporary roots are released on each failure; releasing retained callables permits
+complete collection. Source stack frames preserve local names, lines and columns.
+The initial test used Display on VmError, which only supports Debug; the test
+assertion was corrected without changing production errors or weakening checks.
+
+Passed `cargo test -p kagari-hir --lib local_function_` (six tests), including
+shadowed declarations, completion, Unicode/CRLF source moves, retained snapshots,
+rejected generic bounds and unsupported attributes. Formatter
+`adjacency_interpolation_comments_and_boundaries_are_idempotent` and lint
+`local_functions_keep_independent_usage_and_lexical_lint_policy` pass: local
+parameters keep independent usage, outer unused values remain unused, and local
+attribute policy applies only to the intended lexical region.
+
+Structure check (1408 files), fmt, workspace all-target Clippy and diff checks
+pass. Changed Rust has no new visibility/re-export/LOC exception. No carried
+failure. LF06 owns grammar inventory reconciliation and durable documentation;
+exhaustive workspace/backend/platform checks remain pending CI.

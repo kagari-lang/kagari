@@ -16,34 +16,53 @@ use kagari_vm::vm::native::PreparedNativeEntry;
 #[test]
 fn interpreter_traps_capture_frames_and_original_source_locations() {
     let engine = KagariEngine::default();
-    let artifact=engine.compile_to_artifact(SourceFile::new("origin.kgr","fn fail()->i32 {\n    42/0\n}\nfn middle()->i32 {fail()}\nfn main()->i32 {middle()}\n"),Default::default()).unwrap();
-    let artifact =
-        BytecodeArtifact::from_bytes(&artifact.records().to_bytes(artifact.definitions()).unwrap())
+    for (source, line, column, caller_line) in [
+        (
+            "fn fail()->i32 {\n    42/0\n}\nfn middle()->i32 {fail()}\nfn main()->i32 {middle()}\n",
+            2,
+            5,
+            4,
+        ),
+        (
+            "fn middle()->i32 {\n    fn fail()->i32 {\n        42/0\n    }\n    fail()\n}\nfn main()->i32 {middle()}\n",
+            3,
+            9,
+            5,
+        ),
+    ] {
+        let artifact = engine
+            .compile_to_artifact(SourceFile::new("origin.kgr", source), Default::default())
             .unwrap();
-    let context = ExecutionContext::default();
-    let mut runtime = engine.runtime(context.clone());
-    let loaded_program =
-        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
-    let loaded = runtime
-        .load_program(&loaded_program, Default::default())
+        let artifact = BytecodeArtifact::from_bytes(
+            &artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
         .unwrap();
-    let error = runtime
-        .execute(&loaded, ProgramEntry::Main, &[], &context)
-        .unwrap_err();
-    let trace = error.error_trace().unwrap();
-    assert_eq!(
-        trace
-            .frames
-            .iter()
-            .map(|f| f.function_name.as_str())
-            .collect::<Vec<_>>(),
-        ["fail", "middle", "main"]
-    );
-    assert!(trace.frames[0].source_uri.ends_with("origin.kgr"));
-    assert_eq!(trace.frames[0].line, Some(2));
-    assert_eq!(trace.frames[0].column, Some(5));
-    assert_eq!(trace.frames[1].line, Some(4));
-    assert_eq!(runtime.runtime().gc().active_roots(), 0);
+        let context = ExecutionContext::default();
+        let mut runtime = engine.runtime(context.clone());
+        let loaded_program =
+            PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default())
+                .unwrap();
+        let loaded = runtime
+            .load_program(&loaded_program, Default::default())
+            .unwrap();
+        let error = runtime
+            .execute(&loaded, ProgramEntry::Main, &[], &context)
+            .unwrap_err();
+        let trace = error.error_trace().unwrap();
+        assert_eq!(
+            trace
+                .frames
+                .iter()
+                .map(|f| f.function_name.as_str())
+                .collect::<Vec<_>>(),
+            ["fail", "middle", "main"]
+        );
+        assert!(trace.frames[0].source_uri.ends_with("origin.kgr"));
+        assert_eq!(trace.frames[0].line, Some(line));
+        assert_eq!(trace.frames[0].column, Some(column));
+        assert_eq!(trace.frames[1].line, Some(caller_line));
+        assert_eq!(runtime.runtime().gc().active_roots(), 0);
+    }
 }
 
 #[test]
