@@ -550,6 +550,23 @@ preparation; it does not eliminate invocation-time value/ownership/generation ch
 or establish general zero-allocation execution or speedups. Collection storage,
 host facade redesign and VM/backend expansion remain independent work.
 
+## Numeric standard library
+
+The [numeric standard-library plan](numeric-stdlib-plan.md) owns NS01-NS05:
+freeze numeric contracts, expose the retained integer-policy machinery through
+ordinary scalar methods, add bounded f32/f64 utilities and math functions, then
+validate a small script-owned numerical/sampling workload and hand off documentation.
+Implementation and per-phase commits are authorized. NS01 contract/boundary
+acceptance is complete; NS02 installed integer methods are next.
+The branch baseline is `4baef38e` on `feat/numeric-stdlib`.
+
+Reuse the completed module-owned registration and canonical core::num ownership;
+current low-level integer helpers are not installed script APIs. Ordinary checked
+operators remain unchanged. Native associated constants, public/global RNG APIs,
+full ray tracing, new numeric types and native-backend expansion are excluded.
+The plan explicitly distinguishes bit-exact conversions from platform-dependent
+transcendental precision. Full feature/backend/platform validation remains CI-only.
+
 ## Host registration and interop delivery
 
 Unified registration, Rust DTO/Serde conversion, runtime-owned Opaque and scoped

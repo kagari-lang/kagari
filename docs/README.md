@@ -71,6 +71,10 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and
   host/library integration while keeping explicit native coverage requirements.
+- [Numeric standard library](numeric-stdlib-plan.md): authorized NS01-NS05 expose
+  explicit integer policies and bounded f32/f64 utilities/math through current
+  module-owned registration, with script-owned sampling acceptance. NS01 complete;
+  associated constants, a public RNG and full ray tracing are outside scope.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are
