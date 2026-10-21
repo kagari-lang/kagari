@@ -536,7 +536,8 @@ impl Declarations {
                 let range = match binding.resolved.clone() {
                     ResolvedName::Param(id) => map.param_span(id),
                     ResolvedName::Local(id) => map.local_span(id),
-                    _ => unreachable!("scope binds parameters and locals"),
+                    ResolvedName::Function(_) => continue,
+                    _ => unreachable!("scope binds parameters, locals and local functions"),
                 };
                 builder.insert(
                     binding.resolved.clone(),

@@ -3,7 +3,10 @@
 use crate::{
     AnalysisResult,
     analysis::error::AnalysisError,
-    hir::{ids::BodySelection, item::function::FunctionKind},
+    hir::{
+        ids::{BodyOwner, BodySelection, HirOwner},
+        item::function::FunctionKind,
+    },
     imports::{
         BindingOrigin, ModuleGraph, ModuleImportFacts, SourceUnit, catalog::NamespaceCatalog,
     },
@@ -13,8 +16,12 @@ use crate::{
         resolved::{DeclarationNames, ResolvedNames},
     },
 };
+use kagari_types::visibility::Visibility;
 use smallvec::SmallVec;
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 use {
     kagari_common::{
         cancellation::CancellationToken,
@@ -61,17 +68,37 @@ pub(crate) fn collect_declarations(
     let names = imports.scope.clone();
     let mut diagnostics = SmallVec::<[Diagnostic; 4]>::new();
 
+    let mut local_names = HashMap::new();
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             break;
         }
-        if matches!(function.kind, FunctionKind::Local { .. }) {
-            diagnostics.push(
-                Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
-                    feature: "local function checking pending LF03",
-                })
-                .with_span(lowered.source_map.function_span(function.id)),
-            );
+        if let FunctionKind::Local { block } = function.kind {
+            let span = lowered.source_map.function_span(function.id);
+            let names = local_names.entry(block).or_insert_with(HashSet::new);
+            if !function.name.is_empty() && !names.insert(&function.name) {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
+                        name: function.name.clone(),
+                    })
+                    .with_span(span),
+                );
+            }
+            let unsupported = if function.visibility != Visibility::Private {
+                Some("visibility on a local function")
+            } else if matches!(block.owner(), HirOwner::Body(BodyOwner::Const(_))) {
+                Some("function declarations in constant initializers")
+            } else if function.body.is_none() {
+                Some("local functions without a body")
+            } else {
+                None
+            };
+            if let Some(feature) = unsupported {
+                diagnostics.push(
+                    Diagnostic::error(DiagnosticKind::UnsupportedSyntax { feature })
+                        .with_span(span),
+                );
+            }
         }
         if function.name.is_empty() {
             diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
@@ -201,11 +228,32 @@ pub(crate) fn resolve_bodies(
         }
         resolver.resolve_top_level_expr(const_item.id, const_item.initializer);
     }
+    // Resolve only selected bodies and their lexical ancestors. Ancestors supply
+    // declaration-time scopes; their bodies are not type-checked by this traversal.
+    let mut required = HashSet::new();
+    for function in &lowered.module.functions {
+        if !selection.includes(function.id) {
+            continue;
+        }
+        let mut id = function.id;
+        while required.insert(id) {
+            if cancel.check().is_err() {
+                break;
+            }
+            let FunctionKind::Local { block } = lowered.module.functions[id.index()].kind else {
+                break;
+            };
+            let HirOwner::Body(BodyOwner::Function(parent)) = block.owner() else {
+                break;
+            };
+            id = parent;
+        }
+    }
     for function in &lowered.module.functions {
         if cancel.check().is_err() {
             break;
         }
-        if !selection.includes(function.id) {
+        if !required.contains(&function.id) {
             continue;
         }
         let Some(body) = function.body else {

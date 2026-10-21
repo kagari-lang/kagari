@@ -484,3 +484,47 @@ fn associated_definition_changes_invalidate_cached_body_and_keep_old_snapshot() 
     let fresh = query(&mut test_analysis(), &sources, &main);
     assert_eq!(second.diagnostics(), fresh.diagnostics());
 }
+
+#[test]
+fn selected_local_function_reconstructs_static_ancestry_without_checking_parent() {
+    let mut sources = SourceDatabase::default();
+    let text = "fn outer(hidden: i32) { val broken = missing; fn inner() -> i32 { helper() } fn helper() -> i32 { 42 } }";
+    let file = sources
+        .set("local.kgr", text.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = test_analysis();
+    let inner = owner(&mut db, &sources, file, "inner");
+    let result = query(&mut db, &sources, &inner);
+    assert_eq!(result.checked_bodies(), 1);
+    assert!(
+        result.diagnostics().is_empty(),
+        "{:?}",
+        result.diagnostics()
+    );
+    assert_eq!(
+        result.type_at(text.find("helper()").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    let visible = result
+        .names()
+        .visible_bindings(text.find("helper()").unwrap());
+    assert!(visible.iter().any(|binding| binding.name == "helper"));
+    assert!(
+        visible
+            .iter()
+            .all(|binding| binding.name != "hidden" && binding.name != "broken")
+    );
+    assert!(Arc::ptr_eq(&result, &query(&mut db, &sources, &inner)));
+    let complete = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert!(
+        complete
+            .file(file)
+            .unwrap()
+            .result()
+            .diagnostics()
+            .iter()
+            .any(|d| matches!(&d.kind, DiagnosticKind::UnknownName { name } if name == "missing"))
+    );
+}

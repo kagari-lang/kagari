@@ -81,7 +81,8 @@ pub enum CallTarget {
     },
 }
 
-/// Type-checking result for one call/operator/protocol expression.
+/// Type-checking result for a call/operator/protocol or named local callable value.
+/// For a callable value, the expression site records specialization without a call.
 ///
 /// ```text
 /// ExprKind::Call { callee: name_id, args: [arg_id], ... }

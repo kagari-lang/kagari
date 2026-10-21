@@ -131,6 +131,17 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     catalog: &'a AggregateCatalog,
     context: &'a DefinitionContext,
 ) -> Result<VerifiedMirModule, MirLoweringError> {
+    if module
+        .lowered
+        .module
+        .functions
+        .iter()
+        .any(|f| matches!(f.kind, FunctionKind::Local { .. }))
+    {
+        return Err(MirLoweringError::MissingBinding(
+            "local function execution pending LF04",
+        ));
+    }
     identity::collect_language(context, &options.cancel)?;
     let mut planner = InstancePlanner::new(module, options, modules, catalog, context);
     planner.check()?;

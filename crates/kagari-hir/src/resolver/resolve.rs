@@ -29,6 +29,7 @@ use std::{
 };
 
 /// Active lexical frame: retained scope index plus each spelling's latest binding index.
+#[derive(Clone)]
 struct ActiveScope {
     id: usize,
     latest: HashMap<String, usize>,
@@ -48,6 +49,7 @@ pub(crate) struct BodyResolver<'a> {
     source_map: &'a SourceMap,
     scopes: Vec<ActiveScope>,
     closures: Vec<(ExprId, HashSet<ResolvedName>, Vec<ResolvedName>)>,
+    local_scopes: HashMap<FunctionId, Vec<ActiveScope>>,
 }
 
 impl<'a> BodyResolver<'a> {
@@ -67,6 +69,7 @@ impl<'a> BodyResolver<'a> {
             resolved: ResolvedNames::new(names.clone(), imports, catalog),
             scopes: Vec::new(),
             closures: Vec::new(),
+            local_scopes: HashMap::new(),
         }
     }
 
@@ -86,6 +89,7 @@ impl<'a> BodyResolver<'a> {
             HirOwner::Body(BodyOwner::Function(function)),
             "function body owner mismatch"
         );
+        self.scopes = self.local_scopes.remove(&function).unwrap_or_default();
         let span = self.source_map.block_span(body);
         self.push_scope(
             self.source_map.function_span(function),
@@ -96,6 +100,7 @@ impl<'a> BodyResolver<'a> {
         }
         self.resolve_block(body);
         self.pop_scope();
+        self.scopes.clear();
     }
 
     /// Resolves a constant initializer under its asserted constant owner.
@@ -114,6 +119,19 @@ impl<'a> BodyResolver<'a> {
         self.assert_current_owner(block_id.owner());
         let block = self.module.block(block_id);
         self.push_child_scope(self.source_map.block_span(block_id));
+        for stmt in &block.statements {
+            if self.cancel.check().is_err() {
+                break;
+            }
+            if let StmtKind::Function(id) = self.module.stmt(*stmt).kind {
+                let function = &self.module.functions[id.index()];
+                self.bind_name(
+                    &function.name,
+                    ResolvedName::Function(id),
+                    self.source_map.block_span(block_id).start,
+                );
+            }
+        }
         for stmt in &block.statements {
             if self.cancel.check().is_err() {
                 break;
@@ -180,7 +198,10 @@ impl<'a> BodyResolver<'a> {
                 self.pop_scope();
             }
             StmtKind::Expr(expr) => self.resolve_expr(*expr),
-            StmtKind::Function(_) | StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Function(id) => {
+                self.local_scopes.insert(*id, self.scopes.clone());
+            }
+            StmtKind::Break | StmtKind::Continue => {}
             StmtKind::BreakValue(expr) => self.resolve_expr(*expr),
         }
     }
@@ -465,11 +486,18 @@ impl<'a> BodyResolver<'a> {
             .filter(|_| namespace == NameNamespace::Value)
         {
             if let Some(index) = scope.latest.get(name) {
-                return Some(NameResolution::Unique(
-                    self.resolved.scopes[scope.id].bindings[*index]
-                        .resolved
-                        .clone(),
-                ));
+                let resolved = &self.resolved.scopes[scope.id].bindings[*index].resolved;
+                let owner = self.resolved.scopes[self.scopes.last().expect("active body").id].owner;
+                let accessible = match resolved {
+                    ResolvedName::Local(id) => id.owner() == HirOwner::Body(owner),
+                    ResolvedName::Param(id) => id.owner() == HirOwner::Body(owner),
+                    _ => true,
+                };
+                return Some(if accessible {
+                    NameResolution::Unique(resolved.clone())
+                } else {
+                    NameResolution::Unresolved
+                });
             }
         }
         self.names.lookup(name, namespace)
@@ -500,7 +528,8 @@ impl<'a> BodyResolver<'a> {
         match resolved {
             ResolvedName::Param(id) => self.assert_current_owner(id.owner()),
             ResolvedName::Local(id) => self.assert_current_owner(id.owner()),
-            _ => unreachable!("only local bindings enter a body scope"),
+            ResolvedName::Function(_) => {}
+            _ => unreachable!("only lexical declarations enter a body scope"),
         }
         if let Some(scope) = self.scopes.last_mut() {
             let bindings = &mut self.resolved.scopes[scope.id].bindings;

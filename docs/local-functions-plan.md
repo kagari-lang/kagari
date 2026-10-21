@@ -293,7 +293,7 @@ diagnostic/fallback contract. Never report unrun CI as passed.
   LF03 owns bounded conservative reuse; finer invalidation remains R8.
 - [x] LF01 Contract and integration inventory.
 - [x] LF02 Grammar and declaration ownership.
-- [ ] LF03 Lexical resolution and typing.
+- [x] LF03 Lexical resolution and typing.
 - [ ] LF04 Executable calls and function values.
 - [ ] LF05 Tooling and lifecycle contracts.
 - [ ] LF06 Local acceptance and documentation closure.
@@ -347,3 +347,45 @@ recovery. Structure check (1404 files), fmt, workspace all-target Clippy and dif
 checks pass. An initial completion-visitor return-type mismatch and a Clippy
 needless-return finding were repaired; no carried build failure. No structural
 exception. Full CI remains pending.
+
+### LF03 integration decisions
+
+Lexical ancestry is recorded by the existing resolver as declaration-time active
+scope snapshots after block predeclaration. A selected local body resolves only
+its ancestor chain plus itself, once per body; it does not type-check ancestors
+or resolve unrelated functions. This avoids a parallel lexical walker/index while
+retaining shadowing positions, closure parameters and pattern scopes. Crossing
+owners blocks value capture, including through nested closures; static local
+function bindings remain visible. Navigation filters the same owner boundary.
+
+Inspection and execution of the typing tests corrected an initial assumption:
+named declarations previously supported direct calls but were not first-class
+values (closures already were). The authorized escaping-local contract therefore
+adds local-function-value specialization using existing inference/bounds and
+checked callable-application facts. LF04 uses MakeClosure with no captures and
+the existing function target. Module/native/method name-as-value support is not
+expanded. No new runtime environment or calling convention is introduced.
+
+### LF03 checkpoint
+
+Implemented block predeclaration, independent local signatures, duplicate/visibility
+and constant-context diagnostics, noncapturing lookup/visible-scope boundaries,
+selected ancestor resolution, callable-value specialization and conservative reuse.
+Declaration navigation retains static function definitions rather than creating
+binding IDs for them. The compiler rejects modules containing locals until LF04.
+
+Passed HIR tests: `local_function` selected five tests (the callable-contract test
+was rerun separately after its fix), plus
+`body_edits_reuse_other_bodies_but_signatures_invalidate_them`,
+`declaration_pattern_read_only_and_mutable_leaves_keep_usage_and_captures`, and
+`snapshots_reuse_unchanged_files_and_cancellation_does_not_publish`.
+They cover forward/mutual calls, generic and async headers, local function values,
+methods/closures, capture rejection, duplicate names, export-scope isolation,
+selected-body queries, nested edits, retained navigation and ordinary regressions.
+An initial binding collector assumption that every lexical binding was a runtime
+local caused a panic; static function bindings now keep their declaration IDs.
+The function-value test exposed the missing capability recorded above; it is now
+checked through existing specialization. No remaining test/build failure.
+
+Structure check (1406 files), fmt, workspace all-target Clippy and diff checks
+pass. No structural exception; exhaustive CI remains pending.

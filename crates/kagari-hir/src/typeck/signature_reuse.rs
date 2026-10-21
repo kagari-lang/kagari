@@ -116,6 +116,16 @@ pub(crate) fn reuse_signatures(
     current: &LoweredModule,
     cancel: &CancellationToken,
 ) -> Option<AnalysisResult<ModuleSignatures>> {
+    // Parent body elision cannot prove a nested declaration environment unchanged.
+    if previous
+        .module
+        .functions
+        .iter()
+        .chain(&current.module.functions)
+        .any(|f| matches!(f.kind, FunctionKind::Local { .. }))
+    {
+        return None;
+    }
     // Equal text cannot transfer native authority between installed and source
     // inputs. The implementation facts are retained by a reused signature.
     if previous.registered_native_api != current.registered_native_api

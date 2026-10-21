@@ -38,6 +38,16 @@ pub struct BodyReuse<'a> {
 impl BodyReuse<'_> {
     /// Requires compatible surrounding source tokens and diagnostic locations before trying body reuse.
     pub(crate) fn environment_matches(&self, current: &LoweredModule) -> bool {
+        if self
+            .previous_lowered
+            .module
+            .functions
+            .iter()
+            .chain(&current.module.functions)
+            .any(|f| matches!(f.kind, FunctionKind::Local { .. }))
+        {
+            return false;
+        }
         self.previous_diagnostics.iter().all(|diagnostic| {
             diagnostic.span.is_some_and(|span| {
                 self.previous_lowered

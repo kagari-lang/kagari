@@ -4,8 +4,8 @@ use crate::{
     builtin::BuiltinFunction,
     hir::{
         ids::{
-            BodyOwner, ConstId, EnumId, ExprId, FunctionId, LocalId, ModuleId, OpaqueTypeId,
-            ParamId, PatternId, PlaceId, StructId, TraitId,
+            BodyOwner, ConstId, EnumId, ExprId, FunctionId, HirOwner, LocalId, ModuleId,
+            OpaqueTypeId, ParamId, PatternId, PlaceId, StructId, TraitId,
         },
         item::Module,
         pattern::PatternKind,
@@ -16,7 +16,11 @@ use crate::{
     },
     resolver::table::NameTable,
 };
-use std::{cmp::Reverse, collections::HashMap, sync::Arc};
+use std::{
+    cmp::Reverse,
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use kagari_common::span::Span;
 
@@ -228,11 +232,20 @@ impl ResolvedNames {
             .filter(|(_, scope)| scope.span.start <= offset && offset < scope.span.end)
             .min_by_key(|(id, scope)| (scope.span.end - scope.span.start, Reverse(*id)))
             .map(|(id, _)| id);
+        let owner = scope.map(|id| self.scopes[id].owner);
+        let mut seen = HashSet::new();
         let mut visible = HashMap::new();
         while let Some(id) = scope {
             for binding in self.scopes[id].bindings.iter().rev() {
-                if binding.visible_from <= offset {
-                    visible.entry(binding.name.as_str()).or_insert(binding);
+                if binding.visible_from <= offset && seen.insert(binding.name.as_str()) {
+                    let accessible = match binding.resolved {
+                        ResolvedName::Local(id) => Some(id.owner()) == owner.map(HirOwner::Body),
+                        ResolvedName::Param(id) => Some(id.owner()) == owner.map(HirOwner::Body),
+                        _ => true,
+                    };
+                    if accessible {
+                        visible.insert(binding.name.as_str(), binding);
+                    }
                 }
             }
             scope = self.scopes[id].parent;

@@ -43,6 +43,7 @@ mod trait_calls;
 
 mod iteration;
 mod joins;
+mod local_functions;
 mod numeric;
 mod operators;
 mod solving;
@@ -269,6 +270,9 @@ impl<'a> BodyChecker<'a> {
         if let Some(ty) = self.infer_host_path_read(expr_id, env) {
             env.exprs.insert(expr_id, ty.clone());
             self.type_table.insert_expr(expr_id, ty.clone());
+            return ty;
+        }
+        if let Some(ty) = self.infer_local_function_value(expr_id, env, expected) {
             return ty;
         }
         let expr = self.lowered.module.expr(expr_id);

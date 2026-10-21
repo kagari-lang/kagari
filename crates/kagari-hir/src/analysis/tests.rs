@@ -121,3 +121,53 @@ fn snapshots_reuse_unchanged_files_and_cancellation_does_not_publish() {
     assert!(db.snapshot(sources.snapshot(), &cancel).is_err());
     assert!(first.file(b).unwrap().source().text().contains("{ 2 }"));
 }
+
+#[test]
+fn local_function_signature_edits_refresh_facts_and_retain_old_navigation() {
+    let mut sources = SourceDatabase::default();
+    let original = "fn outer() -> i32 { fn inner() -> i32 { 42 } inner() }";
+    let file = sources
+        .set("local.kgr", original.into(), SourceLayer::Base)
+        .unwrap();
+    let mut db = test_analysis();
+    let first = db
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    assert!(first.file(file).unwrap().result().diagnostics().is_empty());
+    let call = original.rfind("inner()").unwrap();
+    let old_site = first
+        .file(file)
+        .unwrap()
+        .definition_at(call)
+        .unwrap()
+        .location;
+    for changed in [
+        "fn outer() -> i32 { fn inner() -> bool { true } inner() }",
+        "fn outer() -> i32 { fn renamed() -> i32 { 42 } inner() }",
+        "fn outer() -> i32 { fn inner() -> i32 { true } inner() }",
+    ] {
+        sources
+            .set("local.kgr", changed.into(), SourceLayer::Overlay)
+            .unwrap();
+        let next = db
+            .snapshot(sources.snapshot(), &Default::default())
+            .unwrap();
+        let result = next.file(file).unwrap().result();
+        assert!(!result.diagnostics().is_empty(), "{changed}");
+        assert_eq!(result.facts().typed.reused_bodies, 0);
+        assert!(result.clone().into_codegen().is_err());
+    }
+    assert_eq!(
+        first
+            .file(file)
+            .unwrap()
+            .definition_at(call)
+            .unwrap()
+            .location,
+        old_site
+    );
+    assert_eq!(
+        first.file(file).unwrap().type_at(call),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+}
