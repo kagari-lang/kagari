@@ -120,7 +120,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn attributed_item_kind(&self) -> Option<TokenKind> {
+    pub(crate) fn attributed_item_kind(&self) -> Option<TokenKind> {
         let mut cursor = self.cursor();
         let mut kind = self.nth_nontrivia_kind_from(&mut cursor)?;
         while kind == TokenKind::Hash {
@@ -402,7 +402,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::RBrace, DiagnosticKind::ExpectedBlockEnd);
     }
 
-    fn parse_function(&mut self) {
+    pub(crate) fn parse_function(&mut self) {
         self.start_node(SyntaxKind::FnDef);
         self.parse_attributes();
         self.bump_trivia();

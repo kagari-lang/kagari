@@ -40,7 +40,7 @@ use kagari_types::visibility::Visibility;
 /// Impl binders can be prepended to method binders, and implicit `self` type syntax
 /// is supplied by lowering. Ordinary function parameters use `ParamId`; closure
 /// parameters use `LocalId` in `ExprKind::Closure`. Named local `fn` declarations
-/// are not currently accepted in function bodies.
+/// use `Local` and retain their declaring block without capturing its values.
 ///
 /// Lowering assigns `HirOwner::Body(BodyOwner::Function(f))` to signature/body
 /// nodes. Type annotations enter `Body.types`, not the semantic type table;
@@ -49,7 +49,7 @@ use kagari_types::visibility::Visibility;
 pub struct Function {
     /// Slot in the enclosing module's function collection.
     pub id: FunctionId,
-    /// Free function, trait method or implementation method origin.
+    /// Module, local, trait method or implementation method origin.
     pub kind: FunctionKind,
     /// Explicit async factory; the written return type describes its completed body.
     pub is_async: bool,
@@ -77,12 +77,15 @@ pub struct Function {
 /// | `trait R { fn run(self); }` or a default body | `TraitMethod` | `TraitMethod.function = f` |
 /// | `impl R for S { fn run(self) {} }` | `ImplMethod` | `ImplMethod.function = f` |
 ///
-/// All three use `Module.functions`. This tag neither identifies the particular
+/// | `fn run() {}` inside a block | `Local { block }` | `StmtKind::Function(f)` |
+///
+/// All origins use `Module.functions`. This tag neither identifies the particular
 /// trait/impl nor chooses the runtime calling convention. `User` also covers
-/// declaration-only installed functions; a closure is an expression, not a fourth
-/// tag here.
+/// declaration-only installed functions; a closure remains an expression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FunctionKind {
+    /// A named block-local function; the block carries the enclosing body owner.
+    Local { block: BlockId },
     /// A free `fn` declaration, including a declaration-only installed function.
     User,
     /// A trait requirement or default method.

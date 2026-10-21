@@ -180,7 +180,7 @@ impl<'a> BodyResolver<'a> {
                 self.pop_scope();
             }
             StmtKind::Expr(expr) => self.resolve_expr(*expr),
-            StmtKind::Break | StmtKind::Continue => {}
+            StmtKind::Function(_) | StmtKind::Break | StmtKind::Continue => {}
             StmtKind::BreakValue(expr) => self.resolve_expr(*expr),
         }
     }

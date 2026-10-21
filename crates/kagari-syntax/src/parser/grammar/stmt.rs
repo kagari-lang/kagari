@@ -30,6 +30,15 @@ impl<'a> Parser<'a> {
         self.bump_trivia();
         while !self.at_any(&[TokenKind::RBrace, TokenKind::Eof]) {
             match self.current_kind() {
+                Some(TokenKind::FnKw | TokenKind::AsyncKw) => self.parse_function(),
+                Some(TokenKind::Hash | TokenKind::PubKw)
+                    if matches!(
+                        self.attributed_item_kind(),
+                        Some(TokenKind::FnKw | TokenKind::AsyncKw)
+                    ) =>
+                {
+                    self.parse_function()
+                }
                 Some(TokenKind::ValKw | TokenKind::VarKw) => self.parse_binding_stmt(),
                 Some(TokenKind::ReturnKw) => self.parse_return_stmt(),
                 Some(TokenKind::WhileKw) => self.parse_while_stmt(),

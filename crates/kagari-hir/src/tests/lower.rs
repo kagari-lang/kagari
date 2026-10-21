@@ -1,6 +1,7 @@
 use crate::{
     hir::{
         expr::ExprKind,
+        ids::{BodyOwner, HirOwner},
         item::{Item, function::FunctionKind},
         pattern::PatternKind,
         place::PlaceKind,
@@ -333,4 +334,51 @@ fn inline_ast_lowering_owns_only_its_items_and_attributes() {
         .source_map
         .block_span(lowered.module.functions[0].body.unwrap());
     assert_eq!(&source.text()[span.start..span.end].trim(), &"{}");
+}
+
+#[test]
+fn local_function_rows_preserve_owners_and_module_membership() {
+    let lowered = common::lower_ok(
+        r#"
+fn outer<T>(x: T) -> i32 {
+    fn first<U>(x: U) -> U { x }
+    { fn first() -> i32 { 1 } }
+    fn last() -> i32 { 42 }
+    last()
+}
+struct S {}
+impl S { fn method(self) { fn child() {} } }
+fn after() {}
+"#,
+    );
+    let functions = &lowered.module.functions;
+    assert_eq!(
+        functions
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "outer", "first", "first", "last", "method", "child", "after"
+        ]
+    );
+    for (index, function) in functions.iter().enumerate() {
+        assert_eq!(function.id.index(), index);
+        let body = function.body.unwrap();
+        assert_eq!(
+            body.owner(),
+            HirOwner::Body(BodyOwner::Function(function.id))
+        );
+        let declaration = lowered.source_map.function_span(function.id);
+        let body_span = lowered.source_map.block_span(body);
+        assert!(declaration.start <= body_span.start && declaration.end >= body_span.end);
+        if let FunctionKind::Local { block } = function.kind {
+            assert!(!lowered.module.items.contains(&Item::Function(function.id)));
+            assert!(lowered.module.block(block).statements.iter().any(|stmt|
+                matches!(lowered.module.stmt(*stmt).kind, StmtKind::Function(id) if id == function.id)));
+        }
+    }
+    assert_eq!(functions[1].generic_params.len(), 1);
+    assert_eq!(functions[1].generic_params[0].name, "U");
+    assert!(functions[2].generic_params.is_empty());
+    assert_eq!(lowered.module.impls[0].methods[0].function, functions[4].id);
 }

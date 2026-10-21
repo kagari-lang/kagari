@@ -182,7 +182,8 @@ receiver_param      ::= "self" ;
 
 block               ::= "{" stmt* expr? "}" ;
 
-stmt                ::= binding_stmt
+stmt                ::= function_decl
+                      | binding_stmt
                       | assign_stmt
                       | expr_stmt
                       | return_stmt

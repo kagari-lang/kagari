@@ -7,6 +7,7 @@
 use crate::{
     ast::{
         expr::{BindingCondition, BlockExpr, Expr, Pattern},
+        item::FnDef,
         misc::Writeability,
         support,
         traits::AstNode,
@@ -245,6 +246,8 @@ ast_node!(
 /// A typed choice of statement views; see each variant for its tree shape.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Stmt {
+    /// A named local function, with the same child layout as a module function.
+    FnDef(FnDef),
     /// A local binding, such as `val x = 1;` or `var count: i32 = 0;`.
     BindingStmt(BindingStmt),
     /// A return with an optional value: `return value;` or `return;`.
@@ -269,7 +272,8 @@ impl AstNode for Stmt {
     fn can_cast(kind: SyntaxKind) -> bool {
         matches!(
             kind,
-            SyntaxKind::BindingStmt
+            SyntaxKind::FnDef
+                | SyntaxKind::BindingStmt
                 | SyntaxKind::ReturnStmt
                 | SyntaxKind::AssignStmt
                 | SyntaxKind::WhileStmt
@@ -283,6 +287,7 @@ impl AstNode for Stmt {
 
     fn cast(syntax: SyntaxNode) -> Option<Self> {
         match syntax.kind() {
+            SyntaxKind::FnDef => FnDef::cast(syntax).map(Self::FnDef),
             SyntaxKind::BindingStmt => BindingStmt::cast(syntax).map(Self::BindingStmt),
             SyntaxKind::ReturnStmt => ReturnStmt::cast(syntax).map(Self::ReturnStmt),
             SyntaxKind::AssignStmt => AssignStmt::cast(syntax).map(Self::AssignStmt),
@@ -298,6 +303,7 @@ impl AstNode for Stmt {
 
     fn syntax(&self) -> &SyntaxNode {
         match self {
+            Self::FnDef(node) => node.syntax(),
             Self::BindingStmt(node) => node.syntax(),
             Self::ReturnStmt(node) => node.syntax(),
             Self::AssignStmt(node) => node.syntax(),

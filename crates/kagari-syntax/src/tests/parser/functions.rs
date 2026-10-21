@@ -1,7 +1,7 @@
 use kagari_source::diagnostic::Severity;
 
 use crate::{
-    ast::{expr::Expr, traits::AstNode},
+    ast::{expr::Expr, stmt::Stmt, traits::AstNode},
     lexer::lex,
     tests::common,
     token::TokenKind,
@@ -143,4 +143,35 @@ fn rejects_dyn_trait_type() {
         "expected an error, got {:?}",
         parse.diagnostics()
     );
+}
+
+#[test]
+fn local_function_syntax_preserves_recovery_and_offsets() {
+    let text = "// 中文😀\r\nfn outer() { #[meta(tag = \"local\")] fn inner<T>(x: T) -> T { x } async fn task() {} inner(42) }";
+    let module = common::parse_ok(text);
+    assert_eq!(module.syntax().text().to_string(), text);
+    let body = common::first_function(&module).body().unwrap();
+    let statements = body.statements().collect::<Vec<_>>();
+    let [Stmt::FnDef(inner), Stmt::FnDef(task)] = statements.as_slice() else {
+        panic!("local functions");
+    };
+    assert_eq!(inner.name_text().as_deref(), Some("inner"));
+    assert!(task.is_async());
+    assert_eq!(
+        usize::from(inner.syntax().text_range().start()),
+        text.find("#[meta").unwrap()
+    );
+    assert!(matches!(body.tail_expr(), Some(Expr::CallExpr(_))));
+    for text in [
+        "fn outer() { fn broken() { val x = ; } fn next() {} next() }",
+        "fn outer() { fn broken() fn next() {} next() }",
+    ] {
+        let parsed = common::parse(text);
+        assert!(!parsed.diagnostics().is_empty());
+        let body = common::first_function(&parsed.syntax()).body().unwrap();
+        assert!(body.statements().any(
+            |stmt| matches!(stmt, Stmt::FnDef(f) if f.name_text().as_deref() == Some("next"))
+        ));
+        assert!(matches!(body.tail_expr(), Some(Expr::CallExpr(_))));
+    }
 }

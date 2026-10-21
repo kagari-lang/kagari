@@ -27,6 +27,7 @@ impl<'a> BodyChecker<'a> {
         }
         let stmt = self.lowered.module.stmt(stmt_id);
         match &stmt.kind {
+            StmtKind::Function(_) => {}
             StmtKind::Binding {
                 pattern,
                 writeability,

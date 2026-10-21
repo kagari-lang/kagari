@@ -6,7 +6,10 @@ use kagari_types::{
 
 use crate::{
     hir::{
-        ids::{BodyOwner, FieldId, GenericParamId, ImplId, OpaqueTypeId, TypeRefId, VariantId},
+        ids::{
+            BodyOwner, FieldId, GenericParamId, HirOwner, ImplId, OpaqueTypeId, TypeRefId,
+            VariantId,
+        },
         item::{Item, behavior::GenericParam, function::FunctionKind},
     },
     imports::{SourceItem, catalog::NamespaceCatalog, types::ImportedTypes},
@@ -201,7 +204,9 @@ impl Declarations {
                 .map_err(|_| DefinitionMappingError::Cancelled)?;
             let kind = match item.kind {
                 FunctionKind::User => DefinitionKind::Function,
-                FunctionKind::TraitMethod | FunctionKind::ImplMethod => continue,
+                FunctionKind::Local { .. }
+                | FunctionKind::TraitMethod
+                | FunctionKind::ImplMethod => continue,
             };
             let owner = builder.definition(
                 ResolvedName::Function(item.id),
@@ -419,6 +424,31 @@ impl Declarations {
                     );
                 }
             }
+        }
+        for function in &module.functions {
+            let FunctionKind::Local { block } = function.kind else {
+                continue;
+            };
+            let parent = match block.owner() {
+                HirOwner::Body(BodyOwner::Function(id)) => builder
+                    .result
+                    .definition(ResolvedName::Function(id))
+                    .copied(),
+                HirOwner::Body(BodyOwner::Const(id)) => {
+                    builder.result.definition(ResolvedName::Const(id)).copied()
+                }
+                _ => None,
+            }
+            .ok_or(DefinitionMappingError::InvalidContract)?;
+            let owner = builder.definition(
+                ResolvedName::Function(function.id),
+                parent,
+                DefinitionKind::Function,
+                &function.name,
+                map.item_declaration_span(Item::Function(function.id)),
+                map.item_name_span(Item::Function(function.id)).is_some(),
+            )?;
+            builder.generic_params(&owner, &function.generic_params, map);
         }
         for (members, owner) in module
             .traits

@@ -7,7 +7,7 @@
 
 use crate::{
     hir::{
-        ids::{BodyOwner, FieldId, HirOwner, TypeRefId, VariantId},
+        ids::{BodyOwner, FieldId, FunctionId, HirOwner, TypeRefId, VariantId},
         item::{
             Item,
             adt::{Enum, Field, OpaqueType, Struct, Variant},
@@ -85,9 +85,8 @@ impl Lowerer {
                     self.module.impls.push(hir_impl);
                 }
                 AstItem::FnDef(function) => {
-                    let hir_function = self.lower_function(&function);
-                    self.module.items.push(Item::Function(hir_function.id));
-                    self.module.functions.push(hir_function);
+                    let id = self.lower_function(&function, FunctionKind::User);
+                    self.module.items.push(Item::Function(id));
                 }
                 AstItem::ConstDef(const_def) => {
                     let hir_const = self.lower_const(&const_def);
@@ -327,7 +326,7 @@ impl Lowerer {
             self.lower_method_function(method, FunctionKind::TraitMethod, None, inherited_generics);
         let id = self.source_map.push_trait_method(syntax_span(method));
         let function_id = function.id;
-        self.module.functions.push(function);
+        self.finish_function(function);
         TraitMethod {
             has_default: method.body().is_some(),
             id,
@@ -349,7 +348,7 @@ impl Lowerer {
             inherited_generics,
         );
         let function_id = function.id;
-        self.module.functions.push(function);
+        self.finish_function(function);
         ImplMethod {
             name: method.name_text().unwrap_or_default(),
             function: function_id,
@@ -364,7 +363,7 @@ impl Lowerer {
         receiver_ty: Option<TypeRefId>,
         inherited_generics: &[GenericParam],
     ) -> Function {
-        let id = self.source_map.push_function(syntax_span(method));
+        let id = self.reserve_function(syntax_span(method));
         if let Some(name) = method.name() {
             self.source_map
                 .insert_item_name(Item::Function(id), token_span(&name));
@@ -435,8 +434,8 @@ impl Lowerer {
     }
 
     /// Allocates a function ID, lowers signature/body under its owner, then restores the prior owner.
-    fn lower_function(&mut self, function: &FnDef) -> Function {
-        let id = self.source_map.push_function(syntax_span(function));
+    pub(crate) fn lower_function(&mut self, function: &FnDef, kind: FunctionKind) -> FunctionId {
+        let id = self.reserve_function(syntax_span(function));
         if let Some(name) = function.name() {
             self.source_map
                 .insert_item_name(Item::Function(id), token_span(&name));
@@ -469,7 +468,7 @@ impl Lowerer {
 
         let result = Function {
             id,
-            kind: FunctionKind::User,
+            kind,
             is_async: function.is_async(),
             visibility: lower_visibility(function.visibility()),
             name: function.name_text().unwrap_or_default(),
@@ -486,7 +485,8 @@ impl Lowerer {
             body: function.body().map(|body| self.lower_block(&body)),
         };
         self.source_map.set_owner(previous_owner);
-        result
+        self.finish_function(result);
+        id
     }
 
     fn lower_generic_params(&mut self, params: &GenericParamList) -> Vec<GenericParam> {

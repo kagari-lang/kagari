@@ -65,7 +65,15 @@ pub(crate) fn collect_declarations(
         if cancel.check().is_err() {
             break;
         }
-        if function.kind == FunctionKind::User && function.name.is_empty() {
+        if matches!(function.kind, FunctionKind::Local { .. }) {
+            diagnostics.push(
+                Diagnostic::error(DiagnosticKind::UnsupportedSyntax {
+                    feature: "local function checking pending LF03",
+                })
+                .with_span(lowered.source_map.function_span(function.id)),
+            );
+        }
+        if function.name.is_empty() {
             diagnostics.push(Diagnostic::error(DiagnosticKind::MissingFunctionName));
         }
     }

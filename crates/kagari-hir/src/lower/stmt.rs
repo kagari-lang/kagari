@@ -4,6 +4,7 @@ use crate::{
     hir::{
         expr::ops::BinaryOp,
         ids::{BlockId, PlaceId, StmtId},
+        item::function::FunctionKind,
         pattern::{PatternData, PatternKind},
         place::{PlaceData, PlaceKind},
         stmt::{BlockData, StmtData, StmtKind},
@@ -24,6 +25,14 @@ use smallvec::{SmallVec, smallvec};
 impl Lowerer {
     /// Lowers statements in order and the optional tail separately, then allocates their block.
     pub(crate) fn lower_block(&mut self, block: &BlockExpr) -> BlockId {
+        let id = self.alloc_block(
+            syntax_span(block),
+            BlockData {
+                statements: SmallVec::new(),
+                tail_expr: None,
+            },
+        );
+        let previous_block = self.current_block.replace(id);
         let cancel = self.cancel.clone();
         let statements = block
             .statements()
@@ -32,18 +41,23 @@ impl Lowerer {
             .collect::<SmallVec<[_; 8]>>();
         let tail_expr = block.tail_expr().map(|expr| self.lower_expr(&expr));
 
-        self.alloc_block(
-            syntax_span(block),
-            BlockData {
-                statements,
-                tail_expr,
-            },
-        )
+        self.module.body.blocks[id.index()].1 = BlockData {
+            statements,
+            tail_expr,
+        };
+        self.current_block = previous_block;
+        id
     }
 
     /// Builds binding/control-flow records, using placeholders where required recovered syntax is absent.
     pub(crate) fn lower_stmt(&mut self, stmt: &Stmt) -> StmtId {
         let kind = match stmt {
+            Stmt::FnDef(function) => StmtKind::Function(self.lower_function(
+                function,
+                FunctionKind::Local {
+                    block: self.current_block.expect("statement block"),
+                },
+            )),
             Stmt::BindingStmt(stmt) => StmtKind::Binding {
                 pattern: stmt
                     .pattern()

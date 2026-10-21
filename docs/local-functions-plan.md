@@ -292,7 +292,7 @@ diagnostic/fallback contract. Never report unrun CI as passed.
 - Structural debt: no new exception requested. LF02 reviews function/block storage;
   LF03 owns bounded conservative reuse; finer invalidation remains R8.
 - [x] LF01 Contract and integration inventory.
-- [ ] LF02 Grammar and declaration ownership.
+- [x] LF02 Grammar and declaration ownership.
 - [ ] LF03 Lexical resolution and typing.
 - [ ] LF04 Executable calls and function values.
 - [ ] LF05 Tooling and lifecycle contracts.
@@ -329,3 +329,21 @@ set; complete backend/platform testing remains CI-owned.
 
 Validation: document content/link review and `git diff --check` passed. No build
 was required. No carried failure or structural exception.
+
+### LF02 checkpoint
+
+Implemented shared FnDef block parsing/AST statements, explicit local origin and
+statement links, private function reservations, reserved block rows, nested
+semantic definition ancestry and module/export exclusion. Methods use the same
+function allocator. Recoverable syntax retains following declarations and tails.
+Semantic checking rejects locals with a staged LF03 diagnostic; compiler statement
+lowering has a staged LF04 error. These are removed by their owning phases.
+
+Passed: `cargo test -p kagari-hir --lib local_function_rows_preserve_owners_and_module_membership`
+and `cargo test -p kagari-syntax --lib local_function_syntax_preserves_recovery_and_offsets`.
+The first establishes parent/child/method storage and generic ownership; the second
+covers attributes/async headers, Unicode/CRLF source sites and malformed sibling
+recovery. Structure check (1404 files), fmt, workspace all-target Clippy and diff
+checks pass. An initial completion-visitor return-type mismatch and a Clippy
+needless-return finding were repaired; no carried build failure. No structural
+exception. Full CI remains pending.

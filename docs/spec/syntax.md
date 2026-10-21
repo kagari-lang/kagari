@@ -634,10 +634,15 @@ Notes:
 
 ### Blocks and Statements
 
+Named local functions are parsed and represented in HIR. Semantic/executable
+support is staged under the [local function plan](../local-functions-plan.md);
+compilation currently rejects these declarations until LF03-LF04 are complete.
+
 ```ebnf
 block           ::= "{" stmt* expr? "}" ;
 
-stmt            ::= binding_stmt
+stmt            ::= function_decl
+                  | binding_stmt
                   | assign_stmt
                   | expr_stmt
                   | return_stmt

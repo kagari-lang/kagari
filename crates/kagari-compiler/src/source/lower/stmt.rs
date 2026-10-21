@@ -63,6 +63,9 @@ impl FunctionLowerer<'_, '_> {
     fn lower_stmt_inner(&mut self, stmt_id: StmtId) -> Result<(), MirLoweringError> {
         let stmt = self.analyzed.lowered.module.stmt(stmt_id).clone();
         match stmt.kind {
+            StmtKind::Function(_) => Err(MirLoweringError::MissingBinding(
+                "local function execution pending LF04",
+            )),
             StmtKind::Binding {
                 pattern,
                 initializer,

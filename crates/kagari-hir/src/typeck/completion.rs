@@ -278,6 +278,10 @@ impl<'a> Completion<'a> {
                             )
                         }
                         Node::Stmt(id) => match &self.module.stmt(id).kind {
+                            StmtKind::Function(_) => {
+                                value = Exits::NORMAL;
+                                continue;
+                            }
                             StmtKind::Binding { initializer, .. } | StmtKind::Expr(initializer) => {
                                 work.push(Task::Visit(Node::Expr(*initializer)));
                                 continue;

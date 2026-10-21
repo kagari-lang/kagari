@@ -6,8 +6,8 @@ use kagari_syntax::{ast::traits::AstNode, kind::SyntaxKind};
 use crate::{
     hir::{
         expr::{ExprData, ExprKind, ops::BinaryOp},
-        ids::{BlockId, ExprId, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
-        item::Module,
+        ids::{BlockId, ExprId, FunctionId, LocalId, PatternId, PlaceId, StmtId, TypeRefId},
+        item::{Module, function::Function},
         pattern::{PatternData, PatternKind},
         place::{PlaceData, PlaceKind},
         stmt::{BlockData, StmtData},
@@ -22,6 +22,10 @@ use crate::{
 /// payload to `Module.body`. Keep those vectors aligned. Owner changes are made on
 /// the source map by item lowering and restored after the nested construction.
 pub(crate) struct Lowerer {
+    /// Reserved declaration slots, finalized only when all nested lowering completes.
+    pub(crate) functions: Vec<Option<Function>>,
+    /// Block currently receiving statements; saved/restored across nested blocks.
+    pub(crate) current_block: Option<BlockId>,
     /// Cancellation observed by traversal loops; publication callers reject cancelled work.
     pub(crate) cancel: CancellationToken,
     /// Arena identity, active owner and allocation-aligned byte ranges.
@@ -37,6 +41,8 @@ impl Lowerer {
         let mut module = Module::default();
         module.body.arena = source_map.arena();
         Self {
+            functions: Vec::new(),
+            current_block: None,
             cancel,
             source_map,
             module,
@@ -44,8 +50,28 @@ impl Lowerer {
     }
 
     /// Moves out the matching module/map pair after traversal.
-    pub(crate) fn finish(self) -> (Module, SourceMap) {
+    pub(crate) fn finish(mut self) -> (Module, SourceMap) {
+        self.module.functions = self
+            .functions
+            .into_iter()
+            .map(|slot| slot.expect("completed function lowering"))
+            .collect();
         (self.module, self.source_map)
+    }
+
+    /// Reserves a source identity and its matching private function slot before children.
+    pub(crate) fn reserve_function(&mut self, span: Span) -> FunctionId {
+        let id = self.source_map.push_function(span);
+        assert_eq!(id.index(), self.functions.len());
+        self.functions.push(None);
+        id
+    }
+
+    /// Fills a reserved function slot exactly once.
+    pub(crate) fn finish_function(&mut self, function: Function) {
+        let slot = &mut self.functions[function.id.index()];
+        assert!(slot.is_none());
+        *slot = Some(function);
     }
 
     /// Allocates a source-map ID and appends its owner-tagged block payload at the matching index.

@@ -2,7 +2,7 @@
 
 use crate::hir::{
     expr::{Condition, ops::BinaryOp},
-    ids::{BlockId, ExprId, PatternId, PlaceId, StmtId, TypeRefId},
+    ids::{BlockId, ExprId, FunctionId, PatternId, PlaceId, StmtId, TypeRefId},
     writeability::Writeability,
 };
 use smallvec::SmallVec;
@@ -80,6 +80,8 @@ pub struct StmtData {
 /// `fn` declarations currently have no statement form.
 #[derive(Debug, Clone)]
 pub enum StmtKind {
+    /// `fn inner() {}` links a separately owned callable; it executes no statement.
+    Function(FunctionId),
     /// A `val` or `var` local binding, such as `val y = x + 1;`.
     Binding {
         /// Pattern containing the declaration's local binding identities.
