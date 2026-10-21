@@ -333,7 +333,8 @@ R7/R8/R16 changes, global caches, artifact pruning and AOT expansion remain sepa
 
 The [execution plan](analysis-efficiency-plan.md) is drafted at `4baef38e`;
 Implementation and one commit per phase are authorized; push/deployment are not.
-AE01 shared range queries are locally complete; AE02/AE03 remain pending.
+AE01 shared range queries and AE02 directional dataflow are locally complete;
+AE03 compaction and final integration remain pending.
 Execute R17 shared debug-range
 queries, then R16 direction-aware bytecode flow, then R18 stable MIR compaction
 with focused integration. The plan owns phase order, budgets, semantic acceptance,

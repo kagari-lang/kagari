@@ -148,7 +148,8 @@ Two bounded local opportunities do not require additional architecture projects:
 R16-R18 now have a shared [bounded analysis execution plan](analysis-efficiency-plan.md),
 drafted against `4baef38e`: R17 queries first, R16 scheduling second, R18 compaction
 and integration third. Implementation and phase commits are authorized. R17's shared
-queries passed focused local acceptance in AE01; R16/R18 and final handoff remain open.
+queries and R16's directional solver passed focused local acceptance in AE01/AE02;
+R18 and final handoff remain open.
 The plan owns execution decisions and progress, not a second review queue. R19 and
 the outstanding CS/BO/IP performance limits remain separate.
 

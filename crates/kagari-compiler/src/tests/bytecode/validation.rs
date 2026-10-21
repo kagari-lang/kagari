@@ -6,7 +6,7 @@ use kagari_bytecode::module::InstructionOrigin;
 use kagari_bytecode::{
     artifact::KbcArtifact,
     instruction::{ConstantId, ConstantOperand, NativeImportId},
-    module::{FunctionRecord, RootSlotLayout},
+    module::{FunctionRecord, LocalLiveRange, RootSlotLayout},
     program::verify_program,
 };
 use kagari_contract::{effects::EffectSet, standard::RuntimePrimitive};
@@ -993,15 +993,72 @@ fn verifier_rejects_malformed_debug_metadata() {
     let context = DefinitionContext::new().unwrap();
     let mut bytecode =
         common::adopt_bytecode(&context, common::bytecode_ok("fn main() -> i32 { 1 }"));
-    let function = &mut bytecode.modules[bytecode.root.index()].functions[0];
+    let mut invalid = bytecode.clone();
+    let function = &mut invalid.modules[invalid.root.index()].functions[0];
     let mut point = function.metadata.debug.safe_debug_points[0].clone();
     point.instruction_offset = function.instructions.len();
     function.metadata.debug.safe_debug_points.push(point);
 
     assert!(matches!(
-        verify_program(&bytecode, &context.snapshot(), &Default::default()),
+        verify_program(&invalid, &context.snapshot(), &Default::default()),
         Err(BytecodeVerificationError::InvalidJumpTarget { .. })
     ));
+
+    let function = &mut bytecode.modules[bytecode.root.index()].functions[0];
+    let mut instructions = function.instructions.clone();
+    let unreachable_pc = instructions.len();
+    instructions.push(BytecodeInstruction::Unreachable);
+    replace_fixture_code(function, instructions);
+    function
+        .metadata
+        .debug
+        .local_live_ranges
+        .push(LocalLiveRange {
+            slot: Slot::new(0),
+            binding: 0,
+            name: String::new(),
+            span: Default::default(),
+            start: unreachable_pc,
+            end: unreachable_pc,
+            ty: function.metadata.slots[0],
+            is_parameter: false,
+        });
+    verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
+
+    for mutation in 0..3 {
+        let mut invalid = bytecode.clone();
+        let function = &mut invalid.modules[invalid.root.index()].functions[0];
+        let range = &mut function.metadata.debug.local_live_ranges[0];
+        let expected = match mutation {
+            0 => {
+                range.start = range.end + 1;
+                BytecodeVerificationError::InvalidJumpTarget {
+                    function: function.id,
+                    target: JumpTarget::new(range.end),
+                }
+            }
+            1 => {
+                range.end = function.instructions.len() + 1;
+                BytecodeVerificationError::InvalidJumpTarget {
+                    function: function.id,
+                    target: JumpTarget::new(range.end),
+                }
+            }
+            2 => {
+                range.slot = Slot::new(function.slot_count as usize);
+                BytecodeVerificationError::InvalidRegister {
+                    function: function.id,
+                    register: range.slot,
+                }
+            }
+            _ => unreachable!(),
+        };
+        assert_eq!(
+            verify_program(&invalid, &context.snapshot(), &Default::default()),
+            Err(expected),
+            "debug range mutation {mutation}"
+        );
+    }
 }
 
 #[test]

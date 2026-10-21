@@ -302,7 +302,7 @@ parallel decision queue is needed.
 | --- | --- | --- |
 | Plan | Drafted | Current source mechanisms and focused contract owners inspected; no implementation or measurements performed. |
 | AE01 | Complete | Borrowed balanced max-end interval index; verifier and runtime allocation migrated. Focused query, async, allocation, lexical range and malformed metadata tests pass. |
-| AE02 | Not started | Separate initialization/liveness scheduling over the checked CFG. |
+| AE02 | Complete | Independent directional worklists, reachable DFS ordering including no-exit SCCs; 512 small CFGs match the reference fixed point. Focused contracts and local gates pass. |
 | AE03 | Not started | Stable MIR compaction, focused integration and documentation handoff. |
 
 AE01 decisions: `availability::DebugAvailability` owns O(D) scratch borrowed from
@@ -310,6 +310,30 @@ one function; balanced start ordering and subtree maximum ends prune arbitrary-P
 queries, including backward point checks. A fallible heapsort polls the caller's
 budget/cancellation inside sorting. Source record order remains unchanged. Scratch
 is checked against each consumer's existing state bound before construction.
+
+AE02 decisions: retain one CFG and PC-ordered point validation. Initial queues use
+reachable reverse postorder for initialization and postorder for liveness; changed
+outputs schedule successors, changed live inputs schedule predecessors. Every
+reachable block is seeded, including no-exit SCCs. Duplicate suppression bounds
+queue length. State admission includes reserved DFS stack/order/visited scratch even
+with zero slots, plus transient word buffers; no limits were increased.
+
+AE02 evidence: for 16/128/1024 blocks, a forward chain's old coupled loop requires
+272/16512/1049600 block visits. Separate transfers visit 32/256/2048 blocks total
+in either tested layout, charging 346/2810/22522 units including graph ordering.
+The test reference matches initialization/live sets for all 512 three-node edge
+configurations, with unreachable nodes, backedges and no-exit SCCs.
+
+AE02 validation passed: solver tests (5), async verifier tests (3), compiler filters
+`ordinary_slot_initialization_requires_the_first_entry_and_every_join_edge` and
+`predicate_branches_verify_operation_targets_and_initialization_without_source`
+(1 each). Review strengthened availability ordering (4 query tests), actual
+debug-only lifetime/non-aliasing (4 allocation tests), and malformed-range admission
+(1 compiler test, covering reversed/out-of-code bounds and an invalid slot in an
+unreachable empty range). Exhaustion tests reach requeued transfers in both directions;
+zero-slot scratch boundary and cancellation rejection are covered. Structure, format,
+workspace all-target Clippy with denied warnings and diff checks pass. Final timing
+and AE03 integration remain pending; full matrices remain CI-only.
 
 AE01 evidence (deterministic counts, not elapsed speed claims): for D = 16/256/4096
 sparse ranges and 2D reverse-order queries, the old filter inspects 512/131072/33554432
@@ -328,5 +352,5 @@ check, workspace all-target Clippy with denied warnings and diff check passed.
 An initial test-fixture compile error used `Default` for `LocalLiveRange`, which has
 no such implementation; explicit fields repaired it before the successful runs.
 No carried integration error remains. Full feature/platform/workspace tests remain
-CI-only; AE02/AE03 and final matched timing are pending. Historical CI/BO/IP/CS limits
+CI-only; AE03 and final matched timing are pending. Historical CI/BO/IP/CS limits
 remain at their existing owners.

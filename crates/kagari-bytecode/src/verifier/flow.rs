@@ -10,6 +10,8 @@ use kagari_abi::representation::ValueType;
 use kagari_types::ty::Ty;
 use std::{collections::BTreeSet, mem};
 
+mod solver;
+
 const MAX_FLOW_BYTES: usize = 64 * 1024 * 1024;
 const MAX_FLOW_WORK: usize = 100_000_000;
 
@@ -32,6 +34,8 @@ struct Flow<'a> {
     blocks: Vec<Block>,
     registers: usize,
     words: usize,
+    #[cfg(test)]
+    visits: [usize; 2],
 }
 
 pub(super) fn verify(
@@ -71,6 +75,8 @@ pub(super) fn verify(
         blocks: vec![],
         registers,
         words: registers.div_ceil(64),
+        #[cfg(test)]
+        visits: [0; 2],
     };
     flow.graph()?;
     flow.reachability()?;
@@ -123,14 +129,11 @@ impl Flow<'_> {
                 leaders.insert(pc + 1);
             }
         }
-        let bytes = leaders.len().saturating_mul(
-            self.words
-                .saturating_mul(32)
-                .saturating_add(mem::size_of::<Block>() + 64),
-        );
-        let bytes = bytes.saturating_add(DebugAvailability::scratch_bytes(
+        let bytes = state_bytes(
+            leaders.len(),
+            self.words,
             self.function.metadata.debug.local_live_ranges.len(),
-        ));
+        );
         if bytes > MAX_FLOW_BYTES {
             return Err(self.invalid("executable flow analysis state limit"));
         }
@@ -258,38 +261,6 @@ impl Flow<'_> {
         state
     }
 
-    fn fixed_points(&mut self) -> Result<(), Error> {
-        loop {
-            let mut changed = false;
-            for index in 0..self.blocks.len() {
-                if !self.blocks[index].reachable {
-                    continue;
-                }
-                self.charge(
-                    self.words.saturating_mul(
-                        self.blocks[index].predecessors.len()
-                            + self.blocks[index].successors.len()
-                            + 4,
-                    ) + 1,
-                )?;
-                let mut initialized = self.incoming(index);
-                let mut live = self.live_out(index);
-                let block = &mut self.blocks[index];
-                for word in 0..self.words {
-                    initialized[word] |= block.defines[word];
-                    changed |= block.initialized[word] != initialized[word];
-                    block.initialized[word] = initialized[word];
-                    live[word] = (live[word] & !block.defines[word]) | block.uses[word];
-                }
-                changed |= block.live != live;
-                block.live = live;
-            }
-            if !changed {
-                return Ok(());
-            }
-        }
-    }
-
     fn check_points(&mut self) -> Result<Vec<AwaitLiveness>, Error> {
         let mut points = Vec::new();
         for index in 0..self.blocks.len() {
@@ -348,6 +319,20 @@ impl Flow<'_> {
         points.sort_unstable_by_key(AwaitLiveness::instruction);
         Ok(points)
     }
+}
+
+fn state_bytes(blocks: usize, words: usize, ranges: usize) -> usize {
+    // Existing edge/leader allowance plus the peak DFS scratch: one reserved
+    // stack of (block, edge), postorder and visited flags (under 32 bytes/block).
+    // Worklist scratch reuses the postorder and has a smaller peak.
+    blocks
+        .saturating_mul(
+            words
+                .saturating_mul(32)
+                .saturating_add(mem::size_of::<Block>() + 64 + 32),
+        )
+        .saturating_add(words.saturating_mul(16))
+        .saturating_add(DebugAvailability::scratch_bytes(ranges))
 }
 
 fn charge(function: &BytecodeFunction, budget: &mut FlowBudget, count: usize) -> Result<(), Error> {

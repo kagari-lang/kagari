@@ -305,6 +305,59 @@ mod tests {
     }
 
     #[test]
+    fn overlapping_debug_ranges_prevent_reuse_until_the_last_range_ends() {
+        let mut function = BytecodeFunction {
+            instructions: vec![
+                BytecodeInstruction::LoadConst {
+                    dst: Slot::new(0),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::Move {
+                    dst: Slot::new(0),
+                    src: Slot::new(0),
+                },
+                BytecodeInstruction::Jump {
+                    target: JumpTarget::new(3),
+                },
+                BytecodeInstruction::LoadConst {
+                    dst: Slot::new(1),
+                    constant: ConstantId::new(0),
+                },
+                BytecodeInstruction::Return(Some(Slot::new(1))),
+            ],
+            metadata: FunctionMetadata {
+                slots: vec![ValueType::I32; 2],
+                ..Default::default()
+            },
+            slot_count: 2,
+            ..Default::default()
+        };
+        let without_debug = SlotAllocation::prepare(&function, &mut 0);
+        assert_eq!(without_debug.ranges.as_ref(), &[Some((0, 1)), Some((3, 4))]);
+        assert_eq!(without_debug.slots[0], without_debug.slots[1]);
+        assert_eq!(without_debug.count, 1);
+
+        function.metadata.debug.local_live_ranges = [(1, 3), (2, 4)]
+            .into_iter()
+            .enumerate()
+            .map(|(binding, (start, end))| LocalLiveRange {
+                slot: Slot::new(0),
+                binding: binding as u32,
+                name: String::new(),
+                span: Default::default(),
+                start,
+                end,
+                ty: ValueType::I32,
+                is_parameter: false,
+            })
+            .collect();
+        let with_debug = SlotAllocation::prepare(&function, &mut 0);
+        assert_eq!(with_debug.ranges.as_ref(), &[Some((0, 3)), Some((3, 4))]);
+        assert_ne!(with_debug.slots[0], with_debug.slots[1]);
+        assert_eq!(with_debug.count, 2);
+    }
+
+    #[test]
     fn loop_carried_values_do_not_alias_body_temporaries() {
         let r = Slot::new;
         let function = {

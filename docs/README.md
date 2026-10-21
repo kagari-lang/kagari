@@ -56,7 +56,7 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 - [Bounded analysis and MIR compaction](analysis-efficiency-plan.md): planned
   AE01-AE03 address R17 debug range queries, R16 directional dataflow and R18 stable
   dead-operation compaction. Implementation and phase commits are authorized;
-  AE01 is locally complete and AE02/AE03 remain pending.
+  AE01/AE02 are locally complete and AE03 remains pending.
   This is separate from completed compilation/startup work and pending BO/IP gates.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded

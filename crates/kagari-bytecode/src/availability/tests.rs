@@ -42,6 +42,35 @@ fn arbitrary_queries_match_half_open_scan_with_repeated_and_empty_ranges() {
 }
 
 #[test]
+fn queries_preserve_start_and_original_ordinal_order_in_both_directions() {
+    let ranges = [
+        range(7, 3, 8),
+        range(9, 1, 6),
+        range(2, 3, 5),
+        range(8, 0, 9),
+        range(4, 3, 7),
+    ];
+    let index = DebugAvailability::new(&ranges, |_| Ok::<_, ()>(())).unwrap();
+    let cases = [
+        (0, vec![8]),
+        (1, vec![8, 9]),
+        (3, vec![8, 9, 7, 2, 4]),
+        (5, vec![8, 9, 7, 4]),
+        (6, vec![8, 7, 4]),
+        (7, vec![8, 7]),
+        (8, vec![8]),
+        (9, vec![]),
+    ];
+    for (pc, expected) in cases.iter().chain(cases.iter().rev()) {
+        let mut found = Vec::new();
+        index
+            .visit(*pc, |_| Ok::<_, ()>(()), |slot| found.push(slot.index()))
+            .unwrap();
+        assert_eq!(&found, expected, "pc {pc}");
+    }
+}
+
+#[test]
 fn sparse_queries_have_bounded_construction_and_path_work() {
     for count in [16usize, 256, 4096] {
         let ranges = (0..count)
