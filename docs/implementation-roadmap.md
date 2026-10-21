@@ -349,6 +349,22 @@ pending CI; browser acceptance was not run. No push/deployment was authorized.
 R19 coloring, R7/R8, runtime lifetime work and existing CS/BO/IP latency gaps remain
 separate. Do not use these results as evidence that those performance gates passed.
 
+## Runtime storage, parking and version identity
+
+The [execution plan](runtime-lifecycle-plan.md) is drafted against `fd34f689`;
+RL01-RL03 have not started. Current authorization covers documentation, not
+implementation, commits, push or deployment. The order is R19 scalar storage-class
+coloring, R14 one-transition parking proof, then R13 payload-independent exact
+version identity with focused integration. The plan owns decisions, acceptance and
+the progress ledger; [review](review.md) retains unresolved findings.
+
+Preserve managed roots, debugger/reused-frame access, mutable-graph suspension
+checks, ready/waiting publication, runtime authority and generation-pinned native
+calls. R13 also requires bounded identity-domain/type-only retention probes and
+explicit decisions; neither a session identity split nor type/layout-code separation
+is silently activated. Close only resolved R13 subfindings. Completed CS/AE contracts
+remain foundations, and BO04/IP12/CS timing gaps are not acceptance targets here.
+
 ## Runtime storage redesign
 
 RS01-RS06 are locally complete as of 2026-10-16. Receiver-independent interface

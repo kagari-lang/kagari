@@ -19,6 +19,9 @@ status and activation belong to the [roadmap](implementation-roadmap.md).
   against the current implementation; validation limits are recorded below.
 - [Interpreter instruction model](#interpreter-instruction-and-operand-model-follow-up):
   general operand/control-flow simplification before specialized loop instructions.
+- [Runtime storage/parking/identity plan](runtime-lifecycle-plan.md): planned
+  R19 -> R14 -> R13 version-token work, plus bounded decisions on remaining R13
+  retention questions. Implementation has not started; findings remain open.
 - [Native expansion gates](#native-expansion-gates): requirements for future native
   coverage, not defects caused by the intentionally limited backend.
 - Historical timings, allocation data and reproduction details are retained under

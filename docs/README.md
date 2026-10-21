@@ -58,6 +58,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   pending; [measurements](performance-baseline.md#bounded-analysis-and-mir-compaction-2026-10-21)
   retain scale improvements, tiny-input setup regressions and current SDK timings.
   This does not close the separate CS/BO/IP latency gaps.
+- [Runtime storage, parking and version identity](runtime-lifecycle-plan.md): planned
+  RL01-RL03 address R19 scalar coloring, R14 transition-owned safety proofs and R13
+  payload-independent version identity. Remaining R13 domain/type retention needs
+  bounded measurements and explicit decisions, not automatic migrations.
+  Documentation only; implementation has not started.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11
