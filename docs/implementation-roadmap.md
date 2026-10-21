@@ -825,8 +825,11 @@ include initial registration, publication, retained graphs and table growth;
 their reductions apply only to that bounded graph workload. Full-workspace tests
 and the complete backend/feature/platform matrix remain pending CI acceptance.
 The completed MH01-MH05 plan is retired; Git history owns its phase ledger.
-SA1 is next in this queue but is not activated. R7 scheduling, R8 invalidation
-and R13 identity-domain retention remain separate.
+SA1 is next in this queue. The [inline module AST reuse plan](inline-module-ast-plan.md)
+owns IA01-IA05, shared physical source/parse ownership, logical lowering and
+consumer migration, recovery/identity acceptance and bounded measurements.
+Implementation is not activated. R7 scheduling, R8 invalidation and R13
+identity-domain retention remain separate.
 
 Structured import paths (SA15) are implemented. The
 [HIR guide](architecture/hir.md#structured-import-paths-and-source-sites) and model

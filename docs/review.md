@@ -829,6 +829,10 @@ context. Preserve module ownership, visibility, stable child identities, origina
 UTF-8/CRLF offsets and diagnostic attribution. Reuse the existing inline-module
 navigation tests. Keep declaration, signature and body checking separate.
 
+The [execution plan](inline-module-ast-plan.md) owns IA01-IA05, shared physical
+source/parse storage, logical consumer migration and focused acceptance.
+Implementation has not started.
+
 ## SA11 HIR declarations and ADT members carry container-derived identities
 
 [Struct](../crates/kagari-hir/src/hir/item/adt.rs) stores its own `StructId`,
