@@ -114,21 +114,28 @@ zero. Extra parent segments and recovery-only duplicate identities are rejected 
 both IR and bytecode layout verification. HIR retains duplicate identities for
 diagnostic recovery, but they cannot reach execution.
 
-Interface allocation uses an explicit `MakeInterface dst, value, module,
-implementation` instruction. Typed IR names the implementation declaration and ordered type arguments;
-bytecode carries a dependency-program module slot and an `InterfaceTableRef`
-into that member's verified table. Program verification requires the target
-member to be reachable from the caller's dependency graph.
-Verification requires a concrete table instance, a heap destination and the
-receiver representation declared by the table. The runtime checks the full
-receiver ABI, allocates a generation-checked interface object and retains its
-linked execution version. For example, a verified `i32` receiver can be boxed
-through its `Tag for i32` table; a bool receiver or out-of-range table slot is
-rejected before execution. Source-level conversion emits this instruction when
-the checked semantic result selects a unique implementation template and its
-arguments. Generic instances compile all interface methods ahead of execution
-and reuse one table per declaration/argument key; a generic template record is
-not itself an executable table.
+Interface allocation uses `MakeInterface { dst, value, target }` with an explicit
+Declared or Bound target. A declared MIR target names an implementation and ordered
+type arguments; bytecode carries the dependency member and InterfaceTableRef.
+Verification requires reachable checked table applications, a heap destination and
+the table's receiver representation. Generic template records alone do not grant
+executable table coverage.
+
+A bound target retains a ConstructionRequirement: source receiver plus complete
+applied interface. It is legal only in a checked generic body whose bounds supply
+that exact capability. MIR retains input/result semantic facts; bytecode checks
+the actual input type through slot flow, independently of the instruction's claim.
+Shared and interface calls carry a complete, unique capability list derived from
+the callee's bounds. Missing, forged or unrelated evidence is rejected before
+execution, including methodless traits and associated outputs.
+
+The runtime resolves a bound target only in the current checked environment.
+It uses the selected table or existing view and the ordinary interface snapshot
+owner, validates the full receiver ABI and retains the supplying generation.
+There is no runtime impl search or type inference. A verified i32 can use its
+Tag-for-i32 capability; a bool cannot borrow that proof merely because a table
+is retained in the same program. Scalar/object/host validation, roots, trap order
+and cancellation remain owned by the existing execution boundaries.
 
 Interface calls use a dedicated `CallTarget::InterfaceMethod` containing the
 trait owner's module slot, applied interface identity and declared method

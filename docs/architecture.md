@@ -1098,11 +1098,45 @@ Inherited calls retain the original root; escaping upcasts publish normal checke
 GC interface values. Metadata sharing does not replace GC roots or code ownership.
 
 Generic methods through interface values use checked shared script/native entries
-with explicit type arguments and operation witnesses. Static calls retain
+with explicit type arguments, operation witnesses and construction capabilities. Static calls retain
 specialization. Native concrete-result adapters carry selected implementation
 proofs, validate the concrete return and box through the pinned interface table.
 Runtime dispatch does not infer types, search implementations or specialize code.
 See [traits](spec/traits.md) and [native declarations](spec/standard-declarations.md).
+
+Bound-derived interface construction has one evidence owner in
+[kagari-contract](../crates/kagari-contract/src/callable/construction/evidence.rs).
+A requirement names the source receiver and complete applied interface, separately
+from method requirements. A caller supplies an exact implementation application
+and its dependencies, an existing interface view, or a forwarded capability from
+its own declared bounds. Empty traits require evidence even though they have no
+method slots. HIR selects the proving bound; compiler lowering either specializes
+it through the existing table path or emits a symbolic MakeInterface target.
+MIR and bytecode validate the body scope, receiver/target facts, complete caller
+capabilities and reachable implementation applications without source analysis.
+
+[ConstructionScope](../crates/kagari-runtime/src/frame/types/construction.rs)
+retains these exact selections alongside its finite program inventory. Inventory
+membership alone grants no capability. Existing environment, method-application
+and interface-description owners carry the selections; their identities include
+receiver/target type provenance and selected table/dependency-environment identity.
+Associated output TypeArguments retain lexical layout provenance even for
+methodless traits. Immutable type facts contain no executable selection cycle;
+checked environment IDs trace the actual supplying programs and dependencies.
+Construction releases transient frame borrows before allocating through the normal
+interface snapshot/payload validator. Reload does not replace retained evidence,
+and an old shared method can use a new caller's supplied implementation.
+
+The design separates specialized instantiation as in
+[Rust monomorphization](https://rustc-dev-guide.rust-lang.org/backend/monomorph.html)
+from shared type/conformance evidence, following the principle described by
+[Swift generic metadata](https://github.com/swiftlang/swift/blob/main/docs/ABI/TypeMetadata.rst#generic-argument-vector).
+These living references were consulted on 2026-10-21. Kagari retains its own
+verified artifacts, precise GC, host scopes and generation pinning; neither
+runtime's memory layout or lifetime model is imported. Existing supported native
+paths retain their capability checks and interpreter fallback; shared conversion
+does not imply new native backend coverage.
+
 
 ## Definition identity ownership
 

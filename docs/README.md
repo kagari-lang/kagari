@@ -32,6 +32,8 @@ below; the public Pages site has not been activated by this work.
   and [engineering rules](../AGENTS.md).
 - [Native module authoring](native-registration.md): complete fluent definitions,
   forward references, sealed declarations and one-shot binding preparation.
+- [Generic interface construction](spec/traits.md#current-interface-conversion-boundary)
+  and its [proof/execution owners](architecture.md#interface-dispatch).
 - [Test preparation and execution](testing.md).
 - [Editor tooling and installation](../editors/README.md): standalone Zed/VS Code
   syntax adapters and the separate [stdio analyzer foundation](architecture.md#language-server-foundation).
@@ -45,11 +47,6 @@ below; the public Pages site has not been activated by this work.
 ## Active and queued work
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
-
-- [Generic interface construction](generic-interface-construction-plan.md): SA22,
-  active BI01-BI06; bound-derived construction evidence through static/shared
-  calls, source-free verification and retained generations. BI01-BI02 are
-  complete; SA11 is deferred.
 
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load

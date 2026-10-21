@@ -73,7 +73,7 @@ the outstanding BO04/IP12 performance gates.
 | **1. Overview of Compilation**, §§1.1-1.3, pp. 5-8, 14-15; §1.4, p. 21 | Keep distinct semantic, transformation and target owners. Evaluate compilation/preparation plus repeated execution, retained memory and lifecycle costs; fewer bytecode instructions alone are not an economic result. |
 | **2. Scanners**, §§2.5.3-2.5.4, pp. 69-73 | Token spans and retained source suit tooling. Inline modules now share their physical parse; that ownership change required no new scanner generator. Identifier/escape classification also has local temporary allocations, discussed below; no scanner rewrite is required. |
 | **3. Parsers**, §3.2.4, pp. 92-95; §§3.3.1-3.3.2, pp. 108-110 | Recursive descent, precedence handling and a lossless tree are appropriate. Inline-module subtrees now lower under their own contexts, preserving recovery and physical source offsets. The book does not make LR tables a prerequisite for a fast frontend. |
-| **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. SA22 requires explicit new semantics, not performance shortcuts. |
+| **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. Generic interface construction consumes checked bound evidence; performance work must preserve its proof boundary. |
 | **5. Intermediate Representations**, §§5.1-5.4, selected pp. 221-251; §5.5, selected pp. 253-263 | Typed block MIR plus side metadata is a viable hybrid IR. `TempId` is not an SSA definition. Context-owned module handles separate local identity from portable paths; SA11 is an interface/storage tradeoff, not a required migration. Any SSA proposal must justify its consumers and own merge edges, destruction and origins. |
 | **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13/R14 remain retention/transition issues; the implemented accounting and occupied-discovery contracts do not justify changing GC families. Managed native calls need the existing ABI/root gates. |
 | **7. Code Shape**, §§7.1-7.3.1, pp. 331-345; §7.4, pp. 350-356 | BO02/BO03 already implement direct destinations, control-only predicates and bounded constant operands. Keep checked commit and source observations. Arithmetic reassociation and expression reordering from examples do not override Kagari trap/evaluation order. |
@@ -967,36 +967,6 @@ and timing with revision, machine, toolchain, profile/features, parallelism and
 cache state. Include representative bulk calls and small frequent calls without
 assuming one is faster. Reuse focused correctness tests for GC/reentry/trap cleanup;
 no retained performance conclusion can be inferred from registration unification.
-
-## SA22 Generic bounds do not supply interface construction witnesses
-
-The current coercion path requires a selected construction witness; the retained
-[typing test](../crates/kagari-hir/src/tests/typeck/traits.rs) expects rejection of
-bound-only erasure to `std::fmt::Debug`. The original minimal reproduction was
-rejected with KG_TYPE_RETURN_TYPE_MISMATCH:
-
-```text
-trait Child {}
-fn erase<T: Child>(value: T) -> Child { value }
-```
-
-[Interface coercion](../crates/kagari-hir/src/typeck/body/methods.rs) requires a
-selected concrete implementation identity/arguments or an existing interface
-upcast. A bound permits method calls but does not produce that construction record.
-The same boundary predates the collection-interface migration (baseline 53949725).
-Generic receiver shapes with a selected implementation, such as Vec<T> -> List<T>,
-already work, including shared generic methods and retained closures.
-
-Follow-up owner: HIR coercion facts, contract construction witnesses and compiler
-lowering, with runtime consuming checked facts. A future implementation must carry
-the bound's actual implementation and associated outputs through static/shared calls,
-verify it without source, and preserve receiver category, GC roots and supplying
-generations. Validate scalar and object receivers, parent adaptation, cancellation,
-forged/missing witnesses and reload. Do not infer an object upper bound from an
-arbitrary trait or bypass conversion checks. This is a recorded existing limitation,
-not an activated feature, Any/downcast design or part of host registration unification.
-The [BI01-BI06 proposal](generic-interface-construction-plan.md) records the
-construction-evidence design and phased acceptance. Implementation has not started.
 
 ## SA23 Builtin type specifications duplicate scalar properties
 

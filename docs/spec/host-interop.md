@@ -1054,6 +1054,15 @@ implementation after the host explicitly declares or references a Kagari trait,
 registers its impl and binds each required member through the ordinary module API.
 Registering a DTO schema supplies neither those members nor Rust reference access.
 
+A generic bound may forward an installed Kagari implementation into an interface
+construction, including through a shared generic method. The
+[host interface example](../../examples/host-interfaces.kgr) demonstrates this with
+Reader<Item = i32>. The capability retains the selected native table, associated
+outputs and supplying generation. It uses ordinary payload admission and scoped
+native calls: durable host roots remain checked, borrowed references do not become
+storable, and synchronous reentry retains borrow validation and cleanup.
+
+
 The [trait table example](../../crates/kagari-runtime/examples/host_trait_table.rs)
 registers runtime-owned `Opaque<Counter>` separately from a Kagari `Readable` trait
 and its explicit impl. The bound `get` callback takes a checked shared loan and calls

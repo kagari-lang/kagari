@@ -103,6 +103,16 @@ arguments, parent views and result adapters. They grant no receiver comparison
 capability and carry no comparison-selection certificates. Dynamic admission
 validates the complete applied member/parent surface, including uncalled members.
 
+Bound construction instructions and call records also retain declaration-derived
+capabilities independently of method slots. Selected implementations carry their
+operation and construction dependencies; forwarding requires the caller's bounds.
+Both evidence kinds use one flat heterogeneous wire tree, checked for node kind,
+4096-node and 64-depth limits before recursive executable objects are built.
+Artifact-wide accounting traverses both kinds through the same child-edge owner.
+Source-free verification checks exact receiver/target scope and selection coverage;
+a retained implementation inventory is not proof of an otherwise absent bound.
+
+
 Independent MIR and bytecode validation require known object operand types for
 identity instructions. Primitive equality/hash instructions must prove eligibility
 from exact semantic operand types and cannot bypass an explicit implementation.

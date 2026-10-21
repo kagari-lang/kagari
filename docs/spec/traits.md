@@ -63,13 +63,37 @@ methods and ordinary trait-bound calls do not require a universal Object type.
 Identity operators require statically known concrete object operands, as specified
 in [value semantics](value-semantics.md#operators-and-defaults).
 
-A bare type parameter's bound does not currently supply an interface-construction
-witness. For example `fn erase<T: Child>(value: T) -> Child { value }` is rejected,
-while invoking a declared Child method through T remains supported. This is an
-existing generic-erasure limitation, independent of collection interfaces and
-ordinary-interface identity. The [follow-up finding](../review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses)
-records its owner and required validation. It does not permit unchecked boxing,
-Any, downcasts or value identity.
+A declared bound supplies interface-construction evidence for a type parameter or
+an associated projection already proved by the bounded solver. This works in
+specialized functions and shared generic methods, including defaults, overrides,
+private helpers and retained closures. For example:
+
+```text
+trait Read { fn read(self) -> i32; }
+trait Child: Read {}
+trait Marker {}
+fn erase<T: Read>(value: T) -> Read { value }
+fn parent<T: Child>(value: T) -> Read { value }
+fn marker<T: Marker>(value: T) -> Marker { value }
+trait Eraser {
+    fn erase<T: Read>(self, value: T) -> Read { value }
+}
+```
+
+Construction evidence is independent of method operations, so a methodless trait
+still requires a proven implementation. Generic arguments remain invariant;
+associated outputs and parent views must satisfy the complete requested target.
+Static-only bounds such as Default remain valid for static calls and provide no
+dynamic construction capability. Unsupported projection solving is not implied.
+
+A bound grants no object upper bound: permitted scalar, managed, installed host
+and already-compatible interface receivers retain their existing categories.
+Interface inputs must satisfy existing generic bound rules; this does not add
+blanket self-conformance for arbitrary source interfaces. Construction preserves
+once-only evaluation and the selected implementation generation. Retained closures
+can construct later using their pinned evidence, including after reload. This
+provides neither Any nor downcasts, broader host-reference escape, nested-container
+conversion or common-trait inference.
 
 Source-authored impl targets remain concrete receiver types; installed native
 implementations may also define protocols on nominal interface values. Their
@@ -127,11 +151,9 @@ value is not another construction, and a dynamic method call does not inherently
 rebox its receiver. A generic trait bound alone does not construct an interface.
 Keep representation and performance claims separate from the type syntax.
 
-The existing bound-to-interface construction limitation in SA22 is not removed
-by supplying an explicit target. This decision changes target selection only;
-it does not add missing generic construction witnesses or weaken conversion
-validation. [Collection conversions](collection-access.md#conversion-and-dispatch)
-use the same supplied-target rule.
+[Collection conversions](collection-access.md#conversion-and-dispatch) use the
+same supplied-target rule. A generic bound authorizes a compatible conversion at
+these sites; it does not cause interface allocation when no conversion is requested.
 
 ## Associated Constants
 

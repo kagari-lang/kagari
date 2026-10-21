@@ -30,7 +30,7 @@ arbitrary trait membership queries, interface-to-interface discovery, reflection
 invocation, a public raw TypeId API or user-supplied type identity methods.
 
 The completed local storage work is a separate predecessor to DC01-DC04.
-NC collection migration, SA22 generic interface construction, blanket impls,
+NC collection migration, extensions to generic interface construction, blanket impls,
 derive, state migration, the broader compatible-update proposal and Cranelift
 interface expansion remain separate. Restoring a value from an already valid
 interface must not require reopening those projects.
@@ -201,7 +201,7 @@ phases. Implementation commits use a `Plan-Phase: DCxx` trailer.
   before adding source execution; changing the agreed surface requires an explicit
   scope decision here.
 - Freeze receiver/target eligibility, generic proof and associated-projection
-  handling. Avoid introducing Any or solving SA22 as an incidental dependency.
+  handling. Avoid introducing Any or widening generic construction rules as an incidental dependency.
 - Trace cross-version extraction and subsequent calls as described above; settle
   the identity/admission relation and enumerate its meaningful acceptance cases.
 - Select checked operation encoding, Option construction, root ownership and the

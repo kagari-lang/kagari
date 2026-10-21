@@ -688,8 +688,7 @@ callback effects/cleanup, pinned reload and source-free loading. Full workspace
 and exhaustive feature/backend acceptance remain unrun locally and belong to CI.
 The completed plan and resolved findings are retained in Git history.
 
-[SA22 generic construction witnesses](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses),
-source interface impl targets, blanket impls, derive additions and NC
+Source interface impl targets, blanket impls, derive additions and NC
 migration remain outside this work; their completion is not implied. Host
 registration/interop is implemented separately as described above.
 
@@ -707,7 +706,7 @@ while host access restrictions and scoped-reference exclusion remain intact.
 DC01 closes intrinsic/member resolution, target eligibility and cross-version
 recovery/call provenance before implementation. Later phases own source-independent
 contracts/runtime execution, source/tooling integration and focused boundary
-acceptance. Arbitrary trait queries, SA22 construction witnesses, NC, broader
+acceptance. Arbitrary trait queries, extensions to generic construction, NC, broader
 reload redesign and native interface expansion remain separate. Recording this
 plan does not activate those tracks or imply executable downcast support.
 
@@ -730,7 +729,7 @@ platform matrix remain unrun locally and CI-owned.
 
 Method authoring is implemented through
 [module-owned registration](native-registration.md#generic-contracts-defaults-and-selected-calls).
-SA22 construction witnesses, SA23 scalar cleanup, native collection storage and
+SA23 scalar cleanup, native collection storage and
 broader native-backend work remain separate. No performance improvement or
 completion of those tracks is implied.
 
@@ -759,7 +758,7 @@ parser/capture/incremental tests and staging passed, but are not host rendering
 evidence. Retry the [existing pinned build/host workflow](../editors/README.md#syntax-change-workflow)
 when SDK acquisition is available; do not substitute SDK 29 or infer host acceptance.
 
-Derive, automatic enum selection, field declaration initializers, SA22,
+Derive, automatic enum selection, field declaration initializers,
 host/view update, new native instructions and broader standard Default implementations
 remain separate. Default is not a language protocol or special runtime constructor.
 
@@ -803,16 +802,28 @@ Exhaustive workspace and feature/backend validation remain CI-owned; local focus
 results do not claim those unrun checks. The queued items below are not activated
 by completion of the collection-interface work.
 
-The existing bound-to-interface erasure limitation is recorded as
-[SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses).
-The [active BI01-BI06 plan](generic-interface-construction-plan.md) defines its bounded
-construction-evidence work. SA11 is deferred by user instruction; SA22 goal execution
-is authorized, with BI01-BI05 complete. It does not expand the
-collection or host-registration scope.
+SA22 generic interface construction is implemented through static and shared
+execution. [Trait conversion](spec/traits.md#current-interface-conversion-boundary)
+owns language behavior; [interface dispatch](architecture.md#interface-dispatch),
+[bytecode](spec/bytecode.md) and [artifacts](spec/artifacts.md) own proof, generation
+and source-free admission contracts. Methodless traits, parent and associated
+bounds, generic implementation dependencies, imported helpers, retained closures
+and supported host receivers use exact checked evidence without runtime impl search.
+
+Focused local coverage includes forged capabilities/instructions, default and
+override execution, old-provider/new-caller applications, forced GC, synchronous
+host reentry and trap/depth/cancellation cleanup. Canonical artifact emission and
+one build without default features passed; existing actual-native scalar and
+explicit fallback assertions remain intact. Workspace all-target Clippy, structure,
+formatting and diff checks passed. Full workspace tests and the exhaustive
+feature/backend/platform matrix remain pending CI; new native conversion support
+is not claimed. The completed BI01-BI06 plan is retired; Git history owns its ledger.
+
+Blanket interface self-conformance, broader associated-type solving and the other
+review tracks remain separate. SA11 is still deferred by user instruction.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses): generic interface construction | [Active BI01-BI06 plan](generic-interface-construction-plan.md); complete bound-derived construction evidence through shared calls, source-free verification and pinned execution. BI01-BI05 complete. |
 | Deferred | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Deferred by the user. Any later review must preserve the implemented function ownership model; field removal remains undecided. |
 
 SA9 context-owned module handles are implemented. The
