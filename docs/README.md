@@ -53,11 +53,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   goal explicitly unmet. Further frontend preparation work is deferred; the
   [measurements](performance-baseline.md#direct-source-preparation-2026-10-21)
   retain the evidence and limits. Full incremental compilation stays separate.
-- [Bounded analysis and MIR compaction](analysis-efficiency-plan.md): planned
-  AE01-AE03 address R17 debug range queries, R16 directional dataflow and R18 stable
-  dead-operation compaction. Implementation and phase commits are authorized;
-  AE01/AE02 are locally complete and AE03 remains pending.
-  This is separate from completed compilation/startup work and pending BO/IP gates.
+- [Bounded analysis and MIR compaction acceptance](implementation-roadmap.md#bounded-analysis-and-mir-compaction):
+  R16-R18 implementation and selected local acceptance are complete. Full CI remains
+  pending; [measurements](performance-baseline.md#bounded-analysis-and-mir-compaction-2026-10-21)
+  retain scale improvements, tiny-input setup regressions and current SDK timings.
+  This does not close the separate CS/BO/IP latency gaps.
 - [Interpreter performance](interpreter-performance-plan.md): active IP08-IP12
   cover attribution, internal calls, instruction/operand decisions and bounded
   collection transactions. IP09/IP10 changes passed scoped local gates; IP11

@@ -448,6 +448,48 @@ checks. Graph/seal/artifact admission accepts caller cancellation; declaration,
 proof and control-flow loops poll it and do not turn interruption into a successful
 seal. Synchronous encoding/fingerprinting remains a bounded, separate operation.
 
+### Bounded flow, debug availability and MIR deletion
+
+Bytecode verification builds one checked CFG and retains its edges for access
+analysis. Definite initialization and backward liveness have independent,
+duplicate-suppressing worklists, seeded from reachable graph order in the appropriate
+direction. Every reachable node participates, including no-exit cycles. Entry
+parameters constrain initialization even with backedges; point validation remains
+PC-ordered. Ordinary and suspending functions retain independent bytecode checks.
+Queue/order/visited scratch is admitted even for zero-slot functions, and graph,
+edge and bitset work remains bounded and cancellable under the request's shared
+budget. This follows the direction and result-consumption separation in
+[Rust's dataflow guide](https://rustc-dev-guide.rust-lang.org/mir/dataflow.html)
+(rolling documentation reviewed 2026-10-21), not a copied generic framework.
+
+`kagari-bytecode::availability::DebugAvailability` borrows one function's admitted
+local debug ranges into a start-ordered balanced index with subtree maximum ends.
+It serves both verifier point checks and runtime slot preparation, including reverse
+and arbitrary-PC queries. Coverage is half-open; overlapping records for one slot
+remain independently active. Index construction never changes serialized record
+order and does not confer a seal. Fallible construction/query charges caller work;
+callers bound its O(D) scratch before allocation. Sorting polls cancellation via the
+verifier's budget. The index dies with the operation, not a process-global cache.
+Malformed ranges, including unreachable/empty records with invalid slots, are
+rejected before filtering. Runtime allocation still falls back to distinct logical
+locations on its own bounded optimization exhaustion; verification never falls back
+to unchecked code. Construction overhead can exceed a scan for tiny inputs; see
+[bounded measurements](performance-baseline.md#bounded-analysis-and-mir-compaction-2026-10-21).
+
+MIR dead-operation policy stays in `passes::dead`. Its grouped descending decisions
+feed one stable compaction of each affected block's instructions, spans and scopes.
+One keep decision controls all columns; retained order and exact provenance survive.
+This follows [stable filtering](https://doc.rust-lang.org/std/vec/struct.Vec.html#method.retain)
+rather than repeated suffix shifts, adapted for aligned metadata and fallible work.
+Preparation, retained/dead traversal, moves and bounded tail destruction are charged.
+No-removal input needs no compaction scratch; editing consumes the old seal and
+required reverification rebuilds facts before publication. Budget/cancellation errors
+discard unpublished raw state. Fewer redundant visits can admit previously
+budget-exhausted valid programs, while newly charged work can exhaust a smaller pass
+budget; semantic validation and limit values are unchanged.
+
+### Verified handoff references
+
 This ownership follows the in-memory compilation handoff illustrated by
 [Lua 5.4.9's parser](https://www.lua.org/source/5.4/lparser.c.html#luaY_parser),
 the module resources/function-local state separation of

@@ -10,6 +10,7 @@ use crate::verify::{
     MirVerificationError, MirVerificationErrorKind, VerifiedMirModule, ownership::mapping_error,
     verify_mir,
 };
+mod compaction;
 mod constants;
 mod copies;
 mod dead;
@@ -17,7 +18,7 @@ mod scalar;
 
 #[derive(Debug, Clone)]
 pub struct PassOptions {
-    /// Visits, operand accesses and temporary-state initialization across both passes.
+    /// Visits, operand accesses, temporary-state initialization and compaction moves.
     /// MIR verification/analysis additionally enforces its own resource bounds.
     pub max_work: usize,
 }
@@ -71,16 +72,7 @@ pub fn optimize(
         module
     } else {
         let (definitions, mut raw) = module.into_unverified().into_parts();
-        // Remove backwards within each block so original indices remain valid.
-        let mut removals = removals;
-        removals.sort_unstable_by(|left, right| right.cmp(left));
-        for (function, block, instruction) in removals {
-            work.charge(1)?;
-            let block = &mut raw.functions[function].blocks[block];
-            block.instructions.remove(instruction);
-            block.instruction_spans.remove(instruction);
-            block.instruction_scopes.remove(instruction);
-        }
+        compaction::apply(&mut raw, &removals, &mut work)?;
         let raw = DefinitionMetadata::checked(definitions, raw, cancel).map_err(mapping_error)?;
         verify_mir(raw, cancel)?
     };

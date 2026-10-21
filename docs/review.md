@@ -11,7 +11,7 @@ are removed. Current contracts live in the specifications and architecture; CI
 status and activation belong to the [roadmap](implementation-roadmap.md).
 
 - [Engineering a Compiler review](#engineering-a-compiler-chapter-review): chapter-led
-  assessment at `5b57c9a8`, updated optimization boundaries and findings R16-R19.
+  assessment at `5b57c9a8`, updated optimization boundaries and finding R19.
 - [Runtime architecture review](#runtime-architecture-review): system map and
   historical evidence at `88acbdb5`, updated for current R11/R12 remediation.
 - [Repository findings](#sa1-inline-modules-are-parsed-again): unresolved SA entries.
@@ -59,7 +59,7 @@ block-local, with no cross-block hoisting. The focused
 and untaken branches, binding state and overflow origins, both directly and after
 retained-debug artifact round-trip. It compares optimized and unoptimized lowering;
 the lasting contract is specified in [safe debug points](spec/debugger.md#safe-debug-points).
-R16-R19 remain specific algorithm/representation findings. Their examples are source-derived,
+R19 remains a storage-representation finding. Its examples are source-derived,
 **not executed reproductions or new timing measurements**. Existing tests were
 inspected, not rerun. The recorded BO results below remain historical measurements
 of their identified images. No current whole-workspace/backend acceptance or
@@ -78,12 +78,12 @@ the outstanding BO04/IP12 performance gates.
 | **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13/R14 remain retention/transition issues; the implemented accounting and occupied-discovery contracts do not justify changing GC families. Managed native calls need the existing ABI/root gates. |
 | **7. Code Shape**, §§7.1-7.3.1, pp. 331-345; §7.4, pp. 350-356 | BO02/BO03 already implement direct destinations, control-only predicates and bounded constant operands. Keep checked commit and source observations. Arithmetic reassociation and expression reordering from examples do not override Kagari trap/evaluation order. |
 | **8. Introduction to Optimization**, §§8.1-8.2, selected pp. 405-416; §8.4.1, pp. 420-428; §8.7.1, pp. 458-462 | Legality precedes profitability. Block-local scalar constants preserve executable observations; broader motion still needs an explicit observation/provenance contract. Inlining must additionally preserve pinned dependencies, logical call-depth/cancellation and error origins; ordinary call effects remain conservative. |
-| **9. Data-Flow Analysis**, §§9.1-9.2, selected pp. 475-490; §§9.3.1,9.3.5, pp. 495-497, 510-512; §9.4.1, pp. 519-522; §9.5.2, pp. 530-532 | MIR already has bounded initialization/liveness worklists and immutable analysis ownership. R16 concerns bytecode's different solver, not removal of independent bytecode validation. Add dominance/reaching definitions for concrete consumers; name uniqueness cannot substitute for them. |
-| **10. Scalar Optimizations**, pp. 539-542, 544-560, 565-566, 575-578, 580-582, 591-592 | R18 should replace repeated deletion shifts with one stable sweep. Local forwarding/folding can cooperate under a bounded owner; blindly repeating every pass and verifier is not a first choice. LICM/PRE/strength reduction need explicit trap, alias, zero-trip and cancellation legality. |
+| **9. Data-Flow Analysis**, §§9.1-9.2, selected pp. 475-490; §§9.3.1,9.3.5, pp. 495-497, 510-512; §9.4.1, pp. 519-522; §9.5.2, pp. 530-532 | MIR and bytecode have bounded directional initialization/liveness worklists and immutable analysis ownership. Preserve independent bytecode validation. Add dominance/reaching definitions for concrete consumers; name uniqueness cannot substitute for them. |
+| **10. Scalar Optimizations**, pp. 539-542, 544-560, 565-566, 575-578, 580-582, 591-592 | Stable aligned compaction now applies dead-operation decisions without repeated suffix shifts. Local forwarding/folding can cooperate under a bounded owner; blindly repeating every pass and verifier is not a first choice. LICM/PRE/strength reduction need explicit trap, alias, zero-trip and cancellation legality. |
 | **11. Instruction Selection**, §§11.1-11.4.1, pp. 597-612; §11.5.1, pp. 622-629 | Bytecode selection belongs to the compiler's checked placement stage; machine selection belongs to Cranelift. Existing placement checks uses, snapshots and debug availability. Do not hide unresolved general costs behind growing superinstructions or infer speed from serialized opcode count. |
 | **12. Instruction Scheduling**, §§12.1-12.3.5, selected pp. 639-658 | Machine latency/resource scheduling is backend-owned. The VM's Rust implementation is compiled by Rust's backend. Preserve call, memory, trap and safepoint dependencies; a custom scheduler cannot remove a required helper call. Native polling attribution belongs to the existing expansion gates. |
 | **13. Register Allocation**, §§13.1-13.2.3, pp. 679-684; §13.3.3, pp. 689-692; §§13.4-13.4.3, pp. 693-701 | VM backing slots are not CPU registers. R19 should separate scalar coloring from managed storage classes while keeping shared liveness and distinct managed roots. Cranelift owns native machine allocation; hardware spill heuristics need not be copied into VM storage preparation. |
-| **Appendix B. Data Structures**, §§B.1-B.3, pp. 737-750; §§B.4.4-B.4.5, pp. 756-758 | Select indexes and set representations for actual operations/density. R17 needs an interval-aware debug query, not stripped debug information. Dense bitsets can remain sensible; replacing every set with a sparse set is not supported. |
+| **Appendix B. Data Structures**, §§B.1-B.3, pp. 737-750; §§B.4.4-B.4.5, pp. 756-758 | Select indexes and set representations for actual operations/density. Debug availability now uses a function-local interval index without stripping debug information. Dense bitsets can remain sensible; replacing every set with a sparse set is not supported. |
 
 The book supplies mechanisms and tradeoffs, not Kagari's embedding contract. Its
 batch-compilation assumptions do not permit skipping source-free verification;
@@ -145,128 +145,6 @@ Two bounded local opportunities do not require additional architecture projects:
    owner may combine these facts; prove benefit on the same inputs before adding
    fixed-point whole-pipeline reruns. Existing call/effect barriers remain valid.
 
-R16-R18 now have a shared [bounded analysis execution plan](analysis-efficiency-plan.md),
-drafted against `4baef38e`: R17 queries first, R16 scheduling second, R18 compaction
-and integration third. Implementation and phase commits are authorized. R17's shared
-queries and R16's directional solver passed focused local acceptance in AE01/AE02;
-R18 and final handoff remain open.
-The plan owns execution decisions and progress, not a second review queue. R19 and
-the outstanding CS/BO/IP performance limits remain separate.
-
-### R16 — Bytecode flow mixes propagation directions in full forward sweeps
-
-**P2; source-confirmed scaling mechanism, elapsed impact unmeasured.** Book basis:
-§§9.2.1-9.2.2, pp. 480-487; Appendix B.3.1, pp. 746-747.
-
-[Bytecode flow verification](../crates/kagari-bytecode/src/verifier/flow.rs)
-(`fixed_points`) computes forward initialization and backward liveness together,
-scanning all reachable blocks in ascending PC order until neither changes.
-Ordinary functions without await also take this path. Stable initialization is
-recomputed while liveness is still propagating.
-
-Consider valid bytecode **without debug local ranges**, with fixed slot width:
-
-```text
-B0: jump B1
-B1: jump B2
-...
-Bn: return parameter
-```
-
-The first liveness sweep discovers the parameter use at the end. Each following
-forward sweep carries it backward by one edge: Theta(N) sweeps and Theta(N^2)
-block visits for this family, until the work limit interrupts. This is a derived
-example, not a measured artifact rejection. A debug range exposing the parameter
-throughout the function seeds uses in every block and changes this example; it
-must not be presented as universal source-program behavior. Within one program
-verification request, executable flow and access analysis share a 100-million-unit
-work budget across functions and modules. Exhaustion **rejects** input rather than
-falling back. The runtime allocator has a different, backward iteration order.
-
-**Owner/correction:** separate forward initialization and backward liveness
-scheduling within the bytecode verifier. Use direction-appropriate changed-node
-worklists/graph order, including reachable cycles with no exit. Make liveness's
-consumer explicit: compute suspension facts where needed, or deliberately retain
-facts for a concrete preparation consumer. Do not increase limits or skip input
-verification to mask repeated work; do not reuse MIR proofs after slot/CFG changes.
-The existing [MIR analysis](../crates/kagari-mir/src/verify/analysis.rs) is a local
-worklist reference, not a mandate for a generic solver framework.
-
-**Focused validation:** bounded source-free forward chains and block-permuted
-versions, with and without debug ranges and await; preserve initialization meets
-at entry/backedges, reads-before-writes and host-capability rejection. Compare
-facts and counted work, including no-exit cycles. Preserve independent bytecode
-validation and its limits. Runtime/codegen timing benefits remain to be measured.
-
-### R17 — Debug availability queries repeatedly scan the full range table
-
-**P2; source-confirmed preparation cost and safe fallback mechanism.** Book basis:
-Chapter 5, pp. 223-225; Appendix B.2, pp. 738-743.
-
-`inputs(pc)` in [bytecode flow](../crates/kagari-bytecode/src/verifier/flow.rs)
-filters every debug `local_live_ranges` record. It runs during graph construction
-and both directions of point checking. With P instructions, Q reachable
-instructions and D range records, the range filters alone examine D(P + 2Q)
-records. Independently, [runtime allocation](../crates/kagari-runtime/src/module/execution/allocation.rs)
-scans all D records at every PC, even when only one binding is visible there.
-
-For an illustrative P = 10,000 and D = 500, the runtime's scans alone require five
-million work units. Its four-million allocation budget is shared across functions
-and modules in [program preparation](../crates/kagari-runtime/src/module.rs), so
-it can decline reuse for this and subsequent functions. Fallback keeps separate
-logical locations and remains safe; it is not verification bypass or a miscompile.
-Bytecode program verification instead uses the shared flow/access work budget
-described in R16 and rejects on exhaustion. These are arithmetic consequences of
-the charging code, not measured workloads.
-With stripped debug ranges this particular cost is absent.
-
-**Root cause/owner:** debug availability is an interval query represented as a
-repeated full-table search. Provide a bytecode-owned bounded interval traversal
-or index for exact-function metadata, consumable by verification and physical
-preparation. Use sorted start/end events or an appropriate interval structure;
-do not materialize a dense P-by-D table just to avoid scanning. Count index
-construction and active-set work, and handle multiple ranges for one slot correctly.
-
-**Focused validation:** compare active slots with the current scan on small
-fixtures with half-open endpoints, adjacent/disjoint/overlapping admitted ranges,
-repeated slots and joins. Reuse lexical-scope range tests, debug-only host liveness
-across await, initialization and loop-carried allocation coverage. Add a bounded
-sparse-range work/fallback case. Preserve debugger-visible values and mandatory
-root/initialization facts; stripping debug or ignoring its uses is not a repair.
-This finding does not establish the cause of BO04 lifecycle timing failures.
-
-### R18 — Dead-operation deletion repeatedly shifts retained suffixes
-
-**P2; source-confirmed transformation cost and work-accounting gap.** Book basis:
-§10.2.1, pp. 544-546, and §8.2.2, pp. 412-415.
-
-[The optimization driver](../crates/kagari-mir/src/passes.rs) sorts removals in
-reverse order, then calls `Vec::remove` individually on instructions, spans and
-scopes. Reverse order preserves indices, but D dead definitions before L retained
-operations still shift that retained suffix D times in each array: Theta(DL)
-element moves. The deletion loop charges only one unit per removed instruction;
-other scans are charged separately and do not cover these suffix moves.
-
-A source-derived valid MIR family is a prefix of unused Boolean `Not` results
-from an unknown parameter, followed by effectful calls. Constant folding cannot
-resolve the parameter; copy forwarding does not remove general Unary operations;
-[dead detection](../crates/kagari-mir/src/passes/dead.rs) can remove the pure prefix
-while retaining the calls. Existing limits bound input size but do not eliminate
-this cost shape. This is not a measured latency result or a numerical defect.
-
-**Owner/correction:** apply each block's deletion set with one stable compaction
-of instruction/span/scope records. Preserve their alignment and retained order by
-construction, with proportional traversal accounting and cancellation checks.
-The book's mark-and-sweep transformation organization applies even though Kagari
-is not SSA. Do not increase budgets, change eligibility, or add an optimization
-cache to compensate for an unsuitable mutation algorithm.
-
-**Focused validation:** bounded verified-MIR dead-prefix/live-suffix cases, retained
-calls/allocations/checked traps, exact span/scope correspondence, and cancellation
-or limit failure without publishing a partial result. Count compaction work;
-reuse the pass-limit and optimized execution contracts. Continue rebuilding the
-verification seal after edits. Broader performance claims require measurement.
-
 ### R19 — Managed intervals influence colors used only by scalar storage
 
 **P2 storage-quality follow-up; source-derived example, magnitude unmeasured.**
@@ -316,16 +194,17 @@ identified BO01 baseline. They also retain **four failed lifecycle timing gates*
 Those results neither measure the current block-local-constant implementation nor
 establish Lua parity or complete acceptance. Historical hoisted images are not
 current validation; no performance claim follows from the R15 repair or R12 work
-counts. Do not attribute those failures to R16-R19 or R14 without measurement.
+counts. Do not attribute those failures to analysis/representation changes or R14 without measurement.
 
 A finite decision order, not a new implementation plan:
 
 1. **Preserve legality before expanding motion:** keep the block-local constant
    boundary and require an observation/provenance contract for broader motion.
    Checked arithmetic, effects and trap order remain optimization constraints.
-2. **Remove demonstrated analysis/representation work:** address R16-R18 at their
-   existing owners, and assess R19's mixed-storage frequency/benefit. These can
-   improve preparation/storage without changing the language or adopting SSA.
+2. **Assess remaining storage quality:** measure R19's mixed-storage frequency and
+   benefit. The completed [bounded analysis and compaction work](architecture.md#bounded-flow-debug-availability-and-mir-deletion)
+   preserves independent verification; its [measurements](performance-baseline.md#bounded-analysis-and-mir-compaction-2026-10-21)
+   do not resolve the outstanding lifecycle gates.
 3. **Continue the remaining runtime work by workload:** R13's bounded version-token
    change and R14's one-transition proof. Preserve the implemented accounting/root
    contracts and keep pending lifecycle acceptance visible; this update does not
@@ -1019,8 +898,8 @@ R7-R8 originated in the 2026-10-03 review of
 `9581f5ad2a754911d1edb92eb35e957a18d7b5df`. Source inspection at `88acbdb5`
 confirms these mechanisms remain; their scaling has not been remeasured.
 Resolved findings and superseded implementation details are not retained as tasks.
-R13/R14 remain in the runtime review; R16-R19 remain in the
-[chapter review](#engineering-a-compiler-chapter-review). R11/R12/R15 are resolved
+R13/R14 remain in the runtime review; R19 remains in the
+[chapter review](#engineering-a-compiler-chapter-review). R11/R12/R15-R18 are resolved
 and are not current queue entries.
 Each entry records its own evidence level and validation limits.
 

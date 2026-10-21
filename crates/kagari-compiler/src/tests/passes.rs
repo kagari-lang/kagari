@@ -106,6 +106,104 @@ fn checked_traps_calls_and_allocations_are_not_discarded() {
 }
 
 #[test]
+fn compaction_reseals_multiple_blocks_with_exact_call_provenance() {
+    let original = checked(
+        "fn touch(value: i32) {} fn main(flag: bool) { 101; 102; touch(1); if flag { 201; touch(2); 202; touch(3); } else { 301; 302; touch(4); } }",
+    );
+    let calls = |module: &VerifiedMirModule| {
+        module
+            .functions
+            .iter()
+            .enumerate()
+            .flat_map(|(function, body)| {
+                body.blocks
+                    .iter()
+                    .enumerate()
+                    .flat_map(move |(block, body)| {
+                        body.instructions
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, instruction)| {
+                                matches!(instruction, Instruction::Call { .. })
+                            })
+                            .map(move |(index, instruction)| {
+                                (
+                                    function,
+                                    block,
+                                    format!("{instruction:?}"),
+                                    body.instruction_spans[index],
+                                    body.instruction_scopes[index],
+                                )
+                            })
+                    })
+            })
+            .collect::<Vec<_>>()
+    };
+    let result = optimized(original.clone());
+    assert_eq!(calls(&result.module), calls(&original));
+    assert_eq!(calls(&result.module).len(), 4);
+    assert!(result.statistics.dead_operations_removed >= 6);
+    let changed_blocks = original
+        .functions
+        .iter()
+        .zip(&result.module.functions)
+        .flat_map(|(before, after)| before.blocks.iter().zip(&after.blocks))
+        .filter(|(before, after)| before.instructions.len() > after.instructions.len())
+        .count();
+    assert!(changed_blocks >= 3);
+
+    // Find the exact work boundary rather than freezing unrelated passes' costs.
+    // Compaction is the last optimization work consumer, so the final failing
+    // budget reaches its cleanup rather than stopping at optimize's entry.
+    let mut insufficient = 0;
+    let mut sufficient = PassOptions::default().max_work;
+    while insufficient + 1 < sufficient {
+        let limit = insufficient + (sufficient - insufficient) / 2;
+        match optimize(
+            original.clone(),
+            &PassOptions { max_work: limit },
+            &Default::default(),
+        ) {
+            Ok(_) => sufficient = limit,
+            Err(error) => {
+                assert_eq!(
+                    error.kind,
+                    MirVerificationErrorKind::Limit {
+                        resource: "MIR optimization work",
+                        limit,
+                    }
+                );
+                insufficient = limit;
+            }
+        }
+    }
+    assert_eq!(
+        optimize(
+            original.clone(),
+            &PassOptions {
+                max_work: sufficient
+            },
+            &Default::default()
+        )
+        .unwrap()
+        .statistics,
+        result.statistics,
+    );
+    assert!(matches!(
+        optimize(
+            original,
+            &PassOptions {
+                max_work: insufficient
+            },
+            &Default::default()
+        )
+        .unwrap_err()
+        .kind,
+        MirVerificationErrorKind::Limit { .. }
+    ));
+}
+
+#[test]
 fn non_ssa_redefinitions_and_unavailable_loads_kill_constant_facts() {
     let context = DefinitionContext::new().unwrap();
     let mut raw = common::adopt(

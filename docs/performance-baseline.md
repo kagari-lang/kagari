@@ -16,6 +16,143 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Bounded analysis and MIR compaction, 2026-10-21
+
+R16-R18 local algorithm acceptance is complete. Current
+[ownership contracts](architecture.md#bounded-flow-debug-availability-and-mir-deletion)
+replace repeated debug-range filtering, coupled full-graph flow sweeps and repeated
+MIR deletion shifts. These results do not resolve CS's 500 ms goal or the outstanding
+BO04/IP12 lifecycle gates. Full feature/backend/platform coverage remains CI-owned.
+
+### Environment and method
+
+Native x86_64-pc-windows-msvc on Windows 11 Professional 10.0.26300, Intel i9-12900K
+(16 cores / 24 logical CPUs), about 64 GiB RAM; rustc 1.99.1
+(`58cf8f9c3`, 2026-10-13), Cargo 1.99.1, LLVM 23.1.1. Workspace release profile,
+default features/target/Cargo parallelism, no custom flags, affinity or frequency
+control. Builds completed before timing. Caches were warm; these are not cold
+process, browser or deployed network measurements.
+
+R17/R16 use `ea5c1386`; R18 uses the same production compaction implementation in
+the AE03 working tree, SHA-256
+`7738b27a46dac79b19361d210dc45cf49062b8e7a22f1cb49c64f8a40da3234f`.
+Old algorithms are source-inspected test-only baselines compiled alongside the new
+algorithms, not an old-checkout end-to-end benchmark. The
+[tracked record](measurements/analysis-efficiency-2026-10-21.json) contains every
+sample/warmup, environment, methods and probe sources; ignored local logs are not
+required. Temporary probes were removed after measurement.
+
+R17/R16 use one warmup and seven measured batches per condition, alternating algorithm
+order. Batch counts: ranges 1/16/256/4096 use 16384/2048/64/2 operations; blocks
+1/16/128/1024 use 4096/256/8/1. Construction/cloning of fixtures, reachability, resets
+and assertions are outside timing; algorithm-owned scratch remains inside. R17
+includes index creation, 2D reverse-PC queries and destruction, with disjoint
+length-one ranges at even PCs and maximum overlap one. Outputs are checked exactly.
+R16 uses reachable chains with one bitset word and a terminal parameter use, in
+forward/permuted layouts without debug ranges; final facts and actual visits match.
+Its timed old solver includes original work/cancellation charges, not the uncharged
+test oracle. R17 uses counting callbacks, not the entire verifier's cancellation
+plumbing. Larger overlapping ranges, dense joins, wider states and cancellation
+latency are not timed here.
+
+R18's replay retains one explicit warmup and five samples per size/algorithm, old
+then new, one affected block with half dead prefix and half retained suffix. Timers
+include old sorting/removal or production compaction, charges and tail cleanup;
+fixture clones/deletion-vector creation/assertions are outside timing. Earlier
+samples are retained separately and are not pooled with the replay. The smallest
+measurements are resolution-sensitive; all ranges/outliers are retained.
+
+### Bounded operation results
+
+Times are microseconds per operation, median [minimum, maximum].
+
+| R17 ranges | Scan | Index construction + queries |
+| ---: | ---: | ---: |
+| 1 (control) | 0.0035 [0.0029, 0.0037] | 0.0458 [0.0454, 0.0492] |
+| 16 | 0.321 [0.320, 0.347] | 0.731 [0.726, 0.746] |
+| 256 | 48.972 [47.781, 50.736] | 20.595 [18.922, 33.389] |
+| 4096 | 10921.600 [9759.050, 16135.200] | 689.150 [662.450, 1023.950] |
+
+For 16/256/4096 ranges, old predicate inspections are 512/131072/33554432;
+new build charges are 177/5700/139887 and query charges 181/5893/143365, including
+node visits and emitted records. Scratch is 384/6144/98304 bytes. Indexing improves
+the larger sparse cases but **regresses the tiny controls**, including 16 ranges:
+construction/allocation dominates there. No small-input specialization is introduced
+as another unplanned tuning round. Actual caller benefit depends on metadata size
+and query frequency; do not infer a whole-compiler speedup.
+
+| R16 blocks / layout | Original coupled solver | Directional worklists |
+| --- | ---: | ---: |
+| 1 (control) | 0.141 [0.131, 0.216] | 0.282 [0.270, 0.444] |
+| 16 / forward | 18.267 [17.867, 20.237] | 1.483 [1.424, 1.553] |
+| 16 / permuted | 17.428 [16.468, 28.646] | 1.593 [1.408, 2.781] |
+| 128 / forward | 1078.037 [976.962, 1168.500] | 10.675 [9.700, 22.163] |
+| 128 / permuted | 1023.763 [977.925, 1061.888] | 10.325 [9.863, 11.650] |
+| 1024 / forward | 69353.900 [67498.300, 74595.100] | 85.200 [77.600, 183.600] |
+| 1024 / permuted | 66044.100 [64428.500, 69121.900] | 80.000 [74.100, 90.200] |
+
+At 1024 blocks, old forward/permuted combined visits are 1049600/1048576 versus
+2048 new directional visits. Charged work is 7345150/7337984 versus 21499, excluding
+fixture reachability. The one-block control regresses due to explicit ordering/queue
+setup. Chains demonstrate removed scheduling work, not a universal linear solver
+bound. Correctness additionally compares all 512 directed three-node edge sets,
+including unreachable predecessors and no-exit cycles; those are not timing probes.
+
+| R18 block entries | Repeated removal | Stable compaction |
+| ---: | ---: | ---: |
+| 16 (control) | 0.2 [0.2, 0.3] | 0.2 [0.1, 0.2] |
+| 256 | 17.2 [17.2, 17.3] | 2.0 [1.9, 2.0] |
+| 4096 | 10437.9 [10128.4, 10530.5] | 33.6 [31.8, 36.9] |
+
+For these sizes, old/new logical column relocations are 192/48, 49152/768 and
+12582912/12288. These are source-derived element counts, not hardware counters.
+New charges 96/1536/24576 exceed old 8/128/2048 because previously uncharged retained
+visits/moves/cleanup are now counted. The finder already groups descending decisions;
+consuming those groups needs O(D + N) work and O(1) added scratch, with N entries in
+affected blocks. No eligibility or pass-order change is included.
+
+### Current SDK paths and correctness limits
+
+Current-only native release SDK measurements use one warmup and five samples per
+route, with fresh engines, separately timed setup and a fixed source containing
+debug locals, branches and dead pure temporaries. Each product has 2 functions,
+10 debug ranges and 2 branch instructions. All 18 executions (direct, staged-source
+attribution and artifact routes, including warmups) return exact `Value::I32(42)`.
+No JIT/AOT is requested. Portable MIR is exported by default artifact options and
+validated with native-enabled preparation; direct preparation does not retain it.
+
+| SDK phase | Milliseconds, median [min, max] |
+| --- | ---: |
+| Direct `compile_to_program` | 572.886 [566.497, 584.976] |
+| Staged source checking | 127.440 [124.257, 130.590] |
+| Staged lowering/preparation | 454.498 [439.459, 464.156] |
+| `compile_to_artifact` | 593.022 [590.606, 756.243] |
+| Artifact serialization | 5.186 [4.865, 5.363] |
+| Artifact decode | 4.076 [4.007, 5.238] |
+| Artifact preparation | 209.492 [201.751, 210.075] |
+| Direct runtime linking / first execution | 5.194 [4.980, 5.422] / 0.0184 [0.0157, 0.0199] |
+| Artifact runtime linking / first execution | 4.869 [4.827, 5.859] / 0.0173 [0.0160, 0.0189] |
+
+Engine setup medians are 427.452/425.178/425.347 ms for direct/staged/artifact, outside
+these source timers; runtime construction is separate in raw samples. Build time
+55.13 s is excluded. Three earlier attempts detected competing Cargo activity and
+were rejected before accepted sampling; the accepted 20.13 s run found no competing
+build/test across 182 monitor polls and stable Rust/Cargo input hashes. Do not pool
+attribution medians or compare these numbers to the historical Mac CS timings.
+These verify current paths, not matched end-to-end before/after improvement.
+
+Selected local acceptance passed availability (4), flow solver (5), async verifier
+(3), allocation (4), lexical debug ranges (1), malformed debug metadata (1), ordinary
+entry/join initialization (1), source-free predicate branches (1), MIR compaction
+(5), compiler passes (13), debugger optimized/unoptimized plus artifact roundtrip
+(1), and independent source-disabled artifact execution (1). The last test initially
+failed because its ignored generated fixture was absent; running
+`cargo run -p kagari --example regenerate_feature_artifact` and rerunning only that
+test passed. Structure, formatting, workspace all-target Clippy with warnings denied
+and diff checks passed. No in-scope carried error remains. Full workspace suites,
+backend/platform matrices and browser acceptance were not run; these local results
+do not establish Lua parity, old lifecycle gates or deployed latency.
+
 ## Inline module AST reuse, 2026-10-21
 
 Baseline `e7135c16` and candidate `3400f651` compare complete HIR declarations

@@ -1,0 +1,1081 @@
+{
+  "date": "2026-10-21",
+  "implementation": "ea5c1386 plus AE03 compaction working tree",
+  "interval_and_solver": {
+    "environment": {
+      "started_utc": "2026-10-21T13:45:18.100051+00:00",
+      "logical_cpus": 24,
+      "release_cache_present": true,
+      "environment": {
+        "CARGO_BUILD_JOBS": null,
+        "CARGO_TARGET_DIR": null,
+        "CARGO_HOME": null,
+        "RUSTUP_TOOLCHAIN": null,
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_PROFILE_RELEASE_OPT_LEVEL": null,
+        "CARGO_PROFILE_RELEASE_DEBUG": null,
+        "CARGO_PROFILE_RELEASE_LTO": null,
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": null,
+        "CARGO_INCREMENTAL": null,
+        "CARGO_BUILD_TARGET": null,
+        "RUSTC_WRAPPER": null,
+        "RUSTC_WORKSPACE_WRAPPER": null
+      },
+      "head": "ea5c1386dc4882801e2fc44df5f73d907fd8894a",
+      "build_seconds": 43.31541969999989,
+      "artifact_profile": {
+        "opt_level": "3",
+        "debuginfo": 0,
+        "debug_assertions": false,
+        "overflow_checks": false,
+        "test": true
+      },
+      "artifact_features": [],
+      "executable": "F:\\CLionProjects\\kagari\\target\\release\\deps\\kagari_bytecode-e0e1929ea13213dd.exe"
+    },
+    "samples": [
+      {
+        "kind": "availability",
+        "ranges": 1,
+        "queries": 2,
+        "max_overlap": 1,
+        "batch": 16384,
+        "outputs": 1,
+        "scan_inspections": 2,
+        "build_work": 3,
+        "query_work": 3,
+        "query_nodes": 2,
+        "scratch_bytes": 24,
+        "scan_warmup_ns": 112000,
+        "index_warmup_ns": 1321900,
+        "scan_samples_ns": [
+          47000,
+          46800,
+          60300,
+          60000,
+          57000,
+          60300,
+          47000
+        ],
+        "index_samples_ns": [
+          805800,
+          754600,
+          766300,
+          743700,
+          749100,
+          749800,
+          747500
+        ]
+      },
+      {
+        "kind": "availability",
+        "ranges": 16,
+        "queries": 32,
+        "max_overlap": 1,
+        "batch": 2048,
+        "outputs": 16,
+        "scan_inspections": 512,
+        "build_work": 177,
+        "query_work": 181,
+        "query_nodes": 165,
+        "scratch_bytes": 384,
+        "scan_warmup_ns": 657100,
+        "index_warmup_ns": 1659300,
+        "scan_samples_ns": [
+          657100,
+          711500,
+          660000,
+          669400,
+          655800,
+          657000,
+          656400
+        ],
+        "index_samples_ns": [
+          1494400,
+          1528300,
+          1497500,
+          1500700,
+          1497500,
+          1486900,
+          1499500
+        ]
+      },
+      {
+        "kind": "availability",
+        "ranges": 256,
+        "queries": 512,
+        "max_overlap": 1,
+        "batch": 64,
+        "outputs": 256,
+        "scan_inspections": 131072,
+        "build_work": 5700,
+        "query_work": 5893,
+        "query_nodes": 5637,
+        "scratch_bytes": 6144,
+        "scan_warmup_ns": 3114500,
+        "index_warmup_ns": 1329900,
+        "scan_samples_ns": [
+          3134200,
+          3058000,
+          3247100,
+          3196300,
+          3078600,
+          3083300,
+          3224200
+        ],
+        "index_samples_ns": [
+          1235700,
+          1319500,
+          2136900,
+          1370900,
+          1211000,
+          1318100,
+          1222000
+        ]
+      },
+      {
+        "kind": "availability",
+        "ranges": 4096,
+        "queries": 8192,
+        "max_overlap": 1,
+        "batch": 2,
+        "outputs": 4096,
+        "scan_inspections": 33554432,
+        "build_work": 139887,
+        "query_work": 143365,
+        "query_nodes": 139269,
+        "scratch_bytes": 98304,
+        "scan_warmup_ns": 20435300,
+        "index_warmup_ns": 1424800,
+        "scan_samples_ns": [
+          21843200,
+          29531900,
+          32270400,
+          31334300,
+          19518100,
+          20552700,
+          20108400
+        ],
+        "index_samples_ns": [
+          1416200,
+          2047900,
+          2047400,
+          1362800,
+          1378300,
+          1337200,
+          1324900
+        ]
+      },
+      {
+        "kind": "solver",
+        "blocks": 1,
+        "edges": 0,
+        "words": 1,
+        "reversed": false,
+        "debug_ranges": 0,
+        "batch": 4096,
+        "old_visits": 2,
+        "new_visits": [
+          1,
+          1
+        ],
+        "old_work": 10,
+        "new_work": 16,
+        "old_warmup_ns": 543800,
+        "new_warmup_ns": 1426300,
+        "old_samples_ns": [
+          575700,
+          535500,
+          632200,
+          552800,
+          645600,
+          565200,
+          885700
+        ],
+        "new_samples_ns": [
+          1104300,
+          1134600,
+          1149000,
+          1153200,
+          1294700,
+          1155200,
+          1819400
+        ]
+      },
+      {
+        "kind": "solver",
+        "blocks": 16,
+        "edges": 15,
+        "words": 1,
+        "reversed": false,
+        "debug_ranges": 0,
+        "batch": 256,
+        "old_visits": 272,
+        "new_visits": [
+          16,
+          16
+        ],
+        "old_work": 1870,
+        "new_work": 331,
+        "old_warmup_ns": 5365400,
+        "new_warmup_ns": 414500,
+        "old_samples_ns": [
+          5180700,
+          4717000,
+          4688300,
+          4676400,
+          4575700,
+          4656700,
+          4574000
+        ],
+        "new_samples_ns": [
+          377000,
+          393200,
+          379700,
+          397500,
+          365000,
+          395400,
+          364600
+        ]
+      },
+      {
+        "kind": "solver",
+        "blocks": 16,
+        "edges": 15,
+        "words": 1,
+        "reversed": true,
+        "debug_ranges": 0,
+        "batch": 256,
+        "old_visits": 256,
+        "new_visits": [
+          16,
+          16
+        ],
+        "old_work": 1760,
+        "new_work": 331,
+        "old_warmup_ns": 4281300,
+        "new_warmup_ns": 397900,
+        "old_samples_ns": [
+          4268700,
+          4551700,
+          4461500,
+          4400000,
+          4475600,
+          4215800,
+          7333500
+        ],
+        "new_samples_ns": [
+          360500,
+          407800,
+          372600,
+          417600,
+          367300,
+          711900,
+          687100
+        ]
+      },
+      {
+        "kind": "solver",
+        "blocks": 128,
+        "edges": 127,
+        "words": 1,
+        "reversed": false,
+        "debug_ranges": 0,
+        "batch": 8,
+        "old_visits": 16512,
+        "new_visits": [
+          128,
+          128
+        ],
+        "old_work": 115326,
+        "new_work": 2683,
+        "old_warmup_ns": 7758200,
+        "new_warmup_ns": 91600,
+        "old_samples_ns": [
+          8027300,
+          8538800,
+          9146400,
+          9082100,
+          7815700,
+          9348000,
+          8624300
+        ],
+        "new_samples_ns": [
+          78700,
+          85400,
+          103800,
+          177300,
+          79800,
+          87600,
+          77600
+        ]
+      },
+      {
+        "kind": "solver",
+        "blocks": 128,
+        "edges": 127,
+        "words": 1,
+        "reversed": true,
+        "debug_ranges": 0,
+        "batch": 8,
+        "old_visits": 16384,
+        "new_visits": [
+          128,
+          128
+        ],
+        "old_work": 114432,
+        "new_work": 2683,
+        "old_warmup_ns": 7848800,
+        "new_warmup_ns": 102800,
+        "old_samples_ns": [
+          7823400,
+          8229100,
+          8219900,
+          8063300,
+          8190100,
+          7902400,
+          8495100
+        ],
+        "new_samples_ns": [
+          82600,
+          91100,
+          78900,
+          91800,
+          80100,
+          93200,
+          81600
+        ]
+      },
+      {
+        "kind": "solver",
+        "blocks": 1024,
+        "edges": 1023,
+        "words": 1,
+        "reversed": false,
+        "debug_ranges": 0,
+        "batch": 1,
+        "old_visits": 1049600,
+        "new_visits": [
+          1024,
+          1024
+        ],
+        "old_work": 7345150,
+        "new_work": 21499,
+        "old_warmup_ns": 68188700,
+        "new_warmup_ns": 95000,
+        "old_samples_ns": [
+          68791100,
+          72785100,
+          69087700,
+          69353900,
+          67498300,
+          74595100,
+          72563900
+        ],
+        "new_samples_ns": [
+          77600,
+          87700,
+          79900,
+          183600,
+          78700,
+          97300,
+          85200
+        ]
+      },
+      {
+        "kind": "solver",
+        "blocks": 1024,
+        "edges": 1023,
+        "words": 1,
+        "reversed": true,
+        "debug_ranges": 0,
+        "batch": 1,
+        "old_visits": 1048576,
+        "new_visits": [
+          1024,
+          1024
+        ],
+        "old_work": 7337984,
+        "new_work": 21499,
+        "old_warmup_ns": 67008200,
+        "new_warmup_ns": 115600,
+        "old_samples_ns": [
+          66044100,
+          64952600,
+          69121900,
+          66725700,
+          64428500,
+          64810000,
+          68964500
+        ],
+        "new_samples_ns": [
+          80000,
+          80600,
+          74100,
+          90200,
+          76500,
+          81500,
+          74300
+        ]
+      }
+    ],
+    "protocol": "# Matched R17 / R16 release measurements\n\nMeasured at 2026-10-21T13:45:18.100051+00:00; HEAD `ea5c1386dc4882801e2fc44df5f73d907fd8894a`.\nThe working tree contained the parent's separate R18 MIR/pass edits (status.before.txt); reviewed bytecode probe-owner files were clean before and after. R18 is not exercised by these helper-level timings.\n\n## Environment and cache\n\nSee environment.json, hardware.txt, rustc.txt, cargo.txt, dependency-features.txt and build.stderr.log for the complete captured environment.\n- Toolchain: `rustc 1.99.1 (58cf8f9c3 2026-10-13)`; `cargo 1.99.1 (5f94df478 2026-08-27)`; LLVM version: 23.1.1.\n- Machine: 12th Gen Intel(R) Core(TM) i9-12900K, 16 physical cores / 24 logical CPUs, 68447940608 bytes physical RAM reported; os: Windows 10.0.26300 (Windows 11 Professional) [64-bit].\n- Host logical CPUs: 24. Build parallelism: Cargo default, no -j override. Timing: one test thread, serial algorithms, no Cargo/rustc/Clippy/rustdoc process present at timing boundaries.\n- Workspace release profile, native x86_64-pc-windows-msvc. Root manifest only overrides profile.dev; release therefore uses normal Cargo defaults (opt-level 3, no debug info, debug assertions/overflow checks off, no LTO, default codegen units). No custom target/profile/job/flags settings were supplied.\n- Observed Cargo test artifact profile/features: `{\"opt_level\": \"3\", \"debuginfo\": 0, \"debug_assertions\": false, \"overflow_checks\": false, \"test\": true}` / `[]`. kagari-bytecode declares no features; dependency features are captured separately.\n- Existing target/release cache was present: True. Build duration 43.315 s is excluded from timings. No cache flush, CPU pinning, power-policy changes or process-priority changes. Prepared fixtures are reused/reset outside timers and code/data/allocator caches are warm, not cold-start measurements.\n\n## Frozen protocol\n\n- Availability range counts/batches: 1/16384 (small control), 16/2048, 256/64, 4096/2. Each operation builds the index once, queries 2D PCs in reverse order and releases the index. Old scan performs the same reverse queries. One disjoint length-one range per even PC; max overlap one, exactly D outputs. Source ranges reverse-ordered; slots differ by range to make exact output validation meaningful.\n- Solver block counts/batches: 1/4096 (small control), 16/256, 128/8, 1024/1. Both numeric-forward and permuted/reverse chains; one-block control has only one layout. B-1 edges, one bitset word, parameter slot 0, terminal use only, no debug ranges. All reachable; initialization begins at top and liveness at bottom.\n- Exactly one explicit full-batch warmup per algorithm/condition, then seven full-batch samples. Algorithm order alternates each round; warmup starts with old. Samples below are normalized per operation; samples.json and timing.stdout.log retain original batch nanoseconds and warmup timings. Fixed batching improves resolution without changing fixture sizes.\n- Fixture creation, cloning, reachability, resets, output-buffer reservation and correctness assertions are outside the timers. New algorithm-owned index/DFS/queue/bitset allocation and deallocation remain inside. Availability output clear/push/extend and batch loop/black_box overhead are timed symmetrically. Solver iteration drops/replaces states as the original/production algorithms do.\n- Timed availability paths return actual build/query charge counters and scan predicate inspections; emitted slot vectors are checked exactly. Query charge equals node visits plus emitted outputs, so query_nodes is derived by subtracting exact output count. Build charges include sorting/traversal work units, not a claim that each unit is one comparison.\n- Timed solver baseline is a test-only copy of original pre-R16 fixed_points (see pre-r16-flow.rs), including original update ordering and work/cancellation charges, plus a real block-visit counter. Before timing it matches the existing uncharged reference helper's exact facts and visit count. New fixed_points includes postorder construction, directional queues, actual cfg(test) visit counters and all production charges. Every timed batch checks final initialized/live vectors and work/visit counts.\n\n## R17 timings (microseconds per complete build+query operation)\n\n| Ranges | Batch | Old scan median [min, max] | Index median [min, max] | Old/index median ratio |\n| ---: | ---: | ---: | ---: | ---: |\n| 1 | 16384 | 0.003 [0.003, 0.004] | 0.046 [0.045, 0.049] | 0.076x |\n| 16 | 2048 | 0.321 [0.320, 0.347] | 0.731 [0.726, 0.746] | 0.439x |\n| 256 | 64 | 48.972 [47.781, 50.736] | 20.595 [18.922, 33.389] | 2.378x |\n| 4096 | 2 | 10921.600 [9759.050, 16135.200] | 689.150 [662.450, 1023.950] | 15.848x |\n\n## R16 timings (microseconds per fixed-point operation)\n\n| Blocks | Layout | Batch | Original median [min, max] | New median [min, max] | Old/new median ratio |\n| ---: | --- | ---: | ---: | ---: | ---: |\n| 1 | forward | 4096 | 0.141 [0.131, 0.216] | 0.282 [0.270, 0.444] | 0.499x |\n| 16 | forward | 256 | 18.267 [17.867, 20.237] | 1.483 [1.424, 1.553] | 12.316x |\n| 16 | permuted | 256 | 17.428 [16.468, 28.646] | 1.593 [1.408, 2.781] | 10.940x |\n| 128 | forward | 8 | 1078.037 [976.962, 1168.500] | 10.675 [9.700, 22.163] | 100.987x |\n| 128 | permuted | 8 | 1023.763 [977.925, 1061.888] | 10.325 [9.863, 11.650] | 99.154x |\n| 1024 | forward | 1 | 69353.900 [67498.300, 74595.100] | 85.200 [77.600, 183.600] | 814.013x |\n| 1024 | permuted | 1 | 66044.100 [64428.500, 69121.900] | 80.000 [74.100, 90.200] | 825.551x |\n\n## All samples and work evidence\n\nAll lists below are ordered samples in microseconds/operation; no samples excluded.\n\n### R17 D=1\n\n- Old: 0.002869, 0.002856, 0.003680, 0.003662, 0.003479, 0.003680, 0.002869\n- New: 0.049182, 0.046057, 0.046771, 0.045392, 0.045721, 0.045764, 0.045624\n- Per operation: 2 old predicate inspections; 3 index build work units; 2 queried nodes + 1 emissions = 3 query units; 24 admitted index scratch bytes.\n- Explicit warmup batch ns: old 112000, new 1321900.\n\n### R17 D=16\n\n- Old: 0.320850, 0.347412, 0.322266, 0.326855, 0.320215, 0.320801, 0.320508\n- New: 0.729688, 0.746240, 0.731201, 0.732764, 0.731201, 0.726025, 0.732178\n- Per operation: 512 old predicate inspections; 177 index build work units; 165 queried nodes + 16 emissions = 181 query units; 384 admitted index scratch bytes.\n- Explicit warmup batch ns: old 657100, new 1659300.\n\n### R17 D=256\n\n- Old: 48.971875, 47.781250, 50.735937, 49.942188, 48.103125, 48.176563, 50.378125\n- New: 19.307813, 20.617188, 33.389063, 21.420313, 18.921875, 20.595312, 19.093750\n- Per operation: 131072 old predicate inspections; 5700 index build work units; 5637 queried nodes + 256 emissions = 5893 query units; 6144 admitted index scratch bytes.\n- Explicit warmup batch ns: old 3114500, new 1329900.\n\n### R17 D=4096\n\n- Old: 10921.600000, 14765.950000, 16135.200000, 15667.150000, 9759.050000, 10276.350000, 10054.200000\n- New: 708.100000, 1023.950000, 1023.700000, 681.400000, 689.150000, 668.600000, 662.450000\n- Per operation: 33554432 old predicate inspections; 139887 index build work units; 139269 queried nodes + 4096 emissions = 143365 query units; 98304 admitted index scratch bytes.\n- Explicit warmup batch ns: old 20435300, new 1424800.\n\n### R16 B=1 reversed=False\n\n- Old: 0.140552, 0.130737, 0.154346, 0.134961, 0.157617, 0.137988, 0.216235\n- New: 0.269604, 0.277002, 0.280518, 0.281543, 0.316089, 0.282031, 0.444189\n- Per operation: 2 original combined block visits, new directional visits [1, 1]; charged work old 10, new 16.\n- Explicit warmup batch ns: old 543800, new 1426300.\n\n### R16 B=16 reversed=False\n\n- Old: 20.237109, 18.425781, 18.313672, 18.267187, 17.873828, 18.190234, 17.867188\n- New: 1.472656, 1.535937, 1.483203, 1.552734, 1.425781, 1.544531, 1.424219\n- Per operation: 272 original combined block visits, new directional visits [16, 16]; charged work old 1870, new 331.\n- Explicit warmup batch ns: old 5365400, new 414500.\n\n### R16 B=16 reversed=True\n\n- Old: 16.674609, 17.780078, 17.427734, 17.187500, 17.482813, 16.467969, 28.646484\n- New: 1.408203, 1.592969, 1.455469, 1.631250, 1.434766, 2.780859, 2.683984\n- Per operation: 256 original combined block visits, new directional visits [16, 16]; charged work old 1760, new 331.\n- Explicit warmup batch ns: old 4281300, new 397900.\n\n### R16 B=128 reversed=False\n\n- Old: 1003.412500, 1067.350000, 1143.300000, 1135.262500, 976.962500, 1168.500000, 1078.037500\n- New: 9.837500, 10.675000, 12.975000, 22.162500, 9.975000, 10.950000, 9.700000\n- Per operation: 16512 original combined block visits, new directional visits [128, 128]; charged work old 115326, new 2683.\n- Explicit warmup batch ns: old 7758200, new 91600.\n\n### R16 B=128 reversed=True\n\n- Old: 977.925000, 1028.637500, 1027.487500, 1007.912500, 1023.762500, 987.800000, 1061.887500\n- New: 10.325000, 11.387500, 9.862500, 11.475000, 10.012500, 11.650000, 10.200000\n- Per operation: 16384 original combined block visits, new directional visits [128, 128]; charged work old 114432, new 2683.\n- Explicit warmup batch ns: old 7848800, new 102800.\n\n### R16 B=1024 reversed=False\n\n- Old: 68791.100000, 72785.100000, 69087.700000, 69353.900000, 67498.300000, 74595.100000, 72563.900000\n- New: 77.600000, 87.700000, 79.900000, 183.600000, 78.700000, 97.300000, 85.200000\n- Per operation: 1049600 original combined block visits, new directional visits [1024, 1024]; charged work old 7345150, new 21499.\n- Explicit warmup batch ns: old 68188700, new 95000.\n\n### R16 B=1024 reversed=True\n\n- Old: 66044.100000, 64952.600000, 69121.900000, 66725.700000, 64428.500000, 64810.000000, 68964.500000\n- New: 80.000000, 80.600000, 74.100000, 90.200000, 76.500000, 81.500000, 74.300000\n- Per operation: 1048576 original combined block visits, new directional visits [1024, 1024]; charged work old 7337984, new 21499.\n- Explicit warmup batch ns: old 67008200, new 115600.\n\n## Interpretation and limits\n\n- These are bounded helper-level, matched native release measurements, not source compilation, artifact loading, runtime execution or end-to-end latency promises. Old paths are source-inspected test-only baselines compiled alongside new paths, not measurements of an old checkout/binary.\n- R17 intentionally isolates the shared capability: caller charging is represented by deterministic counters, without verifier CancellationToken or full input-vector/allocator plumbing. The old scan is the previous filter membership operation; its inspection counter is extra instrumentation. Sparse max-overlap-one workloads do not measure dense output costs or all interval shapes. Index construction/lifecycle is included, not amortized away.\n- R16 includes the original and new charging/cancellation machinery and real visits, but remains cfg(test), with synthetic one-word chains and no graph/metadata admission or point validation. The existing uncharged oracle is a correctness check, not the timed baseline. Ordinary/async end-to-end differences, wider bitsets, cycles, dense joins and cancellation latency are outside these timings.\n- Mechanism evidence matches the expected scope: at D=4096, 33554432 scan inspections become 139887 build + 143365 query work units, with 98304 bytes of index scratch. At B=1024, original forward/permuted visits are 1049600/1048576 versus 2048 directional visits; charged work is 7345150/7337984 versus 21499. The reversed layout makes old initialization propagate slowly while forward layout makes old liveness propagate slowly. These are chain-specific observations, not a universal linear solver bound.\n- Small controls expose setup overhead; ratios below one are regressions for those controls, not failures to be hidden or new optimization work. Batching amortizes the clock but not algorithm setup. This single-machine run has seven samples, no affinity/frequency control or confidence intervals; retain all samples/ranges and do not generalize precise ratios to other hardware/platforms.\n- No additional optimization, production/permanent-test edits, documentation edits, staging or commits are part of this measurement. The driver removes exactly its appended suffixes and checks byte-for-byte original restoration; any unexpected source change stops removal rather than overwriting it.\n\n## Reproduction and artifacts\n\nFrom repository root run `uv run python target/ae-final-measurements/run_measurements.py`. The driver appends the saved probes to their existing test modules, captures environment/features, runs `cargo test --release -p kagari-bytecode --lib --no-run --message-format=json` once, then invokes the resulting executable directly with `ae_final_measurement --ignored --nocapture --test-threads=1`. It finally removes only its own exact suffixes. Do not run other Cargo builds/tests during timing. The script refuses to start timing if cargo/rustc/Clippy/rustdoc is active and records boundary process snapshots.\n\n- `availability-probe.rs`, `solver-probe.rs`: exact temporary reproduction payloads.\n- `availability-tests.before.rs`, `solver-tests.before.rs`, `source-restoration.json`: original bytes and restoration/hash evidence.\n- `pre-r17-flow.rs`, `pre-r17-allocation.rs`, `pre-r16-flow.rs`: source-inspected baseline snapshots obtained with git show; no checkout/reset.\n- `samples.json`, `timing.stdout.log`, `timing.stderr.log`: all measured samples, warmups, counters, assertions/test outcomes.\n- `environment.json`, toolchain/hardware/feature/build logs: environment and build provenance, separate from timing.\n",
+    "availability_probe": "// BEGIN AE FINAL TEMPORARY AVAILABILITY PROBE\n#[inline(never)]\nfn ae17_scan(ranges: &[LocalLiveRange], output: &mut Vec<usize>) -> usize {\n    output.clear();\n    let mut inspected = 0;\n    for pc in (0..ranges.len() * 2).rev() {\n        output.extend(\n            ranges\n                .iter()\n                .filter(|range| {\n                    inspected += 1;\n                    range.start <= pc && pc < range.end\n                })\n                .map(|range| range.slot.index()),\n        );\n    }\n    inspected\n}\n\n#[inline(never)]\nfn ae17_index(ranges: &[LocalLiveRange], output: &mut Vec<usize>) -> (usize, usize) {\n    output.clear();\n    let mut build = 0;\n    let index = DebugAvailability::new(ranges, |n| {\n        build += n;\n        Ok::<_, ()>(())\n    })\n    .unwrap();\n    let mut queries = 0;\n    for pc in (0..ranges.len() * 2).rev() {\n        index\n            .visit(\n                pc,\n                |n| {\n                    queries += n;\n                    Ok::<_, ()>(())\n                },\n                |slot| output.push(slot.index()),\n            )\n            .unwrap();\n    }\n    std::hint::black_box(&index);\n    (build, queries)\n}\n\n#[test]\n#[ignore = \"temporary matched release measurement\"]\nfn ae_final_measurement_availability() {\n    use std::{hint::black_box, time::Instant};\n\n    for (count, batch) in [(1usize, 16_384usize), (16, 2_048), (256, 64), (4_096, 2)] {\n        let ranges = (0..count)\n            .rev()\n            .map(|i| range(i, i * 2, i * 2 + 1))\n            .collect::<Vec<_>>();\n        let expected = (0..count).rev().collect::<Vec<_>>();\n        let mut scanned = Vec::with_capacity(count);\n        let mut indexed = Vec::with_capacity(count);\n        let scan_work = ae17_scan(&ranges, &mut scanned);\n        let (build_work, query_work) = ae17_index(&ranges, &mut indexed);\n        assert_eq!(scanned, expected);\n        assert_eq!(indexed, scanned);\n        assert_eq!(scan_work, count * count * 2);\n        let mut scan_samples = Vec::new();\n        let mut index_samples = Vec::new();\n        let mut scan_warmup = 0;\n        let mut index_warmup = 0;\n        for round in 0..8 {\n            for index_algorithm in if round % 2 == 0 {\n                [false, true]\n            } else {\n                [true, false]\n            } {\n                let started = Instant::now();\n                let mut work = (0usize, 0usize);\n                for _ in 0..batch {\n                    if index_algorithm {\n                        let charged = ae17_index(black_box(&ranges), black_box(&mut indexed));\n                        work.0 += charged.0;\n                        work.1 += charged.1;\n                        black_box(&indexed);\n                    } else {\n                        work.0 += ae17_scan(black_box(&ranges), black_box(&mut scanned));\n                        black_box(&scanned);\n                    }\n                }\n                let elapsed = started.elapsed().as_nanos();\n                if index_algorithm {\n                    assert_eq!(indexed, expected);\n                    assert_eq!(work, (build_work * batch, query_work * batch));\n                    if round == 0 {\n                        index_warmup = elapsed;\n                    } else {\n                        index_samples.push(elapsed);\n                    }\n                } else {\n                    assert_eq!(scanned, expected);\n                    assert_eq!(work, (scan_work * batch, 0));\n                    if round == 0 {\n                        scan_warmup = elapsed;\n                    } else {\n                        scan_samples.push(elapsed);\n                    }\n                }\n            }\n        }\n        println!(\"AE_RESULT {{\\\"kind\\\":\\\"availability\\\",\\\"ranges\\\":{count},\\\"queries\\\":{},\\\"max_overlap\\\":1,\\\"batch\\\":{batch},\\\"outputs\\\":{count},\\\"scan_inspections\\\":{scan_work},\\\"build_work\\\":{build_work},\\\"query_work\\\":{query_work},\\\"query_nodes\\\":{},\\\"scratch_bytes\\\":{},\\\"scan_warmup_ns\\\":{scan_warmup},\\\"index_warmup_ns\\\":{index_warmup},\\\"scan_samples_ns\\\":{scan_samples:?},\\\"index_samples_ns\\\":{index_samples:?}}}\", count * 2, query_work - count, DebugAvailability::scratch_bytes(count));\n    }\n}\n// END AE FINAL TEMPORARY AVAILABILITY PROBE\n",
+    "solver_probe": "// BEGIN AE FINAL TEMPORARY SOLVER PROBE\n// Original pre-R16 transfer/update order and per-block work/cancellation charge.\n// Only the returned real block-visit counter is additional instrumentation.\n#[inline(never)]\nfn ae16_original_reference(flow: &mut Flow<'_>) -> Result<usize, Error> {\n    let mut visits = 0;\n    loop {\n        let mut changed = false;\n        for index in 0..flow.blocks.len() {\n            if !flow.blocks[index].reachable {\n                continue;\n            }\n            visits += 1;\n            flow.charge(\n                flow.words.saturating_mul(\n                    flow.blocks[index].predecessors.len() + flow.blocks[index].successors.len() + 4,\n                ) + 1,\n            )?;\n            let mut initialized = flow.incoming(index);\n            let mut live = flow.live_out(index);\n            let block = &mut flow.blocks[index];\n            for word in 0..flow.words {\n                initialized[word] |= block.defines[word];\n                changed |= block.initialized[word] != initialized[word];\n                block.initialized[word] = initialized[word];\n                live[word] = (live[word] & !block.defines[word]) | block.uses[word];\n            }\n            changed |= block.live != live;\n            block.live = live;\n        }\n        if !changed {\n            return Ok(visits);\n        }\n    }\n}\n\n#[test]\n#[ignore = \"temporary matched release measurement\"]\nfn ae_final_measurement_solver() {\n    use std::{hint::black_box, time::Instant};\n\n    let mut function = BytecodeFunction::default();\n    function.metadata.parameter_slots = vec![Slot::new(0)];\n    for (count, batch) in [(1usize, 4_096usize), (16, 256), (128, 8), (1_024, 1)] {\n        for reversed in [false, true] {\n            if count == 1 && reversed {\n                continue;\n            }\n            let layout = if reversed {\n                std::iter::once(0)\n                    .chain((1..count).rev())\n                    .collect::<Vec<_>>()\n            } else {\n                (0..count).collect::<Vec<_>>()\n            };\n            let mut edges = vec![vec![]; count];\n            for pair in layout.windows(2) {\n                edges[pair[0]].push(pair[1]);\n            }\n            let configure = |flow: &mut Flow<'_>| {\n                for block in &mut flow.blocks {\n                    block.uses[0] = 0;\n                }\n                flow.blocks[*layout.last().unwrap()].uses[0] = 1;\n                flow.reachability().unwrap();\n                flow.budget.work = 0;\n            };\n            let reset = |flow: &mut Flow<'_>| {\n                for block in &mut flow.blocks {\n                    block.initialized.fill(u64::MAX);\n                    block.live.fill(0);\n                }\n                flow.budget.work = 0;\n                flow.visits = [0; 2];\n            };\n            let assert_facts = |flow: &Flow<'_>| {\n                assert!(flow\n                    .blocks\n                    .iter()\n                    .all(|b| b.initialized == [1] && b.live == [1]));\n            };\n            let mut old_budgets = (0..batch)\n                .map(|_| FlowBudget::new(&Default::default()))\n                .collect::<Vec<_>>();\n            let mut new_budgets = (0..batch)\n                .map(|_| FlowBudget::new(&Default::default()))\n                .collect::<Vec<_>>();\n            let mut old_flows = old_budgets\n                .iter_mut()\n                .map(|budget| fixture(&function, budget, &edges))\n                .collect::<Vec<_>>();\n            let mut new_flows = new_budgets\n                .iter_mut()\n                .map(|budget| fixture(&function, budget, &edges))\n                .collect::<Vec<_>>();\n            for flow in old_flows.iter_mut().chain(&mut new_flows) {\n                configure(flow);\n            }\n\n            // Compare the charged original with the existing independent test oracle,\n            // then compare both exact fact vectors against the production solver.\n            let mut oracle_budget = FlowBudget::new(&Default::default());\n            let mut oracle = fixture(&function, &mut oracle_budget, &edges);\n            configure(&mut oracle);\n            let oracle_visits = reference(&mut oracle);\n            let old_visits = ae16_original_reference(&mut old_flows[0]).unwrap();\n            new_flows[0].fixed_points().unwrap();\n            assert_eq!(old_visits, oracle_visits);\n            assert_eq!(\n                old_visits,\n                if reversed {\n                    count * count\n                } else {\n                    count * (count + 1)\n                }\n            );\n            for ((old, new), expected) in old_flows[0]\n                .blocks\n                .iter()\n                .zip(&new_flows[0].blocks)\n                .zip(&oracle.blocks)\n            {\n                assert_eq!(\n                    (&old.initialized, &old.live),\n                    (&expected.initialized, &expected.live)\n                );\n                assert_eq!(\n                    (&new.initialized, &new.live),\n                    (&expected.initialized, &expected.live)\n                );\n            }\n            assert_eq!(new_flows[0].visits, [count, count]);\n            let old_work = old_flows[0].budget.work;\n            let new_work = new_flows[0].budget.work;\n            let mut old_samples = Vec::new();\n            let mut new_samples = Vec::new();\n            let mut old_warmup = 0;\n            let mut new_warmup = 0;\n            for round in 0..8 {\n                for new_algorithm in if round % 2 == 0 {\n                    [false, true]\n                } else {\n                    [true, false]\n                } {\n                    let flows = if new_algorithm {\n                        &mut new_flows\n                    } else {\n                        &mut old_flows\n                    };\n                    for flow in flows.iter_mut() {\n                        reset(flow);\n                    }\n                    let started = Instant::now();\n                    let mut measured_old_visits = 0;\n                    for flow in flows.iter_mut() {\n                        if new_algorithm {\n                            black_box(flow).fixed_points().unwrap();\n                        } else {\n                            measured_old_visits +=\n                                ae16_original_reference(black_box(flow)).unwrap();\n                        }\n                    }\n                    let elapsed = started.elapsed().as_nanos();\n                    for flow in flows.iter() {\n                        assert_facts(flow);\n                        assert_eq!(\n                            flow.budget.work,\n                            if new_algorithm { new_work } else { old_work }\n                        );\n                        if new_algorithm {\n                            assert_eq!(flow.visits, [count, count]);\n                        }\n                    }\n                    if new_algorithm {\n                        if round == 0 {\n                            new_warmup = elapsed;\n                        } else {\n                            new_samples.push(elapsed);\n                        }\n                    } else {\n                        assert_eq!(measured_old_visits, old_visits * batch);\n                        if round == 0 {\n                            old_warmup = elapsed;\n                        } else {\n                            old_samples.push(elapsed);\n                        }\n                    }\n                }\n            }\n            println!(\"AE_RESULT {{\\\"kind\\\":\\\"solver\\\",\\\"blocks\\\":{count},\\\"edges\\\":{},\\\"words\\\":1,\\\"reversed\\\":{reversed},\\\"debug_ranges\\\":0,\\\"batch\\\":{batch},\\\"old_visits\\\":{old_visits},\\\"new_visits\\\":[{count},{count}],\\\"old_work\\\":{old_work},\\\"new_work\\\":{new_work},\\\"old_warmup_ns\\\":{old_warmup},\\\"new_warmup_ns\\\":{new_warmup},\\\"old_samples_ns\\\":{old_samples:?},\\\"new_samples_ns\\\":{new_samples:?}}}\", count - 1);\n        }\n    }\n}\n// END AE FINAL TEMPORARY SOLVER PROBE\n",
+    "baseline_flow": "//! Bounded initialization and suspension flow over executable control flow.\nuse crate::{\n    availability::DebugAvailability,\n    instruction::BytecodeInstruction as I,\n    module::BytecodeFunction,\n    suspension::{AwaitLiveness, FlowBudget},\n    verifier::BytecodeVerificationError as Error,\n};\nuse kagari_abi::representation::ValueType;\nuse kagari_types::ty::Ty;\nuse std::{collections::BTreeSet, mem};\n\nconst MAX_FLOW_BYTES: usize = 64 * 1024 * 1024;\nconst MAX_FLOW_WORK: usize = 100_000_000;\n\npub(crate) struct Block {\n    pub(crate) start: usize,\n    pub(crate) end: usize,\n    pub(crate) successors: Vec<usize>,\n    pub(crate) predecessors: Vec<usize>,\n    pub(crate) reachable: bool,\n    uses: Vec<u64>,\n    defines: Vec<u64>,\n    initialized: Vec<u64>,\n    live: Vec<u64>,\n}\n\nstruct Flow<'a> {\n    function: &'a BytecodeFunction,\n    budget: &'a mut FlowBudget,\n    availability: DebugAvailability<'a>,\n    blocks: Vec<Block>,\n    registers: usize,\n    words: usize,\n}\n\npub(super) fn verify(\n    function: &BytecodeFunction,\n    budget: &mut FlowBudget,\n) -> Result<FlowResult, Error> {\n    if function.metadata.effects.may_suspend\n        && function\n            .metadata\n            .semantic\n            .params\n            .values()\n            .any(Ty::contains_stored_reference)\n    {\n        return Err(Error::InvalidOperation {\n            function: function.id,\n            reason: \"a scoped reference cannot be retained in a resume body\",\n        });\n    }\n    let registers = function.metadata.slots.len();\n    if DebugAvailability::scratch_bytes(function.metadata.debug.local_live_ranges.len())\n        > MAX_FLOW_BYTES\n    {\n        return Err(Error::InvalidOperation {\n            function: function.id,\n            reason: \"executable flow analysis state limit\",\n        });\n    }\n    let availability =\n        DebugAvailability::new(&function.metadata.debug.local_live_ranges, |count| {\n            charge(function, budget, count)\n        })?;\n    let mut flow = Flow {\n        function,\n        budget,\n        availability,\n        blocks: vec![],\n        registers,\n        words: registers.div_ceil(64),\n    };\n    flow.graph()?;\n    flow.reachability()?;\n    flow.fixed_points()?;\n    let awaits = flow.check_points()?;\n    Ok(FlowResult {\n        awaits,\n        blocks: flow.blocks,\n    })\n}\n\nimpl Flow<'_> {\n    fn invalid(&self, reason: &'static str) -> Error {\n        Error::InvalidOperation {\n            function: self.function.id,\n            reason,\n        }\n    }\n\n    fn charge(&mut self, count: usize) -> Result<(), Error> {\n        charge(self.function, self.budget, count)\n    }\n\n    fn graph(&mut self) -> Result<(), Error> {\n        let code = &self.function.instructions;\n        let mut leaders = BTreeSet::from([0]);\n        for (pc, instruction) in code.iter().enumerate() {\n            self.charge(1)?;\n            match instruction {\n                I::Jump { target } => {\n                    leaders.insert(target.index());\n                }\n                I::Branch {\n                    then_target,\n                    else_target,\n                    ..\n                }\n                | I::PredicateBranch {\n                    then_target,\n                    else_target,\n                    ..\n                } => {\n                    leaders.insert(then_target.index());\n                    leaders.insert(else_target.index());\n                }\n                I::Return(_) | I::Unreachable => {}\n                _ => continue,\n            }\n            if pc + 1 < code.len() {\n                leaders.insert(pc + 1);\n            }\n        }\n        let bytes = leaders.len().saturating_mul(\n            self.words\n                .saturating_mul(32)\n                .saturating_add(mem::size_of::<Block>() + 64),\n        );\n        let bytes = bytes.saturating_add(DebugAvailability::scratch_bytes(\n            self.function.metadata.debug.local_live_ranges.len(),\n        ));\n        if bytes > MAX_FLOW_BYTES {\n            return Err(self.invalid(\"executable flow analysis state limit\"));\n        }\n        let leaders: Vec<_> = leaders.into_iter().collect();\n        for (index, &start) in leaders.iter().enumerate() {\n            let end = leaders.get(index + 1).copied().unwrap_or(code.len());\n            let mut block = Block {\n                start,\n                end,\n                successors: vec![],\n                predecessors: vec![],\n                reachable: false,\n                uses: vec![0; self.words],\n                defines: vec![0; self.words],\n                initialized: vec![u64::MAX; self.words],\n                live: vec![0; self.words],\n            };\n            for (pc, instruction) in code.iter().enumerate().take(end).skip(start) {\n                let inputs = self.inputs(pc)?;\n                self.charge(inputs.len() + 1)?;\n                for input in inputs {\n                    if !contains(&block.defines, input) {\n                        insert(&mut block.uses, input);\n                    }\n                }\n                if let Some(output) = self.output(instruction) {\n                    insert(&mut block.defines, output);\n                }\n            }\n            let mut successor = |pc| {\n                block\n                    .successors\n                    .push(leaders.binary_search(&pc).expect(\"checked branch leader\"))\n            };\n            match &code[end - 1] {\n                I::Jump { target } => successor(target.index()),\n                I::Branch {\n                    then_target,\n                    else_target,\n                    ..\n                }\n                | I::PredicateBranch {\n                    then_target,\n                    else_target,\n                    ..\n                } => {\n                    successor(then_target.index());\n                    successor(else_target.index());\n                }\n                I::Return(_) | I::Unreachable => {}\n                _ => successor(end),\n            }\n            self.blocks.push(block);\n        }\n        for index in 0..self.blocks.len() {\n            for successor in self.blocks[index].successors.clone() {\n                self.blocks[successor].predecessors.push(index);\n            }\n        }\n        Ok(())\n    }\n\n    fn inputs(&mut self, pc: usize) -> Result<Vec<usize>, Error> {\n        let instruction = &self.function.instructions[pc];\n        let mut inputs = instruction\n            .slot_inputs()\n            .into_iter()\n            .map(|r| r.index())\n            .collect::<Vec<_>>();\n        self.availability.visit(\n            pc,\n            |count| charge(self.function, self.budget, count),\n            |slot| inputs.push(slot.index()),\n        )?;\n        Ok(inputs)\n    }\n\n    fn output(&self, instruction: &I) -> Option<usize> {\n        instruction.slot_output().map(|r| r.index())\n    }\n\n    fn reachability(&mut self) -> Result<(), Error> {\n        self.blocks[0].reachable = true;\n        let mut pending = vec![0];\n        while let Some(index) = pending.pop() {\n            for successor in self.blocks[index].successors.clone() {\n                self.charge(1)?;\n                if !self.blocks[successor].reachable {\n                    self.blocks[successor].reachable = true;\n                    pending.push(successor);\n                }\n            }\n        }\n        Ok(())\n    }\n\n    fn incoming(&self, index: usize) -> Vec<u64> {\n        let mut state = if index == 0 {\n            let mut state = vec![0; self.words];\n            for parameter in &self.function.metadata.parameter_slots {\n                insert(&mut state, parameter.index());\n            }\n            state\n        } else {\n            vec![u64::MAX; self.words]\n        };\n        for &previous in &self.blocks[index].predecessors {\n            if self.blocks[previous].reachable {\n                for (word, &initialized) in state.iter_mut().zip(&self.blocks[previous].initialized)\n                {\n                    *word &= initialized;\n                }\n            }\n        }\n        state\n    }\n\n    fn live_out(&self, index: usize) -> Vec<u64> {\n        let mut state = vec![0; self.words];\n        for &successor in &self.blocks[index].successors {\n            for (word, &live) in state.iter_mut().zip(&self.blocks[successor].live) {\n                *word |= live;\n            }\n        }\n        state\n    }\n\n    fn fixed_points(&mut self) -> Result<(), Error> {\n        loop {\n            let mut changed = false;\n            for index in 0..self.blocks.len() {\n                if !self.blocks[index].reachable {\n                    continue;\n                }\n                self.charge(\n                    self.words.saturating_mul(\n                        self.blocks[index].predecessors.len()\n                            + self.blocks[index].successors.len()\n                            + 4,\n                    ) + 1,\n                )?;\n                let mut initialized = self.incoming(index);\n                let mut live = self.live_out(index);\n                let block = &mut self.blocks[index];\n                for word in 0..self.words {\n                    initialized[word] |= block.defines[word];\n                    changed |= block.initialized[word] != initialized[word];\n                    block.initialized[word] = initialized[word];\n                    live[word] = (live[word] & !block.defines[word]) | block.uses[word];\n                }\n                changed |= block.live != live;\n                block.live = live;\n            }\n            if !changed {\n                return Ok(());\n            }\n        }\n    }\n\n    fn check_points(&mut self) -> Result<Vec<AwaitLiveness>, Error> {\n        let mut points = Vec::new();\n        for index in 0..self.blocks.len() {\n            if !self.blocks[index].reachable {\n                continue;\n            }\n            let (start, end) = (self.blocks[index].start, self.blocks[index].end);\n            let mut initialized = self.incoming(index);\n            let mut live = self.live_out(index);\n            for pc in start..end {\n                let instruction = &self.function.instructions[pc];\n                let inputs = self.inputs(pc)?;\n                self.charge(inputs.len() + 1)?;\n                if inputs.iter().any(|&input| !contains(&initialized, input)) {\n                    return Err(self.invalid(\"uninitialized executable slot\"));\n                }\n                if let Some(output) = self.output(instruction) {\n                    insert(&mut initialized, output);\n                }\n            }\n            for pc in (start..end).rev() {\n                let instruction = &self.function.instructions[pc];\n                if let Some(output) = self.output(instruction) {\n                    live[output / 64] &= !(1 << (output % 64));\n                }\n                let inputs = self.inputs(pc)?;\n                self.charge(inputs.len() + 1)?;\n                for input in inputs {\n                    insert(&mut live, input);\n                }\n                if matches!(instruction, I::Await { .. }) {\n                    self.charge(self.registers)?;\n                    for (slot, &physical) in self.function.metadata.slots.iter().enumerate() {\n                        let semantic = self.function.metadata.semantic.slots.get(&slot);\n                        if contains(&live, slot)\n                            && (physical == ValueType::HostHandle\n                                || semantic.is_some_and(inline_host))\n                        {\n                            return Err(self.invalid(\"host capability live across await\"));\n                        }\n                    }\n                    self.budget.retained_bytes = self\n                        .budget\n                        .retained_bytes\n                        .saturating_add(self.words * 8 + mem::size_of::<AwaitLiveness>());\n                    if self.budget.retained_bytes > MAX_FLOW_BYTES {\n                        return Err(self.invalid(\"async suspension facts size limit\"));\n                    }\n                    points.push(AwaitLiveness {\n                        instruction: pc,\n                        live: live.clone().into_boxed_slice(),\n                    });\n                }\n            }\n        }\n        points.sort_unstable_by_key(AwaitLiveness::instruction);\n        Ok(points)\n    }\n}\n\nfn charge(function: &BytecodeFunction, budget: &mut FlowBudget, count: usize) -> Result<(), Error> {\n    budget.cancel.check().map_err(|_| Error::Cancelled)?;\n    budget.work = budget.work.saturating_add(count);\n    if budget.work > MAX_FLOW_WORK {\n        return Err(Error::InvalidOperation {\n            function: function.id,\n            reason: \"executable flow analysis work limit\",\n        });\n    }\n    Ok(())\n}\n\npub(super) fn inline_host(ty: &Ty) -> bool {\n    match ty {\n        Ty::Host(_) | Ty::Reference { .. } => true,\n        Ty::Tuple(items) => items.iter().any(inline_host),\n        _ => false,\n    }\n}\n\nfn contains(words: &[u64], slot: usize) -> bool {\n    words[slot / 64] & (1 << (slot % 64)) != 0\n}\n\nfn insert(words: &mut [u64], slot: usize) {\n    words[slot / 64] |= 1 << (slot % 64);\n}\n\n/// Shared, independently checked CFG; access analysis consumes these same edges.\npub(crate) struct FlowResult {\n    pub(crate) awaits: Vec<AwaitLiveness>,\n    pub(crate) blocks: Vec<Block>,\n}\n",
+    "runner": "\"\"\"Reproduce the temporary AE R17/R16 release measurements, then restore exact bytes.\nRun from the repository root: uv run python target/ae-final-measurements/run_measurements.py\nNo source reset, staging, profile overrides, alternate target directory or job override.\n\"\"\"\nfrom pathlib import Path\nfrom datetime import datetime, timezone\nimport hashlib\nimport json\nimport os\nimport re\nimport statistics\nimport subprocess\nimport time\n\nROOT = Path(__file__).resolve().parents[2]\nOUT = Path(__file__).resolve().parent\nPAIRS = [\n    (ROOT / \"crates/kagari-bytecode/src/availability/tests.rs\", OUT / \"availability-probe.rs\", \"availability-tests.before.rs\"),\n    (ROOT / \"crates/kagari-bytecode/src/verifier/flow/solver/tests.rs\", OUT / \"solver-probe.rs\", \"solver-tests.before.rs\"),\n]\n\n\ndef capture(command, name, timeout=60):\n    result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, encoding=\"utf-8\", errors=\"replace\", timeout=timeout)\n    text = result.stdout + result.stderr\n    (OUT / name).write_text(text, encoding=\"utf-8\")\n    if result.returncode:\n        raise RuntimeError(f\"{command!r} failed ({result.returncode}); see {name}\")\n    return result\n\n\ndef competing_builds(name):\n    query = \"SELECT Name,ProcessId,CommandLine FROM Win32_Process WHERE Name = 'cargo.exe' OR Name = 'rustc.exe' OR Name = 'clippy-driver.exe' OR Name = 'rustdoc.exe'\"\n    result = capture([\"powershell.exe\", \"-NoProfile\", \"-Command\", f'Get-CimInstance -Query \"{query}\" | ConvertTo-Json -Compress'], name)\n    if result.stdout.strip():\n        raise RuntimeError(f\"Competing Rust build processes found; see {name}. No timing started/accepted.\")\n\n\ndef summarize(rows, meta):\n    rustc = (OUT / 'rustc.txt').read_text(encoding='utf-8').splitlines()[0]\n    cargo = (OUT / 'cargo.txt').read_text(encoding='utf-8').splitlines()[0]\n    llvm = next(line for line in (OUT / 'rustc.txt').read_text(encoding='utf-8').splitlines() if line.startswith('LLVM version:'))\n    os_line = next(line for line in (OUT / 'cargo.txt').read_text(encoding='utf-8').splitlines() if line.startswith('os:'))\n    hardware = (OUT / 'hardware.txt').read_text(encoding='utf-8')\n    cpu = re.search(r'^Name\\s*:\\s*(.+)$', hardware, re.MULTILINE).group(1).strip()\n    cores = re.search(r'^NumberOfCores\\s*:\\s*(\\d+)', hardware, re.MULTILINE).group(1)\n    memory = re.search(r'^TotalPhysicalMemory\\s*:\\s*(\\d+)', hardware, re.MULTILINE).group(1)\n    lines = [\n        \"# Matched R17 / R16 release measurements\",\n        \"\",\n        f\"Measured at {meta['started_utc']}; HEAD `{meta['head']}`.\",\n        \"The working tree contained the parent's separate R18 MIR/pass edits (status.before.txt); reviewed bytecode probe-owner files were clean before and after. R18 is not exercised by these helper-level timings.\",\n        \"\",\n        \"## Environment and cache\",\n        \"\",\n        \"See environment.json, hardware.txt, rustc.txt, cargo.txt, dependency-features.txt and build.stderr.log for the complete captured environment.\",\n        f\"- Toolchain: `{rustc}`; `{cargo}`; {llvm}.\",\n        f\"- Machine: {cpu}, {cores} physical cores / {meta['logical_cpus']} logical CPUs, {memory} bytes physical RAM reported; {os_line}.\",\n        f\"- Host logical CPUs: {meta['logical_cpus']}. Build parallelism: Cargo default, no -j override. Timing: one test thread, serial algorithms, no Cargo/rustc/Clippy/rustdoc process present at timing boundaries.\",\n        \"- Workspace release profile, native x86_64-pc-windows-msvc. Root manifest only overrides profile.dev; release therefore uses normal Cargo defaults (opt-level 3, no debug info, debug assertions/overflow checks off, no LTO, default codegen units). No custom target/profile/job/flags settings were supplied.\",\n        f\"- Observed Cargo test artifact profile/features: `{json.dumps(meta['artifact_profile'])}` / `{meta['artifact_features']}`. kagari-bytecode declares no features; dependency features are captured separately.\",\n        f\"- Existing target/release cache was present: {meta['release_cache_present']}. Build duration {meta['build_seconds']:.3f} s is excluded from timings. No cache flush, CPU pinning, power-policy changes or process-priority changes. Prepared fixtures are reused/reset outside timers and code/data/allocator caches are warm, not cold-start measurements.\",\n        \"\",\n        \"## Frozen protocol\",\n        \"\",\n        \"- Availability range counts/batches: 1/16384 (small control), 16/2048, 256/64, 4096/2. Each operation builds the index once, queries 2D PCs in reverse order and releases the index. Old scan performs the same reverse queries. One disjoint length-one range per even PC; max overlap one, exactly D outputs. Source ranges reverse-ordered; slots differ by range to make exact output validation meaningful.\",\n        \"- Solver block counts/batches: 1/4096 (small control), 16/256, 128/8, 1024/1. Both numeric-forward and permuted/reverse chains; one-block control has only one layout. B-1 edges, one bitset word, parameter slot 0, terminal use only, no debug ranges. All reachable; initialization begins at top and liveness at bottom.\",\n        \"- Exactly one explicit full-batch warmup per algorithm/condition, then seven full-batch samples. Algorithm order alternates each round; warmup starts with old. Samples below are normalized per operation; samples.json and timing.stdout.log retain original batch nanoseconds and warmup timings. Fixed batching improves resolution without changing fixture sizes.\",\n        \"- Fixture creation, cloning, reachability, resets, output-buffer reservation and correctness assertions are outside the timers. New algorithm-owned index/DFS/queue/bitset allocation and deallocation remain inside. Availability output clear/push/extend and batch loop/black_box overhead are timed symmetrically. Solver iteration drops/replaces states as the original/production algorithms do.\",\n        \"- Timed availability paths return actual build/query charge counters and scan predicate inspections; emitted slot vectors are checked exactly. Query charge equals node visits plus emitted outputs, so query_nodes is derived by subtracting exact output count. Build charges include sorting/traversal work units, not a claim that each unit is one comparison.\",\n        \"- Timed solver baseline is a test-only copy of original pre-R16 fixed_points (see pre-r16-flow.rs), including original update ordering and work/cancellation charges, plus a real block-visit counter. Before timing it matches the existing uncharged reference helper's exact facts and visit count. New fixed_points includes postorder construction, directional queues, actual cfg(test) visit counters and all production charges. Every timed batch checks final initialized/live vectors and work/visit counts.\",\n        \"\",\n        \"## R17 timings (microseconds per complete build+query operation)\",\n        \"\",\n        \"| Ranges | Batch | Old scan median [min, max] | Index median [min, max] | Old/index median ratio |\",\n        \"| ---: | ---: | ---: | ---: | ---: |\",\n    ]\n    summaries = []\n    for row in rows:\n        if row['kind'] != 'availability':\n            continue\n        old = [v / row['batch'] / 1000 for v in row['scan_samples_ns']]\n        new = [v / row['batch'] / 1000 for v in row['index_samples_ns']]\n        a, b = statistics.median(old), statistics.median(new)\n        lines.append(f\"| {row['ranges']} | {row['batch']} | {a:.3f} [{min(old):.3f}, {max(old):.3f}] | {b:.3f} [{min(new):.3f}, {max(new):.3f}] | {a/b:.3f}x |\")\n        summaries.append((row, old, new))\n    lines += [\"\", \"## R16 timings (microseconds per fixed-point operation)\", \"\", \"| Blocks | Layout | Batch | Original median [min, max] | New median [min, max] | Old/new median ratio |\", \"| ---: | --- | ---: | ---: | ---: | ---: |\"]\n    for row in rows:\n        if row['kind'] != 'solver':\n            continue\n        old = [v / row['batch'] / 1000 for v in row['old_samples_ns']]\n        new = [v / row['batch'] / 1000 for v in row['new_samples_ns']]\n        a, b = statistics.median(old), statistics.median(new)\n        layout = 'permuted' if row['reversed'] else 'forward'\n        lines.append(f\"| {row['blocks']} | {layout} | {row['batch']} | {a:.3f} [{min(old):.3f}, {max(old):.3f}] | {b:.3f} [{min(new):.3f}, {max(new):.3f}] | {a/b:.3f}x |\")\n        summaries.append((row, old, new))\n    lines += [\"\", \"## All samples and work evidence\", \"\", \"All lists below are ordered samples in microseconds/operation; no samples excluded.\", \"\"]\n    for row, old, new in summaries:\n        label = f\"R17 D={row['ranges']}\" if row['kind'] == 'availability' else f\"R16 B={row['blocks']} reversed={row['reversed']}\"\n        lines += [f\"### {label}\", \"\", f\"- Old: {', '.join(f'{v:.6f}' for v in old)}\", f\"- New: {', '.join(f'{v:.6f}' for v in new)}\"]\n        if row['kind'] == 'availability':\n            lines += [f\"- Per operation: {row['scan_inspections']} old predicate inspections; {row['build_work']} index build work units; {row['query_nodes']} queried nodes + {row['outputs']} emissions = {row['query_work']} query units; {row['scratch_bytes']} admitted index scratch bytes.\", f\"- Explicit warmup batch ns: old {row['scan_warmup_ns']}, new {row['index_warmup_ns']}.\"]\n        else:\n            lines += [f\"- Per operation: {row['old_visits']} original combined block visits, new directional visits {row['new_visits']}; charged work old {row['old_work']}, new {row['new_work']}.\", f\"- Explicit warmup batch ns: old {row['old_warmup_ns']}, new {row['new_warmup_ns']}.\"]\n        lines.append(\"\")\n    lines += [\n        \"## Interpretation and limits\",\n        \"\",\n        \"- These are bounded helper-level, matched native release measurements, not source compilation, artifact loading, runtime execution or end-to-end latency promises. Old paths are source-inspected test-only baselines compiled alongside new paths, not measurements of an old checkout/binary.\",\n        \"- R17 intentionally isolates the shared capability: caller charging is represented by deterministic counters, without verifier CancellationToken or full input-vector/allocator plumbing. The old scan is the previous filter membership operation; its inspection counter is extra instrumentation. Sparse max-overlap-one workloads do not measure dense output costs or all interval shapes. Index construction/lifecycle is included, not amortized away.\",\n        \"- R16 includes the original and new charging/cancellation machinery and real visits, but remains cfg(test), with synthetic one-word chains and no graph/metadata admission or point validation. The existing uncharged oracle is a correctness check, not the timed baseline. Ordinary/async end-to-end differences, wider bitsets, cycles, dense joins and cancellation latency are outside these timings.\",\n        \"- Mechanism evidence matches the expected scope: at D=4096, 33554432 scan inspections become 139887 build + 143365 query work units, with 98304 bytes of index scratch. At B=1024, original forward/permuted visits are 1049600/1048576 versus 2048 directional visits; charged work is 7345150/7337984 versus 21499. The reversed layout makes old initialization propagate slowly while forward layout makes old liveness propagate slowly. These are chain-specific observations, not a universal linear solver bound.\",\n        \"- Small controls expose setup overhead; ratios below one are regressions for those controls, not failures to be hidden or new optimization work. Batching amortizes the clock but not algorithm setup. This single-machine run has seven samples, no affinity/frequency control or confidence intervals; retain all samples/ranges and do not generalize precise ratios to other hardware/platforms.\",\n        \"- No additional optimization, production/permanent-test edits, documentation edits, staging or commits are part of this measurement. The driver removes exactly its appended suffixes and checks byte-for-byte original restoration; any unexpected source change stops removal rather than overwriting it.\",\n        \"\",\n        \"## Reproduction and artifacts\",\n        \"\",\n        \"From repository root run `uv run python target/ae-final-measurements/run_measurements.py`. The driver appends the saved probes to their existing test modules, captures environment/features, runs `cargo test --release -p kagari-bytecode --lib --no-run --message-format=json` once, then invokes the resulting executable directly with `ae_final_measurement --ignored --nocapture --test-threads=1`. It finally removes only its own exact suffixes. Do not run other Cargo builds/tests during timing. The script refuses to start timing if cargo/rustc/Clippy/rustdoc is active and records boundary process snapshots.\",\n        \"\",\n        \"- `availability-probe.rs`, `solver-probe.rs`: exact temporary reproduction payloads.\",\n        \"- `availability-tests.before.rs`, `solver-tests.before.rs`, `source-restoration.json`: original bytes and restoration/hash evidence.\",\n        \"- `pre-r17-flow.rs`, `pre-r17-allocation.rs`, `pre-r16-flow.rs`: source-inspected baseline snapshots obtained with git show; no checkout/reset.\",\n        \"- `samples.json`, `timing.stdout.log`, `timing.stderr.log`: all measured samples, warmups, counters, assertions/test outcomes.\",\n        \"- `environment.json`, toolchain/hardware/feature/build logs: environment and build provenance, separate from timing.\",\n    ]\n    (OUT / 'summary.md').write_text('\\n'.join(lines) + '\\n', encoding='utf-8')\n\n\ndef main():\n    meta = {\n        'started_utc': datetime.now(timezone.utc).isoformat(),\n        'logical_cpus': os.cpu_count(),\n        'release_cache_present': (ROOT / 'target/release').exists(),\n        'environment': {key: os.environ.get(key) for key in [\n            'CARGO_BUILD_JOBS', 'CARGO_TARGET_DIR', 'CARGO_HOME', 'RUSTUP_TOOLCHAIN', 'RUSTFLAGS',\n            'CARGO_ENCODED_RUSTFLAGS', 'CARGO_PROFILE_RELEASE_OPT_LEVEL', 'CARGO_PROFILE_RELEASE_DEBUG',\n            'CARGO_PROFILE_RELEASE_LTO', 'CARGO_PROFILE_RELEASE_CODEGEN_UNITS', 'CARGO_INCREMENTAL',\n            'CARGO_BUILD_TARGET', 'RUSTC_WRAPPER', 'RUSTC_WORKSPACE_WRAPPER',\n        ]},\n    }\n    meta['head'] = capture(['git', '--no-pager', 'rev-parse', 'HEAD'], 'head.txt').stdout.strip()\n    capture(['git', '--no-pager', '--no-optional-locks', 'status', '--short'], 'status.before.txt')\n    capture(['rustc', '-Vv'], 'rustc.txt')\n    capture(['cargo', '-Vv'], 'cargo.txt')\n    capture(['powershell.exe', '-NoProfile', '-Command', \"Get-CimInstance Win32_Processor | Select-Object Name,NumberOfCores,NumberOfLogicalProcessors | Format-List; Get-CimInstance Win32_ComputerSystem | Select-Object Manufacturer,Model,TotalPhysicalMemory | Format-List; Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber | Format-List\"], 'hardware.txt')\n    capture(['cargo', 'tree', '-p', 'kagari-bytecode', '-e', 'features'], 'dependency-features.txt')\n    installed = []\n    restoration = []\n    try:\n        for source, payload, backup_name in PAIRS:\n            before = source.read_bytes()\n            if b'BEGIN AE FINAL TEMPORARY' in before:\n                raise RuntimeError(f'Temporary marker already present in {source}; refusing to overwrite')\n            suffix = b'\\n' + payload.read_bytes()\n            (OUT / backup_name).write_bytes(before)\n            source.write_bytes(before + suffix)\n            installed.append((source, before, suffix))\n        started = time.perf_counter()\n        built = subprocess.run(['cargo', 'test', '--release', '-p', 'kagari-bytecode', '--lib', '--no-run', '--message-format=json'], cwd=ROOT, capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=600)\n        meta['build_seconds'] = time.perf_counter() - started\n        (OUT / 'build.stdout.jsonl').write_text(built.stdout, encoding='utf-8')\n        (OUT / 'build.stderr.log').write_text(built.stderr, encoding='utf-8')\n        print(built.stderr, flush=True)\n        if built.returncode:\n            raise RuntimeError('Release build failed; see build logs')\n        artifacts = [json.loads(line) for line in built.stdout.splitlines() if line.startswith('{')]\n        artifact = next(item for item in artifacts if item.get('reason') == 'compiler-artifact' and item.get('executable') and item['target']['name'] == 'kagari_bytecode' and item['profile']['test'])\n        meta['artifact_profile'] = artifact['profile']\n        meta['artifact_features'] = artifact['features']\n        meta['executable'] = artifact['executable']\n        (OUT / 'environment.json').write_text(json.dumps(meta, indent=2) + '\\n', encoding='utf-8')\n        competing_builds('build-processes.before-timing.json')\n        print('Build complete; timing only two ignored probes serially with one test thread.', flush=True)\n        measured = capture([artifact['executable'], 'ae_final_measurement', '--ignored', '--nocapture', '--test-threads=1'], 'timing.combined.log', timeout=180)\n        (OUT / 'timing.stdout.log').write_text(measured.stdout, encoding='utf-8')\n        (OUT / 'timing.stderr.log').write_text(measured.stderr, encoding='utf-8')\n        print(measured.stdout, flush=True)\n        competing_builds('build-processes.after-timing.json')\n        rows = [json.loads(match.group(1)) for match in re.finditer(r'AE_RESULT (\\{[^\\n]+\\})', measured.stdout)]\n        assert len(rows) == 11, len(rows)\n        assert '2 passed; 0 failed' in measured.stdout\n        (OUT / 'samples.json').write_text(json.dumps(rows, indent=2) + '\\n', encoding='utf-8')\n        summarize(rows, meta)\n    finally:\n        for source, before, suffix in reversed(installed):\n            current = source.read_bytes()\n            if current != before + suffix:\n                raise RuntimeError(f'Unexpected source change in {source}; refusing to overwrite; inspect backup/suffix manually')\n            source.write_bytes(current[:-len(suffix)])\n            restored = source.read_bytes()\n            assert restored == before\n            restoration.append({'path': source.relative_to(ROOT).as_posix(), 'sha256_before': hashlib.sha256(before).hexdigest(), 'sha256_after': hashlib.sha256(restored).hexdigest(), 'exact_restoration': True})\n        (OUT / 'source-restoration.json').write_text(json.dumps(restoration, indent=2) + '\\n', encoding='utf-8')\n    capture(['git', '--no-pager', 'diff', '--check'], 'diff-check.txt')\n    print('Exact source restoration confirmed. Results: target/ae-final-measurements/summary.md', flush=True)\n\n\nif __name__ == '__main__':\n    main()\n"
+  },
+  "compaction": {
+    "schema": "kagari-r18-bounded-compaction-samples-v1",
+    "captured_at_utc": "2026-10-21T14:11:33.869969+00:00",
+    "head": "ea5c1386dc4882801e2fc44df5f73d907fd8894a",
+    "source_state": "uncommitted AE03 compaction on top of committed R17/R16",
+    "capture_reason": "Previous probe output kept all five sorted measured samples but discarded warmups; this single replay preserves both warmups and acquisition order.",
+    "time_unit": "nanoseconds",
+    "workloads": [
+      {
+        "total_entries": 16,
+        "dead_prefix_entries": 8,
+        "retained_suffix_entries": 8,
+        "algorithms": {
+          "legacy_reverse_sort_remove": {
+            "warmup_ns": 4100,
+            "samples_ns": [
+              300,
+              200,
+              300,
+              200,
+              200
+            ],
+            "all_iterations_ns": [
+              4100,
+              300,
+              200,
+              300,
+              200,
+              200
+            ],
+            "median_ns": 200,
+            "min_ns": 200,
+            "max_ns": 300,
+            "charged_work_per_iteration": 8,
+            "logical_column_element_relocations_per_iteration": 192
+          },
+          "production_stable_compaction": {
+            "warmup_ns": 2300,
+            "samples_ns": [
+              200,
+              200,
+              200,
+              200,
+              100
+            ],
+            "all_iterations_ns": [
+              2300,
+              200,
+              200,
+              200,
+              200,
+              100
+            ],
+            "median_ns": 200,
+            "min_ns": 100,
+            "max_ns": 200,
+            "charged_work_per_iteration": 96,
+            "logical_column_element_relocations_per_iteration": 48
+          }
+        }
+      },
+      {
+        "total_entries": 256,
+        "dead_prefix_entries": 128,
+        "retained_suffix_entries": 128,
+        "algorithms": {
+          "legacy_reverse_sort_remove": {
+            "warmup_ns": 25200,
+            "samples_ns": [
+              17300,
+              17200,
+              17200,
+              17200,
+              17300
+            ],
+            "all_iterations_ns": [
+              25200,
+              17300,
+              17200,
+              17200,
+              17200,
+              17300
+            ],
+            "median_ns": 17200,
+            "min_ns": 17200,
+            "max_ns": 17300,
+            "charged_work_per_iteration": 128,
+            "logical_column_element_relocations_per_iteration": 49152
+          },
+          "production_stable_compaction": {
+            "warmup_ns": 2400,
+            "samples_ns": [
+              2000,
+              2000,
+              1900,
+              1900,
+              2000
+            ],
+            "all_iterations_ns": [
+              2400,
+              2000,
+              2000,
+              1900,
+              1900,
+              2000
+            ],
+            "median_ns": 2000,
+            "min_ns": 1900,
+            "max_ns": 2000,
+            "charged_work_per_iteration": 1536,
+            "logical_column_element_relocations_per_iteration": 768
+          }
+        }
+      },
+      {
+        "total_entries": 4096,
+        "dead_prefix_entries": 2048,
+        "retained_suffix_entries": 2048,
+        "algorithms": {
+          "legacy_reverse_sort_remove": {
+            "warmup_ns": 10495400,
+            "samples_ns": [
+              10519800,
+              10437900,
+              10530500,
+              10128900,
+              10128400
+            ],
+            "all_iterations_ns": [
+              10495400,
+              10519800,
+              10437900,
+              10530500,
+              10128900,
+              10128400
+            ],
+            "median_ns": 10437900,
+            "min_ns": 10128400,
+            "max_ns": 10530500,
+            "charged_work_per_iteration": 2048,
+            "logical_column_element_relocations_per_iteration": 12582912
+          },
+          "production_stable_compaction": {
+            "warmup_ns": 31800,
+            "samples_ns": [
+              31900,
+              31800,
+              33600,
+              36000,
+              36900
+            ],
+            "all_iterations_ns": [
+              31800,
+              31900,
+              31800,
+              33600,
+              36000,
+              36900
+            ],
+            "median_ns": 33600,
+            "min_ns": 31800,
+            "max_ns": 36900,
+            "charged_work_per_iteration": 24576,
+            "logical_column_element_relocations_per_iteration": 12288
+          }
+        }
+      }
+    ],
+    "method": {
+      "sizes": [
+        16,
+        256,
+        4096
+      ],
+      "affected_blocks": 1,
+      "shape": "D=N/2 dead prefix followed by L=N/2 retained suffix; synthetic LoadConst instructions with unique spans/scopes",
+      "iterations_per_algorithm_per_size": 6,
+      "warmup_iterations": [
+        0
+      ],
+      "measured_iterations": [
+        1,
+        2,
+        3,
+        4,
+        5
+      ],
+      "acquisition_order": "For each size in ascending order, iteration 0 through 5, legacy first then production; arrays preserve this order, without sorting.",
+      "timer": "std::time::Instant::now / elapsed().as_nanos()",
+      "timed": "Legacy reverse sort and three Vec::remove calls per dead entry, or actual production compaction::apply; includes Work charges/cancellation checks and tail cleanup.",
+      "excluded": "Module/template construction and clone, removal Vec allocation, assertions/origin enumeration, printing, final fixture destruction, compilation.",
+      "cache_state": "One explicit warmup per condition/size; immediately cloned allocations before each timed operation; no cache flush.",
+      "serial_execution": {
+        "build_before_measurement": true,
+        "test_threads": 1,
+        "competing_cargo_rustc_before_build": "",
+        "competing_cargo_rustc_before_measurement": "",
+        "parent_coordination": "Parent agreed no concurrent Cargo until worker returns."
+      },
+      "profile": "workspace release",
+      "features": "default",
+      "target_directory": "default target",
+      "parallelism": "Cargo default; no jobs override; one test thread",
+      "relocation_metric": "Exact source-derived logical column element relocations, not hardware counters: old 3*D*L, new 6*L for this prefix/suffix shape.",
+      "limitations": "Sub-microsecond values are timer-resolution-sensitive; only operation timings, not source/artifact preparation or end-to-end compiler/runtime results.",
+      "build_command": [
+        "cargo",
+        "test",
+        "-p",
+        "kagari-mir",
+        "--lib",
+        "--release",
+        "--no-run",
+        "--message-format=json"
+      ],
+      "build_seconds": 7.4483291999995345,
+      "measurement_command": [
+        "F:\\CLionProjects\\kagari\\target\\release\\deps\\kagari_mir-7327daa8ff0bacd5.exe",
+        "--ignored",
+        "--exact",
+        "passes::compaction::tests::operation_probe",
+        "--nocapture",
+        "--test-threads=1"
+      ]
+    },
+    "environment": {
+      "rustc_vv": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.1\nLLVM version: 23.1.1\n",
+      "os": "Windows 11 Pro 10.0.26300",
+      "cpu": "Intel Core i9-12900K",
+      "physical_cores": 16,
+      "logical_processors": 24,
+      "ram_approximately_gib": 64
+    },
+    "probe": {
+      "source_path": "target/ae03-compaction-raw-probe.rs",
+      "source_sha256": "5206b04cd1ea719c4e51a4f842d027b87ae37a793acf71194f5d382aaf3232f1",
+      "full_source": "use kagari_abi::representation::ValueType;\nuse kagari_common::{\n    cancellation::CancellationToken,\n    identity::{DefinitionKind, ModuleIdentity, map::DefinitionContext},\n    span::Span,\n};\nuse kagari_contract::types::ConcreteFunctionIdentity;\n\nuse crate::{\n    function::{BasicBlock, MirFunction, MirModule},\n    ids::{BlockId, InstanceId, TempId},\n    instruction::{Constant, Instruction, MirValue, Terminator},\n    passes::{Work, compaction},\n    verify::MirVerificationErrorKind,\n};\n\nfn block(size: usize, origin: usize) -> BasicBlock {\n    BasicBlock {\n        instructions: (0..size)\n            .map(|index| Instruction::LoadConst {\n                dst: MirValue {\n                    temp: TempId::new(index),\n                    ty: ValueType::I32,\n                },\n                constant: Constant::I32((origin + index) as i32),\n            })\n            .collect(),\n        instruction_spans: (0..size)\n            .map(|index| Span::new(origin + index * 2, origin + index * 2 + 1))\n            .collect(),\n        instruction_scopes: (origin..origin + size).collect(),\n        terminator: Some(Terminator::Return(None)),\n        terminator_span: Some(Span::new(origin, origin + 1)),\n        terminator_scope: Some(origin),\n    }\n}\n\nfn module() -> MirModule {\n    let context = DefinitionContext::new().unwrap();\n    let identity = ModuleIdentity::single_file(\"compaction\");\n    let root = context.intern_root(&identity).unwrap();\n    MirModule {\n        native_targets: vec![],\n        interface_instances: vec![],\n        external_types: vec![],\n        dependencies: vec![],\n        structures: vec![],\n        enumerations: vec![],\n        identity,\n        source_name: String::new(),\n        module_slots: vec![],\n        abi: Default::default(),\n        functions: (0..2)\n            .map(|index| MirFunction {\n                semantic: Default::default(),\n                id: InstanceId::new(index),\n                instance: ConcreteFunctionIdentity {\n                    declaration: context\n                        .intern_child(root, DefinitionKind::Function, &format!(\"f{index}\"), 0)\n                        .unwrap(),\n                    arguments: vec![],\n                },\n                name: format!(\"f{index}\"),\n                params: vec![],\n                return_type: ValueType::Unit,\n                locals: vec![],\n                temps: vec![],\n                blocks: (0..4).map(|b| block(8, index * 100 + b * 10)).collect(),\n                entry: BlockId::new(0),\n                effects: Default::default(),\n                debug: Default::default(),\n            })\n            .collect(),\n    }\n}\n\nfn origins(block: &BasicBlock) -> Vec<(usize, i32, Span, usize)> {\n    assert_eq!(block.instructions.len(), block.instruction_spans.len());\n    assert_eq!(block.instructions.len(), block.instruction_scopes.len());\n    block\n        .instructions\n        .iter()\n        .zip(&block.instruction_spans)\n        .zip(&block.instruction_scopes)\n        .map(|((instruction, &span), &scope)| match instruction {\n            Instruction::LoadConst {\n                dst,\n                constant: Constant::I32(value),\n            } => (dst.temp.index(), *value, span, scope),\n            _ => panic!(\"fixture instruction\"),\n        })\n        .collect()\n}\n\n#[test]\nfn grouped_compaction_preserves_shapes_and_exact_provenance() {\n    let mut module = module();\n    let original = module.clone();\n    // Match the finder's group order and descending indices within each group.\n    let shapes = [\n        vec![],\n        vec![7, 6, 5, 4, 3, 2, 1, 0],\n        vec![3, 2, 1, 0],\n        vec![6, 4, 2, 0],\n    ];\n    let removals: Vec<_> = (0..2)\n        .flat_map(|function| {\n            shapes.iter().enumerate().flat_map(move |(block, indices)| {\n                indices.iter().map(move |&index| (function, block, index))\n            })\n        })\n        .collect();\n    let cancel = CancellationToken::default();\n    let mut work = Work {\n        used: 0,\n        limit: 1000,\n        cancel: &cancel,\n    };\n    compaction::apply(&mut module, &removals, &mut work).unwrap();\n    for (function, original) in module.functions.iter().zip(&original.functions) {\n        for (index, (block, before)) in function.blocks.iter().zip(&original.blocks).enumerate() {\n            let expected: Vec<_> = origins(before)\n                .into_iter()\n                .enumerate()\n                .filter(|(position, _)| !shapes[index].contains(position))\n                .map(|(_, origin)| origin)\n                .collect();\n            assert_eq!(origins(block), expected);\n            assert_eq!(\n                format!(\"{:?}\", block.terminator),\n                format!(\"{:?}\", before.terminator)\n            );\n            assert_eq!(block.terminator_span, before.terminator_span);\n            assert_eq!(block.terminator_scope, before.terminator_scope);\n        }\n    }\n    // Per function: 16 preparation + 24 visits + 48 relocations + 48 tail entries.\n    assert_eq!(work.used, 2 * 136);\n}\n\n#[test]\nfn no_removals_do_not_visit_blocks_or_allocate_scratch() {\n    let mut module = module();\n    let cancel = CancellationToken::default();\n    let mut work = Work {\n        used: 0,\n        limit: 0,\n        cancel: &cancel,\n    };\n    compaction::apply(&mut module, &[], &mut work).unwrap();\n    assert_eq!(work.used, 0);\n    assert!(module.functions.iter().all(|function| {\n        function\n            .blocks\n            .iter()\n            .all(|block| block.instructions.len() == 8)\n    }));\n}\n\n#[test]\nfn exhaustion_charges_preparation_retained_visits_moves_and_tail_cleanup() {\n    let cancel = CancellationToken::default();\n    let mut module = module();\n    let mut work = Work {\n        used: 0,\n        limit: 1,\n        cancel: &cancel,\n    };\n    assert!(matches!(\n        compaction::apply(&mut module, &[(0, 0, 1), (0, 0, 0)], &mut work)\n            .unwrap_err()\n            .kind,\n        MirVerificationErrorKind::Limit { limit: 1, .. }\n    ));\n    assert_eq!(\n        origins(&module.functions[0].blocks[0]),\n        origins(&block(8, 0))\n    );\n\n    // A first deletion has been consumed and a retained entry already moved.\n    let mut partial = block(8, 0);\n    let mut work = Work {\n        used: 0,\n        limit: 9,\n        cancel: &cancel,\n    };\n    assert!(matches!(\n        compaction::compact_block(&mut partial, [0].into_iter(), &mut work)\n            .unwrap_err()\n            .kind,\n        MirVerificationErrorKind::Limit { limit: 9, .. }\n    ));\n    assert_eq!(origins(&partial)[0], origins(&block(8, 0))[1]);\n    assert_eq!(partial.instructions.len(), 8);\n\n    // All keep decisions succeed; the dead tail is charged before destruction.\n    let mut partial = block(1024, 0);\n    let mut work = Work {\n        used: 0,\n        limit: 1024 + 3 * 256,\n        cancel: &cancel,\n    };\n    assert!(matches!(\n        compaction::compact_block(&mut partial, 0..1024, &mut work)\n            .unwrap_err()\n            .kind,\n        MirVerificationErrorKind::Limit { .. }\n    ));\n    assert_eq!(partial.instructions.len(), 768);\n    assert_eq!(partial.instruction_spans.len(), 768);\n    assert_eq!(partial.instruction_scopes.len(), 768);\n}\n\n#[test]\nfn cancellation_after_retained_moves_stops_inside_compaction() {\n    let cancel = CancellationToken::default();\n    let mut partial = block(1024, 0);\n    // The production iterator is lazy too. Cancel only after two dead entries\n    // have been reached, with 299 retained entries moved in between.\n    let removals = [0, 300, 600].into_iter().inspect(|&index| {\n        if index == 600 {\n            cancel.cancel();\n        }\n    });\n    let mut work = Work {\n        used: 0,\n        limit: usize::MAX,\n        cancel: &cancel,\n    };\n    assert_eq!(\n        compaction::compact_block(&mut partial, removals, &mut work)\n            .unwrap_err()\n            .kind,\n        MirVerificationErrorKind::Cancelled\n    );\n    assert_eq!(origins(&partial)[0], origins(&block(1024, 0))[1]);\n    assert_eq!(work.used, 302 + 299 * 6);\n    assert_eq!(partial.instructions.len(), 1024);\n}\n\n#[test]\nfn prefix_compaction_work_and_relocations_scale_linearly() {\n    let cancel = CancellationToken::default();\n    for size in [16, 256, 4096] {\n        let mut partial = block(size, 0);\n        let mut work = Work {\n            used: 0,\n            limit: usize::MAX,\n            cancel: &cancel,\n        };\n        compaction::compact_block(&mut partial, 0..size / 2, &mut work).unwrap();\n        // One decision per entry, six relocations per moved survivor and three\n        // removed tail entries per deletion. Group preparation adds size / 2.\n        assert_eq!(work.used + size / 2, 6 * size);\n        assert_eq!(origins(&partial), origins(&block(size, 0))[size / 2..]);\n    }\n}\n\n#[test]\n#[ignore = \"temporary AE03 matched release operation probe\"]\nfn operation_probe() {\n    use std::{hint::black_box, mem::size_of, time::Instant};\n\n    println!(\"instruction_bytes={}\", size_of::<Instruction>());\n    for size in [16, 256, 4096] {\n        let dead = size / 2;\n        let mut template = module();\n        template.functions[0].blocks[0] = block(size, 0);\n        let mut before = Vec::new();\n        let mut after = Vec::new();\n        let cancel = CancellationToken::default();\n        for sample in 0..6 {\n            for legacy in [true, false] {\n                let mut module = template.clone();\n                let mut removals: Vec<_> = (0..dead).rev().map(|index| (0, 0, index)).collect();\n                let mut work = Work {\n                    used: 0,\n                    limit: usize::MAX,\n                    cancel: &cancel,\n                };\n                let start = Instant::now();\n                if legacy {\n                    removals.sort_unstable_by(|left, right| right.cmp(left));\n                    for (_, _, index) in removals {\n                        work.charge(1).unwrap();\n                        let block = &mut module.functions[0].blocks[0];\n                        block.instructions.remove(index);\n                        block.instruction_spans.remove(index);\n                        block.instruction_scopes.remove(index);\n                    }\n                } else {\n                    compaction::apply(&mut module, &removals, &mut work).unwrap();\n                }\n                let elapsed = start.elapsed().as_nanos();\n                black_box(&module);\n                assert_eq!(\n                    module.functions[0].blocks[0].instructions.len(),\n                    size - dead\n                );\n                assert_eq!(work.used, if legacy { dead } else { 6 * size });\n                let moved_survivors = origins(&module.functions[0].blocks[0])\n                    .iter()\n                    .enumerate()\n                    .filter(|(now, (original, ..))| now != original)\n                    .count();\n                assert_eq!(moved_survivors, size - dead);\n                if legacy {\n                    before.push(elapsed);\n                } else {\n                    after.push(elapsed);\n                }\n            }\n        }\n        println!(\"AE03_RAW n={size} d={dead} old_ns={before:?} new_ns={after:?}\");\n    }\n}\n",
+      "runner_path": "target/ae03-compaction-sample-runner.py",
+      "runner_source": "\"\"\"Replay the existing bounded R18 probe once, preserving warmups and order.\"\"\"\nimport ast\nfrom datetime import datetime, timezone\nimport hashlib\nimport json\nfrom pathlib import Path\nimport re\nimport statistics\nimport subprocess\nimport time\n\nROOT = Path(__file__).resolve().parent.parent\nTARGET = ROOT / \"target\"\nTESTS = ROOT / \"crates/kagari-mir/src/passes/compaction/tests.rs\"\nOWNED = [\n    \"crates/kagari-mir/src/passes.rs\",\n    \"crates/kagari-mir/src/passes/compaction.rs\",\n    \"crates/kagari-mir/src/passes/compaction/tests.rs\",\n    \"crates/kagari-compiler/src/tests/passes.rs\",\n]\n\n\ndef run(args, timeout=180):\n    return subprocess.run(args, cwd=ROOT, capture_output=True, text=True, check=True, timeout=timeout)\n\n\ndef sha(data):\n    return hashlib.sha256(data).hexdigest()\n\n\ndef build_processes():\n    return run([\n        \"powershell.exe\", \"-NoProfile\", \"-Command\",\n        \"Get-Process cargo,rustc -ErrorAction SilentlyContinue | Select-Object ProcessName,Id | ConvertTo-Json -Compress; exit 0\",\n    ], timeout=10).stdout.strip()\n\n\nbefore = {path: (ROOT / path).read_bytes() for path in OWNED}\nassert TESTS.read_bytes() == (TARGET / \"ae03-compaction-tests-before-raw-probe.rs\").read_bytes()\nsaved = (TARGET / \"ae03-compaction-matched-probe.rs\").read_text(encoding=\"utf-8\")\nmarker = '#[test]\\n#[ignore = \"temporary AE03 matched release operation probe\"]'\nfixtures, suffix = saved.split(marker, 1)\nassert fixtures.strip() == TESTS.read_text(encoding=\"utf-8\").strip(), \"Probe fixtures changed\"\nprobe = marker + suffix\nold_record = '''                if sample != 0 {\n                    if legacy {\n                        before.push(elapsed);\n                    } else {\n                        after.push(elapsed);\n                    }\n                }'''\nnew_record = '''                if legacy {\n                    before.push(elapsed);\n                } else {\n                    after.push(elapsed);\n                }'''\nassert probe.count(old_record) == 1\nprobe = probe.replace(old_record, new_record)\nassert probe.count(\"        before.sort_unstable();\\n        after.sort_unstable();\\n\") == 1\nprobe = probe.replace(\"        before.sort_unstable();\\n        after.sort_unstable();\\n\", \"\")\nstart = probe.index('        println!(\\n            \"N={size}')\nend = probe.index(\"        );\", start) + len(\"        );\")\nprobe = probe[:start] + '''        println!(\"AE03_RAW n={size} d={dead} old_ns={before:?} new_ns={after:?}\");''' + probe[end:]\nsource = TESTS.read_text(encoding=\"utf-8\").rstrip() + \"\\n\\n\" + probe\nprobe_path = TARGET / \"ae03-compaction-raw-probe.rs\"\nprobe_path.write_text(source, encoding=\"utf-8\", newline=\"\\n\")\n\nbuild_command = [\"cargo\", \"test\", \"-p\", \"kagari-mir\", \"--lib\", \"--release\", \"--no-run\", \"--message-format=json\"]\nstarted = datetime.now(timezone.utc).isoformat()\nhead = run([\"git\", \"--no-pager\", \"rev-parse\", \"HEAD\"]).stdout.strip()\ntoolchain = run([\"rustc\", \"-Vv\"]).stdout\nprocesses_before = build_processes()\nassert not processes_before, \"Competing cargo/rustc process before build: \" + processes_before\ntry:\n    TESTS.write_bytes(source.encode(\"utf-8\"))\n    build_started = time.perf_counter()\n    built = run(build_command)\n    build_seconds = time.perf_counter() - build_started\n    (TARGET / \"ae03-compaction-raw-build.log\").write_text(built.stderr + built.stdout, encoding=\"utf-8\")\n    artifacts = [json.loads(line) for line in built.stdout.splitlines() if line.startswith(\"{\")]\n    executables = [a[\"executable\"] for a in artifacts if a.get(\"reason\") == \"compiler-artifact\" and a.get(\"target\", {}).get(\"name\") == \"kagari_mir\" and a.get(\"profile\", {}).get(\"test\") and a.get(\"executable\")]\n    assert len(executables) == 1, executables\n    processes_before_measurement = build_processes()\n    assert not processes_before_measurement, \"Competing cargo/rustc before measurement: \" + processes_before_measurement\n    measurement_command = [executables[0], \"--ignored\", \"--exact\", \"passes::compaction::tests::operation_probe\", \"--nocapture\", \"--test-threads=1\"]\n    measured = run(measurement_command, timeout=30)\n    raw_output = measured.stdout + measured.stderr\n    (TARGET / \"ae03-compaction-raw-output.log\").write_text(raw_output, encoding=\"utf-8\")\n    print(raw_output, end=\"\")\nfinally:\n    TESTS.write_bytes(before[\"crates/kagari-mir/src/passes/compaction/tests.rs\"])\n\nassert all((ROOT / path).read_bytes() == content for path, content in before.items()), \"Owned source changed\"\nrows = []\npattern = r\"AE03_RAW n=(\\d+) d=(\\d+) old_ns=(\\[[^\\]]+\\]) new_ns=(\\[[^\\]]+\\])\"\nfor match in re.finditer(pattern, raw_output):\n    size, dead = map(int, match.group(1, 2))\n    row = {\"total_entries\": size, \"dead_prefix_entries\": dead, \"retained_suffix_entries\": size - dead, \"algorithms\": {}}\n    for name, encoded in zip([\"legacy_reverse_sort_remove\", \"production_stable_compaction\"], match.group(3, 4)):\n        values = ast.literal_eval(encoded)\n        assert len(values) == 6 and all(isinstance(value, int) and value >= 0 for value in values)\n        row[\"algorithms\"][name] = {\n            \"warmup_ns\": values[0], \"samples_ns\": values[1:], \"all_iterations_ns\": values,\n            \"median_ns\": statistics.median(values[1:]), \"min_ns\": min(values[1:]), \"max_ns\": max(values[1:]),\n            \"charged_work_per_iteration\": dead if name.startswith(\"legacy\") else 6 * size,\n            \"logical_column_element_relocations_per_iteration\": 3 * dead * (size - dead) if name.startswith(\"legacy\") else 6 * (size - dead),\n        }\n    rows.append(row)\nassert [row[\"total_entries\"] for row in rows] == [16, 256, 4096]\nresult = {\n    \"schema\": \"kagari-r18-bounded-compaction-samples-v1\", \"captured_at_utc\": started,\n    \"head\": head, \"source_state\": \"uncommitted AE03 compaction on top of committed R17/R16\",\n    \"capture_reason\": \"Previous probe output kept all five sorted measured samples but discarded warmups; this single replay preserves both warmups and acquisition order.\",\n    \"time_unit\": \"nanoseconds\", \"workloads\": rows,\n    \"method\": {\n        \"sizes\": [16, 256, 4096], \"affected_blocks\": 1,\n        \"shape\": \"D=N/2 dead prefix followed by L=N/2 retained suffix; synthetic LoadConst instructions with unique spans/scopes\",\n        \"iterations_per_algorithm_per_size\": 6, \"warmup_iterations\": [0], \"measured_iterations\": [1, 2, 3, 4, 5],\n        \"acquisition_order\": \"For each size in ascending order, iteration 0 through 5, legacy first then production; arrays preserve this order, without sorting.\",\n        \"timer\": \"std::time::Instant::now / elapsed().as_nanos()\",\n        \"timed\": \"Legacy reverse sort and three Vec::remove calls per dead entry, or actual production compaction::apply; includes Work charges/cancellation checks and tail cleanup.\",\n        \"excluded\": \"Module/template construction and clone, removal Vec allocation, assertions/origin enumeration, printing, final fixture destruction, compilation.\",\n        \"cache_state\": \"One explicit warmup per condition/size; immediately cloned allocations before each timed operation; no cache flush.\",\n        \"serial_execution\": {\"build_before_measurement\": True, \"test_threads\": 1, \"competing_cargo_rustc_before_build\": processes_before, \"competing_cargo_rustc_before_measurement\": processes_before_measurement, \"parent_coordination\": \"Parent agreed no concurrent Cargo until worker returns.\"},\n        \"profile\": \"workspace release\", \"features\": \"default\", \"target_directory\": \"default target\", \"parallelism\": \"Cargo default; no jobs override; one test thread\",\n        \"relocation_metric\": \"Exact source-derived logical column element relocations, not hardware counters: old 3*D*L, new 6*L for this prefix/suffix shape.\",\n        \"limitations\": \"Sub-microsecond values are timer-resolution-sensitive; only operation timings, not source/artifact preparation or end-to-end compiler/runtime results.\",\n        \"build_command\": build_command, \"build_seconds\": build_seconds, \"measurement_command\": measurement_command,\n    },\n    \"environment\": {\"rustc_vv\": toolchain, \"os\": \"Windows 11 Pro 10.0.26300\", \"cpu\": \"Intel Core i9-12900K\", \"physical_cores\": 16, \"logical_processors\": 24, \"ram_approximately_gib\": 64},\n    \"probe\": {\"source_path\": \"target/ae03-compaction-raw-probe.rs\", \"source_sha256\": sha(source.encode(\"utf-8\")), \"full_source\": source, \"runner_path\": \"target/ae03-compaction-sample-runner.py\", \"runner_source\": Path(__file__).read_text(encoding=\"utf-8\"), \"build_log\": \"target/ae03-compaction-raw-build.log\", \"raw_output_log\": \"target/ae03-compaction-raw-output.log\", \"raw_output\": raw_output},\n    \"restoration\": {\"all_four_owned_files_byte_identical\": True, \"temporary_test_append_removed\": True, \"source_sha256_before\": {p: sha(b) for p, b in before.items()}, \"source_sha256_after\": {p: sha((ROOT / p).read_bytes()) for p in OWNED}},\n    \"production_algorithm\": {\"unchanged_from_prior_source_inspection\": True, \"source\": before[\"crates/kagari-mir/src/passes/compaction.rs\"].decode(\"utf-8\"), \"sha256\": sha(before[\"crates/kagari-mir/src/passes/compaction.rs\"])},\n    \"previous_run_recovered\": {\"provenance\": \"Earlier tool output in the conversation; measured samples were sorted before printing, warmups were not printed.\", \"warmups_available\": False, \"sample_order\": \"sorted, not acquisition order\", \"measured_samples_ns\": {\"16\": {\"old\": [300, 300, 300, 300, 400], \"new\": [100, 100, 200, 200, 200]}, \"256\": {\"old\": [17300, 17300, 17300, 17400, 20200], \"new\": [2000, 2000, 2000, 2100, 2400]}, \"4096\": {\"old\": [10074500, 10188200, 10478000, 10545900, 10866100], \"new\": [32500, 33500, 34000, 40200, 149500]}}},\n}\noutput = TARGET / \"ae03-compaction-samples.json\"\noutput.write_text(json.dumps(result, indent=2) + \"\\n\", encoding=\"utf-8\", newline=\"\\n\")\nprint(\"Saved\", output)\nprint(\"Compaction SHA256:\", result[\"production_algorithm\"][\"sha256\"])\nprint(\"Restoration: all four owned files byte-identical; temporary append removed\")\n",
+      "build_log": "target/ae03-compaction-raw-build.log",
+      "raw_output_log": "target/ae03-compaction-raw-output.log",
+      "raw_output": "\nrunning 1 test\ntest passes::compaction::tests::operation_probe ... instruction_bytes=168\nAE03_RAW n=16 d=8 old_ns=[4100, 300, 200, 300, 200, 200] new_ns=[2300, 200, 200, 200, 200, 100]\nAE03_RAW n=256 d=128 old_ns=[25200, 17300, 17200, 17200, 17200, 17300] new_ns=[2400, 2000, 2000, 1900, 1900, 2000]\nAE03_RAW n=4096 d=2048 old_ns=[10495400, 10519800, 10437900, 10530500, 10128900, 10128400] new_ns=[31800, 31900, 31800, 33600, 36000, 36900]\nok\n\ntest result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.07s\n\n"
+    },
+    "restoration": {
+      "all_four_owned_files_byte_identical": true,
+      "temporary_test_append_removed": true,
+      "source_sha256_before": {
+        "crates/kagari-mir/src/passes.rs": "74c917cb12fa6105bd67c99b34330f6a6f89097bc911746b9f13c0d00b53ac1d",
+        "crates/kagari-mir/src/passes/compaction.rs": "7738b27a46dac79b19361d210dc45cf49062b8e7a22f1cb49c64f8a40da3234f",
+        "crates/kagari-mir/src/passes/compaction/tests.rs": "ff6e23ad346ad2334871dbb4d03ec6d2e77fc84f347fa3f0e0aea878a552ae3d",
+        "crates/kagari-compiler/src/tests/passes.rs": "69fcc2bfcf284fabbc2883a7d49a3632d34436e543192b8f677c07def6756014"
+      },
+      "source_sha256_after": {
+        "crates/kagari-mir/src/passes.rs": "74c917cb12fa6105bd67c99b34330f6a6f89097bc911746b9f13c0d00b53ac1d",
+        "crates/kagari-mir/src/passes/compaction.rs": "7738b27a46dac79b19361d210dc45cf49062b8e7a22f1cb49c64f8a40da3234f",
+        "crates/kagari-mir/src/passes/compaction/tests.rs": "ff6e23ad346ad2334871dbb4d03ec6d2e77fc84f347fa3f0e0aea878a552ae3d",
+        "crates/kagari-compiler/src/tests/passes.rs": "69fcc2bfcf284fabbc2883a7d49a3632d34436e543192b8f677c07def6756014"
+      }
+    },
+    "production_algorithm": {
+      "unchanged_from_prior_source_inspection": true,
+      "source": "//! Stable, aligned deletion of the grouped decisions produced by `dead::find`.\r\n//!\r\n//! The finder emits contiguous function/block groups with descending instruction\r\n//! indices. Consume that order directly: preparation visits each deletion once,\r\n//! and each affected block is compacted once, without sorting or scratch allocation.\r\nuse crate::{\r\n    function::{BasicBlock, MirModule},\r\n    passes::Work,\r\n    verify::MirVerificationError,\r\n};\r\n\r\n/// Mutate only unpublished MIR, using the exact grouped output of `dead::find`.\r\n/// Errors may leave raw blocks partially compacted; the caller must discard them.\r\npub(super) fn apply(\r\n    module: &mut MirModule,\r\n    mut removals: &[(usize, usize, usize)],\r\n    work: &mut Work<'_>,\r\n) -> Result<(), MirVerificationError> {\r\n    while let Some(&(function, block, _)) = removals.first() {\r\n        let mut end = 0;\r\n        while end < removals.len() && (removals[end].0, removals[end].1) == (function, block) {\r\n            work.charge(1)?;\r\n            end += 1;\r\n        }\r\n        compact_block(\r\n            &mut module.functions[function].blocks[block],\r\n            removals[..end].iter().rev().map(|&(_, _, index)| index),\r\n            work,\r\n        )?;\r\n        removals = &removals[end..];\r\n    }\r\n    Ok(())\r\n}\r\n\r\n/// Indices are valid, unique and ascending, as obtained by reversing one group.\r\nfn compact_block(\r\n    block: &mut BasicBlock,\r\n    removals: impl Iterator<Item = usize>,\r\n    work: &mut Work<'_>,\r\n) -> Result<(), MirVerificationError> {\r\n    let mut removals = removals.peekable();\r\n    let mut retained = 0;\r\n    for read in 0..block.instructions.len() {\r\n        work.charge(1)?;\r\n        if removals.peek() == Some(&read) {\r\n            removals.next();\r\n            continue;\r\n        }\r\n        if retained != read {\r\n            // Two relocated elements per column; the same keep decision controls\r\n            // all three swaps. Dead entries accumulate in the unpublished tail.\r\n            work.charge(6)?;\r\n            block.instructions.swap(retained, read);\r\n            block.instruction_spans.swap(retained, read);\r\n            block.instruction_scopes.swap(retained, read);\r\n        }\r\n        retained += 1;\r\n    }\r\n    debug_assert!(removals.next().is_none());\r\n\r\n    // Instruction destruction also traverses the dead tail. Bound each batch so\r\n    // a large all-dead block cannot defer cancellation until after bulk cleanup.\r\n    while block.instructions.len() > retained {\r\n        let end = block.instructions.len().saturating_sub(256).max(retained);\r\n        work.charge(3 * (block.instructions.len() - end))?;\r\n        block.instructions.truncate(end);\r\n        block.instruction_spans.truncate(end);\r\n        block.instruction_scopes.truncate(end);\r\n    }\r\n    Ok(())\r\n}\r\n\r\n#[cfg(test)]\r\nmod tests;\r\n",
+      "sha256": "7738b27a46dac79b19361d210dc45cf49062b8e7a22f1cb49c64f8a40da3234f"
+    },
+    "previous_run_recovered": {
+      "provenance": "Earlier tool output in the conversation; measured samples were sorted before printing, warmups were not printed.",
+      "warmups_available": false,
+      "sample_order": "sorted, not acquisition order",
+      "measured_samples_ns": {
+        "16": {
+          "old": [
+            300,
+            300,
+            300,
+            300,
+            400
+          ],
+          "new": [
+            100,
+            100,
+            200,
+            200,
+            200
+          ]
+        },
+        "256": {
+          "old": [
+            17300,
+            17300,
+            17300,
+            17400,
+            20200
+          ],
+          "new": [
+            2000,
+            2000,
+            2000,
+            2100,
+            2400
+          ]
+        },
+        "4096": {
+          "old": [
+            10074500,
+            10188200,
+            10478000,
+            10545900,
+            10866100
+          ],
+          "new": [
+            32500,
+            33500,
+            34000,
+            40200,
+            149500
+          ]
+        }
+      }
+    }
+  },
+  "sdk": {
+    "environment": {
+      "utc_start": "2026-10-21T14:01:27.913213+00:00",
+      "head": "ea5c1386dc4882801e2fc44df5f73d907fd8894a",
+      "status_before_timing": "M crates/kagari-compiler/src/tests/passes.rs\n M crates/kagari-mir/src/passes.rs\n?? crates/kagari-mir/src/passes/compaction.rs\n?? crates/kagari-mir/src/passes/compaction/\n?? crates/kagari/examples/ae03_sdk_measurement_probe.rs",
+      "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13)\nbinary: rustc\ncommit-hash: 58cf8f9c35b355199727627d07ae34a4e2846d67\ncommit-date: 2026-10-13\nhost: x86_64-pc-windows-msvc\nrelease: 1.99.1\nLLVM version: 23.1.1",
+      "cargo": "cargo 1.99.1 (5f94df478 2026-08-27)",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "logical_cpus": 24,
+      "machine": "Name                      : 12th Gen Intel(R) Core(TM) i9-12900K\nNumberOfCores             : 16\nNumberOfLogicalProcessors : 24\n\n\n\n\n\nTotalPhysicalMemory : 68447940608\n\n\n\n\n\nCaption     : Microsoft Windows 11 רҵ��\nVersion     : 10.0.26300\nBuildNumber : 26300",
+      "build_command": "cargo build -p kagari --example ae03_sdk_measurement_probe --release",
+      "run_command": "uv run python target/ae-sdk-measurements/run_measurement.py",
+      "binary_command": [
+        "target/release/examples/ae03_sdk_measurement_probe.exe",
+        "target/ae-sdk-measurements"
+      ],
+      "profile": "workspace default release, optimized; no custom profile overrides",
+      "features": "kagari defaults: source + native; no AOT feature or compilation",
+      "target": "default host x86_64-pc-windows-msvc; default target directory",
+      "parallelism": "default Cargo build parallelism; serial sample/route execution",
+      "cargo_rust_overrides": {
+        "CARGO_BUILD_TARGET": null,
+        "CARGO_TARGET_DIR": null,
+        "CARGO_BUILD_JOBS": null,
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_PROFILE_RELEASE_OPT_LEVEL": null,
+        "CARGO_PROFILE_RELEASE_LTO": null,
+        "CARGO_PROFILE_RELEASE_CODEGEN_UNITS": null
+      },
+      "user_cargo_configs": {},
+      "binary_sha256": "b1d356d0ec2ffe84dbaa6c8136342262ad0a6994342e406baf1acb6190db645d",
+      "harness_sha256": "59401b272330b0366e463009f29a27e6ae9e2efb337ac0c0d73986549e3ac8fa",
+      "cache_state": "existing default target/release cache; completed build before timing; one explicit in-process full warmup; fresh engine/session/runtime per route/iteration; OS/allocator/stdlib process caches not flushed; not a cold-machine measurement",
+      "process_monitor": "Windows Toolhelp snapshots before/after and approximately every 100 ms; reject Cargo/Rust/compiler/linker/build tools and hashed Rust test executables; cannot exclude unrelated OS/editor load or processes shorter than polling interval",
+      "source_inputs_unchanged_during_timing": true,
+      "sample_source_sha256": "961fed77e615731a2108a44c1546fe8f1f27be319ff6f96421e1baa6028fe1c7",
+      "sample_artifact_bytes": 939139
+    },
+    "summary": [
+      {
+        "route": "direct",
+        "phase": "engine_setup",
+        "warmup_ns": 580307700,
+        "samples_ns": [
+          434227100,
+          427451500,
+          424460000,
+          429089800,
+          413110200
+        ],
+        "median_ns": 427451500,
+        "min_ns": 413110200,
+        "max_ns": 434227100
+      },
+      {
+        "route": "direct",
+        "phase": "compile_to_program",
+        "warmup_ns": 579432900,
+        "samples_ns": [
+          572885700,
+          566496800,
+          584975800,
+          572470800,
+          577257700
+        ],
+        "median_ns": 572885700,
+        "min_ns": 566496800,
+        "max_ns": 584975800
+      },
+      {
+        "route": "direct",
+        "phase": "runtime_setup",
+        "warmup_ns": 19100,
+        "samples_ns": [
+          13700,
+          14000,
+          13400,
+          16000,
+          13700
+        ],
+        "median_ns": 13700,
+        "min_ns": 13400,
+        "max_ns": 16000
+      },
+      {
+        "route": "direct",
+        "phase": "runtime_link",
+        "warmup_ns": 6620400,
+        "samples_ns": [
+          5421800,
+          5194400,
+          5205900,
+          5173100,
+          4980200
+        ],
+        "median_ns": 5194400,
+        "min_ns": 4980200,
+        "max_ns": 5421800
+      },
+      {
+        "route": "direct",
+        "phase": "first_execution",
+        "warmup_ns": 60100,
+        "samples_ns": [
+          18500,
+          15700,
+          19900,
+          18400,
+          17300
+        ],
+        "median_ns": 18400,
+        "min_ns": 15700,
+        "max_ns": 19900
+      },
+      {
+        "route": "staged_source",
+        "phase": "engine_setup",
+        "warmup_ns": 423188500,
+        "samples_ns": [
+          434183400,
+          425178200,
+          431488600,
+          419991300,
+          416549800
+        ],
+        "median_ns": 425178200,
+        "min_ns": 416549800,
+        "max_ns": 434183400
+      },
+      {
+        "route": "staged_source",
+        "phase": "source_check",
+        "warmup_ns": 127829700,
+        "samples_ns": [
+          127440000,
+          128335100,
+          130590000,
+          125958100,
+          124256800
+        ],
+        "median_ns": 127440000,
+        "min_ns": 124256800,
+        "max_ns": 130590000
+      },
+      {
+        "route": "staged_source",
+        "phase": "source_lower_prepare",
+        "warmup_ns": 442673200,
+        "samples_ns": [
+          439459200,
+          440153500,
+          454497700,
+          464156200,
+          458661600
+        ],
+        "median_ns": 454497700,
+        "min_ns": 439459200,
+        "max_ns": 464156200
+      },
+      {
+        "route": "staged_source",
+        "phase": "runtime_setup",
+        "warmup_ns": 12200,
+        "samples_ns": [
+          12600,
+          13600,
+          13900,
+          13000,
+          11900
+        ],
+        "median_ns": 13000,
+        "min_ns": 11900,
+        "max_ns": 13900
+      },
+      {
+        "route": "staged_source",
+        "phase": "runtime_link",
+        "warmup_ns": 5140700,
+        "samples_ns": [
+          5196100,
+          4665700,
+          5294600,
+          4795700,
+          4907100
+        ],
+        "median_ns": 4907100,
+        "min_ns": 4665700,
+        "max_ns": 5294600
+      },
+      {
+        "route": "staged_source",
+        "phase": "first_execution",
+        "warmup_ns": 28100,
+        "samples_ns": [
+          17200,
+          17500,
+          19100,
+          24900,
+          17900
+        ],
+        "median_ns": 17900,
+        "min_ns": 17200,
+        "max_ns": 24900
+      },
+      {
+        "route": "artifact",
+        "phase": "engine_setup",
+        "warmup_ns": 424837300,
+        "samples_ns": [
+          425157700,
+          425346800,
+          429645000,
+          423057000,
+          425575500
+        ],
+        "median_ns": 425346800,
+        "min_ns": 423057000,
+        "max_ns": 429645000
+      },
+      {
+        "route": "artifact",
+        "phase": "compile_to_artifact",
+        "warmup_ns": 589735500,
+        "samples_ns": [
+          590606100,
+          591045000,
+          593021700,
+          756243400,
+          604851300
+        ],
+        "median_ns": 593021700,
+        "min_ns": 590606100,
+        "max_ns": 756243400
+      },
+      {
+        "route": "artifact",
+        "phase": "artifact_encode",
+        "warmup_ns": 5581400,
+        "samples_ns": [
+          5186400,
+          5217200,
+          4864800,
+          5141200,
+          5363400
+        ],
+        "median_ns": 5186400,
+        "min_ns": 4864800,
+        "max_ns": 5363400
+      },
+      {
+        "route": "artifact",
+        "phase": "artifact_decode",
+        "warmup_ns": 4467100,
+        "samples_ns": [
+          4006700,
+          4067100,
+          4075500,
+          4839700,
+          5237800
+        ],
+        "median_ns": 4075500,
+        "min_ns": 4006700,
+        "max_ns": 5237800
+      },
+      {
+        "route": "artifact",
+        "phase": "artifact_prepare",
+        "warmup_ns": 210712100,
+        "samples_ns": [
+          209916200,
+          209491800,
+          205486600,
+          201751100,
+          210075400
+        ],
+        "median_ns": 209491800,
+        "min_ns": 201751100,
+        "max_ns": 210075400
+      },
+      {
+        "route": "artifact",
+        "phase": "runtime_setup",
+        "warmup_ns": 17500,
+        "samples_ns": [
+          13200,
+          12700,
+          14400,
+          13200,
+          14400
+        ],
+        "median_ns": 13200,
+        "min_ns": 12700,
+        "max_ns": 14400
+      },
+      {
+        "route": "artifact",
+        "phase": "runtime_link",
+        "warmup_ns": 5904400,
+        "samples_ns": [
+          4827300,
+          4869100,
+          4924200,
+          5858500,
+          4830200
+        ],
+        "median_ns": 4869100,
+        "min_ns": 4827300,
+        "max_ns": 5858500
+      },
+      {
+        "route": "artifact",
+        "phase": "first_execution",
+        "warmup_ns": 24700,
+        "samples_ns": [
+          17200,
+          16000,
+          17300,
+          18900,
+          17400
+        ],
+        "median_ns": 17300,
+        "min_ns": 16000,
+        "max_ns": 18900
+      }
+    ],
+    "samples_csv": "state,sample,route,phase,ns\nwarmup,0,direct,engine_setup,580307700\nwarmup,0,direct,compile_to_program,579432900\nwarmup,0,direct,runtime_setup,19100\nwarmup,0,direct,runtime_link,6620400\nwarmup,0,direct,first_execution,60100\nwarmup,0,staged_source,engine_setup,423188500\nwarmup,0,staged_source,source_check,127829700\nwarmup,0,staged_source,source_lower_prepare,442673200\nwarmup,0,staged_source,runtime_setup,12200\nwarmup,0,staged_source,runtime_link,5140700\nwarmup,0,staged_source,first_execution,28100\nwarmup,0,artifact,engine_setup,424837300\nwarmup,0,artifact,compile_to_artifact,589735500\nwarmup,0,artifact,artifact_encode,5581400\nwarmup,0,artifact,artifact_decode,4467100\nwarmup,0,artifact,artifact_prepare,210712100\nwarmup,0,artifact,runtime_setup,17500\nwarmup,0,artifact,runtime_link,5904400\nwarmup,0,artifact,first_execution,24700\nmeasured,1,direct,engine_setup,434227100\nmeasured,1,direct,compile_to_program,572885700\nmeasured,1,direct,runtime_setup,13700\nmeasured,1,direct,runtime_link,5421800\nmeasured,1,direct,first_execution,18500\nmeasured,1,staged_source,engine_setup,434183400\nmeasured,1,staged_source,source_check,127440000\nmeasured,1,staged_source,source_lower_prepare,439459200\nmeasured,1,staged_source,runtime_setup,12600\nmeasured,1,staged_source,runtime_link,5196100\nmeasured,1,staged_source,first_execution,17200\nmeasured,1,artifact,engine_setup,425157700\nmeasured,1,artifact,compile_to_artifact,590606100\nmeasured,1,artifact,artifact_encode,5186400\nmeasured,1,artifact,artifact_decode,4006700\nmeasured,1,artifact,artifact_prepare,209916200\nmeasured,1,artifact,runtime_setup,13200\nmeasured,1,artifact,runtime_link,4827300\nmeasured,1,artifact,first_execution,17200\nmeasured,2,direct,engine_setup,427451500\nmeasured,2,direct,compile_to_program,566496800\nmeasured,2,direct,runtime_setup,14000\nmeasured,2,direct,runtime_link,5194400\nmeasured,2,direct,first_execution,15700\nmeasured,2,staged_source,engine_setup,425178200\nmeasured,2,staged_source,source_check,128335100\nmeasured,2,staged_source,source_lower_prepare,440153500\nmeasured,2,staged_source,runtime_setup,13600\nmeasured,2,staged_source,runtime_link,4665700\nmeasured,2,staged_source,first_execution,17500\nmeasured,2,artifact,engine_setup,425346800\nmeasured,2,artifact,compile_to_artifact,591045000\nmeasured,2,artifact,artifact_encode,5217200\nmeasured,2,artifact,artifact_decode,4067100\nmeasured,2,artifact,artifact_prepare,209491800\nmeasured,2,artifact,runtime_setup,12700\nmeasured,2,artifact,runtime_link,4869100\nmeasured,2,artifact,first_execution,16000\nmeasured,3,direct,engine_setup,424460000\nmeasured,3,direct,compile_to_program,584975800\nmeasured,3,direct,runtime_setup,13400\nmeasured,3,direct,runtime_link,5205900\nmeasured,3,direct,first_execution,19900\nmeasured,3,staged_source,engine_setup,431488600\nmeasured,3,staged_source,source_check,130590000\nmeasured,3,staged_source,source_lower_prepare,454497700\nmeasured,3,staged_source,runtime_setup,13900\nmeasured,3,staged_source,runtime_link,5294600\nmeasured,3,staged_source,first_execution,19100\nmeasured,3,artifact,engine_setup,429645000\nmeasured,3,artifact,compile_to_artifact,593021700\nmeasured,3,artifact,artifact_encode,4864800\nmeasured,3,artifact,artifact_decode,4075500\nmeasured,3,artifact,artifact_prepare,205486600\nmeasured,3,artifact,runtime_setup,14400\nmeasured,3,artifact,runtime_link,4924200\nmeasured,3,artifact,first_execution,17300\nmeasured,4,direct,engine_setup,429089800\nmeasured,4,direct,compile_to_program,572470800\nmeasured,4,direct,runtime_setup,16000\nmeasured,4,direct,runtime_link,5173100\nmeasured,4,direct,first_execution,18400\nmeasured,4,staged_source,engine_setup,419991300\nmeasured,4,staged_source,source_check,125958100\nmeasured,4,staged_source,source_lower_prepare,464156200\nmeasured,4,staged_source,runtime_setup,13000\nmeasured,4,staged_source,runtime_link,4795700\nmeasured,4,staged_source,first_execution,24900\nmeasured,4,artifact,engine_setup,423057000\nmeasured,4,artifact,compile_to_artifact,756243400\nmeasured,4,artifact,artifact_encode,5141200\nmeasured,4,artifact,artifact_decode,4839700\nmeasured,4,artifact,artifact_prepare,201751100\nmeasured,4,artifact,runtime_setup,13200\nmeasured,4,artifact,runtime_link,5858500\nmeasured,4,artifact,first_execution,18900\nmeasured,5,direct,engine_setup,413110200\nmeasured,5,direct,compile_to_program,577257700\nmeasured,5,direct,runtime_setup,13700\nmeasured,5,direct,runtime_link,4980200\nmeasured,5,direct,first_execution,17300\nmeasured,5,staged_source,engine_setup,416549800\nmeasured,5,staged_source,source_check,124256800\nmeasured,5,staged_source,source_lower_prepare,458661600\nmeasured,5,staged_source,runtime_setup,11900\nmeasured,5,staged_source,runtime_link,4907100\nmeasured,5,staged_source,first_execution,17900\nmeasured,5,artifact,engine_setup,425575500\nmeasured,5,artifact,compile_to_artifact,604851300\nmeasured,5,artifact,artifact_encode,5363400\nmeasured,5,artifact,artifact_decode,5237800\nmeasured,5,artifact,artifact_prepare,210075400\nmeasured,5,artifact,runtime_setup,14400\nmeasured,5,artifact,runtime_link,4830200\nmeasured,5,artifact,first_execution,17400\n",
+    "outcomes_csv": "state,sample,route,result,functions,debug_local_ranges,branches,has_native_input\nwarmup,0,direct,I32(42),2,10,2,false\nwarmup,0,staged_source,I32(42),2,10,2,false\nwarmup,0,artifact,I32(42),2,10,2,true\nmeasured,1,direct,I32(42),2,10,2,false\nmeasured,1,staged_source,I32(42),2,10,2,false\nmeasured,1,artifact,I32(42),2,10,2,true\nmeasured,2,direct,I32(42),2,10,2,false\nmeasured,2,staged_source,I32(42),2,10,2,false\nmeasured,2,artifact,I32(42),2,10,2,true\nmeasured,3,direct,I32(42),2,10,2,false\nmeasured,3,staged_source,I32(42),2,10,2,false\nmeasured,3,artifact,I32(42),2,10,2,true\nmeasured,4,direct,I32(42),2,10,2,false\nmeasured,4,staged_source,I32(42),2,10,2,false\nmeasured,4,artifact,I32(42),2,10,2,true\nmeasured,5,direct,I32(42),2,10,2,false\nmeasured,5,staged_source,I32(42),2,10,2,false\nmeasured,5,artifact,I32(42),2,10,2,true\n",
+    "method": "# AE03 current-only native release SDK integration measurement\n\n## Scope and identity\n\nAccepted run on 2026-10-21, current working tree at HEAD\n`ea5c1386dc4882801e2fc44df5f73d907fd8894a` **plus the existing uncommitted AE03\ncompaction implementation**. This is not a clean-HEAD measurement.\n`implementation-at-build.patch`, `status-before-build.txt` and\n`source-input-hashes.json` record the inspected working-tree state. Input hashes\nwere identical immediately before/after accepted timing. No production code,\npermanent tests, repository documentation, manifests or lockfiles were edited by\nthis measurement. The user's pre-existing changes were not staged or committed.\n\nThe fixed script is `sample.kgr` (SHA-256\n`961fed77e615731a2108a44c1546fe8f1f27be319ff6f96421e1baa6028fe1c7`).\n`ae03_sdk_measurement_probe.rs` is the complete runnable Rust harness, copied from\nits temporary Cargo example before removal. The script has a parameter-dependent\nhelper branch, a main branch, lexical debug locals, dead literal/comparison\nexpression temporaries, and checked arithmetic. Both API routes, and a separate\nstaged attribution route, produce exactly `Value::I32(42)`. All prepared products\nhave 2 functions, 10 debug local ranges and 2 branch instructions. These counts\nare inspected after execution, outside phase timers; they do not substitute for\ndebugger stepping or optimization work-count tests.\n\n## Environment and cache state\n\n- Windows 11, build 26300; native `x86_64-pc-windows-msvc` host target.\n- Intel Core i9-12900K, 16 cores / 24 logical processors, 68,447,940,608 bytes\n  physical memory reported by Windows.\n- rustc 1.99.1 (`58cf8f9c3`, 2026-10-13), LLVM 23.1.1;\n  Cargo 1.99.1 (`5f94df478`, 2026-08-27).\n- Workspace-default release profile, default `target`, default Cargo parallelism,\n  no profile/target/jobs/Rust flag overrides. Existing release build cache was\n  reused. Cargo reported the completed release build as 55.13 seconds.\n- Default SDK features `source` and `native`; ordinary SDK interpreter execution.\n  Here \"native release\" means a native-host Rust release executable, **not JIT\n  execution**. No native backend compilation or AOT API/feature was requested.\n- Direct/staged preparation uses `PreparationOptions::default()` (bounded MIR\n  optimization enabled, `retain_native_input = false`). Artifact export uses\n  `ArtifactOptions::default()` (bounded MIR optimization enabled, portable MIR\n  exported). The native-enabled artifact consumer validates that portable MIR,\n  and `has_native_input()` is asserted true there, false for direct/staged input.\n  This default-option asymmetry is intentional; do not attribute all timing\n  differences to compaction, decoding, or the SDK route alone.\n- One explicit full in-process warmup (index 0), then exactly five measured\n  iterations (indices 1–5). Every iteration runs direct, staged source, artifact\n  in that fixed order. Every route uses a fresh default engine/source session and\n  fresh runtime; there is no repeated-source analysis-cache hit in a reused\n  engine. OS, allocator and process-global standard-library caches are not\n  flushed; this is not a cold-machine or randomized-order experiment.\n\nSee `environment.json` for complete recorded metadata and executable/harness\nhashes. The PowerShell operating-system caption was decoded imperfectly in that\nfile; the numeric Windows version/build and Python platform string are intact.\n\n## Routes and timing boundaries\n\nEach stage uses Rust `Instant`, retaining the returned value until after the\nelapsed timestamp. Results/errors/assertions, CSV formatting, metadata inspection\nand ordinary later destruction are outside the corresponding phase timer. Work\nintrinsic to an API, including its internal cleanup, remains inside that API's\ntimer. SourceFile/options/context construction is outside compile/execute timers.\nRows are buffered in memory; files and the final stdout message are written only\nafter all measured iterations. No compilation/build time is mixed into SDK phases.\n\n1. **direct**: separately timed default engine construction, then the real\n   `KagariEngine::compile_to_program(source, PreparationOptions::default())`,\n   then separately timed runtime construction, `load_program`, first `execute`.\n2. **staged_source**: a different fresh engine, timed `compile_source` for source\n   parsing/checking, then timed `prepare(&checked, PreparationOptions::default())`.\n   `source_lower_prepare` includes MIR lowering/optimization/verification,\n   bytecode lowering/verification, and executable adoption. The public SDK API\n   does not expose independent timers for those internal steps; no finer split\n   or subtraction from another route is inferred. Runtime construction, linking\n   and first execution are also individually timed on this product.\n3. **artifact**: a different fresh engine, timed `compile_to_artifact` (source\n   checking + lowering + explicit portable artifact construction), separately\n   timed `artifact.records().to_bytes(artifact.definitions())`, separately timed\n   `BytecodeArtifact::from_bytes(&bytes)`, then separately timed\n   `PreparedProgram::from_artifact(decoded, &compatibility, &cancel)` with defaults.\n   This last stage is independent artifact admission, identity import, bytecode\n   verification/preparation and supplied native-input validation, not source\n   checking. The original exported artifact remains alive until the route ends.\n   The final serialized artifact is retained as `sample.kbc` (939,139 bytes).\n\nFor every route: runtime construction is `engine.runtime(context.clone())`,\nlinking is `runtime.load_program(&program, Default::default())`, and first\nexecution is `runtime.execute(&loaded, ProgramEntry::Main, &[], &context)`.\nThe result is rooted through the returned execution report and read/asserted as\n`Value::I32(42)` outside the execute timer. There is only one execution per newly\nloaded runtime. Engine construction is reported separately, never hidden inside\ncompile or linking times. Staged attribution is a separate compilation, not a\nclaim that phase medians add exactly to the separately observed direct median.\n\n## Isolation and rejected attempts\n\nBuild completed before any accepted timing. During the accepted executable run,\nno other command was intentionally launched here; the Python wrapper only polled\nWindows process snapshots while waiting for the already-built executable.\nIt collected 182 snapshots (approximately every 100 ms) across 20.1259534 seconds\nincluding process launch/exit, with zero competing build/test observations and\nexit code 0. Source/Cargo input hashes remained unchanged. A 60-second observed\nquiet window preceded launch. Process monitoring cannot exclude unrelated\nOS/editor activity, arbitrary test executable names, or processes entirely\nshorter than its polling interval. No CPU pinning or power-management override\nwas applied. The monitor itself is small but is also part of the environment.\n\nAn initial preflight refused to launch because a runtime numeric-boundary test\nwas building in another worktree. Three subsequently launched attempts were\naborted/rejected when another Cargo process appeared; their audit metadata is in\n`rejected-overlap-attempt/`, `rejected-overlap-attempt-2/` and\n`rejected-overlap-attempt-3/`. The third identified automatic\n`cargo check --workspace --all-targets` in the `warm-colt` worktree. No timing\nsamples from these attempts are accepted, combined, or substituted. They can\nhave warmed machine caches, another reason not to call this a cold-start test.\nEach retry ran the same already-built binary and fixed source. The final accepted\nrun contains its own explicit warmup plus five samples for every condition.\nNo competing process was terminated; only this probe's rejected processes were.\n\n## Actual commands and results\n\nExecuted from repository root, without changing Cargo configuration:\n\n```sh\nrustfmt --edition 2024 crates/kagari/examples/ae03_sdk_measurement_probe.rs\ngit --no-pager diff --check\ncargo build -p kagari --example ae03_sdk_measurement_probe --release\nuv run python target/ae-sdk-measurements/run_measurement.py\n```\n\nThe build's combined output is in `build.log`; the actual shell invocation used\n`set -o pipefail` and `tee target/ae-sdk-measurements/build.log` to retain it.\nThe wrapper command was attempted five times total: one preflight refusal, three\nrejected overlap runs, then the accepted run. No rebuild was performed between\nthose invocations. The accepted wrapper invoked exactly:\n\n```sh\ntarget/release/examples/ae03_sdk_measurement_probe.exe target/ae-sdk-measurements\n```\n\nAccepted stdout (`run.log`):\n\n```text\nCompleted one warmup + five measured samples per route; all 18 executions returned I32(42); artifact 939139 bytes.\n```\n\nAll 114 phase observations (19 phases × 6 iterations), including warmups, are\nretained in `samples.csv` with integer nanoseconds. `summary.json` and `RESULTS.md`\ncontain every warmup, all five ordered samples, medians, minima and maxima.\n`outcomes.csv` retains all 18 execution assertions and observed metadata counts.\nNo outlier was dropped: artifact export sample 4 was 756.2434 ms, and its cause is\nnot established. This current-only run makes no old-revision end-to-end comparison,\nno before/after regression claim and no inferred speedup. It does not establish\nfull AE03 acceptance, backend matrices, debugger stepping, or CI acceptance.\n\n## Reproduction after temporary example removal\n\nThe retained binary can be rerun with the wrapper after a quiet window. To\nrebuild the saved harness with this checkout, first ensure the temporary example\npath does not exist; never overwrite another user's file:\n\n```sh\ncp target/ae-sdk-measurements/ae03_sdk_measurement_probe.rs crates/kagari/examples/ae03_sdk_measurement_probe.rs\ncargo build -p kagari --example ae03_sdk_measurement_probe --release\nuv run python target/ae-sdk-measurements/run_measurement.py\nrm crates/kagari/examples/ae03_sdk_measurement_probe.rs\n```\n\nThese are reproduction instructions, not an additional build/run performed after\nthe accepted measurement. Rerunning the wrapper overwrites top-level result files;\narchive the directory first if preserving this particular run. The cleanup for\nthis task used the editor file deletion tool on exactly the owned example path,\nafter byte equality with the saved harness was asserted. `cleanup-verification.json`\nrecords absence of the example and retained harness verification. Final\n`git diff --check`/status output is saved separately. No stage or commit command\nwas used. No permanent test/Clippy/workspace build sweep was needed or run for\nthis disposable measurement harness.\n",
+    "source": "fn adjust(value: i32, positive: bool) -> i32 {\n    101;\n    102;\n    value == 7;\n    val original = value;\n    var answer = original;\n    if positive {\n        201;\n        original != 0;\n        val increment = 2;\n        answer += increment;\n        202;\n    } else {\n        301;\n        val decrement = 2;\n        answer -= decrement;\n        original == 9;\n    }\n    401;\n    answer\n}\n\nfn main() -> i32 {\n    501;\n    val seed = 40;\n    val raised = adjust(seed, true);\n    var result = 0;\n    if raised == 42 {\n        val final_value = raised;\n        result = final_value;\n    } else {\n        result = adjust(seed, false);\n    }\n    502;\n    result\n}\n",
+    "probe": "//! Temporary current-only AE03 SDK integration measurement; no JIT or AOT.\nuse kagari::{\n    BytecodeArtifact,\n    context::ExecutionContext,\n    engine::{\n        KagariEngine,\n        source::{ArtifactOptions, PreparationOptions},\n    },\n    program::PreparedProgram,\n};\nuse kagari_bytecode::instruction::BytecodeInstruction;\nuse kagari_runtime::{module::entry::ProgramEntry, value::Value};\nuse kagari_source::source::SourceFile;\nuse std::{env, error::Error, fs, path::PathBuf, time::Instant};\n\nconst SOURCE: &str = r#\"fn adjust(value: i32, positive: bool) -> i32 {\n    101;\n    102;\n    value == 7;\n    val original = value;\n    var answer = original;\n    if positive {\n        201;\n        original != 0;\n        val increment = 2;\n        answer += increment;\n        202;\n    } else {\n        301;\n        val decrement = 2;\n        answer -= decrement;\n        original == 9;\n    }\n    401;\n    answer\n}\n\nfn main() -> i32 {\n    501;\n    val seed = 40;\n    val raised = adjust(seed, true);\n    var result = 0;\n    if raised == 42 {\n        val final_value = raised;\n        result = final_value;\n    } else {\n        result = adjust(seed, false);\n    }\n    502;\n    result\n}\n\"#;\n\nstruct Samples {\n    raw: String,\n    outcomes: String,\n    state: &'static str,\n    sample: usize,\n}\n\nimpl Samples {\n    fn measure<T>(&mut self, route: &str, phase: &str, operation: impl FnOnce() -> T) -> T {\n        let start = Instant::now();\n        let value = operation();\n        let ns = start.elapsed().as_nanos();\n        self.raw.push_str(&format!(\n            \"{},{},{route},{phase},{ns}\\n\",\n            self.state, self.sample\n        ));\n        value\n    }\n\n    fn execute(&mut self, route: &str, engine: &KagariEngine, program: &PreparedProgram) {\n        let context = ExecutionContext::default();\n        let mut runtime = self.measure(route, \"runtime_setup\", || engine.runtime(context.clone()));\n        let loaded = self\n            .measure(route, \"runtime_link\", || {\n                runtime.load_program(program, Default::default())\n            })\n            .expect(\"runtime linking\");\n        let report = self\n            .measure(route, \"first_execution\", || {\n                runtime.execute(&loaded, ProgramEntry::Main, &[], &context)\n            })\n            .expect(\"first main execution\");\n        assert_eq!(\n            report.return_value.value(runtime.runtime().gc()).unwrap(),\n            Value::I32(42)\n        );\n\n        // Inspect retained facts outside all phase timers.\n        let mut functions = 0;\n        let mut locals = 0;\n        let mut branches = 0;\n        for module in program.bytecode().modules() {\n            for function in &module.functions {\n                functions += 1;\n                locals += function.metadata.debug.local_live_ranges.len();\n                branches += function\n                    .instructions\n                    .iter()\n                    .filter(|instruction| {\n                        matches!(\n                            instruction,\n                            BytecodeInstruction::Branch { .. }\n                                | BytecodeInstruction::PredicateBranch { .. }\n                        )\n                    })\n                    .count();\n            }\n        }\n        assert!(locals > 0, \"debug local ranges retained\");\n        assert!(branches >= 2, \"both function branch sites retained\");\n        self.outcomes.push_str(&format!(\n            \"{},{},{route},I32(42),{functions},{locals},{branches},{}\\n\",\n            self.state,\n            self.sample,\n            program.has_native_input(),\n        ));\n    }\n\n    fn direct(&mut self) {\n        let route = \"direct\";\n        let engine = self.measure(route, \"engine_setup\", KagariEngine::default);\n        let source = SourceFile::new(\"ae03_sdk.kgr\", SOURCE);\n        let options = PreparationOptions::default();\n        let program = self\n            .measure(route, \"compile_to_program\", || {\n                engine.compile_to_program(source, options)\n            })\n            .expect(\"direct source preparation\");\n        assert!(!program.has_native_input());\n        self.execute(route, &engine, &program);\n    }\n\n    fn staged(&mut self) {\n        let route = \"staged_source\";\n        let engine = self.measure(route, \"engine_setup\", KagariEngine::default);\n        let source = SourceFile::new(\"ae03_sdk.kgr\", SOURCE);\n        let checked = self\n            .measure(route, \"source_check\", || engine.compile_source(source))\n            .expect(\"source checking\");\n        let options = PreparationOptions::default();\n        let program = self\n            .measure(route, \"source_lower_prepare\", || {\n                engine.prepare(&checked, options)\n            })\n            .expect(\"checked source lowering/preparation\");\n        assert!(!program.has_native_input());\n        self.execute(route, &engine, &program);\n    }\n\n    fn artifact(&mut self) -> Vec<u8> {\n        let route = \"artifact\";\n        let engine = self.measure(route, \"engine_setup\", KagariEngine::default);\n        let source = SourceFile::new(\"ae03_sdk.kgr\", SOURCE);\n        let options = ArtifactOptions::default();\n        let artifact = self\n            .measure(route, \"compile_to_artifact\", || {\n                engine.compile_to_artifact(source, options)\n            })\n            .expect(\"explicit artifact export\");\n        let bytes = self\n            .measure(route, \"artifact_encode\", || {\n                artifact.records().to_bytes(artifact.definitions())\n            })\n            .expect(\"artifact serialization\");\n        let decoded = self\n            .measure(route, \"artifact_decode\", || {\n                BytecodeArtifact::from_bytes(&bytes)\n            })\n            .expect(\"artifact decoding\");\n        let compatibility = Default::default();\n        let cancel = Default::default();\n        let program = self\n            .measure(route, \"artifact_prepare\", || {\n                PreparedProgram::from_artifact(decoded, &compatibility, &cancel)\n            })\n            .expect(\"source-free artifact preparation\");\n        assert!(program.has_native_input());\n        self.execute(route, &engine, &program);\n        bytes\n    }\n}\n\nfn main() -> Result<(), Box<dyn Error>> {\n    let output = PathBuf::from(env::args().nth(1).expect(\"output directory argument\"));\n    assert!(\n        output.is_dir(),\n        \"create output directory before measurement\"\n    );\n    let mut samples = Samples {\n        raw: \"state,sample,route,phase,ns\\n\".into(),\n        outcomes:\n            \"state,sample,route,result,functions,debug_local_ranges,branches,has_native_input\\n\"\n                .into(),\n        state: \"warmup\",\n        sample: 0,\n    };\n    let mut last_artifact = Vec::new();\n    // Exactly one explicit full warmup, followed by five full measured samples.\n    // Each route gets a fresh engine/source session and fresh runtime every time.\n    for iteration in 0..6 {\n        samples.state = if iteration == 0 { \"warmup\" } else { \"measured\" };\n        samples.sample = iteration;\n        samples.direct();\n        samples.staged();\n        last_artifact = samples.artifact();\n    }\n    fs::write(output.join(\"samples.csv\"), samples.raw)?;\n    fs::write(output.join(\"outcomes.csv\"), samples.outcomes)?;\n    fs::write(output.join(\"sample.kgr\"), SOURCE)?;\n    fs::write(output.join(\"sample.kbc\"), &last_artifact)?;\n    println!(\n        \"Completed one warmup + five measured samples per route; all 18 executions returned I32(42); artifact {} bytes.\",\n        last_artifact.len()\n    );\n    Ok(())\n}\n"
+  }
+}

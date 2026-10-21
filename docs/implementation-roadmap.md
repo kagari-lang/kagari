@@ -325,27 +325,29 @@ checked lowering facts before selecting another optimization; imported binding
 construction precedes signature reuse, and native-default/ABI lowering still uses
 HIR aggregate normalization. The performance record retains the sample weights,
 workload growth, memory results and limits of that diagnosis. This is not proof of
-an R7 specialization-round or R16 flow-scheduling cause. Further work requires a
-separately authorized scope. Full incremental compilation, permanent engine reuse,
-R7/R8/R16 changes, global caches, artifact pruning and AOT expansion remain separate.
+an R7 specialization-round or R16 flow-scheduling cause. Subsequent bounded
+analysis work below resolves R16 without reclassifying this latency goal. Further
+frontend work requires a separately authorized scope. Full incremental compilation,
+permanent engine reuse, R7/R8 changes, global caches, artifact pruning and AOT
+expansion remain separate.
 
 ## Bounded analysis and MIR compaction
 
-The [execution plan](analysis-efficiency-plan.md) is drafted at `4baef38e`;
-Implementation and one commit per phase are authorized; push/deployment are not.
-AE01 shared range queries and AE02 directional dataflow are locally complete;
-AE03 compaction and final integration remain pending.
-Execute R17 shared debug-range
-queries, then R16 direction-aware bytecode flow, then R18 stable MIR compaction
-with focused integration. The plan owns phase order, budgets, semantic acceptance,
-work-count/measurement requirements and the sole progress ledger.
+R16-R18 implementation and selected local acceptance are complete as of 2026-10-21.
+[Architecture](architecture.md#bounded-flow-debug-availability-and-mir-deletion)
+owns function-local debug availability, independent directional bytecode fixed
+points and stable aligned MIR deletion. Required validation, cancellation, budget
+exhaustion, debugger/GC facts and fresh seals after edits remain intact. The completed
+AE01-AE03 execution plan is removed; Git retains phase decisions and validation.
 
-The [review](review.md#engineering-a-compiler-chapter-review) retains the unresolved
-findings until acceptance. Preserve independent eager validation, debug availability,
-initialization, suspension/host safety, cancellation and fresh seals after edits.
-The completed source-preparation architecture is a foundation, not a prerequisite
-to replay. R19 coloring, R7/R8, runtime lifetime work and the existing CS/BO/IP latency
-gaps remain separate; this plan does not promise to resolve those timing gates.
+[Bounded release measurements](performance-baseline.md#bounded-analysis-and-mir-compaction-2026-10-21)
+record actual work reduction and native operation timing, including tiny-input setup
+regressions. Current direct source and explicit artifact paths both execute the
+representative input correctly; those current-only timings are not an end-to-end
+before/after claim. Full workspace tests and feature/backend/platform matrices remain
+pending CI; browser acceptance was not run. No push/deployment was authorized.
+R19 coloring, R7/R8, runtime lifetime work and existing CS/BO/IP latency gaps remain
+separate. Do not use these results as evidence that those performance gates passed.
 
 ## Runtime storage redesign
 
