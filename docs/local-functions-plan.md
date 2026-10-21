@@ -1,9 +1,8 @@
 # Named local functions execution plan
 
-Status: queued; implementation has not started. The user selected noncapturing
+Status: active; implementation authorized on 2026-10-21. The user selected noncapturing
 local functions on 2026-10-21, including forward references and recursion with
-outer data passed explicitly. The remaining rules below are the proposed
-execution contract. This plan owns LF01-LF06, acceptance and the progress ledger;
+outer data passed explicitly. The rules below are the accepted execution contract. This plan owns LF01-LF06, acceptance and the progress ledger;
 the [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation.
 Current grammar remains unchanged until implementation lands.
 
@@ -33,7 +32,7 @@ constant initializer is outside this delivery and must receive a diagnostic.
 Keep existing format/runtime identifiers; update affected development artifacts
 only if their contracts actually change. No performance target is asserted.
 
-## Proposed language contract
+## Language contract
 
 | Area | Rule |
 | --- | --- |
@@ -288,11 +287,11 @@ diagnostic/fallback contract. Never report unrun CI as passed.
 
 - Planning baseline: `ef2f887d`; working tree was clean before this document.
 - User decision: noncapturing local functions with forward references/recursion;
-  outer data is passed explicitly. Implementation is not activated.
+  outer data is passed explicitly. Goal execution is authorized.
 - Current carried implementation errors: none; no implementation/build attempted.
 - Structural debt: no new exception requested. LF02 reviews function/block storage;
   LF03 owns bounded conservative reuse; finer invalidation remains R8.
-- [ ] LF01 Contract and integration inventory.
+- [x] LF01 Contract and integration inventory.
 - [ ] LF02 Grammar and declaration ownership.
 - [ ] LF03 Lexical resolution and typing.
 - [ ] LF04 Executable calls and function values.
@@ -301,3 +300,32 @@ diagnostic/fallback contract. Never report unrun CI as passed.
 
 During execution, append each phase's changed contracts, actual selected commands,
 results, carried failures and commit reference here. Do not create a parallel ledger.
+
+### LF01 checkpoint
+
+Activated from `bd10e121` with a clean working tree. The language table is frozen
+for this execution. Function origin is `Local { block: BlockId }`; the block's
+owner identifies the enclosing callable (or a rejected constant context).
+`StmtKind::Function(FunctionId)` links the declaration without visiting its body.
+Private lowering slots use `Option<Function>` until finalization; published HIR
+contains only complete records. Blocks reserve their final row before children.
+For `outer { fn a() {} fn b() {} }`, allocation reserves outer slot 0, a slot 1,
+b slot 2, and finalizes exactly those rows despite completing children first.
+Methods use the same allocator. Semantic identities are outer/a/0 and outer/b/0;
+two a declarations in separate blocks receive occurrences 0 and 1 beneath outer.
+No local enters `Module.items` or a namespace/export table.
+
+The signature checker already visits the shared function table before checking
+bodies. Local generic contexts can reuse that owner, while resolution needs
+static lexical ancestry for independently selected bodies. Existing body-elision
+reuse must reject modules with local declarations on either side of an edit.
+
+Selected owners: syntax parser/AST tests; HIR lowering/resolver/typeck and analysis
+body-query tests; compiler source-program/artifact tests; SDK runtime embedding
+and async integration tests; formatter/lint/analyzer contract tests. Add focused
+local-function groups at these owners and select filters per checkpoint. Existing
+ordinary body-edit reuse and closure capture cases provide the small regression
+set; complete backend/platform testing remains CI-owned.
+
+Validation: document content/link review and `git diff --check` passed. No build
+was required. No carried failure or structural exception.

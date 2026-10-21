@@ -836,7 +836,7 @@ record allocation reductions and the unchanged nested-query timing limitation;
 these do not establish end-to-end compile latency or finer cache invalidation.
 Complete workspace and backend/feature/platform acceptance remain pending CI.
 The completed IA01-IA05 plan is retired; Git history owns its ledger.
-SA14 is next and is not activated. The [local function plan](local-functions-plan.md)
+SA14 is active; LF01-LF06 implementation and phase commits are authorized. The [local function plan](local-functions-plan.md)
 records the user's noncapturing choice and proposed LF01-LF06 scope, phase commits
 and validation. Outer data is passed explicitly; closures retain their existing
 capture rules. R7 scheduling, R8 invalidation and R13 identity-domain retention
