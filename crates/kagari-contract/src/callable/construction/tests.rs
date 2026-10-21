@@ -270,6 +270,17 @@ fn construction_capabilities_preserve_outputs_and_skip_static_only_traits() {
     });
     assert!(
         required_constructions(
+            slice::from_ref(&bound),
+            slice::from_ref(&fixture.parameter),
+            &fixture.catalog(),
+            &cancel
+        )
+        .unwrap()
+        .is_empty()
+    );
+    fixture.contract.methods[0].params.clear();
+    assert!(
+        required_constructions(
             &[bound],
             slice::from_ref(&fixture.parameter),
             &fixture.catalog(),

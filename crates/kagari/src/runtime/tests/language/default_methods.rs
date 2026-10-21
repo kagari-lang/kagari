@@ -726,11 +726,11 @@ fn shared_helpers_are_materialized_in_their_declaring_module() {
     for (name, source) in [
         (
             "model",
-            "fn retain<T>(value: T) -> fn() -> T { || value } pub trait Keep { fn keep<T>(self, value: T) -> fn() -> T { retain(value) } }",
+            "pub trait Read { fn read(self) -> i32; } fn retain<T: Read>(value: T) -> fn() -> Read { || value } pub trait Keep { fn keep<T: Read>(self, value: T) -> fn() -> Read { retain(value) } }",
         ),
         (
             "root",
-            "use pkg::model::Keep; struct Source {} impl Keep for Source {} struct Item { val value: i32 } fn main() -> i32 { val source: Keep = Source {}; val get = source.keep(Item { value: 42 }); get().value }",
+            "use pkg::model::{Keep, Read}; struct Source {} impl Keep for Source {} struct Item { val value: i32 } impl Read for Item { fn read(self) -> i32 { self.value } } fn main() -> i32 { val source: Keep = Source {}; val get = source.keep(Item { value: 42 }); get().read() }",
         ),
     ] {
         let path = format!("mem://{name}");

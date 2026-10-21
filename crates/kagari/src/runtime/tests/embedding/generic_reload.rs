@@ -28,6 +28,15 @@ fn retained_local_function_values_pin_generations_and_clean_up_all_exits() {
 trait Run { fn run(self, mode: i32) -> i32; }
 struct Saved { val callback: fn(i32) -> i32 }
 impl Run for Saved { fn run(self, mode: i32) -> i32 { (self.callback)(mode) } }
+trait Keep {
+    fn keep<F: Fn(i32) -> i32>(self, callback: F) -> Run {
+        Saved { callback: |mode| {
+            val boxed: Fn<(i32,), Output=i32> = callback;
+            boxed.call((mode,))
+        } }
+    }
+}
+impl Keep for i32 {}
 pub fn make() -> Run {
     fn local(mode: i32) -> i32 {
         val items = Vec::from([mode]);
@@ -39,7 +48,8 @@ pub fn make() -> Run {
         }
         work(items)
     }
-    Saved { callback: local }
+    val keeper: Keep = 0;
+    keeper.keep(local)
 }
 "#;
     let engine = KagariEngine::default();
@@ -112,24 +122,28 @@ pub fn make() -> Run {
 
 #[test]
 fn retained_generic_default_and_override_closures_pin_types_and_operations_after_reload() {
-    let method = "fn keep<T: Ord + Default>(self, a: T, b: T) -> fn(bool) -> bool { |select_default| if select_default { T::default() == a } else { a.cmp(b) == Ordering::Less } }";
+    let method = "fn keep<T: Ord + Default + Read>(self, a: T, b: T) -> fn(i32) -> bool { val early: Read = a; |mode| if mode == 1 { T::default() == a } else if mode == 2 { early.read() } else if mode == 3 { val late: Read = a; late.read() } else { a.cmp(b) == Ordering::Less } }";
     for implementation in [String::new(), method.to_owned()] {
         let source = format!(
             r#"use std::cmp::{{Ordering}};
 
+trait Read {{ fn read(self) -> bool; }}
 trait Keep {{ {method} }}
 impl Keep for i32 {{ {implementation} }}
 struct Rank {{ val value: i32 }}
+impl Read for Rank {{ fn read(self) -> bool {{ true }} }}
 impl Default for Rank {{ fn default() -> Self {{ Rank {{ value: 1 }} }} }}
 impl PartialEq for Rank {{ fn eq(self, other: Self) -> bool {{ self.value == other.value }} }}
 impl Eq for Rank {{}}
 impl PartialOrd for Rank {{ fn partial_cmp(self, other: Self) -> Option<Ordering> {{ self.value.partial_cmp(other.value) }} }}
 impl Ord for Rank {{ fn cmp(self, other: Self) -> Ordering {{ self.value.cmp(other.value) }} }}
-trait Run {{ fn run(self) -> bool; fn selected_default(self) -> bool; }}
-struct Saved {{ val callback: fn(bool) -> bool }}
+trait Run {{ fn run(self) -> bool; fn selected_default(self) -> bool; fn constructed(self) -> bool; fn late_constructed(self) -> bool; }}
+struct Saved {{ val callback: fn(i32) -> bool }}
 impl Run for Saved {{
-    fn run(self) -> bool {{ (self.callback)(false) }}
-    fn selected_default(self) -> bool {{ (self.callback)(true) }}
+    fn run(self) -> bool {{ (self.callback)(0) }}
+    fn selected_default(self) -> bool {{ (self.callback)(1) }}
+    fn constructed(self) -> bool {{ (self.callback)(2) }}
+    fn late_constructed(self) -> bool {{ (self.callback)(3) }}
 }}
 pub fn make() -> Run {{
     val keeper: Keep = 0;
@@ -143,6 +157,10 @@ pub fn make() -> Run {{
             &engine,
             &source
                 .replace("self.value.cmp(other.value)", "other.value.cmp(self.value)")
+                .replace(
+                    "fn read(self) -> bool { true }",
+                    "fn read(self) -> bool { false }",
+                )
                 .replace(
                     "fn default() -> Self { Rank { value: 1 } }",
                     "fn default() -> Self { Rank { value: 2 } }",
@@ -169,6 +187,11 @@ pub fn make() -> Run {{
         let run = ModuleDecl::method_id(contract.declaration, "run", old.definitions()).unwrap();
         let selected_default =
             ModuleDecl::method_id(contract.declaration, "selected_default", old.definitions())
+                .unwrap();
+        let constructed =
+            ModuleDecl::method_id(contract.declaration, "constructed", old.definitions()).unwrap();
+        let late_constructed =
+            ModuleDecl::method_id(contract.declaration, "late_constructed", old.definitions())
                 .unwrap();
         let old_key = old.key();
         let vm = Vm::new(runtime);
@@ -207,6 +230,26 @@ pub fn make() -> Run {{
         );
         assert_eq!(
             vm.invoke_interface_method(&fresh, &selected_default, &[])
+                .unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            vm.invoke_interface_method(&saved, &constructed, &[])
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm.invoke_interface_method(&fresh, &constructed, &[])
+                .unwrap(),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            vm.invoke_interface_method(&saved, &late_constructed, &[])
+                .unwrap(),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            vm.invoke_interface_method(&fresh, &late_constructed, &[])
                 .unwrap(),
             Value::Bool(false)
         );
@@ -590,4 +633,32 @@ fn assert_shared_collection_comparison_reloading(
             .runtime_values,
         0,
     );
+}
+
+#[test]
+fn bound_construction_uses_the_callers_generation_with_an_old_shared_provider() {
+    let source = r#"
+trait Read { fn read(self) -> bool; }
+struct Item { val value: i32 }
+impl Read for Item { fn read(self) -> bool { true } }
+trait Source { type Item: Read; }
+struct Tag {}
+impl Source for Tag { type Item = Item; }
+fn erase<T: Read>(value: T) -> Read { value }
+trait Boxer {
+    fn one<S: Source>(self, source: S, value: S::Item) -> Read { erase(value) }
+}
+struct Factory {}
+impl Boxer for Factory {}
+trait Probe { fn check(self, factory: Boxer) -> bool; }
+struct Checker {}
+impl Probe for Checker {
+    fn check(self, factory: Boxer) -> bool { factory.one(Tag {}, Item { value: 42 }).read() }
+}
+pub fn make() -> Boxer { Factory {} }
+pub fn probe() -> Probe { Checker {} }
+"#;
+    assert_shared_collection_comparison_reloading(source, false, |source| {
+        source.replace("bool { true }", "bool { false }")
+    });
 }

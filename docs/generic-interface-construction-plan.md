@@ -362,7 +362,7 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
 - [x] BI02 Portable construction evidence and validation.
 - [x] BI03 HIR proof and call preparation.
 - [x] BI04 Executable shared construction.
-- [ ] BI05 Lifecycle and source-free acceptance.
+- [x] BI05 Lifecycle and source-free acceptance.
 - [ ] BI06 Durable documentation and closure.
 
 - BI03 focused contract validation passed: heterogeneous codec (2 tests),
@@ -456,3 +456,54 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
   passed; no carried failures remain. The explicit shared-conversion gate is gone.
   Instruction models and internal artifact shapes changed without an unpublished
   ABI/version bump. Full workspace/backend/feature/platform acceptance remains CI-only.
+
+- BI05 in progress: extended the existing local-function exit test with a shared
+  generic Fn construction, preserving normal/trap/depth/cancellation and recovery
+  assertions. Extended the existing host example and retained-interface test with
+  shared construction while retaining borrow-conflict, foreign-root, stale-handle,
+  synchronous reentry and reload checks. Cross-module private-helper construction
+  and old-provider/new-caller associated receiver construction both passed.
+- BI05 first selected run: five of six cases passed. The retained default/override
+  closure scenario (capture one constructed interface, construct another on a later
+  invocation) failed during MIR linked admission with InvalidGraph/InvalidContract.
+  BI05 owns diagnosis and repair; no lifecycle acceptance is claimed for that case.
+
+- BI05 diagnosis: dynamic capability enumeration encountered Default's receiverless
+  static method. The shared dynamic-eligibility owner returned InvalidContract
+  instead of ineligibility. It now rejects receiverless methods as non-dynamic
+  without rejecting their valid static bound. The portable static-only case now
+  covers both Self-returning receiver methods and receiverless methods.
+- BI05 repaired closure case passed for defaults and overrides, independently
+  checking original comparison/default operations, the interface captured before
+  reload and a new interface constructed after reload. Old results stay true,
+  replacement results false; forced GC retains old generations until all roots are
+  dropped, then clears heap and runtime-value retention. No carried failure remains.
+
+- BI05 directly affected regressions passed: static-only capability enumeration,
+  ordinary host child upcasts, installed-output contract rejection and nested host
+  result roots (four tests). The host fixture continues to use one native table;
+  shared construction reuses installed evidence and existing scope validation.
+- BI05 source-free fixture now includes a shared scalar conversion and independent
+  methodless conversion in an exported entry. Canonical emission refresh and the
+  existing actual-Cranelift scalar/fallback boundary checks are selected before a
+  single no-source/no-native portable execution test; the full feature matrix
+  remains CI-owned.
+
+- BI05 canonical fixture emission and the existing real Cranelift native scalar /
+  explicit interpreter fallback test passed (two selected artifact tests). These
+  retain actual-native assertions for the supported scalar path; they do not claim
+  native execution of bound interface construction. The fixture was refreshed once
+  at this coherent artifact checkpoint, without changing format/ABI identifiers.
+
+- BI05 source-free acceptance passed: `cargo test -p kagari --no-default-features
+  --test artifact_features portable_artifact_executes_without_source_compilation`
+  ran the existing exported-entry test including shared ordinary and methodless
+  construction from the refreshed artifact. It used forced GC and checked roots,
+  call depth and quarantine. Only this representative feature boundary was selected;
+  the complete feature/backend/platform matrix remains pending CI.
+
+- BI05 complete: all selected lifecycle, host, cross-module, portable and source-free
+  checks passed. Workspace all-target Clippy, formatting, structure (1422 Rust files,
+  zero exceptions) and diff checks passed. Changed Rust retains existing contract/test
+  owners, with no new re-export, structural exception or cache. BI06 owns publication
+  of durable contracts and removal of this ledger; exhaustive CI remains unrun.

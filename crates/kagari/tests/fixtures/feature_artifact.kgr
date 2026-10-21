@@ -163,3 +163,18 @@ pub fn shared_operator_values() -> i32 {
     if arithmetic.remainder(127, 85) != 42 { return 0; }
     42
 }
+
+trait FeatureRead { fn read(self) -> i32; }
+impl FeatureRead for i32 { fn read(self) -> i32 { self } }
+trait FeatureMarker {}
+impl FeatureMarker for i32 {}
+trait FeatureErase {
+    fn erase<T: FeatureRead>(self, value: T) -> FeatureRead { value }
+    fn mark<T: FeatureMarker>(self, value: T) -> FeatureMarker { value }
+}
+impl FeatureErase for i32 {}
+pub fn bound_interface_values() -> i32 {
+    val eraser: FeatureErase = 0;
+    val marker = eraser.mark(0);
+    eraser.erase(42).read()
+}

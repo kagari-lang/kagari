@@ -9,8 +9,15 @@ trait Reader {
 }
 
 fn read<R: Reader<Item = i32>>(value: R) -> R::Item {
-    value.read(20)
+    val eraser: EraseReader = 0;
+    eraser.erase(value).read(20)
 }
+
+// A dynamic generic method forwards the installed host implementation as evidence.
+trait EraseReader {
+    fn erase<R: Reader<Item = i32>>(self, value: R) -> Reader<Item = i32> { value }
+}
+impl EraseReader for i32 {}
 
 fn projected(value: Counter) -> <Counter as Reader>::Item {
     value.read(0)

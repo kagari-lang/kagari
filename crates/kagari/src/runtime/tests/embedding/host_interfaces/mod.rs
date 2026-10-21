@@ -239,28 +239,38 @@ fn invalid_host_associated_schemas_and_dispatch_targets_are_rejected() {
 
 #[test]
 fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
-    let fixture = common::Fixture::new(Default::default(), |ctx, args| {
-        let Value::I32(amount) = args[1] else {
-            unreachable!()
-        };
-        if amount == -1 {
-            return Err(HostError::new("expected host trap"));
-        }
-        if amount == 21 {
-            let version = ctx.runtime().execution_root().unwrap().program_root();
-            let answer = version
-                .bytecode
-                .functions
-                .iter()
-                .find(|function| function.name == "answer")
-                .unwrap()
-                .id;
-            let value = reenter(ctx, &version, answer, &[]).unwrap();
-            ctx.runtime().collect_garbage().unwrap();
-            return Ok(value.value(ctx.runtime().gc()).unwrap());
-        }
-        Ok(args[1])
-    });
+    let source = SOURCE.replace(
+        "pub fn boxed() -> Reader<Item = i32> { make() }",
+        "pub fn boxed() -> Reader<Item = i32> { val eraser: EraseReader = 0; eraser.erase(make()) }",
+    );
+    let fixture = common::Fixture::new(
+        common::Config {
+            source: source.clone(),
+            ..Default::default()
+        },
+        |ctx, args| {
+            let Value::I32(amount) = args[1] else {
+                unreachable!()
+            };
+            if amount == -1 {
+                return Err(HostError::new("expected host trap"));
+            }
+            if amount == 21 {
+                let version = ctx.runtime().execution_root().unwrap().program_root();
+                let answer = version
+                    .bytecode
+                    .functions
+                    .iter()
+                    .find(|function| function.name == "answer")
+                    .unwrap()
+                    .id;
+                let value = reenter(ctx, &version, answer, &[]).unwrap();
+                ctx.runtime().collect_garbage().unwrap();
+                return Ok(value.value(ctx.runtime().gc()).unwrap());
+            }
+            Ok(args[1])
+        },
+    );
     let mut vm = Vm::new(fixture.runtime());
     let root = common::register_root(vm.runtime_mut());
     let loaded = vm
@@ -302,7 +312,7 @@ fn rooted_host_interfaces_survive_gc_reentry_reload_and_trap_cleanup() {
         .engine
         .set_source(
             "mem://host-interface",
-            SOURCE.replace("fn answer() -> i32 { 42 }", "fn answer() -> i32 { 43 }"),
+            source.replace("fn answer() -> i32 { 42 }", "fn answer() -> i32 { 43 }"),
             SourceLayer::Base,
         )
         .unwrap();

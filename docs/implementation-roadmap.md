@@ -807,12 +807,12 @@ The existing bound-to-interface erasure limitation is recorded as
 [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses).
 The [active BI01-BI06 plan](generic-interface-construction-plan.md) defines its bounded
 construction-evidence work. SA11 is deferred by user instruction; SA22 goal execution
-is authorized, with BI01-BI04 complete. It does not expand the
+is authorized, with BI01-BI05 complete. It does not expand the
 collection or host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses): generic interface construction | [Active BI01-BI06 plan](generic-interface-construction-plan.md); complete bound-derived construction evidence through shared calls, source-free verification and pinned execution. BI01-BI04 complete. |
+| 1 | [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses): generic interface construction | [Active BI01-BI06 plan](generic-interface-construction-plan.md); complete bound-derived construction evidence through shared calls, source-free verification and pinned execution. BI01-BI05 complete. |
 | Deferred | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Deferred by the user. Any later review must preserve the implemented function ownership model; field removal remains undecided. |
 
 SA9 context-owned module handles are implemented. The

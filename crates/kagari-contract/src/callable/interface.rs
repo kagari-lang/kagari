@@ -467,6 +467,13 @@ pub fn dynamic_interface_valid<'a>(
             return Ok(false);
         }
         for (slot, method) in contract.methods.iter().enumerate() {
+            // Static methods remain valid bounds, but have no interface receiver.
+            // Capability enumeration must skip them rather than reject the caller.
+            if !method.params.first().is_some_and(|parameter| {
+                parameter.name == "self" && parameter.ty == Ty::SelfType(view.declaration)
+            }) {
+                return Ok(false);
+            }
             let call = InterfaceCallContract {
                 constructions: vec![],
                 normalizations: vec![],
