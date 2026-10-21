@@ -329,6 +329,23 @@ an R7 specialization-round or R16 flow-scheduling cause. Further work requires a
 separately authorized scope. Full incremental compilation, permanent engine reuse,
 R7/R8/R16 changes, global caches, artifact pruning and AOT expansion remain separate.
 
+## Bounded analysis and MIR compaction
+
+The [execution plan](analysis-efficiency-plan.md) is drafted at `4baef38e`;
+Implementation and one commit per phase are authorized; push/deployment are not.
+AE01 shared range queries are locally complete; AE02/AE03 remain pending.
+Execute R17 shared debug-range
+queries, then R16 direction-aware bytecode flow, then R18 stable MIR compaction
+with focused integration. The plan owns phase order, budgets, semantic acceptance,
+work-count/measurement requirements and the sole progress ledger.
+
+The [review](review.md#engineering-a-compiler-chapter-review) retains the unresolved
+findings until acceptance. Preserve independent eager validation, debug availability,
+initialization, suspension/host safety, cancellation and fresh seals after edits.
+The completed source-preparation architecture is a foundation, not a prerequisite
+to replay. R19 coloring, R7/R8, runtime lifetime work and the existing CS/BO/IP latency
+gaps remain separate; this plan does not promise to resolve those timing gates.
+
 ## Runtime storage redesign
 
 RS01-RS06 are locally complete as of 2026-10-16. Receiver-independent interface

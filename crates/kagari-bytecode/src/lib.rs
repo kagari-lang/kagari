@@ -1,6 +1,7 @@
 mod access;
 
 pub mod artifact;
+pub mod availability;
 pub mod disassembly;
 pub mod instruction;
 pub mod module;

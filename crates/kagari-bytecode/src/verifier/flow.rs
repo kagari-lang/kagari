@@ -1,5 +1,6 @@
 //! Bounded initialization and suspension flow over executable control flow.
 use crate::{
+    availability::DebugAvailability,
     instruction::BytecodeInstruction as I,
     module::BytecodeFunction,
     suspension::{AwaitLiveness, FlowBudget},
@@ -27,6 +28,7 @@ pub(crate) struct Block {
 struct Flow<'a> {
     function: &'a BytecodeFunction,
     budget: &'a mut FlowBudget,
+    availability: DebugAvailability<'a>,
     blocks: Vec<Block>,
     registers: usize,
     words: usize,
@@ -50,9 +52,22 @@ pub(super) fn verify(
         });
     }
     let registers = function.metadata.slots.len();
+    if DebugAvailability::scratch_bytes(function.metadata.debug.local_live_ranges.len())
+        > MAX_FLOW_BYTES
+    {
+        return Err(Error::InvalidOperation {
+            function: function.id,
+            reason: "executable flow analysis state limit",
+        });
+    }
+    let availability =
+        DebugAvailability::new(&function.metadata.debug.local_live_ranges, |count| {
+            charge(function, budget, count)
+        })?;
     let mut flow = Flow {
         function,
         budget,
+        availability,
         blocks: vec![],
         registers,
         words: registers.div_ceil(64),
@@ -76,12 +91,7 @@ impl Flow<'_> {
     }
 
     fn charge(&mut self, count: usize) -> Result<(), Error> {
-        self.budget.cancel.check().map_err(|_| Error::Cancelled)?;
-        self.budget.work = self.budget.work.saturating_add(count);
-        if self.budget.work > MAX_FLOW_WORK {
-            return Err(self.invalid("executable flow analysis work limit"));
-        }
-        Ok(())
+        charge(self.function, self.budget, count)
     }
 
     fn graph(&mut self) -> Result<(), Error> {
@@ -118,6 +128,9 @@ impl Flow<'_> {
                 .saturating_mul(32)
                 .saturating_add(mem::size_of::<Block>() + 64),
         );
+        let bytes = bytes.saturating_add(DebugAvailability::scratch_bytes(
+            self.function.metadata.debug.local_live_ranges.len(),
+        ));
         if bytes > MAX_FLOW_BYTES {
             return Err(self.invalid("executable flow analysis state limit"));
         }
@@ -187,16 +200,11 @@ impl Flow<'_> {
             .into_iter()
             .map(|r| r.index())
             .collect::<Vec<_>>();
-        self.charge(self.function.metadata.debug.local_live_ranges.len())?;
-        inputs.extend(
-            self.function
-                .metadata
-                .debug
-                .local_live_ranges
-                .iter()
-                .filter(|range| range.start <= pc && pc < range.end)
-                .map(|range| range.slot.index()),
-        );
+        self.availability.visit(
+            pc,
+            |count| charge(self.function, self.budget, count),
+            |slot| inputs.push(slot.index()),
+        )?;
         Ok(inputs)
     }
 
@@ -340,6 +348,18 @@ impl Flow<'_> {
         points.sort_unstable_by_key(AwaitLiveness::instruction);
         Ok(points)
     }
+}
+
+fn charge(function: &BytecodeFunction, budget: &mut FlowBudget, count: usize) -> Result<(), Error> {
+    budget.cancel.check().map_err(|_| Error::Cancelled)?;
+    budget.work = budget.work.saturating_add(count);
+    if budget.work > MAX_FLOW_WORK {
+        return Err(Error::InvalidOperation {
+            function: function.id,
+            reason: "executable flow analysis work limit",
+        });
+    }
+    Ok(())
 }
 
 pub(super) fn inline_host(ty: &Ty) -> bool {

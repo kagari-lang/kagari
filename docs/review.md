@@ -145,6 +145,13 @@ Two bounded local opportunities do not require additional architecture projects:
    owner may combine these facts; prove benefit on the same inputs before adding
    fixed-point whole-pipeline reruns. Existing call/effect barriers remain valid.
 
+R16-R18 now have a shared [bounded analysis execution plan](analysis-efficiency-plan.md),
+drafted against `4baef38e`: R17 queries first, R16 scheduling second, R18 compaction
+and integration third. Implementation and phase commits are authorized. R17's shared
+queries passed focused local acceptance in AE01; R16/R18 and final handoff remain open.
+The plan owns execution decisions and progress, not a second review queue. R19 and
+the outstanding CS/BO/IP performance limits remain separate.
+
 ### R16 — Bytecode flow mixes propagation directions in full forward sweeps
 
 **P2; source-confirmed scaling mechanism, elapsed impact unmeasured.** Book basis:

@@ -1,6 +1,10 @@
 //! Physical slot intervals consume verified control flow and binding availability.
 //! Logical identities remain stable; source names do not require a second bank.
-use kagari_bytecode::{instruction::BytecodeInstruction, module::BytecodeFunction};
+use kagari_bytecode::{
+    availability::DebugAvailability,
+    instruction::{BytecodeInstruction, Slot},
+    module::BytecodeFunction,
+};
 use std::collections::BTreeSet;
 
 const MAX_WORK: usize = 4_000_000;
@@ -74,11 +78,22 @@ impl SlotAllocation {
             }
         }
         let leaders: Vec<_> = leaders.into_iter().collect();
+        let debug_bytes =
+            DebugAvailability::scratch_bytes(function.metadata.debug.local_live_ranges.len());
         if leaders.len() > 16384
-            || words.saturating_mul(leaders.len()).saturating_mul(4) > MAX_WORDS
+            || words
+                .saturating_mul(leaders.len())
+                .saturating_mul(4)
+                .saturating_add(debug_bytes.div_ceil(8))
+                > MAX_WORDS
         {
             return None;
         }
+        let availability =
+            DebugAvailability::new(&function.metadata.debug.local_live_ranges, |amount| {
+                charge(work, amount).ok_or(())
+            })
+            .ok()?;
         let mut blocks = Vec::with_capacity(leaders.len());
         let mut ranges = vec![None; count];
         for (index, &start) in leaders.iter().enumerate() {
@@ -93,22 +108,20 @@ impl SlotAllocation {
                 ..Default::default()
             };
             for (pc, instruction) in code.iter().enumerate().take(end).skip(start) {
-                charge(work, function.metadata.debug.local_live_ranges.len())?;
-                let debug = function
-                    .metadata
-                    .debug
-                    .local_live_ranges
-                    .iter()
-                    .filter(|range| range.start <= pc && pc < range.end)
-                    .map(|range| range.slot);
-                for register in instruction.slot_inputs().into_iter().chain(debug) {
-                    charge(work, 1)?;
+                let mut input = |register: Slot| {
                     let slot = register.index();
                     touch(&mut ranges[slot], pc);
                     let bit = 1 << (slot % 64);
                     if block.defs[slot / 64] & bit == 0 {
                         block.uses[slot / 64] |= bit;
                     }
+                };
+                availability
+                    .visit(pc, |amount| charge(work, amount).ok_or(()), &mut input)
+                    .ok()?;
+                for register in instruction.slot_inputs() {
+                    charge(work, 1)?;
+                    input(register);
                 }
                 if let Some(register) = instruction.slot_output() {
                     charge(work, 1)?;
@@ -241,7 +254,55 @@ fn charge(work: &mut usize, amount: usize) -> Option<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use kagari_bytecode::instruction::{BinaryOp, ConstantId, JumpTarget, Slot};
+    use kagari_abi::representation::ValueType;
+    use kagari_bytecode::{
+        instruction::{BinaryOp, ConstantId, JumpTarget, Slot},
+        module::{FunctionMetadata, LocalLiveRange},
+    };
+
+    #[test]
+    fn sparse_debug_ranges_preserve_reuse_and_budget_fallback() {
+        let slot = Slot::new(0);
+        let mut instructions = vec![
+            BytecodeInstruction::Move {
+                dst: slot,
+                src: slot
+            };
+            9_999
+        ];
+        instructions.push(BytecodeInstruction::Return(Some(slot)));
+        let mut metadata = FunctionMetadata {
+            slots: vec![ValueType::I32],
+            parameter_slots: vec![slot],
+            ..Default::default()
+        };
+        metadata.debug.local_live_ranges = (0..500)
+            .map(|i| LocalLiveRange {
+                slot,
+                binding: i as u32,
+                name: String::new(),
+                span: Default::default(),
+                start: i * 20,
+                end: i * 20 + 1,
+                ty: ValueType::I32,
+                is_parameter: true,
+            })
+            .collect();
+        let function = BytecodeFunction {
+            instructions,
+            metadata,
+            slot_count: 1,
+            ..Default::default()
+        };
+        let mut work = 0;
+        let allocation = SlotAllocation::prepare(&function, &mut work);
+        assert_eq!(allocation.ranges.as_ref(), &[Some((0, 9_999))]);
+        assert!(work < MAX_WORK);
+        let mut exhausted = MAX_WORK;
+        let fallback = SlotAllocation::prepare(&function, &mut exhausted);
+        assert!(fallback.ranges.is_empty());
+        assert_eq!(fallback.slots.as_ref(), &[0]);
+    }
 
     #[test]
     fn loop_carried_values_do_not_alias_body_temporaries() {
