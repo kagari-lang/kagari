@@ -572,6 +572,7 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
             .unwrap();
         // The bound applies across lexical scopes, not separately to each scope.
         // The explicitly rooted first selection survives eviction from the index.
+        let mut evicted_scope = None;
         let mut last_scope = None;
         for _ in 0..160 {
             let scope = runtime
@@ -583,16 +584,27 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
                 .prepare_scoped_interface_call(&loaded, scope.clone(), site)
                 .unwrap();
             assert_ne!(first.identity(), call.operations.identity());
+            evicted_scope.get_or_insert_with(|| scope.clone());
             last_scope = Some(scope);
         }
         runtime.collect_garbage().unwrap();
         let groups = runtime.gc.stats().operation_groups;
         assert_eq!(groups, 129);
         assert!(first.validate(&runtime.gc));
-        // Retaining an index key cannot resurrect a stale caller environment.
+        // Retained construction capabilities trace their supplying environment.
+        // An evicted call has no such edge; its stale scope cannot be resurrected.
+        let last_scope = last_scope.unwrap();
+        let evicted_scope = evicted_scope.unwrap();
+        assert!(runtime.gc.environment(last_scope.id).is_some());
+        assert!(runtime.gc.environment(evicted_scope.id).is_none());
         assert!(
             runtime
-                .prepare_scoped_interface_call(&loaded, last_scope.unwrap(), site)
+                .prepare_scoped_interface_call(&loaded, last_scope.clone(), site)
+                .is_ok()
+        );
+        assert!(
+            runtime
+                .prepare_scoped_interface_call(&loaded, evicted_scope, site)
                 .is_err()
         );
         let candidate = runtime
@@ -605,6 +617,7 @@ fn witness_preparation_reuses_checked_selections_and_retires_with_its_program() 
         drop(root);
         let collected = runtime.collect_garbage().unwrap();
         assert_eq!(collected.reclaimed_operation_groups, groups);
+        assert!(runtime.gc.environment(last_scope.id).is_none());
         // Linking prepares the new program's closed witness before publication.
         // All old groups are gone; only that distinct live program's group remains.
         assert_eq!(runtime.gc.stats().operation_groups, 1);
