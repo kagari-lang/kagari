@@ -28,6 +28,9 @@ mod default_methods;
 #[cfg(feature = "source")]
 mod enum_payloads;
 
+#[cfg(feature = "source")]
+mod float_methods;
+
 #[cfg(all(feature = "source", feature = "native"))]
 mod generic_associated_types;
 

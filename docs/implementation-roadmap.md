@@ -557,12 +557,12 @@ freeze numeric contracts, expose the retained integer-policy machinery through
 ordinary scalar methods, add bounded f32/f64 utilities and math functions, then
 validate a small script-owned numerical/sampling workload and hand off documentation.
 Implementation and per-phase commits are authorized. NS01 contract/boundary
-acceptance and NS02 installed integer methods are complete; NS03 float utilities
-are next.
+acceptance, NS02 integer methods and NS03 float utilities are complete; NS04
+transcendental/power methods are next.
 The branch baseline is `4baef38e` on `feat/numeric-stdlib`.
 
 Reuse the completed module-owned registration and canonical core::num ownership;
-current low-level integer helpers are not installed script APIs. Ordinary checked
+integer policies and float utilities now have ordinary installed script methods. Ordinary checked
 operators remain unchanged. Native associated constants, public/global RNG APIs,
 full ray tracing, new numeric types and native-backend expansion are excluded.
 The plan explicitly distinguishes bit-exact conversions from platform-dependent

@@ -1,6 +1,6 @@
 # Numeric standard-library implementation plan
 
-Status: implementation and phase commits authorized; NS01-NS02 complete, NS03 next.
+Status: implementation and phase commits authorized; NS01-NS03 complete, NS04 next.
 The [roadmap](implementation-roadmap.md#numeric-standard-library) owns activation.
 This document owns the finite NS01-NS05 sequence, proposed API/semantics, acceptance
 and progress ledger. Proposed methods below are **not installed APIs today**.
@@ -358,7 +358,7 @@ call-boundary and GC optimizations stay with their existing review/roadmap owner
 - [x] Primary integer/float/PRNG references checked; finite inventory and exclusions proposed.
 - [x] NS01: freeze contracts and boundary acceptance after implementation authorization.
 - [x] NS02: installed integer policy methods.
-- [ ] NS03: float utilities and bit-exact transport.
+- [x] NS03: float utilities and bit-exact transport.
 - [ ] NS04: bounded transcendental and power methods.
 - [ ] NS05: application-oriented acceptance and documentation handoff.
 
@@ -392,6 +392,18 @@ installation passed (1) after updating its retained inventory expectation for th
 eight new integer inherent groups (226 -> 234); no assertions were removed.
 Structure (1428 files), format, workspace all-target Clippy and diff checks passed.
 No production kernel or VM/backend changes were needed. Complete CI remains unrun.
+
+NS03: 30 concrete float utility bindings are installed, including static from_bits.
+`cargo test -p kagari --lib float_methods` passed 10 tests across source and encoded
+routes. Coverage includes signed/subnormal/infinite/NaN transport, literal-constant
+serialization, typed native entries, GC fields, permitted min/max variation,
+rounding/classification, 104 invalid clamp combinations per route, evaluation order,
+trap cleanup and rejected contracts. Initial generated harness compile/work-limit
+issues were corrected by bounded grouping, without raising limits or removing cases.
+Registration publication/installation passed (1) with its inventory updated for two
+new float inherent groups (234 -> 236). Structure (1434 files), format, workspace
+all-target Clippy and diff checks passed. No carried errors; cross-platform math
+acceptance remains CI-only. No backend, ABI or ordinary operator change was needed.
 
 Planning validation: an independent read-only review found no required corrections
 to the inventory, current owner boundaries, float/error semantics or phase scope.

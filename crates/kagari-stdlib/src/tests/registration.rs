@@ -212,8 +212,8 @@ fn canonical_foundation_contracts_survive_scoped_publication_and_installation() 
             .iter()
             .map(|module| module.records().implementations.len())
             .sum::<usize>(),
-        // Includes one inherent numeric-policy group per integer width.
-        234
+        // Includes integer policies and float utilities at their concrete widths.
+        236
     );
     assert_eq!(
         first

@@ -1,6 +1,7 @@
 //! Scalar construction keeps independent declaration targets for shared Rust bodies.
 pub(super) mod aggregation;
 pub(super) mod conversion;
+mod float;
 mod integer;
 use crate::foundation::{
     default_impl, enumeration,
@@ -40,6 +41,7 @@ fn constant<T: NativeScalar>(value: T) -> (Type, NativeBinding) {
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     integer::declare(module)?;
+    float::declare(module)?;
     for ((ty, binding), description) in [
         (constant(()), "Return the Unit value ()."),
         (constant(false), "Return false."),
