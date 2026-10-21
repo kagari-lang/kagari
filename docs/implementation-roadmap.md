@@ -819,7 +819,7 @@ The [SA9 execution plan](module-handles-plan.md), recorded on 2026-10-21, owns
 MH01-MH05: baseline/API inventory, checked module-root handles, graph and direct
 consumer migration, boundary/determinism validation, and measurement/handoff.
 It reuses the definition context and retains portable identity at explicit
-boundaries. Implementation has not started; this planning request does not activate
+boundaries. The user activated MH01-MH05 on 2026-10-21 with phase commits; this does not activate
 SA1, specialization scheduling, semantic invalidation or identity-domain retention.
 
 Structured import paths (SA15) are implemented. The
@@ -829,7 +829,7 @@ contracts. Focused import/recovery/visibility/publication, navigation/cache/snap
 native declaration and compiler source-free export checks passed, as did required
 local code-quality checks. Complete feature/backend/platform acceptance remains
 CI-owned; no speed or memory improvement is claimed. The completed SA15 plan is
-retired and Git history owns its phase ledger. SA9 and SA1 remain queued, not activated.
+retired and Git history owns its phase ledger. SA9 is active under MH01-MH05; SA1 remains queued.
 
 Important ordering constraints and limits:
 

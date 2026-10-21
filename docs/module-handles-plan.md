@@ -1,9 +1,9 @@
 # Context-owned module handles execution plan
 
-Status: planning requested on 2026-10-21; implementation has not started.
+Status: implementation authorized on 2026-10-21; MH01 is in progress.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation
 and queue placement. This plan owns SA9's MH01-MH05 phases, design decisions,
-acceptance and progress ledger. Recording the plan does not start implementation.
+acceptance and progress ledger. The user authorized goal execution and phase commits.
 
 ## Outcome and scope
 
@@ -256,7 +256,97 @@ results explicitly; unrelated optimizations cannot substitute for SA9 acceptance
 
 ## Progress ledger and completion
 
-- [ ] MH01: close API/ownership inventory and record matched baseline.
+### MH01 decisions and selected validation
+
+Activation baseline is `79ed7606`. The user authorized implementation and one
+coherent commit per phase on 2026-10-21. No unrelated working-tree edits were present.
+
+- The type owner is `kagari_common::identity::table::module::ModuleHandle`, wrapping
+  a private checked root DefinitionId. Table/context methods own interning,
+  borrowed module resolution, root conversion, module-of-definition and remapping.
+- Module path lookup will use a table-owned package-root/child index, keyed by
+  interned symbols and root indices. Register path prefixes with the same root
+  owner; no copied parallel module tree or new identity domain is introduced.
+  This index has a concrete consumer: catalog absolute/member-prefix lookup must
+  stop constructing an owned ModuleIdentity for every candidate path prefix.
+  Module ancestry remains distinct from definition-node ancestry. Registration
+  of an otherwise absent prefix cannot create a source or installed namespace.
+- Builders receive the existing AnalysisDatabase definition context. Standalone
+  resolver entrypoints create one explicitly and publish its retained table with
+  the resulting catalog. Native input identities enter through that context.
+  Register source/native/package prefixes before freezing the graph's table;
+  source units are then formed by immutable lookup. No lookup mutates the writer.
+- Retain portable SourceFile/database/package inputs, written import segments,
+  diagnostic paths and MIR/bytecode output records. Migrate SourceUnit, installed
+  namespace prefixes, binding/namespace owners, import dependency collections,
+  graph nodes, checked-program dependencies, source export namespace indexes and
+  compiler specialization request keys. No R7 scheduling change is needed.
+- Preserve the existing Visibility policy by resolving borrowed identities at
+  its boundary; centralize those calls in the catalog. Module hierarchy queries
+  use the root index, and no per-lookup owned path is required for access checks.
+- Same-context caches retain numeric module identity plus existing file/revision/
+  arena checks. Independent-context graph references reject; portable inputs and
+  definition records are adopted explicitly. Retained catalogs own their table
+  prefix; exact table contents are not compared as a proxy for semantic equality.
+- Sort graph iteration/reachable results and exported namespace emission by exact
+  portable identity. Numeric order is permitted only in internal sets/maps whose
+  iteration cannot choose diagnostics, output slots or specialization order.
+
+Local tests are selected by boundary: common identity-table tests (MH02); HIR
+provenance tests plus package visibility, solver cancellation and snapshot reuse
+cases (MH03); the two listed compiler source-program cases plus canonical output,
+source-free loading and one pinned reload owner (MH04). Exact additional test
+names will be recorded when their callers are migrated, not expanded into a full
+package/workspace sweep. MH01 uses a temporary ignored graph probe only; it is
+removed before publication and its workload/method/results are recorded here.
+
+### MH01 baseline evidence
+
+The bounded probe parses/lowers 32 source modules in package `game`, each with
+path `combat::damage::mNN` for NN 00 through 31. Module i declares `pub fn fi() {}`
+and two public named imports: the next module's function (wrapping at 31) as
+`next`, and m00's f0 as `shared`. This forms a cycle with shared dependencies;
+the normal package hub adds its existing edges. All import diagnostics are empty,
+and the published graph has 32 nodes and 93 deduplicated dependency edges.
+
+Reproduction method: bind those paths in SourceDatabase, lower each captured
+source with `lower_module`, then call the ordinary `ModuleGraph::build` over the
+same lowerings. Warm once, take seven elapsed samples with returned graph
+destruction outside timing, then run a separate thread-local System allocator
+counting pass. Count successful alloc/realloc requests, gross requested bytes and
+net requested bytes still live on return, excluding allocator overhead. Run the
+build again while retaining the first graph. This measures immutable graph
+reconstruction over the same lowerings, not reparsing, body reuse or native setup.
+The candidate must additionally count its identity registration/publication costs.
+
+Command: `cargo test -p kagari-hir --lib imports::sa9_probe::measure_module_graph
+-- --exact --ignored --nocapture`, using a temporary test-only harness at that
+module (removed before commit). Ordinary production graph construction is called;
+there is no unchecked alternative. The workload/formula and counting method above
+are retained so conclusions do not depend on the ignored harness/log files.
+
+Environment: Windows x86_64-pc-windows-msvc, Intel Core i7-10700F (8 cores/16
+logical processors), rustc 1.99.1 (`58cf8f9c3`, 2026-10-13), LLVM 23.1.1;
+workspace test profile (opt-level 1, debuginfo), default Cargo target/parallelism,
+HIR default features and existing dev dependencies. One filtered test; mixed
+compilation cache, warmed execution. Compilation took 130 seconds and is excluded
+from the samples. No affinity restriction, physical RSS or production-load claim.
+
+| Stage | Seven samples (microseconds) | Requests | Requested bytes | Net live bytes |
+| --- | --- | ---: | ---: | ---: |
+| Source acquisition/parse/lower | 1386.6, 1380.3, 1378.0, 1384.5, 1393.8, 1383.9, 1365.6 | 13364 | 711782 | 187224 |
+| Fresh graph | 7138.8, 7262.9, 7288.8, 11683.8, 9164.4, 7035.0, 7266.5 | 70244 | 3661940 | 735608 |
+| Rebuild with old graph retained | 7164.9, 7219.4, 6962.4, 7321.6, 6862.6, 7268.7, 10436.2 | 70243 | 3661132 | 734800 |
+
+Fresh/rebuild medians are 7266.5/7219.4 microseconds. Outliers and one-request
+variation are retained, not removed. MH05 uses matched repetitions and allocation
+evidence; it must not infer a small timing improvement from one noisy run. Net
+bytes are incremental live requested allocations, not independently attributed
+exclusive heap size or process RSS. No checked-program/compiler/encoding timing
+is included in these graph-only numbers. MH01 content and diff checks passed;
+the probe completed successfully, and no carried build failure remains.
+
+- [x] MH01: close API/ownership inventory and record matched baseline.
 - [ ] MH02: implement checked module-root operations with direct usage.
 - [ ] MH03: migrate graph and direct consumers coherently.
 - [ ] MH04: complete boundary, deterministic-output and correctness acceptance.

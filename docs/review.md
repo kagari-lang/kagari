@@ -832,8 +832,8 @@ navigation tests. Keep declaration, signature and body checking separate.
 ## SA9 Module paths are copied into internal graph keys and references
 
 The [module handles execution plan](module-handles-plan.md) owns MH01-MH05,
-the scoped design, acceptance and progress ledger. It was recorded on 2026-10-21;
-implementation has not started. This entry retains the finding and its evidence.
+the scoped design, acceptance and progress ledger. Implementation was activated
+on 2026-10-21 with phase commits. This entry retains the finding and its evidence.
 
 [ModuleIdentity](../crates/kagari-common/src/identity.rs) is a portable package/path
 value containing owned strings. It is also embedded in `SourceUnit`, binding owners,
