@@ -895,16 +895,23 @@ Completed implementations have recorded local acceptance with no carried local
 integration failures. Complete GitHub CI feature/backend acceptance remains
 unverified; local validation does not establish that matrix passed.
 
-The latest [CI run](https://github.com/kagari-lang/kagari/actions/runs/39135873310)
-and [Pages run](https://github.com/kagari-lang/kagari/actions/runs/39135873311)
-at `a52f5bf2` failed after the registration migration: HIR fixtures assumed catalog
-projections had independent definition scopes, enum rejection tests expected
-superseded dependency-check diagnostics, and site links targeted deleted catalog
-sources. Follow-up fixes explicitly adopt independent fixture scopes, assert the
-shared application validator's errors and link current foundation owners. Focused
-local coverage selects HIR native declaration/navigation contracts, runtime enum
-contracts and site checks; it does not rerun the workspace/backend matrix. CI must
-still validate the complete Rust matrix and exact WASM-backed Pages build.
+The latest [CI run](https://github.com/kagari-lang/kagari/actions/runs/39520471271)
+at `fa82bd48` passed structure, editor tooling and Windows AOT jobs. The Rust job
+failed only the compiler enum-layout test: its conflicting dependency fixture also
+invalidated a constructor, so local validation returned `InvalidOperation` before
+graph layout comparison could run. The fixture now changes an unused variant,
+preserving valid constructor operands and asserting the exact `InvalidHostInterface`
+diagnostic from shared proof preparation, which rejects conflicting carried enum
+records before the older layout comparison. This follows the existing
+local-before-linked validation boundary; production validation is unchanged.
+
+Focused local validation selects the repaired enum case, unused public enum
+templates, applied nominal ABI and scoped layout arguments; all four pass.
+Structure, formatting, workspace all-target Clippy and diff checks pass.
+Complete workspace tests remain CI-owned. The failed Rust job skipped formatter
+inventory, the async example, standalone SDK feature consumers and CLI native tests; those steps and
+the complete repaired Rust run still require CI acceptance. Exact WASM-backed
+Pages build acceptance remains separate.
 
 [AGENTS.md](../AGENTS.md) owns verification policy. Local implementation checks
 select affected contracts and a small dependent regression set; full workspace

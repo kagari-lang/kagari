@@ -280,7 +280,7 @@ fn applied_nominal_abi_preserves_arguments_and_cannot_bind_to_a_bare_layout() {
 #[test]
 fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     let context = DefinitionContext::new().unwrap();
-    let source = "enum Event { Data(i32) } fn main() -> Event { Event::Data(7) }";
+    let source = "enum Event { Data(i32), Unused(i32) } fn main() -> Event { Event::Data(7) }";
     let mut public =
         common::adopt_bytecode(&context, common::bytecode_ok(&format!("pub {source}")));
     let kagari_contract::types::PublicItem::Type(ty) =
@@ -387,12 +387,16 @@ fn enum_layouts_and_constructor_operands_are_validated_before_execution() {
     });
     program.modules.push(second);
     verify_program(&program, &context.snapshot(), &Default::default()).unwrap();
-    program.modules[program.root.index()].enumerations[enumeration].variants[0]
+    // Keep local constructor operands valid so the conflicting dependency layout
+    // reaches shared proof preparation, even for a never-constructed variant.
+    program.modules[program.root.index()].enumerations[enumeration].variants[1]
         .payload
         .clear();
     assert_eq!(
         verify_program(&program, &context.snapshot(), &Default::default()).unwrap_err(),
-        BytecodeVerificationError::InvalidEnumLayout
+        BytecodeVerificationError::InvalidHostInterface(
+            "trait output or host bound has no unique valid implementation".into()
+        )
     );
 }
 
