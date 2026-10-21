@@ -1,6 +1,6 @@
 # Generic bound interface construction execution plan
 
-Status: active on 2026-10-21; BI01 contracts are frozen. This plan owns
+Status: active on 2026-10-21; BI01-BI02 are complete; BI03 is next. This plan owns
 SA22 phases BI01-BI06, implementation decisions, acceptance and the progress ledger.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns sequencing.
 SA11 is deferred by the user. The user authorized goal execution and phase commits.
@@ -246,9 +246,9 @@ at unsupported executable boundaries until BI04 completes both execution paths.
 | Phase | Work and acceptance | Suggested commit |
 | --- | --- | --- |
 | BI01 | Freeze capability/selection representation, declaration-derived shared requirements, associated-output handling and source-free proof rules. Reuse the current rejection and inventory the complete instruction/contract consumers. Record concrete cases for static, shared, empty, projected and parent bounds. | docs(types): Define generic interface construction contracts |
-| BI02 | Implement portable construction requirements/selections, substitution/remapping, canonical ordering, bounded graph propagation and structural/linked validation. Extend codecs and existing construction environments coherently; source acceptance remains gated. Test malformed witnesses and source-free round trips at the contract owner. | feat(contract)!: Carry generic interface construction evidence |
-| BI03 | Record bound-based HIR coercions and integrate specialization/call preparation, including associated outputs and declaration-based shared forwarding. Preserve query/navigation/reuse ownership. Keep an explicit compiler rejection for any shared path not executable yet; no valid checked product may silently omit the conversion. | feat(hir): Check bound-derived interface coercions |
-| BI04 | Complete MIR/bytecode conversion, verified call admission and runtime construction through the existing interface owner. Handle scalar/object/host categories, empty traits, parent adaptation and imported generic defaults. Remove staged gates. Static and genuinely shared calls must execute from decoded artifacts. | feat(runtime): Construct interfaces from generic evidence |
+| BI02 | Implement portable construction requirements/selections, substitution/remapping, canonical ordering, bounded graph propagation, codecs and structural/linked validation. Source acceptance remains gated. Test malformed witnesses and source-free round trips at the contract owner. | feat(contract)!: Carry generic interface construction evidence |
+| BI03 | Record bound-based HIR coercions and integrate specialization/call preparation, including associated outputs and declaration-based shared forwarding. Add construction fields to call/selected-method contracts together with their producers, mapping and unified evidence codec. Preserve query/navigation/reuse ownership. Keep an explicit compiler rejection for any shared path not executable yet; no valid checked product may silently omit the conversion. | feat(hir)!: Check bound-derived interface coercions |
+| BI04 | Complete MIR/bytecode conversion, verified call admission and runtime construction/environment integration through the existing interface owner. Handle scalar/object/host categories, empty traits, parent adaptation and imported generic defaults. Remove staged gates. Static and genuinely shared calls must execute from decoded artifacts. | feat(runtime)!: Construct interfaces from generic evidence |
 | BI05 | Validate retained interfaces/closures across reload, supplying-generation provenance, forced GC, host reentry where supported, cancellation/depth/trap cleanup and forwarding across modules. Cover forged/missing/stale evidence and unchanged ordinary conversions. | test(language): Verify generic interface construction lifetimes |
 | BI06 | Resolve carried errors; finish focused acceptance and required quality checks. Update trait/architecture/host boundaries and an existing example, remove SA22's resolved limitation and retire this plan. Keep pending exhaustive CI explicit. | docs(traits): Publish generic interface construction semantics |
 
@@ -306,13 +306,41 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
 - BI01 validation: the selected HIR structural-rule test passed (1 test), preserving
   the current rejection until executable support lands. Documentation diff checked;
   no implementation or full-workspace validation claimed.
+- BI02 integration split: portable evidence and graph support land before changing
+  executable call records. Call-record fields and their producers move together in
+  BI03; runtime environment storage moves with its actual consumers in BI04. This
+  preserves buildable checkpoints without inventing placeholder selections. Final
+  shared/source-free/lifecycle scope is unchanged.
+- BI02: method/constructor enumeration shares one immediate associated
+  bound expansion owner. Construction requirements include non-generic output
+  projections and skip static-only traits; empty traits retain a capability.
+  Explicit table selections, interface views and forwarding have independent
+  structural/linked checks. Construction graph steps retain selected applications.
+- Codec migration checkpoint: BI02 flat construction records can contain existing
+  flat operation records (only construction-to-operation edges exist). Before BI03
+  adds operation-to-construction dependencies, replace these nested envelopes with
+  one flat heterogeneous evidence tree and a combined node/depth budget. Never
+  introduce mutually recursive wire deserialization.
+- BI02 first focused test run found two test-fixture compile errors (an obsolete
+  AssociatedTypeDef field and a nonexistent DefinitionDecoding.context). Both were
+  corrected at their owners. All five selected construction tests passed, covering
+  methodless/forged/forwarded evidence, known/projected outputs and static-only
+  exclusion, parent/immediate-associated expansion, closed call graph substitution,
+  cancellation/limits, and file-local encode/decode round trips.
+- BI02 validation: `cargo test -p kagari-contract callable::construction` passed
+  (5 tests); `forwarded_parameters_require_the_callers_scope_and_bound_evidence`
+  passed (1 test); `partial_associated_outputs_require_scoped_receiver_evidence`
+  passed (1 test). Workspace Clippy with all targets and denied warnings passed.
+  The structure checker found one missing definition separator, repaired without
+  semantic changes; its rerun passed (1416 Rust files, no exceptions). Formatting
+  passed; final diff/line-ending checks passed. Full workspace tests and the feature/backend/platform matrix were not run.
 - Planning validation: documentation content/link checks and git diff --check;
   no implementation tests, builds or performance measurements required.
 - Carried implementation errors: none; source behavior remains unchanged in BI01.
 - Structural debt: no new exception proposed; review changed responsibilities at
   each implementation checkpoint. SA11 and broader caching work remain separate.
 - [x] BI01 Contracts and integration inventory.
-- [ ] BI02 Portable construction evidence and validation.
+- [x] BI02 Portable construction evidence and validation.
 - [ ] BI03 HIR proof and call preparation.
 - [ ] BI04 Executable shared construction.
 - [ ] BI05 Lifecycle and source-free acceptance.

@@ -1,7 +1,10 @@
 //! Checked operations supplied by a generic caller, independent of native binding.
 use {
     crate::{
-        callable::{adapter::SharedAdapterWitness, interface::InterfaceCallContract},
+        callable::{
+            adapter::SharedAdapterWitness, bounds::expanded_bounds,
+            interface::InterfaceCallContract,
+        },
         effects::EffectSet,
         native_import::callables::{NativeCallableApplication, NativeCallableOrigin},
         types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
@@ -11,7 +14,7 @@ use {
         declaration::{TraitDef, requirement::NativeCallableRequirement, verify::types_in_scope},
         ty::{
             GenericBound, GenericParam, Ty, inheritance,
-            substitution::{TypeSubstitution, TypeTransformError, resolve_associated_outputs},
+            substitution::{TypeSubstitution, TypeTransformError},
         },
     },
 };
@@ -228,60 +231,7 @@ pub fn required_operations<'a>(
     cancel: &CancellationToken,
     definitions: &DefinitionTable,
 ) -> Result<Vec<NativeCallableRequirement>, TypeTransformError> {
-    // A bound also promises its immediate associated-type contracts. In
-    // particular Iterable supplies the selected next for its Iter projection.
-    let mut expanded = bounds.to_vec();
-    for bound in bounds {
-        for interface in &bound.constraints {
-            for interface in inheritance::trait_closure(interface, &bound.ty, cancel, lookup)? {
-                let contract =
-                    lookup(&interface.declaration).ok_or(TypeTransformError::InvalidContract)?;
-                let mut substitution = TypeSubstitution::default();
-                substitution.bind_receiver(&interface.declaration, &bound.ty);
-                for (parameter, argument) in
-                    contract.generic_params.iter().zip(&interface.arguments)
-                {
-                    substitution.bind(&parameter.owner, parameter.position, argument);
-                }
-                for member in &contract.associated_types {
-                    if !member.generic_params.is_empty() || member.bounds.is_empty() {
-                        continue;
-                    }
-                    let apply = |ty: &Ty| {
-                        resolve_associated_outputs(
-                            &substitution.apply(ty, cancel)?,
-                            &interface,
-                            &bound.ty,
-                            cancel,
-                        )
-                    };
-                    let receiver = apply(&Ty::Projection {
-                        receiver: Box::new(Ty::SelfType(interface.declaration)),
-                        interface: Box::new(interface.clone()),
-                        member: member.declaration,
-                        arguments: vec![],
-                    })?;
-                    let constraints = member
-                        .bounds
-                        .iter()
-                        .map(|required| {
-                            let Ty::Trait(required) = apply(&Ty::Trait(required.clone()))? else {
-                                return Err(TypeTransformError::InvalidContract);
-                            };
-                            Ok(required)
-                        })
-                        .collect::<Result<_, _>>()?;
-                    expanded.push(GenericBound {
-                        ty: receiver,
-                        constraints,
-                    });
-                    if expanded.len() > 4096 {
-                        return Err(TypeTransformError::LimitExceeded);
-                    }
-                }
-            }
-        }
-    }
+    let expanded = expanded_bounds(bounds, lookup, cancel)?;
     let mut operations = vec![];
     for bound in &expanded {
         for interface in &bound.constraints {

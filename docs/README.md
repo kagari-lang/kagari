@@ -48,8 +48,8 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
 - [Generic interface construction](generic-interface-construction-plan.md): SA22,
   active BI01-BI06; bound-derived construction evidence through static/shared
-  calls, source-free verification and retained generations. BI01 contracts are
-  frozen; SA11 is deferred.
+  calls, source-free verification and retained generations. BI01-BI02 are
+  complete; SA11 is deferred.
 
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load

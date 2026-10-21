@@ -1,6 +1,15 @@
 //! Closed interface constructions reachable through shared executable bodies.
+pub mod evidence;
+pub mod requirements;
+#[doc(hidden)]
+pub mod wire;
+
 use crate::{
-    callable::interface::InterfaceCallContract, native_import::NativeImport,
+    callable::{
+        construction::evidence::{ConstructionSelection, ConstructionWitness},
+        interface::InterfaceCallContract,
+    },
+    native_import::NativeImport,
     types::ConcreteFunctionIdentity,
 };
 use kagari_common::cancellation::CancellationToken;
@@ -9,6 +18,9 @@ use kagari_types::ty::{
     substitution::{TypeSubstitution, TypeTransformError},
 };
 use std::collections::{HashSet, VecDeque};
+
+#[cfg(test)]
+mod tests;
 
 /// The construction-relevant part of an executable body. For `box<T>(xs)` this
 /// retains T's binder and the interface application whose arguments contain T.
@@ -20,6 +32,8 @@ pub struct ConstructionBody {
 
 pub enum ConstructionStep {
     Interface(ConcreteFunctionIdentity),
+    /// Capabilities explicitly selected at a call boundary, including empty traits.
+    Evidence(Vec<ConstructionWitness>),
     Call {
         body: ConcreteFunctionIdentity,
         arguments: Vec<Ty>,
@@ -86,6 +100,38 @@ pub fn closed_constructions(
         for step in &body.steps {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match step {
+                ConstructionStep::Evidence(witnesses) => {
+                    let mut pending: Vec<_> =
+                        witnesses.iter().map(|witness| (witness, 0)).collect();
+                    let mut count = 0;
+                    while let Some((witness, depth)) = pending.pop() {
+                        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+                        count += 1;
+                        if count > limit || depth > 64 {
+                            return Err(TypeTransformError::LimitExceeded);
+                        }
+                        if let ConstructionSelection::Declared {
+                            implementation,
+                            constructions,
+                            ..
+                        } = &witness.selection
+                        {
+                            let instance = ConcreteFunctionIdentity {
+                                declaration: implementation.declaration,
+                                arguments: apply(&bindings, &implementation.arguments, cancel)?,
+                            };
+                            if instance.arguments.iter().all(Ty::is_concrete)
+                                && instances.insert(instance.clone())
+                            {
+                                results.push(instance);
+                                if results.len() > limit {
+                                    return Err(TypeTransformError::LimitExceeded);
+                                }
+                            }
+                            pending.extend(constructions.iter().map(|child| (child, depth + 1)));
+                        }
+                    }
+                }
                 ConstructionStep::Interface(instance) => {
                     let instance = ConcreteFunctionIdentity {
                         declaration: instance.declaration,
