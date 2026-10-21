@@ -189,6 +189,13 @@ mod tests {
         );
         let restored = view.location().resolve(&root).unwrap();
         assert_eq!(restored.syntax(), view.syntax());
+        assert_eq!(
+            ModuleSyntax::at_content_range(&root, view.content_range().unwrap())
+                .unwrap()
+                .syntax(),
+            view.syntax()
+        );
+        assert!(ModuleSyntax::at_content_range(&root, Span::new(1, text.len() + 1)).is_none());
         assert!(restored.syntax().parent().is_some());
         assert_eq!(
             view.content_range().unwrap().start,

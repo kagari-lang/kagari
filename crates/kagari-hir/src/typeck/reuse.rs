@@ -9,6 +9,7 @@ use crate::{
     typeck::table::TypeTable,
 };
 
+use kagari_common::span::Span;
 use kagari_source::diagnostic::Diagnostic;
 use kagari_syntax::{lexer, token::Token};
 use std::collections::HashSet;
@@ -51,10 +52,9 @@ impl BodyReuse<'_> {
                     })
             })
         }) && self.previous_lowered.source.module_identity() == current.source.module_identity()
-            && same_environment_tokens(
-                &environment(self.previous_lowered, self.old_text),
-                &environment(current, self.new_text),
-            )
+            && environment(self.previous_lowered, self.old_text)
+                .zip(environment(current, self.new_text))
+                .is_some_and(|(old, new)| same_environment_tokens(&old, &new))
     }
 
     /// Matches unchanged body syntax and remaps its IDs/spans into the new lowering before restoring facts.
@@ -125,7 +125,7 @@ fn same_environment_tokens(old: &str, new: &str) -> bool {
             .map(|token| (&token.kind, &new[token.span.start..token.span.end])))
 }
 
-fn environment(module: &LoweredModule, text: &str) -> String {
+fn environment(module: &LoweredModule, text: &str) -> Option<String> {
     let mut bodies = module
         .module
         .functions
@@ -135,17 +135,22 @@ fn environment(module: &LoweredModule, text: &str) -> String {
         .collect::<Vec<_>>();
     bodies.sort_by_key(|span| span.start);
     let mut result = String::new();
-    let mut cursor = 0;
+    let extent = module
+        .source
+        .inline_range()
+        .unwrap_or(Span::new(0, text.len()));
+    text.get(extent.start..extent.end)?;
+    let mut cursor = extent.start;
     for span in bodies {
-        if span.start < cursor || span.end > text.len() {
-            return text.to_owned();
+        if span.start < cursor || span.end > extent.end {
+            return None;
         }
         result.push_str(&text[cursor..span.start]);
         result.push_str("{}");
         cursor = span.end;
     }
-    result.push_str(&text[cursor..]);
-    result
+    result.push_str(text.get(cursor..extent.end)?);
+    Some(result)
 }
 
 #[cfg(test)]
@@ -157,6 +162,43 @@ mod tests {
         source::SourceFile,
     };
     use kagari_stdlib::catalog as foundation_catalog;
+
+    #[test]
+    fn inline_environment_uses_only_its_logical_extent() {
+        use crate::lower::lower_module_controlled;
+        use kagari_syntax::{
+            ast::{item::Item, module::ModuleSyntax},
+            parser::parse,
+        };
+        use std::sync::Arc;
+        fn lower(text: &str) -> LoweredModule {
+            let source = SourceFile::new("inline.kgr", text);
+            let parsed = parse(&source);
+            let Item::ModuleDef(child) = parsed
+                .syntax()
+                .items()
+                .find(|item| matches!(item, Item::ModuleDef(_)))
+                .unwrap()
+            else {
+                panic!()
+            };
+            let view = ModuleSyntax::from(child.block().unwrap());
+            let source = SourceFile::inline_module(
+                &source,
+                "a",
+                kagari_source::identity::FileId::fresh(),
+                view.content_range().unwrap(),
+            );
+            lower_module_controlled(Arc::new(source), &view, &Default::default())
+        }
+        let old = lower("const unrelated: i32 = 1; mod a { fn f() -> i32 { 1 } fn g() {} }");
+        let new =
+            lower("const unrelated: bool = true; mod a { fn f() -> i32 { 2 + 3 } fn g() {} }");
+        let old = environment(&old, old.source.text()).unwrap();
+        let new = environment(&new, new.source.text()).unwrap();
+        assert!(same_environment_tokens(&old, &new));
+        assert!(!old.contains("unrelated"));
+    }
 
     #[test]
     fn environment_tokens_ignore_only_trivia() {

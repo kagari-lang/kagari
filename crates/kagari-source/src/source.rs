@@ -225,6 +225,13 @@ mod tests {
             FileId::fresh(),
             authored,
         ));
+        assert!(Arc::ptr_eq(&inline.content, &original.content));
+        assert_eq!(inline.span(authored), original.span(authored));
+        for encoding in [PositionEncoding::Utf8, PositionEncoding::Utf16] {
+            let position = inline.position(authored.start, encoding).unwrap();
+            assert_eq!(Some(position), original.position(authored.start, encoding));
+            assert_eq!(inline.offset(position, encoding), Some(authored.start));
+        }
         let mut other_view = SourceFile::new("other.kgr", view.text());
         assert!(other_view.add_copy(local, inline, authored).is_err());
         let mut stale = location;

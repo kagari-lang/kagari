@@ -198,3 +198,6 @@ fn distribute_diagnostics(
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests;

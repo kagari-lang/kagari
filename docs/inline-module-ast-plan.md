@@ -1,6 +1,6 @@
 # Inline module AST reuse execution plan
 
-Status: activated on 2026-10-21; IA01-IA03 complete, IA04 next. This plan owns
+Status: activated on 2026-10-21; IA01-IA04 complete, IA05 next. This plan owns
 IA01-IA05, design decisions, acceptance and the progress ledger for
 [SA1](review.md#sa1-inline-modules-are-parsed-again). The
 [roadmap](implementation-roadmap.md) owns queue placement. The user authorized goal execution and phase commits. SA14 and SA11 remain queued.
@@ -272,7 +272,7 @@ scope, which would require an explicit scope decision.
 - [x] IA01 Baseline and contract decisions.
 - [x] IA02 Shared physical content and logical lowering input.
 - [x] IA03 Analysis/consumer migration and bridge removal.
-- [ ] IA04 Focused integration and local implementation acceptance.
+- [x] IA04 Focused integration and local implementation acceptance.
 - [ ] IA05 Measurements, durable documentation and plan retirement.
 
 Planning validation: repository/source inspection, primary design references,
@@ -422,3 +422,35 @@ Clippy requested one collapsed condition and removal of obsolete AstNode imports
 the SDK exhaustive AnalysisError conversion now handles InvalidSourceRange. No
 validation was disabled. Public changes are the inline constructor, logical syntax
 return type and new analysis error; no compatibility facade or version bump.
+
+
+### IA04 Integration and local acceptance
+
+The new retained-view test initially expected one reused body after editing a file
+with a nested child namespace. Actual reuse is zero: unchanged imports/cache.rs
+unit_equal and catalog.rs same_reuse_namespaces require foreign revision/arena
+identity, while this edit rebuilds the nested child's source unit too. The corrected
+contract asserts two checked bodies, zero reused bodies, successful signature
+rebasing and valid old/new navigation. This preserves R8's existing conservative
+boundary rather than loosening namespace validation to satisfy an invented reuse
+guarantee. The existing ordinary body-edit reuse assertion remains unchanged.
+
+The audit also found typeck/reuse.rs environment() still compared the whole source
+buffer. It now projects only the logical source extent, like the old masked input's
+significant tokens, and rejects invalid ranges rather than accepting a fallback
+surface. A focused comparison keeps unrelated outer declarations out while retaining
+child declarations/body elision. This is the remaining raw-text consumer migration,
+not a change to dependency invalidation policy.
+
+New recovery cases already passed: missing closing braces retain the final function,
+physical diagnostic occurrences have exactly one presentation owner, every logical
+entry rejects invalid physical source at codegen, and parser budgets are not restarted.
+All selected IA04 checks now pass: source_preparation::tests (3),
+typeck::reuse::tests (3), body_edits_reuse_other_bodies (1), source::tests (1),
+attached_module_views (1), compiler portable_inline_module_origins (1) and
+source_free_exports_preserve_aliases_cycles_and_separate_entry (1), SDK inline_module
+filter (3, including decoded-artifact execution returning 42 and physical errors).
+Structure checks 1404 files with no findings/exceptions; formatting, workspace
+all-target Clippy and diff checks pass. No production globs/reexports or unowned
+syntax storage; all live migration bridges are gone. The earlier passing IA02/IA03
+checks remain evidence for unchanged paths. No carried failures; full CI is unrun.
