@@ -1,6 +1,7 @@
 //! Direct formatting contracts. These private fixtures deliberately do not model
 //! executable programs: production entrypoints supply verified records instead.
 
+use crate::instruction::ConstructionTarget as BytecodeConstruction;
 use crate::instruction::Slot;
 mod calls;
 mod operations;
@@ -432,9 +433,11 @@ fn data_movement_aggregate_path_and_control_flow_operands_are_complete() {
             BytecodeInstruction::MakeInterface {
                 dst: r(0),
                 value: r(1),
-                module: ModuleRef::new(0),
-                implementation: InterfaceTableRef::new(5),
-                arguments: vec![t()],
+                target: BytecodeConstruction::Declared {
+                    module: ModuleRef::new(0),
+                    implementation: InterfaceTableRef::new(5),
+                    arguments: vec![t()],
+                },
             },
             "make_interface s0, value=s1, @0:interface#5, arguments=[i32]",
         ),

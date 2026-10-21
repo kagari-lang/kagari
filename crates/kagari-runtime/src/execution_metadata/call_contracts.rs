@@ -115,7 +115,7 @@ impl Runtime {
         let arguments = ApplicationArguments::new(
             owner,
             self.type_arguments(owner, types, &contract.arguments)?,
-            self.construction_scope(owner, environment.as_ref())?,
+            self.bind_constructions_in(owner, environment.clone(), &contract.constructions)?,
         )?;
         let operations = self.bind_operations_in(owner, environment, &contract.operations)?;
         let prepared = Arc::new(ScopedInterfaceCall {

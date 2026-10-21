@@ -6,7 +6,7 @@ use crate::{
         groups::OperationGroupId,
         operation::{BoundGenericMethod, BoundOperation},
     },
-    frame::types::{EnvironmentRecord, compatibility::TypeView, operations::OperationBindings},
+    frame::types::{EnvironmentRecord, compatibility::TypeView},
     gc::interfaces::InterfaceResultBinding,
     module::LoadedModule,
     objects::calls,
@@ -42,7 +42,7 @@ impl Runtime {
         if required {
             Ok(Some(match prepared {
                 Some(prepared) => prepared,
-                None => self.bind_table_operations(binding, Default::default())?,
+                None => self.bind_table_operations(binding)?,
             }))
         } else {
             Ok(None)
@@ -52,7 +52,6 @@ impl Runtime {
     pub(crate) fn bind_table_operations(
         &self,
         binding: &InterfaceResultBinding,
-        dependencies: OperationBindings,
     ) -> Result<OperationGroupId, RuntimeError> {
         let invalid = || RuntimeError::module_validation("receiver operation table");
         let mut pending = vec![binding.clone()];
@@ -102,9 +101,17 @@ impl Runtime {
                 template.generic_params.clone(),
                 arguments,
             )?;
-            environment.extend_operations(dependencies.clone());
-            environment.constructions =
-                self.construction_scope(owner, binding.environment.as_ref())?;
+            if let Some(parent) = &binding.environment {
+                environment.extend_operations(
+                    self.gc
+                        .environment(parent.id)
+                        .ok_or_else(invalid)?
+                        .operations()
+                        .clone(),
+                );
+            }
+            environment
+                .set_constructions(self.construction_scope(owner, binding.environment.as_ref())?);
             let environment = self.alloc_environment(environment)?;
             let receiver = environment.types.resolve(&template.for_type)?;
             let receiver_identity = Arc::new(

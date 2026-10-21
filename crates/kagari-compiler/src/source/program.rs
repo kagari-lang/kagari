@@ -2,6 +2,7 @@ use crate::source::{
     logging, lower,
     lower::{MirLoweringError, instances::MirLoweringOptions},
 };
+use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 mod exports;
 use kagari_common::identity::{
     ModuleIdentity, mapping::DefinitionMappingError, scoped::DefinitionReferences,
@@ -289,8 +290,12 @@ pub fn lower_program_to_mir(
                 .flat_map(|block| &block.instructions)
                 .filter_map(|instruction| match instruction {
                     Instruction::MakeInterface {
-                        implementation,
-                        arguments,
+                        target:
+                            MirConstruction::Declared {
+                                implementation,
+                                arguments,
+                                ..
+                            },
                         ..
                     } => Some((
                         &module.identity,

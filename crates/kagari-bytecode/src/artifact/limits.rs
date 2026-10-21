@@ -1,3 +1,4 @@
+use crate::instruction::ConstructionTarget;
 use crate::{
     artifact::{
         ArtifactSignatures, DebugMetadata, KbcArtifact, MAX_ARTIFACT_BYTES, MAX_ARTIFACT_FUNCTIONS,
@@ -9,7 +10,16 @@ use crate::{
     program::BytecodeProgram,
 };
 use kagari_common::identity::table::DefinitionTable;
-use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
+use kagari_contract::{
+    callable::{
+        construction::evidence::{
+            ConstructionRequirement, ConstructionSelection, ConstructionWitness,
+        },
+        evidence::EvidenceRef,
+        witness::OperationWitness,
+    },
+    types::PublicItem,
+};
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{
@@ -42,7 +52,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 .result_adapter
                 .as_ref()
                 .is_none_or(|adapter| add(adapter.implementation.arguments.len()))
-            || !add_operations(&import.callables, &mut add)
+            || !add_evidence(&import.callables, &[], &mut add)
         {
             return false;
         }
@@ -70,6 +80,14 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             {
                 return false;
             }
+            if let BytecodeInstruction::MakeInterface {
+                target: ConstructionTarget::Bound(required),
+                ..
+            } = instruction
+                && !add_construction_requirement(required, &mut add)
+            {
+                return false;
+            }
             if let BytecodeInstruction::Call {
                 callee: CallTarget::Shared { contract, .. },
                 ..
@@ -77,11 +95,14 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                 && (!add(contract.arguments.len())
                     || !add(contract.instance.arguments.len())
                     || !add(contract.signature.params.len())
-                    || !add_operations(&contract.operations, &mut add))
+                    || !add_evidence(&contract.operations, &contract.constructions, &mut add))
             {
                 return false;
             }
-            if let BytecodeInstruction::MakeInterface { arguments, .. } = instruction
+            if let BytecodeInstruction::MakeInterface {
+                target: ConstructionTarget::Declared { arguments, .. },
+                ..
+            } = instruction
                 && (!add(arguments.len()) || !arguments.iter().all(Ty::within_wire_limits))
             {
                 return false;
@@ -92,7 +113,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
             } = instruction
                 && (!add(contract.arguments.len())
                     || !add(contract.normalizations.len())
-                    || !add_operations(&contract.operations, &mut add))
+                    || !add_evidence(&contract.operations, &contract.constructions, &mut add))
             {
                 return false;
             }
@@ -688,12 +709,37 @@ pub(super) fn artifact_count_limit(
     None
 }
 
-fn add_operations(operations: &[OperationWitness], add: &mut impl FnMut(usize) -> bool) -> bool {
-    add(operations.len())
-        && operations
+fn add_construction_requirement(
+    required: &ConstructionRequirement,
+    add: &mut impl FnMut(usize) -> bool,
+) -> bool {
+    add(required.interface.arguments.len())
+        && add(required.interface.associated_types.len())
+        && required.receiver.within_wire_limits()
+        && required
+            .interface
+            .arguments
             .iter()
-            .flat_map(OperationWitness::walk)
-            .all(|operation| {
+            .chain(required.interface.associated_types.values())
+            .all(Ty::within_wire_limits)
+}
+
+fn add_evidence(
+    operations: &[OperationWitness],
+    constructions: &[ConstructionWitness],
+    add: &mut impl FnMut(usize) -> bool,
+) -> bool {
+    if !add(operations.len()) || !add(constructions.len()) {
+        return false;
+    }
+    let mut pending: Vec<_> = operations
+        .iter()
+        .map(EvidenceRef::Operation)
+        .chain(constructions.iter().map(EvidenceRef::Construction))
+        .collect();
+    while let Some(node) = pending.pop() {
+        let valid = match node {
+            EvidenceRef::Operation(operation) => {
                 add_callable_requirement(operation.requirement(), add)
                     && match operation {
                         OperationWitness::Selected(selected) => {
@@ -703,13 +749,29 @@ fn add_operations(operations: &[OperationWitness], add: &mut impl FnMut(usize) -
                         OperationWitness::SharedAdapter(adapter) => {
                             add(adapter.call.arguments.len())
                                 && add(adapter.call.signature.params.len())
-                                && add(adapter.call.operations.len())
                         }
                         OperationWitness::Forward(_) => true,
                         OperationWitness::SharedMethod(selected) => {
                             add(selected.implementation.arguments.len())
-                                && add(selected.operations.len())
                         }
                     }
-            })
+            }
+            EvidenceRef::Construction(witness) => {
+                add_construction_requirement(&witness.requirement, add)
+                    && match &witness.selection {
+                        ConstructionSelection::Declared { implementation, .. } => {
+                            add(implementation.arguments.len())
+                        }
+                        ConstructionSelection::Interface | ConstructionSelection::Forward => true,
+                    }
+            }
+        };
+        let (operations, constructions) = node.children();
+        if !valid || !add(operations.len()) || !add(constructions.len()) {
+            return false;
+        }
+        pending.extend(operations.iter().map(EvidenceRef::Operation));
+        pending.extend(constructions.iter().map(EvidenceRef::Construction));
+    }
+    true
 }

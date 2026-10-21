@@ -66,9 +66,18 @@ impl EnvironmentRecord {
         &self.operations
     }
 
+    pub(crate) fn set_constructions(&mut self, constructions: ConstructionScope) {
+        self.constructions = constructions;
+        self.refresh_types();
+    }
+
     fn refresh_types(&mut self) {
-        Arc::make_mut(&mut self.types).associated_interfaces =
-            self.operations.associated_interfaces();
+        let mut associated = self
+            .constructions
+            .associated_interfaces()
+            .collect::<Vec<_>>();
+        associated.extend(self.operations.associated_interfaces().iter().cloned());
+        Arc::make_mut(&mut self.types).associated_interfaces = Arc::new(associated);
     }
 
     #[cfg(test)]

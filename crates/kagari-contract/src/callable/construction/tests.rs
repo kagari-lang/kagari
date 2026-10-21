@@ -63,6 +63,18 @@ impl Fixture {
         }
     }
 
+    fn catalog(&self) -> ProofCatalog<'_> {
+        ProofCatalog::new(
+            vec![],
+            [],
+            [(self.marker, &self.contract)],
+            [],
+            &self.context.snapshot(),
+            &Default::default(),
+        )
+        .unwrap()
+    }
+
     fn interface(&self) -> NominalTy {
         NominalTy {
             declaration: self.marker,
@@ -93,7 +105,7 @@ fn methodless_construction_requires_exact_selected_or_forwarded_evidence() {
             .is_empty()
     );
     let requirements =
-        required_constructions(&bounds, parameters, &lookup, &definitions, &cancel).unwrap();
+        required_constructions(&bounds, parameters, &fixture.catalog(), &cancel).unwrap();
     assert_eq!(
         requirements,
         [ConstructionRequirement {
@@ -206,13 +218,10 @@ fn construction_capabilities_preserve_outputs_and_skip_static_only_traits() {
         bounds: vec![],
     });
     let cancel = CancellationToken::default();
-    let definitions = fixture.context.snapshot();
-    let lookup = |id: &DefinitionId| (*id == fixture.marker).then_some(&fixture.contract);
     let requirements = required_constructions(
         &[fixture.bound()],
         slice::from_ref(&fixture.parameter),
-        &lookup,
-        &definitions,
+        &fixture.catalog(),
         &cancel,
     )
     .unwrap();
@@ -233,8 +242,7 @@ fn construction_capabilities_preserve_outputs_and_skip_static_only_traits() {
     let requirements = required_constructions(
         slice::from_ref(&bound),
         slice::from_ref(&fixture.parameter),
-        &lookup,
-        &definitions,
+        &fixture.catalog(),
         &cancel,
     )
     .unwrap();
@@ -260,14 +268,11 @@ fn construction_capabilities_preserve_outputs_and_skip_static_only_traits() {
         }],
         return_type: Ty::SelfType(fixture.marker),
     });
-    let definitions = fixture.context.snapshot();
-    let lookup = |id: &DefinitionId| (*id == fixture.marker).then_some(&fixture.contract);
     assert!(
         required_constructions(
             &[bound],
             slice::from_ref(&fixture.parameter),
-            &lookup,
-            &definitions,
+            &fixture.catalog(),
             &cancel
         )
         .unwrap()
@@ -275,7 +280,7 @@ fn construction_capabilities_preserve_outputs_and_skip_static_only_traits() {
     );
     cancel.cancel();
     assert_eq!(
-        required_constructions(&[], &[], &lookup, &definitions, &cancel),
+        required_constructions(&[], &[], &fixture.catalog(), &cancel),
         Err(TypeTransformError::Cancelled)
     );
 }
@@ -306,15 +311,6 @@ fn construction_capabilities_include_parents_and_immediate_associated_bounds() {
         }],
         ..fixture.contract.clone()
     };
-    let lookup = |id: &DefinitionId| {
-        if *id == fixture.marker {
-            Some(&fixture.contract)
-        } else if *id == owner {
-            Some(&child)
-        } else {
-            None
-        }
-    };
     let application = NominalTy {
         declaration: owner,
         arguments: vec![],
@@ -329,11 +325,19 @@ fn construction_capabilities_include_parents_and_immediate_associated_bounds() {
     ];
     let definitions = fixture.context.snapshot();
     let cancel = CancellationToken::default();
+    let catalog = ProofCatalog::new(
+        vec![],
+        [],
+        [(fixture.marker, &fixture.contract), (owner, &child)],
+        [],
+        &definitions,
+        &cancel,
+    )
+    .unwrap();
     let requirements = required_constructions(
         &bounds,
         slice::from_ref(&fixture.parameter),
-        &lookup,
-        &definitions,
+        &catalog,
         &cancel,
     )
     .unwrap();
@@ -352,8 +356,7 @@ fn construction_capabilities_include_parents_and_immediate_associated_bounds() {
         required_constructions(
             &bounds,
             slice::from_ref(&fixture.parameter),
-            &lookup,
-            &definitions,
+            &catalog,
             &cancel
         )
         .unwrap(),

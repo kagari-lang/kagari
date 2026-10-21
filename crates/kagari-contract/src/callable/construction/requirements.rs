@@ -7,30 +7,25 @@ use crate::{
     },
     types::proofs::ProofCatalog,
 };
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::table::{DefinitionId, DefinitionTable},
-};
-use kagari_types::{
-    declaration::TraitDef,
-    ty::{
-        GenericBound, GenericParam, Ty, inheritance::trait_closure,
-        substitution::TypeTransformError,
-    },
+use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionId};
+use kagari_types::ty::{
+    GenericBound, GenericParam, Ty, inheritance::trait_closure, substitution::TypeTransformError,
 };
 use std::cmp::Ordering;
 
 /// Enumerate dynamic capabilities independently of the number of trait methods.
-/// Missing non-generic outputs retain their receiver projection. Static-only
+/// Missing non-generic outputs are normalized from their receiver projection.
+/// Symbolic receivers retain that projection. Static-only
 /// bounds still supply method operations, but do not supply these capabilities.
 /// Returns errors for malformed declarations, traversal limits and cancellation.
-pub fn required_constructions<'a>(
+pub fn required_constructions(
     bounds: &[GenericBound],
     parameters: &[GenericParam],
-    lookup: &impl Fn(&DefinitionId) -> Option<&'a TraitDef>,
-    definitions: &DefinitionTable,
+    catalog: &ProofCatalog<'_>,
     cancel: &CancellationToken,
 ) -> Result<Vec<ConstructionRequirement>, TypeTransformError> {
+    let lookup = &|id: &DefinitionId| catalog.trait_contract(id);
+    let definitions = catalog.definitions();
     let expanded = expanded_bounds(bounds, lookup, cancel)?;
     let mut requirements = Vec::new();
     for bound in &expanded {
@@ -55,13 +50,22 @@ pub fn required_constructions<'a>(
                             });
                     }
                 }
-                if !dynamic_interface_valid(parameters, &interface, lookup, definitions, cancel)? {
-                    continue;
-                }
                 let required = ConstructionRequirement {
                     receiver: bound.ty.clone(),
                     interface,
-                };
+                }
+                .normalize(catalog, cancel)?;
+                // Closed associated projections must resolve before dynamic eligibility.
+                // Otherwise a methodless provider loses its capability at application.
+                if !dynamic_interface_valid(
+                    parameters,
+                    &required.interface,
+                    lookup,
+                    definitions,
+                    cancel,
+                )? {
+                    continue;
+                }
                 if !requirements.contains(&required) {
                     requirements.push(required);
                     if requirements.len() > 4096 {
@@ -114,20 +118,7 @@ pub fn constructions_valid(
     if witnesses.len() > 4096 {
         return Ok(false);
     }
-    let declared = required_constructions(
-        bounds,
-        parameters,
-        &|id| catalog.trait_contract(id),
-        catalog.definitions(),
-        cancel,
-    )?;
-    let mut required = Vec::new();
-    for requirement in declared {
-        let requirement = requirement.normalize(catalog, cancel)?;
-        if !required.contains(&requirement) {
-            required.push(requirement);
-        }
-    }
+    let required = required_constructions(bounds, parameters, catalog, cancel)?;
     if required.len() != witnesses.len()
         || required.iter().any(|required| {
             witnesses

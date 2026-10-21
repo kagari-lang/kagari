@@ -1,7 +1,7 @@
 //! Extract shared construction demands from MIR's checked callable structure.
 use crate::{
     function::MirModule,
-    instruction::{CallTarget, Instruction},
+    instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -37,8 +37,12 @@ pub fn closed_interface_instances(
             for instruction in function.blocks.iter().flat_map(|block| &block.instructions) {
                 match instruction {
                     Instruction::MakeInterface {
-                        implementation,
-                        arguments,
+                        target:
+                            MirConstruction::Declared {
+                                implementation,
+                                arguments,
+                                ..
+                            },
                         ..
                     } => {
                         steps.push(ConstructionStep::Interface(ConcreteFunctionIdentity {

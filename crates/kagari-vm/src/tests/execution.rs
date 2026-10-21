@@ -5,6 +5,7 @@ use crate::{
     vm::Vm,
 };
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::instruction::Slot;
 use kagari_bytecode::{
     instruction::{
@@ -209,9 +210,11 @@ fn interface_instruction_module() -> DefinitionMetadata<BytecodeModule> {
                 BytecodeInstruction::MakeInterface {
                     dst: Slot::new(1),
                     value: Slot::new(0),
-                    module: ModuleRef::new(0),
-                    implementation: InterfaceTableRef::new(0),
-                    arguments: vec![],
+                    target: BytecodeConstruction::Declared {
+                        module: ModuleRef::new(0),
+                        implementation: InterfaceTableRef::new(0),
+                        arguments: vec![],
+                    },
                 },
                 BytecodeInstruction::Return(Some(Slot::new(1))),
             ],

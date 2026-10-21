@@ -1,6 +1,6 @@
 use crate::{
     function::MirModule,
-    instruction::{CallTarget, Instruction},
+    instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -125,7 +125,13 @@ pub(super) fn validate<'a>(
                     validator.trait_application(source)?;
                     validator.trait_application(target)?;
                 }
-                Instruction::MakeInterface { arguments, .. } => validator.types(arguments)?,
+                Instruction::MakeInterface { target, .. } => match target {
+                    MirConstruction::Declared { arguments, .. } => validator.types(arguments)?,
+                    MirConstruction::Bound(required) => {
+                        validator.validate_type(&required.receiver)?;
+                        validator.trait_application(&required.interface)?;
+                    }
+                },
                 Instruction::MakeStruct { structure, .. } => {
                     validator.nominal_arguments(structure)?
                 }

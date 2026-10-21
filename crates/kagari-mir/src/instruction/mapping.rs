@@ -1,4 +1,5 @@
 //! Contextual identity traversal of the owning metadata records.
+use crate::instruction::ConstructionTarget as MirConstruction;
 use crate::instruction::{
     AggregateFieldRef, CallTarget, Instruction, PathRef, SourceFunctionContract,
 };
@@ -242,16 +243,10 @@ impl RemapDefinitions for Instruction {
                 source: (source).remap_definitions(mapper)?,
                 target: (target).remap_definitions(mapper)?,
             },
-            Self::MakeInterface {
-                dst,
-                value,
-                implementation,
-                arguments,
-            } => Instruction::MakeInterface {
-                dst: *(dst),
-                value: *(value),
-                implementation: mapper.reference(implementation)?,
-                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
+            Self::MakeInterface { dst, value, target } => Instruction::MakeInterface {
+                dst: *dst,
+                value: *value,
+                target: target.remap_definitions(mapper)?,
             },
             Self::MakeStruct {
                 dst,
@@ -481,17 +476,8 @@ impl DefinitionReferences for Instruction {
                 (source).visit_definition_ids(visit, cancel)?;
                 (target).visit_definition_ids(visit, cancel)?;
             }
-            Self::MakeInterface {
-                dst: _,
-                value: _,
-                implementation,
-                arguments,
-            } => {
-                check_cancel(cancel)?;
-                visit(implementation)?;
-                for value0 in arguments {
-                    (value0).visit_definition_ids(visit, cancel)?;
-                }
+            Self::MakeInterface { target, .. } => {
+                target.visit_definition_ids(visit, cancel)?;
             }
             Self::MakeStruct {
                 dst: _,
@@ -683,6 +669,49 @@ impl DefinitionReferences for SourceFunctionContract {
         visit(&self.declaration)?;
         for value0 in &self.arguments {
             (value0).visit_definition_ids(visit, cancel)?;
+        }
+        Ok(())
+    }
+}
+
+impl RemapDefinitions for MirConstruction {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        mapper.check()?;
+        Ok(match self {
+            Self::Declared {
+                implementation,
+                arguments,
+            } => Self::Declared {
+                implementation: mapper.reference(implementation)?,
+                arguments: map_sequence(arguments, |ty| ty.remap_definitions(mapper))?,
+            },
+            Self::Bound(required) => Self::Bound(required.remap_definitions(mapper)?),
+        })
+    }
+}
+
+impl DefinitionReferences for MirConstruction {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        check_cancel(cancel)?;
+        match self {
+            Self::Declared {
+                implementation,
+                arguments,
+                ..
+            } => {
+                visit(implementation)?;
+                for ty in arguments {
+                    ty.visit_definition_ids(visit, cancel)?;
+                }
+            }
+            Self::Bound(required) => required.visit_definition_ids(visit, cancel)?,
         }
         Ok(())
     }

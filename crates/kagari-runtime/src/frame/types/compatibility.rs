@@ -124,9 +124,7 @@ impl<'a> TypeView<'a> {
                     else {
                         return None;
                     };
-                    let (ty, owner) =
-                        environment.associated_output(&receiver, &interface, *member)?;
-                    self = Self::new(ty, owner, None);
+                    self = environment.associated_output(&receiver, &interface, *member)?;
                 }
                 _ => break,
             }

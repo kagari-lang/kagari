@@ -1,4 +1,5 @@
 //! Access-flow validation runs after physical operand and layout validation.
+mod interfaces;
 mod scalar;
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionTable;
@@ -832,45 +833,26 @@ pub(super) fn verify(
                         | I::TestEnumVariant { dst, .. }
                         | I::LoadModule { dst, .. }
                         | I::MakePathView { dst, .. } => produced = Some((*dst, Fact::default())),
-                        I::MakeInterface {
-                            dst,
-                            value,
-                            module: slot,
-                            implementation,
-                            arguments,
-                        } => {
-                            if get(*value).is_some_and(|value| value.holds_reference()) {
+                        I::MakeInterface { dst, value, target } => {
+                            let input = get(*value);
+                            if input.as_ref().is_some_and(|value| value.holds_reference()) {
                                 return Err(invalid());
                             }
-                            let owner = owner(*slot).ok_or_else(invalid)?;
-                            let linked = &owner.interface_tables[implementation.index()];
-                            let table = owner
-                                .public_items
-                                .iter()
-                                .find_map(|item| match item {
-                                    PublicItem::InterfaceTable(table)
-                                        if table.declaration == linked.declaration =>
-                                    {
-                                        table.instantiate(
-                                            arguments,
-                                            function
-                                                .metadata
-                                                .semantic
-                                                .generic
-                                                .as_ref()
-                                                .map_or(&[][..], |body| body.parameters.as_slice()),
-                                            definitions,
-                                        )
-                                    }
-                                    _ => None,
-                                })
-                                .ok_or_else(invalid)?;
-                            if let Some(value) = get(*value)
-                                && !flows(&value, &table.for_type)
+                            let types = interfaces::construction_types(
+                                target,
+                                function,
+                                &owner,
+                                definitions,
+                            )
+                            .ok_or_else(invalid)?;
+                            if input
+                                .as_ref()
+                                .is_some_and(|value| !flows(value, &types.receiver))
+                                || (types.requires_fact && input.is_none())
                             {
                                 return Err(invalid());
                             }
-                            produced = Some((*dst, Fact::typed(table.trait_type)));
+                            produced = Some((*dst, Fact::typed(types.interface)));
                         }
                         I::UpcastInterface {
                             dst,

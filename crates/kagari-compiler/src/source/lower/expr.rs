@@ -7,10 +7,7 @@ use crate::source::lower::{
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
-    callable::construction::evidence::{ConstructionRequirement, ConstructionSelection},
-    numeric::NumericConversion,
-    operations::UnaryOp,
-    representation::semantic_representation,
+    numeric::NumericConversion, operations::UnaryOp, representation::semantic_representation,
     standard::RuntimePrimitive,
 };
 use kagari_hir::{
@@ -20,8 +17,7 @@ use kagari_hir::{
         ids::{BlockId, ExprId},
     },
     resolver::resolved::ResolvedName,
-    typeck::table::ResolvedInterfaceImplementation,
-    types::{NominalType, TypeId, TypeSubstitution, semantic::raise_type},
+    types::{NominalType, TypeId},
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
@@ -36,6 +32,7 @@ mod propagation;
 mod shared;
 
 mod equality;
+mod interfaces;
 mod local_functions;
 mod native_calls;
 mod native_contracts;
@@ -183,218 +180,14 @@ impl FunctionLowerer<'_, '_> {
                 value = dst;
             }
 
-            if let Some(mut coercion) = self
+            if let Some(coercion) = self
                 .analyzed
                 .typed
                 .type_table
                 .interface_coercion(expr_id)
                 .cloned()
             {
-                let span = self.analyzed.lowered.source_map.expr_span(expr_id);
-
-                if matches!(
-                    coercion.implementation,
-                    ResolvedInterfaceImplementation::Bound { .. }
-                ) {
-                    let types = self.planner.arguments(
-                        &[
-                            coercion.concrete_type.clone(),
-                            TypeId::Trait(coercion.interface_type.clone()),
-                        ],
-                        &self.instance.substitution,
-                        span,
-                    )?;
-                    let TypeId::Trait(interface) = &types[1] else {
-                        return Err(MirLoweringError::MissingBinding(
-                            "bound construction target",
-                        ));
-                    };
-                    let requirement = ConstructionRequirement {
-                        receiver: self.planner.encode_type(&types[0]),
-                        interface: self.planner.encode_nominal(interface),
-                    };
-                    let selected = self
-                        .planner
-                        .bind_constructions(vec![requirement], span)?
-                        .pop()
-                        .ok_or(MirLoweringError::MissingBinding(
-                            "bound construction selection",
-                        ))?;
-                    coercion.implementation = match selected.selection {
-                        ConstructionSelection::Declared { implementation, .. } => {
-                            ResolvedInterfaceImplementation::Declared {
-                                declaration: implementation.declaration,
-                                arguments: implementation
-                                    .arguments
-                                    .iter()
-                                    .map(raise_type)
-                                    .collect(),
-                            }
-                        }
-                        ConstructionSelection::Interface => ResolvedInterfaceImplementation::Upcast,
-                        ConstructionSelection::Forward => {
-                            return Err(MirLoweringError::UnsupportedExpr(
-                                "shared bound interface construction requires executable capability support",
-                            ));
-                        }
-                    };
-                    // Synthesized intrinsic tables have no HIR implementation declaration.
-                    if let ResolvedInterfaceImplementation::Declared { declaration, .. } =
-                        &coercion.implementation
-                        && self
-                            .planner
-                            .catalog
-                            .implementation_signature(declaration)
-                            .is_none()
-                    {
-                        coercion.implementation = ResolvedInterfaceImplementation::Intrinsic;
-                    }
-                }
-                if matches!(
-                    coercion.implementation,
-                    ResolvedInterfaceImplementation::Upcast
-                ) {
-                    let types = self.planner.arguments(
-                        &[
-                            coercion.concrete_type,
-                            TypeId::Trait(coercion.interface_type),
-                        ],
-                        &self.instance.substitution,
-                        span,
-                    )?;
-                    let [Ty::Trait(source), Ty::Trait(target)] = [
-                        self.planner.encode_type(&types[0]),
-                        self.planner.encode_type(&types[1]),
-                    ] else {
-                        return Err(MirLoweringError::MissingBinding("interface upcast types"));
-                    };
-                    let dst = self.alloc_temp(ValueType::HeapObject);
-                    self.emit(Instruction::UpcastInterface {
-                        dst,
-                        value,
-                        source,
-                        target,
-                    });
-                    return Ok(dst);
-                }
-                let types = self.planner.arguments(
-                    &[
-                        coercion.concrete_type.clone(),
-                        TypeId::Trait(coercion.interface_type.clone()),
-                    ],
-                    &self.instance.substitution,
-                    span,
-                )?;
-                let TypeId::Trait(interface) = &types[1] else {
-                    return Err(MirLoweringError::MissingBinding("interface demand type"));
-                };
-                // Boxing changes representation; retain the checked input type
-                // before replacing the expression's register with the interface.
-                self.function
-                    .semantic
-                    .registers
-                    .insert(value.temp.index(), self.planner.encode_type(&types[0]));
-                self.planner.require_parent_interfaces(
-                    &types[0],
-                    interface,
-                    &Default::default(),
-                    span,
-                )?;
-                let (implementation, arguments, constructed) = match coercion.implementation {
-                    ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
-                    ResolvedInterfaceImplementation::Bound { .. } => {
-                        unreachable!("bound construction selected above")
-                    }
-                    ResolvedInterfaceImplementation::Intrinsic => {
-                        let mut types = self
-                            .planner
-                            .arguments(
-                                &[
-                                    coercion.concrete_type,
-                                    TypeId::Trait(coercion.interface_type),
-                                ],
-                                &self.instance.substitution,
-                                span,
-                            )?
-                            .into_iter();
-                        let receiver = types.next().expect("receiver argument");
-                        let applied = types.next().expect("interface argument");
-                        let TypeId::Trait(interface) = applied else {
-                            return Err(MirLoweringError::MissingBinding(
-                                "intrinsic interface type",
-                            ));
-                        };
-                        (
-                            self.planner
-                                .intrinsic_interface_bridge(&receiver, &interface, span)?,
-                            Vec::new(),
-                            interface,
-                        )
-                    }
-                    ResolvedInterfaceImplementation::Declared {
-                        declaration,
-                        arguments,
-                    } => {
-                        let arguments = self.planner.arguments(
-                            &arguments,
-                            &self.instance.substitution,
-                            span,
-                        )?;
-                        self.planner
-                            .record_interface(&declaration, &arguments, span)?;
-                        let contract = self
-                            .planner
-                            .catalog
-                            .implementation_signature(&declaration)
-                            .ok_or(MirLoweringError::MissingBinding(
-                                "interface construction contract",
-                            ))?;
-                        let substitution: TypeSubstitution = contract
-                            .generic_params
-                            .iter()
-                            .cloned()
-                            .zip(arguments.iter().cloned())
-                            .collect();
-                        let constructed = contract.trait_type.instantiate(&substitution);
-                        (
-                            declaration,
-                            arguments
-                                .iter()
-                                .map(|ty| self.planner.encode_type(ty))
-                                .collect(),
-                            constructed,
-                        )
-                    }
-                };
-                let dst = self.alloc_temp(ValueType::HeapObject);
-                self.emit(Instruction::MakeInterface {
-                    dst,
-                    value,
-                    implementation,
-                    arguments,
-                });
-                value = dst;
-                // The table constructs its exact outputs. The value's bounded
-                // iterator-result view is a separate checked adaptation.
-                let source = self.planner.encode_nominal(&constructed);
-                let Ty::Trait(target) = self.planner.encode_type(&TypeId::Trait(interface.clone()))
-                else {
-                    unreachable!("interface value type")
-                };
-                if source != target {
-                    self.function
-                        .semantic
-                        .registers
-                        .insert(value.temp.index(), Ty::Trait(source.clone()));
-                    let dst = self.alloc_temp(ValueType::HeapObject);
-                    self.emit(Instruction::UpcastInterface {
-                        dst,
-                        value,
-                        source,
-                        target,
-                    });
-                    value = dst;
-                }
+                value = self.lower_interface_coercion(expr_id, value, coercion)?;
             }
         }
         if !self.current_block_terminated() {

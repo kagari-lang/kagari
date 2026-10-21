@@ -118,7 +118,7 @@ fn cached_native_application_reuses_its_receiver_environment_and_reclaims_the_cy
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.description.receiver_table, Default::default())
+            .bind_table_operations(&snapshot.description.receiver_table)
             .unwrap();
         let member = snapshot
             .description
@@ -450,7 +450,7 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
         };
         let snapshot = runtime.gc.interface_snapshot(id).unwrap();
         let group = runtime
-            .bind_table_operations(&snapshot.description.receiver_table, Default::default())
+            .bind_table_operations(&snapshot.description.receiver_table)
             .unwrap();
         let interface = snapshot.description.interface_type().clone();
         drop(snapshot);
@@ -460,7 +460,14 @@ fn optional_application_retention_expires_with_abandoned_witness_providers() {
             .resolve_type_arguments(&loaded, &[Ty::Builtin(BuiltinType::I32)])
             .unwrap();
         let method = runtime
-            .prepare_interface_method_slot(&value, &interface, 0, &arguments, operations)
+            .prepare_interface_method_slot(
+                &value,
+                &interface,
+                0,
+                &arguments,
+                operations,
+                Default::default(),
+            )
             .unwrap();
         let application = method.invocation.application.unwrap();
         let environment = runtime

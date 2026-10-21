@@ -2,7 +2,7 @@ use crate::{
     BytecodeArtifact, context::ExecutionContext, engine::EngineConfig, program::PreparedProgram,
 };
 use kagari_bytecode::{
-    instruction::{BytecodeInstruction, CallTarget},
+    instruction::{BytecodeInstruction, CallTarget, ConstructionTarget},
     program::{ModuleRef, identity, verify_program},
 };
 use kagari_common::identity::{
@@ -21,6 +21,7 @@ use kagari_types::{callable::CallableImplementation, scalar::BuiltinType, ty::Ty
 
 use crate::test_support::execution;
 
+mod bound_construction;
 mod constraint_members;
 mod default_method_contracts;
 mod shared_arithmetic;
@@ -533,11 +534,10 @@ fn main() -> i32 { val source: Wrap = Source {}; source.wrap(42)[0] }
                 .flat_map(|module| &mut module.functions)
                 .flat_map(|function| &mut function.instructions)
                 .find_map(|instruction| match instruction {
-                    BytecodeInstruction::MakeInterface { arguments, .. }
-                        if arguments.iter().any(|ty| !ty.is_concrete()) =>
-                    {
-                        Some(arguments)
-                    }
+                    BytecodeInstruction::MakeInterface {
+                        target: ConstructionTarget::Declared { arguments, .. },
+                        ..
+                    } if arguments.iter().any(|ty| !ty.is_concrete()) => Some(arguments),
                     _ => None,
                 })
                 .unwrap();

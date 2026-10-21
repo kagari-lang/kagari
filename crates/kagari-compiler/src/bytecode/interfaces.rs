@@ -14,6 +14,7 @@ use kagari_contract::{
     native_import::NativeImport,
     types::{ConcreteFunctionIdentity, PublicItem, proofs::ProofCatalog},
 };
+use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
     instruction::Instruction, program::VerifiedMirProgram, verify::VerifiedMirModule,
 };
@@ -51,8 +52,12 @@ pub(super) fn interface_instances(
         .flat_map(|block| &block.instructions)
         .filter_map(|instruction| match instruction {
             Instruction::MakeInterface {
-                implementation,
-                arguments,
+                target:
+                    MirConstruction::Declared {
+                        implementation,
+                        arguments,
+                        ..
+                    },
                 ..
             } => Some(ConcreteFunctionIdentity {
                 declaration: *implementation,

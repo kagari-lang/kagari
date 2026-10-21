@@ -1,4 +1,5 @@
 use crate::{source::program::lower_program_to_mir, tests::bytecode::*};
+use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
     instruction::{BytecodeInstruction, CallTarget as KagaribytecodeCallTarget, Slot},
     module::CallableTarget,
@@ -7,6 +8,7 @@ use kagari_bytecode::{
 use kagari_common::identity::{ModuleIdentity, PackageId};
 use kagari_contract::ids::FunctionRef;
 use kagari_hir::analysis::AnalysisDatabase;
+use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
     instruction::{CallTarget, Instruction},
     program as mir_program,
@@ -443,7 +445,10 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
         .flat_map(|function| &mut function.blocks)
         .flat_map(|block| &mut block.instructions)
         .find_map(|instruction| match instruction {
-            Instruction::MakeInterface { implementation, .. } => Some(implementation),
+            Instruction::MakeInterface {
+                target: MirConstruction::Declared { implementation, .. },
+                ..
+            } => Some(implementation),
             _ => None,
         })
         .unwrap();
@@ -491,7 +496,7 @@ fn source_interface_coercion_links_an_imported_implementation_table() {
     );
     let root_module = &bytecode.modules[bytecode.root.index()];
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
-        |instruction| matches!(instruction, BytecodeInstruction::MakeInterface { module, .. } if module.index() != bytecode.root.index())
+        |instruction| matches!(instruction, BytecodeInstruction::MakeInterface { target: BytecodeConstruction::Declared { module, .. }, .. } if module.index() != bytecode.root.index())
     ));
     assert!(root_module.functions.iter().flat_map(|function| &function.instructions).any(
         |instruction| matches!(instruction, BytecodeInstruction::Call { callee: KagaribytecodeCallTarget::InterfaceMethod { module, .. }, .. } if module.index() != bytecode.root.index())

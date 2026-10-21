@@ -1,6 +1,8 @@
 use crate::{
     function::{MirFunction, MirModule},
-    instruction::{CallTarget, Constant, Instruction, RuntimeHelper},
+    instruction::{
+        CallTarget, Constant, ConstructionTarget as MirConstruction, Instruction, RuntimeHelper,
+    },
     verify::{
         Context, MirVerificationError, MirVerificationErrorKind as Error, suspension::ephemeral,
     },
@@ -606,8 +608,33 @@ pub(super) fn verify(
         Instruction::MakeInterface {
             dst,
             value,
-            implementation,
-            arguments,
+            target: MirConstruction::Bound(required),
+        } => {
+            let Some(body) = function.semantic.generic.as_ref() else {
+                return Err(context.error(Error::InvalidInterfaceTable));
+            };
+            if !required.structurally_valid(&body.parameters, context.definitions, context.cancel)
+                || function.semantic.registers.get(&value.temp.index()) != Some(&required.receiver)
+                || function.semantic.registers.get(&dst.temp.index())
+                    != Some(&Ty::Trait(required.interface.clone()))
+            {
+                return Err(context.error(Error::InvalidInterfaceTable));
+            }
+            context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
+            context.expect(
+                value.ty,
+                semantic_representation(&required.receiver),
+                "interface receiver",
+            )?;
+        }
+        Instruction::MakeInterface {
+            dst,
+            value,
+            target:
+                MirConstruction::Declared {
+                    implementation,
+                    arguments,
+                },
         } => {
             context.expect(dst.ty, ValueType::HeapObject, "interface destination")?;
             let table = module.abi.public_items.iter().find_map(|item| match item {

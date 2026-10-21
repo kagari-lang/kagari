@@ -837,7 +837,10 @@ impl<'a> BodyChecker<'a> {
             self.check_arg_type(
                 name,
                 &param.name,
-                param_types[index].instantiate(&substitution),
+                self.aggregates.normalize_type(
+                    self.declarations.definitions(),
+                    &param_types[index].instantiate(&substitution),
+                ),
                 index,
                 &arg_tys,
             );

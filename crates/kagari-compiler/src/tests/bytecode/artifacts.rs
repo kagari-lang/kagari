@@ -1,5 +1,6 @@
 use crate::tests::bytecode::{path_fixtures::actor_path_module, *};
 use kagari_abi::version::{KAGARI_RUNTIME_ABI_VERSION, KAGARI_RUNTIME_HELPER_ABI_VERSION};
+use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
     artifact::KBC_ARTIFACT_FORMAT_VERSION,
     disassembly::PreparedDisassembly,
@@ -366,8 +367,12 @@ fn main(flag: bool) -> (i32, bool) {
                     format!("function=@{owner}:{} ", function.index())
                 }
                 BytecodeInstruction::MakeInterface {
-                    module,
-                    implementation,
+                    target:
+                        BytecodeConstruction::Declared {
+                            module,
+                            implementation,
+                            ..
+                        },
                     ..
                 } => {
                     seen.insert("interface construction");

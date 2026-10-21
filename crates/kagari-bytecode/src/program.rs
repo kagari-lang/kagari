@@ -1,3 +1,4 @@
+use crate::instruction::ConstructionTarget;
 use crate::{
     artifact::{ArtifactFingerprint, DependencyFingerprint},
     instruction::{BytecodeInstruction, CallTarget},
@@ -348,7 +349,10 @@ fn verify_graph_inner(
                     callee: CallTarget::InterfaceMethod { module: target, .. },
                     ..
                 }
-                | BytecodeInstruction::MakeInterface { module: target, .. } => Some(target),
+                | BytecodeInstruction::MakeInterface {
+                    target: ConstructionTarget::Declared { module: target, .. },
+                    ..
+                } => Some(target),
                 _ => None,
             };
             if let Some(target) = target

@@ -8,7 +8,10 @@ pub(crate) mod shared;
 pub mod views;
 
 use crate::{
-    instruction::{BinaryOp, BytecodeInstruction, CallTarget, ScalarOperand},
+    instruction::{
+        BinaryOp, BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction,
+        ScalarOperand,
+    },
     module::BytecodeModule,
     program::BytecodeProgram,
     trait_bounds::{
@@ -287,9 +290,25 @@ fn linked_bounds_match(
                 }
             }
             if let BytecodeInstruction::MakeInterface {
-                module: owner,
-                implementation,
-                arguments,
+                target: BytecodeConstruction::Bound(required),
+                ..
+            } = instruction
+            {
+                let Some(body) = function.metadata.semantic.generic.as_ref() else {
+                    return Ok(false);
+                };
+                if !required.bound_valid(catalog, &body.parameters, &body.bounds, cancel)? {
+                    return Ok(false);
+                }
+            }
+            if let BytecodeInstruction::MakeInterface {
+                target:
+                    BytecodeConstruction::Declared {
+                        module: owner,
+                        implementation,
+                        arguments,
+                        ..
+                    },
                 ..
             } = instruction
             {
@@ -574,9 +593,13 @@ fn instruction_contracts_match(
             }
         }
         if let BytecodeInstruction::MakeInterface {
-            module: owner,
-            implementation,
-            arguments,
+            target:
+                BytecodeConstruction::Declared {
+                    module: owner,
+                    implementation,
+                    arguments,
+                    ..
+                },
             ..
         } = instruction
         {

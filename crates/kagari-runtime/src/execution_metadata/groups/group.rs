@@ -64,6 +64,7 @@ impl OperationGroup {
 
     pub(crate) fn associated_interfaces(&self) -> impl Iterator<Item = AssociatedInterface> + '_ {
         self.entries.iter().map(|operation| AssociatedInterface {
+            outputs: Default::default(),
             receiver: operation.requirement.receiver.clone(),
             interface: operation.associated_interface.clone(),
             owner: operation.owner.clone(),

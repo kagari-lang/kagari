@@ -8,7 +8,7 @@ use crate::{
     frame::types::{
         arguments::TypeArgument,
         compatibility::TypeIdentity,
-        construction::ConstructionScope,
+        construction::{ConstructionIdentity, ConstructionScope},
         operations::{OperationBindings, OperationSegment},
     },
     module::{LoadedModule, ModuleKey},
@@ -40,7 +40,7 @@ pub(crate) struct ApplicationArguments {
     values: Vec<TypeArgument>,
     identities: Arc<[Arc<TypeIdentity>]>,
     constructions: ConstructionScope,
-    construction_identity: Arc<[ModuleKey]>,
+    construction_identity: Arc<ConstructionIdentity>,
 }
 
 impl ApplicationArguments {
@@ -86,7 +86,7 @@ pub(crate) struct AdapterIdentity {
 pub(crate) struct ApplicationKey {
     method: MethodIdentity,
     arguments: Arc<[Arc<TypeIdentity>]>,
-    constructions: Arc<[ModuleKey]>,
+    constructions: Arc<ConstructionIdentity>,
     receiver_operations: Option<OperationGroupId>,
     operations: Option<Arc<Vec<OperationSegment>>>,
 }

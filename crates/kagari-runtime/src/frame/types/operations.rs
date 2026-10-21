@@ -64,6 +64,7 @@ impl OperationBindings {
             .bound_operation(id)
             .ok_or_else(|| RuntimeError::module_validation("invalid selected operation"))?;
         Arc::make_mut(self.associated.get_or_insert_default()).push(AssociatedInterface {
+            outputs: Default::default(),
             receiver: operation.requirement.receiver.clone(),
             interface: operation.associated_interface.clone(),
             owner: operation.owner.clone(),

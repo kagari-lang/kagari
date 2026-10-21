@@ -8,7 +8,7 @@ pub mod records;
 mod shared;
 use crate::{
     ids::InstanceId,
-    instruction::{CallTarget, Instruction},
+    instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
     program::{proofs::ProofResources, records::MirProgram},
     verify::{
         MirVerificationError, ValidatedMirModule, VerificationBudget, VerifiedMirModule, ownership,
@@ -524,8 +524,11 @@ pub fn verify_program(
             if let Instruction::MakeInterface {
                 dst,
                 value,
-                implementation,
-                arguments,
+                target:
+                    MirConstruction::Declared {
+                        implementation,
+                        arguments,
+                    },
             } = instruction
             {
                 let valid = indices

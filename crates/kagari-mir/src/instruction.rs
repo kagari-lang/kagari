@@ -2,7 +2,10 @@ use crate::ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId};
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
-    callable::{interface::InterfaceCallContract, shared::SharedCall},
+    callable::{
+        construction::evidence::ConstructionRequirement, interface::InterfaceCallContract,
+        shared::SharedCall,
+    },
     effects::{EffectSet, runtime_primitive_effects},
     native_import::NativeImport,
     numeric::{NumericConversion, NumericOperation},
@@ -19,6 +22,18 @@ use smallvec::SmallVec;
 
 mod operands;
 mod rewrite;
+
+/// An exact selected table application or a capability supplied by a checked bound.
+/// Bound targets retain the source receiver and complete interface application;
+/// execution resolves them only in the current generic construction environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConstructionTarget {
+    Declared {
+        implementation: DefinitionId,
+        arguments: Vec<Ty>,
+    },
+    Bound(ConstructionRequirement),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MirValue {
@@ -168,8 +183,7 @@ pub enum Instruction {
     MakeInterface {
         dst: MirValue,
         value: MirValue,
-        implementation: DefinitionId,
-        arguments: Vec<Ty>,
+        target: ConstructionTarget,
     },
     MakeStruct {
         dst: MirValue,

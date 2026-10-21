@@ -1,7 +1,7 @@
 //! Link provider-qualified imports against carried declarations and witnesses.
 use crate::{
     function::MirModule,
-    instruction::{CallTarget, Instruction},
+    instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
     program::{bridges, shared},
     verify::ValidatedMirModule,
 };
@@ -73,8 +73,24 @@ pub(super) fn validate(
                 }
             }
             if let Instruction::MakeInterface {
-                implementation,
-                arguments,
+                target: MirConstruction::Bound(required),
+                ..
+            } = instruction
+            {
+                let Some(body) = function.semantic.generic.as_ref() else {
+                    return Ok(false);
+                };
+                if !required.bound_valid(catalog, &body.parameters, &body.bounds, cancel)? {
+                    return Ok(false);
+                }
+            }
+            if let Instruction::MakeInterface {
+                target:
+                    MirConstruction::Declared {
+                        implementation,
+                        arguments,
+                        ..
+                    },
                 ..
             } = instruction
             {

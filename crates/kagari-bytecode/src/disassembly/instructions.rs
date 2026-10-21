@@ -1,5 +1,6 @@
 //! Exhaustive, streaming rendering of verified instruction operands.
 
+use crate::instruction::ConstructionTarget as BytecodeConstruction;
 mod calls;
 mod operands;
 
@@ -257,9 +258,24 @@ pub(crate) fn write_instruction(
         BytecodeInstruction::MakeInterface {
             dst,
             value,
-            module: owner,
-            implementation,
-            arguments,
+            target: BytecodeConstruction::Bound(required),
+        } => write!(
+            writer,
+            "make_interface s{}, value=s{}, bound={} : {}",
+            dst.index(),
+            value.index(),
+            context.ty(&required.receiver),
+            context.ty(&Ty::Trait(required.interface.clone()))
+        ),
+        BytecodeInstruction::MakeInterface {
+            dst,
+            value,
+            target:
+                BytecodeConstruction::Declared {
+                    module: owner,
+                    implementation,
+                    arguments,
+                },
         } => {
             write!(
                 writer,

@@ -1,5 +1,8 @@
 use crate::{
-    instruction::{BytecodeInstruction, CallTarget, RuntimeHelper, ScalarOperand, Slot, UnaryOp},
+    instruction::{
+        BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction, RuntimeHelper,
+        ScalarOperand, Slot, UnaryOp,
+    },
     module::{BytecodeFunction, BytecodeModule},
     program::BytecodeProgram,
     trait_bounds::shared,
@@ -418,9 +421,31 @@ pub(super) fn verify_instruction(
         BytecodeInstruction::MakeInterface {
             dst,
             value,
-            module: target,
-            implementation,
-            arguments,
+            target: BytecodeConstruction::Bound(required),
+        } => {
+            let Some(body) = function.metadata.semantic.generic.as_ref() else {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            };
+            if !required.structurally_valid(&body.parameters, definitions, &Default::default()) {
+                return Err(BytecodeVerificationError::InvalidInterfaceTable);
+            }
+            expect_register_ty(function, *dst, ValueType::HeapObject, "interface dst")?;
+            expect_register_ty(
+                function,
+                *value,
+                semantic_representation(&required.receiver),
+                "interface receiver",
+            )?;
+        }
+        BytecodeInstruction::MakeInterface {
+            dst,
+            value,
+            target:
+                BytecodeConstruction::Declared {
+                    module: target,
+                    implementation,
+                    arguments,
+                },
         } => {
             expect_register_ty(function, *dst, ValueType::HeapObject, "interface dst")?;
             let target_module = if let Some(program) = program {

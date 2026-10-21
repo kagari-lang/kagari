@@ -16,7 +16,7 @@ use crate::{
         construction::ConstructionScope,
         operations::OperationBindings,
     },
-    objects::{invocation::MethodInvocation, method_view::SelectionView},
+    objects::invocation::MethodInvocation,
 };
 use kagari_types::callable::Signature;
 use std::slice;
@@ -27,6 +27,7 @@ impl Runtime {
         mut method: RootedInterfaceMethod,
         arguments: &[TypeArgument],
         operations: OperationBindings,
+        mut constructions: ConstructionScope,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         let view = method.view(self)?;
         if arguments.len() != view.type_parameters().len() {
@@ -37,11 +38,9 @@ impl Runtime {
         for argument in arguments {
             argument.validate(self)?;
         }
-        let arguments = ApplicationArguments::new(
-            view.implementation(),
-            arguments.to_vec(),
-            ConstructionScope::new(view.implementation()),
-        )?;
+        constructions.extend(&ConstructionScope::new(view.implementation()));
+        let arguments =
+            ApplicationArguments::new(view.implementation(), arguments.to_vec(), constructions)?;
         drop(view);
         method.invocation =
             self.apply_method_invocation(method.invocation, &arguments, operations)?;
@@ -104,10 +103,7 @@ impl Runtime {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::MethodPreparation);
         let view = method.view(self)?;
-        let dependencies = match &view.selection {
-            SelectionView::Operation { .. } => view.receiver_environment(),
-            SelectionView::Interface { .. } => None,
-        };
+        let dependencies = view.receiver_environment();
         let mut supplied = dependencies
             .map(|environment| {
                 self.gc
@@ -129,7 +125,7 @@ impl Runtime {
         let mut constructions =
             self.construction_scope(view.implementation(), view.receiver_environment())?;
         constructions.extend(arguments.constructions());
-        binders.constructions = constructions.clone();
+        binders.set_constructions(constructions.clone());
         binders.include(view.receiver_environment().cloned())?;
         if let Some(group) = receiver_operations {
             binders.add_receiver(&self.gc, group)?;
@@ -181,7 +177,7 @@ impl Runtime {
                     view.entry_arguments(),
                 )?,
             )?;
-            environment.constructions = constructions;
+            environment.set_constructions(constructions);
             if let Some(group) = receiver_operations {
                 environment.add_receiver(&self.gc, group)?;
             }

@@ -7,9 +7,11 @@ use crate::{
 };
 use kagari_abi::representation::ValueType;
 use kagari_bytecode::instruction::BytecodeInstruction;
+use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_common::{identity::map::DefinitionContext, span::Span};
 use kagari_contract::{operations::BinaryOp, types::PublicItem};
 use kagari_hir::aggregates::implementations::ImplementationSearchError;
+use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
     function::MirFunction,
     ids::TempId,
@@ -1067,10 +1069,12 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         .temps
         .push(kagari_mir::function::MirTemp { ty: dst.ty });
     let instruction = Instruction::MakeInterface {
-        arguments: Vec::new(),
         dst,
         value,
-        implementation: declaration,
+        target: MirConstruction::Declared {
+            arguments: Vec::new(),
+            implementation: declaration,
+        },
     };
     function.effects = function.effects.union(instruction.effects());
     block.instructions.push(instruction);
@@ -1084,7 +1088,18 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         &context,
         common::bytecode_with_edited_root(&checked, &verified),
     );
-    assert!(bytecode.modules[bytecode.root.index()].functions.iter().flat_map(|function| &function.instructions).any(|instruction| matches!(instruction, BytecodeInstruction::MakeInterface { implementation, .. } if implementation.index() == 0)));
+    assert!(
+        bytecode.modules[bytecode.root.index()]
+            .functions
+            .iter()
+            .flat_map(|function| &function.instructions)
+            .any(
+                |instruction| matches!(instruction, BytecodeInstruction::MakeInterface {
+        target: BytecodeConstruction::Declared { implementation, .. },
+        ..
+} if implementation.index() == 0)
+            )
+    );
 
     let function = module
         .functions
@@ -1097,7 +1112,11 @@ fn verified_interface_instruction_lowers_to_a_linked_table_slot() {
         .flat_map(|block| &mut block.instructions)
         .find(|instruction| matches!(instruction, Instruction::MakeInterface { .. }))
         .unwrap();
-    let Instruction::MakeInterface { implementation, .. } = instruction else {
+    let Instruction::MakeInterface {
+        target: MirConstruction::Declared { implementation, .. },
+        ..
+    } = instruction
+    else {
         unreachable!()
     };
     common::edit_definition(&context, implementation, |path| {

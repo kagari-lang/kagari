@@ -8,14 +8,16 @@ use kagari_common::{
     identity::mapping::{DefinitionMappingError, check_cancel},
 };
 
+/// Borrow one node in the shared operation/construction proof tree.
+/// File aggregate accounting uses the same child edges as codecs and admission.
 #[derive(Clone, Copy)]
-pub(crate) enum EvidenceRef<'a> {
+pub enum EvidenceRef<'a> {
     Operation(&'a OperationWitness),
     Construction(&'a ConstructionWitness),
 }
 
 impl<'a> EvidenceRef<'a> {
-    pub(crate) fn children(self) -> (&'a [OperationWitness], &'a [ConstructionWitness]) {
+    pub fn children(self) -> (&'a [OperationWitness], &'a [ConstructionWitness]) {
         match self {
             Self::Operation(OperationWitness::SharedMethod(method)) => {
                 (&method.operations, &method.constructions)

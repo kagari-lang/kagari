@@ -1,6 +1,7 @@
 use crate::{error::VmError, executor::Executor};
 use kagari_bytecode::instruction::{
-    BytecodeInstruction, CallTarget, PathId, RuntimeHelper, ScalarOperand, Slot,
+    BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction, PathId,
+    RuntimeHelper, ScalarOperand, Slot,
 };
 use kagari_contract::{operations::IterOp, standard::RuntimePrimitive};
 use kagari_runtime::{
@@ -331,9 +332,31 @@ impl<'a> Executor<'a> {
             BytecodeInstruction::MakeInterface {
                 dst,
                 value,
-                module,
-                implementation,
-                ref arguments,
+                target: BytecodeConstruction::Bound(ref required),
+            } => {
+                let frame = self.current_frame()?;
+                let receiver = frame.read_slot(self.runtime, value)?;
+                let environment = frame.environment().ok_or(VmError::UnsupportedInstruction(
+                    "missing construction environment",
+                ))?;
+                let owner = frame.loaded().clone();
+                drop(frame);
+                let interface = self
+                    .runtime
+                    .make_bound_interface(&owner, &environment, required, receiver)
+                    .map_err(VmError::RuntimeError)?;
+                self.current_frame_mut()?
+                    .write_slot(self.runtime, dst, interface)?;
+            }
+            BytecodeInstruction::MakeInterface {
+                dst,
+                value,
+                target:
+                    BytecodeConstruction::Declared {
+                        module,
+                        implementation,
+                        ref arguments,
+                    },
             } => {
                 let receiver = self.current_frame()?.read_slot(self.runtime, value)?;
                 let arguments = self

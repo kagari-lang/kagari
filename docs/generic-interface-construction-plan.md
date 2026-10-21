@@ -361,7 +361,7 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
 - [x] BI01 Contracts and integration inventory.
 - [x] BI02 Portable construction evidence and validation.
 - [x] BI03 HIR proof and call preparation.
-- [ ] BI04 Executable shared construction.
+- [x] BI04 Executable shared construction.
 - [ ] BI05 Lifecycle and source-free acceptance.
 - [ ] BI06 Durable documentation and closure.
 
@@ -387,3 +387,72 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
   limits; no compatibility reader, re-export, visibility exception or new cache.
   HIR proof selection and compiler capability preparation retain their existing
   owners. Intrinsic bridges are partitioned from ordinary implementation lookup.
+
+- BI04 in progress: MakeInterface now uses an explicit declared/bound target in
+  MIR and bytecode. Both wire owners, identity traversal and type/application
+  admission are being migrated together. The first scoped compiler check found
+  one missing disassembly-descriptor arm for a bound target; that target has no
+  concrete table descriptor to collect. BI04 owns the remaining executable build
+  integration and runtime environment consumers; no phase acceptance claimed.
+
+- BI04 scoped integration checks: `cargo check -p kagari-compiler` and
+  `cargo check -p kagari-vm` passed after the target/consumer migration.
+  Runtime selections now belong to ConstructionScope alongside its existing
+  finite program inventory. Keys include receiver/target type provenance and
+  selected table/dependency-environment identity; existing application/description
+  caches use that complete key. No new cache or runtime trait search was added.
+- BI04 associated outputs: construction selections supply immutable type-only
+  facts even for methodless traits. Output TypeArguments preserve lexical layout
+  provenance through projections; selected environments remain explicit traced
+  metadata edges. Shared calls, method applications, adapters and supported host
+  interface applications bind the same construction owner.
+- BI04 focused acceptance in progress: one SDK scenario combines shared defaults
+  and overrides, forwarded free helpers, retained closures, scalar/managed/already
+  boxed receivers, inherited bounds and a methodless associated-type provider.
+  It uses existing source, decoded-artifact and JIT/fallback routes under forced
+  GC. Native execution of the new conversion itself is not claimed.
+
+- BI04 scenario correction: custom interface values do not currently satisfy
+  same-trait generic bounds in HIR, despite portable view proofs supporting them.
+  The plan preserves existing bound rules, so this broader conformance expansion
+  remains deferred. Interface reuse is tested through supported Iterator bounds.
+  The projection scenario exposed missing post-inference normalization in generic
+  method argument checking; the fix reuses AggregateCatalog normalization exactly
+  as ordinary function calls already do, without new inference or solving rules.
+- BI04 structural review split interface construction type flow out of access.rs
+  after the owner exceeded 1200 effective LOC. Artifact aggregate accounting now
+  traverses both evidence kinds through their shared child-edge owner.
+
+- BI04 selected SDK construction tests passed (3 tests): default/override shared
+  execution, helper/closure forwarding, generic implementation dependencies,
+  methodless and associated bounds, intrinsic Fn and existing Iterator views;
+  five source-free instruction forgeries reject missing bounds, substituted
+  inputs, invalid receivers/binders and malformed targets.
+- BI04 repaired two integration defects exposed by these scenarios: release the
+  VM frame borrow before interface allocation; normalize closed associated
+  projections before testing dynamic eligibility. The latter previously dropped
+  a methodless Source capability after applying its concrete receiver. Portable
+  capability enumeration now receives the existing ProofCatalog normalization
+  owner. A temporary closure-annotation compile error and misplaced test delimiter
+  were corrected; the selected tests subsequently passed.
+- BI04 structural review: extracted interface coercion lowering from the general
+  expression dispatcher, merged changed same-owner imports, and made Forward
+  consult only the original caller capability scope. Mixed evidence traversal is
+  public only for the artifact budget consumer; there are no new re-exports or
+  structure exceptions. Existing calls/allocation and instruction polling retain
+  execution-policy checks; bounded metadata preparation adds no execution loop.
+- BI04 quality checks so far: workspace Clippy with all targets/denied warnings
+  passed after removing a redundant field initializer; structure passed (1422 Rust
+  files, zero exceptions). Focused regression checks are in progress.
+
+- BI04 focused regression passed: two compiler interface/table lowering cases,
+  four portable construction cases, and the retained associated-type snapshot
+  ownership case. After extracting lowering and tightening MIR receiver/result
+  semantic facts, all five selected SDK cases passed (construction group plus
+  forwarded helper and generic parent-view regressions). No full package/workspace
+  test sweep was run. BI05 owns durable source-free fixture refresh and lifetimes.
+
+- BI04 complete: final workspace Clippy, formatting, structure and diff checks
+  passed; no carried failures remain. The explicit shared-conversion gate is gone.
+  Instruction models and internal artifact shapes changed without an unpublished
+  ABI/version bump. Full workspace/backend/feature/platform acceptance remains CI-only.

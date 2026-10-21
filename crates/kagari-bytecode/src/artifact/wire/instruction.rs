@@ -1,4 +1,5 @@
 //! Bytecode instruction wire tags and operands with bounded nested readers.
+use crate::instruction::ConstructionTarget;
 use crate::{
     artifact::wire::calls::{CallTargetRecord, FieldRefRecord},
     instruction::{
@@ -14,6 +15,7 @@ use kagari_common::{
         table::wire::{DefinitionDecoding, DefinitionEncoding},
     },
 };
+use kagari_contract::callable::construction::wire::ConstructionRequirementRecord;
 use kagari_contract::{
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
@@ -144,10 +146,7 @@ pub(in crate::artifact) enum BytecodeInstructionRecord {
     MakeInterface {
         dst: Slot,
         value: Slot,
-        module: ModuleRef,
-        implementation: InterfaceTableRef,
-        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
-        arguments: Vec<WireType>,
+        target: ConstructionTargetRecord,
     },
     MakeStruct {
         dst: Slot,
@@ -444,23 +443,10 @@ impl BytecodeInstructionRecord {
                 source: NominalTyRecord::encode(source, encoding, cancel)?,
                 target: NominalTyRecord::encode(target, encoding, cancel)?,
             },
-            BytecodeInstruction::MakeInterface {
-                dst,
-                value,
-                module,
-                implementation,
-                arguments,
-            } => Self::MakeInterface {
+            BytecodeInstruction::MakeInterface { dst, value, target } => Self::MakeInterface {
                 dst: *dst,
                 value: *value,
-                module: *module,
-                implementation: *implementation,
-                arguments: arguments
-                    .iter()
-                    .map(|value| {
-                        Ok::<_, DefinitionMappingError>(WireType::encode(value, encoding, cancel)?)
-                    })
-                    .collect::<Result<_, _>>()?,
+                target: ConstructionTargetRecord::encode(target, encoding, cancel)?,
             },
             BytecodeInstruction::MakeStruct {
                 dst,
@@ -773,21 +759,10 @@ impl BytecodeInstructionRecord {
                 source: source.decode(decoding, cancel)?,
                 target: target.decode(decoding, cancel)?,
             },
-            Self::MakeInterface {
+            Self::MakeInterface { dst, value, target } => BytecodeInstruction::MakeInterface {
                 dst,
                 value,
-                module,
-                implementation,
-                arguments,
-            } => BytecodeInstruction::MakeInterface {
-                dst,
-                value,
-                module,
-                implementation,
-                arguments: arguments
-                    .into_iter()
-                    .map(|value| Ok::<_, DefinitionMappingError>(value.decode(decoding, cancel)?))
-                    .collect::<Result<_, _>>()?,
+                target: target.decode(decoding, cancel)?,
             },
             Self::MakeStruct {
                 dst,
@@ -933,6 +908,67 @@ impl BytecodeInstructionRecord {
             },
             Self::Return(field0) => BytecodeInstruction::Return(field0),
             Self::Unreachable => BytecodeInstruction::Unreachable,
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub(crate) enum ConstructionTargetRecord {
+    Declared {
+        module: ModuleRef,
+        implementation: InterfaceTableRef,
+        #[serde(deserialize_with = "kagari_contract::decode_limits::nested")]
+        arguments: Vec<WireType>,
+    },
+    Bound(ConstructionRequirementRecord),
+}
+
+impl ConstructionTargetRecord {
+    fn encode(
+        value: &ConstructionTarget,
+        encoding: &DefinitionEncoding,
+        cancel: &CancellationToken,
+    ) -> Result<Self, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(match value {
+            ConstructionTarget::Declared {
+                module,
+                implementation,
+                arguments,
+            } => Self::Declared {
+                module: *module,
+                implementation: *implementation,
+                arguments: arguments
+                    .iter()
+                    .map(|ty| WireType::encode(ty, encoding, cancel))
+                    .collect::<Result<_, _>>()?,
+            },
+            ConstructionTarget::Bound(required) => Self::Bound(
+                ConstructionRequirementRecord::encode(required, encoding, cancel)?,
+            ),
+        })
+    }
+
+    fn decode(
+        self,
+        decoding: &DefinitionDecoding,
+        cancel: &CancellationToken,
+    ) -> Result<ConstructionTarget, DefinitionMappingError> {
+        check_cancel(cancel)?;
+        Ok(match self {
+            Self::Declared {
+                module,
+                implementation,
+                arguments,
+            } => ConstructionTarget::Declared {
+                module,
+                implementation,
+                arguments: arguments
+                    .into_iter()
+                    .map(|ty| ty.decode(decoding, cancel))
+                    .collect::<Result<_, _>>()?,
+            },
+            Self::Bound(required) => ConstructionTarget::Bound(required.decode(decoding, cancel)?),
         })
     }
 }

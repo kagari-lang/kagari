@@ -1,5 +1,9 @@
 //! Immutable lexical type facts, without executable selection or environment edges.
-use crate::{error::RuntimeError, frame::types::arguments::TypeArgument, module::LoadedModule};
+use crate::{
+    error::RuntimeError,
+    frame::types::{arguments::TypeArgument, compatibility::TypeView},
+    module::LoadedModule,
+};
 use kagari_common::identity::{map::DefinitionContext, table::DefinitionId};
 use kagari_contract::callable::generic::GenericBody;
 use kagari_types::{
@@ -9,7 +13,7 @@ use kagari_types::{
         substitution::{normalize_projections, substitute_parameters},
     },
 };
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 
 /// Checked associated-type facts; contains no selected operation or environment.
 #[derive(Debug, Clone)]
@@ -17,6 +21,7 @@ pub(crate) struct AssociatedInterface {
     pub(crate) receiver: Ty,
     pub(crate) interface: NominalTy,
     pub(crate) owner: LoadedModule,
+    pub(crate) outputs: BTreeMap<DefinitionId, TypeArgument>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,7 +133,7 @@ impl TypeBindings {
                     .is_empty()
                     .then(|| {
                         self.associated_output(receiver, interface, *member)
-                            .map(|(ty, _)| ty.clone())
+                            .and_then(|view| view.closed().map(|ty| ty.into_owned()))
                     })
                     .flatten())
             },
@@ -146,7 +151,7 @@ impl TypeBindings {
         receiver: &Ty,
         interface: &NominalTy,
         member: DefinitionId,
-    ) -> Option<(&Ty, &LoadedModule)> {
+    ) -> Option<TypeView<'_>> {
         self.associated_interfaces
             .iter()
             .find_map(|fact| {
@@ -154,6 +159,7 @@ impl TypeBindings {
                     receiver: ty,
                     interface: applied,
                     owner,
+                    outputs,
                 } = fact;
                 (ty == receiver
                     && applied.declaration == interface.declaration
@@ -162,7 +168,17 @@ impl TypeBindings {
                         .associated_types
                         .iter()
                         .all(|(id, ty)| applied.associated_types.get(id) == Some(ty)))
-                .then(|| applied.associated_types.get(&member).map(|ty| (ty, owner)))
+                .then(|| {
+                    outputs
+                        .get(&member)
+                        .map(|argument| argument.view(owner))
+                        .or_else(|| {
+                            applied
+                                .associated_types
+                                .get(&member)
+                                .map(|ty| TypeView::new(ty, owner, None))
+                        })
+                })
                 .flatten()
             })
             .or_else(|| {

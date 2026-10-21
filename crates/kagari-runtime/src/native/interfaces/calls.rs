@@ -73,6 +73,13 @@ impl<S> Interface<S> {
                 .map_or_else(Default::default, |application| {
                     application.operations.clone()
                 }),
+            binding
+                .record
+                .application
+                .as_ref()
+                .map_or_else(Default::default, |application| {
+                    application.constructions.clone()
+                }),
         )?;
         let owner = method.implementation(runtime)?;
         let invoke = cx.invoke_script.ok_or_else(|| {

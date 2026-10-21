@@ -1,7 +1,7 @@
 //! Runtime-owned interface snapshots, addressed by checked identities.
 use crate::{
     error::RuntimeError,
-    frame::types::compatibility::TypeIdentity,
+    frame::types::{compatibility::TypeIdentity, construction::ConstructionIdentity},
     gc::{
         GcHeap,
         interfaces::{InterfaceDescription, InterfaceValueSnapshot},
@@ -25,7 +25,7 @@ pub(crate) struct InterfaceDescriptionKey {
     pub(crate) table: usize,
     pub(crate) view: bool,
     pub(crate) arguments: Vec<Arc<TypeIdentity>>,
-    pub(crate) constructions: Vec<ModuleKey>,
+    pub(crate) constructions: ConstructionIdentity,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

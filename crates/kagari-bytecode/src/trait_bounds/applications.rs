@@ -1,5 +1,5 @@
 use crate::{
-    instruction::{BytecodeInstruction, CallTarget},
+    instruction::{BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction},
     module::BytecodeModule,
     trait_bounds::contract,
 };
@@ -138,9 +138,15 @@ pub(super) fn validate(
                         validator.types(&required.arguments)?;
                     }
                 }
-                BytecodeInstruction::MakeInterface { arguments, .. } => {
-                    validator.types(arguments)?
-                }
+                BytecodeInstruction::MakeInterface { target, .. } => match target {
+                    BytecodeConstruction::Declared { arguments, .. } => {
+                        validator.types(arguments)?
+                    }
+                    BytecodeConstruction::Bound(required) => {
+                        validator.validate_type(&required.receiver)?;
+                        validator.trait_application(&required.interface)?;
+                    }
+                },
                 BytecodeInstruction::MakeArray { element, .. }
                 | BytecodeInstruction::RepeatArray { element, .. } => {
                     validator.validate_type(element)?

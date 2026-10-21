@@ -323,7 +323,12 @@ impl Runtime {
         let binding = interface_binding(
             scope.owner,
             &selected.implementation,
-            scope.environment.clone(),
+            self.construction_dependencies(
+                scope.owner,
+                scope.environment.clone(),
+                &selected.operations,
+                &selected.constructions,
+            )?,
         )?;
         let required = resolve_requirement(scope.environment.as_ref(), &selected.requirement)?;
         let receiver = TypeView::new(
@@ -333,9 +338,7 @@ impl Runtime {
         )
         .identity()
         .ok_or_else(|| RuntimeError::module_validation("shared operation receiver identity"))?;
-        let dependencies =
-            self.bind_operations_in(scope.owner, scope.environment.clone(), &selected.operations)?;
-        let group = self.bind_table_operations(&binding, dependencies)?;
+        let group = self.bind_table_operations(&binding)?;
         self.gc
             .operation_group(group)
             .and_then(|group| {

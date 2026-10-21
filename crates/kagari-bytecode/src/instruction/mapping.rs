@@ -1,4 +1,5 @@
 //! Contextual identity traversal of the owning metadata records.
+use crate::instruction::ConstructionTarget as BytecodeConstruction;
 use crate::instruction::{BytecodeInstruction, CallTarget, FieldRef};
 use kagari_common::{
     cancellation::CancellationToken,
@@ -303,18 +304,10 @@ impl RemapDefinitions for BytecodeInstruction {
                 source: (source).remap_definitions(mapper)?,
                 target: (target).remap_definitions(mapper)?,
             },
-            Self::MakeInterface {
-                dst,
-                value,
-                module,
-                implementation,
-                arguments,
-            } => BytecodeInstruction::MakeInterface {
-                dst: *(dst),
-                value: *(value),
-                module: *(module),
-                implementation: *(implementation),
-                arguments: map_sequence(arguments, |value| (value).remap_definitions(mapper))?,
+            Self::MakeInterface { dst, value, target } => BytecodeInstruction::MakeInterface {
+                dst: *dst,
+                value: *value,
+                target: target.remap_definitions(mapper)?,
             },
             Self::MakeStruct {
                 dst,
@@ -571,16 +564,8 @@ impl DefinitionReferences for BytecodeInstruction {
                 (source).visit_definition_ids(visit, cancel)?;
                 (target).visit_definition_ids(visit, cancel)?;
             }
-            Self::MakeInterface {
-                dst: _,
-                value: _,
-                module: _,
-                implementation: _,
-                arguments,
-            } => {
-                for value0 in arguments {
-                    (value0).visit_definition_ids(visit, cancel)?;
-                }
+            Self::MakeInterface { target, .. } => {
+                target.visit_definition_ids(visit, cancel)?;
             }
             Self::MakeStruct {
                 dst: _,
@@ -684,6 +669,46 @@ impl DefinitionReferences for BytecodeInstruction {
             } => {}
             Self::Return(_) => {}
             Self::Unreachable => {}
+        }
+        Ok(())
+    }
+}
+
+impl RemapDefinitions for BytecodeConstruction {
+    fn remap_definitions(
+        &self,
+        mapper: &mut DefinitionMapper<'_>,
+    ) -> Result<Self, DefinitionMappingError> {
+        mapper.check()?;
+        Ok(match self {
+            Self::Declared {
+                module,
+                implementation,
+                arguments,
+            } => Self::Declared {
+                module: *module,
+                implementation: *implementation,
+                arguments: map_sequence(arguments, |ty| ty.remap_definitions(mapper))?,
+            },
+            Self::Bound(required) => Self::Bound(required.remap_definitions(mapper)?),
+        })
+    }
+}
+
+impl DefinitionReferences for BytecodeConstruction {
+    fn visit_definition_ids(
+        &self,
+        visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
+        cancel: &CancellationToken,
+    ) -> Result<(), DefinitionMappingError> {
+        check_cancel(cancel)?;
+        match self {
+            Self::Declared { arguments, .. } => {
+                for ty in arguments {
+                    ty.visit_definition_ids(visit, cancel)?;
+                }
+            }
+            Self::Bound(required) => required.visit_definition_ids(visit, cancel)?,
         }
         Ok(())
     }

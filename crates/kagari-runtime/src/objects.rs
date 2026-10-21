@@ -5,7 +5,10 @@ use crate::{
     execution_metadata::{MetadataEdge, interfaces::InterfaceSnapshotId},
     frame::{
         arguments::FrameArguments,
-        types::{TypeEnvironment, arguments::TypeArgument, operations::OperationBindings},
+        types::{
+            TypeEnvironment, arguments::TypeArgument, construction::ConstructionScope,
+            operations::OperationBindings,
+        },
     },
     gc::{HeapObjectId, interfaces::InterfaceValueSnapshot},
     module::{self, LoadedModule},
@@ -25,6 +28,7 @@ use std::{cell::Ref, slice};
 mod adapters;
 mod application;
 mod calls;
+mod constructions;
 mod interfaces;
 pub(crate) mod invocation;
 pub(crate) mod method;
@@ -461,6 +465,7 @@ impl Runtime {
                 RootedInterfaceMethod::from_interface(self, root, id, slot)?,
                 &[],
                 OperationBindings::default(),
+                ConstructionScope::default(),
             );
         }
         let owner = snapshot
@@ -494,6 +499,7 @@ impl Runtime {
                     RootedInterfaceMethod::from_interface(self, root, id, slot)?,
                     &[],
                     OperationBindings::default(),
+                    ConstructionScope::default(),
                 );
             }
         }
@@ -543,6 +549,7 @@ impl Runtime {
             slot,
             arguments,
             OperationBindings::default(),
+            ConstructionScope::default(),
         )
     }
 
@@ -553,6 +560,7 @@ impl Runtime {
         slot: usize,
         arguments: &[TypeArgument],
         operations: OperationBindings,
+        constructions: ConstructionScope,
     ) -> Result<RootedInterfaceMethod, RuntimeError> {
         if !matches!(value, Value::Interface(_)) {
             return Err(RuntimeError::new(
@@ -568,6 +576,7 @@ impl Runtime {
             RootedInterfaceMethod::from_interface(self, root, id, slot)?,
             arguments,
             operations,
+            constructions,
         )
     }
 

@@ -7,6 +7,7 @@ use crate::{
         EnvironmentRecord,
         arguments::{ScopedSignature, TypeArgument},
         compatibility::TypeView,
+        construction::ConstructionScope,
         operations::OperationBindings,
     },
     gc::roots::RootSet,
@@ -32,6 +33,7 @@ pub(super) struct AppliedMethod {
     pub(super) key: ApplicationKey,
     pub(super) arguments: Vec<TypeArgument>,
     pub(super) operations: OperationBindings,
+    pub(super) constructions: ConstructionScope,
     _roots: RootSet,
 }
 
@@ -128,6 +130,9 @@ impl ApplicationEvidence {
             runtime.bind_operations_in(&self.owner, None, &self.contract.operations)?;
         let mut environment =
             EnvironmentRecord::new(runtime.definition_context(), parameters, arguments.clone())?;
+        let constructions =
+            runtime.bind_constructions_in(&self.owner, None, &self.contract.constructions)?;
+        environment.set_constructions(constructions.clone());
         environment.extend_operations(operations.clone());
         let environment = runtime.alloc_environment(environment)?;
         let roots = runtime.root_metadata(vec![
@@ -138,6 +143,7 @@ impl ApplicationEvidence {
             key: self.key,
             arguments,
             operations,
+            constructions,
             _roots: roots,
         })
     }

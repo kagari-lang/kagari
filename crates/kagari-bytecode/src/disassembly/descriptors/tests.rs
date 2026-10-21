@@ -7,8 +7,9 @@ use crate::{
         resolution::Resolution,
     },
     instruction::{
-        BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand, EnumId, FieldRef,
-        InterfaceTableRef, ModuleSlot, NativeImportId, PathId, Slot, StructId,
+        BytecodeInstruction as I, CallTarget, ConstantId, ConstantOperand,
+        ConstructionTarget as BytecodeConstruction, EnumId, FieldRef, InterfaceTableRef,
+        ModuleSlot, NativeImportId, PathId, Slot, StructId,
     },
     module::{
         BytecodeFunction, BytecodeModule, BytecodeModuleSlot, CallableTarget, InterfaceMethodSlot,
@@ -288,9 +289,11 @@ fn interface_closure_crosses_modules_but_does_not_follow_callee_bodies() {
     caller.functions.push(body(vec![I::MakeInterface {
         dst: Slot::new(0),
         value: Slot::new(1),
-        module: ModuleRef::new(1),
-        implementation: InterfaceTableRef::new(0),
-        arguments: vec![],
+        target: BytecodeConstruction::Declared {
+            module: ModuleRef::new(1),
+            implementation: InterfaceTableRef::new(0),
+            arguments: vec![],
+        },
     }]));
     let program = program(vec![caller, owner]);
     let definitions = builder.freeze();

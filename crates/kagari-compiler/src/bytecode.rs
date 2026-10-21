@@ -3,6 +3,7 @@ use crate::bytecode::{
     interfaces::{collect_interface_tables, interface_instances},
 };
 use kagari_abi::representation::ValueType;
+use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
     artifact::ArtifactValidationError,
     instruction::{
@@ -31,6 +32,7 @@ use kagari_contract::{
     representation::semantic_representation,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
+use kagari_mir::instruction::ConstructionTarget as MirConstruction;
 use kagari_mir::{
     analysis::FunctionAnalysis,
     function::{BasicBlock, MirFunction},
@@ -101,7 +103,10 @@ pub fn lower_to_bytecode(
                         .module()
                         != &ir.identity
                 }
-                Instruction::MakeInterface { implementation, .. } => {
+                Instruction::MakeInterface {
+                    target: MirConstruction::Declared { implementation, .. },
+                    ..
+                } => {
                     ir.definitions()
                         .resolve(*implementation)
                         .expect("verified implementation identity")
@@ -798,16 +803,30 @@ fn lower_instruction(
         Instruction::MakeInterface {
             dst,
             value,
-            implementation,
-            arguments,
+            target: MirConstruction::Bound(required),
+        } => BytecodeInstruction::MakeInterface {
+            dst: context.value(*dst),
+            value: context.value(*value),
+            target: BytecodeConstruction::Bound(required.clone()),
+        },
+        Instruction::MakeInterface {
+            dst,
+            value,
+            target:
+                MirConstruction::Declared {
+                    implementation,
+                    arguments,
+                },
         } => {
             let (module, implementation) = context.interface_ref(implementation, arguments);
             BytecodeInstruction::MakeInterface {
                 dst: context.value(*dst),
                 value: context.value(*value),
-                module,
-                implementation,
-                arguments: arguments.clone(),
+                target: BytecodeConstruction::Declared {
+                    module,
+                    implementation,
+                    arguments: arguments.clone(),
+                },
             }
         }
         Instruction::Convert {

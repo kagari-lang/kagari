@@ -106,7 +106,11 @@ impl Runtime {
             body.parameters.clone(),
             arguments,
         )?;
-        environment.constructions = self.construction_scope(caller, caller_environment.as_ref())?;
+        environment.set_constructions(self.bind_constructions_in(
+            caller,
+            caller_environment.clone(),
+            &contract.constructions,
+        )?);
         environment.extend_operations(self.bind_operations_in(
             caller,
             caller_environment,

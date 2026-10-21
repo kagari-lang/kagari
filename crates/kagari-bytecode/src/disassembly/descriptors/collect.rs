@@ -5,7 +5,9 @@ use crate::{
         descriptors::{Category, Reference, References},
         resolution::{Resolution, TraitSource},
     },
-    instruction::{BytecodeInstruction, CallTarget, ScalarOperand},
+    instruction::{
+        BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction, ScalarOperand,
+    },
     module::CallableTarget,
 };
 use kagari_contract::{callable::witness::OperationWitness, types::ConcreteFunctionIdentity};
@@ -48,8 +50,16 @@ impl References {
                 self.insert((owner, Category::Enum, enumeration.index()), pending)
             }
             BytecodeInstruction::MakeInterface {
-                module,
-                implementation,
+                target: BytecodeConstruction::Bound(_),
+                ..
+            } => {}
+            BytecodeInstruction::MakeInterface {
+                target:
+                    BytecodeConstruction::Declared {
+                        module,
+                        implementation,
+                        ..
+                    },
                 ..
             } => self.insert(
                 (module.index(), Category::Interface, implementation.index()),

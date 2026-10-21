@@ -1,7 +1,7 @@
 //! Recheck closed shared construction coverage using executable slots alone.
 use crate::{
     artifact::MAX_ARTIFACT_TABLE_RECORDS,
-    instruction::{BytecodeInstruction, CallTarget},
+    instruction::{BytecodeInstruction, CallTarget, ConstructionTarget as BytecodeConstruction},
     module::CallableTarget,
     program::BytecodeProgram,
     verifier::BytecodeVerificationError,
@@ -39,9 +39,13 @@ pub(super) fn verify(
                     .map_err(|_| BytecodeVerificationError::Cancelled)?;
                 match instruction {
                     BytecodeInstruction::MakeInterface {
-                        module: owner,
-                        implementation,
-                        arguments,
+                        target:
+                            BytecodeConstruction::Declared {
+                                module: owner,
+                                implementation,
+                                arguments,
+                                ..
+                            },
                         ..
                     } => {
                         let table = &program.modules[owner.index()].interface_tables

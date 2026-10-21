@@ -4,6 +4,7 @@ use crate::{
     tests::common::{module_program, round_trip_bytecode, standard_runtime},
     vm::fixtures::FixtureExecution,
 };
+use kagari_bytecode::instruction::ConstructionTarget as BytecodeConstruction;
 use kagari_bytecode::{
     instruction::{ConstantId, StructId},
     program::{BytecodeProgram, identity, verify_program},
@@ -572,17 +573,21 @@ fn linked_interface_instruction_executes_and_rejects_invalid_slots() {
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
         dst: Slot::new(1),
         value: Slot::new(0),
-        module: ModuleRef::new(0),
-        implementation: InterfaceTableRef::new(1),
-        arguments: vec![],
+        target: BytecodeConstruction::Declared {
+            module: ModuleRef::new(0),
+            implementation: InterfaceTableRef::new(1),
+            arguments: vec![],
+        },
     };
     assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
     invalid.functions[0].instructions[1] = BytecodeInstruction::MakeInterface {
         dst: Slot::new(1),
         value: Slot::new(1),
-        module: ModuleRef::new(0),
-        implementation: InterfaceTableRef::new(0),
-        arguments: vec![],
+        target: BytecodeConstruction::Declared {
+            module: ModuleRef::new(0),
+            implementation: InterfaceTableRef::new(0),
+            arguments: vec![],
+        },
     };
     assert!(verify_module(&invalid, &definitions, &Default::default()).is_err());
 
@@ -621,9 +626,11 @@ fn interface_instruction_uses_a_reachable_dependency_table() {
                 BytecodeInstruction::MakeInterface {
                     dst: Slot::new(1),
                     value: Slot::new(0),
-                    module: ModuleRef::new(0),
-                    implementation: InterfaceTableRef::new(0),
-                    arguments: vec![],
+                    target: BytecodeConstruction::Declared {
+                        module: ModuleRef::new(0),
+                        implementation: InterfaceTableRef::new(0),
+                        arguments: vec![],
+                    },
                 },
                 BytecodeInstruction::Return(Some(Slot::new(1))),
             ],

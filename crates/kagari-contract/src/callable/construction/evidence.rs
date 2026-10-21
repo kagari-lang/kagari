@@ -28,6 +28,37 @@ pub struct ConstructionRequirement {
 }
 
 impl ConstructionRequirement {
+    /// Prove a symbolic construction from the current body's declared bounds.
+    /// A retained program or unrelated table never grants this capability.
+    pub fn bound_valid(
+        &self,
+        catalog: &ProofCatalog<'_>,
+        parameters: &[GenericParam],
+        assumptions: &[GenericBound],
+        cancel: &CancellationToken,
+    ) -> Result<bool, TypeTransformError> {
+        if parameters.is_empty()
+            || !self.structurally_valid(parameters, catalog.definitions(), cancel)
+            || !dynamic_interface_valid(
+                parameters,
+                &self.interface,
+                &|id| catalog.trait_contract(id),
+                catalog.definitions(),
+                cancel,
+            )?
+        {
+            return Ok(false);
+        }
+        let available = required_constructions(assumptions, parameters, catalog, cancel)?;
+        let required = self.normalize(catalog, cancel)?;
+        for available in available {
+            if available == required {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
     /// Normalize selected associated outputs using the supplying executable catalog.
     pub fn normalize(
         &self,
@@ -208,20 +239,8 @@ impl ConstructionWitness {
                 .contains(&self.requirement.interface))
             }
             ConstructionSelection::Forward => {
-                let available = required_constructions(
-                    assumptions,
-                    parameters,
-                    &|id| catalog.trait_contract(id),
-                    catalog.definitions(),
-                    cancel,
-                )?;
-                let required = self.requirement.normalize(catalog, cancel)?;
-                for available in available {
-                    if available.normalize(catalog, cancel)? == required {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
+                self.requirement
+                    .bound_valid(catalog, parameters, assumptions, cancel)
             }
         }
     }

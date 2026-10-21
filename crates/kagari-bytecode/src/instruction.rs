@@ -1,7 +1,10 @@
 use crate::{module::CallableTarget, program::ModuleRef};
 use kagari_abi::representation::ValueType;
 use kagari_contract::{
-    callable::{interface::InterfaceCallContract, shared::SharedCall},
+    callable::{
+        construction::evidence::ConstructionRequirement, interface::InterfaceCallContract,
+        shared::SharedCall,
+    },
     ids::FunctionRef,
     numeric::{NumericConversion, NumericOperation},
     operations::IterOp,
@@ -17,6 +20,19 @@ use std::{
     hash::{Hash, Hasher},
     mem,
 };
+
+/// An exact selected table application or a capability supplied by a checked bound.
+/// Bound targets retain the source receiver and complete interface application;
+/// execution resolves them only in the current generic construction environment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConstructionTarget {
+    Declared {
+        module: ModuleRef,
+        implementation: InterfaceTableRef,
+        arguments: Vec<Ty>,
+    },
+    Bound(ConstructionRequirement),
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Slot(u32);
@@ -434,9 +450,7 @@ pub enum BytecodeInstruction {
     MakeInterface {
         dst: Slot,
         value: Slot,
-        module: ModuleRef,
-        implementation: InterfaceTableRef,
-        arguments: Vec<Ty>,
+        target: ConstructionTarget,
     },
     MakeStruct {
         dst: Slot,

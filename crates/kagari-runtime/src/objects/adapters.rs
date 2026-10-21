@@ -63,7 +63,11 @@ impl Runtime {
             body.parameters.clone(),
             arguments,
         )?;
-        applied.constructions = self.construction_scope(caller, environment.as_ref())?;
+        applied.set_constructions(self.bind_constructions_in(
+            caller,
+            environment.clone(),
+            &adapter.call.constructions,
+        )?);
         applied.extend_operations(operations);
         let requirement = resolve_requirement(environment.as_ref(), &adapter.requirement)?;
         let receiver_identity = Arc::new(

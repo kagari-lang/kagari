@@ -90,7 +90,16 @@ impl Runtime {
                 template.generic_params.clone(),
                 arguments.to_vec(),
             )?;
-            environment.constructions = constructions.expect("generic construction scope");
+            environment.set_constructions(constructions.expect("generic construction scope"));
+            if let Some(parent) = construction_environment {
+                environment.extend_operations(
+                    self.gc
+                        .environment(parent.id)
+                        .ok_or_else(invalid)?
+                        .operations()
+                        .clone(),
+                );
+            }
             Some(self.alloc_environment(environment)?)
         };
         let mut substitution = TypeSubstitution::default();
