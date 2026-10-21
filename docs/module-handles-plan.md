@@ -1,6 +1,6 @@
 # Context-owned module handles execution plan
 
-Status: implementation authorized on 2026-10-21; MH01 is in progress.
+Status: implementation authorized on 2026-10-21; MH01-MH02 are locally complete.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation
 and queue placement. This plan owns SA9's MH01-MH05 phases, design decisions,
 acceptance and progress ledger. The user authorized goal execution and phase commits.
@@ -347,10 +347,29 @@ is included in these graph-only numbers. MH01 content and diff checks passed;
 the probe completed successfully, and no carried build failure remains.
 
 - [x] MH01: close API/ownership inventory and record matched baseline.
-- [ ] MH02: implement checked module-root operations with direct usage.
+- [x] MH02: implement checked module-root operations with direct usage.
 - [ ] MH03: migrate graph and direct consumers coherently.
 - [ ] MH04: complete boundary, deterministic-output and correctness acceptance.
 - [ ] MH05: measure, document and hand off.
+
+MH02, 2026-10-21: implemented the checked Copy module-root type, borrowed lookup,
+module parent/child/definition-owner queries and explicit root remapping. Existing
+root registration populates package/child indexes and interns lexical prefixes;
+definition-node ancestry remains unchanged. Native ModuleDecl identity collection
+uses the checked module registration entrypoint. Published handles remain private
+and non-serializable; portable codecs still select only referenced identities.
+
+Validation: nine identity-table cases and three portable-table cases pass. The
+first identity-table run had one failed assertion: the old symbol-sharing test
+expected only three declaration spellings, while the new package index also
+interns the package spelling. Its exact count is now four, with the sharing
+assertions retained; the failing case passed on rerun. Commands used the two
+`identity::table::{tests,wire::tests}::` filters and the failing test-name filter.
+Structure (1401 Rust files, no findings), formatting, workspace all-target Clippy
+and diff checks pass. Imports/visibility were reviewed; the new module stays with
+the table owner and adds no re-exports or structural exceptions. No carried error
+remains. Full workspace/backend acceptance is CI-owned. MH03 owns all graph-field
+and direct consumer replacements; no old graph API has been duplicated.
 
 Planning entry, 2026-10-21: the requested execution plan records the scoped model
 and phases against `6fe2cbe6`. Implementation, Rust validation and measurements

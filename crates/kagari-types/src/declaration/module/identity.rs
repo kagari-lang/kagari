@@ -31,7 +31,10 @@ impl ModuleDecl {
             &CancellationToken::default(),
         )
         .map_err(|error| DeclarationError(format!("invalid native identities: {error}")))?;
-        let root = context.intern_root(&self.identity).map_err(invalid)?;
+        let root = context
+            .intern_module(&self.identity)
+            .map_err(invalid)?
+            .definition();
         for ty in &self.types {
             let owner = context
                 .intern_child(root, ty.kind.definition_kind(), &ty.name, 0)

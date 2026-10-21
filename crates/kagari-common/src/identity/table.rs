@@ -2,6 +2,7 @@
 //!
 //! Table numbers never enter portable data. A short ID is meaningful only with
 //! its owning table; exact paths are imported explicitly between contexts.
+pub mod module;
 #[cfg(test)]
 mod tests;
 pub mod wire;
@@ -78,6 +79,8 @@ pub enum DefinitionTableError {
     ForeignTable,
     #[error("definition index is outside its owning table")]
     InvalidIndex,
+    #[error("definition is not a module root")]
+    InvalidModuleRoot,
     #[error("definition identity path limit exceeded")]
     PathLimit,
     #[error("definition was not included in the import mapping")]
@@ -92,6 +95,8 @@ pub enum DefinitionTableError {
 struct TableData {
     modules: Vec<Arc<ModuleIdentity>>,
     module_indices: HashMap<Arc<ModuleIdentity>, u32>,
+    package_roots: HashMap<Symbol, DefinitionIndex>,
+    module_children: HashMap<(DefinitionIndex, Symbol), DefinitionIndex>,
     symbols: Vec<Arc<str>>,
     symbol_indices: HashMap<Arc<str>, Symbol>,
     nodes: Vec<Node>,
@@ -264,6 +269,13 @@ impl DefinitionTableBuilder {
         &mut self,
         module: &ModuleIdentity,
     ) -> Result<DefinitionId, DefinitionTableError> {
+        self.intern_module(module).map(|module| module.definition())
+    }
+
+    fn intern_root_record(
+        &mut self,
+        module: &ModuleIdentity,
+    ) -> Result<DefinitionId, DefinitionTableError> {
         if !module.within_path_limit() {
             return Err(DefinitionTableError::PathLimit);
         }
@@ -292,16 +304,7 @@ impl DefinitionTableBuilder {
         if depth > MAX_IDENTITY_PATH_SEGMENTS {
             return Err(DefinitionTableError::PathLimit);
         }
-        let name = if let Some(symbol) = self.data.symbol_indices.get(name) {
-            *symbol
-        } else {
-            let symbol = Symbol(checked_index(self.data.symbols.len())?);
-            let name: Arc<str> = Arc::from(name);
-            let data = Arc::make_mut(&mut self.data);
-            data.symbols.push(name.clone());
-            data.symbol_indices.insert(name, symbol);
-            symbol
-        };
+        let name = self.intern_symbol(name)?;
         self.intern_node(
             Node::Child {
                 parent: parent.index,

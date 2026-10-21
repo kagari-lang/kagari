@@ -3,7 +3,7 @@ use crate::identity::{
     DefinitionKind, DefinitionPath, ModuleIdentity,
     table::{
         DefinitionId, DefinitionRemap, DefinitionTable, DefinitionTableBuilder,
-        DefinitionTableError,
+        DefinitionTableError, module::ModuleHandle,
     },
 };
 use crate::{
@@ -49,6 +49,17 @@ impl DefinitionContext {
             .lock()
             .expect("definition context poisoned")
             .intern_root(module)
+    }
+
+    /// Register a checked logical module root and lexical prefixes, without publication.
+    pub fn intern_module(
+        &self,
+        module: &ModuleIdentity,
+    ) -> Result<ModuleHandle, DefinitionTableError> {
+        self.0
+            .lock()
+            .expect("definition context poisoned")
+            .intern_module(module)
     }
 
     /// Register a definition under a parent owned by this context.

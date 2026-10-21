@@ -2,6 +2,61 @@ use super::*;
 use std::mem::size_of;
 
 #[test]
+fn module_roots_preserve_scope_prefixes_and_explicit_import() {
+    let identity = ModuleIdentity {
+        package: crate::identity::PackageId("game".into()),
+        path: vec!["combat".into(), "damage".into()],
+    };
+    let mut builder = DefinitionTableBuilder::new().unwrap();
+    let empty = builder.freeze();
+    let module = builder.intern_module(&identity).unwrap();
+    let function = builder
+        .intern_child(module.definition(), DefinitionKind::Function, "run", 0)
+        .unwrap();
+    let table = builder.freeze();
+    assert_eq!(table.module_identity(module).unwrap(), &identity);
+    assert_eq!(table.lookup_module(&identity), Some(module));
+    assert_eq!(table.module_of(function), Ok(module));
+    assert_eq!(
+        table.module_handle(function),
+        Err(DefinitionTableError::InvalidModuleRoot)
+    );
+    assert_eq!(
+        empty.module_identity(module),
+        Err(DefinitionTableError::InvalidIndex)
+    );
+    let parent = table.module_parent(module).unwrap().unwrap();
+    assert_eq!(table.module_identity(parent).unwrap().path, ["combat"]);
+    assert_eq!(table.module_child(parent, "damage"), Some(module));
+    assert_eq!(table.parent(module.definition()).unwrap(), None);
+    let package = table.module_parent(parent).unwrap().unwrap();
+    assert_eq!(table.module_parent(package).unwrap(), None);
+    let mut other = DefinitionTableBuilder::new().unwrap();
+    assert_eq!(
+        other.freeze().module_identity(module),
+        Err(DefinitionTableError::ForeignTable)
+    );
+    let mapping = other.import(&table, [function]).unwrap();
+    let imported = mapping.map_module(module).unwrap();
+    assert_ne!(imported, module);
+    assert_eq!(other.freeze().module_identity(imported).unwrap(), &identity);
+    assert_eq!(
+        other
+            .freeze()
+            .module_of(mapping.map(function).unwrap())
+            .unwrap(),
+        imported
+    );
+    let encoded = table.encode([function]).unwrap();
+    let encoded_import = other
+        .freeze()
+        .encode([mapping.map(function).unwrap()])
+        .unwrap();
+    assert_eq!(encoded.table, encoded_import.table);
+    assert_eq!(size_of::<module::ModuleHandle>(), size_of::<DefinitionId>());
+}
+
+#[test]
 fn borrowed_identity_queries_require_the_explicit_scope() {
     let expected = path("game", "hp");
     let mut builder = DefinitionTableBuilder::new().unwrap();
@@ -82,7 +137,8 @@ fn short_ids_share_paths_and_names_without_deep_copy() {
     let mp = table.intern_path(&path("game", "mp")).unwrap();
     let frozen = table.freeze();
     assert_eq!(frozen.len(), 4);
-    assert_eq!(frozen.symbol_count(), 3);
+    // The package root and the three declaration spellings are each interned once.
+    assert_eq!(frozen.symbol_count(), 4);
     assert_eq!(frozen.resolve(hp).unwrap().to_path(), expected);
     assert_eq!(
         frozen
