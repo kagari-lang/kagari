@@ -24,7 +24,7 @@ fn declaration_only_functions_do_not_acquire_script_bodies() {
     let cancel = Default::default();
     let parsed = parser::parse_declarations(&source, Default::default(), &cancel).unwrap();
     assert!(parsed.diagnostics().is_empty());
-    let lowered = crate::lower::lower_module_controlled(source, &parsed.syntax(), &cancel);
+    let lowered = crate::lower::lower_module_controlled(source, &parsed.syntax().into(), &cancel);
     let [native, required, script] = lowered.module.functions.as_slice() else {
         panic!("three declarations expected");
     };
@@ -303,4 +303,34 @@ pub const VERSION: i32 = 1;
         lowered.module.expr(const_item.initializer).kind,
         ExprKind::Literal(_)
     ));
+}
+
+#[test]
+fn inline_ast_lowering_owns_only_its_items_and_attributes() {
+    use kagari_syntax::ast::{item::Item as AstItem, module::ModuleSyntax};
+    let source = Arc::new(SourceFile::new(
+        "inline.kgr",
+        "// π\r\n#[meta] mod a { #[meta] fn f() {} mod b { #[meta] fn g() {} } }",
+    ));
+    let parsed = parser::parse(&source);
+    let root = crate::lower::lower_module_controlled(
+        source.clone(),
+        &parsed.syntax().into(),
+        &Default::default(),
+    );
+    let AstItem::ModuleDef(child) = parsed.syntax().items().next().unwrap() else {
+        panic!()
+    };
+    let view = ModuleSyntax::Inline(child.block().unwrap());
+    let lowered = crate::lower::lower_module_controlled(source.clone(), &view, &Default::default());
+    assert!(root.module.functions.is_empty());
+    assert_eq!(root.attributes.len(), 1);
+    assert_eq!(lowered.attributes.len(), 1);
+    assert_eq!(lowered.module.functions.len(), 1);
+    assert_eq!(lowered.module.functions[0].name, "f");
+    assert_eq!(lowered.module.modules.len(), 1);
+    let span = lowered
+        .source_map
+        .block_span(lowered.module.functions[0].body.unwrap());
+    assert_eq!(&source.text()[span.start..span.end].trim(), &"{}");
 }

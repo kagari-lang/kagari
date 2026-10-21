@@ -27,10 +27,11 @@ use crate::{
 use kagari_syntax::ast::{
     item::{
         AssociatedType as AstAssociatedType, ConstDef, EnumDef, FnDef, ImplBlock, Item as AstItem,
-        MethodDef, ModuleDef, SourceFile, StructDef, TraitDef as AstTraitDef, UseDecl, UseTree,
+        MethodDef, ModuleDef, StructDef, TraitDef as AstTraitDef, UseDecl, UseTree,
         Visibility as AstVisibility,
     },
     misc::{GenericParamList, ParamList, TraitRef as AstTraitRef, WhereClause},
+    module::ModuleSyntax,
 };
 use kagari_types::visibility::Visibility;
 
@@ -56,7 +57,7 @@ fn lower_visibility(visibility: AstVisibility) -> Visibility {
 
 impl Lowerer {
     /// Collects top-level declarations; cancellation leaves partial work for the caller to reject.
-    pub(crate) fn lower_module(&mut self, module: &SourceFile) {
+    pub(crate) fn lower_module(&mut self, module: &ModuleSyntax) {
         for item in module.items() {
             if self.cancel.check().is_err() {
                 break;

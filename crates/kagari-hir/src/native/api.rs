@@ -98,7 +98,7 @@ pub(crate) fn import_source(
         )));
     }
     validate_view(metadata, providers, &parsed, limits, cancel)?;
-    let mut lowered = lower_module_controlled(source, &parsed.syntax(), cancel);
+    let mut lowered = lower_module_controlled(source, &parsed.syntax().into(), cancel);
     lowered.registered_native_api = true;
     lowered.native_definitions = Some(definitions.clone());
     lowered.language_foundation = language::is_language_module(&definition.identity);

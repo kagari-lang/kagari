@@ -12,6 +12,12 @@ struct CopiedSource {
     source: Arc<SourceFile>,
 }
 
+#[derive(Debug)]
+struct SourceContent {
+    text: String,
+    lines: LineIndex,
+}
+
 #[derive(Debug, Clone)]
 pub struct SourceFile {
     id: FileId,
@@ -20,8 +26,7 @@ pub struct SourceFile {
     revision: Revision,
     module: ModuleIdentity,
     name: String,
-    text: String,
-    lines: LineIndex,
+    content: Arc<SourceContent>,
     copies: Vec<CopiedSource>,
 }
 
@@ -37,8 +42,10 @@ impl SourceFile {
             revision: Revision::default(),
             module: ModuleIdentity::single_file(name.clone()),
             name,
-            lines: LineIndex::new(&text),
-            text,
+            content: Arc::new(SourceContent {
+                lines: LineIndex::new(&text),
+                text,
+            }),
             copies: vec![],
         }
     }
@@ -52,7 +59,7 @@ impl SourceFile {
     }
 
     pub fn text(&self) -> &str {
-        &self.text
+        &self.content.text
     }
 
     pub fn id(&self) -> FileId {
@@ -81,8 +88,10 @@ impl SourceFile {
             revision: parent.revision,
             module,
             name: parent.name.clone(),
-            lines: LineIndex::new(&text),
-            text,
+            content: Arc::new(SourceContent {
+                lines: LineIndex::new(&text),
+                text,
+            }),
             copies: vec![],
         }
     }
@@ -96,7 +105,7 @@ impl SourceFile {
     }
 
     pub fn span(&self, range: Span) -> Option<FileSpan> {
-        self.text.get(range.start..range.end)?;
+        self.content.text.get(range.start..range.end)?;
         if let Some(copy) = self
             .copies
             .iter()
@@ -124,10 +133,11 @@ impl SourceFile {
         original: Span,
     ) -> Result<(), &'static str> {
         let text = self
+            .content
             .text
             .get(local.start..local.end)
             .ok_or("invalid copy range")?;
-        if source.text.get(original.start..original.end) != Some(text)
+        if source.content.text.get(original.start..original.end) != Some(text)
             || self
                 .copies
                 .iter()
@@ -169,11 +179,15 @@ impl SourceFile {
     }
 
     pub fn position(&self, offset: usize, encoding: PositionEncoding) -> Option<Position> {
-        self.lines.position(&self.text, offset, encoding)
+        self.content
+            .lines
+            .position(&self.content.text, offset, encoding)
     }
 
     pub fn offset(&self, position: Position, encoding: PositionEncoding) -> Option<usize> {
-        self.lines.offset(&self.text, position, encoding)
+        self.content
+            .lines
+            .offset(&self.content.text, position, encoding)
     }
 
     pub(crate) fn with_identity(
@@ -197,6 +211,8 @@ mod tests {
     #[test]
     fn exact_copies_preserve_authored_navigation_and_analysis_offsets() {
         let original = Arc::new(SourceFile::new("core.kgr", "// π\ntrait Add {}"));
+        let retained = original.as_ref().clone();
+        assert!(Arc::ptr_eq(&retained.content, &original.content));
         let mut view = SourceFile::new("native.kgr", "type Native;\ntrait Add {}\nfn next();");
         let local = Span::new(13, 25);
         let authored = Span::new(6, 18);

@@ -229,8 +229,11 @@ impl AnalysisDatabase {
                 Some(old) => (old.parsed.clone(), old.declared.lowered.clone()),
                 None => {
                     let parsed = parser::parse_with_limits(&file, self.parse_limits, cancel)?;
-                    let lowered =
-                        lower::lower_module_controlled(file.clone(), &parsed.syntax(), cancel);
+                    let lowered = lower::lower_module_controlled(
+                        file.clone(),
+                        &parsed.syntax().into(),
+                        cancel,
+                    );
                     (parsed, Arc::new(lowered))
                 }
             };

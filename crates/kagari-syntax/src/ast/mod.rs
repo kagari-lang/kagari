@@ -74,6 +74,7 @@ macro_rules! ast_node {
 pub mod expr;
 pub mod item;
 pub mod misc;
+pub mod module;
 pub mod stmt;
 pub mod support;
 pub mod traits;

@@ -1,6 +1,6 @@
 # Inline module AST reuse execution plan
 
-Status: activated on 2026-10-21; IA01 complete, IA02 next. This plan owns
+Status: activated on 2026-10-21; IA01-IA02 complete, IA03 next. This plan owns
 IA01-IA05, design decisions, acceptance and the progress ledger for
 [SA1](review.md#sa1-inline-modules-are-parsed-again). The
 [roadmap](implementation-roadmap.md) owns queue placement. The user authorized goal execution and phase commits. SA14 and SA11 remain queued.
@@ -270,7 +270,7 @@ scope, which would require an explicit scope decision.
 
 - [x] Execution plan recorded against `9e5113f8`; execution baseline `e7135c16`.
 - [x] IA01 Baseline and contract decisions.
-- [ ] IA02 Shared physical content and logical lowering input.
+- [x] IA02 Shared physical content and logical lowering input.
 - [ ] IA03 Analysis/consumer migration and bridge removal.
 - [ ] IA04 Focused integration and local implementation acceptance.
 - [ ] IA05 Measurements, durable documentation and plan retirement.
@@ -359,3 +359,26 @@ and diff checks. Initial probe compilation rejected SourceDatabase::clone (not
 implemented); the harness now creates each edit setup independently outside timing.
 No production failure is carried. Separate preparation-only timing is deferred
 unless needed to diagnose a material regression in the matched query boundary.
+
+
+### IA02 Shared storage and logical syntax
+
+SourceFile now retains immutable text/LineIndex in one shared content allocation.
+ModuleSyntax exposes attached root/inline items, scoped descendant traversal,
+inner docs and recovery-aware content extents. ModuleLocation wraps Rowan's checked
+kind/range lookup; it is Send + Sync and must remain paired with its original parse.
+One lowering loop accepts either view and collects only owned attributes.
+
+The existing masked inline constructor remains the documented IA03 bridge; it
+still constructs child content until analysis switches. No public constructor
+signature changed in IA02, so this checkpoint is not marked breaking. Tests cover
+Unicode/CRLF locations, unterminated bodies, missing open braces, scoped attributes,
+shared clone storage and unchanged native copied-source mapping.
+
+Passed: cargo test -p kagari-syntax --lib attached_module_views;
+cargo test -p kagari-source --lib source::tests;
+cargo test -p kagari-hir --lib inline_ast_lowering;
+structure (1402 files, zero findings), formatting, workspace all-target Clippy and
+diff checks. The checker initially found a std::iter use-site path; imported iter
+explicitly and reran it successfully. No carried build/test failures. Manual review:
+no production globs/reexports, no new source dependency, no LOC exception.

@@ -47,7 +47,8 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             let source = sources.snapshot().file(file).unwrap().clone();
             let parsed = parse_declarations(&source, Default::default(), &cancel).unwrap();
             assert!(parsed.diagnostics().is_empty());
-            let mut lowered = lower::lower_module_controlled(source, &parsed.syntax(), &cancel);
+            let mut lowered =
+                lower::lower_module_controlled(source, &parsed.syntax().into(), &cancel);
             lowered.language_foundation = original.language_foundation;
             lowered.registered_native_api = original.registered_native_api;
             lowered.native_package_alias = original.native_package_alias.clone();

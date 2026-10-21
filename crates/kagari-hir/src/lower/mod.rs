@@ -25,10 +25,8 @@ use kagari_common::{
 use kagari_source::source::SourceFile;
 use kagari_syntax::{
     ast::{
-        item::{
-            Attribute, AttributeArg, AttributeValue as AstAttributeValue,
-            SourceFile as AstSourceFile,
-        },
+        item::{Attribute, AttributeArg, AttributeValue as AstAttributeValue},
+        module::ModuleSyntax,
         traits::AstNode,
     },
     parser::parse,
@@ -198,9 +196,8 @@ fn attribute_value(value: AstAttributeValue) -> AttributeValue {
     }
 }
 
-pub(crate) fn lower_attributes(module: &AstSourceFile) -> Vec<AttributeFact> {
+pub(crate) fn lower_attributes(module: &ModuleSyntax) -> Vec<AttributeFact> {
     module
-        .syntax()
         .descendants()
         .filter_map(Attribute::cast)
         .filter_map(|attribute| {
@@ -249,7 +246,7 @@ pub fn lower_module(source: &SourceFile) -> LoweredModule {
     let parsed = parse(source);
     lower_module_controlled(
         Arc::new(source.clone()),
-        &parsed.syntax(),
+        &parsed.syntax().into(),
         &Default::default(),
     )
 }
@@ -257,7 +254,7 @@ pub fn lower_module(source: &SourceFile) -> LoweredModule {
 /// Lowers an already parsed AST and supplied source together; callers retain diagnostics and check cancellation.
 pub(crate) fn lower_module_controlled(
     source: Arc<SourceFile>,
-    module: &AstSourceFile,
+    module: &ModuleSyntax,
     cancel: &CancellationToken,
 ) -> LoweredModule {
     let attributes = lower_attributes(module);

@@ -49,7 +49,7 @@ pub(crate) fn recover_invalid_identity(
         parse_with_limits(source, Default::default(), &cancel).expect("uncancelled recovery parse");
     let lowered = Arc::new(lower_module_controlled(
         Arc::new(source.clone()),
-        &parsed.syntax(),
+        &parsed.syntax().into(),
         &cancel,
     ));
     let definitions = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
