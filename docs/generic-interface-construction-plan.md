@@ -1,9 +1,9 @@
 # Generic bound interface construction execution plan
 
-Status: proposed on 2026-10-21; implementation has not started. This plan owns
+Status: active on 2026-10-21; BI01 contracts are frozen. This plan owns
 SA22 phases BI01-BI06, implementation decisions, acceptance and the progress ledger.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns sequencing.
-SA11 is deferred by the user; preparing this plan does not activate a goal.
+SA11 is deferred by the user. The user authorized goal execution and phase commits.
 
 ## Outcome and scope
 
@@ -161,6 +161,63 @@ Keep unpublished artifact/runtime identifiers unless a real compatibility
 commitment requires a bump. Regenerate affected development fixtures at coherent
 checkpoints; retain source-free and forged-input coverage.
 
+### BI01 representation decisions
+
+- `ConstructionRequirement` lives with executable construction contracts and has
+  `receiver: Ty` and `interface: NominalTy`. It has no method or slot ID.
+- `ConstructionWitness` pairs a requirement with `ConstructionSelection`:
+  `Declared` retains a `ConcreteFunctionIdentity` and the selected implementation's
+  receiver-bound operation/construction dependencies; `Interface` retains the
+  existing receiver's checked copy/upcast; `Forward` consumes a capability from
+  the caller's declared bounds. Intrinsic adapters use their existing synthesized
+  implementation tables and therefore use `Declared` too.
+- Shared calls and interface-call contracts carry a separate construction list.
+  Shared method selections carry the dependencies of their selected receiver
+  implementation. No `OperationWitness` variant represents a methodless proof.
+  Wire traversal must bound the combined dependency graph, including alternating
+  operation and construction nodes, before recursive conversion/validation.
+- Requirements come from declared bounds, their parent closure and immediate
+  non-generic associated-type bounds, matching the existing operation expansion
+  boundary. Fill an unspecified non-generic associated output with its explicit
+  receiver projection before testing dynamic eligibility. Do not recursively expand
+  associated bounds. Sort and deduplicate by semantic receiver/application identity;
+  normalization at a closed call can merge equivalent requirements.
+- Eligibility uses `dynamic_interface_valid` with the caller's binder scope.
+  Static-only bounds supply operations but no construction capability. A requested
+  interface must retain all required output equalities; a forwarded proof may only
+  narrow a declared compatible capability through the existing parent rules.
+- MIR `MakeInterface` will own a target enum: declared implementation/application
+  or bound construction requirement. Bytecode uses the corresponding linked table
+  target or requirement. Keep one instruction's effects, operands and runtime
+  publication path; `UpcastInterface` remains the existing direct upcast operation.
+- Linked validation checks the exact selected table, substituted receiver, target
+  application, associated outputs and receiver-bound dependencies. `Forward` must
+  be implied by the enclosing `GenericBody.bounds`. Declaration-derived call lists
+  must be complete and unique, including empty traits. Program construction graph
+  coverage includes every selected application; retained programs alone never
+  establish the proof.
+- Runtime stores selected capabilities under `EnvironmentRecord.constructions`,
+  alongside its existing finite program scope. Entries retain the supplying module,
+  type-argument provenance and receiver-bound environment. Forwarding retains that
+  selection. Existing preparation keys must include construction evidence through
+  the call contract and environment identity; execution never searches current impls.
+
+Integration inventory: HIR table mapping/references and coercion lowering;
+shared-call, interface-call and shared-method witness creation, mapping, codecs,
+admission and cache keys; MIR/bytecode instruction operands, rewriting, identity
+mapping, wire records, semantic and physical verification, application validation,
+construction graph extraction, program dependencies, disassembly and native
+capability rejection; VM dispatch and runtime snapshot publication/metadata tracing.
+The existing `required_operations` associated-bound expansion will become a shared
+declaration helper rather than being copied into a second solver.
+
+Selected local filters start with
+`cargo test -p kagari-hir dynamic_standard_traits_and_caller_known_outputs_use_structural_rules`
+for the unchanged rejection boundary, construction contract tests under
+`cargo test -p kagari-contract callable::construction`, compiler interface filters
+and the SDK's existing `generic_reload` owner. Later phases record the precise
+selected test names and outcomes; none of these authorize a package/workspace sweep.
+
 ## Mature implementation references
 
 Consulted on 2026-10-21; these are living documents, not pinned release claims.
@@ -181,7 +238,7 @@ Consulted on 2026-10-21; these are living documents, not pinned release claims.
 
 ## Phases and commits
 
-Execute only after authorization. Each phase is a coherent Conventional Commit
+Execution is authorized. Each phase is a coherent Conventional Commit
 with Plan-Phase: BI0N. Mark exposed breaking Rust model changes with ! and explain
 consumer impact. Keep intermediate checkpoints buildable, with staged rejection
 at unsupported executable boundaries until BI04 completes both execution paths.
@@ -237,22 +294,24 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
 ## Progress ledger
 
 - Baseline: b4bcbd88; working tree clean before planning.
-- User requested an SA22 proposal and deferred SA11. No goal or implementation
-  activation has been requested for this plan.
+- User authorized SA22 goal execution and phase commits after accepting the proposal;
+  SA11 remains deferred.
 - Architecture inspection found existing construction graph, finite retained-program
   scope, shared method-operation witnesses and interface snapshot owners to extend.
 - Material decision: construction evidence is separate from method evidence;
   empty traits and shared declaration contracts are required acceptance boundaries.
-- Open BI01 details: concrete requirement/selection fields and instruction target
-  representation; canonical associated-output capability descriptors and admission
-  rules for shared declarations. These are bounded design gates, not permission
-  to omit shared execution or weaken interface eligibility.
+- BI01: fixed the representation, declaration-derived capability boundary,
+  associated projections and source-free admission rules above. Inspected both
+  MIR and bytecode construction graph consumers and the existing linked proof owner.
+- BI01 validation: the selected HIR structural-rule test passed (1 test), preserving
+  the current rejection until executable support lands. Documentation diff checked;
+  no implementation or full-workspace validation claimed.
 - Planning validation: documentation content/link checks and git diff --check;
   no implementation tests, builds or performance measurements required.
-- Carried implementation errors: none; implementation not started.
+- Carried implementation errors: none; source behavior remains unchanged in BI01.
 - Structural debt: no new exception proposed; review changed responsibilities at
   each implementation checkpoint. SA11 and broader caching work remain separate.
-- [ ] BI01 Contracts and integration inventory.
+- [x] BI01 Contracts and integration inventory.
 - [ ] BI02 Portable construction evidence and validation.
 - [ ] BI03 HIR proof and call preparation.
 - [ ] BI04 Executable shared construction.

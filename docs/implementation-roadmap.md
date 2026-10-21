@@ -805,14 +805,14 @@ by completion of the collection-interface work.
 
 The existing bound-to-interface erasure limitation is recorded as
 [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses).
-The [BI01-BI06 proposal](generic-interface-construction-plan.md) defines its bounded
-construction-evidence work. SA11 is deferred by user instruction; SA22 is the next
-proposed scope, with implementation still unstarted. It does not expand the
+The [active BI01-BI06 plan](generic-interface-construction-plan.md) defines its bounded
+construction-evidence work. SA11 is deferred by user instruction; SA22 goal execution
+is authorized, with BI01 contracts frozen. It does not expand the
 collection or host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses): generic interface construction | [BI01-BI06 proposal](generic-interface-construction-plan.md); complete bound-derived construction evidence through shared calls, source-free verification and pinned execution. Not activated. |
+| 1 | [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses): generic interface construction | [Active BI01-BI06 plan](generic-interface-construction-plan.md); complete bound-derived construction evidence through shared calls, source-free verification and pinned execution. BI01 contracts frozen. |
 | Deferred | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Deferred by the user. Any later review must preserve the implemented function ownership model; field removal remains undecided. |
 
 SA9 context-owned module handles are implemented. The
