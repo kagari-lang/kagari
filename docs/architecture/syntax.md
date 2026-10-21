@@ -237,6 +237,24 @@ revision bookkeeping still require caller-owned information. Dropping temporary
 parser state or the final retained tree releases ordinary Rust-owned resources;
 there are no script roots, external registrations or commit/rollback actions.
 
+[ModuleSyntax](../../crates/kagari-syntax/src/ast/module.rs) distinguishes an attached
+physical root from an inline ModuleBlock. It preserves ancestry/absolute offsets,
+exposes immediate items and excludes nested module bodies from owned traversal.
+ModuleLocation wraps Rowan 0.17.0's kind/range locator; analysis pairs it with its
+exact retained Parse rather than storing a red cursor in published records. A
+locator alone establishes neither source ownership nor cross-revision identity.
+Parse diagnostics have shared immutable storage, independent of tree retention.
+
+This uses the immutable-storage/attached-view mechanism described in the
+[rust-analyzer syntax design](https://rust-analyzer.github.io/book/contributing/syntax.html)
+(2020-01-09), with locator behavior verified against Rowan 0.17.0's src/ast.rs.
+The [rust-analyzer architecture](https://rust-analyzer.github.io/book/contributing/architecture.html)
+and [rustc HIR ownership guide](https://rustc-dev-guide.rust-lang.org/hir.html)
+(living references consulted 2026-10-21) support keeping syntax independent of
+semantic ownership. Kagari retains its own module arenas, definition contexts and
+resolution order. It does not adopt a new query engine or reparse newer text to
+recover old snapshot syntax.
+
 Syntax itself keeps no cross-call cache and exposes no incremental reparse
 operation. HIR's analysis database owns reuse decisions and can reuse a prior
 parse for an unchanged file revision. A newly parsed file goes through full

@@ -16,6 +16,126 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Inline module AST reuse, 2026-10-21
+
+Baseline `e7135c16` and candidate `3400f651` compare complete HIR declarations
+queries before/after SA1. The [HIR ownership contract](architecture/hir.md#query-work-reuse-and-publication)
+now shares physical text/line indexes and one parse across logical module views,
+while retaining independent lowering arenas and source identities. Source acquisition,
+signature/body checking, MIR/codegen and execution are outside this measurement.
+Graph construction and declaration resolution remain inside it; this is not a
+parser-only timing and does not isolate SA9's earlier graph improvements.
+
+### Workloads and method
+
+Use SourceDatabase with a single `inline.kgr` input and AnalysisDatabase without
+native registrations. The source fixtures are:
+
+- Control: `// 中文😀\r\nfn entry() {}` (28 UTF-8 bytes, one logical module).
+- Siblings: concatenate `mod m{i} { pub fn f{i}() {} }\r\n` for i=0..31
+  (908 bytes, 33 logical modules including the physical root).
+- Nested: concatenate `mod m{i} { ` for i=0..7, append `pub fn leaf() {}`,
+  then eight ` }` suffixes (104 bytes, nine logical modules).
+
+Here `\r\n` denotes actual CRLF. All declarations queries assert the module count
+and empty diagnostics. Fresh work constructs a new AnalysisDatabase and publishes
+its declarations. Unchanged work reuses that database/input while retaining the
+first snapshot. Edit work creates and retains a fresh old snapshot outside timing,
+replaces each `() {}` with `() { val changed = 1; }` in an overlay outside timing,
+and measures publication of the edited declarations. Every measured result is kept
+alive until after timing/counting; old snapshots remain retained. Input creation,
+compilation and result destruction are excluded.
+
+Build the same temporary integration probe with
+`cargo test -p kagari-hir --test sa1_probe --no-run --message-format=json`, preserve
+each revision's executable, then run it with
+`--ignored --nocapture --test-threads=1`. Per workload/process: one warmup, seven
+elapsed-time samples and a separate allocation pass. Edit samples rebuild their
+old setup outside each measurement. A forwarding System allocator with thread-local
+counters records successful alloc/realloc requests, gross requested bytes and
+requested bytes allocated minus freed during the operation. Net bytes exclude
+pre-existing retained input/old snapshots; they are not RSS or total resident size.
+A small negative unchanged-query net value reflects release of previously allocated
+cache storage. Timing runs disable allocation counters.
+
+Environment: Windows x86_64 MSVC, Intel i7-10700F (8 cores/16 logical processors),
+rustc 1.99.1 (58cf8f9c3, 2026-10-13), LLVM 23.1.1. Workspace test profile
+opt-level 1 with debug info, default HIR features/dev dependencies, default target
+directory and default build parallelism. Compilation/cache rebuild time is excluded.
+Workload caches are warmed as above; process startup, system load, frequency and
+affinity are uncontrolled. No Cargo/rustc process was observed before/after each
+final pair; this does not exclude other background load.
+
+Initial three paired processes showed broad timing variance, including a 22%
+unchanged-nested median increase. Before collecting final data, the follow-up was
+fixed at ten pairs with alternating baseline/candidate execution order. The tables
+use all 70 timing samples and ten allocation samples per revision/workload in that
+follow-up; no timed outliers were removed. The earlier exploration is excluded.
+Temporary probes/logs are disposable; the method, fixture recipe and results here
+are the retained evidence.
+
+### Complete declaration query observations
+
+Times are microseconds: median followed by the complete observed sample range.
+Wide ranges and these small fixtures preclude a general compiler speed claim.
+
+| Workload | Baseline median [min, max] | Candidate median [min, max] |
+| --- | ---: | ---: |
+| control/fresh | 38.10 [31.1, 155.3] | 38.85 [31.4, 99.5] |
+| control/unchanged | 13.55 [10.7, 114.6] | 13.40 [10.7, 49.5] |
+| control/retained_edit | 46.85 [37.6, 77.4] | 46.15 [38.5, 145.8] |
+| siblings/fresh | 2,042.00 [1,790.3, 9,242.9] | 1,300.10 [1,079.2, 6,281.7] |
+| siblings/unchanged | 5,050.50 [4,237.3, 63,213.5] | 4,721.25 [3,902.9, 20,914.7] |
+| siblings/retained_edit | 2,072.65 [1,751.8, 8,805.3] | 1,266.60 [1,048.0, 14,274.1] |
+| nested/fresh | 404.75 [332.5, 1,029.8] | 336.45 [225.4, 1,483.6] |
+| nested/unchanged | 423.55 [379.8, 2,335.0] | 463.00 [383.0, 8,552.7] |
+| nested/retained_edit | 320.50 [265.2, 2,073.3] | 205.50 [160.5, 5,300.6] |
+
+Allocation columns show the complete observed range, baseline to candidate.
+
+| Workload | Requests | Gross requested bytes | Net requested bytes |
+| --- | ---: | ---: | ---: |
+| control/fresh | 180 → 184 | 35,267 → 30,707 | 17,191 → 17,287 |
+| control/unchanged | 56 → 59 | 21,087 → 16,487 | 0 → 0 |
+| control/retained_edit | 234 → 238 | 39,499 → 34,939 | 18,232 → 18,328 |
+| siblings/fresh | 9,523–9,524 → 6,528–6,529 | 1,775,252–1,775,620 → 1,528,476–1,528,844 | 1,036,359–1,036,727 → 905,367–905,735 |
+| siblings/unchanged | 21,657 → 21,509 | 9,445,638 → 9,337,078 | -368–0 → -368–0 |
+| siblings/retained_edit | 10,194–10,195 → 8,223–8,224 | 1,530,417–1,530,785 → 1,205,753–1,206,121 | 779,886–780,254 → 594,686–595,054 |
+| nested/fresh | 2,280 → 1,288 | 298,002 → 235,722 | 156,037 → 136,357 |
+| nested/unchanged | 2,139 → 2,176 | 832,272 → 829,208 | 0 → 0 |
+| nested/retained_edit | 1,818 → 1,097 | 279,648 → 205,632 | 135,356 → 111,052 |
+
+Fresh sibling requests fall about 31% and fresh nested requests about 44%; gross
+requested bytes fall about 14% and 21%, respectively. Fresh retained net bytes fall
+about 13% in both fixtures. Retained-edit requests/bytes also fall; those net values
+count only incremental allocation during the edited query, not the complete pair
+of snapshots. The ordinary-file control adds four allocation requests and 96 net
+bytes while reducing gross requested bytes; its timing medians are approximately
+unchanged relative to the observed variance.
+
+The mechanism is verified by shared parse/content ownership tests and the removed
+masking/parser path: fresh user-source preparation performs one physical parse
+instead of 1/33/9, with no per-child full source or line-index construction.
+Unchanged queries perform no new parse in either version. Candidate snapshots
+retain exact physical parse ownership, so no old view resolves against newer text.
+
+The unchanged nested-query median increases from 423.55 to 463.00 microseconds
+(about 9%), with 37 extra requests (about 1.7%) and slightly fewer gross bytes.
+Inspection shows the unchanged query still rebuilds logical descriptors and the
+module/declaration graph: parse sharing does not skip those owners. New logical
+locators/diagnostic projections have bookkeeping cost; the measurements do not
+isolate how much of the timing difference is bookkeeping versus background noise.
+The initial larger increase did not persist at the same magnitude in the fixed
+follow-up. No cache redesign or weakened namespace checks were added to hide this
+limitation. Finer invalidation remains R8, and no uniform speedup is claimed.
+
+Correctness acceptance uses focused source mappings, parser recovery/budgets,
+retained views, signature/body remapping, declaration cache/cancellation, docs/lint,
+portable inline origins, source-free exports and SDK inline execution/error cases.
+The decoded-artifact nested execution returns 42. Required local structure,
+formatting, workspace all-target Clippy and diff checks pass. Complete workspace,
+feature/backend/platform acceptance remains CI-owned and unrun for this change.
+
 ## Context-owned module graph handles, 2026-10-21
 
 Baseline `79ed7606` and implementation `8f029cd7` compare the ordinary HIR import

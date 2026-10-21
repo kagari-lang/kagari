@@ -180,6 +180,10 @@ no cross-Program atomic publication is implied, and old calls retain pinned code
 
 Immutable `ProgramInputs` retains one exact dependency closure and hands external/root files
 to `kagari-source`; HIR derives inline modules from those same captured bytes.
+Inline units share immutable source content, line indexing and an attached physical
+parse while retaining independent module identities and HIR arenas. The
+[HIR query contract](architecture/hir.md#query-work-reuse-and-publication) owns
+logical traversal, diagnostic projection and physical parse validity.
 `SourceDatabase::replace_captured` publishes the complete batch and package scopes
 atomically, preserves unchanged file IDs/revisions, and keeps diagnostic origins
 separate from stable logical keys. Invalid or cancelled batches leave old inputs

@@ -71,8 +71,8 @@ the outstanding BO04/IP12 performance gates.
 | Chapter / selected printed pages | Current Kagari assessment and bounded recommendation |
 | --- | --- |
 | **1. Overview of Compilation**, §§1.1-1.3, pp. 5-8, 14-15; §1.4, p. 21 | Keep distinct semantic, transformation and target owners. Evaluate compilation/preparation plus repeated execution, retained memory and lifecycle costs; fewer bytecode instructions alone are not an economic result. |
-| **2. Scanners**, §§2.5.3-2.5.4, pp. 69-73 | Token spans and retained source suit tooling. SA1's repeated full-file processing is a larger ownership issue than selecting a new scanner generator. Identifier/escape classification also has local temporary allocations, discussed below; no scanner rewrite is required. |
-| **3. Parsers**, §3.2.4, pp. 92-95; §§3.3.1-3.3.2, pp. 108-110 | Recursive descent, precedence handling and a lossless tree are appropriate. Lower existing inline-module subtrees under their own contexts (SA1), preserving recovery and physical source offsets. The book does not make LR tables a prerequisite for a fast frontend. |
+| **2. Scanners**, §§2.5.3-2.5.4, pp. 69-73 | Token spans and retained source suit tooling. Inline modules now share their physical parse; that ownership change required no new scanner generator. Identifier/escape classification also has local temporary allocations, discussed below; no scanner rewrite is required. |
+| **3. Parsers**, §3.2.4, pp. 92-95; §§3.3.1-3.3.2, pp. 108-110 | Recursive descent, precedence handling and a lossless tree are appropriate. Inline-module subtrees now lower under their own contexts, preserving recovery and physical source offsets. The book does not make LR tables a prerequisite for a fast frontend. |
 | **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. SA14/SA22 require explicit new semantics, not performance shortcuts. |
 | **5. Intermediate Representations**, §§5.1-5.4, selected pp. 221-251; §5.5, selected pp. 253-263 | Typed block MIR plus side metadata is a viable hybrid IR. `TempId` is not an SSA definition. Context-owned module handles separate local identity from portable paths; SA11 is an interface/storage tradeoff, not a required migration. Any SSA proposal must justify its consumers and own merge edges, destruction and origins. |
 | **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13/R14 remain retention/transition issues; the implemented accounting and occupied-discovery contracts do not justify changing GC families. Managed native calls need the existing ABI/root gates. |
@@ -106,8 +106,8 @@ execution. Those differences constrain every proposed transformation.
   valid non-SSA code. A global value-numbering pass must use reaching definitions
   and dominance, or explicitly construct SSA, rather than assume one definition
   from the name `TempId`. A new permanent IR is not required for that decision.
-- **Frontend reuse needs sharper dependencies, not weaker identity.** SA1
-  and R8 remain the relevant owners. In particular, an imported function-body edit
+- **Frontend reuse needs sharper dependencies, not weaker identity.** R8
+  remains the owner of finer dependency invalidation. In particular, an imported function-body edit
   can change source revision/arena without changing its callable contract; semantic
   reuse must refresh navigation while preserving old snapshot validity. SA11's
   redundant self IDs are not established as a performance bottleneck.
@@ -134,7 +134,7 @@ Two bounded local opportunities do not require additional architecture projects:
    Use borrowed spelling and a shared validation/output decoder core if allocation
    measurement warrants it. Preserve one escape grammar, interpolation recovery,
    Unicode/CRLF offsets and the lossless tree. Do not add a cross-stage literal cache
-   or treat this as a substitute for SA1.
+   or duplicate the implemented physical parse sharing.
 2. `passes::optimize` folds constants before forwarding local snapshots. Forwarding
    can expose constant operands after folding has finished. This is a conservative
    missed opportunity, not incorrect execution. A bounded local simplification
@@ -423,7 +423,7 @@ supplied native-input MIR against the bytecode before installing a product.
 
 | Phase | Work actually owned there | Lifetime and remaining obligations |
 | --- | --- | --- |
-| Source/checking | Parsing, recoverable HIR, name/type/trait checks, source identities and dependency analysis | Analysis sessions retain their caches; no corresponding CST/HIR owner was found through a loaded runtime descriptor. R7 still repeats lowering rounds; SA1 reparses inline modules. |
+| Source/checking | Parsing, recoverable HIR, name/type/trait checks, source identities and dependency analysis | Analysis sessions retain their caches; no corresponding CST/HIR owner was found through a loaded runtime descriptor. R7 still repeats lowering rounds; inline modules share physical parse storage. |
 | Lowering/verification | Instantiate bounded generic demands, lower checked facts, verify MIR and bytecode, retain executable declarations/layout contracts | Source-free type/witness information is not automatically redundant. Optional preparation MIR may remain with its preparation owner, not automatically the runtime. |
 | Preparation | `VerifiedProgram::from_bytecode` builds reusable execution layouts, scalar/managed locations and call placements | Immutable verified bytecode and prepared execution records coexist. These are an intentional execution representation, not source reanalysis. R13 identifies an additional avoidable bytecode graph. |
 | Runtime link/install | Remap definition identities, validate installed native declarations, bind layouts/call targets and exact code ownership | Runtime-specific authority and installed host identity cannot be established only by compile-time verification. Cold dependent layouts may be prepared later. |
@@ -815,23 +815,6 @@ native heap-root execution, exhaustive race/panic injection, R13 retention probe
 and LLVM validation are not established by this review. Source inspection can
 establish retention edges and repeated traversals, not their share of total latency
 or a promised speedup. Historical BO04/IP12 failed gates remain unresolved.
-
-## SA1 Inline modules are parsed again
-
-[prepare_declarations](../crates/kagari-hir/src/analysis/declaration_queries.rs)
-copies the enclosing source, masks bytes outside each inline module body and
-parses that virtual file again. The parent AST already contains the module body;
-[lower_module_decl](../crates/kagari-hir/src/lower/item.rs) only records its header.
-This repeats lexing/parsing and allocates a full source buffer per child.
-
-Consider lowering existing `ModuleBlock::items()` with an independent child
-context. Preserve module ownership, visibility, stable child identities, original
-UTF-8/CRLF offsets and diagnostic attribution. Reuse the existing inline-module
-navigation tests. Keep declaration, signature and body checking separate.
-
-The [execution plan](inline-module-ast-plan.md) owns IA01-IA05, shared physical
-source/parse storage, logical consumer migration and focused acceptance.
-Implementation is active; the plan owns phase progress.
 
 ## SA11 HIR declarations and ADT members carry container-derived identities
 

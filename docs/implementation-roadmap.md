@@ -810,9 +810,8 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
-| 2 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 3 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 1 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 2 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
 SA9 context-owned module handles are implemented. The
 [identity architecture](architecture.md#definition-identity-ownership) and
@@ -825,11 +824,19 @@ include initial registration, publication, retained graphs and table growth;
 their reductions apply only to that bounded graph workload. Full-workspace tests
 and the complete backend/feature/platform matrix remain pending CI acceptance.
 The completed MH01-MH05 plan is retired; Git history owns its phase ledger.
-SA1 is next in this queue. The [inline module AST reuse plan](inline-module-ast-plan.md)
-owns IA01-IA05, shared physical source/parse ownership, logical lowering and
-consumer migration, recovery/identity acceptance and bounded measurements.
-Implementation is activated; IA01 baseline is complete and IA02 is next.
-R7 scheduling, R8 invalidation and R13
+
+SA1 inline AST reuse is implemented. Physical text, line indexing and parse storage
+are shared; logical modules retain separate identities/arenas and owned syntax
+views. The [HIR query contract](architecture/hir.md#query-work-reuse-and-publication)
+and [syntax guide](architecture/syntax.md) own recovery, diagnostic projections,
+physical error gates and snapshot retention. Focused source/HIR/lint/compiler/SDK
+checks, structure, formatting, workspace all-target Clippy and diff checks pass.
+The [matched declaration measurements](performance-baseline.md#inline-module-ast-reuse-2026-10-21)
+record allocation reductions and the unchanged nested-query timing limitation;
+these do not establish end-to-end compile latency or finer cache invalidation.
+Complete workspace and backend/feature/platform acceptance remain pending CI.
+The completed IA01-IA05 plan is retired; Git history owns its ledger.
+SA14 is next and is not activated. R7 scheduling, R8 invalidation and R13
 identity-domain retention remain separate.
 
 Structured import paths (SA15) are implemented. The
@@ -839,15 +846,14 @@ contracts. Focused import/recovery/visibility/publication, navigation/cache/snap
 native declaration and compiler source-free export checks passed, as did required
 local code-quality checks. Complete feature/backend/platform acceptance remains
 CI-owned; no speed or memory improvement is claimed. The completed SA15 plan is
-retired and Git history owns its phase ledger. SA1 remains queued.
+retired and Git history owns its phase ledger.
 
 Important ordering constraints and limits:
 
 - SA14's declaration ownership/allocation design must be settled before SA11
   changes function identity storage; the proposed default completes SA14 first.
-- SA1 should reuse the implemented module ownership/graph boundaries while
-  preserving written import segments and physical source identities. Module
-  handles do not replace either of those inputs.
+- Inline syntax views preserve written import segments and physical source
+  identities. Module handles do not replace either of those inputs.
 - SA21 consumes ordinary trait declarations and checked interface operations.
   Collection readonly views and Rust host borrow capabilities remain distinct
   contracts; the removed trait marker must not be recreated by host adaptation.

@@ -459,10 +459,36 @@ types and selected operations. Syntax errors can still leave useful facts and
 diagnostics. Cancellation is an error, checked before publishing completed results.
 Older requests do not replace newer published revision caches.
 
-Inline modules currently receive a synthetic file ID and padded source text: bytes
-outside the module body become spaces, preserving newlines and physical offsets.
-That text is parsed/lowered again. The existing AST subtree is not reused for this
-step. Position queries route physical offsets to the corresponding inline analysis.
+Inline modules share physical text, line indexing and one retained parse. Each
+logical source keeps a stable synthetic FileId and its own ModuleHandle, revision
+and lowering arena. [Source preparation](../../crates/kagari-hir/src/analysis/source_preparation.rs)
+lowers attached ModuleBlock items directly; it neither masks text nor invokes the
+parser for a child. Position queries retain original UTF-8/CRLF offsets and route
+them to the corresponding logical analysis.
+
+FileDeclarations::syntax and FileAnalysis::syntax return
+[ModuleSyntax](../../crates/kagari-syntax/src/ast/module.rs), a root-or-inline view.
+Its item/descendant traversal includes child headers and excludes child bodies.
+Attributes, documentation and lint use that boundary; signature/body surface
+comparisons use logical extents and explicitly translate physical offsets.
+An independently supplied inline source must match a body extent in its retained
+text. Analysis rejects inconsistent extents with InvalidSourceRange; the low-level
+lower_module convenience documents this caller invariant.
+
+Physical parser limits apply once, including recovery. Missing closing braces do
+not discard the final token; unparsed error-node suffixes are not reparsed as child
+items. Logical diagnostic projections preserve each original occurrence once.
+Ambiguous missing-end errors and parser limits stay with the physical owner.
+Complete physical diagnostics remain shared executable-validation evidence:
+direct into_codegen and check_program reject invalid source even when the visible
+error belongs to another logical module. Program checks collect physical errors
+once per origin/revision and retain each module's semantic errors.
+
+Analysis pairs syntax locators with the exact retained parse; old locators never
+resolve against a newer revision. New physical revisions rebuild child arenas;
+sharing syntax does not weaken source-unit/context-prefix checks. Existing foreign
+namespace revision/arena checks can still force body rechecking after an inline
+edit, even when signature surfaces match. Finer invalidation remains separate.
 
 | Change | Actual reuse boundary |
 | --- | --- |
