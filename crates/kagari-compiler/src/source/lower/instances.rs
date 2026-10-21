@@ -165,6 +165,8 @@ pub(super) struct InstancePlanner<'a> {
     pub native_targets: Vec<NativeImport>,
     pub interface_instances: Vec<ConcreteFunctionIdentity>,
     keys: HashMap<InstanceKey, InstanceId>,
+    // One receiving identity per authored local declaration for this planner.
+    local_function_placements: HashMap<DefinitionId, DefinitionId>,
     generic_count: usize,
     operation_depth: usize,
     interfaces: HashSet<(DefinitionId, Vec<TypeId>)>,
@@ -317,6 +319,7 @@ impl<'a> InstancePlanner<'a> {
             interface_instances: Vec::new(),
             native_targets: Vec::new(),
             keys: HashMap::new(),
+            local_function_placements: HashMap::new(),
             generic_count: 0,
             operation_depth: 0,
             interfaces: Default::default(),
@@ -844,17 +847,71 @@ impl<'a> InstancePlanner<'a> {
         arguments: Vec<TypeId>,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
+        self.enqueue_script(self.module, function, arguments, None, span)
+    }
+
+    /// Places a callable value beside its receiving instance, retaining authored body ownership.
+    pub(super) fn enqueue_local_function_value(
+        &mut self,
+        parent: &Instance,
+        source: &'a AnalyzedModule,
+        function: FunctionId,
+        arguments: Vec<TypeId>,
+        span: Span,
+    ) -> Result<InstanceId, MirLoweringError> {
+        let target = source
+            .declarations
+            .target(ResolvedName::Function(function))
+            .ok_or(MirLoweringError::MissingBinding(
+                "local function definition",
+            ))?;
+        let DeclarationId::Definition(declaration) = &target.id else {
+            return Err(MirLoweringError::MissingBinding("local callable identity"));
+        };
+        let placement = if self.module_handle(*declaration) == self.owner_handle() {
+            None
+        } else if let Some(placement) = self.local_function_placements.get(declaration) {
+            Some(*placement)
+        } else {
+            // Imported default bodies already execute under the implementation's
+            // identity. Their local callable values follow the same placement as
+            // nested closures; source IDs and generic binders remain authored.
+            let placement = self
+                .context
+                .intern_child(
+                    parent.key.declaration,
+                    DefinitionKind::Function,
+                    &format!("$local_{}", function.index()),
+                    0,
+                )
+                .map_err(DefinitionMappingError::from)?;
+            // Recursive function-value references must reuse this identity. Locals
+            // inherit no caller substitution, including across default methods.
+            self.local_function_placements
+                .insert(*declaration, placement);
+            Some(placement)
+        };
+        self.enqueue_script(source, function, arguments, placement, span)
+    }
+
+    /// Instantiates a checked script callable from its owning source module.
+    fn enqueue_script(
+        &mut self,
+        module: &'a AnalyzedModule,
+        function: FunctionId,
+        arguments: Vec<TypeId>,
+        placement: Option<DefinitionId>,
+        span: Span,
+    ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
-        let declaration = self
-            .module
+        let declaration = module
             .declarations
             .target(ResolvedName::Function(function))
             .ok_or(MirLoweringError::MissingBinding("function declaration"))?;
         let DeclarationId::Definition(declaration) = &declaration.id else {
             return Err(MirLoweringError::MissingBinding("function identity"));
         };
-        let typed = self
-            .module
+        let typed = module
             .typed
             .functions
             .iter()
@@ -876,7 +933,7 @@ impl<'a> InstancePlanner<'a> {
             }
         }
         let key = InstanceKey {
-            declaration: *declaration,
+            declaration: placement.unwrap_or(*declaration),
             arguments,
         };
         if let Some(id) = self.keys.get(&key) {
@@ -910,7 +967,7 @@ impl<'a> InstancePlanner<'a> {
         self.instances.push(Instance {
             resume: false,
             callable: None,
-            origin: self.owner_handle(),
+            origin: self.module_handle(*declaration),
             id,
             function,
             key,

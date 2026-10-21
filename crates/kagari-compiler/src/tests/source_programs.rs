@@ -932,3 +932,31 @@ fn bytecode(context: &DefinitionContext, program: &VerifiedMirProgram) -> Byteco
     .unwrap();
     program
 }
+
+#[test]
+fn local_function_values_in_imported_default_methods_keep_source_ownership() {
+    let mut db = SourceDatabase::default();
+    insert(
+        &mut db,
+        "api",
+        "pub trait Make { fn make(self) -> fn(i32) -> i32 { fn identity<T>(x: T) -> T { val recursive: fn(T) -> T = identity; x } identity } }",
+    );
+    let root = insert(
+        &mut db,
+        "root",
+        "use pkg::api::Make; impl Make for i32 {} fn main() -> i32 { val maker: Make = 0; val callback = maker.make(); callback(42) }",
+    );
+    let checked = checked(&db, root);
+    let ir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+    let wire = encode_program(&ir, &Default::default()).unwrap();
+    let decoded = decode_program(&wire, &Default::default()).unwrap();
+    assert_eq!(wire, encode_program(&decoded, &Default::default()).unwrap());
+    let context = DefinitionContext::new().unwrap();
+    let original = bytecode(&context, &ir);
+    let restored = bytecode(&context, &decoded);
+    verify_bytecode_program(&restored, &context.snapshot(), &Default::default()).unwrap();
+    assert_eq!(
+        encode_program_facts(&original, &context.snapshot(), &Default::default()).unwrap(),
+        encode_program_facts(&restored, &context.snapshot(), &Default::default()).unwrap()
+    );
+}

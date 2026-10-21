@@ -634,9 +634,9 @@ Notes:
 
 ### Blocks and Statements
 
-Named local functions are parsed, resolved and type-checked under the
-[local function plan](../local-functions-plan.md). Executable support remains
-staged until LF04; compiler lowering currently rejects local declarations.
+Named local functions support checked calls and escaping function values under
+the [local function contract](../local-functions-plan.md#language-contract).
+They have block-wide visibility and do not capture enclosing values.
 
 ```ebnf
 block           ::= "{" stmt* expr? "}" ;

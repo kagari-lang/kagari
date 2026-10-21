@@ -81,3 +81,6 @@ mod try_protocols;
 
 #[cfg(all(feature = "source", feature = "native"))]
 mod type_inference;
+
+#[cfg(feature = "source")]
+mod local_functions;

@@ -4,7 +4,7 @@ Status: active; implementation authorized on 2026-10-21. The user selected nonca
 local functions on 2026-10-21, including forward references and recursion with
 outer data passed explicitly. The rules below are the accepted execution contract. This plan owns LF01-LF06, acceptance and the progress ledger;
 the [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation.
-Current grammar remains unchanged until implementation lands.
+Grammar, typing and executable support are implemented; tooling/lifecycle acceptance remains active.
 
 ## Outcome and scope
 
@@ -288,13 +288,13 @@ diagnostic/fallback contract. Never report unrun CI as passed.
 - Planning baseline: `ef2f887d`; working tree was clean before this document.
 - User decision: noncapturing local functions with forward references/recursion;
   outer data is passed explicitly. Goal execution is authorized.
-- Current carried implementation errors: none; no implementation/build attempted.
+- Current carried implementation errors: none. LF01-LF04 implementation and selected checks pass.
 - Structural debt: no new exception requested. LF02 reviews function/block storage;
   LF03 owns bounded conservative reuse; finer invalidation remains R8.
 - [x] LF01 Contract and integration inventory.
 - [x] LF02 Grammar and declaration ownership.
 - [x] LF03 Lexical resolution and typing.
-- [ ] LF04 Executable calls and function values.
+- [x] LF04 Executable calls and function values.
 - [ ] LF05 Tooling and lifecycle contracts.
 - [ ] LF06 Local acceptance and documentation closure.
 
@@ -389,3 +389,27 @@ checked through existing specialization. No remaining test/build failure.
 
 Structure check (1406 files), fmt, workspace all-target Clippy and diff checks
 pass. No structural exception; exhaustive CI remains pending.
+
+### LF04 checkpoint
+
+Removed staged executable gates. Direct calls reuse ordinary instance planning;
+local function values use checked applications and MakeClosure with no captures.
+Declarations emit no instruction. Imported trait default bodies retain authored
+source/binder ownership while placing local executable identities in the receiving
+module. A planner-owned mapping from authored declaration to receiving identity
+lasts for that planner only; it ensures recursive function-value references reuse
+one placement, independently of caller substitutions. Generic instance keys and
+limits remain unchanged. No artifact/ABI version bump or verifier weakening.
+
+Passed `cargo test -p kagari --lib local_functions_execute_from_artifacts_without_export_leakage`
+(source-free artifact round trip, forward/mutual/generic/value/closure/method calls,
+async execution and export exclusion) and
+`cargo test -p kagari-compiler --lib local_function_values_in_imported_default_methods_keep_source_ownership`
+(imported default, recursive generic function-value reference, MIR/bytecode round
+trips and verification). The imported case initially failed InvalidInstance;
+receiving placement now follows the existing imported-body ownership contract.
+`cargo test -p kagari-syntax --lib async_callable_syntax_contract` passes after
+restricting block-head async declaration parsing to async followed by fn; async
+closures keep their expression path. Structure check, fmt, workspace all-target
+Clippy and diff checks pass after formatting repair. No carried error or structural
+exception. Full backend/platform coverage remains CI-only.

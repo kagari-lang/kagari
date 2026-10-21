@@ -33,6 +33,7 @@ mod propagation;
 mod shared;
 
 mod equality;
+mod local_functions;
 mod native_calls;
 mod native_contracts;
 mod operators;
@@ -362,6 +363,9 @@ impl FunctionLowerer<'_, '_> {
     }
 
     fn lower_expr_value(&mut self, expr_id: ExprId) -> Result<MirValue, MirLoweringError> {
+        if let Some(value) = self.lower_local_function_value(expr_id)? {
+            return Ok(value);
+        }
         if let Some(fact) = self
             .analyzed
             .typed
