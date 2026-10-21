@@ -1,4 +1,5 @@
 //! Width-matched float utilities use ordinary exact scalar native bindings.
+use crate::foundation::numeric::binding::{binary, unary};
 use kagari_runtime::{
     error::{RuntimeError, RuntimeErrorKind},
     native::{
@@ -9,27 +10,6 @@ use kagari_runtime::{
         types::Type,
     },
 };
-
-fn unary<A: NativeScalar, R: NativeScalar>(operation: fn(A) -> R) -> NativeBinding {
-    NativeBinding::new(
-        vec![Codec::Exact(Type::scalar(A::abi_type()))],
-        Codec::Exact(Type::scalar(R::abi_type())),
-        move |cx| Ok(operation(A::decode(cx.argument(0)?)?).encode()),
-    )
-}
-
-fn binary<T: NativeScalar>(operation: fn(T, T) -> T) -> NativeBinding {
-    let scalar = Type::scalar(T::abi_type());
-    NativeBinding::new(
-        vec![Codec::Exact(scalar.clone()), Codec::Exact(scalar.clone())],
-        Codec::Exact(scalar),
-        move |cx| {
-            let value = T::decode(cx.argument(0)?)?;
-            let other = T::decode(cx.argument(1)?)?;
-            Ok(operation(value, other).encode())
-        },
-    )
-}
 
 fn documentation(description: &str, parameters: &str, expression: &str) -> String {
     format!(

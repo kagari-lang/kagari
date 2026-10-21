@@ -9,6 +9,7 @@ use kagari_source::source::SourceFile;
 
 mod boundaries;
 mod contracts;
+mod math;
 mod semantics;
 mod transport;
 

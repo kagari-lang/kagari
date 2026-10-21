@@ -1,6 +1,6 @@
 # Numeric standard-library implementation plan
 
-Status: implementation and phase commits authorized; NS01-NS03 complete, NS04 next.
+Status: implementation and phase commits authorized; NS01-NS04 complete, NS05 next.
 The [roadmap](implementation-roadmap.md#numeric-standard-library) owns activation.
 This document owns the finite NS01-NS05 sequence, proposed API/semantics, acceptance
 and progress ledger. Proposed methods below are **not installed APIs today**.
@@ -215,8 +215,13 @@ its actual supported toolchains and record any mismatch before changing the cont
 | Rust std [f32](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/std/src/num/f32.rs) / [f64](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/std/src/num/f64.rs) | Width-specific math delegates to compiler intrinsics/platform math; square root has a stronger rounding contract than transcendentals/powers. Adopt those distinctions, not a claim of portable libm bit determinism or Rust native speed for Kagari calls. |
 | Vigna's [splitmix64.c](https://prng.di.unimi.it/splitmix64.c), authored 2015, unversioned source retrieved on the lookup date | Explicit 64-bit state, modular increment/multiplication and XOR shifts make a small exact-integer acceptance workload. Rust/C unsigned wrapping must be expressed explicitly in Kagari. Keep state script-local; no global entropy, thread safety, statistical certification or cryptographic security claim is imported. |
 
-No custom numeric framework is justified here. The sole deliberate error adaptation
-is mapping an invalid clamp domain to Kagari's established script-trap boundary.
+No custom numeric framework is justified here. Invalid clamp domains map to
+Kagari's established script-trap boundary. Power entry guards enforce the declared
+unit exceptions for quiet/signaling NaNs, and powi computes the matching Rust
+absolute-base magnitude before restoring exact i32 parity (with exact +/-1).
+These small semantic adapters are necessary because NS04 reproduced host powi
+parity loss and signaling-NaN special-case differences; ordinary magnitude precision
+remains Rust-dependent. No separate libm or VM special case is introduced.
 Prepared identities, GC result carriers and pre-entry backend fallback remain Kagari
 mechanisms; a matching method spelling does not authorize copying Rust ownership.
 
@@ -359,7 +364,7 @@ call-boundary and GC optimizations stay with their existing review/roadmap owner
 - [x] NS01: freeze contracts and boundary acceptance after implementation authorization.
 - [x] NS02: installed integer policy methods.
 - [x] NS03: float utilities and bit-exact transport.
-- [ ] NS04: bounded transcendental and power methods.
+- [x] NS04: bounded transcendental and power methods.
 - [ ] NS05: application-oriented acceptance and documentation handoff.
 
 NS01 decisions: the finite signatures and edge cases above are frozen. Integer
@@ -404,6 +409,32 @@ Registration publication/installation passed (1) with its inventory updated for 
 new float inherent groups (234 -> 236). Structure (1434 files), format, workspace
 all-target Clippy and diff checks passed. No carried errors; cross-platform math
 acceptance remains CI-only. No backend, ABI or ordinary operator change was needed.
+
+NS04: 22 concrete extended-math bindings are installed. Shared exact scalar
+adapters were factored from NS03's float module for their actual second consumer.
+Seven math tests passed across focused runs (initial four successes plus backend
+and repaired power cases). Analytic references have stated per-width tolerances;
+domains, signed zero/inf/NaN, i32 extrema, argument rejection and actual Cranelift
+pre-entry rejection/InterpreterFallback are covered. No native execution is claimed.
+
+Boundary evidence changed the implementation, not assertions: Rust 1.99.1/MSVC's
+direct f32 powi at i32::MAX lost odd sign (for example -0 became +0), and signaling
+NaN unit cases differed from the frozen power contract. Explicit unit guards and
+absolute-base powi plus exact parity restoration preserve that contract; the final
+two power tests use independent mathematical extreme/sign expectations, not the
+same host power implementation as their oracle. Approximate magnitudes retain
+the documented precision limits. Early generated-case and fallback-fixture failures
+were repaired without dropping coverage; no carried failures remain.
+
+An independent NS02/NS03 review found no production defect but identified missing
+raw-native carrier coverage. Two installed-import frame-driver tests now distinguish
+malformed admission (ModuleValidation before callback entry) from well-typed clamp
+ScriptTrap, verify cleanup and valid calls after failures, and cover out-of-range
+u32 bit inputs. These do not bypass admission to claim callback decoder coverage.
+The tests passed. Registration publication/installation passed (1), and the shared
+adapter's exact-constant-transport/sqrt regression selection passed (2). Inventory
+now includes two extended-math groups (236 -> 238). Structure (1442 files), format,
+workspace all-target Clippy and diff checks passed. Complete CI remains unrun.
 
 Planning validation: an independent read-only review found no required corrections
 to the inventory, current owner boundaries, float/error semantics or phase scope.

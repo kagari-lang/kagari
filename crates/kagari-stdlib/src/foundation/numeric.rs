@@ -1,8 +1,10 @@
 //! Scalar construction keeps independent declaration targets for shared Rust bodies.
 pub(super) mod aggregation;
+mod binding;
 pub(super) mod conversion;
 mod float;
 mod integer;
+mod math;
 use crate::foundation::{
     default_impl, enumeration,
     enumerations::value::{self as enums, Entry},
@@ -42,6 +44,7 @@ fn constant<T: NativeScalar>(value: T) -> (Type, NativeBinding) {
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
     integer::declare(module)?;
     float::declare(module)?;
+    math::declare(module)?;
     for ((ty, binding), description) in [
         (constant(()), "Return the Unit value ()."),
         (constant(false), "Return false."),
@@ -177,6 +180,6 @@ fn aggregate(
 }
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
-    "Numeric parsing, aggregation and explicit fixed-width integer policies. Ordinary arithmetic remains checked and traps on overflow; integer methods explicitly select wrapping, checked Option, overflowing tuple or saturating results. Rotations use u32 counts modulo the receiver's width. Parsing and conversion failures use the declared Result error.",
+    "Numeric parsing, aggregation, explicit fixed-width integer policies and width-matched float utilities and math. Ordinary arithmetic remains checked and traps on overflow; integer methods explicitly select wrapping, checked Option, overflowing tuple or saturating results. Rotations use u32 counts modulo the receiver's width. Float utilities include classification, rounding, correctly rounded square root and exact bit reinterpretation; invalid clamp bounds trap. Extended trigonometric, exponential, logarithmic and power methods return ordinary numeric exceptional results, use radians for angles and have unspecified precision with no universal ULP bound or cross-platform or repeated-result bit-identity guarantee. Parsing and conversion failures use the declared Result error.",
     "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
 );

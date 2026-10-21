@@ -557,8 +557,8 @@ freeze numeric contracts, expose the retained integer-policy machinery through
 ordinary scalar methods, add bounded f32/f64 utilities and math functions, then
 validate a small script-owned numerical/sampling workload and hand off documentation.
 Implementation and per-phase commits are authorized. NS01 contract/boundary
-acceptance, NS02 integer methods and NS03 float utilities are complete; NS04
-transcendental/power methods are next.
+acceptance and NS02-NS04 integer/float/math methods are complete; NS05 application
+acceptance and documentation handoff are next.
 The branch baseline is `4baef38e` on `feat/numeric-stdlib`.
 
 Reuse the completed module-owned registration and canonical core::num ownership;
