@@ -8,7 +8,7 @@ use crate::{
         witness::required_operations,
     },
     types::{
-        ConcreteFunctionIdentity, InterfaceTable,
+        ConcreteFunctionIdentity, InterfaceBridge, InterfaceTable,
         proofs::{ProofCatalog, implementation::Implementation},
     },
 };
@@ -165,6 +165,24 @@ fn methodless_construction_requires_exact_selected_or_forwarded_evidence() {
         },
     };
     assert!(selected.valid(&catalog, &[], &[], &cancel).unwrap());
+    let mut forged_bridge = table.clone();
+    forged_bridge.bridge = Some(InterfaceBridge::Intrinsic);
+    let bridge_catalog = ProofCatalog::new(
+        vec![Implementation::Interface(&forged_bridge)],
+        [],
+        [(fixture.marker, &fixture.contract)],
+        [],
+        &definitions,
+        &cancel,
+    )
+    .unwrap();
+    // Retaining a bridge cannot invent conformance or authorize its construction.
+    assert!(
+        !bridge_catalog
+            .constraints_hold(&table.for_type, &[fixture.interface()], &[], &cancel)
+            .unwrap()
+    );
+    assert!(!selected.valid(&bridge_catalog, &[], &[], &cancel).unwrap());
     selected.requirement.receiver = Ty::Builtin(BuiltinType::Bool);
     assert!(!selected.valid(&catalog, &[], &[], &cancel).unwrap());
     selected.requirement.receiver = table.for_type.clone();
@@ -378,20 +396,23 @@ fn closed_construction_evidence_substitutes_calls_and_bounds_expansion() {
         ConstructionBody {
             identity: callee,
             parameters: vec![fixture.parameter.clone()],
-            steps: vec![ConstructionStep::Evidence(vec![ConstructionWitness {
-                requirement: ConstructionRequirement {
-                    receiver: fixture.parameter.as_type(),
-                    interface: fixture.interface(),
-                },
-                selection: ConstructionSelection::Declared {
-                    implementation: ConcreteFunctionIdentity {
-                        declaration: implementation,
-                        arguments: vec![fixture.parameter.as_type()],
+            steps: vec![ConstructionStep::Evidence {
+                operations: vec![],
+                constructions: vec![ConstructionWitness {
+                    requirement: ConstructionRequirement {
+                        receiver: fixture.parameter.as_type(),
+                        interface: fixture.interface(),
                     },
-                    operations: vec![],
-                    constructions: vec![],
-                },
-            }])],
+                    selection: ConstructionSelection::Declared {
+                        implementation: ConcreteFunctionIdentity {
+                            declaration: implementation,
+                            arguments: vec![fixture.parameter.as_type()],
+                        },
+                        operations: vec![],
+                        constructions: vec![],
+                    },
+                }],
+            }],
         },
     ];
     assert_eq!(

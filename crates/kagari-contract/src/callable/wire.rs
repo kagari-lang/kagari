@@ -1,6 +1,7 @@
 //! File-local shared/interface calls and their generic operation witnesses.
 use crate::{
     callable::{
+        construction::evidence::ConstructionWitness,
         generic::GenericBody,
         interface::{InterfaceCallContract, TypeNormalization},
         shared::SharedCall,
@@ -116,11 +117,13 @@ impl SharedMethodWitnessRecord {
     pub(crate) fn decode(
         self,
         operations: Vec<OperationWitness>,
+        constructions: Vec<ConstructionWitness>,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
     ) -> Result<SharedMethodWitness, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SharedMethodWitness {
+            constructions,
             operations,
             requirement: self.requirement.decode(decoding, cancel)?,
             implementation: self.implementation.decode(decoding, cancel)?,
@@ -128,15 +131,17 @@ impl SharedMethodWitnessRecord {
     }
 }
 
-pub(crate) mod operations;
-use operations::OperationWitnessRecord;
+pub mod evidence;
+use evidence::EvidenceRecord;
 
 /// File-local SharedCall facts; no verification evidence is serialized.
 #[derive(Serialize, Deserialize)]
 pub struct SharedCallRecord {
     entry: SharedCallEntryRecord,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    operations: Vec<OperationWitnessRecord>,
+    operations: Vec<EvidenceRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    constructions: Vec<EvidenceRecord>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -160,10 +165,15 @@ impl SharedCallRecord {
         check_cancel(cancel)?;
         Ok(Self {
             entry: SharedCallEntryRecord::encode(value, encoding, cancel)?,
+            constructions: value
+                .constructions
+                .iter()
+                .map(|value| EvidenceRecord::encode_construction(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
             operations: value
                 .operations
                 .iter()
-                .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
+                .map(|value| EvidenceRecord::encode_operation(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -179,9 +189,15 @@ impl SharedCallRecord {
         let operations = self
             .operations
             .into_iter()
-            .map(|value| value.decode(decoding, cancel))
+            .map(|value| value.decode_operation(decoding, cancel))
             .collect::<Result<_, _>>()?;
-        self.entry.decode(operations, decoding, cancel)
+        let constructions = self
+            .constructions
+            .into_iter()
+            .map(|value| value.decode_construction(decoding, cancel))
+            .collect::<Result<_, _>>()?;
+        self.entry
+            .decode(operations, constructions, decoding, cancel)
     }
 }
 
@@ -214,11 +230,13 @@ impl SharedCallEntryRecord {
     fn decode(
         self,
         operations: Vec<OperationWitness>,
+        constructions: Vec<ConstructionWitness>,
         decoding: &DefinitionDecoding,
         cancel: &CancellationToken,
     ) -> Result<SharedCall, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(SharedCall {
+            constructions,
             receiver_access: self.receiver_access,
             instance: self.instance.decode(decoding, cancel)?,
             implementation: self.implementation.decode(decoding, cancel)?,
@@ -240,7 +258,9 @@ pub struct InterfaceCallContractRecord {
     normalizations: Vec<TypeNormalizationRecord>,
     receiver: Option<WireType>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    operations: Vec<OperationWitnessRecord>,
+    operations: Vec<EvidenceRecord>,
+    #[serde(deserialize_with = "crate::decode_limits::nested")]
+    constructions: Vec<EvidenceRecord>,
     interface: NominalTyRecord,
     method_slot: u32,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
@@ -269,10 +289,15 @@ impl InterfaceCallContractRecord {
                     Ok::<_, DefinitionMappingError>(WireType::encode(value, encoding, cancel)?)
                 })
                 .transpose()?,
+            constructions: value
+                .constructions
+                .iter()
+                .map(|value| EvidenceRecord::encode_construction(value, encoding, cancel))
+                .collect::<Result<_, _>>()?,
             operations: value
                 .operations
                 .iter()
-                .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
+                .map(|value| EvidenceRecord::encode_operation(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
             interface: NominalTyRecord::encode(&value.interface, encoding, cancel)?,
             method_slot: value.method_slot,
@@ -295,6 +320,11 @@ impl InterfaceCallContractRecord {
     ) -> Result<InterfaceCallContract, DefinitionMappingError> {
         check_cancel(cancel)?;
         Ok(InterfaceCallContract {
+            constructions: self
+                .constructions
+                .into_iter()
+                .map(|value| value.decode_construction(decoding, cancel))
+                .collect::<Result<_, _>>()?,
             normalizations: self
                 .normalizations
                 .into_iter()
@@ -307,7 +337,7 @@ impl InterfaceCallContractRecord {
             operations: self
                 .operations
                 .into_iter()
-                .map(|value| value.decode(decoding, cancel))
+                .map(|value| value.decode_operation(decoding, cancel))
                 .collect::<Result<_, _>>()?,
             interface: self.interface.decode(decoding, cancel)?,
             method_slot: self.method_slot,

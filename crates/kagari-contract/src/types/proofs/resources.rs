@@ -19,6 +19,8 @@ use std::{collections::BTreeMap, sync::Arc};
 /// contract can occur in multiple modules; its declaration's nominal owner alone
 /// does not determine where that contract is available.
 pub struct ProofModule<'a> {
+    /// Declared implementations and intrinsic bridges. Bridges are retained only
+    /// for exact construction selection; they never participate in impl search.
     pub implementations: Vec<Implementation<'a>>,
     pub enumerations: Vec<&'a EnumLayout>,
     pub contracts: Vec<(DefinitionId, &'a TraitDef)>,
@@ -67,6 +69,7 @@ impl<'a> ProgramProofs<'a> {
         let catalog = ProofCatalog {
             definitions: self.catalog.definitions.clone(),
             implementations: self.catalog.implementations.scoped(scope.clone()),
+            construction_bridges: self.catalog.construction_bridges.scoped(scope.clone()),
             enumerations: self.catalog.enumerations.scoped(scope.clone()),
             contracts: self.catalog.contracts.scoped(scope.clone()),
             native_declarations: self.catalog.native_declarations.scoped(scope),

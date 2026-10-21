@@ -1,4 +1,7 @@
 //! Shared streaming spelling for instruction- and descriptor-owned call contracts.
+use kagari_contract::callable::construction::evidence::{
+    ConstructionSelection, ConstructionWitness,
+};
 
 use crate::disassembly::{
     presentation::{DisplayContext, effects},
@@ -130,6 +133,7 @@ pub(in crate::disassembly) fn shared(
         arguments,
         signature: applied,
         operations: witnesses,
+        constructions: capabilities,
     } = call;
     write!(
         writer,
@@ -145,6 +149,7 @@ pub(in crate::disassembly) fn shared(
     signature(writer, context, applied)?;
     write!(writer, ", operations=")?;
     operations(writer, context, resolution, witnesses)?;
+    constructions(writer, context, resolution, capabilities)?;
     write!(writer, "}}")
 }
 
@@ -159,6 +164,7 @@ pub(in crate::disassembly) fn interface(
         normalizations,
         receiver,
         operations: witnesses,
+        constructions: capabilities,
         interface,
         method_slot,
         arguments,
@@ -192,6 +198,7 @@ pub(in crate::disassembly) fn interface(
     }
     write!(writer, "], operations=")?;
     operations(writer, context, resolution, witnesses)?;
+    constructions(writer, context, resolution, capabilities)?;
     write!(writer, "}}")
 }
 
@@ -262,6 +269,7 @@ pub(in crate::disassembly) fn witness(
                 requirement: required,
                 implementation: selected,
                 operations: witnesses,
+                constructions: capabilities,
             } = method.as_ref();
             let (owner, slot) = resolution.interface(selected);
             write!(
@@ -273,6 +281,7 @@ pub(in crate::disassembly) fn witness(
             instance(writer, context, selected)?;
             write!(writer, ", operations=")?;
             operations(writer, context, resolution, witnesses)?;
+            constructions(writer, context, resolution, capabilities)?;
             write!(writer, "}}")
         }
         OperationWitness::SharedAdapter(adapter) => {
@@ -295,4 +304,43 @@ pub(in crate::disassembly) fn witness(
             requirement(writer, context, required)
         }
     }
+}
+
+fn constructions(
+    writer: &mut impl Write,
+    context: &DisplayContext<'_>,
+    resolution: &Resolution<'_>,
+    witnesses: &[ConstructionWitness],
+) -> io::Result<()> {
+    if witnesses.is_empty() {
+        return Ok(());
+    }
+    write!(writer, ", constructions=[")?;
+    for (index, witness) in witnesses.iter().enumerate() {
+        if index != 0 {
+            write!(writer, ", ")?;
+        }
+        write!(
+            writer,
+            "{{receiver={}, interface={}, selection=",
+            context.ty(&witness.requirement.receiver),
+            context.ty(&Ty::Trait(witness.requirement.interface.clone()))
+        )?;
+        match &witness.selection {
+            ConstructionSelection::Declared {
+                implementation: selected,
+                operations: dependencies,
+                constructions: capabilities,
+            } => {
+                instance(writer, context, selected)?;
+                write!(writer, ", operations=")?;
+                operations(writer, context, resolution, dependencies)?;
+                constructions(writer, context, resolution, capabilities)?;
+            }
+            ConstructionSelection::Interface => write!(writer, "interface")?,
+            ConstructionSelection::Forward => write!(writer, "forward")?,
+        }
+        write!(writer, "}}")?;
+    }
+    write!(writer, "]")
 }

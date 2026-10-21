@@ -1,6 +1,9 @@
 //! Applied interface method signatures retain separate receiver and method binders.
 use crate::{
-    callable::witness::{OperationWitness, required_operations},
+    callable::{
+        construction::{evidence::ConstructionWitness, requirements::constructions_valid},
+        witness::{OperationWitness, required_operations},
+    },
     native_import::callables::normalize_requirement,
     representation::semantic_representation,
     types::{PublicItem, TraitContract, proofs::ProofCatalog, trait_contract},
@@ -25,6 +28,8 @@ use std::slice;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InterfaceCallContract {
+    /// Construction capabilities supplied independently of member operations.
+    pub constructions: Vec<ConstructionWitness>,
     /// Associated projections resolved by the compiler for this application.
     /// Linked verification checks every fact against the supplying declarations.
     pub normalizations: Vec<TypeNormalization>,
@@ -322,6 +327,16 @@ impl InterfaceCallContract {
         {
             return Ok(false);
         }
+        if !constructions_valid(
+            &self.constructions,
+            &signature.bounds,
+            catalog,
+            parameters,
+            assumptions,
+            cancel,
+        )? {
+            return Ok(false);
+        }
         let expected = required_operations(
             &signature.bounds,
             &|id| catalog.trait_contract(id),
@@ -453,6 +468,7 @@ pub fn dynamic_interface_valid<'a>(
         }
         for (slot, method) in contract.methods.iter().enumerate() {
             let call = InterfaceCallContract {
+                constructions: vec![],
                 normalizations: vec![],
                 receiver: None,
                 operations: vec![],

@@ -68,10 +68,13 @@ impl<'a> VerificationResources<'a> {
                 })
                 .collect::<Vec<_>>();
             records.push(ProofModule {
-                implementations: tables
+                implementations: module
+                    .public_items
                     .iter()
-                    .copied()
-                    .map(Implementation::Interface)
+                    .filter_map(|item| match item {
+                        PublicItem::InterfaceTable(table) => Some(Implementation::Interface(table)),
+                        _ => None,
+                    })
                     .collect(),
                 enumerations: module.enumerations.iter().collect(),
                 contracts: declarations.clone(),

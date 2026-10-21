@@ -93,6 +93,7 @@ pub fn links(
                 .find(|raw| raw.name == method.name)
                 .ok_or(invalid)?;
             let call = InterfaceCallContract {
+                constructions: vec![],
                 normalizations: vec![],
                 receiver: None,
                 operations: vec![],

@@ -137,6 +137,7 @@ fn verified_dynamic_dispatch_resolves_declared_member_and_signature_without_an_i
             callee: CallTarget::InterfaceMethod {
                 module: ModuleRef::new(1),
                 contract: Box::new(InterfaceCallContract {
+                    constructions: vec![],
                     normalizations: vec![],
                     receiver: None,
                     operations: vec![],

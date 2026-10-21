@@ -1,7 +1,11 @@
 //! Declaration-derived capabilities for constructing interface values.
-use crate::callable::{
-    bounds::expanded_bounds, construction::evidence::ConstructionRequirement,
-    interface::dynamic_interface_valid,
+use crate::{
+    callable::{
+        bounds::expanded_bounds,
+        construction::evidence::{ConstructionRequirement, ConstructionWitness},
+        interface::dynamic_interface_valid,
+    },
+    types::proofs::ProofCatalog,
 };
 use kagari_common::{
     cancellation::CancellationToken,
@@ -95,4 +99,50 @@ pub fn required_constructions<'a>(
         return Err(error);
     }
     Ok(requirements)
+}
+
+/// Check a complete, unique construction list against the callee's applied bounds.
+/// Normalization may merge capabilities; it cannot create an additional bound.
+pub fn constructions_valid(
+    witnesses: &[ConstructionWitness],
+    bounds: &[GenericBound],
+    catalog: &ProofCatalog<'_>,
+    parameters: &[GenericParam],
+    assumptions: &[GenericBound],
+    cancel: &CancellationToken,
+) -> Result<bool, TypeTransformError> {
+    if witnesses.len() > 4096 {
+        return Ok(false);
+    }
+    let declared = required_constructions(
+        bounds,
+        parameters,
+        &|id| catalog.trait_contract(id),
+        catalog.definitions(),
+        cancel,
+    )?;
+    let mut required = Vec::new();
+    for requirement in declared {
+        let requirement = requirement.normalize(catalog, cancel)?;
+        if !required.contains(&requirement) {
+            required.push(requirement);
+        }
+    }
+    if required.len() != witnesses.len()
+        || required.iter().any(|required| {
+            witnesses
+                .iter()
+                .filter(|witness| &witness.requirement == required)
+                .count()
+                != 1
+        })
+    {
+        return Ok(false);
+    }
+    for witness in witnesses {
+        if !witness.valid(catalog, parameters, assumptions, cancel)? {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }

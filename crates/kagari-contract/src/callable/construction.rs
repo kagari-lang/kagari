@@ -7,7 +7,9 @@ pub mod wire;
 use crate::{
     callable::{
         construction::evidence::{ConstructionSelection, ConstructionWitness},
+        evidence::EvidenceRef,
         interface::InterfaceCallContract,
+        witness::OperationWitness,
     },
     native_import::NativeImport,
     types::ConcreteFunctionIdentity,
@@ -33,7 +35,10 @@ pub struct ConstructionBody {
 pub enum ConstructionStep {
     Interface(ConcreteFunctionIdentity),
     /// Capabilities explicitly selected at a call boundary, including empty traits.
-    Evidence(Vec<ConstructionWitness>),
+    Evidence {
+        operations: Vec<OperationWitness>,
+        constructions: Vec<ConstructionWitness>,
+    },
     Call {
         body: ConcreteFunctionIdentity,
         arguments: Vec<Ty>,
@@ -54,14 +59,23 @@ pub struct ConstructionMethod {
 
 /// Extract an installed native entry's declared result conversion.
 pub fn native_construction(import: &NativeImport) -> Option<ConstructionBody> {
-    let adapter = import.result_adapter.as_ref()?;
+    if import.result_adapter.is_none() && import.callables.is_empty() {
+        return None;
+    }
+    let mut steps = vec![ConstructionStep::Evidence {
+        operations: import.callables.clone(),
+        constructions: vec![],
+    }];
+    if let Some(adapter) = &import.result_adapter {
+        steps.push(ConstructionStep::Interface(adapter.implementation.clone()));
+    }
     Some(ConstructionBody {
         identity: import.instance.clone(),
         parameters: import
             .generic
             .as_ref()
             .map_or_else(Vec::new, |body| body.parameters.clone()),
-        steps: vec![ConstructionStep::Interface(adapter.implementation.clone())],
+        steps,
     })
 }
 
@@ -100,35 +114,20 @@ pub fn closed_constructions(
         for step in &body.steps {
             cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
             match step {
-                ConstructionStep::Evidence(witnesses) => {
-                    let mut pending: Vec<_> =
-                        witnesses.iter().map(|witness| (witness, 0)).collect();
-                    let mut count = 0;
-                    while let Some((witness, depth)) = pending.pop() {
-                        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
-                        count += 1;
-                        if count > limit || depth > 64 {
-                            return Err(TypeTransformError::LimitExceeded);
-                        }
-                        if let ConstructionSelection::Declared {
-                            implementation,
-                            constructions,
-                            ..
-                        } = &witness.selection
+                ConstructionStep::Evidence {
+                    operations,
+                    constructions,
+                } => {
+                    for instance in
+                        selected_constructions(operations, constructions, &bindings, limit, cancel)?
+                    {
+                        if instance.arguments.iter().all(Ty::is_concrete)
+                            && instances.insert(instance.clone())
                         {
-                            let instance = ConcreteFunctionIdentity {
-                                declaration: implementation.declaration,
-                                arguments: apply(&bindings, &implementation.arguments, cancel)?,
-                            };
-                            if instance.arguments.iter().all(Ty::is_concrete)
-                                && instances.insert(instance.clone())
-                            {
-                                results.push(instance);
-                                if results.len() > limit {
-                                    return Err(TypeTransformError::LimitExceeded);
-                                }
+                            results.push(instance);
+                            if results.len() > limit {
+                                return Err(TypeTransformError::LimitExceeded);
                             }
-                            pending.extend(constructions.iter().map(|child| (child, depth + 1)));
                         }
                     }
                 }
@@ -220,4 +219,56 @@ fn enqueue(
         }
     }
     Ok(())
+}
+
+fn selected_constructions(
+    operations: &[OperationWitness],
+    constructions: &[ConstructionWitness],
+    bindings: &TypeSubstitution<'_>,
+    limit: usize,
+    cancel: &CancellationToken,
+) -> Result<Vec<ConcreteFunctionIdentity>, TypeTransformError> {
+    let mut pending: Vec<_> = operations
+        .iter()
+        .map(EvidenceRef::Operation)
+        .chain(constructions.iter().map(EvidenceRef::Construction))
+        .map(|node| (node, 0))
+        .collect();
+    let mut results = Vec::new();
+    let mut count = 0;
+    while let Some((node, depth)) = pending.pop() {
+        cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
+        count += 1;
+        if count > limit || depth > 64 {
+            return Err(TypeTransformError::LimitExceeded);
+        }
+        let selected = match node {
+            EvidenceRef::Construction(ConstructionWitness {
+                selection: ConstructionSelection::Declared { implementation, .. },
+                ..
+            }) => Some(implementation),
+            EvidenceRef::Operation(OperationWitness::SharedMethod(selected)) => {
+                Some(&selected.implementation)
+            }
+            _ => None,
+        };
+        if let Some(selected) = selected {
+            results.push(ConcreteFunctionIdentity {
+                declaration: selected.declaration,
+                arguments: apply(bindings, &selected.arguments, cancel)?,
+            });
+        }
+        let (operations, constructions) = node.children();
+        pending.extend(
+            operations
+                .iter()
+                .map(|child| (EvidenceRef::Operation(child), depth + 1)),
+        );
+        pending.extend(
+            constructions
+                .iter()
+                .map(|child| (EvidenceRef::Construction(child), depth + 1)),
+        );
+    }
+    Ok(results)
 }

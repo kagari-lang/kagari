@@ -1,6 +1,6 @@
 //! File-local Native imports, selected callables and result adapters.
 use crate::{
-    callable::wire::{GenericBodyRecord, operations::OperationWitnessRecord},
+    callable::wire::{GenericBodyRecord, evidence::EvidenceRecord},
     effects::EffectSet,
     native_import::{
         NativeImport,
@@ -39,7 +39,7 @@ pub struct NativeImportRecord {
     #[serde(deserialize_with = "crate::decode_limits::nested")]
     requirements: Vec<GenericBoundRecord>,
     #[serde(deserialize_with = "crate::decode_limits::nested")]
-    callables: Vec<OperationWitnessRecord>,
+    callables: Vec<EvidenceRecord>,
 }
 
 impl NativeImportRecord {
@@ -74,7 +74,7 @@ impl NativeImportRecord {
             callables: value
                 .callables
                 .iter()
-                .map(|value| OperationWitnessRecord::encode(value, encoding, cancel))
+                .map(|value| EvidenceRecord::encode_operation(value, encoding, cancel))
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -108,7 +108,7 @@ impl NativeImportRecord {
             callables: self
                 .callables
                 .into_iter()
-                .map(|value| value.decode(decoding, cancel))
+                .map(|value| value.decode_operation(decoding, cancel))
                 .collect::<Result<_, _>>()?,
         })
     }

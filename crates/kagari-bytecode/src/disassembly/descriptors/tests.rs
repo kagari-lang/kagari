@@ -444,6 +444,7 @@ fn native_dependencies_use_declaration_owner_and_print_offline_contracts() {
             module: ModuleRef::new(1),
             target: CallableTarget::Script(FunctionRef::new(0)),
             contract: Box::new(SharedCall {
+                constructions: vec![],
                 receiver_access: None,
                 instance: identity(declaration),
                 implementation: CallableImplementation::Script,

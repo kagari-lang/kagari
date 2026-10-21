@@ -55,6 +55,7 @@ const MAX_DEPTH: usize = 64;
 pub struct ProofCatalog<'a> {
     definitions: DefinitionTable,
     implementations: ScopedRecords<Implementation<'a>>,
+    construction_bridges: ScopedRecords<Implementation<'a>>,
     enumerations: ScopedMap<NominalTy, Vec<&'a Ty>>,
     contracts: ScopedMap<DefinitionId, &'a TraitDef>,
     native_declarations: ScopedMap<DefinitionId, &'a NativeDeclaration>,
@@ -181,6 +182,7 @@ impl<'a> ProofCatalog<'a> {
         let mut ids = HashSet::new();
         let mut count = 0;
         let mut implementations = Vec::new();
+        let mut construction_bridges = Vec::new();
         for (module, implementation) in implementation_inputs {
             #[cfg(test)]
             preparation_tests::record(cancel);
@@ -206,10 +208,7 @@ impl<'a> ProofCatalog<'a> {
                     )
                     .ok_or(TypeTransformError::InvalidContract)?;
             }
-            if !ids.insert(*implementation.declaration())
-                || implementation.is_bridge()
-                || implementation.interface().is_none()
-            {
+            if !ids.insert(*implementation.declaration()) || implementation.interface().is_none() {
                 return Err(TypeTransformError::InvalidContract);
             }
             count += 1;
@@ -222,7 +221,11 @@ impl<'a> ProofCatalog<'a> {
             )?;
             copier.apply(implementation.receiver(), cancel)?;
             copier.apply_bounds(implementation.bounds(), definitions, cancel)?;
-            implementations.push(Record::new(implementation, module));
+            if implementation.is_bridge() {
+                construction_bridges.push(Record::new(implementation, module));
+            } else {
+                implementations.push(Record::new(implementation, module));
+            }
         }
         let mut payloads: BTreeMap<NominalTy, Record<Vec<&'a Ty>>> = BTreeMap::new();
         for (module, layout) in enumerations {
@@ -307,6 +310,7 @@ impl<'a> ProofCatalog<'a> {
         Ok(Self {
             definitions: definitions.clone(),
             implementations: ScopedRecords::new(implementations),
+            construction_bridges: ScopedRecords::new(construction_bridges),
             enumerations: ScopedMap::new(payloads),
             contracts: ScopedMap::new(declarations),
             native_declarations: ScopedMap::new(templates),

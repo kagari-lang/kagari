@@ -53,7 +53,7 @@ impl InstancePlanner<'_> {
             .cloned()
             .zip(arguments.iter().cloned())
             .collect();
-        let operations = self.bound_operations(&function.bounds, &substitution, span)?;
+        let evidence = self.bound_evidence(&function.bounds, &substitution, span)?;
         let (instance, implementation, receiver_access) =
             if self.prepare_native_target(declaration, &canonical, span)? {
                 let import = self.native_target_import(declaration, &canonical, span)?;
@@ -76,11 +76,12 @@ impl InstancePlanner<'_> {
                 )
             };
         Ok(SharedCall {
+            constructions: evidence.constructions,
             receiver_access,
             instance,
             implementation,
             signature,
-            operations,
+            operations: evidence.operations,
             arguments: arguments.iter().map(|ty| self.encode_type(ty)).collect(),
         })
     }

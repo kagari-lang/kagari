@@ -1,4 +1,5 @@
 use super::*;
+use crate::callable::construction::evidence::{ConstructionRequirement, ConstructionSelection};
 use kagari_common::identity::{ModuleIdentity, map::DefinitionContext, table::DefinitionId};
 use kagari_types::{
     callable::{CallableImplementation, MethodPolicy},
@@ -62,6 +63,7 @@ fn fixture(context: &DefinitionContext) -> (InterfaceCallContract, TraitDef) {
         }],
     };
     let call = InterfaceCallContract {
+        constructions: vec![],
         normalizations: vec![],
         receiver: None,
         operations: vec![],
@@ -177,7 +179,37 @@ fn forwarded_parameters_require_the_callers_scope_and_bound_evidence() {
             .unwrap()
     );
     assert!(
-        call.check(&contract, &catalog, &[parameter], &[evidence], &cancel)
+        !call
+            .check(
+                &contract,
+                &catalog,
+                slice::from_ref(&parameter),
+                slice::from_ref(&evidence),
+                &cancel
+            )
+            .unwrap()
+    );
+    call.constructions.push(ConstructionWitness {
+        requirement: ConstructionRequirement {
+            receiver: parameter.as_type(),
+            interface: marker,
+        },
+        selection: ConstructionSelection::Forward,
+    });
+    assert!(
+        call.check(
+            &contract,
+            &catalog,
+            slice::from_ref(&parameter),
+            slice::from_ref(&evidence),
+            &cancel
+        )
+        .unwrap()
+    );
+    call.constructions.push(call.constructions[0].clone());
+    assert!(
+        !call
+            .check(&contract, &catalog, &[parameter], &[evidence], &cancel)
             .unwrap()
     );
 }

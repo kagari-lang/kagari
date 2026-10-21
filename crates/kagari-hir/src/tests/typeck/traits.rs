@@ -779,7 +779,35 @@ fn dynamic_standard_traits_and_caller_known_outputs_use_structural_rules() {
         ("fn accept(value: std::hash::Hash) {}", true),
         (
             "fn erase<T: std::fmt::Debug>(value: T) -> std::fmt::Debug { value }",
+            true,
+        ),
+        (
+            "trait Marker {} fn erase<T: Marker>(value: T) -> Marker { value }",
+            true,
+        ),
+        (
+            "trait Marker {} fn erase<T>(value: T) -> Marker { value }",
             false,
+        ),
+        (
+            "trait Marker {} trait Child: Marker {} fn erase<T: Child>(value: T) -> Marker { value }",
+            true,
+        ),
+        (
+            "trait Read<K> {} fn erase<T: Read<i32>>(value: T) -> Read<bool> { value }",
+            false,
+        ),
+        (
+            "trait Read { type Item; fn read(self) -> Self::Item; } fn erase<T: Read<Item = i32>>(value: T) -> Read<Item = i32> { value }",
+            true,
+        ),
+        (
+            "trait Read { type Item; fn read(self) -> Self::Item; } fn erase<T: Read<Item = i32>>(value: T) -> Read<Item = bool> { value }",
+            false,
+        ),
+        (
+            "trait Marker {} trait Read { type Item: Marker; fn read(self) -> Self::Item; } fn erase<T: Read>(value: T::Item) -> Marker { value }",
+            true,
         ),
         ("fn accept(value: PartialEq) {}", false),
         ("fn accept(value: Eq) {}", false),

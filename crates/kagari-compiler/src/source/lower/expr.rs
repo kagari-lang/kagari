@@ -7,7 +7,10 @@ use crate::source::lower::{
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::table::DefinitionId;
 use kagari_contract::{
-    numeric::NumericConversion, operations::UnaryOp, representation::semantic_representation,
+    callable::construction::evidence::{ConstructionRequirement, ConstructionSelection},
+    numeric::NumericConversion,
+    operations::UnaryOp,
+    representation::semantic_representation,
     standard::RuntimePrimitive,
 };
 use kagari_hir::{
@@ -18,7 +21,7 @@ use kagari_hir::{
     },
     resolver::resolved::ResolvedName,
     typeck::table::ResolvedInterfaceImplementation,
-    types::{NominalType, TypeId, TypeSubstitution},
+    types::{NominalType, TypeId, TypeSubstitution, semantic::raise_type},
 };
 use kagari_mir::instruction::{
     CallTarget, Constant, Instruction, MirValue, Terminator, ValueBuffer,
@@ -180,7 +183,7 @@ impl FunctionLowerer<'_, '_> {
                 value = dst;
             }
 
-            if let Some(coercion) = self
+            if let Some(mut coercion) = self
                 .analyzed
                 .typed
                 .type_table
@@ -189,6 +192,64 @@ impl FunctionLowerer<'_, '_> {
             {
                 let span = self.analyzed.lowered.source_map.expr_span(expr_id);
 
+                if matches!(
+                    coercion.implementation,
+                    ResolvedInterfaceImplementation::Bound { .. }
+                ) {
+                    let types = self.planner.arguments(
+                        &[
+                            coercion.concrete_type.clone(),
+                            TypeId::Trait(coercion.interface_type.clone()),
+                        ],
+                        &self.instance.substitution,
+                        span,
+                    )?;
+                    let TypeId::Trait(interface) = &types[1] else {
+                        return Err(MirLoweringError::MissingBinding(
+                            "bound construction target",
+                        ));
+                    };
+                    let requirement = ConstructionRequirement {
+                        receiver: self.planner.encode_type(&types[0]),
+                        interface: self.planner.encode_nominal(interface),
+                    };
+                    let selected = self
+                        .planner
+                        .bind_constructions(vec![requirement], span)?
+                        .pop()
+                        .ok_or(MirLoweringError::MissingBinding(
+                            "bound construction selection",
+                        ))?;
+                    coercion.implementation = match selected.selection {
+                        ConstructionSelection::Declared { implementation, .. } => {
+                            ResolvedInterfaceImplementation::Declared {
+                                declaration: implementation.declaration,
+                                arguments: implementation
+                                    .arguments
+                                    .iter()
+                                    .map(raise_type)
+                                    .collect(),
+                            }
+                        }
+                        ConstructionSelection::Interface => ResolvedInterfaceImplementation::Upcast,
+                        ConstructionSelection::Forward => {
+                            return Err(MirLoweringError::UnsupportedExpr(
+                                "shared bound interface construction requires executable capability support",
+                            ));
+                        }
+                    };
+                    // Synthesized intrinsic tables have no HIR implementation declaration.
+                    if let ResolvedInterfaceImplementation::Declared { declaration, .. } =
+                        &coercion.implementation
+                        && self
+                            .planner
+                            .catalog
+                            .implementation_signature(declaration)
+                            .is_none()
+                    {
+                        coercion.implementation = ResolvedInterfaceImplementation::Intrinsic;
+                    }
+                }
                 if matches!(
                     coercion.implementation,
                     ResolvedInterfaceImplementation::Upcast
@@ -241,6 +302,9 @@ impl FunctionLowerer<'_, '_> {
                 )?;
                 let (implementation, arguments, constructed) = match coercion.implementation {
                     ResolvedInterfaceImplementation::Upcast => unreachable!("upcast handled above"),
+                    ResolvedInterfaceImplementation::Bound { .. } => {
+                        unreachable!("bound construction selected above")
+                    }
                     ResolvedInterfaceImplementation::Intrinsic => {
                         let mut types = self
                             .planner

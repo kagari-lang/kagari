@@ -54,7 +54,13 @@ pub(super) fn verify(
                     BytecodeInstruction::Call {
                         callee: CallTarget::InterfaceMethod { contract, .. },
                         ..
-                    } => steps.push(ConstructionStep::Dispatch(contract.as_ref().clone())),
+                    } => {
+                        steps.push(ConstructionStep::Evidence {
+                            operations: contract.operations.clone(),
+                            constructions: contract.constructions.clone(),
+                        });
+                        steps.push(ConstructionStep::Dispatch(contract.as_ref().clone()));
+                    }
                     BytecodeInstruction::Call {
                         callee:
                             CallTarget::Shared {
@@ -64,6 +70,10 @@ pub(super) fn verify(
                             },
                         ..
                     } => {
+                        steps.push(ConstructionStep::Evidence {
+                            operations: contract.operations.clone(),
+                            constructions: contract.constructions.clone(),
+                        });
                         let owner = &program.modules[owner.index()];
                         let identity = match target {
                             CallableTarget::Script(target) => {

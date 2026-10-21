@@ -3,7 +3,7 @@ use crate::{
     callable::{
         construction::{
             evidence::{ConstructionSelection, ConstructionWitness},
-            requirements::required_constructions,
+            requirements::constructions_valid,
         },
         witness::required_operations,
     },
@@ -36,6 +36,7 @@ impl ProofCatalog<'_> {
         let Some(table) = self
             .implementations
             .iter()
+            .chain(self.construction_bridges.iter())
             .find(|table| *table.declaration() == implementation.declaration)
         else {
             return Ok(false);
@@ -62,6 +63,16 @@ impl ProofCatalog<'_> {
         else {
             return Ok(false);
         };
+        if table.is_bridge()
+            && !self.holds(
+                &interface,
+                &witness.requirement.receiver,
+                assumptions,
+                cancel,
+            )?
+        {
+            return Ok(false);
+        }
         let views = interface_upcast_targets(
             &interface,
             &witness.requirement.receiver,
@@ -106,36 +117,13 @@ impl ProofCatalog<'_> {
                 return Ok(false);
             }
         }
-        let declared = required_constructions(
+        constructions_valid(
+            constructions,
             &bounds,
+            self,
             parameters,
-            &|id| self.trait_contract(id),
-            &self.definitions,
+            assumptions,
             cancel,
-        )?;
-        let mut required = Vec::new();
-        for requirement in declared {
-            let requirement = requirement.normalize(self, cancel)?;
-            if !required.contains(&requirement) {
-                required.push(requirement);
-            }
-        }
-        if required.len() != constructions.len()
-            || required.iter().any(|required| {
-                constructions
-                    .iter()
-                    .filter(|witness| &witness.requirement == required)
-                    .count()
-                    != 1
-            })
-        {
-            return Ok(false);
-        }
-        for construction in constructions {
-            if !construction.valid(self, parameters, assumptions, cancel)? {
-                return Ok(false);
-            }
-        }
-        Ok(true)
+        )
     }
 }

@@ -177,7 +177,7 @@ fn generic_interface_implementation_specializes_reachable_method() {
     let module = common::adopt_bytecode(
         &context,
         common::bytecode_ok(
-            "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn read(x: Get) -> i32 { x.get() } fn main() -> (i32, i32) { (read(Holder { value: 1 }), read(Holder { value: \"a\" })) }",
+            "pub trait Get { fn get(self) -> i32; } pub struct Holder<T> { val value: T } impl<T> Get for Holder<T> { fn get(self) -> i32 { 42 } } fn erase<T: Get>(x: T) -> Get { x } fn read(x: Get) -> i32 { x.get() } fn main() -> (i32, i32) { (read(erase(Holder { value: 1 })), read(Holder { value: \"a\" })) }",
         ),
     );
     assert_eq!(

@@ -2,6 +2,7 @@
 pub mod adapter;
 mod bounds;
 pub mod construction;
+mod evidence;
 pub mod generic;
 pub mod interface;
 pub mod receiver;

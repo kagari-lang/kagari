@@ -1,5 +1,8 @@
 //! Contextual identity traversal of the owning metadata records.
-use crate::callable::witness::{OperationWitness, SharedMethodWitness};
+use crate::callable::{
+    evidence::EvidenceRef,
+    witness::{OperationWitness, SharedMethodWitness},
+};
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
@@ -15,6 +18,7 @@ impl RemapDefinitions for OperationWitness {
         mapper: &mut DefinitionMapper<'_>,
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
+        EvidenceRef::Operation(self).check_shape(mapper.cancellation())?;
         Ok(match self {
             Self::SharedAdapter(adapter) => {
                 OperationWitness::SharedAdapter(Box::new(adapter.remap_definitions(mapper)?))
@@ -39,6 +43,7 @@ impl DefinitionReferences for OperationWitness {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        EvidenceRef::Operation(self).check_shape(cancel)?;
         match self {
             Self::SharedAdapter(adapter) => adapter.visit_definition_ids(visit, cancel)?,
             Self::Selected(field0) => {
@@ -62,6 +67,11 @@ impl RemapDefinitions for SharedMethodWitness {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(SharedMethodWitness {
+            constructions: self
+                .constructions
+                .iter()
+                .map(|value| value.remap_definitions(mapper))
+                .collect::<Result<_, _>>()?,
             requirement: self.requirement.remap_definitions(mapper)?,
             implementation: self.implementation.remap_definitions(mapper)?,
             operations: self
@@ -80,6 +90,9 @@ impl DefinitionReferences for SharedMethodWitness {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for construction in &self.constructions {
+            construction.visit_definition_ids(visit, cancel)?;
+        }
         self.requirement.visit_definition_ids(visit, cancel)?;
         self.implementation.visit_definition_ids(visit, cancel)?;
         for operation in &self.operations {

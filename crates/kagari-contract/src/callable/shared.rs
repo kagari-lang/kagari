@@ -1,11 +1,12 @@
 //! A statically selected shared entry with caller-scoped type and operation arguments.
-use crate::native_import::callables::normalize_requirement;
 use crate::{
     callable::{
+        construction::{evidence::ConstructionWitness, requirements::constructions_valid},
         generic::GenericBody,
         receiver::access_valid,
         witness::{OperationWitness, required_operations},
     },
+    native_import::callables::normalize_requirement,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
 use kagari_common::{cancellation::CancellationToken, identity::table::DefinitionTable};
@@ -21,6 +22,8 @@ use kagari_types::{
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedCall {
+    /// Construction capabilities supplied independently of member operations.
+    pub constructions: Vec<ConstructionWitness>,
     /// Native declaration loan fact; script shared bodies never acquire it.
     pub receiver_access: Option<ReferenceAccess>,
     pub instance: ConcreteFunctionIdentity,
@@ -52,6 +55,11 @@ impl SharedCall {
             && self.instance.arguments.iter().all(Ty::within_wire_limits)
             && !self.arguments.is_empty()
             && self.arguments.len() <= 4096
+            && self.constructions.len() <= 4096
+            && self
+                .constructions
+                .iter()
+                .all(|witness| witness.structurally_valid(parameters, definitions, cancel))
             && self.operations.len() <= 4096
             && self.signature.params.len() <= 4096
             && matches!(
@@ -117,6 +125,16 @@ impl SharedCall {
             if !catalog.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(false);
             }
+        }
+        if !constructions_valid(
+            &self.constructions,
+            &bounds,
+            catalog,
+            parameters,
+            assumptions,
+            cancel,
+        )? {
+            return Ok(false);
         }
         let required = required_operations(
             &bounds,

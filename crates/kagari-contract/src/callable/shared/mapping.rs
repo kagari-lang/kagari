@@ -16,6 +16,11 @@ impl RemapDefinitions for SharedCall {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(SharedCall {
+            constructions: self
+                .constructions
+                .iter()
+                .map(|value| value.remap_definitions(mapper))
+                .collect::<Result<_, _>>()?,
             receiver_access: self.receiver_access,
             instance: self.instance.remap_definitions(mapper)?,
             implementation: self.implementation.remap_definitions(mapper)?,
@@ -33,6 +38,9 @@ impl DefinitionReferences for SharedCall {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for construction in &self.constructions {
+            construction.visit_definition_ids(visit, cancel)?;
+        }
         self.instance.visit_definition_ids(visit, cancel)?;
         self.implementation.visit_definition_ids(visit, cancel)?;
         for value0 in &self.arguments {

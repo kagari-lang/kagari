@@ -1,7 +1,11 @@
 //! Recheck a concrete trait-member selection against carried implementation facts.
 use crate::{
-    callable::witness::{
-        SharedMethodWitness, is_generic_member, required_operations, requirement_signature_in_scope,
+    callable::{
+        construction::requirements::constructions_valid,
+        witness::{
+            SharedMethodWitness, is_generic_member, required_operations,
+            requirement_signature_in_scope,
+        },
     },
     effects::EffectSet,
     native_import::{
@@ -117,6 +121,16 @@ impl ProofCatalog<'_> {
             if !self.constraints_hold(&bound.ty, &bound.constraints, assumptions, cancel)? {
                 return Ok(false);
             }
+        }
+        if !constructions_valid(
+            &selected.constructions,
+            &bounds,
+            self,
+            parameters,
+            assumptions,
+            cancel,
+        )? {
+            return Ok(false);
         }
         let requirements = required_operations(
             &bounds,

@@ -18,6 +18,11 @@ impl RemapDefinitions for InterfaceCallContract {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(InterfaceCallContract {
+            constructions: self
+                .constructions
+                .iter()
+                .map(|value| value.remap_definitions(mapper))
+                .collect::<Result<_, _>>()?,
             normalizations: map_sequence(&self.normalizations, |fact| {
                 Ok(TypeNormalization {
                     source: fact.source.remap_definitions(mapper)?,
@@ -44,6 +49,9 @@ impl DefinitionReferences for InterfaceCallContract {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        for construction in &self.constructions {
+            construction.visit_definition_ids(visit, cancel)?;
+        }
         for fact in &self.normalizations {
             fact.source.visit_definition_ids(visit, cancel)?;
             fact.result.visit_definition_ids(visit, cancel)?;

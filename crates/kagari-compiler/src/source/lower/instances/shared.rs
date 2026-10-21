@@ -2,15 +2,13 @@
 use crate::source::lower::{
     MirLoweringError,
     abi::checked_bounds,
-    instances::{Instance, InstancePlanner},
+    instances::{Instance, InstancePlanner, constructions::BoundEvidence},
 };
 use kagari_common::{
     identity::table::{DefinitionId, DefinitionTable},
     span::Span,
 };
-use kagari_contract::callable::{
-    generic::GenericBody, interface::TypeNormalization, witness::OperationWitness,
-};
+use kagari_contract::callable::{generic::GenericBody, interface::TypeNormalization};
 use kagari_hir::{
     aggregates::AggregateCatalog,
     resolver::resolved::ResolvedName,
@@ -72,14 +70,14 @@ impl InstancePlanner<'_> {
     /// Supply the member operations promised by receiver and method bounds.
     /// Receiver implementations may differ, so this follows the declaration's
     /// bounds rather than inspecting one selected default body.
-    pub(crate) fn method_operations(
+    pub(crate) fn method_evidence(
         &mut self,
         method: &DefinitionId,
         interface: &NominalType,
         receiver: &TypeId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+    ) -> Result<BoundEvidence, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("generic method operation environment");
         let signature = self.catalog.trait_method(method).ok_or_else(invalid)?;
         let trait_ = self
@@ -135,17 +133,18 @@ impl InstancePlanner<'_> {
                 )
             })
             .collect();
-        self.bound_operations(&bounds, &substitution, span)
+        self.bound_evidence(&bounds, &substitution, span)
     }
 
-    pub(crate) fn bound_operations(
+    pub(crate) fn bound_evidence(
         &mut self,
         bounds: &GenericBounds,
         substitution: &TypeSubstitution,
         span: Span,
-    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+    ) -> Result<BoundEvidence, MirLoweringError> {
         let invalid = || MirLoweringError::MissingBinding("generic bound operation environment");
         let mut requirements = vec![];
+        let mut construction_requirements = vec![];
         for (receiver, constraints) in bounds {
             let receiver = receiver.instantiate(substitution);
             for interface in constraints {
@@ -201,6 +200,11 @@ impl InstancePlanner<'_> {
                         }
                     }
                     for (receiver, interface) in sources {
+                        if let Some(required) =
+                            self.construction_requirement(&receiver, &interface)?
+                        {
+                            construction_requirements.push(required);
+                        }
                         let contract = self
                             .catalog
                             .trait_(&interface.declaration)
@@ -250,7 +254,12 @@ impl InstancePlanner<'_> {
                 })
         });
         self.check()?;
-        self.bind_operations(requirements, span)
+        let operations = self.bind_operations(requirements, span)?;
+        let constructions = self.bind_constructions(construction_requirements, span)?;
+        Ok(BoundEvidence {
+            operations,
+            constructions,
+        })
     }
 
     pub(crate) fn enqueue_interface_method(

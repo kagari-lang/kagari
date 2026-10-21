@@ -245,6 +245,9 @@ pub struct ResolvedInterfaceCoercion {
 /// How an interface value obtains its implementation metadata.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResolvedInterfaceImplementation {
+    /// A declared generic/projection bound supplies this complete application.
+    /// The source type and requested destination remain on ResolvedInterfaceCoercion.
+    Bound { interface: NominalType },
     /// An interface-to-parent-interface conversion.
     Upcast,
     /// A selected declared implementation and its applied arguments.

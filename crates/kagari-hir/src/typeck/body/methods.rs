@@ -93,6 +93,62 @@ impl<'a> BodyChecker<'a> {
             );
             return target.clone();
         }
+        if matches!(
+            source,
+            TypeId::Generic(_) | TypeId::Projection { .. } | TypeId::SelfType(_)
+        ) {
+            let proof = self.aggregates.declared_interfaces(
+                self.declarations.definitions(),
+                &source,
+                &env.generic_bounds,
+                self.cancel,
+            );
+            match proof {
+                Ok(available) => {
+                    for mut bound in available {
+                        let declared = bound.clone();
+                        if let Some(contract) = self.aggregates.trait_(&bound.declaration) {
+                            for member in contract.associated_types.keys() {
+                                if !contract.associated_type_parameters.contains_key(member) {
+                                    bound.associated_types.entry(*member).or_insert_with(|| {
+                                        TypeId::Projection {
+                                            receiver: Box::new(source.clone()),
+                                            interface: Box::new(declared.clone()),
+                                            member: *member,
+                                            arguments: vec![],
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        if bound.satisfies(interface) {
+                            self.type_table.insert_interface_coercion(
+                                expr_id,
+                                ResolvedInterfaceCoercion {
+                                    implementation: ResolvedInterfaceImplementation::Bound {
+                                        interface: bound,
+                                    },
+                                    concrete_type: source,
+                                    interface_type: interface.clone(),
+                                },
+                            );
+                            return target.clone();
+                        }
+                    }
+                }
+                Err(ImplementationSearchError::Cancelled) => return source,
+                Err(ImplementationSearchError::LimitExceeded) => {
+                    self.diagnostics.push(
+                        Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                            resource: "interface bound construction",
+                            limit: 4096,
+                        })
+                        .with_span(self.lowered.source_map.expr_span(expr_id)),
+                    );
+                    return source;
+                }
+            }
+        }
         match self.aggregates.concrete_interface_implementation(
             self.declarations.definitions(),
             interface,

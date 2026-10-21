@@ -21,7 +21,20 @@ pub(crate) fn expanded_bounds<'a>(
     cancel.check().map_err(|_| TypeTransformError::Cancelled)?;
     // A bound also promises its immediate associated-type contracts. In
     // particular Iterable supplies the selected next for its Iter projection.
-    let mut expanded = bounds.to_vec();
+    let copier = TypeSubstitution::default();
+    let mut expanded = bounds
+        .iter()
+        .map(|bound| {
+            Ok(GenericBound {
+                ty: copier.apply(&bound.ty, cancel)?,
+                constraints: bound
+                    .constraints
+                    .iter()
+                    .map(|interface| copier.apply_nominal(interface, cancel))
+                    .collect::<Result<_, _>>()?,
+            })
+        })
+        .collect::<Result<Vec<_>, TypeTransformError>>()?;
     for bound in bounds {
         for interface in &bound.constraints {
             for interface in inheritance::trait_closure(interface, &bound.ty, cancel, lookup)? {

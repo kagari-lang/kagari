@@ -730,6 +730,9 @@ impl RemapDefinitions for ResolvedInterfaceImplementation {
         mapper.check()?;
         Ok(match self {
             Self::Upcast => ResolvedInterfaceImplementation::Upcast,
+            Self::Bound { interface } => ResolvedInterfaceImplementation::Bound {
+                interface: interface.remap_definitions(mapper)?,
+            },
             Self::Declared {
                 declaration,
                 arguments,
@@ -751,6 +754,7 @@ impl DefinitionReferences for ResolvedInterfaceImplementation {
         check_cancel(cancel)?;
         match self {
             Self::Upcast => {}
+            Self::Bound { interface } => interface.visit_definition_ids(visit, cancel)?,
             Self::Declared {
                 declaration,
                 arguments,

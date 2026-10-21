@@ -3,6 +3,7 @@ use {
     crate::{
         callable::{
             adapter::SharedAdapterWitness, bounds::expanded_bounds,
+            construction::evidence::ConstructionWitness, evidence::EvidenceRef,
             interface::InterfaceCallContract,
         },
         effects::EffectSet,
@@ -46,6 +47,8 @@ pub enum OperationWitness {
 /// Method-local arguments are supplied by each checked call into the shared entry.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SharedMethodWitness {
+    /// Construction capabilities supplied independently of member operations.
+    pub constructions: Vec<ConstructionWitness>,
     pub requirement: NativeCallableRequirement,
     pub implementation: ConcreteFunctionIdentity,
     /// Operations promised by the selected implementation's receiver bounds.
@@ -64,28 +67,24 @@ impl OperationWitness {
 
     /// Walk composed witnesses without recursive metadata traversal.
     pub fn walk(&self) -> impl Iterator<Item = &Self> {
-        let mut pending = vec![self];
+        let mut pending = vec![EvidenceRef::Operation(self)];
         iter::from_fn(move || {
-            let operation = pending.pop()?;
-            pending.extend(operation.children().iter().rev());
-            Some(operation)
+            while let Some(node) = pending.pop() {
+                let (operations, constructions) = node.children();
+                pending.extend(constructions.iter().rev().map(EvidenceRef::Construction));
+                pending.extend(operations.iter().rev().map(EvidenceRef::Operation));
+                if let EvidenceRef::Operation(operation) = node {
+                    return Some(operation);
+                }
+            }
+            None
         })
     }
 
     fn within_limits(&self) -> bool {
-        let mut pending = vec![(self, 0)];
-        let mut count = 0;
-        while let Some((operation, depth)) = pending.pop() {
-            count += 1;
-            if count > 4096 || depth > 64 {
-                return false;
-            }
-            if operation.children().len() > 4096 {
-                return false;
-            }
-            pending.extend(operation.children().iter().map(|child| (child, depth + 1)));
-        }
-        true
+        EvidenceRef::Operation(self)
+            .check_shape(&Default::default())
+            .is_ok()
     }
 
     pub fn structurally_valid(
@@ -104,7 +103,9 @@ impl OperationWitness {
                         .structurally_valid(parameters, &Default::default(), definitions)
             }
             Self::SharedMethod(selected) => {
-                selected
+                selected.constructions.iter().all(|construction| {
+                    construction.structurally_valid(parameters, definitions, &Default::default())
+                }) && selected
                     .operations
                     .iter()
                     .all(|operation| operation.structurally_valid(parameters, definitions))
@@ -314,6 +315,7 @@ pub fn requirement_signature(
         })
         .ok_or(TypeTransformError::InvalidContract)?;
     let call = InterfaceCallContract {
+        constructions: vec![],
         normalizations: vec![],
         receiver: Some(requirement.receiver.clone()),
         operations: vec![],

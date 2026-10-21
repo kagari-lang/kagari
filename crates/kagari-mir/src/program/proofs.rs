@@ -52,7 +52,7 @@ impl<'a> ProofResources<'a> {
                             .ok_or(TypeTransformError::InvalidContract)?;
                         contracts.push((owner, record));
                     }
-                    PublicItem::InterfaceTable(table) if table.bridge.is_none() => {
+                    PublicItem::InterfaceTable(table) => {
                         implementations.push(Implementation::Interface(table.as_ref()));
                     }
                     _ => {}

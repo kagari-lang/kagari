@@ -1,6 +1,6 @@
 # Generic bound interface construction execution plan
 
-Status: active on 2026-10-21; BI01-BI02 are complete; BI03 is next. This plan owns
+Status: active on 2026-10-21; BI01-BI02 are complete; BI03 is in progress. This plan owns
 SA22 phases BI01-BI06, implementation decisions, acceptance and the progress ledger.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns sequencing.
 SA11 is deferred by the user. The user authorized goal execution and phase commits.
@@ -321,6 +321,25 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
   adds operation-to-construction dependencies, replace these nested envelopes with
   one flat heterogeneous evidence tree and a combined node/depth budget. Never
   introduce mutually recursive wire deserialization.
+- BI03: call/interface/selected-method records now carry construction
+  capabilities. Identity mapping, portable admission and disassembly include them.
+  Replaced the BI02 codec bridge with one flat heterogeneous evidence tree and a
+  shared traversal budget; the two migrated codec test groups passed. The old
+  operation/construction tree envelopes have been removed, not retained as readers.
+- BI03 source preparation derives method and constructor capabilities in one pass
+  through the existing HIR bound expansion. Shared selected implementations retain
+  both kinds of receiver dependency. The MIR/bytecode graph now follows selected
+  evidence through both kinds of dependency and native import adapters.
+- BI03 transient compile failures: the native-import codec still referenced the
+  replaced operation record, then BoundEvidence fields were scoped too narrowly for
+  expression lowering. Both owners were updated; `cargo check -p kagari-compiler`
+  passed afterward. No carried build error from these failures remains.
+- BI03 HIR now records the declared application that proves a generic/projection
+  coercion. Static lowering selects the existing declared/intrinsic/upcast path.
+  A symbolic forwarded conversion still reports an explicit compiler unsupported
+  boundary until BI04 introduces the executable target. The expanded HIR structural
+  rule test passed (1 selected test), as did the static compiler specialization
+  case (1 selected test). Shared execution remains a BI04 boundary.
 - BI02 first focused test run found two test-fixture compile errors (an obsolete
   AssociatedTypeDef field and a nonexistent DefinitionDecoding.context). Both were
   corrected at their owners. All five selected construction tests passed, covering
@@ -336,12 +355,35 @@ from interpreter fallback. Planning-only changes need content/link/diff checks.
   passed; final diff/line-ending checks passed. Full workspace tests and the feature/backend/platform matrix were not run.
 - Planning validation: documentation content/link checks and git diff --check;
   no implementation tests, builds or performance measurements required.
-- Carried implementation errors: none; source behavior remains unchanged in BI01.
+- Carried implementation errors: none. BI04 owns the explicit shared-conversion gate.
 - Structural debt: no new exception proposed; review changed responsibilities at
   each implementation checkpoint. SA11 and broader caching work remain separate.
 - [x] BI01 Contracts and integration inventory.
 - [x] BI02 Portable construction evidence and validation.
-- [ ] BI03 HIR proof and call preparation.
+- [x] BI03 HIR proof and call preparation.
 - [ ] BI04 Executable shared construction.
 - [ ] BI05 Lifecycle and source-free acceptance.
 - [ ] BI06 Durable documentation and closure.
+
+- BI03 focused contract validation passed: heterogeneous codec (2 tests),
+  construction semantics/graph (4 tests), and scoped shared-call bound evidence
+  (1 test). Mixed operation/constructor depth and node-kind rejection are covered;
+  empty-bound missing/duplicate capabilities are rejected independently of methods.
+- BI03 SDK integration found `InvalidGraph` for the two selected shared Fn tests.
+  Root cause: intrinsic interface bridges are intentionally excluded from ordinary
+  implementation search, but exact construction selections must retain them.
+  Proof preparation now partitions bridges into dependency-scoped construction-only
+  records; bridge selections still require existing conformance and executable
+  bridge validation. Both selected SDK tests passed after the repair.
+
+- BI03 acceptance: the two SDK tests were
+  `shared_function_call_arguments_and_operations_are_verified_without_source` and
+  `shared_helpers_forward_bounds_and_retain_nested_types`. The methodless contract
+  case also passed with a forged intrinsic bridge, confirming retained bridges do
+  not invent conformance. Workspace Clippy passed with all targets/denied warnings;
+  structure (1418 Rust files, no exceptions), formatting and diff checks passed.
+  New shared source behavior remains gated until BI04; exhaustive CI is pending.
+- BI03 structural review: one heterogeneous codec/traversal owns mixed evidence
+  limits; no compatibility reader, re-export, visibility exception or new cache.
+  HIR proof selection and compiler capability preparation retain their existing
+  owners. Intrinsic bridges are partitioned from ordinary implementation lookup.

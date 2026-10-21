@@ -66,7 +66,7 @@ pub(super) fn catalog<'a>(
                 let PublicItem::InterfaceTable(table) = item else {
                     return None;
                 };
-                (table.bridge.is_none()).then_some(Implementation::Interface(table.as_ref()))
+                Some(Implementation::Interface(table.as_ref()))
             })
             .collect(),
         modules.iter().flat_map(|module| &module.enumerations),

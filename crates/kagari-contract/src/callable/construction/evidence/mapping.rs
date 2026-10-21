@@ -70,6 +70,7 @@ impl DefinitionReferences for ConstructionWitness {
         visit: &mut impl FnMut(&DefinitionId) -> Result<(), DefinitionMappingError>,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
+        self.check_shape(cancel)?;
         let mut pending = vec![self];
         while let Some(witness) = pending.pop() {
             check_cancel(cancel)?;

@@ -159,7 +159,7 @@ impl InstancePlanner<'_> {
                 let implementation = match implementation {
                     Some(implementation) => Some(implementation),
                     None if !required.receiver.is_concrete() => {
-                        self.operation_candidate(&required)?
+                        self.implementation_candidate(&required.receiver, &required.interface)?
                     }
                     None => None,
                 };
@@ -170,12 +170,12 @@ impl InstancePlanner<'_> {
                     }
                     return Err(invalid());
                 };
-                let dependencies =
-                    self.implementation_operations(&declaration, &arguments, span)?;
+                let dependencies = self.implementation_evidence(&declaration, &arguments, span)?;
                 self.record_interface(&declaration, &arguments, span)?;
                 operations.push(OperationWitness::SharedMethod(Box::new(
                     SharedMethodWitness {
-                        operations: dependencies,
+                        constructions: dependencies.constructions,
+                        operations: dependencies.operations,
                         requirement: required,
                         implementation: ConcreteFunctionIdentity {
                             declaration,

@@ -51,6 +51,7 @@ impl Fixture {
 
     fn shared(&self) -> SharedCall {
         SharedCall {
+            constructions: vec![],
             receiver_access: None,
             instance: self.instance(),
             implementation: CallableImplementation::Script,
@@ -192,6 +193,7 @@ fn interface_dispatch_retains_normalizations_receiver_and_forwarded_operations()
         let instruction = call(CallTarget::InterfaceMethod {
             module: ModuleRef::new(1),
             contract: Box::new(InterfaceCallContract {
+                constructions: vec![],
                 normalizations: vec![
                     TypeNormalization {
                         source: t(),
@@ -237,6 +239,7 @@ fn shared_witness_tree_prints_every_nested_contract_fact_and_propagates_io_error
         },
     }));
     let method = OperationWitness::SharedMethod(Box::new(SharedMethodWitness {
+        constructions: vec![],
         requirement: fixture.requirement(),
         implementation: ConcreteFunctionIdentity {
             declaration: fixture.table,

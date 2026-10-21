@@ -306,9 +306,9 @@ impl FunctionLowerer<'_, '_> {
                     span,
                 )?;
                 let slot = method_contract.slot;
-                let operations = self
+                let evidence = self
                     .planner
-                    .method_operations(&method, &interface, &ty, &arguments, span)?;
+                    .method_evidence(&method, &interface, &ty, &arguments, span)?;
                 let normalizations = self
                     .planner
                     .method_normalizations(&method, &interface, &ty, &arguments)?;
@@ -320,9 +320,10 @@ impl FunctionLowerer<'_, '_> {
                     Vec::new(),
                     Some(CallTarget::InterfaceMethod(Box::new(
                         InterfaceCallContract {
+                            constructions: evidence.constructions,
                             normalizations,
                             receiver: None,
-                            operations,
+                            operations: evidence.operations,
                             arguments: arguments
                                 .iter()
                                 .map(|ty| self.planner.encode_type(ty))

@@ -50,12 +50,20 @@ pub fn closed_interface_instances(
                         callee: CallTarget::InterfaceMethod(call),
                         ..
                     } => {
+                        steps.push(ConstructionStep::Evidence {
+                            operations: call.operations.clone(),
+                            constructions: call.constructions.clone(),
+                        });
                         steps.push(ConstructionStep::Dispatch(call.as_ref().clone()));
                     }
                     Instruction::Call {
                         callee: CallTarget::Shared(call),
                         ..
                     } => {
+                        steps.push(ConstructionStep::Evidence {
+                            operations: call.operations.clone(),
+                            constructions: call.constructions.clone(),
+                        });
                         steps.push(ConstructionStep::Call {
                             body: call.instance.clone(),
                             arguments: call.arguments.clone(),

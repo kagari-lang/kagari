@@ -1,8 +1,8 @@
 //! Portable construction selections; a method list is not a conformance proof.
 use crate::{
     callable::{
-        construction::requirements::required_constructions, interface::dynamic_interface_valid,
-        witness::OperationWitness,
+        construction::requirements::required_constructions, evidence::EvidenceRef,
+        interface::dynamic_interface_valid, witness::OperationWitness,
     },
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
@@ -106,57 +106,7 @@ impl ConstructionWitness {
         &self,
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
-        enum Node<'a> {
-            Construction(&'a ConstructionWitness),
-            Operation(&'a OperationWitness),
-        }
-        let mut pending = vec![(Node::Construction(self), 0)];
-        let mut count = 0;
-        while let Some((node, depth)) = pending.pop() {
-            cancel
-                .check()
-                .map_err(|_| DefinitionMappingError::Cancelled)?;
-            count += 1;
-            if count > 4096 || depth > 64 {
-                return Err(DefinitionMappingError::LimitExceeded);
-            }
-            match node {
-                Node::Construction(witness) => {
-                    if let ConstructionSelection::Declared {
-                        operations,
-                        constructions,
-                        ..
-                    } = &witness.selection
-                    {
-                        if operations.len() > 4096 || constructions.len() > 4096 {
-                            return Err(DefinitionMappingError::LimitExceeded);
-                        }
-                        pending.extend(
-                            operations
-                                .iter()
-                                .map(|child| (Node::Operation(child), depth + 1)),
-                        );
-                        pending.extend(
-                            constructions
-                                .iter()
-                                .map(|child| (Node::Construction(child), depth + 1)),
-                        );
-                    }
-                }
-                Node::Operation(operation) => {
-                    let children = operation.children();
-                    if children.len() > 4096 {
-                        return Err(DefinitionMappingError::LimitExceeded);
-                    }
-                    pending.extend(
-                        children
-                            .iter()
-                            .map(|child| (Node::Operation(child), depth + 1)),
-                    );
-                }
-            }
-        }
-        Ok(())
+        EvidenceRef::Construction(self).check_shape(cancel)
     }
 
     pub fn structurally_valid(

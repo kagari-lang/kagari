@@ -256,7 +256,7 @@ impl FunctionLowerer<'_, '_> {
                 .semantic
                 .registers
                 .insert(dst.temp.index(), self.planner.encode_type(&result));
-            let operations = self.planner.method_operations(
+            let evidence = self.planner.method_evidence(
                 method,
                 &interface,
                 &ty,
@@ -269,10 +269,11 @@ impl FunctionLowerer<'_, '_> {
             self.emit(Instruction::Call {
                 dst: Some(dst),
                 callee: CallTarget::InterfaceMethod(Box::new(InterfaceCallContract {
+                    constructions: evidence.constructions,
                     normalizations,
                     receiver: matches!(&ty, TypeId::Generic(_))
                         .then(|| self.planner.encode_type(&ty)),
-                    operations,
+                    operations: evidence.operations,
                     arguments: method_arguments
                         .iter()
                         .map(|ty| self.planner.encode_type(ty))

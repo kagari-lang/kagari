@@ -257,6 +257,7 @@ pub fn interface_method_semantics(
         definitions,
     )?;
     let call = InterfaceCallContract {
+        constructions: vec![],
         normalizations: vec![],
         receiver: None,
         operations: vec![],

@@ -9,7 +9,10 @@ use kagari_common::identity::{
     ModuleIdentity, PackageId, map::DefinitionContext, metadata::DefinitionMetadata,
     table::DefinitionId,
 };
-use kagari_contract::{callable::witness::OperationWitness, types::PublicItem};
+use kagari_contract::{
+    callable::{construction::evidence::ConstructionSelection, witness::OperationWitness},
+    types::PublicItem,
+};
 use kagari_runtime::module::entry::ProgramEntry;
 use kagari_runtime::value::Value;
 use kagari_source::{source::SourceFile, source_database::SourceLayer};
@@ -670,7 +673,7 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
         )
         .unwrap();
     let (context, artifact) = editable_artifact(artifact);
-    for mutation in 0..6 {
+    for mutation in 0..10 {
         let mut program = artifact.program.clone();
         let call = program
             .modules
@@ -697,6 +700,10 @@ fn main() -> i32 { val source: Run = Source {}; source.run(|| 42) }
                 };
                 *position += 1;
             }
+            6 => call.constructions.clear(),
+            7 => call.constructions.push(call.constructions[0].clone()),
+            8 => call.constructions[0].requirement.receiver = Ty::Builtin(BuiltinType::Bool),
+            9 => call.constructions[0].selection = ConstructionSelection::Interface,
             _ => unreachable!(),
         }
         assert!(

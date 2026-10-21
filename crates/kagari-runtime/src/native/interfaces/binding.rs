@@ -324,6 +324,7 @@ impl Runtime {
                 return None;
             };
             let call = InterfaceCallContract {
+                constructions: vec![],
                 normalizations: vec![],
                 receiver: None,
                 operations: vec![],

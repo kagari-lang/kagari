@@ -1,26 +1,26 @@
 //! Select implementation shapes while deferring applicability to checked call bounds.
-use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
+use crate::source::lower::{
+    MirLoweringError,
+    instances::{InstancePlanner, constructions::BoundEvidence},
+};
 use kagari_common::{identity::table::DefinitionId, span::Span};
-use kagari_contract::callable::witness::OperationWitness;
 use kagari_hir::types::{TypeId, semantic::raise_type};
-use kagari_types::{
-    declaration::requirement::NativeCallableRequirement,
-    ty::{
-        GenericParam, Ty,
-        matching::{ImplementationPattern, match_pattern},
-    },
+use kagari_types::ty::{
+    GenericParam, NominalTy, Ty,
+    matching::{ImplementationPattern, match_pattern},
 };
 
 impl InstancePlanner<'_> {
     /// A symbolic receiver can select a unique implementation shape before its
     /// component operations are bound. Executable verification still proves every
     /// substituted implementation bound in the caller's actual scope.
-    pub(super) fn operation_candidate(
+    pub(super) fn implementation_candidate(
         &self,
-        required: &NativeCallableRequirement,
+        receiver: &Ty,
+        interface: &NominalTy,
     ) -> Result<Option<(DefinitionId, Vec<TypeId>)>, MirLoweringError> {
         if !matches!(
-            required.receiver,
+            receiver,
             Ty::Struct(_)
                 | Ty::NativeObject(_)
                 | Ty::Enum(_)
@@ -44,16 +44,16 @@ impl InstancePlanner<'_> {
                     position: parameter.position,
                 })
                 .collect();
-            let receiver = self.encode_type(&implementation.for_type);
-            let interface = self.encode_nominal(&implementation.trait_type);
+            let pattern_receiver = self.encode_type(&implementation.for_type);
+            let pattern_interface = self.encode_nominal(&implementation.trait_type);
             let Some(bindings) = match_pattern(
                 ImplementationPattern {
                     parameters: &parameters,
-                    receiver: &receiver,
-                    interface: &interface,
+                    receiver: &pattern_receiver,
+                    interface: &pattern_interface,
                 },
-                &required.interface,
-                &required.receiver,
+                interface,
+                receiver,
                 &self.options.cancel,
             )
             .map_err(|_| invalid())?
@@ -77,12 +77,12 @@ impl InstancePlanner<'_> {
         Ok(selected)
     }
 
-    pub(super) fn implementation_operations(
+    pub(super) fn implementation_evidence(
         &mut self,
         declaration: &DefinitionId,
         arguments: &[TypeId],
         span: Span,
-    ) -> Result<Vec<OperationWitness>, MirLoweringError> {
+    ) -> Result<BoundEvidence, MirLoweringError> {
         let implementation = self.catalog.implementation_signature(declaration).ok_or(
             MirLoweringError::MissingBinding("shared operation implementation bounds"),
         )?;
@@ -93,6 +93,6 @@ impl InstancePlanner<'_> {
             .zip(arguments.iter().cloned())
             .collect();
         let bounds = implementation.bounds.clone();
-        self.bound_operations(&bounds, &substitution, span)
+        self.bound_evidence(&bounds, &substitution, span)
     }
 }

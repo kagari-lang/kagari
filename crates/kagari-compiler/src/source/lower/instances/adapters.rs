@@ -2,6 +2,7 @@
 use crate::source::lower::{MirLoweringError, instances::InstancePlanner};
 use kagari_common::span::Span;
 use kagari_contract::callable::shared::SharedCall;
+use kagari_hir::types::semantic::{raise_nominal_type, raise_type};
 use kagari_mir::ids::InstanceId;
 use kagari_types::{
     callable::CallableImplementation, declaration::requirement::NativeCallableRequirement,
@@ -31,7 +32,20 @@ impl InstancePlanner<'_> {
                 requirements.push(operation);
             }
         }
+        let construction_requirements = requirements
+            .iter()
+            .map(|required| {
+                self.construction_requirement(
+                    &raise_type(&required.receiver),
+                    &raise_nominal_type(&required.interface),
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect();
         let operations = self.bind_operations(requirements, span)?;
+        let constructions = self.bind_constructions(construction_requirements, span)?;
         let instance = self.instances[function.index()].lower(
             self.catalog,
             self.options,
@@ -39,6 +53,7 @@ impl InstancePlanner<'_> {
             span,
         )?;
         Ok(SharedCall {
+            constructions,
             receiver_access: None,
             instance,
             implementation: CallableImplementation::Script,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::callable::construction::evidence::ConstructionRequirement;
 use crate::types::ConcreteFunctionIdentity;
 use bincode::{DefaultOptions, Options};
 use kagari_common::identity::{
@@ -34,7 +35,7 @@ fn construction_records_reject_forged_shapes_and_bound_depth() {
             associated_types: Default::default(),
         },
     };
-    let node = |children| Node {
+    let node = |children| Node::Construction {
         requirement: ConstructionRequirementRecord::encode(
             &requirement,
             &encoding,
@@ -51,13 +52,13 @@ fn construction_records_reject_forged_shapes_and_bound_depth() {
                 &Default::default(),
             )
             .unwrap(),
-            operations: vec![],
-            children,
+            operations: 0,
+            constructions: children,
         },
     };
     for nodes in [vec![], vec![node(0), node(0)], vec![node(2), node(0)]] {
         assert!(matches!(
-            ConstructionWitnessRecord { nodes }.decode(&decoding, &Default::default()),
+            EvidenceRecord { nodes }.decode_construction(&decoding, &Default::default()),
             Err(DefinitionMappingError::InvalidContract)
         ));
     }
@@ -65,13 +66,13 @@ fn construction_records_reject_forged_shapes_and_bound_depth() {
         let nodes = (0..depth).map(|_| node(1)).chain([node(0)]).collect();
         let bytes = DefaultOptions::new()
             .with_fixint_encoding()
-            .serialize(&ConstructionWitnessRecord { nodes })
+            .serialize(&EvidenceRecord { nodes })
             .unwrap();
-        let record: ConstructionWitnessRecord = DefaultOptions::new()
+        let record: EvidenceRecord = DefaultOptions::new()
             .with_fixint_encoding()
             .deserialize(&bytes)
             .unwrap();
-        let decoded = record.decode(&decoding, &Default::default());
+        let decoded = record.decode_construction(&decoding, &Default::default());
         if depth == 64 {
             let decoded = decoded.unwrap();
             let mut ids = Vec::new();
@@ -86,7 +87,7 @@ fn construction_records_reject_forged_shapes_and_bound_depth() {
                 .unwrap();
             let reencoding = decoding.table.encode(ids).unwrap();
             let record =
-                ConstructionWitnessRecord::encode(&decoded, &reencoding, &Default::default())
+                EvidenceRecord::encode_construction(&decoded, &reencoding, &Default::default())
                     .unwrap();
             assert_eq!(
                 DefaultOptions::new()
@@ -105,7 +106,7 @@ fn construction_records_reject_forged_shapes_and_bound_depth() {
     assert!(
         DefaultOptions::new()
             .with_fixint_encoding()
-            .deserialize::<ConstructionWitnessRecord>(&4097u64.to_le_bytes())
+            .deserialize::<EvidenceRecord>(&4097u64.to_le_bytes())
             .is_err()
     );
 }
