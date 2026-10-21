@@ -32,7 +32,7 @@ use kagari_mir::{ids::InstanceId, passes::PassOptions};
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
 use kagari_types::{
     language::Protocol,
-    ty::{NominalTy, Ty},
+    ty::{GenericParam, NominalTy, Ty},
 };
 use std::{
     collections::{BTreeSet, HashMap, HashSet},
@@ -48,6 +48,7 @@ mod native;
 mod operation_dependencies;
 mod results;
 mod shared;
+mod tuple_bridges;
 mod views;
 
 #[derive(Debug, Clone)]
@@ -148,6 +149,7 @@ pub(super) struct CallableInstance {
 #[derive(Clone)]
 pub(super) struct InterfaceBridgeRequest {
     pub declaration: DefinitionId,
+    pub parameters: Vec<GenericParam>,
     pub receiver: TypeId,
     pub interface: NominalType,
     pub span: Span,
@@ -647,6 +649,7 @@ impl<'a> InstancePlanner<'a> {
             .map_err(DefinitionMappingError::from)?;
         self.interface_bridges.push(InterfaceBridgeRequest {
             declaration: id,
+            parameters: Vec::new(),
             receiver: receiver.clone(),
             interface: interface.clone(),
             span,

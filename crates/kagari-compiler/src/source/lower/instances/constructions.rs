@@ -17,7 +17,7 @@ use kagari_hir::{
         semantic::{raise_nominal_type, raise_type},
     },
 };
-use kagari_types::ty::Ty;
+use kagari_types::{language::Protocol, ty::Ty};
 use std::cmp::Ordering;
 
 pub(in crate::source::lower) struct BoundEvidence {
@@ -127,6 +127,29 @@ impl InstancePlanner<'_> {
         let invalid = || MirLoweringError::MissingBinding("selected interface construction");
         let receiver = raise_type(&required.receiver);
         let interface = raise_nominal_type(&required.interface);
+        if let TypeId::Tuple(items) = &receiver
+            && !receiver.is_concrete()
+            && matches!(
+                Protocol::from_definition(&interface.declaration, &self.definitions()),
+                Some(Protocol::PartialEq | Protocol::Eq | Protocol::Hash)
+            )
+        {
+            let implementation = self.tuple_interface_bridge(items, &interface, span)?;
+            let bounds = items
+                .iter()
+                .cloned()
+                .map(|item| (item, vec![interface.clone()]))
+                .collect();
+            let evidence = self.bound_evidence(&bounds, &Default::default(), span)?;
+            return Ok(ConstructionWitness {
+                requirement: required,
+                selection: ConstructionSelection::Declared {
+                    implementation,
+                    operations: evidence.operations,
+                    constructions: evidence.constructions,
+                },
+            });
+        }
         if let TypeId::Trait(source) = &receiver
             && self
                 .catalog

@@ -1115,6 +1115,15 @@ it through the existing table path or emits a symbolic MakeInterface target.
 MIR and bytecode validate the body scope, receiver/target facts, complete caller
 capabilities and reachable implementation applications without source analysis.
 
+Tuple capabilities compose the capabilities of their elements, including nested
+symbolic tuples. They select a canonical generic intrinsic table with one exact
+protocol bound per element; they cannot forward a capability absent from the
+caller's own bounds. Shared forwarding methods call the existing checked tuple
+adapters. Closing an application publishes its table arguments without specializing
+the forwarding body. ABI, MIR and bytecode checks retain the tuple shape, element
+bounds, selected adapter and dependency evidence; intrinsic bridges do not enter
+ordinary implementation search.
+
 [ConstructionScope](../crates/kagari-runtime/src/frame/types/construction.rs)
 retains these exact selections alongside its finite program inventory. Inventory
 membership alone grants no capability. Existing environment, method-application

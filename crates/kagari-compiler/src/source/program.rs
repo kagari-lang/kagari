@@ -8,7 +8,7 @@ use kagari_common::identity::{
     ModuleIdentity, mapping::DefinitionMappingError, scoped::DefinitionReferences,
     table::module::ModuleHandle,
 };
-use kagari_contract::types::ConcreteFunctionIdentity;
+use kagari_contract::types::{ConcreteFunctionIdentity, PublicItem};
 use kagari_hir::{
     program::CheckedProgram, resolver::resolved::ResolvedName, typeck::FunctionImplementation,
 };
@@ -163,37 +163,6 @@ pub fn lower_program_to_mir(
                 .module()
         };
         let mut changed = false;
-        let source_owners: HashSet<_> = modules
-            .iter()
-            .map(|module| module.identity.clone())
-            .collect();
-        for module in &mut modules {
-            // Concrete generic arguments and selected witnesses can introduce owners
-            // absent from the defining source's imports. Retain every referenced
-            // source declaration; host identities belong to the host contract table.
-            let mut dependencies: BTreeSet<_> = module.dependencies.iter().cloned().collect();
-            module
-                .visit_definition_ids(
-                    &mut |definition| {
-                        if owner_of(*definition) != &module.identity
-                            && source_owners.contains(owner_of(*definition))
-                        {
-                            dependencies.insert(owner_of(*definition).clone());
-                        }
-                        Ok(())
-                    },
-                    &options.cancel,
-                )
-                .map_err(|error| ProgramError {
-                    module: Box::new(module.identity.clone()),
-                    kind: if matches!(error, DefinitionMappingError::Cancelled) {
-                        ProgramErrorKind::Cancelled
-                    } else {
-                        ProgramErrorKind::InvalidGraph
-                    },
-                })?;
-            module.dependencies = dependencies.into_iter().collect();
-        }
         let materialized: HashSet<_> = modules
             .iter()
             .flat_map(|module| {
@@ -266,6 +235,33 @@ pub fn lower_program_to_mir(
         })?;
         for instance in constructions {
             let owner = owner_of(instance.declaration);
+            if let Some(module) = modules.iter_mut().find(|module| &module.identity == owner)
+                && module.abi.public_items.iter().any(|item| {
+                    matches!(item,
+                    PublicItem::InterfaceTable(table) if table.declaration == instance.declaration
+                        && table.bridge.is_some() && !table.generic_params.is_empty())
+                })
+            {
+                // Generated intrinsic tables share their executable method bodies.
+                // Closing an application only materializes a checked table record.
+                if !module.interface_instances.contains(&instance) {
+                    if remaining.max_generic_instances == 0 {
+                        return Err(SourceProgramError::Lowering {
+                            module: Box::new(root.clone()),
+                            error: MirLoweringError::Diagnostic(Box::new(
+                                Diagnostic::error(DiagnosticKind::CompileLimitExceeded {
+                                    resource: "generic instances",
+                                    limit: options.max_generic_instances,
+                                })
+                                .with_span(Default::default()),
+                            )),
+                        });
+                    }
+                    remaining.max_generic_instances -= 1;
+                    module.interface_instances.push(instance);
+                }
+                continue;
+            }
             let materialized = modules
                 .iter()
                 .find(|module| &module.identity == owner)
@@ -440,6 +436,37 @@ pub fn lower_program_to_mir(
                     changed = true;
                 }
             }
+        }
+        let source_owners: HashSet<_> = modules
+            .iter()
+            .map(|module| module.identity.clone())
+            .collect();
+        for module in &mut modules {
+            // Concrete generic arguments and selected witnesses can introduce owners
+            // absent from the defining source's imports. Retain every referenced
+            // source declaration; host identities belong to the host contract table.
+            let mut dependencies: BTreeSet<_> = module.dependencies.iter().cloned().collect();
+            module
+                .visit_definition_ids(
+                    &mut |definition| {
+                        if owner_of(*definition) != &module.identity
+                            && source_owners.contains(owner_of(*definition))
+                        {
+                            dependencies.insert(owner_of(*definition).clone());
+                        }
+                        Ok(())
+                    },
+                    &options.cancel,
+                )
+                .map_err(|error| ProgramError {
+                    module: Box::new(module.identity.clone()),
+                    kind: if matches!(error, DefinitionMappingError::Cancelled) {
+                        ProgramErrorKind::Cancelled
+                    } else {
+                        ProgramErrorKind::InvalidGraph
+                    },
+                })?;
+            module.dependencies = dependencies.into_iter().collect();
         }
         if !changed {
             let exports = exports::lower(program, &options.cancel).map_err(|error| {

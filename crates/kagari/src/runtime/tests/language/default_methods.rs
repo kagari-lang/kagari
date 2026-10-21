@@ -726,11 +726,36 @@ fn shared_helpers_are_materialized_in_their_declaring_module() {
     for (name, source) in [
         (
             "model",
-            "pub trait Read { fn read(self) -> i32; } fn retain<T: Read>(value: T) -> fn() -> Read { || value } pub trait Keep { fn keep<T: Read>(self, value: T) -> fn() -> Read { retain(value) } }",
+            r#"
+use std::hash::Hash;
+pub trait Read { fn read(self) -> i32; }
+fn retain<T: Read>(value: T) -> fn() -> Read { || value }
+fn erase_hash<T: Hash>(value: T) -> Hash { value }
+pub trait Keep {
+    fn keep<T: Read>(self, value: T) -> fn() -> Read { retain(value) }
+    fn hashed<T: Hash>(self, value: T) -> Hash { erase_hash((value, 7)) }
+}
+"#,
         ),
         (
             "root",
-            "use pkg::model::{Keep, Read}; struct Source {} impl Keep for Source {} struct Item { val value: i32 } impl Read for Item { fn read(self) -> i32 { self.value } } fn main() -> i32 { val source: Keep = Source {}; val get = source.keep(Item { value: 42 }); get().read() }",
+            r#"
+use pkg::model::{Keep, Read};
+use std::hash::Hash;
+struct Source {}
+impl Keep for Source {}
+struct Item { val value: i32 }
+impl Read for Item { fn read(self) -> i32 { self.value } }
+impl PartialEq for Item { fn eq(self, other: Self) -> bool { self.value == other.value } }
+impl Eq for Item {}
+impl Hash for Item { fn hash(self) -> i64 { 17i64 } }
+fn main() -> i32 {
+    val source: Keep = Source {};
+    val item = Item { value: 42 };
+    val get = source.keep(item);
+    if source.hashed(item).hash() == (item, 7).hash() { get().read() } else { 0 }
+}
+"#,
         ),
     ] {
         let path = format!("mem://{name}");

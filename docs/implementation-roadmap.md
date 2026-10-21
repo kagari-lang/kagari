@@ -810,6 +810,12 @@ and source-free admission contracts. Methodless traits, parent and associated
 bounds, generic implementation dependencies, imported helpers, retained closures
 and supported host receivers use exact checked evidence without runtime impl search.
 
+The follow-up to [CI run 39587942382](https://github.com/kagari-lang/kagari/actions/runs/39587942382)
+composes symbolic tuple construction capabilities and preserves their shared adapter
+bodies. Focused coverage includes nested tuple boxing, caller-owned types in imported
+helpers, source-free rejection of missing/forged tuple evidence, and retained versus
+evicted witness environments. The complete matrix still requires a new CI run.
+
 Focused local coverage includes forged capabilities/instructions, default and
 override execution, old-provider/new-caller applications, forced GC, synchronous
 host reentry and trap/depth/cancellation cleanup. Canonical artifact emission and

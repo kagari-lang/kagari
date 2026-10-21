@@ -7,8 +7,14 @@ use kagari_common::{
     cancellation::CancellationToken,
     identity::{DefinitionKind, table::DefinitionTable},
 };
-use kagari_contract::types::{InterfaceBridge, PublicItem};
-use kagari_types::ty::{Ty, substitution::TypeTransformError};
+use kagari_contract::{
+    callable::adapter::SharedAdapterWitness,
+    types::{InterfaceBridge, PublicItem},
+};
+use kagari_types::{
+    declaration::requirement::NativeCallableRequirement,
+    ty::{GenericParam, Ty, substitution::TypeTransformError},
+};
 
 pub(super) fn valid(
     module: &MirModule,
@@ -49,16 +55,9 @@ pub(super) fn valid(
             }
             let Instruction::Call {
                 dst: Some(result),
-                callee: CallTarget::Function(target),
+                callee,
                 args,
             } = &block.instructions[count]
-            else {
-                return Ok(false);
-            };
-            let Some(required) = module
-                .functions
-                .get(target.index())
-                .and_then(|function| function.semantic.protocol_adapter.as_ref())
             else {
                 return Ok(false);
             };
@@ -73,12 +72,55 @@ pub(super) fn valid(
                 &method.name,
                 0,
             );
-            if !forwarded
-                || required.receiver != table.for_type
-                || &required.interface != interface
-                || !required.arguments.is_empty()
-                || member != Some(required.member)
-            {
+            let Some(member) = member else {
+                return Ok(false);
+            };
+            let target_matches = match callee {
+                CallTarget::Function(target) => module
+                    .functions
+                    .get(target.index())
+                    .and_then(|function| function.semantic.protocol_adapter.as_ref())
+                    .is_some_and(|required| {
+                        required.receiver == table.for_type
+                            && &required.interface == interface
+                            && required.member == member
+                            && required.arguments.is_empty()
+                    }),
+                CallTarget::Shared(call) => {
+                    let Some(body) = &function.semantic.generic else {
+                        return Ok(false);
+                    };
+                    let arguments: Vec<_> =
+                        body.parameters.iter().map(GenericParam::as_type).collect();
+                    let Some(applied) =
+                        table.instantiate(&arguments, &body.parameters, definitions)
+                    else {
+                        return Ok(false);
+                    };
+                    let witness = SharedAdapterWitness {
+                        requirement: NativeCallableRequirement {
+                            receiver: applied.for_type,
+                            interface: interface.clone(),
+                            member,
+                            arguments: Vec::new(),
+                        },
+                        call: (**call).clone(),
+                    };
+                    let Some((generic, required, _)) = witness.template(definitions) else {
+                        return Ok(false);
+                    };
+                    module
+                        .functions
+                        .iter()
+                        .find(|target| target.instance == call.instance)
+                        .is_some_and(|target| {
+                            target.semantic.generic.as_ref() == Some(&generic)
+                                && target.semantic.protocol_adapter.as_ref() == Some(&required)
+                        })
+                }
+                _ => false,
+            };
+            if !forwarded || !target_matches {
                 return Ok(false);
             }
         }

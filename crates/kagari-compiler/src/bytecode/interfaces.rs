@@ -133,7 +133,8 @@ pub(super) fn collect_interface_tables(
                 unreachable!("verified interface type");
             };
             let mut methods = vec![];
-            let shared_receiver = instance.arguments.iter().any(|ty| !ty.is_concrete());
+            let shared_receiver = instance.arguments.iter().any(|ty| !ty.is_concrete())
+                || abi.bridge.is_some() && !abi.generic_params.is_empty();
             for method in &abi.methods {
                 if instance.arguments.is_empty() && !abi.generic_params.is_empty() {
                     continue;

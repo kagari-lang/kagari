@@ -18,6 +18,7 @@ use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, TraitDef, ownership::ReceiverOwners},
     decode_limits,
+    language::Protocol,
     ty::{
         GenericParam, NominalTy, Ty,
         matching::{ImplementationPattern, projection_output},
@@ -146,11 +147,7 @@ pub fn validate(
                         })
                     }) && bounds_valid(&table.bounds, &params, cancel, definitions)
                         && families_valid(table, &params, cancel, definitions)
-                        && (table.bridge.is_none()
-                            || (table.generic_params.is_empty()
-                                && table.bounds.is_empty()
-                                && table.for_type.is_concrete()
-                                && table.trait_type.is_concrete()))
+                        && (table.bridge.is_none() || bridge_shape_valid(table, definitions))
                         && matches!(table.trait_type, Ty::Trait(_))
                         && type_valid(&table.trait_type, &params, None, cancel, definitions)
                         && type_valid(&table.for_type, &params, None, cancel, definitions)
@@ -220,6 +217,41 @@ pub fn validate(
         }
     }
     Ok(())
+}
+
+// Intrinsic bridges are either closed receivers or canonical tuple templates.
+// A tuple template requires an exact element capability for each binder; it
+// cannot introduce arbitrary implementations or infer conformance at runtime.
+fn bridge_shape_valid(table: &InterfaceTable, definitions: &DefinitionTable) -> bool {
+    if table.generic_params.is_empty() {
+        return table.bounds.is_empty()
+            && table.for_type.is_concrete()
+            && table.trait_type.is_concrete();
+    }
+    let Ty::Trait(interface) = &table.trait_type else {
+        return false;
+    };
+    matches!(
+        Protocol::from_definition(&interface.declaration, definitions),
+        Some(Protocol::PartialEq | Protocol::Eq | Protocol::Hash)
+    ) && table.trait_type.is_concrete()
+        && table.for_type
+            == Ty::Tuple(
+                table
+                    .generic_params
+                    .iter()
+                    .map(GenericParam::as_type)
+                    .collect(),
+            )
+        && table.bounds.len() == table.generic_params.len()
+        && table
+            .bounds
+            .iter()
+            .zip(&table.generic_params)
+            .all(|(bound, parameter)| {
+                bound.ty == parameter.as_type()
+                    && bound.constraints.as_slice() == [interface.clone()]
+            })
 }
 
 /// Validate exact foreign source requirements without granting native trait authority.

@@ -19,6 +19,7 @@ use kagari_common::{
     identity::{DefinitionKind, table::DefinitionTable},
 };
 use kagari_contract::{
+    callable::adapter::SharedAdapterWitness,
     contracts,
     contracts::ContractError,
     decode_limits::{MAX_INSTRUCTIONS, MAX_TABLE_RECORDS},
@@ -35,9 +36,12 @@ use kagari_contract::{
 };
 use kagari_types::{
     callable::CallableImplementation,
-    declaration::host::PathAccess,
-    declaration::verify::{concrete_type_valid, validate_native_declarations},
-    ty::Ty,
+    declaration::{
+        host::PathAccess,
+        requirement::NativeCallableRequirement,
+        verify::{concrete_type_valid, validate_native_declarations},
+    },
+    ty::{GenericParam, Ty},
 };
 use std::{collections::HashSet, iter};
 
@@ -544,7 +548,9 @@ fn verify_interface_tables(
                     ) {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
-                    if abi.bridge.is_some() && !bridge_method_matches(abi, slot, function, module) {
+                    if abi.bridge.is_some()
+                        && !bridge_method_matches(abi, slot, function, module, definitions)
+                    {
                         return Err(BytecodeVerificationError::InvalidInterfaceTable);
                     }
                     function
@@ -649,6 +655,7 @@ fn bridge_method_matches(
     slot: &InterfaceMethodSlot,
     function: &BytecodeFunction,
     module: &BytecodeModule,
+    definitions: &DefinitionTable,
 ) -> bool {
     let params = function.metadata.params.len();
     let [
@@ -680,6 +687,38 @@ fn bridge_method_matches(
                     && required.member == slot.method
                     && required.arguments.is_empty()
             }),
+        (Some(InterfaceBridge::Intrinsic), CallTarget::Shared { contract, .. }) => {
+            let Some(body) = &function.metadata.semantic.generic else {
+                return false;
+            };
+            let arguments: Vec<_> = body.parameters.iter().map(GenericParam::as_type).collect();
+            let Some(applied) = table.instantiate(&arguments, &body.parameters, definitions) else {
+                return false;
+            };
+            let Ty::Trait(interface) = applied.trait_type else {
+                return false;
+            };
+            let witness = SharedAdapterWitness {
+                requirement: NativeCallableRequirement {
+                    receiver: applied.for_type,
+                    interface,
+                    member: slot.method,
+                    arguments: Vec::new(),
+                },
+                call: (**contract).clone(),
+            };
+            let Some((generic, required, _)) = witness.template(definitions) else {
+                return false;
+            };
+            module
+                .functions
+                .iter()
+                .find(|target| target.identity.as_ref() == Some(&contract.instance))
+                .is_some_and(|target| {
+                    target.metadata.semantic.generic.as_ref() == Some(&generic)
+                        && target.metadata.semantic.protocol_adapter.as_ref() == Some(&required)
+                })
+        }
         _ => false,
     };
     if args.len() != params || !target_matches {
