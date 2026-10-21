@@ -995,6 +995,8 @@ generations. Validate scalar and object receivers, parent adaptation, cancellati
 forged/missing witnesses and reload. Do not infer an object upper bound from an
 arbitrary trait or bypass conversion checks. This is a recorded existing limitation,
 not an activated feature, Any/downcast design or part of host registration unification.
+The [BI01-BI06 proposal](generic-interface-construction-plan.md) records the
+construction-evidence design and phased acceptance. Implementation has not started.
 
 ## SA23 Builtin type specifications duplicate scalar properties
 

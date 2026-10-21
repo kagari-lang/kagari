@@ -805,12 +805,15 @@ by completion of the collection-interface work.
 
 The existing bound-to-interface erasure limitation is recorded as
 [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses).
-It has no assigned position in this queue and does not expand the collection or
-host-registration scope.
+The [BI01-BI06 proposal](generic-interface-construction-plan.md) defines its bounded
+construction-evidence work. SA11 is deferred by user instruction; SA22 is the next
+proposed scope, with implementation still unstarted. It does not expand the
+collection or host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 1 | [SA22](review.md#sa22-generic-bounds-do-not-supply-interface-construction-witnesses): generic interface construction | [BI01-BI06 proposal](generic-interface-construction-plan.md); complete bound-derived construction evidence through shared calls, source-free verification and pinned execution. Not activated. |
+| Deferred | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Deferred by the user. Any later review must preserve the implemented function ownership model; field removal remains undecided. |
 
 SA9 context-owned module handles are implemented. The
 [identity architecture](architecture.md#definition-identity-ownership) and
@@ -845,7 +848,7 @@ Focused checks cover traps, depth exhaustion, cancellation and GC cleanup;
 structure, formatting, workspace all-target Clippy and diff checks pass.
 Complete workspace and backend/feature/platform acceptance remain pending CI.
 The LF01-LF06 plan is retired; Git history owns the phase ledger. SA11 remains
-queued and unstarted. R8 owns finer invalidation for modules containing local
+deferred and unstarted. R8 owns finer invalidation for modules containing local
 functions; this delivery conservatively rechecks changed revisions.
 
 Structured import paths (SA15) are implemented. The

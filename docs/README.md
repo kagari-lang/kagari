@@ -46,6 +46,11 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Generic interface construction](generic-interface-construction-plan.md): SA22,
+  proposed BI01-BI06; bound-derived construction evidence through static/shared
+  calls, source-free verification and retained generations. Implementation has not
+  started; SA11 is deferred.
+
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load
   goal explicitly unmet. Further frontend preparation work is deferred; the
