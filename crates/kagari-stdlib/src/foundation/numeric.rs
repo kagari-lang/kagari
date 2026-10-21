@@ -1,6 +1,7 @@
 //! Scalar construction keeps independent declaration targets for shared Rust bodies.
 pub(super) mod aggregation;
 pub(super) mod conversion;
+mod integer;
 use crate::foundation::{
     default_impl, enumeration,
     enumerations::value::{self as enums, Entry},
@@ -38,6 +39,7 @@ fn constant<T: NativeScalar>(value: T) -> (Type, NativeBinding) {
 }
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
+    integer::declare(module)?;
     for ((ty, binding), description) in [
         (constant(()), "Return the Unit value ()."),
         (constant(false), "Return false."),
@@ -173,6 +175,6 @@ fn aggregate(
 }
 
 pub(super) const MODULE_DOCS: (&str, &str) = (
-    "Numeric parsing and aggregation. Numeric failures use checked traps or the declared Result error.",
+    "Numeric parsing, aggregation and explicit fixed-width integer policies. Ordinary arithmetic remains checked and traps on overflow; integer methods explicitly select wrapping, checked Option, overflowing tuple or saturating results. Rotations use u32 counts modulo the receiver's width. Parsing and conversion failures use the declared Result error.",
     "fn parse(text: String) -> Result<i32, core::num::ParseError> { i32::from_str(text) }",
 );

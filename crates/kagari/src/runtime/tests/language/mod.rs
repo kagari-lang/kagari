@@ -53,6 +53,9 @@ mod native_enums;
 mod never;
 
 #[cfg(all(feature = "source", feature = "native"))]
+mod numeric_methods;
+
+#[cfg(all(feature = "source", feature = "native"))]
 mod numeric_operations;
 
 #[cfg(all(feature = "source", feature = "native"))]

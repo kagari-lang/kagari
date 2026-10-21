@@ -1,6 +1,6 @@
 # Numeric standard-library implementation plan
 
-Status: implementation and phase commits authorized; NS01 complete, NS02 next.
+Status: implementation and phase commits authorized; NS01-NS02 complete, NS03 next.
 The [roadmap](implementation-roadmap.md#numeric-standard-library) owns activation.
 This document owns the finite NS01-NS05 sequence, proposed API/semantics, acceptance
 and progress ledger. Proposed methods below are **not installed APIs today**.
@@ -357,7 +357,7 @@ call-boundary and GC optimizations stay with their existing review/roadmap owner
 - [x] Current registration owners and retained-but-uninstalled integer machinery checked.
 - [x] Primary integer/float/PRNG references checked; finite inventory and exclusions proposed.
 - [x] NS01: freeze contracts and boundary acceptance after implementation authorization.
-- [ ] NS02: installed integer policy methods.
+- [x] NS02: installed integer policy methods.
 - [ ] NS03: float utilities and bit-exact transport.
 - [ ] NS04: bounded transcendental and power methods.
 - [ ] NS05: application-oriented acceptance and documentation handoff.
@@ -381,6 +381,17 @@ No known carried build failures. NS02 selects installed method/Option/tuple and
 malformed-call coverage; NS03/NS04 select exact-bit/domain/precision contracts;
 NS05 selects one bounded source/source-free application workload. The complete
 workspace/backend/platform matrix remains CI-only and unrun locally.
+
+NS02: all 132 concrete integer method bindings are installed under core::num.
+Seven installed-method tests passed across the initial five successes and two
+repaired generated-depth cases; all eight widths/17 policy variants, invalid
+contracts, carrier GC and evaluation order are covered. The generated assertions
+were flattened to respect the existing source-depth limit without reducing cases.
+Ordinary arithmetic/commit regression selection passed (2). Scoped publication/
+installation passed (1) after updating its retained inventory expectation for the
+eight new integer inherent groups (226 -> 234); no assertions were removed.
+Structure (1428 files), format, workspace all-target Clippy and diff checks passed.
+No production kernel or VM/backend changes were needed. Complete CI remains unrun.
 
 Planning validation: an independent read-only review found no required corrections
 to the inventory, current owner boundaries, float/error semantics or phase scope.
