@@ -24,7 +24,7 @@ impl RemapDefinitions for ImportedType {
                 .map(|value| (value).remap_definitions(mapper))
                 .transpose()?,
             associated_arities: self.associated_arities.clone(),
-            id: self.id.clone(),
+            id: self.id.remap_definitions(mapper)?,
             declaration: self.declaration.remap_definitions(mapper)?,
             ty: self.ty.remap_definitions(mapper)?,
             trait_methods: map_sequence(&self.trait_methods, |value| {
@@ -45,6 +45,7 @@ impl DefinitionReferences for ImportedType {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        self.id.visit_definition_ids(visit, cancel)?;
         if let Some(value0) = self.native_type.as_ref() {
             (value0).visit_definition_ids(visit, cancel)?;
         }
@@ -94,9 +95,12 @@ impl RemapDefinitions for ImportedTypes {
         Ok(ImportedTypes {
             resolutions: map_hash_entries(
                 self.resolutions.len(),
-                self.resolutions
-                    .iter()
-                    .map(|(key, value)| Ok((key.clone(), (value).remap_definitions(mapper)?))),
+                self.resolutions.iter().map(|(key, value)| {
+                    Ok((
+                        key.remap_definitions(mapper)?,
+                        value.remap_definitions(mapper)?,
+                    ))
+                }),
             )?,
             nominal_types: map_hash_entries(
                 self.nominal_types.len(),
@@ -106,9 +110,12 @@ impl RemapDefinitions for ImportedTypes {
             )?,
             variants: map_hash_entries(
                 self.variants.len(),
-                self.variants
-                    .iter()
-                    .map(|(key, value)| Ok((key.clone(), (value).remap_definitions(mapper)?))),
+                self.variants.iter().map(|(key, value)| {
+                    Ok((
+                        key.remap_definitions(mapper)?,
+                        value.remap_definitions(mapper)?,
+                    ))
+                }),
             )?,
         })
     }
@@ -121,7 +128,8 @@ impl DefinitionReferences for ImportedTypes {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for value0 in self.resolutions.values() {
+        for (key0, value0) in &self.resolutions {
+            key0.visit_definition_ids(visit, cancel)?;
             (value0).visit_definition_ids(visit, cancel)?;
         }
         for (key0, value0) in &self.nominal_types {
@@ -129,7 +137,8 @@ impl DefinitionReferences for ImportedTypes {
             visit(key0)?;
             (value0).visit_definition_ids(visit, cancel)?;
         }
-        for value0 in self.variants.values() {
+        for (key0, value0) in &self.variants {
+            key0.visit_definition_ids(visit, cancel)?;
             (value0).visit_definition_ids(visit, cancel)?;
         }
         Ok(())

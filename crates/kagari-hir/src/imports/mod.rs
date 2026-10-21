@@ -31,6 +31,7 @@ mod cache;
 mod cache_tests;
 pub mod catalog;
 pub mod functions;
+mod mapping;
 #[cfg(test)]
 mod provenance_tests;
 mod resolve;

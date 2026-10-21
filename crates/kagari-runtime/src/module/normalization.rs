@@ -75,6 +75,7 @@ impl VerifiedProgram {
                         module
                             .remap_definitions(&mut DefinitionMapper::new(
                                 &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
+                                &context.snapshot(),
                                 &cancel,
                             ))
                             .map(Arc::new)
@@ -85,6 +86,7 @@ impl VerifiedProgram {
                     .exports
                     .remap_definitions(&mut DefinitionMapper::new(
                         &mut |id| remap.map(*id).map_err(DefinitionMappingError::from),
+                        &context.snapshot(),
                         &cancel,
                     ))
                     .map_err(|error| RuntimeError::module_validation(error.to_string()))?;

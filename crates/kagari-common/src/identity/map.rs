@@ -341,6 +341,7 @@ impl<T: RemapDefinitions> DefinitionMap<T> {
             .map(|(id, value)| {
                 let value = value.remap_definitions(&mut DefinitionMapper::new(
                     &mut |id| remap.map(*id).map_err(Into::into),
+                    &context.snapshot(),
                     cancel,
                 ))?;
                 Ok((remap.map(*id)?, value))

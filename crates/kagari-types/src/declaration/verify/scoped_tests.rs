@@ -147,6 +147,7 @@ fn canonical_type_order_ignores_interning_and_associated_member_order() {
     let scoped = cases
         .remap_definitions(&mut DefinitionMapper::new(
             &mut |id| Ok(table.lookup(&source_table.resolve(*id)?.to_path()).unwrap()),
+            &table,
             &cancel,
         ))
         .unwrap();

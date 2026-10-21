@@ -78,6 +78,7 @@ impl<T: RemapDefinitions> DefinitionMetadata<T> {
         let remap = context.import(&self.definitions, references)?;
         let records = self.records.remap_definitions(&mut DefinitionMapper::new(
             &mut |id| remap.map(*id).map_err(Into::into),
+            &context.snapshot(),
             cancel,
         ))?;
         DefinitionMetadata::checked(context.snapshot(), records, cancel)

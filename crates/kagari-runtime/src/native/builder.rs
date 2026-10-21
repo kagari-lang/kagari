@@ -80,6 +80,7 @@ impl ModuleBuilder {
             .records()
             .remap_definitions(&mut DefinitionMapper::new(
                 &mut |id| remap.map(*id).map_err(Into::into),
+                &context.snapshot(),
                 &cancel,
             ))
             .map_err(conflict)?;

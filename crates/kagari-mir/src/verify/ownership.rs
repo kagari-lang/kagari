@@ -54,7 +54,11 @@ impl VerifiedMirModule {
         let records = self
             .metadata
             .records()
-            .remap_definitions(&mut DefinitionMapper::new(&mut |id| Ok(*id), cancel))
+            .remap_definitions(&mut DefinitionMapper::new(
+                &mut |id| Ok(*id),
+                self.definitions(),
+                cancel,
+            ))
             .map_err(mapping_error)?;
         DefinitionMetadata::checked(self.definitions().clone(), records, cancel)
             .map_err(mapping_error)

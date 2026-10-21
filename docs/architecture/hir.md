@@ -68,6 +68,12 @@ its body definition to the destination's `read` ID while retaining the analysis 
 local slot; a binding from another source analysis still cannot identify `saved`.
 Collapsed keys, cancellation and identity/traversal limits reject conversion.
 
+Source addresses inside reusable method and import facts participate in this
+conversion: `SourceUnit.module` is remapped and checked against the destination
+table as a module root. File, revision, arena and local declaration item stay
+unchanged. Import indexes remap their source-address keys together with their
+values; this does not transfer a namespace catalog or authorize cross-arena lookup.
+
 Whole analyzed/prepared/declaration bundles retain source arenas, name tables and
 registration versions. They expose reference validation and editable scoped
 extraction, not arbitrary representation conversion or whole-bundle import. Their

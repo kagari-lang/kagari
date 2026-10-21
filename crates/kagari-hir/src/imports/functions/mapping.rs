@@ -18,7 +18,7 @@ impl RemapDefinitions for ImportedFunction {
     ) -> Result<Self, DefinitionMappingError> {
         mapper.check()?;
         Ok(ImportedFunction {
-            id: self.id.clone(),
+            id: self.id.remap_definitions(mapper)?,
             declaration: mapper.reference(&self.declaration)?,
             site: self.site.remap_definitions(mapper)?,
             signature: self.signature.remap_definitions(mapper)?,
@@ -33,6 +33,7 @@ impl DefinitionReferences for ImportedFunction {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        self.id.visit_definition_ids(visit, cancel)?;
         visit(&self.declaration)?;
         self.site.visit_definition_ids(visit, cancel)?;
         self.signature.visit_definition_ids(visit, cancel)?;
@@ -49,9 +50,12 @@ impl RemapDefinitions for ImportedFunctions {
         Ok(ImportedFunctions {
             functions: map_hash_entries(
                 self.functions.len(),
-                self.functions
-                    .iter()
-                    .map(|(key, value)| Ok((key.clone(), (value).remap_definitions(mapper)?))),
+                self.functions.iter().map(|(key, value)| {
+                    Ok((
+                        key.remap_definitions(mapper)?,
+                        value.remap_definitions(mapper)?,
+                    ))
+                }),
             )?,
             methods: map_hash_entries(
                 self.methods.len(),
@@ -70,7 +74,8 @@ impl DefinitionReferences for ImportedFunctions {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
-        for value0 in self.functions.values() {
+        for (key0, value0) in &self.functions {
+            key0.visit_definition_ids(visit, cancel)?;
             (value0).visit_definition_ids(visit, cancel)?;
         }
         for (key0, value0) in &self.methods {

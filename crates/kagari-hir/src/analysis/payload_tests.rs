@@ -182,6 +182,21 @@ fn body_edits_rebase_payload_references_and_match_fresh_facts() {
         &db.definitions,
     );
     assert_eq!(&new_facts.aggregates, fresh_aggregates.records());
+    let fresh_functions = import_facts(
+        &fresh.imported_functions,
+        authoring_fresh.definitions(),
+        &db.definitions,
+    );
+    assert_eq!(&new_facts.imported_functions, fresh_functions.records());
+    let fresh_types = import_facts(
+        fresh.declarations.imported_types(),
+        authoring_fresh.definitions(),
+        &db.definitions,
+    );
+    assert_eq!(
+        new_facts.declarations.imported_types(),
+        fresh_types.records()
+    );
     assert!(old_facts.aggregates.same_contracts(&new_facts.aggregates));
 }
 

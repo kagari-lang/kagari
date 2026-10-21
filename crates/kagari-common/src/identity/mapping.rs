@@ -1,7 +1,7 @@
 //! Explicit contextual conversion of identity-bearing metadata records.
 use crate::{
     cancellation::CancellationToken,
-    identity::table::{DefinitionId, DefinitionTableError},
+    identity::table::{DefinitionId, DefinitionTable, DefinitionTableError, module::ModuleHandle},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -42,15 +42,21 @@ impl From<DefinitionTableError> for DefinitionMappingError {
 /// pool, serialization state or thread-local context supplies identity.
 pub struct DefinitionMapper<'a> {
     convert: &'a mut dyn FnMut(&DefinitionId) -> Result<DefinitionId, DefinitionMappingError>,
+    target: &'a DefinitionTable,
     cancel: &'a CancellationToken,
 }
 
 impl<'a> DefinitionMapper<'a> {
     pub fn new(
         convert: &'a mut dyn FnMut(&DefinitionId) -> Result<DefinitionId, DefinitionMappingError>,
+        target: &'a DefinitionTable,
         cancel: &'a CancellationToken,
     ) -> Self {
-        Self { convert, cancel }
+        Self {
+            convert,
+            target,
+            cancel,
+        }
     }
 
     pub fn cancellation(&self) -> &CancellationToken {
@@ -67,6 +73,12 @@ impl<'a> DefinitionMapper<'a> {
     ) -> Result<DefinitionId, DefinitionMappingError> {
         self.check()?;
         (self.convert)(source)
+    }
+
+    /// Maps a module identity and checks that the destination is still a module root.
+    pub fn module(&mut self, source: ModuleHandle) -> Result<ModuleHandle, DefinitionMappingError> {
+        let id = self.reference(&source.definition())?;
+        Ok(self.target.module_handle(id)?)
     }
 }
 

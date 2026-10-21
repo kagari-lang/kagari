@@ -60,7 +60,7 @@ impl RemapDefinitions for InherentMethodSignature {
         mapper.check()?;
         Ok(InherentMethodSignature {
             receiver_access: self.receiver_access,
-            id: self.id.clone(),
+            id: self.id.remap_definitions(mapper)?,
             declaration: mapper.reference(&self.declaration)?,
             site: self.site.remap_definitions(mapper)?,
             owner: self.owner.remap_definitions(mapper)?,
@@ -77,6 +77,7 @@ impl DefinitionReferences for InherentMethodSignature {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        self.id.visit_definition_ids(visit, cancel)?;
         visit(&self.declaration)?;
         self.site.visit_definition_ids(visit, cancel)?;
         self.owner.visit_definition_ids(visit, cancel)?;
