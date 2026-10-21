@@ -74,7 +74,7 @@ the outstanding BO04/IP12 performance gates.
 | **2. Scanners**, §§2.5.3-2.5.4, pp. 69-73 | Token spans and retained source suit tooling. SA1's repeated full-file processing is a larger ownership issue than selecting a new scanner generator. Identifier/escape classification also has local temporary allocations, discussed below; no scanner rewrite is required. |
 | **3. Parsers**, §3.2.4, pp. 92-95; §§3.3.1-3.3.2, pp. 108-110 | Recursive descent, precedence handling and a lossless tree are appropriate. Lower existing inline-module subtrees under their own contexts (SA1), preserving recovery and physical source offsets. The book does not make LR tables a prerequisite for a fast frontend. |
 | **4. Context-Sensitive Analysis**, pp. 161-167, 186-187, 194-201 | Preserve separate declaration/signature/body queries and stored checked answers. R8 should distinguish semantic dependencies from navigation freshness; never weaken revision/arena validation globally. SA14/SA22 require explicit new semantics, not performance shortcuts. |
-| **5. Intermediate Representations**, §§5.1-5.4, selected pp. 221-251; §5.5, selected pp. 253-263 | Typed block MIR plus side metadata is a viable hybrid IR. `TempId` is not an SSA definition. SA9 concerns compact context-owned identity; SA11 is an interface/storage tradeoff, not a required migration. Any SSA proposal must justify its consumers and own merge edges, destruction and origins. |
+| **5. Intermediate Representations**, §§5.1-5.4, selected pp. 221-251; §5.5, selected pp. 253-263 | Typed block MIR plus side metadata is a viable hybrid IR. `TempId` is not an SSA definition. Context-owned module handles separate local identity from portable paths; SA11 is an interface/storage tradeoff, not a required migration. Any SSA proposal must justify its consumers and own merge edges, destruction and origins. |
 | **6. The Procedure Abstraction**, §§6.1-6.2, pp. 269-273; §6.4, pp. 297-298, 300-301; §6.5, pp. 308-311; §§6.6.2-6.7, pp. 317-322 | Keep call admission, parameter/result transfer, roots and retirement under runtime ownership. Optimize stable prepared facts and data movement, not away the call contract (SA21). R13/R14 remain retention/transition issues; the implemented accounting and occupied-discovery contracts do not justify changing GC families. Managed native calls need the existing ABI/root gates. |
 | **7. Code Shape**, §§7.1-7.3.1, pp. 331-345; §7.4, pp. 350-356 | BO02/BO03 already implement direct destinations, control-only predicates and bounded constant operands. Keep checked commit and source observations. Arithmetic reassociation and expression reordering from examples do not override Kagari trap/evaluation order. |
 | **8. Introduction to Optimization**, §§8.1-8.2, selected pp. 405-416; §8.4.1, pp. 420-428; §8.7.1, pp. 458-462 | Legality precedes profitability. Block-local scalar constants preserve executable observations; broader motion still needs an explicit observation/provenance contract. Inlining must additionally preserve pinned dependencies, logical call-depth/cancellation and error origins; ordinary call effects remain conservative. |
@@ -106,7 +106,7 @@ execution. Those differences constrain every proposed transformation.
   valid non-SSA code. A global value-numbering pass must use reaching definitions
   and dominance, or explicitly construct SSA, rather than assume one definition
   from the name `TempId`. A new permanent IR is not required for that decision.
-- **Frontend reuse needs sharper dependencies, not weaker identity.** SA1, SA9
+- **Frontend reuse needs sharper dependencies, not weaker identity.** SA1
   and R8 remain the relevant owners. In particular, an imported function-body edit
   can change source revision/arena without changing its callable contract; semantic
   reuse must refresh navigation while preserving old snapshot validity. SA11's
@@ -828,54 +828,6 @@ Consider lowering existing `ModuleBlock::items()` with an independent child
 context. Preserve module ownership, visibility, stable child identities, original
 UTF-8/CRLF offsets and diagnostic attribution. Reuse the existing inline-module
 navigation tests. Keep declaration, signature and body checking separate.
-
-## SA9 Module paths are copied into internal graph keys and references
-
-The [module handles execution plan](module-handles-plan.md) owns MH01-MH05,
-the scoped design, acceptance and progress ledger. Implementation was activated
-on 2026-10-21 with phase commits. This entry retains the finding and its evidence.
-
-[ModuleIdentity](../crates/kagari-common/src/identity.rs) is a portable package/path
-value containing owned strings. It is also embedded in `SourceUnit`, binding owners,
-namespace keys and dependency sets. Cloning these identities copies strings; hashing
-and ordering examine path content. NR04 removed whole-catalog rounds, but retained
-portable keys in namespace watchers and derivation sets. This establishes remaining
-representation overhead, not a measured bottleneck.
-
-Separate portable module identity from a compact, context-owned module handle.
-Intern each identity once; use handles for catalog keys, owners and dependencies,
-and borrow the portable identity for diagnostics, registration and artifact boundaries.
-The existing [definition table](../crates/kagari-common/src/identity/table.rs) already
-interns module roots and shares their paths; investigate extending/reusing that
-owner before introducing a second interner. Do not reuse HIR `ModuleId`: it addresses
-a local module declaration, not a module in the analysis universe.
-
-The design must define handle ownership and retained-snapshot validity, remap across
-independent contexts, retain source revision/arena checks, and preserve deterministic
-artifact ordering independently of allocation order. Parent/package/visibility checks
-need table queries in place of editing copied path vectors. `Arc<ModuleIdentity>`
-alone reduces clone costs but still compares/hashes content with ordinary traits.
-
-Rust reference:
-
-- The resolver's [`Module<'ra>`](https://doc.rust-lang.org/stable/nightly-rustc/rustc_resolve/struct.Module.html)
-  wraps `Interned<'ra, ModuleData<'ra>>`: a `Copy` handle with identity-based
-  equality, while module data is stored separately. It does not copy a full
-  string path into every module reference.
-- Definitions, including modules, use [`DefId`](https://doc.rust-lang.org/stable/nightly-rustc/rustc_hir/def_id/struct.DefId.html),
-  a `Copy` pair of `CrateNum` and `DefIndex`, for compiler queries.
-- Session-local numeric IDs can change after source edits. The
-  [incremental cache](https://rustc-dev-guide.rust-lang.org/queries/incremental-compilation-in-detail.html)
-  stores `DefPathHash` and remaps it to the current session's `DefId` when loading.
-
-Apply the same separation in Kagari: portable `ModuleIdentity` at boundaries,
-shared identity data in the context, compact handles inside the graph. This does
-not require introducing Rust's crate model or adopting its arena lifetimes.
-
-Keep this follow-up separate from completed identity and namespace work. Measure
-graph build allocations and time before/after on the same module workload,
-separating compilation time; reuse identity/snapshot and import tests for focused validation. Code migration is
-not activated by this review.
 
 ## SA11 HIR declarations and ADT members carry container-derived identities
 

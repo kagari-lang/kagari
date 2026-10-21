@@ -46,9 +46,6 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Context-owned module handles](module-handles-plan.md): SA9/MH01-MH05 are
-  active; reuse the definition table for source graph identities,
-  preserving snapshot validation, portable boundaries and deterministic output.
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load
   goal explicitly unmet. Further frontend preparation work is deferred; the

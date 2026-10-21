@@ -810,17 +810,23 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA9](module-handles-plan.md): context-owned module handles | Reuse the existing definition-table owner; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
-| 2 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
-| 3 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
-| 4 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+| 1 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
+| 2 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 3 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
-The [SA9 execution plan](module-handles-plan.md), recorded on 2026-10-21, owns
-MH01-MH05: baseline/API inventory, checked module-root handles, graph and direct
-consumer migration, boundary/determinism validation, and measurement/handoff.
-It reuses the definition context and retains portable identity at explicit
-boundaries. The user activated MH01-MH05 on 2026-10-21 with phase commits; this does not activate
-SA1, specialization scheduling, semantic invalidation or identity-domain retention.
+SA9 context-owned module handles are implemented. The
+[identity architecture](architecture.md#definition-identity-ownership) and
+[HIR guide](architecture/hir.md) own module-root scope, retained catalogs and
+file/revision/arena checks. Focused identity/import/cache/publication, source-program,
+canonical-output, source-free export and pinned-dependency reload cases pass,
+as do structure, formatting, workspace all-target Clippy and diff checks.
+The [matched graph measurements](performance-baseline.md#context-owned-module-graph-handles-2026-10-21)
+include initial registration, publication, retained graphs and table growth;
+their reductions apply only to that bounded graph workload. Full-workspace tests
+and the complete backend/feature/platform matrix remain pending CI acceptance.
+The completed MH01-MH05 plan is retired; Git history owns its phase ledger.
+SA1 is next in this queue but is not activated. R7 scheduling, R8 invalidation
+and R13 identity-domain retention remain separate.
 
 Structured import paths (SA15) are implemented. The
 [HIR guide](architecture/hir.md#structured-import-paths-and-source-sites) and model
@@ -829,16 +835,15 @@ contracts. Focused import/recovery/visibility/publication, navigation/cache/snap
 native declaration and compiler source-free export checks passed, as did required
 local code-quality checks. Complete feature/backend/platform acceptance remains
 CI-owned; no speed or memory improvement is claimed. The completed SA15 plan is
-retired and Git history owns its phase ledger. SA9 is active under MH01-MH05; SA1 remains queued.
+retired and Git history owns its phase ledger. SA1 remains queued.
 
 Important ordering constraints and limits:
 
 - SA14's declaration ownership/allocation design must be settled before SA11
   changes function identity storage; the proposed default completes SA14 first.
-- SA9 -> SA1 is a preferred sequence for overlapping import/graph/lowering
-  code, not a semantic requirement. These tasks can be implemented independently
-  if their owner interfaces remain suitable. Module handles do not replace written
-  import segments or physical source identities.
+- SA1 should reuse the implemented module ownership/graph boundaries while
+  preserving written import segments and physical source identities. Module
+  handles do not replace either of those inputs.
 - SA21 consumes ordinary trait declarations and checked interface operations.
   Collection readonly views and Rust host borrow capabilities remain distinct
   contracts; the removed trait marker must not be recreated by host adaptation.

@@ -16,6 +16,112 @@ Keep workloads, hashes, environment and timing scope together. Allocation reques
 are not RSS; compilation/setup and execution are separate. Small differences are
 not significance claims, and local correctness does not imply GitHub CI or Lua parity.
 
+## Context-owned module graph handles, 2026-10-21
+
+Baseline `79ed7606` and implementation `8f029cd7` compare the ordinary HIR import
+builder before/after SA9. Source units, namespace owners, dependency edges and
+compiler source indexes now carry checked module-root handles. The
+[identity architecture](architecture.md#definition-identity-ownership) owns the
+contract; these measurements cover graph construction only, not end-to-end
+compilation, checked-program construction, MIR lowering, encoding or execution.
+
+### Environment and method
+
+Windows x86_64-pc-windows-msvc, Intel Core i7-10700F (8 cores/16 logical CPUs),
+rustc 1.99.1 (`58cf8f9c3`, 2026-10-13), LLVM 23.1.1. Workspace test profile
+(opt-level 1, debuginfo), default HIR features/dev dependencies, default Cargo
+target and parallelism. Compilation used mixed caches and is excluded: the
+baseline harness build took 130 seconds, candidate harness build 53.53 seconds.
+These compile times are not a performance comparison.
+
+A temporary ignored library test calls production `ModuleGraph::build`; there
+is no benchmark-specific preparation path or disabled validation. Reproduce with
+`cargo test -p kagari-hir --lib imports::sa9_probe::measure_module_graph --
+--exact --ignored --nocapture` after recreating the temporary harness described
+below. The harness is removed after measurement; the workload and counting rules
+here do not depend on retained local logs or executables.
+
+Bind 32 SourceDatabase modules in package `game`, with paths
+`combat::damage::mNN` for NN 00 through 31 and source URIs `mem://mNN`. Module i
+contains `pub fn fi() {}` and two public named imports: the next module's function
+(wrapping after 31) as `next`, and m00's f0 as `shared`. For example, module 00 is:
+
+```text
+pub use game::combat::damage::m01::f1 as next; pub use game::combat::damage::m00::f0 as shared; pub fn f0() {}
+```
+
+Capture the sources and call `lower_module` on each. Measure source acquisition,
+parsing and lowering separately. Build the graph over the same lowerings; assert
+32 nodes, 93 deduplicated edges (including the existing package hub), and no import
+diagnostics. The candidate fresh operation creates its DefinitionContext, registers
+all paths/prefixes through the normal builder, freezes/publishes the table and
+returns both context and graph. Its rebuild uses that same context while retaining
+the first graph. The baseline rebuild retains its first graph as well. Candidate
+registration and publication are inside the measured operation, not free setup.
+
+Use a forwarding System global allocator with thread-local counters, counting
+successful alloc/realloc requests, gross requested bytes, and net allocated bytes
+still live on return (subtract deallocations and old realloc sizes). Counting runs
+separately from timing. For each stage/process, warm once, take seven elapsed
+samples with destruction outside timing, then take one allocation sample. Both
+executables use the same allocator instrumentation, including its disabled-counter
+check during timing. Alternate three baseline/candidate processes: 21 elapsed
+samples and three allocation samples per stage. No timed sample is removed.
+
+An exploratory pass overlapped editor-triggered Cargo checking and is excluded
+from the comparison below. The final three pairs ran after it finished; checks
+before/after each pair found no Cargo/rustc processes. Other host activity, CPU
+frequency and affinity were not controlled. Source-stage noise and graph timing
+outliers are retained in the ranges. No RSS, allocator-overhead, production-load
+or statistically established general compiler-speed claim is made.
+
+### Matched results
+
+Times are microseconds. Requested/net bytes exclude allocator overhead; net bytes
+are incremental live allocations, not an exclusive heap attribution or RSS.
+Ranges include variation across all three allocation passes.
+
+| Stage | Median time (21 samples) | Time range | Requests | Requested bytes | Net live bytes |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Baseline source/parse/lower | 1403.2 | 1354.4-1648.6 | 13364 | 711692 | 187224 |
+| Candidate source/parse/lower | 1368.0 | 1337.3-2505.0 | 13364 | 711692 | 187224 |
+| Baseline fresh graph | 6694.4 | 6482.2-11351.6 | 70243-70244 | 3661132-3661940 | 734800-735608 |
+| Candidate fresh graph + context | 2888.6 | 2830.0-3997.1 | 12310 | 1949069 | 427927 |
+| Baseline rebuild, first graph retained | 6619.5 | 6480.9-7362.7 | 70243 | 3661132 | 734800 |
+| Candidate rebuild, first graph/context retained | 2873.0 | 2757.7-3171.7 | 11869-11870 | 1923659-1924027 | 413469-413837 |
+
+Per-process fresh-graph medians are 6719.2/6694.4/6648.2 for baseline and
+2862.7/2933.6/2903.3 for candidate; rebuild medians are
+6520.8/6699.1/6619.5 and 2798.6/2924.5/2867.1 respectively. Source-stage medians
+are 1366.7/1374.9/1408.5 and 1349.0/1355.1/2377.1, illustrating unrelated timing
+noise despite identical source-stage allocations.
+
+For this graph workload, the fresh operation reduces median allocation requests
+by 82.48%, requested bytes by 46.77%, net live bytes by 41.83%, and elapsed median
+by 56.85%. Rebuild reductions are 83.10%, 47.45%, 43.68% and 56.60% respectively.
+Keeping both graphs alive retains about 0.84 MB of requested allocations including
+the candidate context, versus about 1.47 MB for the baseline pair. This is not a
+process-memory comparison. The representation removes repeated portable-path
+copies and content-key operations; the measurements do not isolate each mechanism.
+There is no basis here to extrapolate the timing ratios to full compilation.
+
+### Table growth with an old prefix retained
+
+The candidate graph registers 35 roots and 35 symbols: package root, `combat`,
+`combat::damage` and 32 leaf modules. As a separate candidate-only boundary probe,
+prepare those roots and retain the frozen table outside timing/counting, then
+intern `game::combat::damage::late` and publish a new table inside the operation.
+Repeat from the same initial state for seven timing samples and one allocation
+sample per process. Verify the old table has 35 roots and rejects the new handle;
+the new table has 36 roots. Input path construction and setup are excluded here.
+
+Across three processes this append/publish costs 26 requests, 9933 requested bytes
+and 8382 net live bytes, with a 3.7 microsecond median (3.4-9.2 range). It includes
+the copy-on-write table/index growth caused by keeping the old prefix alive.
+It has no baseline counterpart and is not a speedup claim. Larger retained
+semantic tables can cost more; this bounded graph-only result does not resolve
+identity-domain reclamation (R13) or broader compilation preparation costs.
+
 ## Direct source preparation, 2026-10-21
 
 The compilation/startup work is measured separately from the historical Windows
