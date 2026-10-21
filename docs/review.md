@@ -927,8 +927,10 @@ local declarations as module-level `User` functions.
 When activated, validate the example through execution and add focused coverage
 for the chosen scope, recursion and capture rules, including diagnostics and
 navigation. Preserve existing module functions, methods and closure contracts.
-This entry records the requested future feature only; semantic choices and
-implementation remain deferred, with no change to the currently accepted grammar.
+The [LF01-LF06 execution plan](local-functions-plan.md) records the user's choice
+of noncapturing local functions with forward references and recursion, plus the
+proposed remaining semantics, ownership changes and focused acceptance gates.
+Implementation remains queued; the currently accepted grammar is unchanged.
 
 
 ## SA21 Unify Rust registration through NativeModule with scoped host access

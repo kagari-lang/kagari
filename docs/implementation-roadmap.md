@@ -810,7 +810,7 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
+| 1 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | [LF01-LF06 plan](local-functions-plan.md): noncapturing declarations, block scope, forward references and recursion; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
 | 2 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
 
 SA9 context-owned module handles are implemented. The
@@ -836,8 +836,11 @@ record allocation reductions and the unchanged nested-query timing limitation;
 these do not establish end-to-end compile latency or finer cache invalidation.
 Complete workspace and backend/feature/platform acceptance remain pending CI.
 The completed IA01-IA05 plan is retired; Git history owns its ledger.
-SA14 is next and is not activated. R7 scheduling, R8 invalidation and R13
-identity-domain retention remain separate.
+SA14 is next and is not activated. The [local function plan](local-functions-plan.md)
+records the user's noncapturing choice and proposed LF01-LF06 scope, phase commits
+and validation. Outer data is passed explicitly; closures retain their existing
+capture rules. R7 scheduling, R8 invalidation and R13 identity-domain retention
+remain separate.
 
 Structured import paths (SA15) are implemented. The
 [HIR guide](architecture/hir.md#structured-import-paths-and-source-sites) and model

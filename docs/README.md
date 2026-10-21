@@ -46,6 +46,9 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
+- [Named local functions](local-functions-plan.md): SA14, LF01-LF06 are queued;
+  noncapturing block declarations with forward references and recursion, followed
+  by checked execution, tooling and lifecycle validation. SA11 remains separate.
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load
   goal explicitly unmet. Further frontend preparation work is deferred; the
