@@ -97,7 +97,10 @@ impl<'a> FunctionCatalog<'a> {
         let SourceItem::Function(function) = target.item else {
             return Ok(None);
         };
-        if !target.unit.matches(&module.lowered) {
+        if !target
+            .unit
+            .matches(&module.lowered, &module.names.facts.catalog.definitions)
+        {
             return Ok(None);
         }
         let Some(signature) = module

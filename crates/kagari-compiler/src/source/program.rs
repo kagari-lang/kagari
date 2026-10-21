@@ -5,6 +5,7 @@ use crate::source::{
 mod exports;
 use kagari_common::identity::{
     ModuleIdentity, mapping::DefinitionMappingError, scoped::DefinitionReferences,
+    table::module::ModuleHandle,
 };
 use kagari_contract::types::ConcreteFunctionIdentity;
 use kagari_hir::{
@@ -67,7 +68,7 @@ pub fn lower_program_to_mir(
         .find(|module| *module.lowered.source.module_identity() == root)
         .expect("checked root module")
         .aggregates;
-    let mut requests: HashMap<ModuleIdentity, Vec<ConcreteFunctionIdentity>> = HashMap::new();
+    let mut requests: HashMap<ModuleHandle, Vec<ConcreteFunctionIdentity>> = HashMap::new();
     let mut seen = HashSet::new();
     loop {
         options.cancel.check().map_err(|_| ProgramError {
@@ -79,7 +80,14 @@ pub fn lower_program_to_mir(
         for module in &authoring_modules {
             let identity = module.lowered.source.module_identity();
             let demanded = requests
-                .get(identity)
+                .get(
+                    &module
+                        .names
+                        .catalog
+                        .definitions
+                        .lookup_module(identity)
+                        .expect("checked source module"),
+                )
                 .map(Vec::as_slice)
                 .unwrap_or_default();
             let lowered = lower::lower_to_mir_with_requests(
@@ -212,7 +220,11 @@ pub fn lower_program_to_mir(
             })?;
             if !materialized.contains(&instance) && seen.insert(instance.clone()) {
                 requests
-                    .entry(owner_of(instance.declaration).clone())
+                    .entry(
+                        definitions
+                            .module_of(instance.declaration)
+                            .expect("checked request owner"),
+                    )
                     .or_default()
                     .push(instance);
                 changed = true;
@@ -258,7 +270,14 @@ pub fn lower_program_to_mir(
                 .find(|module| &module.identity == owner)
                 .is_some_and(|module| module.interface_instances.contains(&instance));
             if !materialized && seen.insert(instance.clone()) {
-                requests.entry(owner.clone()).or_default().push(instance);
+                requests
+                    .entry(
+                        definitions
+                            .module_of(instance.declaration)
+                            .expect("checked request owner"),
+                    )
+                    .or_default()
+                    .push(instance);
                 changed = true;
             }
         }
@@ -406,7 +425,11 @@ pub fn lower_program_to_mir(
                 };
                 if seen.insert(instance.clone()) {
                     requests
-                        .entry(owner_of(instance.declaration).clone())
+                        .entry(
+                            definitions
+                                .module_of(instance.declaration)
+                                .expect("checked request owner"),
+                        )
                         .or_default()
                         .push(instance);
                     changed = true;

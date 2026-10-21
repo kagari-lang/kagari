@@ -5,7 +5,10 @@ use crate::{
     lower::lower_module,
     tests::{native::function_module, test_analysis},
 };
-use kagari_common::{cancellation::CancellationToken, identity::PackageId};
+use kagari_common::{
+    cancellation::CancellationToken,
+    identity::{PackageId, map::DefinitionContext},
+};
 use kagari_source::{
     diagnostic::DiagnosticKind,
     package::{PackageEnvironment, PackageScope},
@@ -56,7 +59,18 @@ fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
     let child = identity("root::child");
-    let child_id = first.module_graph().node(&child).unwrap().file;
+    let child_id = first
+        .module_graph()
+        .node(
+            &first
+                .module_graph()
+                .catalog
+                .definitions
+                .lookup_module(&child)
+                .unwrap(),
+        )
+        .unwrap()
+        .file;
     let reference = text.rfind("value()").unwrap();
     let target = first.definition_at(root, reference).unwrap();
     assert_eq!(target.location.file, root);
@@ -66,7 +80,21 @@ fn inline_module_queries_use_physical_offsets_and_stable_child_identity() {
     let second = analysis
         .snapshot(db.snapshot(), &Default::default())
         .unwrap();
-    assert_eq!(second.module_graph().node(&child).unwrap().file, child_id);
+    assert_eq!(
+        second
+            .module_graph()
+            .node(
+                &second
+                    .module_graph()
+                    .catalog
+                    .definitions
+                    .lookup_module(&child)
+                    .unwrap()
+            )
+            .unwrap()
+            .file,
+        child_id
+    );
     assert_eq!(
         first.file(child_id).unwrap().source().text().find("42"),
         text.find("42")
@@ -385,7 +413,14 @@ fn wildcard_import_expands_offline_host_module_declarations() {
         .unwrap();
     let imports = &snapshot
         .module_graph()
-        .node(&identity("root"))
+        .node(
+            &snapshot
+                .module_graph()
+                .catalog
+                .definitions
+                .lookup_module(&identity("root"))
+                .unwrap(),
+        )
         .unwrap()
         .imports;
     assert!(matches!(
@@ -429,17 +464,34 @@ fn diamond_has_deterministic_reachable_order() {
     let graph = snapshot.module_graph();
     assert_eq!(
         graph
-            .reachable_order(&identity("root"), &Default::default())
-            .unwrap(),
+            .reachable_order(
+                &graph
+                    .catalog
+                    .definitions
+                    .lookup_module(&identity("root"))
+                    .unwrap(),
+                &Default::default()
+            )
+            .unwrap()
+            .iter()
+            .map(|module| graph.catalog.identity(*module).clone())
+            .collect::<Vec<_>>(),
         expected_modules(&["left", "right", "root", "shared"])
     );
     assert_eq!(
         graph
             .reachable_order(
-                snapshot.file(unrelated).unwrap().source().module_identity(),
+                &graph
+                    .catalog
+                    .definitions
+                    .lookup_module(snapshot.file(unrelated).unwrap().source().module_identity())
+                    .unwrap(),
                 &Default::default()
             )
-            .unwrap(),
+            .unwrap()
+            .iter()
+            .map(|module| graph.catalog.identity(*module).clone())
+            .collect::<Vec<_>>(),
         {
             let mut expected = expected_modules(&[]);
             expected.push(
@@ -454,7 +506,16 @@ fn diamond_has_deterministic_reachable_order() {
             expected
         }
     );
-    let root = graph.node(&identity("root")).unwrap();
+    let root = graph
+        .node(
+            &snapshot
+                .module_graph()
+                .catalog
+                .definitions
+                .lookup_module(&identity("root"))
+                .unwrap(),
+        )
+        .unwrap();
     assert!(
         snapshot
             .file(root.file)
@@ -480,8 +541,18 @@ fn cycles_are_reachable_without_invalidating_dependents() {
     let graph = snapshot.module_graph();
     assert_eq!(
         graph
-            .reachable_order(&identity("caller"), &Default::default())
-            .unwrap(),
+            .reachable_order(
+                &graph
+                    .catalog
+                    .definitions
+                    .lookup_module(&identity("caller"))
+                    .unwrap(),
+                &Default::default()
+            )
+            .unwrap()
+            .iter()
+            .map(|module| graph.catalog.identity(*module).clone())
+            .collect::<Vec<_>>(),
         expected_modules(&["a", "b", "caller"])
     );
     assert!(
@@ -541,9 +612,26 @@ fn cycles_are_reachable_without_invalidating_dependents() {
         .files()
         .map(|file| lower_module(file))
         .collect::<Vec<_>>();
-    let forward = ModuleGraph::build(&lowered, &Default::default()).unwrap();
-    let reverse = ModuleGraph::build(lowered.iter().rev(), &Default::default()).unwrap();
-    assert_eq!(forward.catalog, reverse.catalog);
+    let definitions = DefinitionContext::new().unwrap();
+    let forward = ModuleGraph::build(&lowered, &definitions, &Default::default()).unwrap();
+    let reverse =
+        ModuleGraph::build(lowered.iter().rev(), &definitions, &Default::default()).unwrap();
+    assert_eq!(forward.catalog.modules, reverse.catalog.modules);
+    assert_eq!(forward.catalog.namespaces, reverse.catalog.namespaces);
+    assert_eq!(forward.catalog.packages, reverse.catalog.packages);
+    assert_eq!(
+        forward.catalog.installed_aliases,
+        reverse.catalog.installed_aliases
+    );
+    assert_eq!(
+        forward.catalog.native_dependencies,
+        reverse.catalog.native_dependencies
+    );
+    assert_eq!(
+        forward.catalog.native_trait_references,
+        reverse.catalog.native_trait_references
+    );
+
     assert_eq!(forward.source_facts, reverse.source_facts);
 }
 
@@ -578,7 +666,8 @@ fn definition_queries_distinguish_modules_and_follow_source_facades() {
             .unwrap()
             .target,
         ResolvedTarget::Namespace(NamespaceId::Module(SourceUnit::of(
-            &snapshot.file(right).unwrap().result().facts().lowered
+            &snapshot.file(right).unwrap().result().facts().lowered,
+            &snapshot.module_graph().catalog.definitions
         )))
     );
 }
@@ -660,9 +749,15 @@ fn dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot() {
             .any(|d| matches!(d.kind, DiagnosticKind::ImportNotPublic { .. }))
     );
     assert!(matches!(
-        private
-            .module_graph()
-            .reachable_order(&identity("root"), &Default::default()),
+        private.module_graph().reachable_order(
+            &private
+                .module_graph()
+                .catalog
+                .definitions
+                .lookup_module(&identity("root"))
+                .unwrap(),
+            &Default::default()
+        ),
         Err(ModuleOrderError::InvalidImports(_))
     ));
     db.close_overlay("mem://library").unwrap();
@@ -845,10 +940,22 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
         .files()
         .map(|file| lower_module(file))
         .collect::<Vec<_>>();
-    let graph = ModuleGraph::build(&lowered, &Default::default()).unwrap();
+    let graph = ModuleGraph::build(
+        &lowered,
+        &DefinitionContext::new().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     assert_eq!(
         graph
-            .reachable_order(&identity("m0"), &Default::default())
+            .reachable_order(
+                &graph
+                    .catalog
+                    .definitions
+                    .lookup_module(&identity("m0"))
+                    .unwrap(),
+                &Default::default()
+            )
             .unwrap()
             .len(),
         1024
@@ -856,7 +963,14 @@ fn graph_traversal_is_cancellable_and_uses_an_explicit_stack() {
     let cancel = CancellationToken::default();
     cancel.cancel();
     assert_eq!(
-        graph.reachable_order(&identity("m0"), &cancel),
+        graph.reachable_order(
+            &graph
+                .catalog
+                .definitions
+                .lookup_module(&identity("m0"))
+                .unwrap(),
+            &cancel
+        ),
         Err(ModuleOrderError::Cancelled)
     );
 }

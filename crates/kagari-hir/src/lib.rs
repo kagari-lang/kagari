@@ -414,18 +414,19 @@ fn declare_analysis(
     definitions: &DefinitionContext,
     cancel: &CancellationToken,
 ) -> Result<DeclaredAnalysis, AnalysisError> {
-    let (imports, catalog) = if imports.scope.unit.is_none() {
-        let graph = ModuleGraph::build([lowered.as_ref()], cancel)?;
-        (
-            graph
-                .imports_for(&SourceUnit::of(&lowered))
-                .expect("module node")
-                .clone(),
-            graph.catalog,
-        )
-    } else {
-        (imports, catalog)
-    };
+    let (imports, catalog) =
+        if imports.scope.unit.is_none() && lowered.source.module_identity().within_path_limit() {
+            let graph = ModuleGraph::build([lowered.as_ref()], definitions, cancel)?;
+            (
+                graph
+                    .imports_for(&SourceUnit::of(&lowered, &graph.catalog.definitions))
+                    .expect("module node")
+                    .clone(),
+                graph.catalog,
+            )
+        } else {
+            (imports, catalog)
+        };
     let mut names = collect_declarations(&lowered, imports, catalog, cancel);
     if !lowered.source.module_identity().within_path_limit() {
         names

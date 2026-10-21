@@ -416,7 +416,13 @@ fn public_export_graph_preserves_aliases_cycles_and_the_separate_private_entry()
         .snapshot(source, &Default::default())
         .unwrap();
     let program = snapshot.check_program(root, &Default::default()).unwrap();
-    let identity = program.root().lowered.source.module_identity();
+    let identity = &program
+        .root()
+        .names
+        .catalog
+        .definitions
+        .lookup_module(program.root().lowered.source.module_identity())
+        .unwrap();
     let exports = program.exports();
     let damage = exports.function(identity, "damage").unwrap();
     assert_eq!(program.source_function(damage).unwrap().1.name, "calculate");

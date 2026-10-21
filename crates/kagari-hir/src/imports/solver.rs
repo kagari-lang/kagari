@@ -12,7 +12,10 @@ use crate::{
     lower::LoweredModule,
     resolver::table::NameTable,
 };
-use kagari_common::cancellation::{CancellationToken, Cancelled};
+use kagari_common::{
+    cancellation::{CancellationToken, Cancelled},
+    identity::table::DefinitionTableError,
+};
 use kagari_source::identity::FileSpan;
 use kagari_types::declaration::names::NameNamespace;
 use std::{
@@ -63,6 +66,8 @@ impl SolverLimits {
 /// A failed solve never publishes a graph or authorizes code generation.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImportSolveError {
+    #[error("invalid module identity: {0}")]
+    Identity(#[from] DefinitionTableError),
     #[error("invalid package environment: {0}")]
     Packages(String),
     #[error("import resolution cancelled")]
@@ -132,7 +137,7 @@ pub(super) fn solve(
     let limits = limits.unwrap_or_else(|| SolverLimits::for_inputs(sources, &base));
     let units = sources
         .iter()
-        .map(|module| SourceUnit::of(module))
+        .map(|module| SourceUnit::of(module, &base.definitions))
         .collect::<Vec<_>>();
     let mut catalog = base.clone();
     let mut facts = Vec::with_capacity(sources.len());
@@ -299,7 +304,7 @@ fn reserve(
     names: &mut NameTable,
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
-    let unit = SourceUnit::of(module);
+    let unit = names.unit.as_ref().expect("source scope").clone();
     for (slot, import) in module.module.imports.iter().enumerate() {
         cancel.check()?;
         let id = DirectiveId {

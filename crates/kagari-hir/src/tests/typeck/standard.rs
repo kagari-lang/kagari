@@ -389,7 +389,10 @@ fn resolves_native_constructor_imports_facade_exports_and_function_calls() {
             ResolvedName::Namespace(NamespaceId::Module(unit)) => (unit, false),
             other => panic!("source namespace or constructor: {other:?}"),
         };
-        assert_eq!(unit.module, kagari_stdlib::namespaces::type_owner("Vec"));
+        assert_eq!(
+            analyzed.names.catalog.identity(unit.module),
+            &kagari_stdlib::namespaces::type_owner("Vec")
+        );
         assert!(analyzed.names.catalog.valid(unit));
         assert_eq!(is_function, function);
     }

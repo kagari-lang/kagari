@@ -35,14 +35,16 @@ fn main() {
     let snapshot = engine
         .analyze(engine.source_snapshot(), &CancellationToken::default())
         .unwrap();
+    let definitions = &snapshot.module_graph().catalog.definitions;
+    let root_handle = definitions.lookup_module(&identity("root")).unwrap();
     for module in snapshot
         .module_graph()
-        .reachable_order(&identity("root"), &CancellationToken::default())
+        .reachable_order(&root_handle, &CancellationToken::default())
         .unwrap()
     {
-        println!("{module}");
+        println!("{}", definitions.module_identity(module).unwrap());
     }
-    let root = snapshot.module_graph().node(&identity("root")).unwrap();
+    let root = snapshot.module_graph().node(&root_handle).unwrap();
     let file = snapshot.file(root.file).unwrap();
     let offset = file.source().text().rfind("value()").unwrap();
     let function = file.source_function_at(offset).unwrap();

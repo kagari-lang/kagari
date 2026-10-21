@@ -38,7 +38,7 @@ impl InstancePlanner<'_> {
         declaration: &DefinitionId,
     ) -> Option<&NativeDeclaration> {
         self.modules
-            .get(&self.module_identity(*declaration))?
+            .get(&self.module_handle(*declaration))?
             .lowered
             .registered_native_declarations()
             .iter()
@@ -484,7 +484,7 @@ impl InstancePlanner<'_> {
             self.record_interface(&implementation, &arguments, span)?;
             self.record_layout_root(&receiver, &Default::default(), span)?;
             if kind == CallableImplementation::Script
-                && self.module_identity(target) == *self.module.lowered.source.module_identity()
+                && self.module_handle(target) == self.owner_handle()
             {
                 self.enqueue_declaration(&target, instance_arguments.clone(), span)?;
             }

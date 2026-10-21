@@ -14,7 +14,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::ModuleIdentity,
+    identity::table::module::ModuleHandle,
     span::Span,
 };
 use kagari_source::diagnostic::{Diagnostic, DiagnosticKind};
@@ -54,7 +54,7 @@ pub(super) fn resolve_imports(
         closed,
         observations,
     } = inputs;
-    let unit = SourceUnit::of(module);
+    let unit = SourceUnit::of(module, &catalog.definitions);
     let ctx = LookupContext {
         importer: &unit.module,
         observations: Some(observations),
@@ -68,7 +68,12 @@ pub(super) fn resolve_imports(
     };
     let mut names = (*base.namespaces[&NamespaceId::Module(unit.clone())].names).clone();
     let mut result = ModuleImportFacts::default();
-    let mut dependencies = BTreeSet::from_iter(module.native_dependencies.iter().cloned());
+    let mut dependencies = BTreeSet::from_iter(module.native_dependencies.iter().map(|id| {
+        catalog
+            .definitions
+            .lookup_module(id)
+            .expect("registered dependency")
+    }));
     for (slot, import) in module.module.imports.iter().enumerate() {
         cancel.check()?;
         let id = DirectiveId {
@@ -396,7 +401,7 @@ fn expand_glob(
 fn diagnose_bindings(
     names: &mut NameTable,
     result: &mut ModuleImportFacts,
-    dependencies: &mut BTreeSet<ModuleIdentity>,
+    dependencies: &mut BTreeSet<ModuleHandle>,
 ) {
     for (name, slots) in &mut names.entries {
         for namespace in NameNamespace::ALL {
@@ -448,7 +453,7 @@ fn diagnose_bindings(
                     if let Some(ResolvedTarget::Namespace(NamespaceId::Module(child))) =
                         candidate.resolution.target()
                     {
-                        dependencies.insert(child.module.clone());
+                        dependencies.insert(child.module);
                     } else {
                         result.diagnostics.push(
                             Diagnostic::error(DiagnosticKind::UnknownName {
@@ -479,7 +484,7 @@ fn add_implicit(
     context: &ImportContext<'_>,
     names: &mut NameTable,
     result: &mut ModuleImportFacts,
-    dependencies: &mut BTreeSet<ModuleIdentity>,
+    dependencies: &mut BTreeSet<ModuleHandle>,
 ) -> Result<(), Cancelled> {
     let ImportContext {
         lookup: ctx,
@@ -488,19 +493,19 @@ fn add_implicit(
         cancel,
     } = context;
     for source in sources.iter().filter(|source| source.registered_native_api) {
-        let installed = SourceUnit::of(source);
+        let installed = SourceUnit::of(source, &catalog.definitions);
         if !module.registered_native_api {
-            dependencies.insert(installed.module.clone());
+            dependencies.insert(installed.module);
         }
         let alias = source
             .native_package_alias
             .as_deref()
-            .unwrap_or(&installed.module.package.0);
+            .unwrap_or(&catalog.identity(installed.module).package.0);
         if let Some(name) = LocalName::new(alias) {
-            let root = ModuleIdentity {
-                package: installed.module.package.clone(),
-                path: vec![],
-            };
+            let root = catalog
+                .definitions
+                .lookup_module_path(&catalog.identity(installed.module).package, &[])
+                .expect("registered package");
             let ns = match catalog.modules.get(&root).map(Vec::as_slice) {
                 Some([unit]) => NamespaceId::Module(unit.clone()),
                 _ => NamespaceId::InstalledPrefix(root),
@@ -508,7 +513,7 @@ fn add_implicit(
             let candidate = candidate(
                 unit,
                 Some(ResolvedTarget::Namespace(ns)),
-                BindingOrigin::Package(installed.module.package.clone()),
+                BindingOrigin::Package(catalog.identity(installed.module).package.clone()),
                 Visibility::Private,
                 None,
             );
@@ -526,7 +531,7 @@ fn add_implicit(
             .filter(|source| source.native_prelude)
             .collect::<Vec<_>>();
         if let [prelude] = preludes.as_slice() {
-            let ns = NamespaceId::Module(SourceUnit::of(prelude));
+            let ns = NamespaceId::Module(SourceUnit::of(prelude, &catalog.definitions));
             ctx.observe(&ns);
             for name in catalog.namespaces[&ns].names.entries.keys() {
                 for namespace in NameNamespace::ALL {
@@ -558,16 +563,16 @@ fn add_implicit(
     Ok(())
 }
 
-fn add_dependencies(hit: &LookupHit, dependencies: &mut BTreeSet<ModuleIdentity>) {
+fn add_dependencies(hit: &LookupHit, dependencies: &mut BTreeSet<ModuleHandle>) {
     for origin in &hit.via {
         match origin {
             BindingOrigin::Declaration(source) => {
-                dependencies.insert(source.unit.module.clone());
+                dependencies.insert(source.unit.module);
             }
             BindingOrigin::ModuleDeclaration { unit, .. }
             | BindingOrigin::NamedImport(DirectiveId { unit, .. })
             | BindingOrigin::GlobImport(DirectiveId { unit, .. }) => {
-                dependencies.insert(unit.module.clone());
+                dependencies.insert(unit.module);
             }
             _ => {}
         }
@@ -575,10 +580,10 @@ fn add_dependencies(hit: &LookupHit, dependencies: &mut BTreeSet<ModuleIdentity>
     match &hit.target {
         ResolvedTarget::Source(source)
         | ResolvedTarget::Namespace(NamespaceId::Associated(source)) => {
-            dependencies.insert(source.unit.module.clone());
+            dependencies.insert(source.unit.module);
         }
         ResolvedTarget::Namespace(NamespaceId::Module(unit)) => {
-            dependencies.insert(unit.module.clone());
+            dependencies.insert(unit.module);
         }
         _ => {}
     }
@@ -588,7 +593,7 @@ fn reexport_allowed(
     catalog: &NamespaceCatalog,
     target: &ResolvedTarget,
     visibility: Visibility,
-    exporter: &ModuleIdentity,
+    exporter: &ModuleHandle,
 ) -> bool {
     let candidates = catalog
         .namespaces
@@ -604,7 +609,11 @@ fn reexport_allowed(
         })
         .collect::<Vec<_>>();
     candidates.is_empty()
-        || candidates
-            .iter()
-            .any(|c| c.visibility.allows_reexport(&c.owner, visibility, exporter))
+        || candidates.iter().any(|c| {
+            c.visibility.allows_reexport(
+                catalog.identity(c.owner),
+                visibility,
+                catalog.identity(*exporter),
+            )
+        })
 }

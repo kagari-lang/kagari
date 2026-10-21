@@ -67,6 +67,11 @@ impl SourceAnalysis {
                 ProgramCheckError::Graph(error) => {
                     let failed = match error {
                         ModuleOrderError::Cancelled => return EmbeddingError::Cancelled,
+                        ModuleOrderError::Identity(error) => {
+                            return EmbeddingError::Source {
+                                message: format!("invalid module identity: {error}"),
+                            };
+                        }
                         ModuleOrderError::InvalidImports(module) => vec![module],
                         ModuleOrderError::Missing(module) => {
                             return EmbeddingError::Source {
@@ -78,7 +83,14 @@ impl SourceAnalysis {
                     for module in failed {
                         let node = snapshot
                             .module_graph()
-                            .node(&module)
+                            .node(
+                                &snapshot
+                                    .module_graph()
+                                    .catalog
+                                    .definitions
+                                    .lookup_module(&module)
+                                    .expect("failed module identity"),
+                            )
                             .expect("failed graph node");
                         let file = snapshot.file(node.file).expect("graph source");
                         diagnostics.extend(node.imports.diagnostics.iter().cloned().map(

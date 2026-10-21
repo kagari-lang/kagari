@@ -16,7 +16,11 @@ use crate::{
 use smallvec::SmallVec;
 use std::{collections::HashSet, sync::Arc};
 use {
-    kagari_common::{cancellation::CancellationToken, span::Span},
+    kagari_common::{
+        cancellation::CancellationToken,
+        identity::{map::DefinitionContext, mapping::DefinitionMappingError},
+        span::Span,
+    },
     kagari_source::diagnostic::{Diagnostic, DiagnosticKind},
 };
 
@@ -28,8 +32,12 @@ use {
 pub fn resolve_names(
     lowered: &LoweredModule,
 ) -> Result<AnalysisResult<ResolvedNames>, AnalysisError> {
-    let graph = ModuleGraph::build([lowered], &Default::default())?;
-    let imports = graph.imports_for(&SourceUnit::of(lowered)).unwrap().clone();
+    let definitions = DefinitionContext::new().map_err(DefinitionMappingError::from)?;
+    let graph = ModuleGraph::build([lowered], &definitions, &Default::default())?;
+    let imports = graph
+        .imports_for(&SourceUnit::of(lowered, &graph.catalog.definitions))
+        .unwrap()
+        .clone();
     let declarations =
         collect_declarations(lowered, imports, graph.catalog.clone(), &Default::default());
     Ok(AnalysisResult {

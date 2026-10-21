@@ -506,25 +506,24 @@ impl FunctionLowerer<'_, '_> {
                     .into_iter()
                     .chain(method_arguments)
                     .collect::<Vec<_>>();
-                let linked = if self.planner.module_identity(implementation)
-                    == *self.planner.owner().lowered.source.module_identity()
-                {
-                    CallTarget::Function(self.planner.enqueue_declaration(
-                        &implementation,
-                        arguments.clone(),
-                        span,
-                    )?)
-                } else {
-                    CallTarget::SourceFunction(Box::new(SourceFunctionContract {
-                        declaration: implementation,
-                        arguments: arguments
-                            .iter()
-                            .map(|ty| self.planner.encode_type(ty))
-                            .collect(),
-                        params,
-                        return_type,
-                    }))
-                };
+                let linked =
+                    if self.planner.module_handle(implementation) == self.planner.owner_handle() {
+                        CallTarget::Function(self.planner.enqueue_declaration(
+                            &implementation,
+                            arguments.clone(),
+                            span,
+                        )?)
+                    } else {
+                        CallTarget::SourceFunction(Box::new(SourceFunctionContract {
+                            declaration: implementation,
+                            arguments: arguments
+                                .iter()
+                                .map(|ty| self.planner.encode_type(ty))
+                                .collect(),
+                            params,
+                            return_type,
+                        }))
+                    };
                 (
                     TypeckCallTarget::TraitMethod { method, interface },
                     Vec::new(),
@@ -663,8 +662,8 @@ impl FunctionLowerer<'_, '_> {
                             let DeclarationId::Definition(declaration) = &declaration.id else {
                                 return Err(MirLoweringError::MissingBinding("call identity"));
                             };
-                            if self.planner.module_identity(*declaration)
-                                == *self.planner.owner().lowered.source.module_identity()
+                            if self.planner.module_handle(*declaration)
+                                == self.planner.owner_handle()
                             {
                                 CallTarget::Function(self.planner.enqueue(id, arguments, span)?)
                             } else {

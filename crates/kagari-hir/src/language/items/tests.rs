@@ -61,12 +61,18 @@ fn check_core(mutate_source: impl Fn(&mut String)) -> DiagnosticBuffer {
             Arc::new(lowered)
         })
         .collect::<Vec<_>>();
-    let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &cancel).unwrap();
+    let graph = ModuleGraph::build(lowered.iter().map(Arc::as_ref), &context, &cancel).unwrap();
     let declared = lowered
         .into_iter()
         .map(|lowered| {
             let imports = graph
-                .node(lowered.source.module_identity())
+                .node(
+                    &graph
+                        .catalog
+                        .definitions
+                        .lookup_module(lowered.source.module_identity())
+                        .unwrap(),
+                )
                 .unwrap()
                 .imports
                 .clone();

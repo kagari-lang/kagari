@@ -202,8 +202,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
     }
     for request in requests {
         planner.check()?;
-        if planner.module_identity(request.declaration) != *module.lowered.source.module_identity()
-        {
+        if planner.module_handle(request.declaration) != planner.owner_handle() {
             return Err(MirLoweringError::MissingBinding("requested instance owner"));
         }
         if planner
@@ -315,7 +314,21 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
         native_targets: planner.native_targets,
         interface_instances: planner.interface_instances,
         external_types,
-        dependencies: module.names.imports.dependencies.clone(),
+        dependencies: module
+            .names
+            .imports
+            .dependencies
+            .iter()
+            .map(|module_handle| {
+                module
+                    .names
+                    .catalog
+                    .definitions
+                    .module_identity(*module_handle)
+                    .expect("checked dependency")
+                    .clone()
+            })
+            .collect(),
         structures,
         enumerations,
         identity: module.lowered.source.module_identity().clone(),

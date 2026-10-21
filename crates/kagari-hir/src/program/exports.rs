@@ -12,7 +12,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::CancellationToken,
-    identity::{MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity},
+    identity::{MAX_IDENTITY_PATH_SEGMENTS, ModuleIdentity, table::module::ModuleHandle},
 };
 use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::collections::{BTreeMap, HashSet};
@@ -23,7 +23,7 @@ const MAX_EXPORT_RECORDS: usize = 65_536;
 /// A module alias points to its canonical namespace rather than copying members.
 #[derive(Debug, Clone, Default)]
 pub struct ExportNamespace {
-    pub modules: BTreeMap<String, ModuleIdentity>,
+    pub modules: BTreeMap<String, ModuleHandle>,
     pub functions: BTreeMap<String, SourceDeclRef>,
 }
 
@@ -36,13 +36,15 @@ pub struct ExportNamespace {
 /// methods use concrete free-function wrappers on this path; member binding is separate.
 #[derive(Debug, Clone, Default)]
 pub struct ProgramExports {
-    namespaces: BTreeMap<ModuleIdentity, ExportNamespace>,
+    namespaces: BTreeMap<ModuleHandle, ExportNamespace>,
     entry: Option<SourceDeclRef>,
 }
 
 impl ProgramExports {
     /// Borrows checked public names; source units remain owned by the checked Program.
-    pub fn namespaces(&self) -> &BTreeMap<ModuleIdentity, ExportNamespace> {
+    /// Keys use context-local order. Resolve through the root catalog and sort portable
+    /// identities when emitting an externally ordered representation.
+    pub fn namespaces(&self) -> &BTreeMap<ModuleHandle, ExportNamespace> {
         &self.namespaces
     }
 
@@ -54,7 +56,7 @@ impl ProgramExports {
 
     /// Resolves a relative public function path, including module/re-export aliases.
     /// Empty components, absent/private names and paths over the identity bound fail.
-    pub fn function(&self, root: &ModuleIdentity, path: &str) -> Option<&SourceDeclRef> {
+    pub fn function(&self, root: &ModuleHandle, path: &str) -> Option<&SourceDeclRef> {
         let mut parts = path.split("::").peekable();
         let mut current = root;
         for _ in 0..MAX_IDENTITY_PATH_SEGMENTS {
@@ -77,7 +79,10 @@ impl ProgramExports {
     ) -> Result<Self, ProgramCheckError> {
         let root = program.root();
         let catalog = &root.names.catalog;
-        let mut pending = vec![NamespaceId::Module(SourceUnit::of(&root.lowered))];
+        let mut pending = vec![NamespaceId::Module(SourceUnit::of(
+            &root.lowered,
+            &catalog.definitions,
+        ))];
         let mut seen = HashSet::new();
         let mut result = Self::default();
         let mut records = 0usize;
@@ -86,21 +91,27 @@ impl ProgramExports {
             if !seen.insert(namespace.clone()) {
                 continue;
             }
-            let Some(identity) = module_identity(&namespace) else {
+            let Some(identity) = module_handle(&namespace) else {
                 continue;
             };
             let table = catalog
                 .namespaces
                 .get(&namespace)
                 .ok_or(ProgramCheckError::Exports(format!(
-                    "missing public namespace {identity}"
+                    "missing public namespace {}",
+                    catalog.identity(identity)
                 )))?;
             let mut exported = ExportNamespace::default();
             for name in table.names.entries.keys() {
                 let spelling = name.as_str();
                 for category in NameNamespace::ALL {
                     cancel.check().map_err(|_| ProgramCheckError::Cancelled)?;
-                    let Some(target) = public_target(&table.names, identity, spelling, category)?
+                    let Some(target) = public_target(
+                        &table.names,
+                        catalog.identity(identity),
+                        spelling,
+                        category,
+                    )?
                     else {
                         continue;
                     };
@@ -111,10 +122,8 @@ impl ProgramExports {
                             exported.functions.insert(name.as_str().into(), source);
                         }
                         ResolvedTarget::Namespace(child) => {
-                            if let Some(target) = module_identity(&child) {
-                                exported
-                                    .modules
-                                    .insert(name.as_str().into(), target.clone());
+                            if let Some(target) = module_handle(&child) {
+                                exported.modules.insert(name.as_str().into(), target);
                                 pending.push(child);
                             }
                         }
@@ -128,11 +137,11 @@ impl ProgramExports {
                     }
                 }
             }
-            result.namespaces.insert(identity.clone(), exported);
+            result.namespaces.insert(identity, exported);
         }
         result.entry = root.lowered.module.functions.iter().find_map(|function| {
             let source = SourceDeclRef {
-                unit: SourceUnit::of(&root.lowered),
+                unit: SourceUnit::of(&root.lowered, &catalog.definitions),
                 item: SourceItem::Function(function.id),
             };
             (function.name == "main"
@@ -191,10 +200,10 @@ fn concrete_script_function(program: &CheckedProgram, source: &SourceDeclRef) ->
         })
 }
 
-fn module_identity(namespace: &NamespaceId) -> Option<&ModuleIdentity> {
+fn module_handle(namespace: &NamespaceId) -> Option<ModuleHandle> {
     match namespace {
-        NamespaceId::Module(source) => Some(&source.module),
-        NamespaceId::InstalledPrefix(identity) => Some(identity),
+        NamespaceId::Module(source) => Some(source.module),
+        NamespaceId::InstalledPrefix(identity) => Some(*identity),
         NamespaceId::Associated(_) => None,
     }
 }

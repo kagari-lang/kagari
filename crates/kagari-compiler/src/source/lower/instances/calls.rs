@@ -19,7 +19,7 @@ impl InstancePlanner<'_> {
         let invalid = || MirLoweringError::MissingBinding("shared function declaration");
         let module = self
             .modules
-            .get(&self.module_identity(*declaration))
+            .get(&self.module_handle(*declaration))
             .ok_or_else(invalid)?;
         let Some(ResolvedName::Function(id)) = module.declarations.definition_target(declaration)
         else {
@@ -63,9 +63,7 @@ impl InstancePlanner<'_> {
                     import.receiver_access,
                 )
             } else {
-                if self.module_identity(*declaration)
-                    == *self.module.lowered.source.module_identity()
-                {
+                if self.module_handle(*declaration) == self.owner_handle() {
                     self.enqueue_declaration(declaration, canonical, span)?;
                 }
                 (

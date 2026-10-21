@@ -13,7 +13,7 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{ModuleIdentity, PackageId},
+    identity::{PackageId, map::DefinitionContext, table::module::ModuleHandle},
     span::Span,
 };
 use kagari_source::{
@@ -35,38 +35,66 @@ impl ModuleGraph {
     /// No draft is returned on cancellation, exhaustion or non-convergence.
     pub(crate) fn build<'a>(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
+        definitions: &DefinitionContext,
         cancel: &CancellationToken,
     ) -> Result<Self, ImportSolveError> {
-        Self::build_with_limits(sources, &PackageEnvironment::default(), cancel, None)
+        Self::build_with_limits(
+            sources,
+            definitions,
+            &PackageEnvironment::default(),
+            cancel,
+            None,
+        )
     }
 
     pub(crate) fn build_with_limits<'a>(
         sources: impl IntoIterator<Item = &'a LoweredModule>,
+        definitions: &DefinitionContext,
         packages: &PackageEnvironment,
         cancel: &CancellationToken,
         limits: Option<SolverLimits>,
     ) -> Result<Self, ImportSolveError> {
         let mut sources = sources.into_iter().collect::<Vec<_>>();
-        sources.sort_by_key(|module| (module.source.module_identity().clone(), module.source.id()));
-        let mut base = NamespaceCatalog {
-            packages: packages.clone(),
-            ..NamespaceCatalog::default()
-        };
+        sources.sort_by(|a, b| {
+            a.source
+                .module_identity()
+                .cmp(b.source.module_identity())
+                .then_with(|| a.source.id().cmp(&b.source.id()))
+        });
         for module in &sources {
             cancel.check()?;
-            let unit = SourceUnit::of(module);
+            for identity in
+                iter::once(module.source.module_identity()).chain(&module.native_dependencies)
+            {
+                definitions
+                    .intern_module(identity)
+                    .map_err(ImportSolveError::Identity)?;
+            }
+        }
+        let mut base = NamespaceCatalog::new(definitions.snapshot(), packages.clone());
+        for module in &sources {
+            cancel.check()?;
+            let unit = SourceUnit::of(module, &base.definitions);
             base.modules
-                .entry(unit.module.clone())
+                .entry(unit.module)
                 .or_default()
-                .push(unit);
+                .push(unit.clone());
             if module.registered_native_api {
                 let package = &module.source.module_identity().package;
                 base.native_dependencies.insert(
-                    module.source.module_identity().clone(),
-                    module.native_dependencies.iter().cloned().collect(),
+                    unit.module,
+                    module
+                        .native_dependencies
+                        .iter()
+                        .map(|id| {
+                            base.definitions
+                                .lookup_module(id)
+                                .expect("registered dependency")
+                        })
+                        .collect(),
                 );
                 base.native_trait_references.insert(
-                    module.source.module_identity().clone(),
+                    unit.module,
                     module
                         .native_trait_references
                         .keys()
@@ -97,10 +125,11 @@ impl ModuleGraph {
             }
         }
         for (package, scope) in packages.scopes() {
-            if !base.modules.contains_key(&ModuleIdentity {
-                package: package.clone(),
-                path: vec![],
-            }) {
+            if !base
+                .definitions
+                .lookup_module_path(package, &[])
+                .is_some_and(|root| base.modules.contains_key(&root))
+            {
                 return Err(ImportSolveError::Packages(format!(
                     "missing root of {}",
                     package.0
@@ -135,39 +164,43 @@ impl ModuleGraph {
         // A package hub retains the complete module set without a quadratic clique.
         // Normalized packages have an empty-path root; manually bound analysis inputs
         // use their first deterministic module as the same traversal anchor.
-        let mut members: BTreeMap<PackageId, Vec<ModuleIdentity>> = BTreeMap::new();
-        for identity in catalog.modules.keys() {
+        let mut members: BTreeMap<PackageId, Vec<ModuleHandle>> = BTreeMap::new();
+        let mut order = catalog.modules.keys().copied().collect::<Vec<_>>();
+        order.sort_by(|a, b| catalog.identity(*a).cmp(catalog.identity(*b)));
+        for identity in &order {
             members
-                .entry(identity.package.clone())
+                .entry(catalog.identity(*identity).package.clone())
                 .or_default()
-                .push(identity.clone());
+                .push(*identity);
         }
         let mut nodes = BTreeMap::new();
         let mut source_facts = HashMap::new();
         for (unit, mut facts) in resolved {
             cancel.check()?;
             let identity = &unit.module;
-            let package = &members[&identity.package];
+            let package = &members[&catalog.identity(*identity).package];
             let hub = &package[0];
             if identity == hub {
                 facts
                     .dependencies
                     .extend(package.iter().filter(|member| *member != identity).cloned());
-                if let Some(scope) = packages.scope(&identity.package) {
+                if let Some(scope) = packages.scope(&catalog.identity(*identity).package) {
                     for target in scope.dependencies.values() {
-                        facts.dependencies.push(members[target][0].clone());
+                        facts.dependencies.push(members[target][0]);
                     }
                 }
             } else {
-                facts.dependencies.push(hub.clone());
+                facts.dependencies.push(*hub);
             }
-            facts.dependencies.sort();
+            facts
+                .dependencies
+                .sort_by(|a, b| catalog.identity(*a).cmp(catalog.identity(*b)));
             facts.dependencies.dedup();
             let units = &catalog.modules[identity];
             if units.len() > 1 {
                 facts.diagnostics.push(
                     Diagnostic::error(DiagnosticKind::DuplicateDeclaration {
-                        name: identity.to_string(),
+                        name: catalog.identity(*identity).to_string(),
                     })
                     .with_span(Span::default()),
                 );
@@ -175,7 +208,7 @@ impl ModuleGraph {
             let facts = Arc::new(facts);
             if unit == units[0] {
                 nodes.insert(
-                    identity.clone(),
+                    *identity,
                     ModuleNode {
                         file: unit.file,
                         revision: unit.revision,
@@ -187,6 +220,7 @@ impl ModuleGraph {
         }
         Ok(Self {
             nodes,
+            order,
             source_facts,
             catalog: Arc::new(catalog),
             #[cfg(test)]
@@ -200,13 +234,15 @@ impl ModuleGraph {
     }
 
     /// Finds the representative graph node for a logical identity, or `None` if absent.
-    pub fn node(&self, module: &ModuleIdentity) -> Option<&ModuleNode> {
+    pub fn node(&self, module: &ModuleHandle) -> Option<&ModuleNode> {
         self.nodes.get(module)
     }
 
     /// Visits representative nodes in ordered logical-identity order.
-    pub fn modules(&self) -> impl Iterator<Item = (&ModuleIdentity, &ModuleNode)> {
-        self.nodes.iter()
+    pub fn modules(&self) -> impl Iterator<Item = (&ModuleHandle, &ModuleNode)> {
+        self.order
+            .iter()
+            .map(|module| (module, &self.nodes[module]))
     }
 
     /// Collects the root and transitive dependencies in sorted identity order.
@@ -216,32 +252,42 @@ impl ModuleGraph {
     ///
     /// # Errors
     ///
-    /// Returns a missing-node, invalid-import or cancellation error.
+    /// Returns a missing-node, foreign/later identity, invalid-import or cancellation error.
     pub fn reachable_order(
         &self,
-        root: &ModuleIdentity,
+        root: &ModuleHandle,
         cancel: &CancellationToken,
-    ) -> Result<Vec<ModuleIdentity>, ModuleOrderError> {
+    ) -> Result<Vec<ModuleHandle>, ModuleOrderError> {
         if !self.nodes.contains_key(root) {
-            return Err(ModuleOrderError::Missing(root.clone()));
+            return Err(ModuleOrderError::Missing(
+                self.catalog
+                    .definitions
+                    .module_identity(*root)
+                    .map_err(ModuleOrderError::Identity)?
+                    .clone(),
+            ));
         }
         let mut reachable = BTreeSet::new();
-        let mut pending = vec![root.clone()];
+        let mut pending = vec![*root];
         while let Some(module) = pending.pop() {
             cancel.check().map_err(|_| ModuleOrderError::Cancelled)?;
-            if !reachable.insert(module.clone()) {
+            if !reachable.insert(module) {
                 continue;
             }
             let node = self
                 .nodes
                 .get(&module)
-                .ok_or_else(|| ModuleOrderError::Missing(module.clone()))?;
+                .ok_or_else(|| ModuleOrderError::Missing(self.catalog.identity(module).clone()))?;
             if !node.imports.diagnostics.is_empty() {
-                return Err(ModuleOrderError::InvalidImports(module));
+                return Err(ModuleOrderError::InvalidImports(
+                    self.catalog.identity(module).clone(),
+                ));
             }
             pending.extend(node.dependencies().iter().cloned());
         }
-        Ok(reachable.into_iter().collect())
+        let mut order = reachable.into_iter().collect::<Vec<_>>();
+        order.sort_by(|a, b| self.catalog.identity(*a).cmp(self.catalog.identity(*b)));
+        Ok(order)
     }
 }
 
@@ -264,7 +310,7 @@ pub(super) fn candidate(
         resolution: target.map_or(LookupOutcome::Absent, LookupOutcome::Resolved),
         support: Default::default(),
         origin,
-        owner: unit.module.clone(),
+        owner: unit.module,
         visibility,
         location,
     }
@@ -302,7 +348,7 @@ fn add_declarations(
     module: &LoweredModule,
     cancel: &CancellationToken,
 ) -> Result<(), Cancelled> {
-    let unit = SourceUnit::of(module);
+    let unit = SourceUnit::of(module, &catalog.definitions);
     let mut names = NameTable::for_unit(unit.clone());
     for item in &module.module.functions {
         cancel.check()?;
@@ -376,21 +422,22 @@ fn add_declarations(
     }
     for item in &module.module.modules {
         cancel.check()?;
-        let mut identity = unit.module.clone();
-        identity.path.push(item.name.clone());
-        let targets = catalog.modules.get(&identity).map_or_else(
-            || vec![None],
-            |units| {
-                units
-                    .iter()
-                    .map(|child| {
-                        Some(ResolvedTarget::Namespace(NamespaceId::Module(
-                            child.clone(),
-                        )))
-                    })
-                    .collect()
-            },
-        );
+        let child = catalog.definitions.module_child(unit.module, &item.name);
+        let targets = child
+            .and_then(|identity| catalog.modules.get(&identity))
+            .map_or_else(
+                || vec![None],
+                |units| {
+                    units
+                        .iter()
+                        .map(|child| {
+                            Some(ResolvedTarget::Namespace(NamespaceId::Module(
+                                child.clone(),
+                            )))
+                        })
+                        .collect()
+                },
+            );
         if let Some(name) = LocalName::new(&item.name) {
             for target in targets {
                 cancel.check()?;
@@ -497,7 +544,7 @@ fn add_declarations(
                 item,
             }),
             NamespaceTable {
-                owner: unit.module.clone(),
+                owner: unit.module,
                 names: Arc::new(table),
                 glob_allowed: matches!(item, SourceItem::Enum(_)),
             },
@@ -515,7 +562,7 @@ fn add_declarations(
     catalog.namespaces.insert(
         NamespaceId::Module(unit.clone()),
         NamespaceTable {
-            owner: unit.module.clone(),
+            owner: unit.module,
             names: Arc::new(names),
             glob_allowed: true,
         },
@@ -531,25 +578,28 @@ fn add_installed_prefixes(
     let native_units = sources
         .iter()
         .filter(|module| module.registered_native_api)
-        .map(|module| SourceUnit::of(module))
+        .map(|module| SourceUnit::of(module, &catalog.definitions))
         .collect::<HashSet<_>>();
     for module in sources.iter().filter(|m| m.registered_native_api) {
-        let unit = SourceUnit::of(module);
-        for len in 0..unit.module.path.len() {
+        let unit = SourceUnit::of(module, &catalog.definitions);
+        let portable = module.source.module_identity();
+        for len in 0..portable.path.len() {
             cancel.check()?;
-            let identity = ModuleIdentity {
-                package: unit.module.package.clone(),
-                path: unit.module.path[..len].to_vec(),
-            };
+            let identity = catalog
+                .definitions
+                .lookup_module_path(&portable.package, &portable.path[..len])
+                .expect("registered prefix");
             let namespace = match catalog.modules.get(&identity).map(Vec::as_slice) {
                 Some([parent]) if native_units.contains(parent) => {
                     NamespaceId::Module(parent.clone())
                 }
                 Some(_) => continue,
-                None => NamespaceId::InstalledPrefix(identity.clone()),
+                None => NamespaceId::InstalledPrefix(identity),
             };
-            let mut child = identity.clone();
-            child.path.push(unit.module.path[len].clone());
+            let child = catalog
+                .definitions
+                .module_child(identity, &portable.path[len])
+                .expect("registered child");
             let target = catalog
                 .modules
                 .get(&child)
@@ -562,12 +612,12 @@ fn add_installed_prefixes(
                 .namespaces
                 .entry(namespace)
                 .or_insert_with(|| NamespaceTable {
-                    owner: identity.clone(),
+                    owner: identity,
                     names: Arc::new(NameTable::default()),
                     glob_allowed: true,
                 });
             let names = Arc::make_mut(&mut table.names);
-            let name = LocalName::new(&unit.module.path[len]).expect("installed module component");
+            let name = LocalName::new(&portable.path[len]).expect("installed module component");
             if !names.entries.contains_key(&name) {
                 names.add(
                     NameNamespace::Type,
@@ -575,7 +625,7 @@ fn add_installed_prefixes(
                     candidate(
                         &unit,
                         Some(ResolvedTarget::Namespace(target)),
-                        BindingOrigin::Package(unit.module.package.clone()),
+                        BindingOrigin::Package(portable.package.clone()),
                         Visibility::Public,
                         None,
                     ),

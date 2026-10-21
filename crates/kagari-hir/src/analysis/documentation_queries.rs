@@ -77,8 +77,13 @@ impl AnalysisSnapshot {
         let ResolvedTarget::Namespace(NamespaceId::Module(unit)) = target.target else {
             return None;
         };
-        self.declaration_snapshot()
-            .module_documentation(&unit.module)
+        self.declaration_snapshot().module_documentation(
+            self.module_graph()
+                .catalog
+                .definitions
+                .module_identity(unit.module)
+                .ok()?,
+        )
     }
 
     /// Read source metadata for the resolved declaration at a use or declaration site.

@@ -8,7 +8,10 @@ use crate::{
     lower::LoweredModule,
     resolver::{resolved::ResolvedName, table::NameTable},
 };
-use kagari_common::identity::{ModuleIdentity, PackageId};
+use kagari_common::identity::{
+    ModuleIdentity, PackageId,
+    table::{DefinitionTable, DefinitionTableError, module::ModuleHandle},
+};
 use kagari_source::{
     diagnostic::Diagnostic,
     identity::{FileId, FileSpan, Revision},
@@ -44,14 +47,14 @@ pub mod types;
 
 /// Identity of one logical source module in one immutable lowering.
 ///
-/// `module` describes package/path, `file` identifies the source-database entry,
+/// `module` identifies a context-owned package/path root, `file` identifies the source-database entry,
 /// `revision` distinguishes its text version, and `arena` distinguishes the HIR
 /// allocation. Inline modules may share a physical origin while having distinct
 /// logical/source-unit identities. One unit is not the entire source program.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SourceUnit {
-    /// Logical package and module path, independent of physical file layout.
-    pub module: ModuleIdentity,
+    /// Logical module root, resolved through the retained catalog definition table.
+    pub module: ModuleHandle,
     /// Source-database identity for this logical source unit.
     pub file: FileId,
     /// Revision of the source used for this lowering.
@@ -62,9 +65,11 @@ pub struct SourceUnit {
 
 impl SourceUnit {
     /// Captures module/file/revision/arena from one matching lowering.
-    pub(crate) fn of(lowered: &LoweredModule) -> Self {
+    pub(crate) fn of(lowered: &LoweredModule, definitions: &DefinitionTable) -> Self {
         Self {
-            module: lowered.source.module_identity().clone(),
+            module: definitions
+                .lookup_module(lowered.source.module_identity())
+                .expect("registered source module"),
             file: lowered.source.id(),
             revision: lowered.source.revision(),
             arena: lowered.module.body.arena(),
@@ -72,8 +77,11 @@ impl SourceUnit {
     }
 
     /// Checks the complete identity before local IDs may index the supplied lowering.
-    pub(crate) fn matches(&self, lowered: &LoweredModule) -> bool {
-        *self == Self::of(lowered)
+    pub(crate) fn matches(&self, lowered: &LoweredModule, definitions: &DefinitionTable) -> bool {
+        definitions.lookup_module(lowered.source.module_identity()) == Some(self.module)
+            && self.file == lowered.source.id()
+            && self.revision == lowered.source.revision()
+            && self.arena == lowered.module.body.arena()
     }
 }
 
@@ -162,7 +170,7 @@ pub enum NamespaceId {
     /// Associated members of a canonical source declaration, such as enum variants.
     Associated(SourceDeclRef),
     /// A package/module prefix synthesized from installed inputs, without a source body.
-    InstalledPrefix(ModuleIdentity),
+    InstalledPrefix(ModuleHandle),
 }
 
 /// Canonical lookup destination, without aliases, provenance or embedded member tables.
@@ -290,7 +298,7 @@ pub struct ImportDirective {
     /// Last pass's canonical result; publication has no pending directives.
     pub resolution: DirectiveResolution,
     /// Syntactic facade/module edges and resolved-target dependencies, including unresolved path prefixes.
-    pub direct_dependencies: BTreeSet<ModuleIdentity>,
+    pub direct_dependencies: BTreeSet<ModuleHandle>,
 }
 
 /// Why a candidate exists; distinct from the declaration it ultimately targets.
@@ -325,7 +333,7 @@ pub struct BindingCandidate {
     /// Declaration/import/implicit input that introduced the binding.
     pub origin: BindingOrigin,
     /// Module whose access boundary applies to this binding.
-    pub owner: ModuleIdentity,
+    pub owner: ModuleHandle,
     /// Visibility checked against the lookup importer.
     pub visibility: Visibility,
     /// Physical declaration/use site when available; implicit bindings may have none.
@@ -364,7 +372,7 @@ pub struct ModuleImportFacts {
     /// Import/namespace conflicts and unresolved/inaccessible import diagnostics.
     pub diagnostics: Vec<Diagnostic>,
     /// Deduplicated module dependencies used for reachability and cache checks.
-    pub dependencies: Vec<ModuleIdentity>,
+    pub dependencies: Vec<ModuleHandle>,
 }
 
 /// A logical module graph node pointing to its source revision and import facts.
@@ -379,8 +387,8 @@ pub struct ModuleNode {
 }
 
 impl ModuleNode {
-    /// Borrows the module identities recorded by import preparation.
-    pub fn dependencies(&self) -> &[ModuleIdentity] {
+    /// Borrows module handles scoped to the graph catalog definition table.
+    pub fn dependencies(&self) -> &[ModuleHandle] {
         &self.imports.dependencies
     }
 }
@@ -402,7 +410,8 @@ impl ModuleNode {
 #[derive(Debug, Clone, Default)]
 pub struct ModuleGraph {
     /// One representative node per logical identity, with duplicates diagnosed.
-    nodes: BTreeMap<ModuleIdentity, ModuleNode>,
+    nodes: BTreeMap<ModuleHandle, ModuleNode>,
+    order: Vec<ModuleHandle>,
     /// Facts retained separately for every exact source unit.
     source_facts: HashMap<SourceUnit, Arc<ModuleImportFacts>>,
     /// Shared canonical namespace tables used by all lookup consumers.
@@ -416,6 +425,8 @@ pub struct ModuleGraph {
 pub enum ModuleOrderError {
     /// The root or a dependency has no graph node.
     Missing(ModuleIdentity),
+    /// The module handle does not belong to the retained graph table.
+    Identity(DefinitionTableError),
     /// A reachable module has import diagnostics.
     InvalidImports(ModuleIdentity),
     /// Cooperative cancellation interrupted traversal.

@@ -414,7 +414,7 @@ impl AggregateCatalog {
                             .get(&method.function)
                             .and_then(|policy| policy.receiver_access),
                         id: SourceDeclRef {
-                            unit: SourceUnit::of(lowered),
+                            unit: SourceUnit::of(lowered, declarations.definitions()),
                             item: SourceItem::Function(method.function),
                         },
                         declaration: *declaration,
@@ -437,10 +437,16 @@ impl AggregateCatalog {
         cancel: &CancellationToken,
     ) -> Result<Self, Cancelled> {
         let mut reachable = BTreeSet::new();
-        let mut pending = vec![root.clone()];
+        let mut pending = vec![
+            graph
+                .catalog
+                .definitions
+                .lookup_module(root)
+                .expect("registered module"),
+        ];
         while let Some(module) = pending.pop() {
             cancel.check()?;
-            if !reachable.insert(module.clone()) {
+            if !reachable.insert(module) {
                 continue;
             }
             if let Some(node) = graph.node(&module) {
@@ -455,10 +461,9 @@ impl AggregateCatalog {
         for (id, implementation) in &self.implementations {
             cancel.check()?;
             if !reachable.contains(
-                definitions
-                    .resolve(*id)
-                    .expect("scoped implementation identity")
-                    .module(),
+                &definitions
+                    .module_of(*id)
+                    .expect("scoped implementation identity"),
             ) {
                 continue;
             }
@@ -471,34 +476,19 @@ impl AggregateCatalog {
         }
         for (id, method) in &self.inherent_methods {
             cancel.check()?;
-            if reachable.contains(
-                definitions
-                    .resolve(*id)
-                    .expect("scoped method identity")
-                    .module(),
-            ) {
+            if reachable.contains(&definitions.module_of(*id).expect("scoped method identity")) {
                 result.inherent_methods.insert(*id, method.clone());
             }
         }
         for (id, native_type) in &self.native_types {
             cancel.check()?;
-            if reachable.contains(
-                definitions
-                    .resolve(*id)
-                    .expect("scoped type identity")
-                    .module(),
-            ) {
+            if reachable.contains(&definitions.module_of(*id).expect("scoped type identity")) {
                 result.native_types.insert(*id, native_type.clone());
             }
         }
         for (id, structure) in &self.structures {
             cancel.check()?;
-            if !reachable.contains(
-                definitions
-                    .resolve(*id)
-                    .expect("scoped struct identity")
-                    .module(),
-            ) {
+            if !reachable.contains(&definitions.module_of(*id).expect("scoped struct identity")) {
                 continue;
             }
             for (index, field) in structure.fields.iter().enumerate() {
@@ -509,12 +499,7 @@ impl AggregateCatalog {
         }
         for (id, enumeration) in &self.enumerations {
             cancel.check()?;
-            if !reachable.contains(
-                definitions
-                    .resolve(*id)
-                    .expect("scoped enum identity")
-                    .module(),
-            ) {
+            if !reachable.contains(&definitions.module_of(*id).expect("scoped enum identity")) {
                 continue;
             }
             for (index, variant) in enumeration.variants.iter().enumerate() {

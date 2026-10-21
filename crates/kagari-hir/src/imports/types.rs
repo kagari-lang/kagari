@@ -93,7 +93,9 @@ impl<'a> TypeCatalog<'a> {
             }
             if let SourceItem::Variant(variant) = source.item
                 && let Some(module) = self.modules.get(&source.unit.file)
-                && source.unit.matches(&module.lowered)
+                && source
+                    .unit
+                    .matches(&module.lowered, &module.names.facts.catalog.definitions)
                 && let Some(declaration) = module.declarations.variant(variant)
             {
                 result.variants.insert(source.clone(), declaration.clone());
@@ -131,7 +133,10 @@ impl<'a> TypeCatalog<'a> {
         let Some(module) = self.modules.get(&target.unit.file) else {
             return Ok(None);
         };
-        if !target.unit.matches(&module.lowered) {
+        if !target
+            .unit
+            .matches(&module.lowered, &module.names.facts.catalog.definitions)
+        {
             return Ok(None);
         }
         let item = target.item;
@@ -251,7 +256,7 @@ impl<'a> TypeCatalog<'a> {
             for item in &module.lowered.module.traits {
                 cancel.check()?;
                 let source = SourceDeclRef {
-                    unit: SourceUnit::of(&module.lowered),
+                    unit: SourceUnit::of(&module.lowered, &module.names.facts.catalog.definitions),
                     item: SourceItem::Trait(item.id),
                 };
                 if let Some(surface) = Self::surface(module, source) {

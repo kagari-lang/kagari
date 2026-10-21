@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub mod exports;
 
 use {
-    kagari_common::identity::{ModuleIdentity, mapping::DefinitionMappingError},
+    kagari_common::identity::{mapping::DefinitionMappingError, table::module::ModuleHandle},
     kagari_source::{
         diagnostic::{Diagnostic, Severity},
         identity::{FileId, Revision},
@@ -55,7 +55,7 @@ pub enum ProgramCheckError {
 /// ```text
 /// CheckedProgram
 ///   root: FileId --by_file index--> modules: Vec<CheckedAnalysis>
-///   dependencies: ModuleIdentity -> direct imported module identities
+///   dependencies: ModuleHandle -> direct imported module handles
 /// SourceDeclRef --file + complete SourceUnit check--> module -> TypedFunction
 /// ```
 ///
@@ -68,7 +68,7 @@ pub struct CheckedProgram {
     root: FileId,
     modules: Vec<CheckedAnalysis>,
     by_file: HashMap<FileId, usize>,
-    dependencies: HashMap<ModuleIdentity, Vec<ModuleIdentity>>,
+    dependencies: HashMap<ModuleHandle, Vec<ModuleHandle>>,
     exports: ProgramExports,
 }
 
@@ -89,7 +89,7 @@ impl CheckedProgram {
     }
 
     /// Returns direct dependencies of a member module; `None` means the module is outside this closure.
-    pub fn dependencies(&self, module: &ModuleIdentity) -> Option<&[ModuleIdentity]> {
+    pub fn dependencies(&self, module: &ModuleHandle) -> Option<&[ModuleHandle]> {
         self.dependencies.get(module).map(Vec::as_slice)
     }
 
@@ -103,7 +103,10 @@ impl CheckedProgram {
         id: &SourceDeclRef,
     ) -> Option<(&CheckedAnalysis, &TypedFunction)> {
         let module = &self.modules[*self.by_file.get(&id.unit.file)?];
-        if !id.unit.matches(&module.lowered) {
+        if !id
+            .unit
+            .matches(&module.lowered, &module.names.catalog.definitions)
+        {
             return None;
         }
         let function = module
@@ -171,9 +174,19 @@ impl AnalysisSnapshot {
         let root_source = self
             .file(root)
             .ok_or(ProgramCheckError::MissingFile(root))?;
+        let root_handle = self
+            .module_graph()
+            .catalog
+            .definitions
+            .lookup_module(root_source.source().module_identity())
+            .ok_or_else(|| {
+                ProgramCheckError::Graph(ModuleOrderError::Missing(
+                    root_source.source().module_identity().clone(),
+                ))
+            })?;
         let order = self
             .module_graph()
-            .reachable_order(root_source.source().module_identity(), cancel)
+            .reachable_order(&root_handle, cancel)
             .map_err(|error| match error {
                 ModuleOrderError::Cancelled => ProgramCheckError::Cancelled,
                 error => ProgramCheckError::Graph(error),

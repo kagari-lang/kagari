@@ -412,9 +412,7 @@ impl FunctionLowerer<'_, '_> {
                     args,
                 );
             }
-            if self.planner.module_identity(declaration)
-                == *self.planner.owner().lowered.source.module_identity()
-            {
+            if self.planner.module_handle(declaration) == self.planner.owner_handle() {
                 CallTarget::Function(self.planner.enqueue_declaration(
                     &declaration,
                     arguments,

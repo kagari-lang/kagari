@@ -27,7 +27,7 @@ impl InstancePlanner<'_> {
         };
         let module = self
             .modules
-            .get(&self.module_identity(*method))
+            .get(&self.module_handle(*method))
             .ok_or_else(invalid)?;
         let Some(ResolvedName::Function(function)) = module.declarations.definition_target(method)
         else {

@@ -79,7 +79,7 @@ impl InstancePlanner<'_> {
             .map_err(|_| invalid())?
             .ok_or_else(invalid)?;
         self.record_interface(&implementation, &arguments, span)?;
-        if self.module_identity(implementation) == *self.module.lowered.source.module_identity() {
+        if self.module_handle(implementation) == self.owner_handle() {
             let contract = self
                 .catalog
                 .implementation_signature(&implementation)

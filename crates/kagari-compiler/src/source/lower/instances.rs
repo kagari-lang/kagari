@@ -3,10 +3,10 @@ use kagari_abi::representation::ValueType;
 use kagari_common::{
     cancellation::CancellationToken,
     identity::{
-        DefinitionKind, ModuleIdentity,
+        DefinitionKind,
         map::DefinitionContext,
         mapping::DefinitionMappingError,
-        table::{DefinitionId, DefinitionTable},
+        table::{DefinitionId, DefinitionTable, module::ModuleHandle},
     },
     span::Span,
 };
@@ -85,7 +85,7 @@ pub(super) struct InstanceKey {
 pub(super) struct Instance {
     pub callable: Option<CallableInstance>,
     pub resume: bool,
-    pub origin: ModuleIdentity,
+    pub origin: ModuleHandle,
     pub id: InstanceId,
     pub function: FunctionId,
     pub key: InstanceKey,
@@ -156,7 +156,7 @@ pub(super) struct InstancePlanner<'a> {
     module: &'a AnalyzedModule,
     pub context: &'a DefinitionContext,
     pub catalog: &'a AggregateCatalog,
-    modules: HashMap<ModuleIdentity, &'a AnalyzedModule>,
+    modules: HashMap<ModuleHandle, &'a AnalyzedModule>,
     pub options: &'a MirLoweringOptions,
     pub instances: Vec<Instance>,
     pub layout_roots: Vec<(TypeId, Span)>,
@@ -191,12 +191,19 @@ impl<'a> InstancePlanner<'a> {
         self.context.snapshot()
     }
 
-    pub fn module_identity(&self, id: DefinitionId) -> ModuleIdentity {
+    pub fn module_handle(&self, id: DefinitionId) -> ModuleHandle {
         self.definitions()
-            .resolve(id)
+            .module_of(id)
             .expect("checked compilation definition")
-            .module()
-            .clone()
+    }
+
+    pub fn owner_handle(&self) -> ModuleHandle {
+        self.module
+            .names
+            .catalog
+            .definitions
+            .lookup_module(self.module.lowered.source.module_identity())
+            .expect("checked source module")
     }
 
     pub fn enqueue_resume(
@@ -266,7 +273,7 @@ impl<'a> InstancePlanner<'a> {
         self.instances.push(Instance {
             resume: false,
             callable: Some(body),
-            origin: parent.origin.clone(),
+            origin: parent.origin,
             id,
             function: parent.function,
             key,
@@ -289,7 +296,17 @@ impl<'a> InstancePlanner<'a> {
             catalog,
             modules: modules
                 .iter()
-                .map(|module| (module.lowered.source.module_identity().clone(), module))
+                .map(|module| {
+                    (
+                        module
+                            .names
+                            .catalog
+                            .definitions
+                            .lookup_module(module.lowered.source.module_identity())
+                            .expect("checked source module"),
+                        module,
+                    )
+                })
                 .collect(),
             module,
             options,
@@ -314,13 +331,9 @@ impl<'a> InstancePlanner<'a> {
 
     pub fn aggregate_catalog(&self, declaration: &DefinitionId) -> &'a AggregateCatalog {
         self.modules
-            .get(&self.module_identity(*declaration))
+            .get(&self.module_handle(*declaration))
             .map(|module| &module.aggregates)
             .unwrap_or(self.catalog)
-    }
-
-    pub fn owner(&self) -> &'a AnalyzedModule {
-        self.module
     }
 
     pub fn enqueue_protocol(
@@ -331,11 +344,7 @@ impl<'a> InstancePlanner<'a> {
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         self.enqueue_protocol_body(
-            (
-                parent.origin.clone(),
-                parent.function,
-                parent.substitution.clone(),
-            ),
+            (parent.origin, parent.function, parent.substitution.clone()),
             protocol,
             ty,
             span,
@@ -356,11 +365,7 @@ impl<'a> InstancePlanner<'a> {
             MirLoweringError::MissingBinding("protocol adapter source context"),
         )?;
         self.enqueue_protocol_body(
-            (
-                self.module.lowered.source.module_identity().clone(),
-                parent.id,
-                TypeSubstitution::default(),
-            ),
+            (self.owner_handle(), parent.id, TypeSubstitution::default()),
             protocol,
             ty,
             span,
@@ -383,7 +388,7 @@ impl<'a> InstancePlanner<'a> {
 
     fn enqueue_protocol_body(
         &mut self,
-        context: (ModuleIdentity, FunctionId, TypeSubstitution),
+        context: (ModuleHandle, FunctionId, TypeSubstitution),
         protocol: Protocol,
         ty: &TypeId,
         span: Span,
@@ -487,7 +492,7 @@ impl<'a> InstancePlanner<'a> {
     }
 
     pub fn native_function(&self, declaration: &DefinitionId) -> Option<&TypedFunction> {
-        let module = self.modules.get(&self.module_identity(*declaration))?;
+        let module = self.modules.get(&self.module_handle(*declaration))?;
         let ResolvedName::Function(id) = module.declarations.definition_target(declaration)? else {
             return None;
         };
@@ -498,7 +503,7 @@ impl<'a> InstancePlanner<'a> {
     }
 
     pub fn constant(&self, declaration: &DefinitionId) -> Option<ScalarValue> {
-        let module = self.modules.get(&self.module_identity(*declaration))?;
+        let module = self.modules.get(&self.module_handle(*declaration))?;
         let ResolvedName::Const(id) = module.declarations.definition_target(declaration)? else {
             return None;
         };
@@ -569,7 +574,7 @@ impl<'a> InstancePlanner<'a> {
             )
             .collect();
         substitution.insert_receiver(contract.id, receiver);
-        let origin = self.modules.get(&self.module_identity(method.id)).ok_or(
+        let origin = self.modules.get(&self.module_handle(method.id)).ok_or(
             MirLoweringError::MissingBinding("default body source module"),
         )?;
         let Some(ResolvedName::Function(function)) =
@@ -579,7 +584,7 @@ impl<'a> InstancePlanner<'a> {
                 "default body source function",
             ));
         };
-        let origin = self.module_identity(method.id);
+        let origin = self.module_handle(method.id);
         if !key.arguments.is_empty() {
             self.charge_layout_instance(span)?;
         }
@@ -735,7 +740,7 @@ impl<'a> InstancePlanner<'a> {
                     .collect();
                 self.require_parent_interfaces(&receiver, &interface, &assumptions, span)?;
             }
-            if self.module_identity(*declaration) == *self.module.lowered.source.module_identity()
+            if self.module_handle(*declaration) == self.owner_handle()
                 && let Some(contract) = self.catalog.implementation_signature(declaration)
             {
                 for method in self
@@ -805,7 +810,7 @@ impl<'a> InstancePlanner<'a> {
                 ));
             };
             self.record_interface(&declaration, &arguments, span)?;
-            if self.module_identity(declaration) == *self.module.lowered.source.module_identity() {
+            if self.module_handle(declaration) == self.owner_handle() {
                 let signature = self.catalog.implementation_signature(&declaration).ok_or(
                     MirLoweringError::MissingBinding("parent interface contract"),
                 )?;
@@ -905,7 +910,7 @@ impl<'a> InstancePlanner<'a> {
         self.instances.push(Instance {
             resume: false,
             callable: None,
-            origin: self.module.lowered.source.module_identity().clone(),
+            origin: self.owner_handle(),
             id,
             function,
             key,
@@ -951,7 +956,7 @@ impl<'a> InstancePlanner<'a> {
         self.instances.push(Instance {
             resume: false,
             callable: None,
-            origin: parent.origin.clone(),
+            origin: parent.origin,
             id,
             function: parent.function,
             key,

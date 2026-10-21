@@ -1002,7 +1002,10 @@ impl AnalysisSnapshot {
             return None;
         };
         let file = self.file(target.unit.file)?;
-        if !target.unit.matches(&file.result.records().facts().lowered) {
+        if !target.unit.matches(
+            &file.result.records().facts().lowered,
+            &file.result.records().facts().names.catalog.definitions,
+        ) {
             return None;
         }
         if let SourceItem::Variant(id) = target.item {

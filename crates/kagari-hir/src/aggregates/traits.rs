@@ -13,7 +13,7 @@ use crate::{
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
     identity::{
-        ModuleIdentity,
+        table::module::ModuleHandle,
         table::{DefinitionId, DefinitionTable},
     },
 };
@@ -336,18 +336,13 @@ impl AggregateCatalog {
     pub(super) fn include_traits(
         &self,
         result: &mut Self,
-        reachable: &BTreeSet<ModuleIdentity>,
+        reachable: &BTreeSet<ModuleHandle>,
         definitions: &DefinitionTable,
         cancel: &CancellationToken,
     ) -> Result<(), Cancelled> {
         for (id, item) in &self.traits {
             cancel.check()?;
-            if !reachable.contains(
-                definitions
-                    .resolve(*id)
-                    .expect("scoped trait identity")
-                    .module(),
-            ) {
+            if !reachable.contains(&definitions.module_of(*id).expect("scoped trait identity")) {
                 continue;
             }
             for (index, method) in item.methods.iter().enumerate() {

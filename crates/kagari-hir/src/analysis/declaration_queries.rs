@@ -275,6 +275,7 @@ impl AnalysisDatabase {
         let limits = None;
         let graph = Arc::new(ModuleGraph::build_with_limits(
             lowered_files.values().map(|(_, lowered)| lowered.as_ref()),
+            &self.definitions,
             source.packages(),
             cancel,
             limits,
@@ -283,7 +284,7 @@ impl AnalysisDatabase {
         for (id, (parsed, lowered)) in lowered_files {
             cancel.check()?;
             let imports = graph
-                .imports_for(&SourceUnit::of(&lowered))
+                .imports_for(&SourceUnit::of(&lowered, &graph.catalog.definitions))
                 .expect("declared module is in graph")
                 .clone();
             let old = previous

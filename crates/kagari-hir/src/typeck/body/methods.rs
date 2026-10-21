@@ -199,7 +199,11 @@ impl<'a> BodyChecker<'a> {
                     &receiver_ty,
                     self.cancel,
                 )?;
-                let target = if method.id.unit.matches(self.lowered) {
+                let target = if method
+                    .id
+                    .unit
+                    .matches(self.lowered, self.declarations.definitions())
+                {
                     CallTarget::Function(method.id.function().expect("function target"))
                 } else {
                     CallTarget::SourceFunction(method.declaration)

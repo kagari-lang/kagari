@@ -47,19 +47,27 @@ pub(super) fn type_hits(
                 .is_some_and(|ty| ty.declaration.id == DeclarationId::Definition(*expected)),
             (TypeTarget::Struct(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Struct(actual) if actual == *expected)
-                    && source.unit.matches(&facts.lowered)
+                    && source
+                        .unit
+                        .matches(&facts.lowered, &facts.names.catalog.definitions)
             }
             (TypeTarget::Enum(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Enum(actual) if actual == *expected)
-                    && source.unit.matches(&facts.lowered)
+                    && source
+                        .unit
+                        .matches(&facts.lowered, &facts.names.catalog.definitions)
             }
             (TypeTarget::Trait(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::Trait(actual) if actual == *expected)
-                    && source.unit.matches(&facts.lowered)
+                    && source
+                        .unit
+                        .matches(&facts.lowered, &facts.names.catalog.definitions)
             }
             (TypeTarget::OpaqueType(expected), ResolvedTarget::Source(source)) => {
                 matches!(source.item, SourceItem::OpaqueType(actual) if actual == *expected)
-                    && source.unit.matches(&facts.lowered)
+                    && source
+                        .unit
+                        .matches(&facts.lowered, &facts.names.catalog.definitions)
             }
             _ => false,
         };

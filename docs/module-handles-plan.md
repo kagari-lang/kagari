@@ -1,6 +1,6 @@
 # Context-owned module handles execution plan
 
-Status: implementation authorized on 2026-10-21; MH01-MH02 are locally complete.
+Status: implementation authorized on 2026-10-21; MH01-MH03 are locally complete.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation
 and queue placement. This plan owns SA9's MH01-MH05 phases, design decisions,
 acceptance and progress ledger. The user authorized goal execution and phase commits.
@@ -348,7 +348,7 @@ the probe completed successfully, and no carried build failure remains.
 
 - [x] MH01: close API/ownership inventory and record matched baseline.
 - [x] MH02: implement checked module-root operations with direct usage.
-- [ ] MH03: migrate graph and direct consumers coherently.
+- [x] MH03: migrate graph and direct consumers coherently.
 - [ ] MH04: complete boundary, deterministic-output and correctness acceptance.
 - [ ] MH05: measure, document and hand off.
 
@@ -370,6 +370,47 @@ and diff checks pass. Imports/visibility were reviewed; the new module stays wit
 the table owner and adds no re-exports or structural exceptions. No carried error
 remains. Full workspace/backend acceptance is CI-owned. MH03 owns all graph-field
 and direct consumer replacements; no old graph API has been duplicated.
+
+MH03, 2026-10-21: migrated source units, namespace owners/prefixes, import
+observations/dependencies, graph traversal, checked-program dependency/export
+indexes, compiler request buckets and instance-planner origins to module handles.
+Graph builders receive the existing context, register source/native dependency
+prefixes, and retain one immutable table in the catalog. Diagnostic/package input
+paths remain portable; MIR dependency/export records materialize paths at lowering.
+The SDK error adapter, lint package selection and source-module example now resolve
+handles through that owner. Whole-module specialization rounds are unchanged.
+
+Recovery for a source identity over the path bound deliberately publishes no graph
+root: the existing diagnostic-only analysis path keeps its empty semantic scope
+and CompileLimitExceeded diagnostic. No invalid root or truncated identity is
+interned. Same-revision relowering still checks arena/file/revision; independently
+owned catalogs reject foreign source and installed-prefix references. Catalog
+structural equality no longer compares identity-table contents; cache equivalence
+continues to compare its used namespace contracts in the same context.
+
+Intermediate checks: `cargo check -p kagari-hir --lib` initially found 28 direct
+consumer errors after the graph API change, then four declaration-wrapper accesses.
+`cargo check -p kagari-compiler --lib` passed after their repair. The first HIR test
+build found 13 test-call adaptation errors. Workspace Clippy subsequently found
+Copy-handle clones, then lint/package-test and SDK graph callers; these have been
+migrated without compatibility wrappers. All were owned by MH03.
+
+Selected HIR validation passes: all seven `imports::provenance_tests::` cases,
+`package_visibility_covers_siblings_but_not_other_packages_or_public_reexports`,
+`dependency_overlay_invalidates_cached_imports_and_preserves_old_snapshot`,
+`diamond_has_deterministic_reachable_order`,
+`failed_solves_preserve_published_snapshots_and_allow_recovery`, and
+`oversized_source_module_identities_are_rejected_without_panicking`. The latter
+five ran together via libtest name filters. These cover visibility, cache reuse,
+ordering, cancellation/exhaustion recovery and invalid identity diagnostics.
+The two planned compiler tests
+`source_program_keeps_module_identity_and_resolves_transitive_call_contracts` and
+`dependency_diagnostics_and_function_targets_belong_to_the_checked_snapshot` also
+pass. Structure (1401 files, no findings), formatting, workspace all-target Clippy
+and diff checks pass. Manual review found no new re-exports, widened visibility,
+structural exceptions or duplicate semantic path. No carried build error remains;
+MH04 owns additional cross-context/output/pinned-execution acceptance. Full tests
+and the backend/platform matrix remain CI-owned.
 
 Planning entry, 2026-10-21: the requested execution plan records the scoped model
 and phases against `6fe2cbe6`. Implementation, Rust validation and measurements

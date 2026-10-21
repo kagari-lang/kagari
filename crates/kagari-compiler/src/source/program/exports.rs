@@ -32,6 +32,7 @@ pub(super) fn lower(
             _ => Err(DefinitionMappingError::InvalidContract),
         }
     };
+    let definitions = &program.root().names.catalog.definitions;
     Ok(ProgramExports {
         namespaces: program
             .exports()
@@ -40,9 +41,15 @@ pub(super) fn lower(
             .map(|(identity, namespace)| {
                 check_cancel(cancel)?;
                 Ok((
-                    identity.clone(),
+                    definitions.module_identity(*identity)?.clone(),
                     ExportNamespace {
-                        modules: namespace.modules.clone(),
+                        modules: namespace
+                            .modules
+                            .iter()
+                            .map(|(name, module)| {
+                                Ok((name.clone(), definitions.module_identity(*module)?.clone()))
+                            })
+                            .collect::<Result<_, DefinitionMappingError>>()?,
                         functions: namespace
                             .functions
                             .iter()

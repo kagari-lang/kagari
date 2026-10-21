@@ -44,7 +44,16 @@ pub fn lint(
     let mut diagnostics = Vec::new();
     for (identity, node) in snapshot.module_graph().modules() {
         cancel.check()?;
-        if &identity.package != package || !seen.insert(node.file) {
+        if &snapshot
+            .module_graph()
+            .catalog
+            .definitions
+            .module_identity(*identity)
+            .expect("graph module")
+            .package
+            != package
+            || !seen.insert(node.file)
+        {
             continue;
         }
         let Some(file) = snapshot.file(node.file) else {

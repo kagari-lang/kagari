@@ -10,6 +10,7 @@ use crate::{
     lower::lower_module,
     resolver::table::NameResolution,
 };
+use kagari_common::identity::{ModuleIdentity, map::DefinitionContext};
 use kagari_source::{
     diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
 };
@@ -59,13 +60,13 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
         let offset = text.rfind(path).unwrap();
         let root_hit = snapshot.source_target_at(root, offset).unwrap();
         assert!(
-            matches!(root_hit.target, ResolvedTarget::Namespace(NamespaceId::Module(ref unit)) if unit.module.path == ["m"])
+            matches!(root_hit.target, ResolvedTarget::Namespace(NamespaceId::Module(ref unit)) if snapshot.module_graph().catalog.identity(unit.module).path == ["m"])
         );
         let child = snapshot
             .source_target_at(root, offset + "m::".len())
             .unwrap();
         assert!(
-            matches!(child.target, ResolvedTarget::Namespace(NamespaceId::Module(ref unit)) if unit.module.path == ["m", "nested"])
+            matches!(child.target, ResolvedTarget::Namespace(NamespaceId::Module(ref unit)) if snapshot.module_graph().catalog.identity(unit.module).path == ["m", "nested"])
         );
         let target = snapshot
             .source_target_at(root, offset + "m::nested::".len())
@@ -101,10 +102,10 @@ fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {
             match token {
                 "pkg" => assert!(matches!(hit.target,
                     ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
-                        if unit.module.path == ["m"])),
+                        if snapshot.module_graph().catalog.identity(unit.module).path == ["m"])),
                 "m" | "nested" => assert!(matches!(hit.target,
                     ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
-                        if unit.module.path == if token == "m" { vec!["m"] } else { vec!["m", "nested"] })),
+                        if snapshot.module_graph().catalog.identity(unit.module).path == if token == "m" { vec!["m"] } else { vec!["m", "nested"] })),
                 _ => assert!(matches!(hit.target,
                     ResolvedTarget::Source(ref source) if source.unit.file == leaf)),
             }
@@ -171,8 +172,15 @@ fn recovered_import_leaves_preserve_names_and_physical_sites() {
             assert_eq!(&text[span.start..span.end], "a");
             assert_eq!(span.start, 4);
         }
-        let graph = ModuleGraph::build([&lowered], &Default::default()).unwrap();
-        let facts = graph.imports_for(&SourceUnit::of(&lowered)).unwrap();
+        let graph = ModuleGraph::build(
+            [&lowered],
+            &DefinitionContext::new().unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
+        let facts = graph
+            .imports_for(&SourceUnit::of(&lowered, &graph.catalog.definitions))
+            .unwrap();
         assert_eq!(
             facts
                 .diagnostics
@@ -248,7 +256,7 @@ fn repeated_super_prefixes_keep_physical_sites_when_root_underflows() {
                 };
                 assert!(matches!(hit.target,
                     ResolvedTarget::Namespace(NamespaceId::Module(ref unit))
-                        if unit.module.path == expected_path));
+                        if snapshot.module_graph().catalog.identity(unit.module).path == expected_path));
             }
         }
     }
@@ -306,10 +314,12 @@ fn equal_glob_targets_keep_origins_and_absent_categories_release_fallback() {
         DirectiveResolution::Named(outcomes) if outcomes.types == LookupOutcome::Absent && outcomes.values == LookupOutcome::Absent));
     assert!(snapshot.check_program(broken, &Default::default()).is_err());
     assert!(
-        imports
-            .dependencies
-            .iter()
-            .any(|module| module.path == ["left"])
+        imports.dependencies.iter().any(|module| snapshot
+            .module_graph()
+            .catalog
+            .identity(*module)
+            .path
+            == ["left"])
     );
     assert!(
         snapshot
@@ -331,13 +341,15 @@ fn unused_leaf_imports_keep_facade_and_implementation_dependencies() {
             imports.directives[0]
                 .direct_dependencies
                 .iter()
-                .any(|module| module.path == [name])
+                .any(|module| snapshot.module_graph().catalog.identity(*module).path == [name])
         );
         assert!(
-            imports
-                .dependencies
-                .iter()
-                .any(|module| module.path == [name])
+            imports.dependencies.iter().any(|module| snapshot
+                .module_graph()
+                .catalog
+                .identity(*module)
+                .path
+                == [name])
         );
     }
     assert!(snapshot.check_program(root, &Default::default()).is_ok());
@@ -353,9 +365,14 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
         "same",
         "fn right() -> i32 { 2 } use missing::two;",
     ));
-    let graph = ModuleGraph::build([&left, &right], &Default::default()).unwrap();
+    let graph = ModuleGraph::build(
+        [&left, &right],
+        &DefinitionContext::new().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
     for (lowered, own, other) in [(&left, "left", "right"), (&right, "right", "left")] {
-        let unit = SourceUnit::of(lowered);
+        let unit = SourceUnit::of(lowered, &graph.catalog.definitions);
         let facts = graph.imports_for(&unit).unwrap();
         assert_eq!(facts.directives[0].id.unit, unit);
         assert!(facts.scope.lookup(own, NameNamespace::Value).is_some());
@@ -368,11 +385,22 @@ fn duplicate_logical_modules_keep_source_units_and_reject_absolute_lookup() {
         )));
     }
     assert!(matches!(
-        graph.reachable_order(left.source.module_identity(), &Default::default()),
+        graph.reachable_order(
+            &graph
+                .catalog
+                .definitions
+                .lookup_module(left.source.module_identity())
+                .unwrap(),
+            &Default::default()
+        ),
         Err(ModuleOrderError::InvalidImports(_))
     ));
     let ctx = LookupContext {
-        importer: left.source.module_identity(),
+        importer: &graph
+            .catalog
+            .definitions
+            .lookup_module(left.source.module_identity())
+            .unwrap(),
         observations: None,
         avoid: None,
     };
@@ -397,14 +425,18 @@ fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter
     );
     let first = lower_module(&source);
     let second = lower_module(&source);
-    let old = ModuleGraph::build([&first], &Default::default()).unwrap();
-    let new = ModuleGraph::build([&second], &Default::default()).unwrap();
+    let definitions = DefinitionContext::new().unwrap();
+    let importer = definitions
+        .intern_module(&ModuleIdentity::single_file("other"))
+        .unwrap();
+    let old = ModuleGraph::build([&first], &definitions, &Default::default()).unwrap();
+    let new = ModuleGraph::build([&second], &definitions, &Default::default()).unwrap();
     let ctx = LookupContext {
-        importer: &kagari_common::identity::ModuleIdentity::single_file("other"),
+        importer: &importer,
         observations: None,
         avoid: None,
     };
-    let ns = NamespaceId::Module(SourceUnit::of(&first));
+    let ns = NamespaceId::Module(SourceUnit::of(&first, &old.catalog.definitions));
     let LookupResult::Found(hit) = old
         .catalog
         .lookup_member(&ctx, &ns, "Data", NameNamespace::Type, &Default::default())
@@ -436,7 +468,9 @@ fn relowered_same_revision_targets_are_stale_and_strong_collisions_do_not_filter
             .unwrap(),
         LookupResult::Ambiguous(_)
     ));
-    let facts = old.imports_for(&SourceUnit::of(&first)).unwrap();
+    let facts = old
+        .imports_for(&SourceUnit::of(&first, &old.catalog.definitions))
+        .unwrap();
     assert!(
         facts
             .scope

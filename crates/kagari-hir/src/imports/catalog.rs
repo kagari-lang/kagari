@@ -10,10 +10,14 @@ use crate::{
 };
 use kagari_common::{
     cancellation::{CancellationToken, Cancelled},
-    identity::{DefinitionKind, DefinitionPath, ModuleIdentity, PackageId},
+    identity::{
+        DefinitionKind, DefinitionPath, ModuleIdentity, PackageId,
+        map::DefinitionContext,
+        table::{DefinitionTable, module::ModuleHandle},
+    },
 };
 use kagari_source::package::PackageEnvironment;
-use kagari_types::declaration::names::NameNamespace;
+use kagari_types::{declaration::names::NameNamespace, visibility::Visibility};
 use std::{
     cell::RefCell,
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -24,7 +28,7 @@ use std::{
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NamespaceTable {
     /// Logical owner used when constructing/accessing this namespace.
-    pub owner: ModuleIdentity,
+    pub owner: ModuleHandle,
     /// Shared tiered candidates; visibility is checked against a lookup context.
     pub names: Arc<NameTable>,
     /// Whether this namespace permits `use ...::*` expansion.
@@ -45,20 +49,22 @@ pub struct NamespaceTable {
 /// Tables retain private candidates as well as public ones: lookup checks access
 /// at each component. Source references must still belong to this catalog. A target
 /// stores only identity, so aliases do not copy member tables.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct NamespaceCatalog {
+    /// Immutable identity prefix owning every module handle in this catalog.
+    pub definitions: DefinitionTable,
     /// All exact source units grouped by logical module identity; multiple entries remain ambiguous.
-    pub(crate) modules: BTreeMap<ModuleIdentity, Vec<SourceUnit>>,
+    pub(crate) modules: BTreeMap<ModuleHandle, Vec<SourceUnit>>,
     /// Namespace identity to owner, shared name table and glob policy.
     pub(crate) namespaces: HashMap<NamespaceId, NamespaceTable>,
     /// Installed package aliases; multiple package targets make an alias ambiguous.
     pub(crate) installed_aliases: BTreeMap<String, BTreeSet<PackageId>>,
     /// Canonical dependency modules retained by checked native declarations.
     /// These resolve only for that native importer, never as global source aliases.
-    pub(crate) native_dependencies: BTreeMap<ModuleIdentity, BTreeSet<ModuleIdentity>>,
+    pub(crate) native_dependencies: BTreeMap<ModuleHandle, BTreeSet<ModuleHandle>>,
     /// Trusted declaration references admit only their canonical trait target.
     /// Ordinary source importers receive no additional visibility.
-    pub(crate) native_trait_references: BTreeMap<ModuleIdentity, BTreeSet<DefinitionPath>>,
+    pub(crate) native_trait_references: BTreeMap<ModuleHandle, BTreeSet<DefinitionPath>>,
     pub(crate) packages: PackageEnvironment,
 }
 
@@ -118,13 +124,13 @@ pub enum NamespaceResult {
 /// Importer-relative access context supplied without mutating catalog tables.
 pub struct LookupContext<'a> {
     /// Logical module requesting access.
-    pub importer: &'a ModuleIdentity,
+    pub importer: &'a ModuleHandle,
     pub(crate) avoid: Option<(DirectiveId, NameNamespace)>,
     pub(crate) observations: Option<&'a RefCell<HashSet<Observation>>>,
 }
 
 impl<'a> LookupContext<'a> {
-    pub fn new(importer: &'a ModuleIdentity) -> Self {
+    pub fn new(importer: &'a ModuleHandle) -> Self {
         Self {
             importer,
             observations: None,
@@ -142,6 +148,40 @@ impl<'a> LookupContext<'a> {
 }
 
 impl NamespaceCatalog {
+    pub(crate) fn new(definitions: DefinitionTable, packages: PackageEnvironment) -> Self {
+        Self {
+            definitions,
+            packages,
+            modules: BTreeMap::new(),
+            namespaces: HashMap::new(),
+            installed_aliases: BTreeMap::new(),
+            native_dependencies: BTreeMap::new(),
+            native_trait_references: BTreeMap::new(),
+        }
+    }
+
+    /// Borrow an identity already admitted into this catalog's scope.
+    pub(crate) fn identity(&self, module: ModuleHandle) -> &ModuleIdentity {
+        self.definitions
+            .module_identity(module)
+            .expect("catalog module scope")
+    }
+
+    pub(crate) fn allows(
+        &self,
+        visibility: Visibility,
+        owner: ModuleHandle,
+        accessor: ModuleHandle,
+    ) -> bool {
+        let (Ok(owner), Ok(accessor)) = (
+            self.definitions.module_identity(owner),
+            self.definitions.module_identity(accessor),
+        ) else {
+            return false;
+        };
+        visibility.allows(owner, accessor)
+    }
+
     pub(crate) fn valid(&self, unit: &SourceUnit) -> bool {
         self.modules
             .get(&unit.module)
@@ -165,6 +205,9 @@ impl NamespaceCatalog {
         cancel: &CancellationToken,
     ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
+        if self.definitions.module_identity(*ctx.importer).is_err() {
+            return Ok(LookupResult::StaleSource);
+        }
         if let Some(observations) = ctx.observations {
             observations
                 .borrow_mut()
@@ -189,7 +232,7 @@ impl NamespaceCatalog {
                 .names
                 .pending_globs
                 .iter()
-                .any(|candidate| candidate.visibility.allows(&candidate.owner, ctx.importer))
+                .any(|candidate| self.allows(candidate.visibility, candidate.owner, *ctx.importer))
         {
             return Ok(LookupResult::Unresolved);
         }
@@ -210,7 +253,7 @@ impl NamespaceCatalog {
         let admitted = candidates
             .iter()
             .filter(|c| {
-                c.visibility.allows(&c.owner, ctx.importer)
+                self.allows(c.visibility, c.owner, *ctx.importer)
                     || self.referenced_trait(ctx, ns, name, c)
             })
             .cloned()
@@ -243,13 +286,21 @@ impl NamespaceCatalog {
     /// Returns `Cancelled` if cancellation is observed.
     pub fn namespace_of(
         &self,
-        _ctx: &LookupContext<'_>,
+        ctx: &LookupContext<'_>,
         target: &ResolvedTarget,
         cancel: &CancellationToken,
     ) -> Result<NamespaceResult, Cancelled> {
         cancel.check()?;
+        if self.definitions.module_identity(*ctx.importer).is_err() {
+            return Ok(NamespaceResult::StaleSource);
+        }
         Ok(match target {
             ResolvedTarget::Namespace(ns) => match ns {
+                NamespaceId::InstalledPrefix(module)
+                    if self.definitions.module_identity(*module).is_err() =>
+                {
+                    NamespaceResult::StaleSource
+                }
                 NamespaceId::Module(unit) if !self.valid(unit) => NamespaceResult::StaleSource,
                 NamespaceId::Associated(source) if !self.valid(&source.unit) => {
                     NamespaceResult::StaleSource
@@ -334,9 +385,11 @@ impl NamespaceCatalog {
             return Ok(LookupResult::Missing);
         };
         for end in 0..=components.len() {
-            let identity = ModuleIdentity {
-                package: package.clone(),
-                path: components[..end].to_vec(),
+            let Some(identity) = self
+                .definitions
+                .lookup_module_path(package, &components[..end])
+            else {
+                continue;
             };
             if let Some(units) = self.modules.get(&identity) {
                 if end == components.len() && namespace == NameNamespace::Value {
@@ -355,11 +408,8 @@ impl NamespaceCatalog {
                     via: vec![],
                 });
                 let result = self.resolve_path(ctx, root, &components[end..], namespace, cancel)?;
-                let terminal = ModuleIdentity {
-                    package: package.clone(),
-                    path: components.clone(),
-                };
-                let physical_collision = namespace == NameNamespace::Type && self.modules.get(&terminal).is_some_and(|units| {
+                let terminal = self.definitions.lookup_module_path(package, &components);
+                let physical_collision = namespace == NameNamespace::Type && terminal.and_then(|id| self.modules.get(&id)).is_some_and(|units| {
                     matches!(&result, LookupResult::Found(hit) if !matches!(&hit.target, ResolvedTarget::Namespace(NamespaceId::Module(unit)) if units.as_slice() == [unit.clone()]))
                 });
                 return Ok(if physical_collision {
@@ -369,10 +419,10 @@ impl NamespaceCatalog {
                 });
             }
         }
-        let prefix = NamespaceId::InstalledPrefix(ModuleIdentity {
-            package: package.clone(),
-            path: vec![],
-        });
+        let Some(root) = self.definitions.lookup_module_path(package, &[]) else {
+            return Ok(LookupResult::Missing);
+        };
+        let prefix = NamespaceId::InstalledPrefix(root);
         if self.namespaces.contains_key(&prefix) {
             return self.resolve_path(
                 ctx,
@@ -393,20 +443,25 @@ impl NamespaceCatalog {
     fn module_accessible(
         &self,
         ctx: &LookupContext<'_>,
-        identity: &ModuleIdentity,
+        identity: &ModuleHandle,
         cancel: &CancellationToken,
     ) -> Result<bool, Cancelled> {
-        let mut parent = identity.clone();
-        while !parent.path.is_empty() {
+        let mut current = *identity;
+        while let Some(parent) = self
+            .definitions
+            .module_parent(current)
+            .expect("catalog root")
+        {
             cancel.check()?;
-            let name = parent.path.pop().expect("child");
+            let name = self.identity(current).path.last().expect("child");
+            current = parent;
             if let Some(units) = self.modules.get(&parent) {
                 for unit in units {
                     if matches!(
                         self.lookup_member(
                             ctx,
                             &NamespaceId::Module(unit.clone()),
-                            &name,
+                            name,
                             NameNamespace::Type,
                             cancel
                         )?,
@@ -533,19 +588,20 @@ impl NamespaceCatalog {
     ) -> Result<(), Cancelled> {
         let dependencies = self
             .packages
-            .scope(&ctx.importer.package)
+            .scope(&self.identity(*ctx.importer).package)
             .map(|scope| &scope.dependencies);
         for (identity, units) in &self.modules {
             cancel.check()?;
-            let own = identity.package == ctx.importer.package;
+            let portable = self.identity(*identity);
+            let own = portable.package == self.identity(*ctx.importer).package;
             let direct = dependencies.is_some_and(|aliases| {
-                aliases.values().any(|package| package == &identity.package)
+                aliases.values().any(|package| package == &portable.package)
             });
             let native = self
                 .native_dependencies
                 .get(ctx.importer)
                 .is_some_and(|dependencies| dependencies.contains(identity));
-            if (own || native || (direct && identity.path.is_empty()))
+            if (own || native || (direct && portable.path.is_empty()))
                 && units.len() == 1
                 && self.module_accessible(ctx, identity, cancel)?
             {
@@ -751,7 +807,7 @@ impl NamespaceCatalog {
             .get(ctx.importer)
             .is_some_and(|references| {
                 references.iter().any(|reference| {
-                    reference.module == unit.module
+                    self.definitions.lookup_module(&reference.module) == Some(unit.module)
                         && reference.path.len() == 1
                         && reference.path[0].kind == DefinitionKind::Trait
                         && reference.path[0].occurrence == 0
@@ -762,9 +818,10 @@ impl NamespaceCatalog {
 
     fn package_path(
         &self,
-        importer: &ModuleIdentity,
+        importer: &ModuleHandle,
         path: &[String],
     ) -> Option<(BTreeSet<PackageId>, Vec<String>)> {
+        let importer_identity = self.identity(*importer);
         let mut segments = path
             .iter()
             .map(String::as_str)
@@ -772,16 +829,19 @@ impl NamespaceCatalog {
             .peekable();
         let first = segments.next()?;
         let (packages, mut components) = match first {
-            "crate" => ([importer.package.clone()].into(), vec![]),
-            "self" => ([importer.package.clone()].into(), importer.path.clone()),
+            "crate" => ([importer_identity.package.clone()].into(), vec![]),
+            "self" => (
+                [importer_identity.package.clone()].into(),
+                importer_identity.path.clone(),
+            ),
             "super" => {
-                let mut base = importer.path.clone();
+                let mut base = importer_identity.path.clone();
                 base.pop()?;
                 while segments.peek() == Some(&"super") {
                     segments.next();
                     base.pop()?;
                 }
-                ([importer.package.clone()].into(), base)
+                ([importer_identity.package.clone()].into(), base)
             }
             alias => (self.package_targets(importer, alias), vec![]),
         };
@@ -789,18 +849,20 @@ impl NamespaceCatalog {
         Some((packages, components))
     }
 
-    fn package_targets(&self, importer: &ModuleIdentity, name: &str) -> BTreeSet<PackageId> {
-        if name == importer.package.0 {
-            return [importer.package.clone()].into();
+    fn package_targets(&self, importer: &ModuleHandle, name: &str) -> BTreeSet<PackageId> {
+        let importer_identity = self.identity(*importer);
+        if name == importer_identity.package.0 {
+            return [importer_identity.package.clone()].into();
         }
         if let Some(dependencies) = self.native_dependencies.get(importer) {
             let targets = dependencies
                 .iter()
                 .filter(|dependency| {
-                    dependency.package.0 == name
-                        || source_package_alias(&dependency.package).as_deref() == Some(name)
+                    self.identity(**dependency).package.0 == name
+                        || source_package_alias(&self.identity(**dependency).package).as_deref()
+                            == Some(name)
                 })
-                .map(|dependency| dependency.package.clone())
+                .map(|dependency| self.identity(*dependency).package.clone())
                 .collect::<BTreeSet<_>>();
             if !targets.is_empty() {
                 return targets;
@@ -808,7 +870,7 @@ impl NamespaceCatalog {
         }
         if let Some(target) = self
             .packages
-            .scope(&importer.package)
+            .scope(&importer_identity.package)
             .and_then(|scope| scope.dependencies.get(name))
         {
             return [target.clone()].into();
@@ -822,9 +884,9 @@ impl NamespaceCatalog {
     /// Syntactic facade/module edges survive even when a terminal name is missing.
     pub(crate) fn path_dependencies(
         &self,
-        importer: &ModuleIdentity,
+        importer: &ModuleHandle,
         path: &[String],
-        dependencies: &mut BTreeSet<ModuleIdentity>,
+        dependencies: &mut BTreeSet<ModuleHandle>,
     ) {
         let Some((packages, components)) = self.package_path(importer, path) else {
             return;
@@ -834,9 +896,22 @@ impl NamespaceCatalog {
         }
         let package = packages.first().expect("one package");
         for identity in self.modules.keys() {
-            if &identity.package == package && components.starts_with(&identity.path) {
-                dependencies.insert(identity.clone());
+            if &self.identity(*identity).package == package
+                && components.starts_with(&self.identity(*identity).path)
+            {
+                dependencies.insert(*identity);
             }
         }
+    }
+}
+
+impl Default for NamespaceCatalog {
+    fn default() -> Self {
+        Self::new(
+            DefinitionContext::new()
+                .expect("identity capacity")
+                .snapshot(),
+            PackageEnvironment::default(),
+        )
     }
 }
