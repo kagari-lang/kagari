@@ -87,7 +87,7 @@ impl SourceAnalysis {
                                 &snapshot
                                     .module_graph()
                                     .catalog
-                                    .definitions
+                                    .definitions()
                                     .lookup_module(&module)
                                     .expect("failed module identity"),
                             )

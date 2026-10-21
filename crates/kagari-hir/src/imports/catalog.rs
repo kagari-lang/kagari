@@ -52,7 +52,7 @@ pub struct NamespaceTable {
 #[derive(Debug, Clone)]
 pub struct NamespaceCatalog {
     /// Immutable identity prefix owning every module handle in this catalog.
-    pub definitions: DefinitionTable,
+    pub(crate) definitions: DefinitionTable,
     /// All exact source units grouped by logical module identity; multiple entries remain ambiguous.
     pub(crate) modules: BTreeMap<ModuleHandle, Vec<SourceUnit>>,
     /// Namespace identity to owner, shared name table and glob policy.
@@ -148,6 +148,12 @@ impl<'a> LookupContext<'a> {
 }
 
 impl NamespaceCatalog {
+    /// Borrow the immutable table that owns this catalog's module handles.
+    /// The table cannot be replaced independently of its namespace records.
+    pub fn definitions(&self) -> &DefinitionTable {
+        &self.definitions
+    }
+
     pub(crate) fn new(definitions: DefinitionTable, packages: PackageEnvironment) -> Self {
         Self {
             definitions,
@@ -206,6 +212,11 @@ impl NamespaceCatalog {
     ) -> Result<LookupResult, Cancelled> {
         cancel.check()?;
         if self.definitions.module_identity(*ctx.importer).is_err() {
+            return Ok(LookupResult::StaleSource);
+        }
+        if let NamespaceId::InstalledPrefix(module) = ns
+            && self.definitions.module_identity(*module).is_err()
+        {
             return Ok(LookupResult::StaleSource);
         }
         if let Some(observations) = ctx.observations {

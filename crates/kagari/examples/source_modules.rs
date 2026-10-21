@@ -35,7 +35,7 @@ fn main() {
     let snapshot = engine
         .analyze(engine.source_snapshot(), &CancellationToken::default())
         .unwrap();
-    let definitions = &snapshot.module_graph().catalog.definitions;
+    let definitions = snapshot.module_graph().catalog.definitions();
     let root_handle = definitions.lookup_module(&identity("root")).unwrap();
     for module in snapshot
         .module_graph()

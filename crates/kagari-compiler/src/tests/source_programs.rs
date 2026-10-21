@@ -34,7 +34,7 @@ use kagari_source::{
     identity::FileId,
     line_index::PositionEncoding,
     source::SourceFile,
-    source_database::{SourceDatabase, SourceLayer},
+    source_database::{SourceDatabase, SourceLayer, SourceSnapshot},
 };
 use kagari_stdlib::catalog as foundation_catalog;
 use kagari_types::{scalar::BuiltinType, ty::Ty};
@@ -58,6 +58,72 @@ fn checked(db: &SourceDatabase, root: FileId) -> CheckedProgram {
         .unwrap()
         .check_program(root, &Default::default())
         .unwrap()
+}
+
+#[test]
+fn source_products_ignore_prior_module_registration_order() {
+    let mut sources = SourceDatabase::default();
+    let generic = insert(
+        &mut sources,
+        "generic",
+        "pub fn pass<T>(value: T) -> T { value }",
+    );
+    insert(
+        &mut sources,
+        "facade",
+        "pub use pkg::generic::pass; pub fn value() -> i32 { pass(7) }",
+    );
+    let root = insert(
+        &mut sources,
+        "root",
+        "pub use pkg::facade as api; use pkg::generic::pass; pub fn run() -> i32 { pass(api::value()) }",
+    );
+    let input = sources.snapshot();
+    let mut root_indices = Vec::new();
+    let products = [None, Some(root), Some(generic)].map(|seed| {
+        let mut analysis = analysis_database();
+        if let Some(seed) = seed {
+            analysis
+                .declarations(
+                    SourceSnapshot::single_file(input.file(seed).unwrap().clone()),
+                    &Default::default(),
+                )
+                .unwrap();
+        }
+        let snapshot = analysis
+            .snapshot(input.clone(), &Default::default())
+            .unwrap();
+        let checked = snapshot.check_program(root, &Default::default()).unwrap();
+        let handle = checked
+            .root()
+            .names
+            .catalog
+            .definitions()
+            .lookup_module(checked.root().lowered.source.module_identity())
+            .unwrap();
+        root_indices.push(handle.definition().index());
+        let exported = checked.exports().function(&handle, "api::value").unwrap();
+        assert_eq!(checked.source_function(exported).unwrap().1.name, "value");
+        let mir = lower_program_to_mir(&checked, &Default::default()).unwrap();
+        let bytecode = lower_program_to_bytecode(&mir, &Default::default())
+            .unwrap()
+            .into_unverified();
+        (
+            encode_program(&mir, &Default::default()).unwrap(),
+            encode_program_facts(
+                bytecode.records(),
+                bytecode.definitions(),
+                &Default::default(),
+            )
+            .unwrap(),
+        )
+    });
+    assert_ne!(
+        root_indices[0], root_indices[1],
+        "exercise different handle allocation orders"
+    );
+    assert_eq!(products[0], products[1]);
+    assert_eq!(products[0], products[2]);
 }
 
 #[test]

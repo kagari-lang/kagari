@@ -420,7 +420,7 @@ fn public_export_graph_preserves_aliases_cycles_and_the_separate_private_entry()
         .root()
         .names
         .catalog
-        .definitions
+        .definitions()
         .lookup_module(program.root().lowered.source.module_identity())
         .unwrap();
     let exports = program.exports();

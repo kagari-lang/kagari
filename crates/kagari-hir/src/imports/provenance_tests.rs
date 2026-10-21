@@ -8,15 +8,135 @@ use crate::{
         tests::{analyze, insert},
     },
     lower::lower_module,
-    resolver::table::NameResolution,
+    resolver::{resolved::DeclarationNames, table::NameResolution},
 };
-use kagari_common::identity::{ModuleIdentity, map::DefinitionContext};
+use kagari_common::identity::{
+    ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    table::DefinitionTableError,
+};
 use kagari_source::{
     diagnostic::DiagnosticKind, source::SourceFile, source_database::SourceDatabase,
 };
 use kagari_syntax::parser::parse;
 use kagari_types::declaration::names::NameNamespace;
 use std::sync::Arc;
+
+#[test]
+fn module_handles_require_the_owning_context_prefix_and_actual_namespace() {
+    let lowered = lower_module(&SourceFile::new("same", "pub fn value() {}"));
+    let context = DefinitionContext::new().unwrap();
+    let graph = ModuleGraph::build([&lowered], &context, &Default::default()).unwrap();
+    let foreign = ModuleGraph::build(
+        [&lowered],
+        &DefinitionContext::new().unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    let unit = SourceUnit::of(&lowered, &graph.catalog.definitions);
+    let foreign_unit = SourceUnit::of(&lowered, &foreign.catalog.definitions);
+    assert_eq!(unit.file, foreign_unit.file);
+    assert_eq!(unit.revision, foreign_unit.revision);
+    assert_eq!(unit.arena, foreign_unit.arena);
+    assert_ne!(unit.module, foreign_unit.module);
+    assert!(!foreign_unit.matches(&lowered, &graph.catalog.definitions));
+    let late = context
+        .intern_module(&ModuleIdentity::single_file("late"))
+        .unwrap();
+    let ctx = LookupContext::new(&unit.module);
+    for (handle, error) in [
+        (foreign_unit.module, DefinitionTableError::ForeignTable),
+        (late, DefinitionTableError::InvalidIndex),
+    ] {
+        assert!(graph.node(&handle).is_none());
+        assert_eq!(
+            graph.reachable_order(&handle, &Default::default()),
+            Err(ModuleOrderError::Identity(error))
+        );
+        let prefix = NamespaceId::InstalledPrefix(handle);
+        assert_eq!(
+            graph
+                .catalog
+                .lookup_member(
+                    &ctx,
+                    &prefix,
+                    "value",
+                    NameNamespace::Value,
+                    &Default::default()
+                )
+                .unwrap(),
+            LookupResult::StaleSource
+        );
+        assert_eq!(
+            graph
+                .catalog
+                .namespace_of(
+                    &ctx,
+                    &ResolvedTarget::Namespace(prefix),
+                    &Default::default()
+                )
+                .unwrap(),
+            NamespaceResult::StaleSource
+        );
+        assert_eq!(
+            graph
+                .catalog
+                .lookup_member(
+                    &LookupContext::new(&handle),
+                    &NamespaceId::Module(unit.clone()),
+                    "value",
+                    NameNamespace::Value,
+                    &Default::default()
+                )
+                .unwrap(),
+            LookupResult::StaleSource
+        );
+    }
+    assert!(!graph.catalog.valid(&foreign_unit));
+    let imports = graph.imports_for(&unit).unwrap().clone();
+    let names = DeclarationNames {
+        items: imports.scope.clone(),
+        imports,
+        catalog: graph.catalog.clone(),
+    };
+    assert!(
+        DefinitionMetadata::checked(
+            graph.catalog.definitions.clone(),
+            names.clone(),
+            &Default::default()
+        )
+        .is_ok()
+    );
+    assert!(
+        DefinitionMetadata::checked(
+            foreign.catalog.definitions.clone(),
+            names.clone(),
+            &Default::default()
+        )
+        .is_err()
+    );
+    let mixed = DeclarationNames {
+        catalog: foreign.catalog.clone(),
+        ..names
+    };
+    assert!(
+        DefinitionMetadata::checked(
+            graph.catalog.definitions.clone(),
+            mixed,
+            &Default::default()
+        )
+        .is_err()
+    );
+    // Registering an identity is not the same as adding a graph/source namespace.
+    let rebuilt = ModuleGraph::build([&lowered], &context, &Default::default()).unwrap();
+    assert!(rebuilt.catalog.definitions.module_identity(late).is_ok());
+    assert!(rebuilt.node(&late).is_none());
+    assert_eq!(
+        rebuilt.reachable_order(&late, &Default::default()),
+        Err(ModuleOrderError::Missing(ModuleIdentity::single_file(
+            "late"
+        )))
+    );
+}
 
 #[test]
 fn grouped_directives_keep_leaf_root_ranges_and_explicit_aliases() {

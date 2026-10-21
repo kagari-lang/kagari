@@ -201,7 +201,7 @@ impl<'a> InstancePlanner<'a> {
         self.module
             .names
             .catalog
-            .definitions
+            .definitions()
             .lookup_module(self.module.lowered.source.module_identity())
             .expect("checked source module")
     }
@@ -301,7 +301,7 @@ impl<'a> InstancePlanner<'a> {
                         module
                             .names
                             .catalog
-                            .definitions
+                            .definitions()
                             .lookup_module(module.lowered.source.module_identity())
                             .expect("checked source module"),
                         module,

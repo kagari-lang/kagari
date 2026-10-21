@@ -1112,6 +1112,35 @@ append without changing existing indices. Independent tables reject each other's
 handles, even when the paths are equal. Import resolves exact paths once and maps
 all referenced ancestors into the destination context.
 
+`identity::table::module::ModuleHandle` is a checked Copy wrapper around a
+module-root `DefinitionId`, with the same context owner. The definition table
+indexes interned package roots and lexical module children; registering
+`game::combat::damage` also interns its prefixes. `module_child`, `module_parent`
+and `module_of` borrow that owner without constructing copied paths. Lexical
+module ancestry does not change definition-node ancestry: a module root still
+has no definition parent. A registered prefix grants neither module existence
+nor visibility.
+
+Source graph construction receives the analysis context, registers source and
+Native dependency paths, then freezes the table retained by `NamespaceCatalog`.
+Source units, namespace/binding owners, dependency edges, checked source exports
+and compiler request/instance indexes carry handles. Lookup never extends the
+writer. An independent context rejects raw handles even for the same lowering;
+old tables reject later appended handles. Portable acquisition and Native
+metadata enter through explicit registration/adoption. Source graphs are rebuilt
+in the destination context, not reused by comparing table contents or silently
+remapping their source arenas.
+
+Metadata publication visits the local module root and dependency handles and
+checks that the local source unit belongs to its retained catalog. The catalog
+owns its namespace records; source references additionally require file, revision
+and HIR arena matches at lookup.
+Module graph iteration/reachability sorts exact portable identities; executable
+exports and dependencies materialize portable paths at MIR lowering. Canonical
+MIR/KBC codecs retain their existing representation and version identifiers.
+Compiler specialization rounds, source evaluation order and runtime generation
+pins are independent of this logical-module representation.
+
 HIR records and shared semantic algorithms use fixed scoped IDs. Reference visitors
 validate retained fields and keys; ID-to-ID remappers rebuild reusable records in
 another context, rejecting collapsed keys and preserving cancellation and limits.

@@ -32,7 +32,7 @@ pub(super) fn lower(
             _ => Err(DefinitionMappingError::InvalidContract),
         }
     };
-    let definitions = &program.root().names.catalog.definitions;
+    let definitions = program.root().names.catalog.definitions();
     Ok(ProgramExports {
         namespaces: program
             .exports()

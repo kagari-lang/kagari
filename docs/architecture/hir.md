@@ -39,20 +39,27 @@ Its name does not imply one allocation per function.
 | `ParamId`, `LocalId` | Carry arena/owner and source-map-wide indices. Parameters live in function records; local bindings live in statements, patterns or closure parameters. Semantic maps use the complete IDs. |
 | `FieldId`, `VariantId` | Carry arena, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
 | `SourceDeclRef` | Carries a full `SourceUnit` plus a declaration handle for cross-module access. Do not index the importing module with it. |
+| `ModuleHandle` | A checked definition-table module root. Resolve through `names.catalog.definitions()` or `ModuleGraph.catalog.definitions()`; membership in the table alone does not declare a source namespace. |
 | `DefinitionId` | Interpreted by its matching immutable definition-table prefix; distinct from all lowering-local IDs. Exact owned paths belong to explicit authoring/display queries. |
 | `BindingId` | An analysis identity, scoped body definition and resolved local slot. Changing the definition context does not change the binding's owning analysis or source slot. |
 
 Cloning/reusing one lowering retains its arena; fresh lowering creates a new one.
-`SourceUnit` additionally records logical module, source file and revision. Logical
-module identity is not the same as a physical filename. See
+`SourceUnit` additionally records a context-owned module handle, source file and
+revision. Logical module identity is not the same as a physical filename. Even
+when file/revision/arena are identical, a handle from an independent context is
+foreign. Reusing a lowering in that context requires rebuilding its graph. See
 [source maps](../../crates/kagari-hir/src/source_map.rs) for byte ranges and
 specialized name/member/path sites; synthetic nodes may have empty ranges.
 
 HIR types, declarations, signatures and checked-call facts use fixed `DefinitionId`
 fields. Their Rust models have no parameter selecting paths versus IDs. A
-`DefinitionReferences` visitor covers every retained reference, including binding
+`DefinitionReferences` visitor covers semantic definition references, including binding
 body owners and attached Native/Host inputs. `DefinitionMetadata::checked` validates
 those references against an immutable prefix; it does not validate language meaning.
+Resolution inputs retain their own immutable namespace catalog. Metadata
+publication checks their local unit/catalog agreement and visits module roots and
+dependencies; lookup checks complete source units. These source records do not
+support cross-context remapping.
 
 Independently reusable facts implement `RemapDefinitions`: import their referenced
 ancestor closure, then rebuild ID fields and unique keys in the destination scope.

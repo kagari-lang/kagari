@@ -1,6 +1,6 @@
 # Context-owned module handles execution plan
 
-Status: implementation authorized on 2026-10-21; MH01-MH03 are locally complete.
+Status: implementation authorized on 2026-10-21; MH01-MH04 are locally complete.
 The [roadmap](implementation-roadmap.md#review-follow-up-order) owns activation
 and queue placement. This plan owns SA9's MH01-MH05 phases, design decisions,
 acceptance and progress ledger. The user authorized goal execution and phase commits.
@@ -349,7 +349,7 @@ the probe completed successfully, and no carried build failure remains.
 - [x] MH01: close API/ownership inventory and record matched baseline.
 - [x] MH02: implement checked module-root operations with direct usage.
 - [x] MH03: migrate graph and direct consumers coherently.
-- [ ] MH04: complete boundary, deterministic-output and correctness acceptance.
+- [x] MH04: complete boundary, deterministic-output and correctness acceptance.
 - [ ] MH05: measure, document and hand off.
 
 MH02, 2026-10-21: implemented the checked Copy module-root type, borrowed lookup,
@@ -411,6 +411,47 @@ and diff checks pass. Manual review found no new re-exports, widened visibility,
 structural exceptions or duplicate semantic path. No carried build error remains;
 MH04 owns additional cross-context/output/pinned-execution acceptance. Full tests
 and the backend/platform matrix remain CI-owned.
+
+MH04, 2026-10-21: the boundary audit adds one distinct HIR context test
+using the exact same lowering in independent graphs, plus later-root rejection by
+an old catalog and registration without namespace publication. It passes. Installed
+prefix lookup now returns StaleSource consistently with namespace lookup for a
+foreign/later root. The catalog exposes its table through a read-only accessor;
+external callers cannot replace the owner independently of namespace records.
+The architecture and HIR guide document this retained-table contract.
+
+Numeric ordering audit: the solver is seeded from portable source order; graph
+members/hubs and dependency vectors are sorted by borrowed portable identities.
+Namespace module maps are used for lookup/cache-set comparison, not published
+slots. Package targets collect portable PackageIds. Compiler request buckets and
+instance-origin maps are lookup-only; demand order continues to follow ordered
+modules/functions. Executable export collection builds the existing portable
+BTreeMap at its lowering boundary. Source import text/package aliases and trusted
+Native trait-reference DefinitionPaths remain portable input/access boundaries;
+the latter are an exact declaration trust list, not a second module graph.
+
+A compiler contract test compares fresh analysis with two different source-module
+registration histories, asserts that root indices actually differ, checks source
+export lookup, and compares canonical MIR and bytecode. Its first build caught a
+harness type mismatch (VerifiedBytecodeProgram instead of editable bytecode
+records); the test now uses the existing into_unverified boundary. The three selected compiler cases now pass: registration-order canonical output,
+`portable_program_codec_rebuilds_seals_and_preserves_canonical_lowering`, and
+`source_free_exports_preserve_aliases_cycles_and_separate_entry`. The SDK case
+`old_program_calls_keep_their_dependency_versions_after_reload` passes. Its first
+build overlapped the table-accessor edit and used stale dependency metadata;
+a fresh build resolved the missing-method error. No runtime failure was observed.
+
+A final scope audit found that the former no-op resolver identity visitors now
+need to cover module roots. Publication visits the local root/dependencies and
+checks local-unit/catalog agreement, without traversing the full shared graph per
+file. The existing new context case now checks metadata rejection for foreign
+tables and mixed catalogs. Focused context, cache and invalid-input cases plus
+canonical source output validate that gate: all three HIR cases and the compiler
+canonical-output case pass. Structure (1401 files, no violations), formatting,
+workspace all-target Clippy, local documentation links and diff checks pass.
+No carried failure remains. Imports and visibility were reviewed; no re-export,
+structure exception or extra semantic implementation was added. Complete backend,
+feature and platform acceptance remains CI-owned. MH05 owns measurement/handoff.
 
 Planning entry, 2026-10-21: the requested execution plan records the scoped model
 and phases against `6fe2cbe6`. Implementation, Rust validation and measurements

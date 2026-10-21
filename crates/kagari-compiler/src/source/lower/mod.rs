@@ -323,7 +323,7 @@ pub(crate) fn lower_to_mir_with_requests<'a>(
                 module
                     .names
                     .catalog
-                    .definitions
+                    .definitions()
                     .module_identity(*module_handle)
                     .expect("checked dependency")
                     .clone()

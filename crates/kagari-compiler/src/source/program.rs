@@ -84,7 +84,7 @@ pub fn lower_program_to_mir(
                     &module
                         .names
                         .catalog
-                        .definitions
+                        .definitions()
                         .lookup_module(identity)
                         .expect("checked source module"),
                 )

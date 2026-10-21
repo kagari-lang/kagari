@@ -47,7 +47,7 @@ pub fn lint(
         if &snapshot
             .module_graph()
             .catalog
-            .definitions
+            .definitions()
             .module_identity(*identity)
             .expect("graph module")
             .package
