@@ -1,10 +1,9 @@
 # Inline module AST reuse execution plan
 
-Status: planned on 2026-10-21; implementation has not started. This plan owns
+Status: activated on 2026-10-21; IA01 complete, IA02 next. This plan owns
 IA01-IA05, design decisions, acceptance and the progress ledger for
 [SA1](review.md#sa1-inline-modules-are-parsed-again). The
-[roadmap](implementation-roadmap.md) owns queue placement. Recording this plan
-does not activate implementation or the following SA14 and SA11 work.
+[roadmap](implementation-roadmap.md) owns queue placement. The user authorized goal execution and phase commits. SA14 and SA11 remain queued.
 
 ## Outcome and bounded scope
 
@@ -269,8 +268,8 @@ scope, which would require an explicit scope decision.
 
 ## Progress ledger
 
-- [x] Execution plan recorded against `9e5113f8`; implementation remains unstarted.
-- [ ] IA01 Baseline and contract decisions.
+- [x] Execution plan recorded against `9e5113f8`; execution baseline `e7135c16`.
+- [x] IA01 Baseline and contract decisions.
 - [ ] IA02 Shared physical content and logical lowering input.
 - [ ] IA03 Analysis/consumer migration and bridge removal.
 - [ ] IA04 Focused integration and local implementation acceptance.
@@ -282,3 +281,81 @@ No Cargo build/tests or performance measurements were run during planning.
 Known implementation failures: none established; implementation has not started.
 CI acceptance: unrun for this task. Record actual commands/results and carried
 errors under the owning phase when execution starts.
+
+
+### IA01 Baseline and decisions
+
+Rowan 0.17.0 src/ast.rs implements SyntaxNodePtr as kind plus TextRange;
+try_to_node follows containing children from the root, checking both kind/range.
+Use that locator behind the syntax owner and retain an Arc<Parse> in analysis.
+Transient logical views expose root/block items and a traversal that stops at
+nested ModuleBlock nodes. Published records contain no red cursor. Native parse
+mode remains attached through its existing preparation path.
+
+Diagnostic projection uses actual body token extents. Missing closing braces at
+EOF belong to the declaring parent; ordinary zero-width EOF body errors can
+belong to the innermost open body. Parser-limit errors remain physical. Conservative
+physical validity still guards optional facts/reuse and checked closure acceptance.
+IA03 must verify synthetic-child entry behavior, not just root program checks.
+Signature surfaces begin at the logical body extent, with an explicit base offset
+for projection/expansion. No padding buffer is introduced for cache comparisons.
+
+IA02 keeps the existing masked constructor call until IA03 switches analysis;
+only immutable storage/common lowering and syntax capabilities change first.
+The old constructor argument and masking are removed in IA03. This is the sole
+migration bridge and avoids a temporary second constructor/API.
+
+Baseline probe: cargo test -p kagari-hir --test sa1_probe --no-run, then the copied
+test executable with --ignored --nocapture --test-threads=1, three processes.
+The temporary probe is removed before commit. A forwarding System allocator counts
+successful allocation/reallocation requests, gross requested bytes and net live
+requested bytes on the executing thread; net excludes already retained inputs and
+can be negative when old cache storage is released. One warmup and seven timing
+samples per case/process, plus a separate allocation pass; destruction excluded.
+Fresh queries include AnalysisDatabase construction. Unchanged queries retain the
+first snapshot/database; edit queries build/retain an old snapshot outside timing,
+apply an overlay outside timing, then measure declarations publication. Source
+acquisition is excluded. No native modules are installed.
+
+Fixtures are `// 中文😀\r\nfn entry() {}` (28 bytes), concatenated
+`mod m{i} { pub fn f{i}() {} }\r\n` for i=0..31 (908 bytes), and eight
+`mod m{i} { ` prefixes around `pub fn leaf() {}` with eight ` }` suffixes
+(104 bytes). Logical module counts are 1/33/9; diagnostics are empty. Edits replace
+each `() {}` with `() { val changed = 1; }`. Baseline source preparation parses and
+builds line indexes 1/33/9 times by the existing queue; unchanged queries reuse
+parses but still construct masked source buffers/line indexes. The probe measures
+complete declarations, so graph and declaration resolution remain included; it
+cannot attribute all time to parsing. IA05 compares the same boundary.
+
+Windows x86_64 MSVC, Intel i7-10700F (8 cores/16 logical), rustc 1.99.1
+(58cf8f9c3, 2026-10-13), LLVM 23.1.1; workspace test profile opt-level 1 with
+DebugInfo, default HIR features/dev dependencies, default target and parallelism.
+Compilation is excluded. Samples use warm process/workload caches; system load,
+frequency and affinity are uncontrolled. Final paired measurements will check
+for concurrent Cargo/rustc. Initial timing medians below use 21 samples each;
+allocation columns show the third run and are not RSS or end-to-end compilation.
+
+| Workload | Median microseconds | Requests | Requested bytes | Net bytes |
+| --- | ---: | ---: | ---: | ---: |
+| control/fresh | 31.1 | 180 | 35267 | 17191 |
+| control/unchanged | 11.6 | 56 | 21087 | 0 |
+| control/retained_edit | 38.8 | 234 | 39499 | 18232 |
+| siblings/fresh | 1759.4 | 9523 | 1775252 | 1036359 |
+| siblings/unchanged | 4141.2 | 21657 | 9445638 | -368 |
+| siblings/retained_edit | 2433.5 | 10195 | 1530785 | 780254 |
+| nested/fresh | 379.6 | 2280 | 298002 | 156037 |
+| nested/unchanged | 424.8 | 2139 | 832272 | 0 |
+| nested/retained_edit | 308.6 | 1818 | 279648 | 135356 |
+
+Selected filters: HIR inline_module_queries, private_inline_children,
+declaration_queries::tests, documentation_queries::tests::same_named_declarations,
+analysis::tests::body_edits_reuse_other_bodies, analysis::tests::snapshots_reuse,
+and oversized_source_module_identities; syntax module-view/recovery tests;
+source source::tests; lint policy_inherits_external_and_inline_modules;
+compiler source_program_keeps_module_identity and source-origin unit coverage.
+Use narrower added test names for new boundaries. Final matrix remains CI-owned.
+IA01 checks: probe outputs meet expected module/diagnostic shape; document links
+and diff checks. Initial probe compilation rejected SourceDatabase::clone (not
+implemented); the harness now creates each edit setup independently outside timing.
+No production failure is carried. Separate preparation-only timing is deferred
+unless needed to diagnose a material regression in the matched query boundary.

@@ -828,7 +828,8 @@ The completed MH01-MH05 plan is retired; Git history owns its phase ledger.
 SA1 is next in this queue. The [inline module AST reuse plan](inline-module-ast-plan.md)
 owns IA01-IA05, shared physical source/parse ownership, logical lowering and
 consumer migration, recovery/identity acceptance and bounded measurements.
-Implementation is not activated. R7 scheduling, R8 invalidation and R13
+Implementation is activated; IA01 baseline is complete and IA02 is next.
+R7 scheduling, R8 invalidation and R13
 identity-domain retention remain separate.
 
 Structured import paths (SA15) are implemented. The

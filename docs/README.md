@@ -46,8 +46,8 @@ below; the public Pages site has not been activated by this work.
 
 The [roadmap](implementation-roadmap.md) owns activation and dependencies.
 
-- [Inline module AST reuse](inline-module-ast-plan.md): SA1, IA01-IA05 are planned
-  but unstarted. Share physical source/parse storage while preserving logical
+- [Inline module AST reuse](inline-module-ast-plan.md): SA1, IA01-IA05 are active;
+  IA01 baseline is complete. Share physical source/parse storage while preserving logical
   module ownership, recovery, navigation and retained snapshots.
 - [Compilation latency follow-up](implementation-roadmap.md#fast-compilation-and-eager-startup):
   the source-preparation implementation is closed with the 500 ms compile/load
