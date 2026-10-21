@@ -810,10 +810,17 @@ host-registration scope.
 
 | Order | Review scope | Reason for placement |
 | --- | --- | --- |
-| 1 | [SA9](review.md#sa9-module-paths-are-copied-into-internal-graph-keys-and-references): context-owned module handles | Reuse the existing definition-table owner where suitable; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
+| 1 | [SA9](module-handles-plan.md): context-owned module handles | Reuse the existing definition-table owner; migrate graph owners/dependencies without conflating written paths, resolved modules and HIR-local ModuleId. |
 | 2 | [SA1](review.md#sa1-inline-modules-are-parsed-again): inline AST reuse | Build child lowering/source attribution over the chosen module ownership and graph boundaries, preserving physical offsets and retained snapshots. |
 | 3 | [SA14](review.md#sa14-function-bodies-cannot-declare-named-local-functions): named local functions | Define scope, forward references, recursion and captures; implement declaration ownership and allocation/storage order before reviewing redundant self IDs. |
 | 4 | [SA11](review.md#sa11-hir-declarations-and-adt-members-carry-container-derived-identities): declaration identity review | Review container-supplied identities against the resulting function ownership model. Field removal is conditional on that review, not a predetermined cleanup. |
+
+The [SA9 execution plan](module-handles-plan.md), recorded on 2026-10-21, owns
+MH01-MH05: baseline/API inventory, checked module-root handles, graph and direct
+consumer migration, boundary/determinism validation, and measurement/handoff.
+It reuses the definition context and retains portable identity at explicit
+boundaries. Implementation has not started; this planning request does not activate
+SA1, specialization scheduling, semantic invalidation or identity-domain retention.
 
 Structured import paths (SA15) are implemented. The
 [HIR guide](architecture/hir.md#structured-import-paths-and-source-sites) and model
