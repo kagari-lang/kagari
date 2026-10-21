@@ -552,21 +552,34 @@ host facade redesign and VM/backend expansion remain independent work.
 
 ## Numeric standard library
 
-The [numeric standard-library plan](numeric-stdlib-plan.md) owns NS01-NS05:
-freeze numeric contracts, expose the retained integer-policy machinery through
-ordinary scalar methods, add bounded f32/f64 utilities and math functions, then
-validate a small script-owned numerical/sampling workload and hand off documentation.
-Implementation and per-phase commits are authorized. NS01 contract/boundary
-acceptance and NS02-NS04 integer/float/math methods are complete; NS05 application
-acceptance and documentation handoff are next.
-The branch baseline is `4baef38e` on `feat/numeric-stdlib`.
+The installed numeric foundation delivers 17 integer-policy variants across eight
+types (132 concrete bindings), 15 float-utility names and 11 extended-math names at
+each of two widths (30 and 22 bindings). These are ordinary canonical `core::num`
+methods using the completed module-owned registration, shared integer kernels and
+width-matched float bindings. Ordinary checked operators remain unchanged.
 
-Reuse the completed module-owned registration and canonical core::num ownership;
-integer policies and float utilities now have ordinary installed script methods. Ordinary checked
-operators remain unchanged. Native associated constants, public/global RNG APIs,
-full ray tracing, new numeric types and native-backend expansion are excluded.
-The plan explicitly distinguishes bit-exact conversions from platform-dependent
-transcendental precision. Full feature/backend/platform validation remains CI-only.
+Lasting contracts live in the [numeric API inventory](spec/builtins.md#numeric-scalar-methods),
+[value semantics](spec/value-semantics.md#floating-point-utilities-and-math),
+[native declaration boundary](spec/standard-declarations.md#numeric-declaration-boundary)
+and [architecture](architecture.md#numeric-scalar-library-ownership). The
+[library guide](../site/src/content/docs/library/overview.mdx#numeric-policies-and-sampling)
+connects explicit overflow policies to script-owned sampling and numerical work.
+Bit-exact transport is distinct from arithmetic NaN payloads and approximate math;
+`sqrt` is correctly rounded, while extended-math precision is unspecified. Power
+adapters enforce quiet/signaling-NaN unit cases and exact `i32` parity rather than
+promising direct Rust agreement on every input.
+
+Remaining acceptance is the full workspace test suite and complete
+feature/backend/platform CI matrix. The Linux workspace suite and standalone feature
+script schedule these numeric tests. Existing Windows/browser jobs do not yet select
+the representative numeric contracts: wiring Windows and browser/WASM float acceptance
+there remains an explicit follow-up, not merely a queued run. Focused local
+source/source-free method and boundary coverage does not establish that matrix or
+broader JIT/native execution. Native associated constants, native-call
+const evaluation, public/global RNG APIs, full ray tracing and new numeric types
+remain outside this delivery; existing scalar const evaluation and backend eligibility
+are unchanged. Future work requires separate scope, not compatibility aliases or a
+second free-function math catalog.
 
 ## Host registration and interop delivery
 

@@ -9,12 +9,12 @@ see [native declarations](standard-declarations.md). Generated `.kgr` serves too
 and is not an executable standard library.
 
 The foundation is always installed. List/MutableList own common algorithm methods,
-String owns its inherent methods, and `core::iter::Iterable` owns the finite
-lazy transformation and terminal API. The
-[collection contract](collection-access.md) defines the finite API surface.
-Predecessor APIs outside that inventory, including
-numeric convenience methods, enum combinators, extended iterator algorithms,
-collection snapshots and additional container classes, remain withdrawn.
+String owns its inherent methods, `core::num` owns the finite scalar numeric
+methods below, and `core::iter::Iterable` owns the finite lazy transformation and
+terminal API. The [collection contract](collection-access.md) defines the collection
+surface. Predecessor APIs outside these inventories, including enum combinators,
+extended iterator algorithms, collection snapshots and additional container classes,
+remain withdrawn; no compatibility aliases are installed.
 
 ## Namespaces and prelude
 
@@ -32,7 +32,7 @@ constructors and tooling navigation.
 | `core::iter` | Iterator, Iterable, FromIterator, Sum, Product, CollectionCursor and eight lazy adapter types |
 | `core::str` | FromStr |
 | `core::default` | Default |
-| `core::num` | ParseError, TryFromIntError and numeric native implementations |
+| `core::num` | ParseError, TryFromIntError, scalar numeric inherent methods and numeric native implementations |
 | `core::option`, `core::result` | Option and Result |
 | `core::future` | Cold single-drive Future |
 | `alloc::string`, `alloc::vec` | String and Vec |
@@ -303,6 +303,64 @@ after lexical and declared names. A same-named function is an ordinary script ca
 a non-callable local is a call-target error. Logging requires an explicitly declared
 and installed host.log binding. Reflection remains subject to declared member access
 and metadata; it is not how native libraries dispatch their methods.
+
+## Numeric scalar methods
+
+The foundation installs ordinary inherent methods owned by canonical `core::num`;
+calling them on primitive values requires no import. There is no parallel free
+`math` namespace, compatibility alias catalog or generic `Float` trait. Operands
+match their declared width and signedness exactly, without implicit conversion.
+Receiver and arguments are evaluated once, left to right. The
+[value-semantics contract](value-semantics.md#explicit-integer-arithmetic) owns
+arithmetic outcomes, float edge cases, traps and precision.
+
+### Integer inventory
+
+For `T` in `i8`, `i16`, `i32`, `i64`, `u8`, `u16`, `u32`, `u64`, the following
+are instance methods. This is **17 policy variants across eight types, with 132
+concrete bindings**: sixteen methods on each type plus `wrapping_add_signed` on
+only the four unsigned types.
+
+| Methods | Explicit arguments | Result |
+| --- | --- | --- |
+| `wrapping_add`, `wrapping_sub`, `wrapping_mul` | `rhs: T` | `T`, modulo 2^width |
+| `checked_add`, `checked_sub`, `checked_mul`, `checked_div`, `checked_rem` | `rhs: T` | `Option<T>` |
+| `overflowing_add`, `overflowing_sub`, `overflowing_mul` | `rhs: T` | `(T, bool)`, wrapped result and arithmetic overflow flag |
+| `saturating_add`, `saturating_sub`, `saturating_mul` | `rhs: T` | `T`, saturated to its range |
+| `rotate_left`, `rotate_right` | `count: u32` | `T`, count modulo bit width |
+| `wrapping_add_signed` (unsigned only) | `rhs: i8/i16/i32/i64` for receiver `u8/u16/u32/u64`, respectively | Unsigned receiver type |
+
+Ordinary operators remain checked and trapping, not wrapping or saturating.
+Checked division/remainder return `None` for zero divisors and signed MIN / -1 or
+MIN % -1. There are no additional wrapping division/remainder, shift or power
+families implied by these names.
+
+### Float inventory
+
+For `F` in `f32`, `f64`, **15 utility names at each of two widths** give 30
+bindings; **11 extended-math names at each width** give another 22 bindings.
+All are instance methods except the explicitly static `from_bits` constructors.
+
+| Methods | Explicit arguments | Result |
+| --- | --- | --- |
+| `abs`, `sqrt`, `floor`, `ceil`, `round`, `trunc`, `fract` | None | `F` |
+| `min`, `max` | `other: F` | `F` |
+| `clamp` | `min: F`, `max: F` | `F` |
+| `is_nan`, `is_infinite`, `is_finite` | None | `bool` |
+| `to_bits` | None | `u32` on `f32`; `u64` on `f64` |
+| Static `f32::from_bits`, `f64::from_bits` | `bits: u32`, `bits: u64`, respectively | `f32`, `f64`, respectively |
+| `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `exp`, `ln` | None | `F` |
+| `atan2` | `other: F` (x; receiver is y) | `F` |
+| `powf` | `exponent: F` | `F` |
+| `powi` | `exponent: i32` at both widths | `F` |
+
+See [floating-point semantics](value-semantics.md#floating-point-utilities-and-math)
+for NaN-ignoring min/max, permitted equal-zero sign variation, clamp-bound
+`ScriptTrap`, exact bit transport, power guards and the correctly rounded sqrt
+versus unspecified extended-math precision boundary. Native associated constants
+and compile-time evaluation of these native calls are not implemented. Existing
+scalar const operations remain unchanged; public RNG APIs, full ray tracing and
+JIT/native-backend expansion are outside this inventory.
 
 ## Ordering protocols
 

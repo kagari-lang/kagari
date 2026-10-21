@@ -115,11 +115,38 @@ requested destination. Fold consumes one cursor in source order and returns its
 initial accumulator on empty input. Native terminal consumption uses
 revision checks that reject stale reads after structural writes.
 
-String also supplies the finite inherent methods documented in
-[builtins](builtins.md). Predecessor APIs outside the accepted surface, including
-parse conveniences, enum combinators, snapshots, windows,
-grouping and set algebra, remain withdrawn. They are not compatibility
-requirements. New libraries may implement such APIs through ordinary registrations.
+String and the numeric scalars also supply finite inherent methods; see the
+[String surface](builtins.md#primitive-operations-and-formatting) and
+[numeric inventory](builtins.md#numeric-scalar-methods). Predecessor APIs
+outside the accepted surface, including parse conveniences, enum combinators,
+snapshots, windows, grouping and set algebra, remain withdrawn. They are not
+compatibility requirements. New libraries may implement such APIs through ordinary
+registrations.
+
+### Numeric declaration boundary
+
+Canonical `core::num` owns the installed integer-policy and width-matched float
+utility/math declarations. Each concrete receiver has its own checked method target,
+including exact argument and result types; static `f32::from_bits(u32)` and
+`f64::from_bits(u64)` are ordinary associated functions, not receiver methods or
+numeric casts. The [numeric inventory](builtins.md#numeric-scalar-methods) owns
+signatures and [value semantics](value-semantics.md#floating-point-utilities-and-math)
+owns exceptional values, power guards and precision.
+
+The same authored signatures, documentation and bindings feed generated source,
+checked native imports and source-free runtime installation. These are ordinary
+registered calls, not names recognized specially by compiler or VM loops. Integer
+checked results use the pinned standard `Option<T>`; overflowing results use
+`(T, bool)` with the normal managed-result/root handoff. Float scalar codecs retain
+the declared width and exact bit transport; this does not guarantee arithmetic NaN
+payloads. Invalid float clamp bounds produce `ScriptTrap` after normal argument
+admission, not a host panic; malformed native signatures/carriers still fail the
+usual validation boundary.
+
+No parallel free-function math namespace, compatibility aliases, associated-constant
+authoring path or native-call const evaluator is introduced. Existing constants,
+scalar const evaluation and backend admission remain unchanged; calling a registered
+numeric method is not evidence of JIT/native execution.
 
 ## Explicit registration
 

@@ -70,6 +70,68 @@ as application IO require explicitly installed host APIs. See the external
 <a href={source('docs/spec/standard-declarations.md')}>native library and installation contract</a>
 for that boundary.
 
+## Numeric policies and sampling
+
+Numeric methods are installed on the primitive types; no `math` import is needed.
+Choose the overflow policy where the algorithm needs it, rather than changing the
+meaning of ordinary `+`, `-` or `*`:
+
+- For a fixed-width state recurrence, `state.wrapping_add(increment)` and
+  `bits.wrapping_mul(multiplier)` explicitly compute modulo the receiver's width.
+  Ordinary arithmetic still traps on overflow in every build.
+- For a recoverable range failure, `left.checked_mul(right)` returns `Option`.
+  Match `Some(value)` or `None`; this does not suppress unrelated runtime failures.
+- `overflowing_add` returns a wrapped value and an arithmetic overflow flag;
+  `saturating_add` clamps to the type's range. Neither is an alias for checked `+`.
+- `bits.rotate_left(13u32)` uses a `u32` count modulo the receiver's bit width,
+  unlike a shift that traps for an out-of-width count. Unsigned
+  `wrapping_add_signed` instead takes the corresponding signed-width offset.
+
+Receiver and operands need their exact declared types. For example, a `u64`
+wrapping multiply needs a `u64` multiplier, not an implicitly widened `i32`.
+Methods evaluate receiver and arguments once, left to right.
+
+The companion <a href={source('examples/numeric-sampling.kgr')}>numeric sampling example</a>
+keeps vector/ray calculations and fixed-seed SplitMix64 state in Kagari rather
+than installing a native renderer or RNG. SplitMix64's explicit wrapping increment
+and multiply steps come from
+<a href="https://prng.di.unimi.it/splitmix64.c">Vigna's reference recurrence</a>
+(2015 source, consulted 2026-10-21); this is an example algorithm, not a public RNG
+API or a cryptographic guarantee. To obtain an `f64` sample in [0, 1), use the high
+53 bits scaled by 2^-53. Converting the entire `u64` and dividing by a rounded
+maximum can include 1. Keep sample counts bounded and use named, explicitly typed
+source-local literal constants; native associated constants are not available.
+
+### Separate exact bits from numerical answers
+
+`sqrt`, rounding, bounds, classification and a finite set of trigonometric,
+exponential, logarithmic and power methods are available at both float widths.
+`f32` operations stay `f32`. Angles are radians; `y.atan2(x)` takes y as receiver,
+while `value.powi(exponent)` takes an exact `i32` exponent even on `f64`.
+
+For a sphere intersection, a negative discriminant's `sqrt()` returns NaN rather
+than trapping. Check the domain before using the root in a hit calculation.
+`sqrt` is correctly rounded; extended math has unspecified precision, with no
+universal ULP bound, portable bit identity or bit-identical repeated approximate
+result guarantee. Check analytic numerical results with justified tolerances, not
+cross-platform bit snapshots. Power wrappers enforce unit cases even for signaling
+NaNs and preserve integer-exponent parity; they are not unconditionally identical
+to a direct host Rust power call.
+
+For exact representation work, `f32::from_bits(bits)` takes `u32` and
+`f64::from_bits(bits)` takes `u64`. An immediate `.to_bits()` round trip preserves
+every bit, including NaN payloads and zero signs. Later arithmetic or math need
+not preserve those payloads. `min` and `max` ignore one NaN and may choose either
+sign for equal opposite-signed zeros. `clamp` is not a min/max composition:
+NaN bounds or reversed bounds cause `ScriptTrap`, even if the receiver is NaN;
+valid bounds retain a NaN receiver.
+
+The <a href={source('docs/spec/builtins.md#numeric-scalar-methods')}>numeric inventory</a>
+owns the exact signatures, and
+<a href={source('docs/spec/value-semantics.md#floating-point-utilities-and-math')}>value semantics</a>
+owns edge cases and precision. These calls do not extend native-call const
+evaluation or JIT support. A public RNG and full ray tracer are not supplied.
+
 ## Find an API without guessing from Rust
 
 Rust-inspired names do not promise Rust's full standard library. Do not assume

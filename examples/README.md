@@ -32,6 +32,7 @@ The [error-stack example](error-stack.kgr) intentionally returns Err: running
 | Fixed-width bitwise operations and compound assignment | [bitwise.kgr](syntax/bitwise.kgr) | `42` |
 | Explicit casts and built-in numeric From/TryFrom | [numeric-conversions.kgr](syntax/numeric-conversions.kgr) | `42` |
 | 6502 address arithmetic, stack/zero-page wrap, branches and ADC/SBC flags | [6502-numeric.kgr](6502-numeric.kgr) | `42` |
+| Script Vec3/rays, analytic sphere hits/misses, normalization and local fixed-seed SplitMix64 sampling (64 samples) | [numeric-sampling.kgr](numeric-sampling.kgr) | `42`; public `sampling_checksum()` returns `0x396d503bb05c761a` |
 | Standard `PartialEq/Eq/Hash`, `Debug/Display`, generic bounds and structural/identity keys | [standard-traits.kgr](syntax/standard-traits.kgr) | `42` |
 | Custom/native iterators, associated Item and generic for loops | [iterators.kgr](syntax/iterators.kgr) | `42` |
 | Explicit and fallible conversion protocols, derived reverse calls | [conversions.kgr](syntax/conversions.kgr) | `42` |
