@@ -1,10 +1,12 @@
+use crate::module::state::tests::{add_static, program as static_program, ready};
+use crate::value::Value;
+use kagari_types::visibility::Visibility;
+use kagari_types::{scalar::BuiltinType, ty::Ty};
+
 use crate::resource::ResourceState;
 use crate::{Runtime, RuntimeConfig, error::RuntimeErrorKind, gc::GcHeap};
+use kagari_bytecode::instruction::{ConstantId, ConstantOperand};
 use kagari_bytecode::program::ModuleRef;
-use kagari_bytecode::{
-    instruction::{ConstantId, ConstantOperand},
-    module::BytecodeModuleSlot,
-};
 
 use super::*;
 
@@ -66,28 +68,16 @@ fn shared_verification_rejects_in_memory_resource_exhaustion() {
 #[test]
 fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
     let context = DefinitionContext::new().unwrap();
+    let mut program = static_program(Ty::Builtin(BuiltinType::I32), true)
+        .import_into(&context, &Default::default())
+        .unwrap()
+        .into_records();
+    program.modules[0].constants = vec![
+        ConstantOperand::Str("shared".into()),
+        ConstantOperand::Str("pool-only".into()),
+    ];
     let code = VerifiedProgram::new(
-        DefinitionMetadata::checked(
-            context.snapshot(),
-            BytecodeProgram {
-                exports: Default::default(),
-                root: ModuleRef::new(0),
-                modules: vec![BytecodeModule {
-                    constants: vec![
-                        ConstantOperand::Str("shared".into()),
-                        ConstantOperand::Str("pool-only".into()),
-                    ],
-                    module_slots: vec![BytecodeModuleSlot {
-                        name: "state".into(),
-                        ty: kagari_abi::representation::ValueType::I32,
-                        mutable: true,
-                    }],
-                    ..Default::default()
-                }],
-            },
-            &Default::default(),
-        )
-        .unwrap(),
+        DefinitionMetadata::checked(context.snapshot(), program, &Default::default()).unwrap(),
         &context,
     )
     .unwrap();
@@ -100,7 +90,17 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         .load_verified_program("shared", code)
         .unwrap();
 
-    assert!(Arc::ptr_eq(&first.bytecode, &second.bytecode));
+    // Scoped definition IDs are runtime-local; immutable executable preparation
+    // and the source revision remain shared across the identity adoption.
+    assert!(Arc::ptr_eq(
+        &first.program.code.execution,
+        &second.program.code.execution
+    ));
+    assert!(Arc::ptr_eq(
+        &first.program.code.version,
+        &second.program.code.version
+    ));
+    assert_ne!(first.definitions().id(), second.definitions().id());
     assert!(first_runtime.validate_loaded_module(&first).is_ok());
     assert!(second_runtime.validate_loaded_module(&second).is_ok());
     assert!(first_runtime.validate_loaded_module(&second).is_err());
@@ -129,27 +129,21 @@ fn verified_code_is_shared_but_runtime_linkage_and_instances_are_private() {
         };
         assert_eq!(&*runtime.gc().string(id).unwrap(), "shared");
     }
-    first_runtime
-        .modules()
-        .instance_mut(first.key())
-        .unwrap()
-        .module_slots[0] = Value::I32(7);
-    assert_eq!(
+    ready(&first_runtime, &first, 0, Value::I32(7));
+    assert!(matches!(
         first_runtime
-            .modules()
-            .instance_snapshot(first.key())
+            .module_instance_snapshot(&first)
             .unwrap()
-            .module_slots,
-        vec![Value::I32(7)]
-    );
-    assert_eq!(
+            .module_slots[0],
+        StaticState::Ready(Value::I32(7))
+    ));
+    assert!(matches!(
         second_runtime
-            .modules()
-            .instance_snapshot(second.key())
+            .module_instance_snapshot(&second)
             .unwrap()
-            .module_slots,
-        vec![Value::Unit]
-    );
+            .module_slots[0],
+        StaticState::Uninitialized(_)
+    ));
 
     let pool_only = first_runtime
         .read_constant(&first, ConstantId::new(1))
@@ -208,20 +202,26 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
     let context = DefinitionContext::new().unwrap();
     let store = ModuleStore::default();
     let stage = |epoch| {
-        let dependency = BytecodeModule {
-            module_slots: vec![BytecodeModuleSlot {
-                name: "state".into(),
-                ty: kagari_abi::representation::ValueType::I32,
-                mutable: true,
-            }],
-            ..Default::default()
-        };
-        let mut root = BytecodeModule {
-            module_slots: dependency.module_slots.clone(),
-            ..Default::default()
-        };
+        let mut dependency = BytecodeModule::default();
+        add_static(
+            &context,
+            &mut dependency,
+            "state",
+            Ty::Builtin(BuiltinType::I32),
+            true,
+            Visibility::Private,
+        );
+        let mut root = BytecodeModule::default();
         root.identity.path.push("root".into());
         root.dependencies.push(ModuleRef::new(0));
+        add_static(
+            &context,
+            &mut root,
+            "state",
+            Ty::Builtin(BuiltinType::I32),
+            true,
+            Visibility::Private,
+        );
         store
             .stage_verified_program(
                 "game.player",
@@ -254,7 +254,10 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
         .map(|m| m.key())
         .collect::<Vec<_>>();
     for member in candidate.module.members() {
-        store.instance_mut(member.key()).unwrap().module_slots[0] = Value::I32(73);
+        let mut inner = store.inner.borrow_mut();
+        let id = inner.resolve(&member).unwrap().bindings[0];
+        inner.cells.get_mut(&id).unwrap().state = StaticState::Ready(Value::I32(73));
+        drop(inner);
         assert!(store.is_program_root(member.key()));
     }
     assert_eq!(store.latest("game.player").unwrap().key(), baseline.key());
@@ -284,7 +287,10 @@ fn staged_programs_keep_instances_alive_without_activating_them() {
     assert_eq!(store.latest("game.player").unwrap().key(), published.key());
     for member in published.members() {
         let instance = store.instance_snapshot(member.key()).unwrap();
-        assert_eq!(instance.module_slots, vec![Value::I32(73)]);
+        assert!(matches!(
+            instance.module_slots.as_slice(),
+            [StaticState::Ready(Value::I32(73))]
+        ));
     }
     assert_eq!(collect(&store).len(), 2);
     assert_eq!(store.loaded_count(), 2);
@@ -451,7 +457,7 @@ fn snapshot_during_mutable_instance_borrow_does_not_panic() {
         .unwrap()
         .publish(&store)
         .unwrap();
-    let held = store.instance_mut(module.key()).unwrap();
+    let held = store.inner.borrow_mut();
     assert!(store.instance_snapshot(module.key()).is_none());
     drop(held);
     assert!(store.instance_snapshot(module.key()).is_some());

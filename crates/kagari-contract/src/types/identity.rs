@@ -50,7 +50,7 @@ pub fn collect(
             ),
             PublicItem::InterfaceTable(table) => (table.declaration, &table.methods),
             PublicItem::InherentTable(table) => (table.declaration, &table.methods),
-            PublicItem::Const(_) => continue,
+            PublicItem::Const(_) | PublicItem::Static(_) => continue,
         };
         for method in methods {
             cancel

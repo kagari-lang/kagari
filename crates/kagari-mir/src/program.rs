@@ -6,13 +6,14 @@ mod native;
 mod proofs;
 pub mod records;
 mod shared;
+
 use crate::{
     ids::InstanceId,
     instruction::{CallTarget, ConstructionTarget as MirConstruction, Instruction},
     program::{proofs::ProofResources, records::MirProgram},
     verify::{
         MirVerificationError, ValidatedMirModule, VerificationBudget, VerifiedMirModule, ownership,
-        verify_with_budget,
+        statics, verify_with_budget,
     },
 };
 use kagari_abi::representation::ValueType;
@@ -171,6 +172,9 @@ pub fn verify_program(
         if indices.insert(module.identity.clone(), index).is_some() {
             return Err(error(&module.identity, ProgramErrorKind::InvalidGraph));
         }
+    }
+    if !statics::valid(&inputs, &exports, &definitions, cancel) {
+        return Err(error(&root, ProgramErrorKind::InvalidGraph));
     }
     let mut budget = VerificationBudget::default();
     for (index, module) in inputs.into_iter().enumerate() {

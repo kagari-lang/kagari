@@ -1,12 +1,13 @@
 //! Runtime-local links and caches are owned with the installed module instance.
 use crate::{
     module::{
-        LoadedModule, ModuleInstance, ModuleKey, ModuleStore, ModuleStoreInner,
+        LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner,
         constants::ConstantPool,
         descriptors::LinkedDescriptors,
         layouts::{LayoutCache, ProgramLayoutCache},
         linked_execution::LinkedExecution,
         staging::CandidateLease,
+        state::cells::CellId,
     },
     native::binding::LinkedNativeFunction,
 };
@@ -19,7 +20,8 @@ use std::{
 #[derive(Debug)]
 pub(super) struct ModuleRecord {
     pub(super) module: LoadedModule,
-    pub(super) instance: ModuleInstance,
+    pub(super) bindings: Vec<CellId>,
+    pub(super) static_lineage: ModuleKey,
     pub(super) layouts: LayoutCache,
     pub(super) constants: Arc<ConstantPool>,
     pub(super) descriptors: LinkedDescriptors,
@@ -31,7 +33,8 @@ pub(super) struct ModuleRecord {
 impl ModuleRecord {
     pub(super) fn new(module: LoadedModule, native: Vec<Arc<LinkedNativeFunction>>) -> Self {
         Self {
-            instance: ModuleInstance::new(&module),
+            bindings: Vec::new(),
+            static_lineage: module.program_key(),
             constants: Arc::new(ConstantPool::new(module.bytecode.constants.len())),
             layouts: LayoutCache::default(),
             program_layouts: None,

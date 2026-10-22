@@ -1,11 +1,8 @@
-use kagari_common::identity::metadata::DefinitionMetadata;
 mod construction;
 use crate::tests::native_boundary::{
     compile_program, native_boundary_functions::fixture, publish_unused_version,
 };
 use crate::vm::Vm;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
 use kagari_runtime::{
     Runtime,
     error::RuntimeErrorKind,
@@ -206,7 +203,7 @@ fn custom_hash_handles_use_selected_calls_with_gc_reentry_and_trap_cleanup() {
 }
 
 #[test]
-fn stored_key_protocol_keeps_old_code_and_collects_its_module_cycle() {
+fn stored_key_protocol_keeps_old_code_until_last_value_root() {
     let source = |version| {
         format!(
             r#"
@@ -227,33 +224,16 @@ fn stored_key_protocol_keeps_old_code_and_collects_its_module_cycle() {
     "#
         )
     };
-    let code = |version| {
-        let (definitions, mut program) = compile_program(&source(version), None).into_parts();
-        program.modules[program.root.index()]
-            .module_slots
-            .push(BytecodeModuleSlot {
-                name: "saved".into(),
-                ty: ValueType::HeapObject,
-                mutable: true,
-            });
-        DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap()
-    };
+    let code = |version| compile_program(&source(version), None);
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     let old = runtime.load_program("hash-cycle", code(1)).unwrap();
     let vm = Vm::new(runtime);
     let result = vm.execute(&old, "make").unwrap().return_value;
     let value = result.value(vm.runtime().gc()).unwrap();
-    let Value::Tuple(items) = &value else {
+    let Value::Tuple(_) = &value else {
         panic!("tuple");
     };
-    vm.runtime()
-        .write_module_slot(
-            &old,
-            ModuleSlot::new(0),
-            vm.runtime().gc().tuple(*items).unwrap()[0],
-        )
-        .unwrap();
     let new = vm.reload_program(&old, "hash-cycle", code(100)).unwrap();
     let collected = vm.runtime().collect_garbage().unwrap();
     assert!(!collected.reclaimed_modules.contains(&old.key()));

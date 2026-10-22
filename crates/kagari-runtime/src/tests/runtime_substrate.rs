@@ -248,7 +248,8 @@ fn module_epochs_have_independent_runtime_instances() {
     let first_instance = runtime.module_instance_snapshot(&first).unwrap();
     let second_instance = runtime.module_instance_snapshot(&second).unwrap();
     assert_ne!(first_instance.epoch, second_instance.epoch);
-    assert_eq!(first_instance.module_slots, second_instance.module_slots);
+    assert!(first_instance.module_slots.is_empty());
+    assert!(second_instance.module_slots.is_empty());
 }
 
 #[test]

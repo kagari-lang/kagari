@@ -198,9 +198,20 @@ fn validate_reload_contracts<'a>(
             .get(&module.identity)
             .ok_or(ReloadValidationError::PublicAbiFingerprintMismatch)?;
         let previous_bytecode = previous.bytecode.as_ref();
-        if public_abi_fingerprints_for_module(previous_bytecode, previous.definitions())
-            .map_err(identity_error)?
-            != public_abi_fingerprints_for_module(module, definitions).map_err(identity_error)?
+        let old_abi = public_abi_fingerprints_for_module(previous_bytecode, previous.definitions())
+            .map_err(identity_error)?;
+        let new_abi =
+            public_abi_fingerprints_for_module(module, definitions).map_err(identity_error)?;
+        if old_abi
+            .iter()
+            .filter(|item| !item.name.starts_with("static:"))
+            .ne(new_abi
+                .iter()
+                .filter(|item| !item.name.starts_with("static:")))
+            || old_abi
+                .iter()
+                .filter(|item| item.name.starts_with("static:"))
+                .any(|item| !new_abi.contains(item))
         {
             return Err(ReloadValidationError::PublicAbiFingerprintMismatch);
         }

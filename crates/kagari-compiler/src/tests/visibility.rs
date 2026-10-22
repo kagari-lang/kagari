@@ -1,12 +1,21 @@
 use crate::{bytecode::lower_program_to_bytecode, tests::common};
 use kagari_bytecode::{artifact::KbcArtifact, program::verify_program};
-use kagari_common::identity::map::DefinitionContext;
-use kagari_contract::types::PublicItem;
+use kagari_common::identity::{DefinitionKind, map::DefinitionContext};
+use kagari_contract::{
+    statics::{StaticContract, StaticDescriptor},
+    types::{PublicItem, TraitContract},
+};
 use kagari_mir::{
     codec::{decode_program, encode_program},
     program::verify_program as verify_mir_program,
 };
-use kagari_types::{scalar::BuiltinType, ty::Ty, visibility::Visibility};
+use kagari_types::{
+    callable::CallableImplementation,
+    declaration::{FnDecl, TraitDef},
+    scalar::BuiltinType,
+    ty::Ty,
+    visibility::Visibility,
+};
 
 const SOURCE: &str = r#"
 pub struct Player {
@@ -211,6 +220,248 @@ fn inherent_declaration_receiver_and_executable_signature_are_checked() {
         .unwrap();
     table.methods[0].return_type = Ty::Builtin(BuiltinType::Bool);
     assert!(verify_mir_program(modules, &context, &Default::default()).is_err());
+}
+
+#[test]
+fn initializer_cannot_alias_inherent_export_without_call_sites() {
+    reject_callable_initializer(false);
+}
+
+#[test]
+fn initializer_cannot_alias_trait_default_without_call_sites() {
+    reject_callable_initializer(true);
+}
+
+#[test]
+fn initializer_privacy_uses_declaration_identity_not_diagnostic_name() {
+    let context = DefinitionContext::new().unwrap();
+    let mir = common::mir_ok("pub fn make() -> i32 { 42 }");
+    let root = mir.root().clone();
+    let mut bytecode = common::adopt_bytecode(
+        &context,
+        lower_program_to_bytecode(&mir, &Default::default())
+            .unwrap()
+            .into_unverified(),
+    );
+    let mut records = common::adopt(&context, mir.into_unverified());
+    records.exports = Default::default();
+    bytecode.exports = Default::default();
+    let module = records
+        .modules
+        .iter_mut()
+        .find(|module| module.identity == root)
+        .unwrap();
+    let initializer = module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "make")
+        .unwrap();
+    let initializer_id = initializer.id;
+    initializer.name = "hidden_diagnostic_name".into();
+    let module = &mut bytecode.modules[bytecode.root.index()];
+    let initializer = module
+        .functions
+        .iter_mut()
+        .find(|function| function.name == "make")
+        .unwrap();
+    let bytecode_initializer_id = initializer.id;
+    initializer.name = "hidden_diagnostic_name".into();
+    module.function_table[bytecode_initializer_id.index()].name = initializer.name.clone();
+    // Diagnostic labels and export paths cannot determine ABI callable authority.
+    verify_mir_program(records.clone(), &context, &Default::default()).unwrap();
+    verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
+    let contract = StaticContract {
+        declaration: context
+            .intern_child(
+                context.intern_root(&root).unwrap(),
+                DefinitionKind::Static,
+                "state",
+                0,
+            )
+            .unwrap(),
+        supplier: root.clone(),
+        name: "state".into(),
+        ty: Ty::Builtin(BuiltinType::I32),
+        mutable: false,
+        visibility: Visibility::Private,
+    };
+    records
+        .modules
+        .iter_mut()
+        .find(|module| module.identity == root)
+        .unwrap()
+        .module_slots
+        .push(StaticDescriptor {
+            contract: contract.clone(),
+            initializer: initializer_id,
+        });
+    bytecode.modules[bytecode.root.index()]
+        .module_slots
+        .push(StaticDescriptor {
+            contract,
+            initializer: bytecode_initializer_id,
+        });
+    let mir_rejected = verify_mir_program(records, &context, &Default::default()).is_err();
+    let bytecode_rejected =
+        verify_program(&bytecode, &context.snapshot(), &Default::default()).is_err();
+    assert!(
+        mir_rejected && bytecode_rejected,
+        "public declaration accepted as initializer: MIR rejected={mir_rejected}, bytecode rejected={bytecode_rejected}"
+    );
+}
+
+fn reject_callable_initializer(trait_default: bool) {
+    let context = DefinitionContext::new().unwrap();
+    let mir = common::mir_ok("pub struct Widget {} impl Widget { pub fn make() -> i32 { 42 } }");
+    let root = mir.root().clone();
+    let mut bytecode = common::adopt_bytecode(
+        &context,
+        lower_program_to_bytecode(&mir, &Default::default())
+            .unwrap()
+            .into_unverified(),
+    );
+    let mut records = common::adopt(&context, mir.into_unverified());
+    if trait_default {
+        let module = records
+            .modules
+            .iter_mut()
+            .find(|module| module.identity == root)
+            .unwrap();
+        let root_id = context.intern_root(&root).unwrap();
+        let declaration = context
+            .intern_child(root_id, DefinitionKind::Trait, "Factory", 0)
+            .unwrap();
+        let method = context
+            .intern_child(declaration, DefinitionKind::Method, "make", 0)
+            .unwrap();
+        let contract = TraitContract {
+            declaration,
+            abi: TraitDef {
+                name: "Factory".into(),
+                generic_params: vec![],
+                bounds: vec![],
+                supertraits: vec![],
+                associated_consts: vec![],
+                associated_types: vec![],
+                conversion_adapter: None,
+                methods: vec![FnDecl {
+                    name: "make".into(),
+                    implementation: CallableImplementation::Script,
+                    host_policy: None,
+                    method_policy: Default::default(),
+                    generic_params: vec![],
+                    bounds: vec![],
+                    params: vec![],
+                    return_type: Ty::Builtin(BuiltinType::I32),
+                }],
+            },
+        };
+        module
+            .abi
+            .public_items
+            .retain(|item| !matches!(item, PublicItem::InherentTable(_)));
+        module.abi.trait_contracts.push(contract.clone());
+        let function = module
+            .functions
+            .iter_mut()
+            .find(|function| {
+                context
+                    .snapshot()
+                    .resolve(function.instance.declaration)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.kind == DefinitionKind::Method && part.name == "make")
+            })
+            .unwrap();
+        function.instance.declaration = method;
+        let module = &mut bytecode.modules[bytecode.root.index()];
+        module
+            .public_items
+            .retain(|item| !matches!(item, PublicItem::InherentTable(_)));
+        module.trait_contracts.push(contract);
+        let function = module
+            .functions
+            .iter_mut()
+            .find(|function| {
+                function.identity.as_ref().is_some_and(|identity| {
+                    context
+                        .snapshot()
+                        .resolve(identity.declaration)
+                        .unwrap()
+                        .last()
+                        .is_some_and(|part| {
+                            part.kind == DefinitionKind::Method && part.name == "make"
+                        })
+                })
+            })
+            .unwrap();
+        function.identity.as_mut().unwrap().declaration = method;
+        module.function_table[function.id.index()].identity = function.identity.clone();
+    }
+    // Both ordinary callable forms are valid before assigning initializer authority.
+    verify_mir_program(records.clone(), &context, &Default::default()).unwrap();
+    verify_program(&bytecode, &context.snapshot(), &Default::default()).unwrap();
+    let module = records
+        .modules
+        .iter_mut()
+        .find(|module| module.identity == root)
+        .unwrap();
+    let target = module
+        .functions
+        .iter()
+        .find(|function| {
+            context
+                .snapshot()
+                .resolve(function.instance.declaration)
+                .unwrap()
+                .last()
+                .is_some_and(|part| part.kind == DefinitionKind::Method && part.name == "make")
+        })
+        .unwrap();
+    let initializer = target.id;
+    assert!(target.params.is_empty());
+    let root_id = context.intern_root(&module.identity).unwrap();
+    let contract = StaticContract {
+        declaration: context
+            .intern_child(root_id, DefinitionKind::Static, "state", 0)
+            .unwrap(),
+        supplier: module.identity.clone(),
+        name: "state".into(),
+        ty: Ty::Builtin(BuiltinType::I32),
+        mutable: false,
+        visibility: Visibility::Private,
+    };
+    module.module_slots.push(StaticDescriptor {
+        contract: contract.clone(),
+        initializer,
+    });
+    let module = &mut bytecode.modules[bytecode.root.index()];
+    let initializer = module
+        .functions
+        .iter()
+        .find(|function| {
+            function.identity.as_ref().is_some_and(|identity| {
+                context
+                    .snapshot()
+                    .resolve(identity.declaration)
+                    .unwrap()
+                    .last()
+                    .is_some_and(|part| part.kind == DefinitionKind::Method && part.name == "make")
+            })
+        })
+        .unwrap()
+        .id;
+    module.module_slots.push(StaticDescriptor {
+        contract,
+        initializer,
+    });
+    let mir_rejected = verify_mir_program(records, &context, &Default::default()).is_err();
+    let bytecode_rejected =
+        verify_program(&bytecode, &context.snapshot(), &Default::default()).is_err();
+    assert!(
+        mir_rejected && bytecode_rejected,
+        "ordinary callable accepted as initializer: MIR rejected={mir_rejected}, bytecode rejected={bytecode_rejected}"
+    );
 }
 
 #[test]

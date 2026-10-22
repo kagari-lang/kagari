@@ -127,9 +127,11 @@ impl References {
                     writeln!(
                         writer,
                         "  @{owner}:slot#{slot} name={} physical={} mutable={}",
-                        quoted(&record.name),
-                        physical(record.ty),
-                        record.mutable
+                        quoted(&record.contract.name),
+                        physical(kagari_contract::representation::semantic_representation(
+                            &record.contract.ty
+                        )),
+                        record.contract.mutable
                     )?;
                 }
             }

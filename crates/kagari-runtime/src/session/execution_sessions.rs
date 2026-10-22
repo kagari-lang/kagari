@@ -11,10 +11,9 @@ use crate::{
     session::{DeterministicInputs, ExecutionPhase},
     value::Value,
 };
-use kagari_abi::representation::ValueType;
 use kagari_bytecode::{
     instruction::ModuleSlot,
-    module::{BytecodeModule, BytecodeModuleSlot},
+    module::BytecodeModule,
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::cancellation::CancellationToken;
@@ -41,11 +40,6 @@ fn load(runtime: &mut Runtime, name: &str) -> LoadedModule {
                     exports: Default::default(),
                     root: ModuleRef::new(0),
                     modules: vec![BytecodeModule {
-                        module_slots: vec![BytecodeModuleSlot {
-                            name: "state".into(),
-                            ty: ValueType::HeapObject,
-                            mutable: true,
-                        }],
                         ..Default::default()
                     }],
                 },
@@ -488,7 +482,7 @@ fn candidate_host_results_reject_nested_old_objects_but_accept_candidate_allocat
 }
 
 #[test]
-fn candidate_module_state_access_is_limited_to_its_program() {
+fn candidate_module_state_access_is_denied_for_every_program() {
     let mut runtime = Runtime::default();
     let old = load(&mut runtime, "main");
     let other = load(&mut runtime, "other");
@@ -509,7 +503,7 @@ fn candidate_module_state_access_is_limited_to_its_program() {
         })
         .unwrap();
     let session = runtime.begin_candidate_initialization(&candidate).unwrap();
-    for external in [&old, &other] {
+    for external in [&old, &other, candidate.module()] {
         assert!(runtime.module_instance_snapshot(external).is_none());
         assert_eq!(
             runtime
@@ -519,20 +513,13 @@ fn candidate_module_state_access_is_limited_to_its_program() {
             RuntimeErrorKind::ExecutionPhaseViolation
         );
     }
-    assert!(
-        runtime
-            .module_instance_snapshot(candidate.module())
-            .is_some()
-    );
     let empty = runtime.gc().alloc_tuple(vec![]).unwrap();
-    runtime
-        .write_module_slot(candidate.module(), ModuleSlot::new(0), empty)
-        .unwrap();
     assert_eq!(
         runtime
-            .read_module_slot(candidate.module(), ModuleSlot::new(0))
-            .unwrap(),
-        empty
+            .write_module_slot(candidate.module(), ModuleSlot::new(0), empty)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ExecutionPhaseViolation
     );
     assert!(!runtime.is_quarantined());
     drop(session);
@@ -544,89 +531,48 @@ fn candidate_module_state_access_is_limited_to_its_program() {
 }
 
 #[test]
-fn publication_rechecks_objects_after_the_initialization_session_ends() {
+fn candidate_cannot_publish_static_values_between_initialization_and_publication() {
     let mut runtime = Runtime::default();
     let baseline = load(&mut runtime, "main");
-    let old_object = runtime
-        .alloc_array(
+    let (definitions, module) = baseline
+        .to_unverified(&Default::default())
+        .unwrap()
+        .into_parts();
+    let candidate = runtime
+        .stage_reload_program(
             &baseline,
-            Ty::Builtin(BuiltinType::I32),
-            vec![Value::I32(7)],
+            "main",
+            DefinitionMetadata::checked(
+                definitions,
+                BytecodeProgram {
+                    exports: Default::default(),
+                    root: ModuleRef::new(0),
+                    modules: vec![module],
+                },
+                &Default::default(),
+            )
+            .unwrap(),
         )
         .unwrap();
-    for inject_external in [true, false] {
-        let candidate = runtime
-            .stage_reload_program(&baseline, "main", {
-                let (definitions, module) = baseline
-                    .to_unverified(&Default::default())
-                    .unwrap()
-                    .into_parts();
-                DefinitionMetadata::checked(
-                    definitions,
-                    BytecodeProgram {
-                        exports: Default::default(),
-                        root: ModuleRef::new(0),
-                        modules: vec![module],
-                    },
-                    &Default::default(),
-                )
-                .unwrap()
-            })
-            .unwrap();
-        let session = runtime.begin_candidate_initialization(&candidate).unwrap();
-        let inner = runtime
-            .alloc_array(
-                candidate.module(),
-                Ty::Builtin(BuiltinType::I32),
-                vec![Value::I32(42)],
-            )
-            .unwrap();
-        let local = runtime
-            .alloc_array(
-                candidate.module(),
-                Ty::Array(Box::new(Ty::Builtin(BuiltinType::I32))),
-                vec![Value::Array(inner)],
-            )
-            .unwrap();
+    let session = runtime.begin_candidate_initialization(&candidate).unwrap();
+    let local = runtime.gc().alloc_tuple(vec![]).unwrap();
+    drop(session);
+    assert_eq!(
         runtime
-            .write_module_slot(candidate.module(), ModuleSlot::new(0), Value::Array(local))
-            .unwrap();
-        drop(session);
-        if inject_external {
-            // A low-level driver can still mutate candidate state between phases.
-            runtime
-                .gc()
-                .array_set(local, 0, Value::Array(old_object))
-                .unwrap();
-            let error = runtime.publish_staged_reload(candidate).unwrap_err();
-            assert!(
-                matches!(error, ReloadValidationError::Runtime(error) if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation)
-            );
-            assert_eq!(
-                runtime.modules().latest("main").unwrap().key(),
-                baseline.key()
-            );
-            assert_eq!(runtime.modules().loaded_count(), 1);
-        } else {
-            let current = runtime.publish_staged_reload(candidate).unwrap();
-            assert_eq!(
-                runtime
-                    .module_instance_snapshot(&current)
-                    .unwrap()
-                    .module_slots,
-                vec![Value::Array(local)]
-            );
-            runtime.collect_garbage().unwrap();
-            assert_eq!(
-                runtime.gc().array_snapshot(local).unwrap(),
-                vec![Value::Array(inner)]
-            );
-            assert_eq!(
-                runtime.gc().array_snapshot(inner).unwrap(),
-                vec![Value::I32(42)]
-            );
-        }
-    }
+            .write_module_slot(candidate.module(), ModuleSlot::new(0), local)
+            .unwrap_err()
+            .kind(),
+        RuntimeErrorKind::ExecutionPhaseViolation
+    );
+    let current = runtime.publish_staged_reload(candidate).unwrap();
+    assert!(
+        runtime
+            .module_instance_snapshot(&current)
+            .unwrap()
+            .module_slots
+            .is_empty()
+    );
+    assert!(!runtime.is_quarantined());
 }
 
 #[test]

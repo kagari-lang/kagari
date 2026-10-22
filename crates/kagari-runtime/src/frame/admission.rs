@@ -28,6 +28,14 @@ impl ExecutionStack<'_> {
     ) -> Result<ExecutionAction, RuntimeError> {
         #[cfg(feature = "execution-diagnostics")]
         diagnostics::record(Event::CallAdmission);
+        runtime.admit_static_execution(&loaded)?;
+        if let CallableTarget::Script(function) = target
+            && loaded.is_static_initializer(function)
+        {
+            return Err(RuntimeError::module_validation(
+                "static initializer requires runtime-owned transition authority",
+            ));
+        }
         let heap = runtime.gc();
         let resources = runtime.resources();
         let mut heap_arguments_valid = true;

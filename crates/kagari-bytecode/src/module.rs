@@ -11,6 +11,7 @@ use kagari_common::{
     },
     span::Span,
 };
+
 use kagari_contract::{
     callable::generic::GenericBody,
     effects::EffectSet,
@@ -19,6 +20,7 @@ use kagari_contract::{
     native_import::NativeImport,
     representation::semantic_representation,
     slots::{self as semantic_slots, FunctionTypeFacts},
+    statics::StaticDescriptor,
     types::{ConcreteFunctionIdentity, PublicItem, TraitContract},
 };
 use kagari_types::{
@@ -52,13 +54,6 @@ pub struct BytecodeModule {
     pub trait_references: Vec<TraitContract>,
     pub trait_contracts: Vec<TraitContract>,
     pub functions: BytecodeFunctionBuffer,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BytecodeModuleSlot {
-    pub name: String,
-    pub ty: ValueType,
-    pub mutable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -341,7 +336,7 @@ pub type BytecodeFunctionBuffer = Vec<BytecodeFunction>;
 
 pub type BytecodeInstructionBuffer = Vec<BytecodeInstruction>;
 
-pub type BytecodeModuleSlotBuffer = Vec<BytecodeModuleSlot>;
+pub type BytecodeModuleSlotBuffer = Vec<StaticDescriptor<FunctionRef>>;
 
 pub type ConstantPool = Vec<ConstantOperand>;
 

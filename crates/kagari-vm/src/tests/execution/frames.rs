@@ -458,17 +458,19 @@ fn main() -> Point {
 }
 
 #[test]
-fn module_slot_driver_and_checked_host_writes_share_storage() {
+fn lazy_static_driver_is_rejected_before_entry_and_stores_cannot_initialize() {
     let mut runtime = standard_runtime(Default::default());
+    let context = DefinitionContext::new().unwrap();
+    let module = module_with_mutable_slot(&context, 7);
     let loaded = runtime
         .load_program(
             "module-slot-writes",
             DefinitionMetadata::checked(
-                DefinitionContext::new().unwrap().snapshot(),
+                context.snapshot(),
                 BytecodeProgram {
                     exports: Default::default(),
                     root: ModuleRef::new(0),
-                    modules: vec![module_with_mutable_slot(7)],
+                    modules: vec![module],
                 },
                 &Default::default(),
             )
@@ -476,39 +478,21 @@ fn module_slot_driver_and_checked_host_writes_share_storage() {
         )
         .unwrap();
     let vm = Vm::new(runtime);
-    vm.execute_fixture(&loaded, FunctionRef::new(0)).unwrap();
-    assert_eq!(
-        vm.execute_fixture(&loaded, FunctionRef::new(1))
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(7)
-    );
-    let slot = ModuleSlot::new(0);
+    for function in [0, 1] {
+        assert!(
+            vm.execute_fixture(&loaded, FunctionRef::new(function))
+                .is_err()
+        );
+    }
     assert!(
         vm.runtime()
-            .write_module_slot(&loaded, slot, Value::Bool(true))
+            .write_module_slot(&loaded, ModuleSlot::new(0), Value::I32(9))
             .is_err()
     );
-    assert_eq!(
-        vm.execute_fixture(&loaded, FunctionRef::new(1))
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(7)
-    );
-    vm.runtime()
-        .write_module_slot(&loaded, slot, Value::I32(9))
-        .unwrap();
-    assert_eq!(
-        vm.execute_fixture(&loaded, FunctionRef::new(1))
-            .unwrap()
-            .return_value
-            .value(vm.runtime().gc())
-            .expect("retained execution result"),
-        Value::I32(9)
+    assert!(
+        vm.runtime()
+            .read_module_slot(&loaded, ModuleSlot::new(0))
+            .is_err()
     );
     assert!(!vm.runtime().is_quarantined());
     assert!(vm.runtime().execution_root().is_none());

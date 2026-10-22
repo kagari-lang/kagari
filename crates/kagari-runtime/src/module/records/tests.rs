@@ -757,7 +757,7 @@ fn link_lookup_checks_runtime_version_bounds_and_store_borrows() {
             .native_binding(&owner, NativeImportId::new(usize::MAX))
             .is_none()
     );
-    let view = runtime.modules.instance_mut(loaded.key()).unwrap();
+    let view = runtime.modules.inner.borrow_mut();
     assert!(
         runtime
             .modules

@@ -201,7 +201,7 @@ mod tests {
         let lease = runtime
             .retain_module(&module, ModuleEpochRetention::ActiveCall)
             .unwrap();
-        let instance = runtime.modules.instance_mut(module.key()).unwrap();
+        let instance = runtime.modules.inner.borrow_mut();
         drop(lease);
         drop(instance);
         assert_eq!(

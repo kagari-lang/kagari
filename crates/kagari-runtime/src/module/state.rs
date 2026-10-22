@@ -1,54 +1,130 @@
-//! Checked module-state access and the storage boundary for slot replacement.
+//! Ready-only access to installation-owned persistent cells.
+pub(super) mod cells;
+mod compatibility;
+
 use crate::{
     Runtime,
     error::RuntimeError,
     module::{LoadedModule, ModuleInstance, ModuleStore},
     value::Value,
 };
-use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
-use std::{mem, slice};
+use kagari_bytecode::instruction::ModuleSlot;
+use kagari_common::span::Span;
+use kagari_contract::ids::FunctionRef;
+use std::{fmt, slice};
+
+/// A fixed introducing-generation recipe. A copy grants no initialization authority.
+#[derive(Debug, Clone)]
+pub struct StaticRecipe {
+    pub module: LoadedModule,
+    pub function: FunctionRef,
+}
+
+/// Detached diagnostic state. Only runtime-owned transitions can change a cell.
+#[derive(Debug, Clone)]
+pub enum StaticState {
+    Uninitialized(StaticRecipe),
+    Initializing(StaticRecipe),
+    Ready(Value),
+    /// Bounded, owned diagnostic text; no frame, execution session or borrow is retained.
+    Failed(StaticFailure),
+}
+
+/// Bounded diagnostic data, independent of frames, sessions and executable ownership.
+#[derive(Debug, Clone)]
+pub struct StaticFailure {
+    cause: String,
+    origin: Option<Span>,
+}
+
+impl StaticFailure {
+    /// Retain at most 1024 UTF-8 bytes of the cause and an optional initializer span.
+    /// Constructing a diagnostic does not grant access to a cell or its transitions.
+    pub fn new(cause: &str, origin: Option<Span>) -> Self {
+        let mut end = cause.len().min(1024);
+        while !cause.is_char_boundary(end) {
+            end -= 1;
+        }
+        Self {
+            cause: cause[..end].to_owned(),
+            origin,
+        }
+    }
+
+    pub fn cause(&self) -> &str {
+        &self.cause
+    }
+
+    pub fn origin(&self) -> Option<Span> {
+        self.origin
+    }
+}
+
+impl fmt::Display for StaticFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.cause)
+    }
+}
 
 impl Runtime {
     fn validate_module_state_access(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
         self.gc.ensure_execution_allowed()?;
         self.validate_loaded_module(module)?;
-        if !self.allows_instance_access(module.key()) {
+        if self.is_candidate_initialization() || self.modules.is_staged(module) {
             return Err(RuntimeError::execution_phase_violation(
-                "candidate cannot access external module state",
+                "candidate cannot access static state",
             ));
         }
         Ok(())
     }
 
-    /// A detached diagnostic copy. Editing it never changes installed state.
+    /// Inspect without forcing initialization. Editing the copy cannot change state.
     pub fn module_instance_snapshot(&self, module: &LoadedModule) -> Option<ModuleInstance> {
         self.validate_module_state_access(module).ok()?;
         self.modules.instance_snapshot(module.key())
     }
 
-    /// Read a checked execution slot. Drivers must root the result across safepoints.
+    /// Read an already initialized cell; never executes its recipe.
+    /// Drivers must root the result across safepoints.
     pub fn read_module_slot(
         &self,
         module: &LoadedModule,
         slot: ModuleSlot,
     ) -> Result<Value, RuntimeError> {
         self.validate_module_state_access(module)?;
-        let declaration = slot_declaration(module, slot)?;
-        let value = self.modules.read_slot(module, slot).ok_or_else(|| {
+        let contract = module
+            .bytecode
+            .module_slots
+            .get(slot.index())
+            .ok_or_else(|| RuntimeError::module_validation("static binding index out of bounds"))?;
+        let state = self.modules.static_state(module, slot).ok_or_else(|| {
             self.resources()
-                .quarantine("loaded module slot disappeared")
+                .quarantine("loaded static binding disappeared")
         })?;
-        if !value.has_representation(declaration.ty)
-            || !value.is_storable(&self.gc)
-            || !self.gc.validate_value(&value)
-        {
-            return Err(self.resources().quarantine("invalid value in module slot"));
+        match state {
+            StaticState::Ready(value) => {
+                self.validate_heap_payloads(slice::from_ref(&value))?;
+                if !self.matches_type_in(&value, &contract.contract.ty, module, None) {
+                    return Err(self
+                        .resources()
+                        .quarantine("invalid semantic value in static cell"));
+                }
+                Ok(value)
+            }
+            StaticState::Uninitialized(_) => Err(RuntimeError::module_validation(
+                "static initialization requires an execution transition",
+            )),
+            StaticState::Initializing(_) => Err(RuntimeError::module_validation(
+                "recursive static initialization",
+            )),
+            StaticState::Failed(cause) => Err(RuntimeError::module_validation(format!(
+                "static initialization failed: {cause}"
+            ))),
         }
-        Ok(value)
     }
 
-    /// Validate before replacing an edge in installed module storage.
-    /// No collection or user callback runs between validation and publication.
+    /// Replace a ready mutable cell after complete semantic and owner admission.
+    /// This is not an initialization API, including for mutable declarations.
     pub fn write_module_slot(
         &self,
         module: &LoadedModule,
@@ -56,64 +132,65 @@ impl Runtime {
         value: Value,
     ) -> Result<(), RuntimeError> {
         self.validate_module_state_access(module)?;
-        let declaration = slot_declaration(module, slot)?;
-        if !declaration.mutable {
-            return Err(RuntimeError::module_validation("immutable module slot"));
+        let descriptor = module
+            .bytecode
+            .module_slots
+            .get(slot.index())
+            .ok_or_else(|| RuntimeError::module_validation("static binding index out of bounds"))?;
+        if !descriptor.contract.mutable {
+            return Err(RuntimeError::module_validation("immutable static binding"));
         }
-        if !value.has_representation(declaration.ty) {
-            return Err(RuntimeError::module_validation(
-                "module slot representation mismatch",
-            ));
-        }
+        self.read_module_slot(module, slot)?;
         self.validate_heap_payloads(slice::from_ref(&value))?;
-        if self.modules.is_staged(module)
-            && !self
-                .gc
-                .validate_candidate_value_for(module.program_root().key(), &value)
-        {
-            return Err(RuntimeError::execution_phase_violation(
-                "external object in candidate module state",
+        if !self.matches_type_in(&value, &descriptor.contract.ty, module, None) {
+            return Err(RuntimeError::module_validation(
+                "static semantic type mismatch",
             ));
         }
-        // Publish the new edge only after all checks. The collector owns reclamation.
         self.modules
-            .replace_slot(module, slot, value)
+            .replace_static(module, slot, value)
             .ok_or_else(|| {
                 self.resources()
-                    .quarantine("loaded module slot disappeared")
+                    .quarantine("loaded static binding disappeared")
             })?;
+        Ok(())
+    }
+
+    /// Temporary PS02 admission boundary. No script effects may precede an
+    /// unsupported lazy transition, including indirect calls and host reentry.
+    pub(crate) fn admit_static_execution(&self, module: &LoadedModule) -> Result<(), RuntimeError> {
+        if self.is_candidate_initialization() {
+            return Ok(());
+        }
+        if module.requires_static_execution() {
+            return Err(RuntimeError::module_validation(
+                "lazy static execution is not supported by this execution driver",
+            ));
+        }
         Ok(())
     }
 }
 
-fn slot_declaration(
-    module: &LoadedModule,
-    slot: ModuleSlot,
-) -> Result<&BytecodeModuleSlot, RuntimeError> {
-    module
-        .bytecode
-        .module_slots
-        .get(slot.index())
-        .ok_or_else(|| RuntimeError::module_validation("module slot index out of bounds"))
-}
-
 impl ModuleStore {
-    fn read_slot(&self, module: &LoadedModule, slot: ModuleSlot) -> Option<Value> {
-        let records = self.inner.try_borrow().ok()?;
-        records
-            .resolve(module)?
-            .instance
-            .module_slots
-            .get(slot.index())
-            .cloned()
+    fn static_state(&self, module: &LoadedModule, slot: ModuleSlot) -> Option<StaticState> {
+        let store = self.inner.try_borrow().ok()?;
+        let record = store.resolve(module)?;
+        Some(store.bound_cell(record, slot.index())?.state.clone())
     }
 
-    fn replace_slot(&self, module: &LoadedModule, slot: ModuleSlot, value: Value) -> Option<Value> {
-        let mut records = self.inner.try_borrow_mut().ok()?;
-        let slots = &mut records.resolve_mut(module)?.instance.module_slots;
-        Some(mem::replace(slots.get_mut(slot.index())?, value))
+    fn replace_static(&self, module: &LoadedModule, slot: ModuleSlot, value: Value) -> Option<()> {
+        let mut store = self.inner.try_borrow_mut().ok()?;
+        let record = store.resolve(module)?;
+        store.bound_cell(record, slot.index())?;
+        let id = *record.bindings.get(slot.index())?;
+        let cell = store.cells.get_mut(&id)?;
+        if !matches!(cell.state, StaticState::Ready(_)) {
+            return None;
+        }
+        cell.state = StaticState::Ready(value);
+        Some(())
     }
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

@@ -12,7 +12,7 @@ use crate::{
         ModuleSlot, NativeImportId, PathId, Slot, StructId,
     },
     module::{
-        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, CallableTarget, InterfaceMethodSlot,
+        BytecodeFunction, BytecodeModule, CallableTarget, InterfaceMethodSlot,
         InterfaceParentRecord, InterfaceResultAdapter, InterfaceTableRecord, InterfaceViewRecord,
         PathRecord,
     },
@@ -33,6 +33,7 @@ use kagari_contract::{
         callables::{NativeCallableApplication, NativeCallableOrigin},
         result::NativeResultAdapter,
     },
+    statics::{StaticContract, StaticDescriptor},
     types::{ConcreteFunctionIdentity, InterfaceTable, PublicItem},
 };
 use kagari_types::{
@@ -202,10 +203,16 @@ fn layouts_and_module_slots_have_access_types_and_nested_dependencies() {
             payload: vec![Ty::Struct(nominal(structure))],
         }],
     });
-    owner.module_slots.push(BytecodeModuleSlot {
-        name: "counter\n".into(),
-        ty: ValueType::I64,
-        mutable: false,
+    owner.module_slots.push(StaticDescriptor {
+        contract: StaticContract {
+            declaration: child(&mut builder, root, DefinitionKind::Static, "counter\n"),
+            supplier: owner.identity.clone(),
+            name: "counter\n".into(),
+            ty: Ty::Builtin(BuiltinType::I64),
+            mutable: false,
+            visibility: Visibility::Private,
+        },
+        initializer: FunctionRef::new(0),
     });
     owner.functions.push(body(vec![
         I::StoreModule {

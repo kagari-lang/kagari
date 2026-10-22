@@ -32,6 +32,9 @@ where
             PublicItem::Function(function) => {
                 validate_function(validator, function, cancel, definitions)?
             }
+            PublicItem::Static(value) => {
+                validate_types(validator, [&value.ty], cancel, definitions)?
+            }
             PublicItem::Const(value) => {
                 validate_types(validator, [&value.ty], cancel, definitions)?
             }

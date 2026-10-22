@@ -1,16 +1,18 @@
 use crate::{
     debug::MirFunctionDebugMetadata,
-    ids::{BlockId, InstanceId, LocalId, ModuleSlotId, TempId},
+    ids::{BlockId, InstanceId, LocalId, TempId},
     instruction::{CallTarget, Instruction, InstructionBuffer, Terminator},
 };
 use kagari_abi::representation::ValueType;
 use kagari_common::{identity::ModuleIdentity, span::Span};
+
 use kagari_contract::{
     callable::witness::OperationWitness,
     effects::EffectSet,
     layout::{EnumLayout, StructLayout},
     native_import::{NativeImport, callables::NativeCallableApplication},
     slots::SemanticSlots,
+    statics::StaticDescriptor,
     types::{ConcreteFunctionIdentity, ModuleContract},
 };
 use kagari_types::{declaration::TypeDeclaration, ty::NominalTy};
@@ -169,14 +171,6 @@ pub struct MirTemp {
     pub ty: ValueType,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MirModuleSlot {
-    pub id: ModuleSlotId,
-    pub name: String,
-    pub ty: ValueType,
-    pub mutable: bool,
-}
-
 #[derive(Debug, Clone)]
 pub struct BasicBlock {
     pub instructions: InstructionBuffer,
@@ -193,7 +187,7 @@ pub type ParameterBuffer = Vec<MirParameter>;
 
 pub type LocalBuffer = Vec<MirLocal>;
 
-pub type ModuleSlotBuffer = Vec<MirModuleSlot>;
+pub type ModuleSlotBuffer = Vec<StaticDescriptor<InstanceId>>;
 
 pub type TempBuffer = Vec<MirTemp>;
 

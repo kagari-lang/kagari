@@ -9,7 +9,7 @@ use kagari_bytecode::{
         ArtifactBuildOptions, ArtifactCompatibility, ArtifactValidationError,
         DependencyFingerprint, KbcArtifact,
     },
-    instruction::{BytecodeInstruction, ConstantOperand, ModuleSlot},
+    instruction::{BytecodeInstruction, ConstantOperand},
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     program::{BytecodeProgram, ModuleRef},
 };
@@ -17,73 +17,6 @@ use kagari_contract::{ids::FunctionRef, types::PublicItem};
 use kagari_types::{
     callable::CallableImplementation, declaration::FnDecl, scalar::BuiltinType, ty::Ty,
 };
-
-#[test]
-fn corrupted_collection_root_quarantines_the_runtime() {
-    let context = DefinitionContext::new().unwrap();
-    let mut runtime = Runtime::default();
-    let loaded = runtime
-        .load_program(
-            "gc-invariant",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    let mut foreign_runtime = Runtime::default();
-    let owner = crate::test_support::layouts::allocation_owner(&mut foreign_runtime);
-    let foreign = foreign_runtime
-        .alloc_array(&owner, Ty::Builtin(BuiltinType::I32), Vec::new())
-        .unwrap();
-    runtime
-        .modules
-        .instance_mut(loaded.key())
-        .unwrap()
-        .module_slots = vec![value::Value::Array(foreign)];
-
-    let error = runtime.collect_garbage().unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    assert!(runtime.is_quarantined());
-    assert_eq!(
-        runtime.collect_garbage().unwrap_err().kind(),
-        RuntimeErrorKind::EngineFault
-    );
-}
-
-#[test]
-fn retained_module_state_borrow_quarantines_on_reentry_without_panicking() {
-    let context = DefinitionContext::new().unwrap();
-    let mut runtime = Runtime::default();
-    let loaded = runtime
-        .load_program(
-            "borrowed-module",
-            DefinitionMetadata::checked(
-                context.snapshot(),
-                BytecodeProgram {
-                    exports: Default::default(),
-                    root: ModuleRef::new(0),
-                    modules: vec![BytecodeModule::default()],
-                },
-                &Default::default(),
-            )
-            .unwrap(),
-        )
-        .unwrap();
-    let held = runtime.modules.instance_mut(loaded.key()).unwrap();
-    let error = runtime
-        .read_module_slot(&loaded, ModuleSlot::new(0))
-        .unwrap_err();
-    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
-    assert!(runtime.is_quarantined());
-    drop(held);
-}
 
 fn module_with_public_function(return_type: BuiltinType) -> BytecodeModule {
     BytecodeModule {

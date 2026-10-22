@@ -2,7 +2,7 @@
 
 ## Status, authority and scope
 
-**Implementation authorized; PS01 locally complete, PS02 next.** The user accepted the behavior
+**Implementation authorized; PS01-PS02 locally complete, PS03 next.** The user accepted the behavior
 and authorized sequential implementation with one commit per phase on 2026-10-22.
 Baseline: `b744f131`, with only this plan and its roadmap entry uncommitted.
 This document owns PS01-PS05, semantic decisions, acceptance and progress. The
@@ -472,7 +472,7 @@ broader [update proposal](update-model-design.md) into this feature without auth
 | Phase | Scope status | Validation / carried errors |
 | --- | --- | --- |
 | PS01 | Locally complete | 36 selected tests passed; structure, formatting, workspace all-target Clippy and diff checks passed. |
-| PS02 | Not started | No implementation checks run. |
+| PS02 | Locally complete | Typed descriptors, persistent cells, reload/GC and source-free negative cases pass; required local checks pass. |
 | PS03 | Not started | No implementation checks run. |
 | PS04 | Not started | No implementation checks run. |
 | PS05 | Not started | No implementation checks run. |
@@ -506,3 +506,37 @@ and test evidence. Cargo lock-contention timeouts were completed with exact case
 runs/current built test binaries; no skipped selected case is counted as passed.
 No full-workspace tests, CI matrix or performance acceptance is claimed. No carried
 implementation error remains; executable static behavior is intentionally gated.
+
+### PS02 checkpoint
+
+Replaced raw per-epoch module slots with StaticContract/StaticDescriptor records,
+complete scoped types, supplier-local initializer identities and checked generation
+bindings to installation-owned cells. Read/write APIs are Ready-only and cannot
+initialize val/var; ordinary execution remains conservatively rejected before entry
+until PS03. Staging reuses compatible cells without altering their state, preserves
+introducing recipes, rejects deletion/type/access changes and admits static-only
+public additions. Candidate access remains rejected. Joint tracing covers Ready
+values and pending recipes without permanent historical roots.
+
+Selected checks passed: runtime state tests (18 after review repairs), session
+execution cases (11), isolation/snapshot cases, VM program-cycle cases (4), pre-entry
+static rejection, native disposal and stored-key retention, MIR descriptor codec,
+bytecode descriptor presentation, compiler visibility/initializer forgery (9) and
+one source-free provider-binding regression. Earlier broader module selection had
+70 passes and one stale pointer-identity fixture expectation; the corrected shared
+preparation/runtime-local adoption assertion passed its targeted rerun.
+
+Independent review exposed public inherent/trait initializer aliases and comparison
+against unrelated ordered generic specialization inventories. Reproductions failed
+before repair. Initializer identity/export checks now reject those aliases and a
+separate diagnostic-name forgery; storage comparison follows relevant applied type
+schemas, allowing unrelated specializations/reordering while rejecting changed
+recursive/private/interface contracts. A missing SDK fixture enum arm is fixed.
+An MSVC link failure cleared after package-local runtime products were cleaned;
+stale incremental output was suspected, not proven. IDE compilation timed out;
+Cargo tests/compilation supply evidence.
+
+Workspace all-target Clippy, formatting, structure (1463 files, zero violations)
+and diff checks pass. No selected failure remains. The final full CI/backend matrix
+is unrun; PS03 initializer execution and PS04 full retained-value coverage remain
+separate acceptance, not implied by internal cell fixtures.

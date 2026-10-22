@@ -37,14 +37,14 @@ fn abandonment_invalidates_access_even_with_a_retention_lease() {
     let lease = runtime
         .retain_module(&module, ModuleEpochRetention::RuntimeValue)
         .unwrap();
-    let view = runtime.modules.instance_mut(module.key()).unwrap();
+    let view = runtime.modules.inner.borrow_mut();
     // Last-drop must not borrow a store that a caller is already inspecting.
     drop(candidate);
-    assert_eq!(view.epoch, module.epoch);
+    assert_eq!(view.records[&module.key()].module.epoch, module.epoch);
     drop(view);
     assert!(runtime.validate_loaded_module(&module).is_err());
     assert!(runtime.modules.instance_snapshot(module.key()).is_none());
-    assert!(runtime.modules.instance_mut(module.key()).is_none());
+    assert!(runtime.modules.inner.borrow().resolve(&module).is_none());
     assert!(
         runtime
             .retain_module(&module, ModuleEpochRetention::ActiveCall)
@@ -78,6 +78,7 @@ fn publication_rejects_foreign_stores_and_forged_stage_leases() {
     let candidate = stage(&mut runtime, &baseline);
     let key = candidate.module().key();
     let forged = StagedProgram {
+        expected_base: None,
         module: candidate.module().clone(),
         lease: Arc::new(CandidateLease::new(Arc::default())),
     };
@@ -195,12 +196,12 @@ fn safepoints_reject_borrowed_module_storage_without_panicking() {
         config.gc.collection_threshold = automatic.then_some(1024);
         let mut runtime = Runtime::new(config);
         let baseline = runtime.load_program("candidate", program()).unwrap();
-        let view = runtime.modules.instance_mut(baseline.key()).unwrap();
+        let view = runtime.modules.inner.borrow_mut();
         // Public safepoints retain borrow validation without pending work too.
         assert_eq!(runtime.gc_safepoint().is_err(), automatic);
         drop(view);
         let candidate = stage(&mut runtime, &baseline);
-        let view = runtime.modules.instance_mut(baseline.key()).unwrap();
+        let view = runtime.modules.inner.borrow_mut();
         drop(candidate);
         let result = runtime.gc_safepoint();
         if automatic {
@@ -211,7 +212,7 @@ fn safepoints_reject_borrowed_module_storage_without_panicking() {
         } else {
             result.unwrap();
         }
-        assert_eq!(view.epoch, baseline.epoch);
+        assert_eq!(view.records[&baseline.key()].module.epoch, baseline.epoch);
         assert!(!runtime.is_quarantined());
         drop(view);
         assert_eq!(

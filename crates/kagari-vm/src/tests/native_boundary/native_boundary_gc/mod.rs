@@ -1,12 +1,8 @@
-use kagari_common::identity::metadata::DefinitionMetadata;
 mod payload_failures;
 mod program_cycles;
 use super::{compile, compile_program};
-use crate::vm::{Vm, owned::DriveResult};
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
+use crate::vm::owned::DriveResult;
 use kagari_runtime::{
-    Runtime,
     error::RuntimeError,
     gc::roots::RootedValue,
     module::entry::ProgramEntry,
@@ -403,56 +399,6 @@ fn intrinsic_formatting_is_bounded_and_does_not_read_mutable_graphs() {
     }
     assert!(format_value(runtime.gc(), &value, true).is_err());
     assert_eq!(runtime.gc().sequence_len(object), Some(1));
-}
-
-#[test]
-fn module_state_is_a_collection_root_until_its_version_is_reclaimed() {
-    let module = compile_program(
-        "fn init() -> Vec<i32> { Vec::from([7]) } fn main() -> i32 { 42 }",
-        None,
-    );
-    let (definitions, mut module) = module.into_parts();
-    module.modules[module.root.index()]
-        .module_slots
-        .push(BytecodeModuleSlot {
-            name: "state".into(),
-            ty: ValueType::HeapObject,
-            mutable: true,
-        });
-    let module = DefinitionMetadata::checked(definitions, module, &Default::default()).unwrap();
-    let mut runtime = Runtime::default();
-    kagari_runtime::native::module::NativeModule::install_all(
-        &kagari_stdlib::modules().unwrap(),
-        &mut runtime,
-    )
-    .unwrap();
-    let program = module;
-    let old = runtime.load_program("gc.kgr", program.clone()).unwrap();
-    let vm = Vm::new(runtime);
-    let array = vm
-        .runtime()
-        .alloc_array(&old, Ty::Builtin(BuiltinType::I32), vec![Value::I32(7)])
-        .unwrap();
-    vm.runtime()
-        .write_module_slot(&old, ModuleSlot::new(0), Value::Array(array))
-        .unwrap();
-    assert_eq!(vm.runtime().collect_garbage().unwrap().live_objects, 1);
-    let new = vm.reload_program(&old, "gc.kgr", program).unwrap();
-    let other = vm
-        .runtime()
-        .alloc_array(&new, Ty::Builtin(BuiltinType::I32), vec![Value::I32(9)])
-        .unwrap();
-    vm.runtime()
-        .write_module_slot(&new, ModuleSlot::new(0), Value::Array(other))
-        .unwrap();
-    let collected = vm.runtime().collect_garbage().unwrap();
-    assert_eq!(collected.live_objects, 1);
-    assert_eq!(collected.reclaimed_objects, 1);
-    let expected: HashSet<_> = old.members().map(|member| member.key()).collect();
-    let reclaimed: HashSet<_> = collected.reclaimed_modules.into_iter().collect();
-    assert_eq!(reclaimed, expected);
-    assert!(vm.runtime().gc().array_len(array).is_none());
-    assert_eq!(vm.runtime().gc().array_get(other, 0), Some(Value::I32(9)));
 }
 
 #[test]

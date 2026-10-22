@@ -3,7 +3,7 @@ use crate::{
     execution_metadata::MetadataEdge,
     module::{
         LoadedModule, ModuleKey, ModuleStore, ModuleStoreInner, records::ModuleRecord,
-        root_programs,
+        root_programs, state::StaticState,
     },
     value::Value,
 };
@@ -75,12 +75,18 @@ impl ProgramGraph<'_> {
                 calls.trace(metadata);
             }
             record.constants.iter().rev().for_each(&mut *visit);
-            record
-                .instance
-                .module_slots
-                .iter()
-                .rev()
-                .for_each(&mut *visit);
+            if record.bindings.len() != member.bytecode.module_slots.len() {
+                return None;
+            }
+            for slot in 0..record.bindings.len() {
+                match &self.store.bound_cell(record, slot)?.state {
+                    StaticState::Ready(value) => visit(value),
+                    StaticState::Uninitialized(recipe) | StaticState::Initializing(recipe) => {
+                        metadata.push(MetadataEdge::Program(&recipe.module))
+                    }
+                    StaticState::Failed(_) => {}
+                }
+            }
         }
         Some(())
     }
@@ -111,6 +117,13 @@ impl ProgramGraph<'_> {
                 }
             })
             .collect::<Vec<_>>();
+        let referenced = self
+            .store
+            .records
+            .values()
+            .flat_map(|record| record.bindings.iter().copied())
+            .collect::<HashSet<_>>();
+        self.store.cells.retain(|id, _| referenced.contains(id));
         self.restore_abandonment = false;
         retired
     }

@@ -20,7 +20,8 @@ pub(super) fn alter_bindings(artifact: &mut KbcArtifact, alter: impl Fn(&mut Def
         for item in &mut module.public_items {
             match item {
                 PublicItem::Function(function) => alter_function(function, &alter),
-                PublicItem::Type(_) | PublicItem::Const(_) => {}
+                // Static ABI records contain storage facts, not native callable bindings.
+                PublicItem::Type(_) | PublicItem::Const(_) | PublicItem::Static(_) => {}
                 PublicItem::Trait(ty) => {
                     for method in &mut ty.methods {
                         alter_function(method, &alter);

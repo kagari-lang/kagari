@@ -230,6 +230,11 @@ impl Runtime {
         environment: Option<TypeEnvironment>,
     ) -> Result<value::Value, RuntimeError> {
         self.validate_loaded_module(implementation)?;
+        if implementation.is_static_initializer(function) {
+            return Err(RuntimeError::module_validation(
+                "static initializer is not a callable value",
+            ));
+        }
         let metadata = implementation
             .bytecode
             .functions

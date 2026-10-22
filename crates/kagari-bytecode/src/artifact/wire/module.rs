@@ -4,9 +4,7 @@ use crate::{
         function::{BytecodeFunctionRecord, FunctionRecordWire},
         interface::InterfaceTableRecordWire,
     },
-    module::{
-        BytecodeModule, BytecodeModuleSlotBuffer, BytecodeTypeTable, ConstantPool, PathTable,
-    },
+    module::{BytecodeModule, BytecodeTypeTable, ConstantPool, PathTable},
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_common::{
@@ -19,10 +17,13 @@ use kagari_common::{
 };
 use kagari_contract::{
     exports::wire::ProgramExportsRecord,
+    ids::FunctionRef,
     layout::wire::{EnumLayoutRecord, StructLayoutRecord},
     native_import::wire::NativeImportRecord,
+    statics::wire::StaticDescriptorRecord,
     types::wire::{PublicItemRecord, module::TraitContractRecord},
 };
+
 use kagari_types::declaration::wire::{
     declarations::TypeDeclarationRecord, native::NativeDeclarationRecord,
     path::PathDeclarationRecord,
@@ -94,7 +95,7 @@ pub(in crate::artifact) struct BytecodeModuleRecord {
     identity: ModuleIdentity,
     source_name: String,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    module_slots: BytecodeModuleSlotBuffer,
+    module_slots: Vec<StaticDescriptorRecord<FunctionRef>>,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
     constants: ConstantPool,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
@@ -152,7 +153,11 @@ impl BytecodeModuleRecord {
                 .collect::<Result<_, _>>()?,
             identity: value.identity.clone(),
             source_name: value.source_name.clone(),
-            module_slots: value.module_slots.clone(),
+            module_slots: value
+                .module_slots
+                .iter()
+                .map(|slot| StaticDescriptorRecord::encode(slot, encoding, cancel))
+                .collect::<Result<_, _>>()?,
             constants: value.constants.clone(),
             types: value.types.clone(),
             structures: value
@@ -231,7 +236,11 @@ impl BytecodeModuleRecord {
                 .collect::<Result<_, _>>()?,
             identity: self.identity,
             source_name: self.source_name,
-            module_slots: self.module_slots,
+            module_slots: self
+                .module_slots
+                .into_iter()
+                .map(|slot| slot.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
             constants: self.constants,
             types: self.types,
             structures: self

@@ -24,6 +24,7 @@ mod flow;
 mod layout;
 mod operation;
 pub(crate) mod ownership;
+pub(crate) mod statics;
 mod suspension;
 
 /// Owns a checked module. Mutating a copy requires verifying it again.
@@ -272,11 +273,8 @@ pub(crate) fn verify_with_budget(
             return Err(context.error(MirVerificationErrorKind::InvalidInstance));
         }
     }
-    for (index, slot) in module.module_slots.iter().enumerate() {
-        context.check_cancel()?;
-        if slot.id.index() != index {
-            return Err(context.error(MirVerificationErrorKind::InvalidModuleSlot));
-        }
+    if !statics::valid_module(module, None, context.definitions, context.cancel) {
+        return Err(context.error(MirVerificationErrorKind::InvalidModuleSlot));
     }
     let mut analyses = Vec::new();
     for function in &module.functions {

@@ -50,6 +50,7 @@ mod async_tests;
 pub(crate) mod flow;
 mod operation;
 mod scalar;
+mod statics;
 
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum BytecodeVerificationError {
@@ -251,6 +252,7 @@ pub(super) fn verify_module_with_program(
     cancel
         .check()
         .map_err(|_| BytecodeVerificationError::Cancelled)?;
+    statics::verify(module, program, definitions, &cancel)?;
     let mut constants = HashSet::with_capacity(module.constants.len());
     if !module
         .constants
@@ -1084,7 +1086,7 @@ fn module_slot_ty(
     module
         .module_slots
         .get(slot.index())
-        .map(|slot| slot.ty)
+        .map(|slot| semantic_representation(&slot.contract.ty))
         .ok_or(BytecodeVerificationError::InvalidModuleSlot {
             function: function.id,
             slot,

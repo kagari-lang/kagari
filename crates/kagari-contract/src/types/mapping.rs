@@ -66,6 +66,7 @@ impl RemapDefinitions for PublicItem {
         Ok(match self {
             Self::Function(field0) => PublicItem::Function((field0).remap_definitions(mapper)?),
             Self::Const(field0) => PublicItem::Const((field0).remap_definitions(mapper)?),
+            Self::Static(value) => PublicItem::Static(value.remap_definitions(mapper)?),
             Self::Type(field0) => PublicItem::Type((field0).remap_definitions(mapper)?),
             Self::Trait(field0) => PublicItem::Trait((field0).remap_definitions(mapper)?),
             Self::InherentTable(table) => {
@@ -89,6 +90,7 @@ impl DefinitionReferences for PublicItem {
             Self::Function(field0) => {
                 (field0).visit_definition_ids(visit, cancel)?;
             }
+            Self::Static(value) => value.visit_definition_ids(visit, cancel)?,
             Self::Const(field0) => {
                 (field0).visit_definition_ids(visit, cancel)?;
             }

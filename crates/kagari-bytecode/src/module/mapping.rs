@@ -32,7 +32,7 @@ impl RemapDefinitions for BytecodeModule {
             })?,
             identity: self.identity.clone(),
             source_name: self.source_name.clone(),
-            module_slots: self.module_slots.clone(),
+            module_slots: self.module_slots.remap_definitions(mapper)?,
             constants: self.constants.clone(),
             types: self.types.clone(),
             structures: map_sequence(&self.structures, |value| (value).remap_definitions(mapper))?,
@@ -67,6 +67,7 @@ impl DefinitionReferences for BytecodeModule {
         cancel: &CancellationToken,
     ) -> Result<(), DefinitionMappingError> {
         check_cancel(cancel)?;
+        self.module_slots.visit_definition_ids(visit, cancel)?;
         for value in &self.external_types {
             value.visit_definition_ids(visit, cancel)?;
         }

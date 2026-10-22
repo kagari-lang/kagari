@@ -12,9 +12,8 @@ use kagari_bytecode::{
         StructId, UnaryOp,
     },
     module::{
-        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, BytecodeSemanticSlots,
-        CallableTarget, FunctionMetadata, FunctionRecord, InstructionOrigin, PathRecord,
-        RootSlotLayout,
+        BytecodeFunction, BytecodeModule, BytecodeSemanticSlots, CallableTarget, FunctionMetadata,
+        FunctionRecord, InstructionOrigin, PathRecord, RootSlotLayout,
     },
     program::{BytecodeProgram, ModuleRef, verified::VerifiedBytecodeProgram},
     verifier::{BytecodeVerificationError, verify_module},
@@ -24,12 +23,14 @@ use kagari_common::{
     identity::{ModuleIdentity, metadata::DefinitionMetadata, table::DefinitionId},
     span::Span,
 };
+
 use kagari_contract::{
     ids::FunctionRef,
     layout::{EnumLayout, StructLayout},
     native_import::NativeImport,
     operations::{BinaryOp as MirBinaryOp, UnaryOp as MirUnaryOp},
     representation::semantic_representation,
+    statics::StaticDescriptor,
     types::{ConcreteFunctionIdentity, proofs::ProofCatalog},
 };
 use kagari_mir::instruction::ConstructionTarget as MirConstruction;
@@ -168,10 +169,9 @@ fn lower_linked_module(
         module_slots: ir
             .module_slots
             .iter()
-            .map(|slot| BytecodeModuleSlot {
-                name: slot.name.clone(),
-                ty: slot.ty,
-                mutable: slot.mutable,
+            .map(|slot| StaticDescriptor {
+                contract: slot.contract.clone(),
+                initializer: FunctionRef::new(slot.initializer.index()),
             })
             .collect(),
         constants: context.constants,
@@ -441,7 +441,7 @@ fn collect_function_table(functions: &[BytecodeFunction]) -> Vec<FunctionRecord>
 fn collect_type_table(module: &BytecodeModule) -> Vec<ValueType> {
     let mut types = Vec::new();
     for slot in &module.module_slots {
-        push_type(&mut types, slot.ty);
+        push_type(&mut types, semantic_representation(&slot.contract.ty));
     }
     for layout in &module.structures {
         for field in &layout.fields {

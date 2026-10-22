@@ -73,22 +73,13 @@ impl EffectSet {
         }
     }
 
+    /// First access may execute arbitrary synchronous initializer code.
     pub fn module_read() -> Self {
-        Self {
-            reads_module: true,
-            touches_runtime: true,
-            may_trap: true,
-            ..Self::default()
-        }
+        Self::native_call()
     }
 
     pub fn module_write() -> Self {
-        Self {
-            writes_module: true,
-            touches_runtime: true,
-            may_trap: true,
-            ..Self::default()
-        }
+        Self::native_call()
     }
 
     pub fn aggregate_write() -> Self {

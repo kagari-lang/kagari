@@ -1,6 +1,7 @@
 //! Public ABI file records shared by artifact codecs and ABI fingerprints.
 use crate::{
     decode_limits,
+    statics::wire::StaticContractRecord,
     types::{InterfaceBridge, InterfaceTable, PublicItem, inherent::InherentTable},
 };
 use kagari_common::{
@@ -32,6 +33,7 @@ pub struct PublicItemRecord {
 enum Record {
     Function(FnDeclRecord),
     Const(ConstDefRecord),
+    Static(StaticContractRecord),
     Type(TypeDefRecord),
     Trait(TraitDefRecord),
     InterfaceTable(Box<InterfaceTableRecord>),
@@ -50,6 +52,9 @@ impl PublicItemRecord {
         let record = match value {
             PublicItem::Function(value) => {
                 Record::Function(FnDeclRecord::encode(value, encoding, cancel)?)
+            }
+            PublicItem::Static(value) => {
+                Record::Static(StaticContractRecord::encode(value, encoding, cancel)?)
             }
             PublicItem::Const(value) => {
                 Record::Const(ConstDefRecord::encode(value, encoding, cancel)?)
@@ -81,6 +86,7 @@ impl PublicItemRecord {
         Ok(match self.record {
             Record::Function(value) => PublicItem::Function(value.decode(decoding, cancel)?),
             Record::Const(value) => PublicItem::Const(value.decode(decoding, cancel)?),
+            Record::Static(value) => PublicItem::Static(value.decode(decoding, cancel)?),
             Record::Type(value) => PublicItem::Type(value.decode(decoding, cancel)?),
             Record::Trait(value) => PublicItem::Trait(value.decode(decoding, cancel)?),
             Record::InterfaceTable(value) => {

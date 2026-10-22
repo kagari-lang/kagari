@@ -5,12 +5,7 @@ use crate::tests::native_boundary::{
     support::{declaration_query, round_trip_program},
 };
 use crate::vm::{Vm, owned::DriveResult};
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::{instruction::ModuleSlot, module::BytecodeModuleSlot};
-use kagari_common::{
-    cancellation::CancellationToken,
-    identity::{DefinitionKind, metadata::DefinitionMetadata},
-};
+use kagari_common::{cancellation::CancellationToken, identity::DefinitionKind};
 use kagari_runtime::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
@@ -323,7 +318,7 @@ fn native_function_values_cannot_invent_a_missing_nested_application() {
 }
 
 #[test]
-fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
+fn a_boxed_native_entry_releases_its_obsolete_program_after_last_root() {
     let mut module = ModuleBuilder::new(
         "example::boxed",
         &StandardDeclarations::default().catalog().unwrap(),
@@ -351,17 +346,7 @@ fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
         "use example::boxed::add; pub fn evidence() -> i32 { add(20, 22) }",
         Some(&module),
     );
-    let (definitions, mut program) = program.into_parts();
-    program.modules[program.root.index()]
-        .module_slots
-        .push(BytecodeModuleSlot {
-            name: "saved".into(),
-            ty: ValueType::HeapObject,
-            mutable: true,
-        });
-    let program = round_trip_program(
-        DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap(),
-    );
+    let program = round_trip_program(program);
     let mut runtime = Runtime::default();
     NativeModule::install_all(&kagari_stdlib::modules().unwrap(), &mut runtime).unwrap();
     module.install(&mut runtime).unwrap();
@@ -386,9 +371,6 @@ fn a_boxed_native_entry_does_not_root_its_obsolete_module_state_cycle() {
             .script_function()
             .is_none()
     );
-    vm.runtime()
-        .write_module_slot(&old, ModuleSlot::new(0), value)
-        .unwrap();
     vm.reload_program(&old, "cycle", program).unwrap();
     assert!(
         !vm.runtime()

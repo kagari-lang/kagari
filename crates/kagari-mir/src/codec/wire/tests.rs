@@ -6,14 +6,20 @@ use crate::{
     ids::{BlockId, InstanceId, TempId},
     instruction::{Constant, Instruction, MirValue, Terminator},
     program::{ProgramErrorKind, records::MirProgram, verify_program},
-    verify::MirVerificationErrorKind,
+    verify::{MirVerificationErrorKind, verify_mir},
 };
 use bincode::Options;
 use kagari_abi::representation::ValueType;
 use kagari_common::identity::{
-    DefinitionKind, ModuleIdentity, map::DefinitionContext, scoped::DefinitionReferences,
+    DefinitionKind, ModuleIdentity, map::DefinitionContext, metadata::DefinitionMetadata,
+    scoped::DefinitionReferences,
 };
-use kagari_contract::{exports::wire::ProgramExportsRecord, types::ConcreteFunctionIdentity};
+use kagari_contract::{
+    exports::wire::ProgramExportsRecord,
+    statics::{StaticContract, StaticDescriptor},
+    types::{ConcreteFunctionIdentity, PublicItem},
+};
+use kagari_types::{scalar::BuiltinType, ty::Ty, visibility::Visibility};
 use std::collections::HashSet;
 
 fn module(context: &DefinitionContext, name: &str) -> MirModule {
@@ -92,6 +98,81 @@ fn forged(context: &DefinitionContext, modules: &[MirModule]) -> Vec<u8> {
         definitions: encoding.table,
     };
     options().serialize(&(Header::current(), record)).unwrap()
+}
+
+#[test]
+fn codec_preserves_static_identity_supplier_and_hidden_initializer_contract() {
+    let context = DefinitionContext::new().unwrap();
+    let mut owner = module(&context, "owner");
+    let root = context.intern_root(&owner.identity).unwrap();
+    let contract = StaticContract {
+        declaration: context
+            .intern_child(root, DefinitionKind::Static, "state", 0)
+            .unwrap(),
+        supplier: owner.identity.clone(),
+        name: "state".into(),
+        ty: Ty::Builtin(BuiltinType::Unit),
+        mutable: false,
+        visibility: Visibility::Public,
+    };
+    owner.functions[0].semantic.result = Some(contract.ty.clone());
+    owner.module_slots.push(StaticDescriptor {
+        contract: contract.clone(),
+        initializer: InstanceId::new(0),
+    });
+    owner.abi.public_items.push(PublicItem::Static(contract));
+    let mut importer = module(&context, "importer");
+    importer.dependencies.push(owner.identity.clone());
+    importer.module_slots = owner.module_slots.clone();
+    owner.dependencies.push(importer.identity.clone());
+    verify_mir(
+        DefinitionMetadata::checked(context.snapshot(), owner.clone(), &Default::default())
+            .unwrap(),
+        &Default::default(),
+    )
+    .unwrap();
+    let modules = vec![owner, importer];
+    let decoded = decode_program(&forged(&context, &modules), &Default::default()).unwrap();
+    let records = decoded.into_unverified();
+    let descriptor = &records.records().modules[0].module_slots[0];
+    assert_eq!(descriptor.contract.supplier, modules[0].identity);
+    assert_eq!(
+        records
+            .definitions()
+            .resolve(descriptor.contract.declaration)
+            .unwrap()
+            .to_path(),
+        context
+            .snapshot()
+            .resolve(modules[0].module_slots[0].contract.declaration)
+            .unwrap()
+            .to_path()
+    );
+    assert_eq!(descriptor, &records.records().modules[1].module_slots[0]);
+    for mutation in 0..4 {
+        let mut invalid = modules.clone();
+        match mutation {
+            0 => invalid[0].module_slots[0].initializer = InstanceId::new(999),
+            1 => invalid[0].functions[0].semantic.result = None,
+            2 => invalid[1].dependencies.clear(),
+            _ => invalid[1].module_slots[0].contract.mutable = true,
+        }
+        assert!(decode_program(&forged(&context, &invalid), &Default::default()).is_err());
+        if mutation < 2 {
+            assert!(
+                verify_mir(
+                    DefinitionMetadata::checked(
+                        context.snapshot(),
+                        invalid[0].clone(),
+                        &Default::default()
+                    )
+                    .unwrap(),
+                    &Default::default()
+                )
+                .is_err()
+            );
+        }
+    }
 }
 
 #[test]

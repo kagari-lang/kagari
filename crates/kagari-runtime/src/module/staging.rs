@@ -1,7 +1,7 @@
 //! Candidate leases invalidate access without owning or borrowing module storage.
 use crate::{
     error::RuntimeError,
-    module::{LoadedModule, ModuleStore},
+    module::{LoadedModule, ModuleKey, ModuleStore},
 };
 use std::sync::{
     Arc, Weak,
@@ -39,11 +39,22 @@ impl Drop for CandidateLease {
 pub(crate) struct StagedProgram {
     pub(super) module: LoadedModule,
     pub(super) lease: Arc<CandidateLease>,
+    pub(super) expected_base: Option<ModuleKey>,
 }
 
 impl StagedProgram {
     pub(crate) fn module(&self) -> &LoadedModule {
         &self.module
+    }
+
+    pub(crate) fn bind_reload(
+        mut self,
+        store: &ModuleStore,
+        baseline: &LoadedModule,
+    ) -> Result<Self, RuntimeError> {
+        store.bind_static_reload(baseline, &self.module)?;
+        self.expected_base = Some(baseline.key());
+        Ok(self)
     }
 
     pub(crate) fn publish(self, store: &ModuleStore) -> Result<LoadedModule, RuntimeError> {
@@ -56,7 +67,11 @@ impl StagedProgram {
                 .staged
                 .get(&key)
                 .is_some_and(|lease| Weak::ptr_eq(lease, &Arc::downgrade(&self.lease)));
-        if !valid {
+        if !valid
+            || self
+                .expected_base
+                .is_some_and(|base| inner.latest_by_name.get(&self.module.name) != Some(&base))
+        {
             return Err(RuntimeError::module_validation(
                 "invalid staged program publication",
             ));

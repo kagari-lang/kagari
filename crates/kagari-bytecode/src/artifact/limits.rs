@@ -205,7 +205,7 @@ pub(super) fn module_nested_count_limit(module: &BytecodeModule, total: &mut usi
                     && add(item.params.len())
                     && add_function_contract(item, &mut add)
             }
-            PublicItem::Const(_) => true,
+            PublicItem::Const(_) | PublicItem::Static(_) => true,
             PublicItem::Type(item) => {
                 add(item.generic_params.len())
                     && add(item.bounds.len())
@@ -463,6 +463,10 @@ pub(super) fn module_abi_type_limit(
                             && valid(&method.return_type)
                     })
             })
+        && module
+            .module_slots
+            .iter()
+            .all(|slot| valid(&slot.contract.ty))
         && module.public_items.iter().all(|item| match item {
             PublicItem::Function(item) => {
                 function_abi_type_limit(item)
@@ -470,6 +474,7 @@ pub(super) fn module_abi_type_limit(
                     && valid(&item.return_type)
             }
             PublicItem::Const(item) => valid(&item.ty),
+            PublicItem::Static(item) => valid(&item.ty),
             PublicItem::Type(item) => {
                 bounds_type_limit(&item.bounds)
                     && item.fields.iter().all(|field| valid(&field.ty))

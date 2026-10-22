@@ -9,7 +9,7 @@ use crate::{
     verifier::{
         BytecodeVerificationError, constant_type, contract_error, expect_register_ty, field_layout,
         flow::inline_host, function_ref_exists, ir_binary_op, module_slot_ty, path_record,
-        register_ty, scalar, verify_call_dst, verify_dynamic_path_args, verify_jump,
+        register_ty, scalar, statics, verify_call_dst, verify_dynamic_path_args, verify_jump,
         verify_standard_intrinsic_call,
     },
 };
@@ -193,11 +193,13 @@ pub(super) fn verify_instruction(
         BytecodeInstruction::LoadModule { dst, slot } => {
             let slot_ty = module_slot_ty(module, function, *slot)?;
             expect_register_ty(function, *dst, slot_ty, "load module dst")?;
+            statics::operand(module, function, *slot, *dst)?;
         }
         BytecodeInstruction::StoreModule { slot, src } => {
             let slot_ty = module_slot_ty(module, function, *slot)?;
             expect_register_ty(function, *src, slot_ty, "store module src")?;
-            if !module.module_slots[slot.index()].mutable {
+            statics::operand(module, function, *slot, *src)?;
+            if !module.module_slots[slot.index()].contract.mutable {
                 return Err(BytecodeVerificationError::InvalidOperation {
                     function: function.id,
                     reason: "store to immutable module slot",

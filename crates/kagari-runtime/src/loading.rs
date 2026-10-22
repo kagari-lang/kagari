@@ -3,14 +3,13 @@ use crate::{
     cache::{InterpreterCacheId, ReloadDependencySnapshot, ReloadInvalidation},
     error::RuntimeError,
     module::{
-        LinkedHostBindings, LoadedModule, ModuleEpochRetention, ModuleKey, VerifiedProgram,
+        LinkedHostBindings, LoadedModule, ModuleEpochRetention, VerifiedProgram,
         retention::ProgramLease, staging::StagedProgram,
     },
     reload::{
         ModuleEpoch, ReloadValidationError, validate_reload_artifact_candidate,
         validate_reload_candidate, validate_verified_reload_candidate,
     },
-    session::ExecutionPhase,
 };
 use kagari_bytecode::{
     artifact::{
@@ -41,13 +40,6 @@ impl Runtime {
     ) -> Option<ProgramLease> {
         self.resources().ensure_execution_allowed().ok()?;
         self.modules.retain_program(module, kind)
-    }
-
-    pub(crate) fn allows_instance_access(&self, key: ModuleKey) -> bool {
-        self.resources().active_session().is_none_or(|session| {
-            session.options.phase != ExecutionPhase::CandidateInitialization
-                || session.root.members().any(|member| member.key() == key)
-        })
     }
 
     fn link_native_module(
@@ -295,6 +287,9 @@ impl Runtime {
         let program = self
             .stage_linked_program(name, epoch, program, bindings)
             .map_err(ReloadValidationError::Runtime)?;
+        let program = program
+            .bind_reload(&self.modules, &baseline)
+            .map_err(ReloadValidationError::Runtime)?;
         Ok(StagedReload {
             initialization_error: Default::default(),
             baseline,
@@ -337,21 +332,6 @@ impl Runtime {
             });
         }
         for member in program.module().members() {
-            let Some(instance) = self.module_instance_snapshot(&member) else {
-                return Err(ReloadValidationError::Runtime(self.resources().quarantine(
-                    "candidate module instance disappeared at publication",
-                )));
-            };
-            if !instance.module_slots.iter().all(|value| {
-                self.gc
-                    .validate_candidate_value_for(program.module().key(), value)
-            }) {
-                return Err(ReloadValidationError::Runtime(
-                    RuntimeError::execution_phase_violation(
-                        "external object in candidate module state at publication",
-                    ),
-                ));
-            }
             let current = self
                 .link_native_module(&member.bytecode, member.verified_program())
                 .map_err(ReloadValidationError::Runtime)?;

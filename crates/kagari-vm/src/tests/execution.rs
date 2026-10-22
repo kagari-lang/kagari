@@ -13,9 +13,8 @@ use kagari_bytecode::{
         ModuleSlot, RuntimeHelper,
     },
     module::{
-        BytecodeFunction, BytecodeModule, BytecodeModuleSlot, FunctionMetadata, FunctionRecord,
-        InstructionSourceSpan, InterfaceTableRecord, RootSlotLayout, SafeDebugPoint,
-        SafeDebugPointKind,
+        BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord, InstructionSourceSpan,
+        InterfaceTableRecord, RootSlotLayout, SafeDebugPoint, SafeDebugPointKind,
     },
     program::ModuleRef,
 };
@@ -25,6 +24,7 @@ use kagari_common::{
     },
     span::Span,
 };
+use kagari_contract::statics::{StaticContract, StaticDescriptor};
 use kagari_contract::{
     ids::{DebugPointId, FunctionRef},
     types::{InterfaceTable, PublicItem},
@@ -35,6 +35,7 @@ use kagari_runtime::{
     resource::RuntimeLimits,
     value::{StructValueField, Value},
 };
+use kagari_types::visibility::Visibility;
 use kagari_types::{
     declaration::TraitDef,
     scalar::BuiltinType,
@@ -116,7 +117,7 @@ fn verified_module(
     }
 }
 
-fn module_with_mutable_slot(value: i32) -> BytecodeModule {
+fn module_with_mutable_slot(context: &DefinitionContext, value: i32) -> BytecodeModule {
     let mut module = verified_module(
         vec![
             test_function(
@@ -126,10 +127,6 @@ fn module_with_mutable_slot(value: i32) -> BytecodeModule {
                     BytecodeInstruction::LoadConst {
                         dst: Slot::new(0),
                         constant: ConstantId::new(0),
-                    },
-                    BytecodeInstruction::StoreModule {
-                        slot: ModuleSlot::new(0),
-                        src: Slot::new(0),
                     },
                     BytecodeInstruction::Return(Some(Slot::new(0))),
                 ],
@@ -152,11 +149,28 @@ fn module_with_mutable_slot(value: i32) -> BytecodeModule {
         ],
         vec![ConstantOperand::I32(value)],
     );
-    module.module_slots = vec![BytecodeModuleSlot {
-        name: "private".to_owned(),
-        ty: ValueType::I32,
-        mutable: true,
+    let root = context.intern_root(&module.identity).unwrap();
+    module.module_slots = vec![StaticDescriptor {
+        contract: StaticContract {
+            declaration: context
+                .intern_child(root, DefinitionKind::Static, "private", 0)
+                .unwrap(),
+            supplier: module.identity.clone(),
+            name: "private".into(),
+            ty: Ty::Builtin(BuiltinType::I32),
+            mutable: true,
+            visibility: Visibility::Private,
+        },
+        initializer: FunctionRef::new(0),
     }];
+    for function in &mut module.functions {
+        function.metadata.semantic.result = Some(Ty::Builtin(BuiltinType::I32));
+        function
+            .metadata
+            .semantic
+            .slots
+            .insert(0, Ty::Builtin(BuiltinType::I32));
+    }
     module
 }
 

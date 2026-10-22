@@ -3,8 +3,8 @@ use crate::{
     codec::wire::instruction::InstructionRecord,
     debug::MirFunctionDebugMetadata,
     function::{
-        BasicBlock, LocalBuffer, MirFunction, MirModule, ModuleSlotBuffer, ParameterBuffer,
-        SourceSpanBuffer, TempBuffer,
+        BasicBlock, LocalBuffer, MirFunction, MirModule, ParameterBuffer, SourceSpanBuffer,
+        TempBuffer,
     },
     ids::{BlockId, InstanceId},
     instruction::Terminator,
@@ -19,11 +19,13 @@ use kagari_common::{
     },
     span::Span,
 };
+
 use kagari_contract::{
     effects::EffectSet,
     layout::wire::{EnumLayoutRecord, StructLayoutRecord},
     native_import::wire::NativeImportRecord,
     slots::wire::SemanticSlotsRecord,
+    statics::wire::StaticDescriptorRecord,
     types::wire::module::{ConcreteFunctionIdentityRecord, ModuleContractRecord},
 };
 use kagari_types::declaration::wire::declarations::TypeDeclarationRecord;
@@ -47,7 +49,7 @@ pub(crate) struct MirModuleRecord {
     identity: ModuleIdentity,
     source_name: String,
     #[serde(deserialize_with = "kagari_contract::decode_limits::table")]
-    module_slots: ModuleSlotBuffer,
+    module_slots: Vec<StaticDescriptorRecord<InstanceId>>,
     abi: ModuleContractRecord,
     #[serde(deserialize_with = "kagari_contract::decode_limits::functions")]
     functions: Vec<MirFunctionRecord>,
@@ -91,7 +93,11 @@ impl MirModuleRecord {
                 .collect::<Result<_, _>>()?,
             identity: value.identity.clone(),
             source_name: value.source_name.clone(),
-            module_slots: value.module_slots.clone(),
+            module_slots: value
+                .module_slots
+                .iter()
+                .map(|slot| StaticDescriptorRecord::encode(slot, encoding, cancel))
+                .collect::<Result<_, _>>()?,
             abi: ModuleContractRecord::encode(&value.abi, encoding, cancel)?,
             functions: value
                 .functions
@@ -138,7 +144,11 @@ impl MirModuleRecord {
                 .collect::<Result<_, _>>()?,
             identity: self.identity,
             source_name: self.source_name,
-            module_slots: self.module_slots,
+            module_slots: self
+                .module_slots
+                .into_iter()
+                .map(|slot| slot.decode(decoding, cancel))
+                .collect::<Result<_, _>>()?,
             abi: self.abi.decode(decoding, cancel)?,
             functions: self
                 .functions

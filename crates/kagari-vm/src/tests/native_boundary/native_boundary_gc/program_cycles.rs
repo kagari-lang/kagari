@@ -1,9 +1,6 @@
 use crate::tests::native_boundary::compile_program;
 use crate::vm::Vm;
-use kagari_abi::representation::ValueType;
-use kagari_bytecode::{
-    instruction::ModuleSlot, module::BytecodeModuleSlot, program::BytecodeProgram,
-};
+use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
 use kagari_runtime::{
     Runtime,
@@ -16,41 +13,36 @@ use kagari_stdlib::modules;
 use std::collections::HashSet;
 
 fn program(answer: i32) -> DefinitionMetadata<BytecodeProgram> {
-    with_state(compile_program(
+    compile_program(
         &format!(
-            "pub fn make() -> fn() -> i32 {{ val data = [{answer}]; || data[0] }} \
+            "pub fn make() -> fn() -> i32 {{ val callbacks: [fn() -> i32] = [|| 0]; val result = || {{ callbacks[0]; answer() }}; callbacks[0] = result; result }} \
              pub fn answer() -> i32 {{ {answer} }}"
         ),
         None,
-    ))
+    )
 }
 
-fn with_state(program: DefinitionMetadata<BytecodeProgram>) -> DefinitionMetadata<BytecodeProgram> {
-    let (definitions, mut program) = program.into_parts();
-    program.modules[program.root.index()]
-        .module_slots
-        .push(BytecodeModuleSlot {
-            name: "saved".into(),
-            ty: ValueType::HeapObject,
-            mutable: true,
-        });
-    DefinitionMetadata::checked(definitions, program, &Default::default()).unwrap()
-}
-
-fn generic_program() -> DefinitionMetadata<BytecodeProgram> {
-    with_state(compile_program(
-        "use std::cmp::Ordering; \
-         trait Keep { fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool { a.cmp(b); || a.cmp(b) == Ordering::Less } } \
-         impl Keep for i32 {} \
-         pub fn make() -> fn() -> bool { val keeper: Keep = 0; keeper.keep(1, 2) }",
+fn generic_program(cycle: bool) -> DefinitionMetadata<BytecodeProgram> {
+    let body = if cycle {
+        "a.cmp(b); val callbacks: [fn() -> bool] = [|| false]; val result = || { callbacks[0]; a.cmp(b) == Ordering::Less }; callbacks[0] = result; result"
+    } else {
+        "a.cmp(b); || a.cmp(b) == Ordering::Less"
+    };
+    compile_program(
+        &format!(
+            "use std::cmp::Ordering; \
+             trait Keep {{ fn keep<T: Ord>(self, a: T, b: T) -> fn() -> bool {{ {body} }} }} \
+             impl Keep for i32 {{}} \
+             pub fn make() -> fn() -> bool {{ val keeper: Keep = 0; keeper.keep(1, 2) }}"
+        ),
         None,
-    ))
+    )
 }
 
 #[test]
-fn generic_operation_environment_does_not_root_its_obsolete_program_cycle() {
+fn generic_operation_environment_does_not_root_its_callback_cycle() {
     let mut vm = vm();
-    let code = generic_program();
+    let code = generic_program(true);
     let old = vm
         .runtime_mut()
         .load_program("generic-cycle", code.clone())
@@ -68,9 +60,6 @@ fn generic_operation_environment_does_not_root_its_obsolete_program_cycle() {
             .environment
             .is_some()
     );
-    vm.runtime()
-        .write_module_slot(&old, ModuleSlot::new(0), closure)
-        .unwrap();
     let root = vm.runtime().root_value(closure).unwrap();
     vm.reload_program(&old, "generic-cycle", code).unwrap();
     let retained = vm.runtime().collect_garbage().unwrap();
@@ -90,7 +79,7 @@ fn generic_operation_environment_does_not_root_its_obsolete_program_cycle() {
 #[test]
 fn detached_environment_snapshots_cannot_republish_released_executable_dependencies() {
     let mut vm = vm();
-    let code = generic_program();
+    let code = generic_program(false);
     let old = vm
         .runtime_mut()
         .load_program("environment", code.clone())
@@ -194,7 +183,7 @@ fn assert_reclaimed(runtime: &Runtime, old: &LoadedModule, reclaimed: &HashSet<M
 }
 
 #[test]
-fn old_module_closure_cycle_is_retained_only_by_external_roots() {
+fn old_callback_cycle_is_retained_only_by_external_roots() {
     let mut vm = vm();
     let old = vm.runtime_mut().load_program("cycle", program(42)).unwrap();
     let closure = vm
@@ -203,9 +192,6 @@ fn old_module_closure_cycle_is_retained_only_by_external_roots() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
-    vm.runtime()
-        .write_module_slot(&old, ModuleSlot::new(0), closure)
-        .unwrap();
     let root = vm.runtime().root_value(closure).unwrap();
     let current = vm.reload_program(&old, "cycle", program(99)).unwrap();
     let first = vm.runtime().collect_garbage().unwrap();
@@ -257,14 +243,26 @@ fn cycles_between_obsolete_programs_are_collected_together() {
         .return_value
         .value(vm.runtime().gc())
         .expect("retained execution result");
+    let left_snapshot = vm.runtime().resolve_closure(&from_left).unwrap();
+    let right_snapshot = vm.runtime().resolve_closure(&from_right).unwrap();
+    let Value::Array(left_array) = left_snapshot.captures[0] else {
+        panic!("callback array")
+    };
+    let Value::Array(right_array) = right_snapshot.captures[0] else {
+        panic!("callback array")
+    };
+    drop((left_snapshot, right_snapshot));
     vm.runtime()
-        .write_module_slot(&left, ModuleSlot::new(0), from_right)
+        .gc()
+        .array_set(left_array, 0, from_right)
         .unwrap();
     vm.runtime()
-        .write_module_slot(&right, ModuleSlot::new(0), from_left)
+        .gc()
+        .array_set(right_array, 0, from_left)
         .unwrap();
+    let root = vm.runtime().root_value(from_right).unwrap();
     let newer_left = vm.reload_program(&left, "left", code.clone()).unwrap();
-    // The still-current right program reaches both old versions.
+    // The retained right callback reaches both old executable versions.
     assert!(
         vm.runtime()
             .collect_garbage()
@@ -273,6 +271,7 @@ fn cycles_between_obsolete_programs_are_collected_together() {
             .is_empty()
     );
     let newer_right = vm.reload_program(&right, "right", code).unwrap();
+    drop(root);
     let collected = vm.runtime().collect_garbage().unwrap();
     assert_eq!(collected.reclaimed_objects, 4);
     assert_eq!(collected.live_objects, 0);

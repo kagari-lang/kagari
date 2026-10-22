@@ -27,6 +27,10 @@ pub fn references(
         cancel.check()?;
         let functions: &[FnDecl] = match item {
             PublicItem::Function(function) => slice::from_ref(function),
+            PublicItem::Static(value) => {
+                pending.push(&value.ty);
+                &[]
+            }
             PublicItem::Const(value) => {
                 pending.push(&value.ty);
                 &[]

@@ -14,6 +14,7 @@ use kagari_types::declaration::verify::{
     Parameters, aggregate_shape_valid, bounds_valid, function_valid, parameters,
     scalar_const_valid, trait_reference_valid, trait_valid, type_valid,
 };
+
 use kagari_types::{
     callable::CallableImplementation,
     declaration::{FnDecl, TraitDef, ownership::ReceiverOwners},
@@ -24,6 +25,7 @@ use kagari_types::{
         matching::{ImplementationPattern, projection_output},
         substitution::{TypeSubstitution, TypeTransformError, normalize_projections},
     },
+    visibility::Visibility,
 };
 use std::{
     collections::{BTreeMap, HashSet},
@@ -56,6 +58,11 @@ pub fn validate(
                 .is_some_and(|id| {
                     function_valid(function, id, &Parameters::new(), None, cancel, definitions)
                 }),
+            PublicItem::Static(value) => {
+                value.supplier == *module
+                    && value.visibility == Visibility::Public
+                    && value.valid(definitions, cancel)
+            }
             PublicItem::Const(value) => {
                 type_valid(&value.ty, &Parameters::new(), None, cancel, definitions)
             }

@@ -1,6 +1,6 @@
 use crate::{
     callable::interface::InterfaceCallContract, representation::semantic_representation,
-    types::inherent::InherentTable,
+    statics::StaticContract, types::inherent::InherentTable,
 };
 use bincode::{DefaultOptions, Options};
 use kagari_abi::representation::ValueType;
@@ -44,6 +44,7 @@ pub struct ModuleContract {
 pub enum PublicItem {
     Function(FnDecl),
     Const(ConstDef),
+    Static(StaticContract),
     Type(TypeDef),
     Trait(TraitDef),
     InterfaceTable(Box<InterfaceTable>),
@@ -55,6 +56,7 @@ impl PublicItem {
         match self {
             Self::Function(item) => &item.name,
             Self::Const(item) => &item.name,
+            Self::Static(item) => &item.name,
             Self::Type(item) => &item.name,
             Self::Trait(item) => &item.name,
             Self::InterfaceTable(item) => &item.name,
@@ -66,6 +68,7 @@ impl PublicItem {
         match self {
             Self::Function(_) => "function",
             Self::Const(_) => "const",
+            Self::Static(_) => "static",
             Self::Type(_) => "type",
             Self::Trait(_) => "trait",
             Self::InterfaceTable(_) => "interface_table",

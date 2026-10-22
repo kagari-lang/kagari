@@ -16,7 +16,7 @@ mod normalization;
 mod records;
 pub mod retention;
 pub(crate) mod staging;
-mod state;
+pub mod state;
 #[cfg(test)]
 mod tests;
 use crate::{
@@ -24,6 +24,10 @@ use crate::{
     error::RuntimeError,
     host::{HostPathDescriptorId, HostRegistryId},
     metadata::TypeId,
+    module::state::{
+        StaticState,
+        cells::{CellId, StaticCell},
+    },
     module::{
         execution::ExecutionModule,
         layout_admission::{AggregateKind, LayoutAdmissions, LayoutEndpoint},
@@ -35,11 +39,10 @@ use crate::{
     },
     native::binding::LinkedNativeFunction,
     reload::{ModuleEpoch, ModuleEpochAllocator},
-    value::Value,
 };
 use kagari_bytecode::{
     artifact::{ArtifactFingerprint, ArtifactValidationError, validate_program_resource_limits},
-    instruction::{EnumId, PathId, StructId},
+    instruction::{BytecodeInstruction, EnumId, PathId, StructId},
     module::BytecodeModule,
     program::{
         BytecodeProgram, ModuleRef, exports::ExportTarget, verified::VerifiedBytecodeProgram,
@@ -48,6 +51,7 @@ use kagari_bytecode::{
 
 use kagari_contract::{
     exports::ProgramExports,
+    ids::FunctionRef,
     layout::{EnumLayout, EnumVariantLayout, StructLayout},
 };
 
@@ -69,9 +73,6 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-
-#[cfg(test)]
-use std::cell::RefMut;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModuleId(u64);
@@ -133,6 +134,8 @@ pub struct LoadedModule {
 /// Host bindings and module instances are created separately for each runtime.
 #[derive(Debug, Clone)]
 pub struct VerifiedProgram {
+    static_access: bool,
+    initializers: Arc<[HashSet<FunctionRef>]>,
     exports: Arc<ProgramExports>,
     export_targets: Arc<HashMap<DefinitionId, ExportTarget>>,
     root: ModuleRef,
@@ -213,7 +216,32 @@ impl VerifiedProgram {
         for (index, prepared) in execution.iter_mut().enumerate() {
             prepared.prepare_calls(ModuleRef::new(index), program.program(), &definitions);
         }
+        let static_access = modules
+            .iter()
+            .flat_map(|module| &module.functions)
+            .flat_map(|function| &function.instructions)
+            .any(|instruction| {
+                matches!(
+                    instruction,
+                    BytecodeInstruction::LoadModule { .. }
+                        | BytecodeInstruction::StoreModule { .. }
+                )
+            });
+        let initializers = modules
+            .iter()
+            .map(|module| {
+                module
+                    .module_slots
+                    .iter()
+                    .filter(|slot| slot.contract.supplier == module.identity)
+                    .map(|slot| slot.initializer)
+                    .collect()
+            })
+            .collect::<Vec<HashSet<FunctionRef>>>()
+            .into();
         Self {
+            static_access,
+            initializers,
             execution: execution.into(),
             root: program.program().root,
             exports: Arc::new(program.program().exports.clone()),
@@ -288,6 +316,14 @@ impl Deref for LoadedModule {
 }
 
 impl LoadedModule {
+    pub(crate) fn is_static_initializer(&self, function: FunctionRef) -> bool {
+        self.program.code.initializers[self.slot.index()].contains(&function)
+    }
+
+    pub(crate) fn requires_static_execution(&self) -> bool {
+        self.program.code.static_access
+    }
+
     pub(crate) fn execution(&self) -> &ExecutionModule {
         &self.program.code.execution[self.slot.index()]
     }
@@ -518,19 +554,7 @@ pub struct ModuleInstance {
     pub id: ModuleId,
     pub name: String,
     pub epoch: ModuleEpoch,
-    pub module_slots: Vec<Value>,
-}
-
-impl ModuleInstance {
-    pub fn new(module: &LoadedModule) -> Self {
-        Self {
-            id: module.id,
-            name: module.name.clone(),
-            epoch: module.epoch,
-            // Empty storage has no outgoing edges. Checked slot writes publish values.
-            module_slots: vec![Value::Unit; module.bytecode.module_slots.len()],
-        }
-    }
+    pub module_slots: Vec<StaticState>,
 }
 
 #[derive(Debug, Default)]
@@ -542,6 +566,8 @@ pub struct ModuleStore {
 #[derive(Debug, Default)]
 struct ModuleStoreInner {
     epochs: ModuleEpochAllocator,
+    next_cell: u64,
+    cells: HashMap<CellId, StaticCell>,
     next_id: usize,
     ids_by_member: HashMap<(String, ModuleIdentity), ModuleId>,
     records: HashMap<ModuleKey, ModuleRecord>,
@@ -667,9 +693,13 @@ impl ModuleStore {
         inner
             .staged
             .insert(loaded.program_key(), Arc::downgrade(&lease));
+        // Allocation is fallible. Install abandonment authority first so a failure
+        // cannot leave partially prepared records available as an ordinary load.
+        inner.allocate_statics(&loaded)?;
         Ok(StagedProgram {
             module: loaded,
             lease,
+            expected_base: None,
         })
     }
 
@@ -690,22 +720,25 @@ impl ModuleStore {
     pub(crate) fn instance_snapshot(&self, key: ModuleKey) -> Option<ModuleInstance> {
         let inner = self.inner.try_borrow().ok()?;
         inner.available(key)?;
-        inner
-            .records
-            .get(&key)
-            .map(|record| record.instance.clone())
-    }
-
-    #[cfg(test)]
-    pub(crate) fn instance_mut(&self, key: ModuleKey) -> Option<RefMut<'_, ModuleInstance>> {
-        RefMut::filter_map(self.inner.try_borrow_mut().ok()?, |inner| {
-            inner.available(key)?;
-            inner
-                .records
-                .get_mut(&key)
-                .map(|record| &mut record.instance)
+        let record = inner.records.get(&key)?;
+        if record.bindings.len() != record.module.bytecode.module_slots.len() {
+            return None;
+        }
+        Some(ModuleInstance {
+            id: record.module.id,
+            name: record.module.name.clone(),
+            epoch: record.module.epoch,
+            module_slots: record
+                .bindings
+                .iter()
+                .enumerate()
+                .map(|(slot, _)| {
+                    inner
+                        .bound_cell(record, slot)
+                        .map(|cell| cell.state.clone())
+                })
+                .collect::<Option<_>>()?,
         })
-        .ok()
     }
 
     pub(crate) fn is_staged(&self, module: &LoadedModule) -> bool {

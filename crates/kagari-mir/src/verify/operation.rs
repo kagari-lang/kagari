@@ -240,14 +240,30 @@ pub(super) fn verify(
                 .module_slots
                 .get(slot.index())
                 .ok_or_else(|| context.error(Error::InvalidModuleSlot))?;
-            context.expect(dst.ty, slot.ty, "module load")?;
+            context.expect(
+                dst.ty,
+                semantic_representation(&slot.contract.ty),
+                "module load",
+            )?;
+            if function.semantic.registers.get(&dst.temp.index()) != Some(&slot.contract.ty) {
+                return Err(context.error(Error::InvalidModuleSlot));
+            }
         }
         Instruction::StoreModule { slot, src } => {
             let slot = module
                 .module_slots
                 .get(slot.index())
                 .ok_or_else(|| context.error(Error::InvalidModuleSlot))?;
-            context.expect(src.ty, slot.ty, "module store")?;
+            context.expect(
+                src.ty,
+                semantic_representation(&slot.contract.ty),
+                "module store",
+            )?;
+            if !slot.contract.mutable
+                || function.semantic.registers.get(&src.temp.index()) != Some(&slot.contract.ty)
+            {
+                return Err(context.error(Error::InvalidModuleSlot));
+            }
         }
         Instruction::Move { dst, src } => context.expect(dst.ty, src.ty, "move destination")?,
         Instruction::Unary { dst, op, operand } => context.expect(
