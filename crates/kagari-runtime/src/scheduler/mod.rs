@@ -17,7 +17,11 @@ use crate::{
         result::{CompletionSink, ScheduledResult, channel},
         wake::{DriverRegistration, WakeHub},
     },
-    session::{ExecutionId, owned::OwnedExecution},
+    session::{
+        ExecutionId,
+        group::{BranchActivation, GroupWork},
+        owned::OwnedExecution,
+    },
     task::{
         TaskId,
         drive::{TaskAcquisition, TaskActivation},
@@ -58,6 +62,7 @@ impl Default for TurnBudget {
 pub(crate) enum WorkKey {
     Invocation(ExecutionId),
     Task(TaskId),
+    Group(ExecutionId),
 }
 
 struct Invocation {
@@ -122,6 +127,9 @@ impl Scheduler {
 pub enum ScheduledWork<'runtime> {
     Invocation(InvocationActivation<'runtime>),
     Task(TaskActivation<'runtime>),
+    Branch(BranchActivation<'runtime>),
+    /// Admission or terminal cleanup consumed one bounded activation.
+    Control,
 }
 
 /// A selected invocation is detached from scheduler tables before callbacks run.
@@ -259,6 +267,17 @@ impl SchedulerTurn<'_> {
                             runtime,
                             invocation: Some(invocation),
                         })));
+                    }
+                }
+                WorkKey::Group(id) => {
+                    runtime.scheduler.queue.borrow_mut().push_back(key);
+                    match runtime.acquire_group(id.0)? {
+                        GroupWork::Branch(active) => {
+                            return Ok(Some(ScheduledWork::Branch(active)));
+                        }
+                        GroupWork::Control => return Ok(Some(ScheduledWork::Control)),
+                        GroupWork::Waiting => {}
+                        GroupWork::Stale => runtime.scheduler.forget(key),
                     }
                 }
                 WorkKey::Task(id) => {
@@ -447,6 +466,7 @@ impl Runtime {
             .borrow()
             .iter()
             .any(|entry| entry.execution.is_ready())
+            || self.groups_have_ready_work()
             || self.tasks.borrow().tasks.iter().any(|(_, task)| {
                 task.signal
                     .scope

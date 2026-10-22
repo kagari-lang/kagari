@@ -9,7 +9,6 @@ use crate::{
     task::{
         ScopeId, SpawnError, TaskFailure,
         control::{ScopeControl, TaskSignal},
-        dependencies::Dependencies,
     },
 };
 use std::sync::{
@@ -159,7 +158,6 @@ pub(crate) struct TaskRecord {
 
 #[derive(Debug)]
 pub(crate) struct TaskStore {
-    pub dependencies: Arc<Dependencies>,
     pub owner: u64,
     pub scopes: Slots<ScopeRecord>,
     pub tasks: Slots<TaskRecord>,
@@ -172,7 +170,6 @@ impl TaskStore {
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
             .expect("task registry identity exhausted");
         Self {
-            dependencies: Arc::new(Dependencies::new(limits.max_task_waiters)),
             owner,
             scopes: Slots::new(owner, limits.max_task_scopes.get()),
             tasks: Slots::new(owner, limits.max_tasks.get()),

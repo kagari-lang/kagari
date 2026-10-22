@@ -7,10 +7,94 @@ mod host;
 mod provider;
 
 use kagari::{BytecodeArtifact, engine::KagariEngine, program::PreparedProgram};
+use kagari_runtime::native::conversion::context::ConversionContext;
 #[cfg(feature = "source")]
 use kagari_source::source::SourceFile;
 use provider::FakeIo;
-use std::{fs, path::Path};
+use std::{
+    fs,
+    future::Future,
+    path::Path,
+    pin::Pin,
+    task::{Context, Poll, Waker},
+};
+
+#[test]
+fn source_free_structured_pair_contract() {
+    let engine = KagariEngine::builder().unwrap().build().unwrap();
+    let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(Path::parent)
+        .unwrap()
+        .join("target/fixtures/async_pairs.kbc");
+    #[cfg(feature = "source")]
+    {
+        let source = r#"
+use core::task::{join,try_join};
+async fn ok(value:i32) -> Result<i32,String> { Ok(value) }
+async fn fail() -> Result<i32,String> { Err("original") }
+pub async fn run() -> i32 {
+    val (a,b)=join(async { 3 },async { 4 }).await;
+    val success=try_join(ok(a),ok(b)).await;
+    val failure=try_join(ok(99),fail()).await;
+    match failure { Err(_) => match success { Ok((x,y)) => x*10+y, Err(_) => 0 }, Ok(_) => 0 }
+}
+"#;
+        let artifact = engine
+            .compile_to_artifact(
+                SourceFile::new("memory://async-pairs.kgr", source),
+                Default::default(),
+            )
+            .unwrap();
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(
+            &path,
+            artifact.records().to_bytes(artifact.definitions()).unwrap(),
+        )
+        .unwrap();
+    }
+    let artifact = BytecodeArtifact::from_bytes(
+        &fs::read(path).expect("emit async_pairs with the source feature first"),
+    )
+    .unwrap();
+    let program =
+        PreparedProgram::from_artifact(artifact, &Default::default(), &Default::default()).unwrap();
+    let mut runtime = engine.runtime(Default::default());
+    let module = runtime.load_program(&program, Default::default()).unwrap();
+    let cold = runtime
+        .execute(&module, "run", &[], &Default::default())
+        .unwrap()
+        .return_value;
+    let execution = runtime
+        .start_future(
+            &cold.value(runtime.runtime().gc()).unwrap(),
+            &Default::default(),
+        )
+        .unwrap();
+    let mut ticket = runtime
+        .runtime()
+        .schedule_execution(execution, |runtime, value| {
+            let owner = runtime.execution_root().unwrap();
+            ConversionContext::new(runtime, &owner)?.decode::<i32>(value)
+        })
+        .unwrap();
+    for _ in 0..100 {
+        if ticket.is_finished() {
+            break;
+        }
+        assert!(
+            runtime
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_pending()
+        );
+        runtime.runtime().collect_garbage().unwrap();
+    }
+    assert!(matches!(
+        Pin::new(&mut ticket).poll(&mut Context::from_waker(Waker::noop())),
+        Poll::Ready(Ok(34))
+    ));
+    assert!(runtime.take_task_event().is_none());
+}
 
 #[test]
 fn source_free_async_execution_contract() {

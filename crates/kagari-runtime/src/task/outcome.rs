@@ -97,7 +97,7 @@ impl Runtime {
             .expect("completing task")
             .state = TaskState::Terminal(report);
         self.acknowledge_task_scopes();
-        let dependencies = self.tasks.borrow().dependencies.clone();
+        let dependencies = self.dependencies.clone();
         let mut failure = None;
         for wake in dependencies.complete(task) {
             if catch_unwind(AssertUnwindSafe(|| wake.wake())).is_err() {

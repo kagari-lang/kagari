@@ -33,7 +33,7 @@ use crate::{
     scheduler::Scheduler,
     session::{
         CandidateSession, ExecutionEntry, ExecutionObserver, ExecutionOptions, ExecutionPhase,
-        ExecutionSession,
+        ExecutionSession, dependencies::Dependencies, group::GroupStore,
     },
     task::store::TaskStore,
     value::Value,
@@ -42,7 +42,10 @@ use kagari_bytecode::instruction::BinaryOp;
 use kagari_common::identity::{map::DefinitionContext, metadata::DefinitionMetadata};
 use kagari_contract::{ids::FunctionRef, standard::RuntimePrimitive};
 use kagari_types::declaration::path::HostPathDeclaration;
-use std::{cell::RefCell, sync::OnceLock};
+use std::{
+    cell::RefCell,
+    sync::{Arc, OnceLock},
+};
 
 pub mod error_trace;
 #[cfg(test)]
@@ -128,6 +131,8 @@ pub struct RuntimeConfig {
 #[derive(Debug)]
 pub struct Runtime {
     scheduler: Scheduler,
+    groups: RefCell<GroupStore>,
+    dependencies: Arc<Dependencies>,
     tasks: RefCell<TaskStore>,
     operations: OnceLock<Result<CompletionRegistry, RuntimeError>>,
     async_limits: AsyncLimits,
@@ -173,6 +178,8 @@ impl Runtime {
         let types = native_entries.metadata.runtime_registry();
         Self {
             scheduler: Scheduler::new(config.async_limits),
+            groups: RefCell::default(),
+            dependencies: Arc::new(Dependencies::new(config.async_limits)),
             tasks: RefCell::new(TaskStore::new(config.async_limits)),
             operations: OnceLock::new(),
             async_limits: config.async_limits,
@@ -256,7 +263,14 @@ impl Runtime {
         let session = self.resources().active_session().ok_or_else(|| {
             RuntimeError::module_validation("execution random requires an active session")
         })?;
-        Ok(session.next_random_u64())
+        let root = session.logical_root.get();
+        drop(session);
+        let root = self
+            .resources()
+            .sessions
+            .get(root)
+            .ok_or_else(|| RuntimeError::module_validation("logical invocation root"))?;
+        Ok(root.next_random_u64())
     }
 
     pub fn begin_candidate_initialization<'candidate>(

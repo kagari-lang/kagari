@@ -67,9 +67,10 @@ impl Runtime {
     }
 }
 
-impl CallContext<'_> {
-    fn declared_enum_variant(
+impl Runtime {
+    pub(crate) fn checked_enum_variant(
         &self,
+        owner: &LoadedModule,
         applied: &TypeArgument,
         variant: &VariantRef,
     ) -> NativeResult<EnumVariantRef> {
@@ -80,15 +81,24 @@ impl CallContext<'_> {
         let member = identity
             .last()
             .ok_or_else(|| RuntimeError::module_validation("native enum member identity"))?;
-        let prepared = self
-            .runtime
-            .declared_enum_member(self.owner, applied, member.name)?;
+        let prepared = self.declared_enum_member(owner, applied, member.name)?;
         if !prepared.matches_identity(variant.id(), variant.definitions()) {
             return Err(RuntimeError::module_validation(
                 "variant belongs to another enum",
             ));
         }
         Ok(prepared.layout().clone())
+    }
+}
+
+impl CallContext<'_> {
+    fn declared_enum_variant(
+        &self,
+        applied: &TypeArgument,
+        variant: &VariantRef,
+    ) -> NativeResult<EnumVariantRef> {
+        self.runtime
+            .checked_enum_variant(self.owner, applied, variant)
     }
 
     /// Allocate an ordinary registered enum in its checked, pinned type scope.

@@ -67,9 +67,15 @@ impl Runtime {
                 let record = tasks.tasks.get_mut(id.0).expect("cancelled task record");
                 mem::replace(&mut record.state, TaskState::Driving)
             };
-            let (cleanup, trace) = match state {
+            let (cleanup, trace, selected) = match state {
                 TaskState::Owned(execution) => {
-                    let trace = ErrorTrace::capture_session(self.resources(), execution.id);
+                    let selected = self.group_fatal_error(execution.id);
+                    let trace = selected
+                        .as_ref()
+                        .and_then(|error| error.trace().cloned())
+                        .unwrap_or_else(|| {
+                            ErrorTrace::capture_session(self.resources(), execution.id)
+                        });
                     // Quarantine may already have retired all owned sessions.
                     let cleanup = if self.resources().sessions.get(execution.id).is_some() {
                         self.finish_owned_execution(&execution)
@@ -78,14 +84,18 @@ impl Runtime {
                     } else {
                         Err(RuntimeError::module_validation("missing Task execution"))
                     };
-                    (cleanup, Some(trace))
+                    (cleanup, Some(trace), selected)
                 }
-                TaskState::Queued(_) => (Ok(()), None),
+                TaskState::Queued(_) => (Ok(()), None, None),
                 _ => unreachable!("checked cancellation state"),
             };
-            let error = cleanup.err().or_else(|| fault.clone()).unwrap_or_else(|| {
-                RuntimeError::new(RuntimeErrorKind::Cancelled, "task cancelled")
-            });
+            let error = cleanup
+                .err()
+                .or(selected)
+                .or_else(|| fault.clone())
+                .unwrap_or_else(|| {
+                    RuntimeError::new(RuntimeErrorKind::Cancelled, "task cancelled")
+                });
             let error = match trace {
                 Some(trace) => error.with_trace(trace),
                 None => error,

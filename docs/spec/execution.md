@@ -516,10 +516,48 @@ define the checked handoff.
 
 Runtime-owned execution records survive short driver activations. The driver
 returns Runnable, Waiting or Complete, and completion endpoints only publish
-readiness. Direct Future await drives once in the current execution;
+readiness. Direct script/native Future await drives once in the current execution;
+structured composition parks that execution and admits internal branch executions.
 Task await waits for a scope-owned execution. Live cursor values remain in parked frames,
 so ordinary for bodies can await without retaining collection borrows.
 Rust borrows, mutation guards and synchronous reentry cannot cross suspension.
+
+### Structured two-input composition
+
+`core::task::join` and `try_join` return cold, single-drive Futures; construction
+starts neither operand. Awaiting parks the parent before the shared scheduler
+admits the pair. Duplicate operand identities and already-consumed Futures fail;
+pre-claim admission failure consumes neither operand (the outer composition has
+already been consumed). Both operands are validated and local ownership/root and
+dependency reservations succeed before an atomic pair claim. Claims never submit
+providers or execute script. Each branch then drives exactly one Future layer.
+
+Groups own two internal executions, not public Tasks, tickets or reports. They
+share the scheduler's stable cooperative rotation and outer granted-quanta budget,
+including bounded admission/control activations. Both IO operations can be pending
+at once. A waiting left branch cannot hide a completed right branch. Results use
+input order, not completion order; `join` treats Result values as ordinary outputs.
+`try_join` selects the first observed Err and preserves its original optional
+source/stack diagnostic metadata, including absence, while rebinding its success
+type. The standard library interprets Result through checked declaration identities;
+the scheduler knows only normal-output policy decisions and execution failures.
+
+A selected result remains rooted while the group closes. Descendant groups retire
+leaf-first, pending native consumers detach locally, and unused outputs/frames and
+dependency edges are released before the parent can observe completion. Cleanup
+does not wait for remote IO acknowledgement. Late completions are stale. Sticky
+parent termination overrides a ready value, and cleanup faults quarantine the
+runtime while continuing to drain siblings. Dropping/cancelling a parent cannot
+leave owned branches running. Waiting on an external Task remains non-owning:
+group exit removes the subscription but never cancels that shared Task.
+
+Parent-to-branch edges and Task waits share one bounded cycle check. Runtime
+`AsyncLimits.max_groups` and `max_group_depth` bound group count and ancestry;
+exhaustion terminates execution rather than returning a library Err. Branches
+inherit logical parent call depth, deterministic inputs and one shared RNG/host-call
+recording stream. Their checked executable/type generations stay pinned across
+reload. These contracts also apply to source-free artifacts; composition adds no
+bytecode instruction or compiler-recognized Result behavior.
 
 ### Owned readiness and cancellation notifications
 

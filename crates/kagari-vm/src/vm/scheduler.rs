@@ -54,6 +54,16 @@ impl Vm {
             remaining -= grant.get();
             let Some(work) = turn.next_work()? else { break };
             match work {
+                ScheduledWork::Control => {}
+                ScheduledWork::Branch(active) => {
+                    match self.drive_with_completion(active.execution(), grant, |_, _| Ok(())) {
+                        Ok(DriveResult::Runnable | DriveResult::Waiting) => active.park()?,
+                        Ok(DriveResult::Complete(result)) => {
+                            active.complete(result.map_err(execution_failure))?
+                        }
+                        Err(error) => active.fail(execution_failure(error))?,
+                    }
+                }
                 ScheduledWork::Invocation(active) => {
                     let result =
                         self.drive_with_completion(active.execution(), grant, |runtime, value| {

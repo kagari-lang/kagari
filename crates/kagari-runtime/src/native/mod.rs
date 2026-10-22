@@ -9,6 +9,7 @@ pub mod callable;
 pub mod catalog;
 pub mod collections;
 pub mod completion;
+pub mod composition;
 pub mod context;
 pub mod conversion;
 pub mod declarations;

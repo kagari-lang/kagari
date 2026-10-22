@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Active: AR01-AR03 complete; AR04 structured composition next.** Originally
+**Active: AR01-AR04 complete; AR05 public Runtime facade next.** Originally
 planned on 2026-10-22 against `2bfcc77c`; the user subsequently authorized AR01-AR06
 implementation with one commit per completed phase. This document owns scope,
 dependencies, acceptance and progress. The [roadmap](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api)
@@ -872,11 +872,11 @@ low-level paths may remain until their callers migrate in AR05, not indefinitely
 
 ### AR04 - Add structured groups and library combinators
 
-- [ ] Implement the chosen bounded internal group representation and ownership edges.
-- [ ] Reserve/validate before branch execution; handle alias/duplicate Future claims.
-- [ ] Implement checked normal-output policy callbacks and closing-before-publication.
-- [ ] Register two-input join/try_join in the standard library using ordinary types.
-- [ ] Preserve Task wait cycle checks, nested-group depth/capacity limits, GC roots,
+- [x] Implement the chosen bounded internal group representation and ownership edges.
+- [x] Reserve/validate before branch execution; handle alias/duplicate Future claims.
+- [x] Implement checked normal-output policy callbacks and closing-before-publication.
+- [x] Register two-input join/try_join in the standard library using ordinary types.
+- [x] Preserve Task wait cycle checks, nested-group depth/capacity limits, GC roots,
       source-free validation, async origins and reload pinning.
 
 Acceptance: both branches can start IO before either completes; a right-hand Err
@@ -991,7 +991,7 @@ artifacts and batch fixture regeneration at a coherent checkpoint.
 | AR01 | Complete (design/documentation) | Closure decisions above resolve ownership, bounds, scheduler, groups, reports/close and finite migration. Source/link/diff review only; runtime acceptance remains in implementation phases. |
 | AR02 | Complete (focused local acceptance) | Distinct AST/HIR block, shared capture/type checking and direct MakeFuture lowering; tooling and contracts updated. Validation below; exhaustive CI unrun. |
 | AR03 | Complete (focused local acceptance) | Shared runtime/VM turn, durable dual wake routes, scheduled results and completion-before-retirement, managed Task retirement and synchronous close. Temporary manual-scope path removal belongs to AR05. |
-| AR04 | Not started | Structured groups and stdlib join/try_join. |
+| AR04 | Complete (focused local acceptance) | Cold pair composition, atomic claims, internal owned branches, generalized dependencies and leaf-first cleanup; stdlib policy preserves original Err provenance. |
 | AR05 | Not started | Public synchronous/awaitable calls, reusable bindings and retained object/member facade. |
 | AR06 | Not started | Integrated contracts and focused local acceptance. |
 
@@ -1001,6 +1001,49 @@ through shared capture lowering and both failing block contracts passed. Parser/
 fixture and editor-token fixture failures were corrected and rerun. The initial
 default-feature SDK build hit the 120-second compound-command timeout before tests
 ran; source-only focused SDK validation passed afterward. Full CI acceptance is unrun.
+
+### AR04 validation and review
+
+Added traced cold compositions and parked group admission, two internal owned branch
+sessions, atomic paired claims, capacity/depth limits, bounded multi-edge dependency
+checks and leaf-first descendant cleanup. One scheduler drives all work; no public
+branch Task/ticket/report or second interpreter. Branches inherit logical call depth,
+clock/random inputs and shared root recording. Restricted stdlib policy assembles
+ordered outputs and rebinds Err with its original optional trace, including None.
+Current architecture/builtin/execution contracts now describe implemented composition.
+
+Read-only review found fatal branch errors being replaced by generic quarantine
+observations. A reproduced observer-entry case now retains original message/trace
+through direct, nested and Task-owned groups, with sibling IO invalidated and roots
+released. Genuine cleanup faults still override the selected message while retaining
+its trace. The generalized dependency walker initially changed an existing cycle
+message; restored the contract and reran the affected test. No outstanding failures.
+
+Passed selected tests/checks:
+
+```text
+cargo test -p kagari --lib groups_
+cargo test -p kagari --lib async_execution::scheduler
+cargo test -p kagari --lib async_execution::task_waiters
+cargo test -p kagari-runtime --lib composition_preserves
+cargo test -p kagari-runtime --lib cold_claim_transfers_backing_and_sweep_releases_only_remaining_charge
+cargo test -p kagari-runtime --lib deterministic_inputs_and_random_stream_belong_to_the_root_session
+cargo test -p kagari --lib scoped_entries_use_explicit_sdk_context_and_the_common_pack_adapter
+cargo test -p kagari --test artifact_features source_free_structured_pair_contract
+cargo test -p kagari --no-default-features --test artifact_features source_free_structured_pair_contract
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+Final group/scheduler/task-wait sets passed 11/10/2 tests. Source-free validation
+covered both artifact production and frontend-free consumption; provenance tests
+check original trace identity and absent origin. Existing input/host-boundary checks
+cover changed logical invocation ownership. Structure passed 1,492 Rust files with
+zero violations/exceptions. Workspace Clippy passed again after the fatal-outcome
+repair; unaffected earlier tests were not rerun for a fresh transcript. Exhaustive
+feature/backend/platform coverage remains CI-only.
 
 ### AR03 validation and review
 

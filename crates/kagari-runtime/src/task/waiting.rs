@@ -4,8 +4,8 @@ use crate::{
     error::RuntimeError,
     error_trace::{ErrorFrame, asynchronous::AsyncBoundary},
     native::binding::NativeResult,
-    session::store::SessionId,
-    task::{TaskId, dependencies::WaitLease},
+    session::{dependencies::WaitLease, store::SessionId},
+    task::TaskId,
     value::Value,
 };
 use std::task::{Poll, Waker};
@@ -57,7 +57,7 @@ impl Runtime {
                 if tasks.tasks.get(task.0).is_none() {
                     return Err(RuntimeError::module_validation("missing unfinished Task"));
                 }
-                tasks.dependencies.clone()
+                self.dependencies.clone()
             };
             Some(
                 dependencies

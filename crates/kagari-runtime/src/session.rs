@@ -27,6 +27,8 @@ use std::{
 
 use kagari_bytecode::artifact::ArtifactFingerprint;
 
+pub(crate) mod dependencies;
+pub mod group;
 pub mod owned;
 pub(crate) mod store;
 
@@ -184,6 +186,10 @@ pub(crate) struct SessionState {
     pub id: SessionId,
     pub owner: RefCell<Option<Arc<owned::ExecutionOwner>>>,
     pub parked_depth: Cell<u32>,
+    pub depth_base: Cell<u32>,
+    pub group_depth: Cell<usize>,
+    pub logical_root: Cell<SessionId>,
+    pub group_parent: Cell<Option<SessionId>>,
     pub static_initializers: Arc<AtomicUsize>,
     pub pending: RefCell<Option<PendingWait>>,
     pub queued_future: RefCell<Option<QueuedFuture>>,
@@ -218,6 +224,10 @@ impl SessionState {
             id,
             owner: RefCell::new(None),
             parked_depth: Cell::new(0),
+            depth_base: Cell::new(0),
+            group_depth: Cell::new(0),
+            logical_root: Cell::new(id),
+            group_parent: Cell::new(None),
             static_initializers: Arc::new(AtomicUsize::new(0)),
             pending: RefCell::new(None),
             queued_future: RefCell::new(None),

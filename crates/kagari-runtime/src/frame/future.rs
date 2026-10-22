@@ -1,12 +1,13 @@
 //! Cold script frames reuse closure metadata edges without exposing a callable resume body.
 use crate::{
     Runtime,
-    closure::ClosureTarget,
+    closure::{ClosureTarget, ClosureValueSnapshot},
     error::RuntimeError,
     frame::{
         ExecutionStack, FrameDispatch, FrameEntry, arguments::FrameArguments,
         types::arguments::TypeArgument,
     },
+    module::LoadedModule,
     native::{
         binding::NativeResult,
         future::{ColdFuture, FuturePayload},
@@ -17,7 +18,7 @@ use crate::{
 use kagari_bytecode::{instruction::Slot, module::CallableTarget};
 use kagari_contract::ids::FunctionRef;
 use kagari_types::ty::Ty;
-use std::slice;
+use std::{cell::Ref, slice};
 
 impl ExecutionStack<'_> {
     pub fn make_future(
@@ -118,34 +119,15 @@ impl ExecutionStack<'_> {
         if !self.can_park(runtime)? {
             return Err(invalid());
         }
-        let closure = runtime.resolve_closure(&value)?;
-        let ClosureTarget::Script(function) = closure.target else {
-            return Err(invalid());
-        };
-        let target = closure
-            .implementation
-            .bytecode
-            .functions
-            .get(function.index())
-            .ok_or_else(invalid)?;
-        if !target.metadata.effects.may_suspend
-            || target.metadata.params.len() != closure.captures.len()
-        {
-            return Err(invalid());
-        }
-        let signature = closure.signature(runtime)?;
         let owner = if destination.is_some() {
             self.current()?.loaded().clone()
         } else {
             self.session.root()
         };
-        if !signature.params.is_empty()
-            || !output
-                .view(&owner)
-                .compatible(signature.result.view(&closure.implementation))
-        {
-            return Err(invalid());
-        }
+        let closure = runtime.checked_future_resume(value, &owner, output)?;
+        let ClosureTarget::Script(function) = closure.target else {
+            unreachable!()
+        };
         self.push_arguments(
             runtime,
             closure.implementation.clone(),
@@ -159,5 +141,41 @@ impl ExecutionStack<'_> {
                 environment: closure.environment.clone(),
             },
         )
+    }
+}
+
+impl Runtime {
+    pub(crate) fn checked_future_resume(
+        &self,
+        value: Value,
+        owner: &LoadedModule,
+        output: &TypeArgument,
+    ) -> NativeResult<Ref<'_, ClosureValueSnapshot>> {
+        let invalid = || RuntimeError::module_validation("script Future resume contract");
+        let closure = self.resolve_closure(&value)?;
+        let ClosureTarget::Script(function) = closure.target else {
+            return Err(invalid());
+        };
+        self.validate_loaded_module(&closure.implementation)?;
+        let target = closure
+            .implementation
+            .bytecode
+            .functions
+            .get(function.index())
+            .ok_or_else(invalid)?;
+        if !target.metadata.effects.may_suspend
+            || target.metadata.params.len() != closure.captures.len()
+        {
+            return Err(invalid());
+        }
+        let signature = closure.signature(self)?;
+        if !signature.params.is_empty()
+            || !output
+                .view(owner)
+                .compatible(signature.result.view(&closure.implementation))
+        {
+            return Err(invalid());
+        }
+        Ok(closure)
     }
 }

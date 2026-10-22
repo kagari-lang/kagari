@@ -5,12 +5,13 @@ use crate::{
     Runtime,
     error::RuntimeError,
     frame::{ExecutionStack, types::arguments::TypeArgument},
-    gc::roots::RootedValue,
+    gc::roots::{RootSet, RootedValue},
     native::{
         binding::NativeResult,
         completion::CompletionRegistry,
         future::{ColdFuture, PendingNative},
     },
+    session::store::SessionId,
     task::waiting::TaskWait,
     value::Value,
 };
@@ -34,12 +35,23 @@ pub(crate) struct PendingWait {
 enum PendingOperation {
     Native(Box<dyn PendingNative>),
     Task(TaskWait),
+    Group {
+        parent: SessionId,
+        result: Option<RootedValue>,
+    },
 }
 
 #[derive(Debug)]
 pub(crate) struct QueuedFuture {
     pub value: RootedValue,
     pub output: TypeArgument,
+    pub claimed: Option<ClaimedFuture>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ClaimedFuture {
+    pub cold: ColdFuture,
+    pub _captures: RootSet,
 }
 
 impl PendingWait {
@@ -50,12 +62,25 @@ impl PendingWait {
                 pending.cancel();
                 Ok(())
             }
+            // Parent retirement owns group teardown, including when the wait has
+            // been temporarily removed while polling or unwinding an error.
+            PendingOperation::Group { .. } => Ok(()),
         }
     }
 
     fn poll(&mut self, runtime: &Runtime) -> NativeResult<Poll<Value>> {
         match &mut self.pending {
             PendingOperation::Native(pending) => pending.poll(runtime),
+            PendingOperation::Group { parent, result } => match runtime.poll_group(*parent)? {
+                Poll::Pending => Ok(Poll::Pending),
+                Poll::Ready(root) => {
+                    let value = root
+                        .value(runtime.gc())
+                        .ok_or_else(|| RuntimeError::module_validation("group output root"))?;
+                    *result = Some(root);
+                    Ok(Poll::Ready(value))
+                }
+            },
             PendingOperation::Task(pending) => {
                 let value = self
                     .awaitable
@@ -175,7 +200,39 @@ impl ExecutionStack<'_> {
             .gc()
             .root_execution_values(cold.values().to_vec())
             .ok_or_else(|| RuntimeError::module_validation("Future capture roots"))?;
+        self.start_claimed(runtime, cold, root, destination, output)
+    }
+
+    fn start_claimed(
+        &self,
+        runtime: &Runtime,
+        cold: ColdFuture,
+        root: RootedValue,
+        destination: Option<Slot>,
+        output: TypeArgument,
+    ) -> NativeResult<()> {
+        let wake = self
+            .session
+            .state()
+            .owner
+            .borrow()
+            .as_ref()
+            .expect("owned activation")
+            .waker();
         let cold = match cold {
+            ColdFuture::Composition(cold) => {
+                runtime.request_group(self.session.id, cold, wake)?;
+                *self.session.state().pending.borrow_mut() = Some(PendingWait {
+                    destination,
+                    pending: PendingOperation::Group {
+                        parent: self.session.id,
+                        result: None,
+                    },
+                    output,
+                    awaitable: root,
+                });
+                return Ok(());
+            }
             ColdFuture::Script(closure) => {
                 return self.push_future(runtime, closure, destination, &output);
             }
@@ -239,13 +296,17 @@ impl ExecutionStack<'_> {
                 .value
                 .value(runtime.gc())
                 .ok_or_else(|| RuntimeError::module_validation("queued Future root"))?;
-            self.start_await(
-                runtime,
-                value,
-                None,
-                queued.output,
-                NativeStorageLayout::Future,
-            )?;
+            if let Some(claimed) = queued.claimed {
+                self.start_claimed(runtime, claimed.cold, queued.value, None, queued.output)?;
+            } else {
+                self.start_await(
+                    runtime,
+                    value,
+                    None,
+                    queued.output,
+                    NativeStorageLayout::Future,
+                )?;
+            }
         }
         let pending = self.session.state().pending.borrow_mut().take();
         let Some(mut wait) = pending else {

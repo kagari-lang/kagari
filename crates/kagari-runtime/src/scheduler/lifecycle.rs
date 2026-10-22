@@ -48,6 +48,7 @@ impl Runtime {
         error: RuntimeError,
     ) -> RuntimeError {
         let id = execution.id;
+        let error = self.group_fatal_error(id).unwrap_or(error);
         let exists = self.resources().sessions.get(id).is_some();
         let trace = error
             .trace()

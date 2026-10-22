@@ -23,6 +23,8 @@ pub struct AsyncLimits {
     pub max_task_waiters: NonZeroUsize,
     pub max_scheduled_invocations: NonZeroUsize,
     pub max_task_failure_events: NonZeroUsize,
+    pub max_groups: NonZeroUsize,
+    pub max_group_depth: NonZeroUsize,
 }
 
 impl Default for AsyncLimits {
@@ -34,6 +36,8 @@ impl Default for AsyncLimits {
             max_task_waiters: NonZeroUsize::new(4096).expect("positive default"),
             max_scheduled_invocations: NonZeroUsize::new(1024).expect("positive default"),
             max_task_failure_events: NonZeroUsize::new(256).expect("positive default"),
+            max_groups: NonZeroUsize::new(1024).expect("positive default"),
+            max_group_depth: NonZeroUsize::new(64).expect("positive default"),
         }
     }
 }
@@ -280,8 +284,14 @@ impl ResourceState {
             .current_call_depth
             .checked_add(1)
             .ok_or_else(|| self.limit("call depth"))?;
+        let base = self
+            .active_session()
+            .map_or(0, |session| session.depth_base.get());
+        let logical_depth = next
+            .checked_add(base)
+            .ok_or_else(|| self.limit("call depth"))?;
         if let Some(max) = self.limits.max_call_depth
-            && next > max
+            && logical_depth > max
         {
             return Err(self.limit("call depth"));
         }

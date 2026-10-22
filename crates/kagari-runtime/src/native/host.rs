@@ -92,6 +92,14 @@ fn begin_trace(cx: &CallContext<'_>, values: &[Value]) -> NativeResult<Option<(S
     let Some(session) = cx.runtime.resources().active_session() else {
         return Ok(None);
     };
+    let root = session.logical_root.get();
+    drop(session);
+    let session = cx
+        .runtime
+        .resources()
+        .sessions
+        .get(root)
+        .ok_or_else(|| RuntimeError::module_validation("host trace invocation root"))?;
     if !session.options.record_host_calls {
         return Ok(None);
     }

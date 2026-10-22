@@ -2614,14 +2614,30 @@ Cancellation and owner retirement release the lease. Source, Task scope and
 lifecycle integration have passed focused local gates; the roadmap distinguishes
 these results from full GitHub CI acceptance.
 
-`task` owns bounded scope admission, generation-checked identities, readiness,
-dependencies and terminal reports. `spawn` queues a checked callable without
+`task` owns bounded scope admission, generation-checked identities, readiness
+and terminal reports. `session::dependencies` owns the bounded graph shared by
+Task waits and structured parent-to-branch dependencies. `spawn` queues a checked callable without
 invoking it; the first owned activation calls that factory and drives its Future.
 Task payloads trace a cached result independently of execution/report records.
 Waiters only observe that cache and subscribe to readiness; they never drive the
 target. A waiter cancellation removes its dependency, while target cancellation
 propagates the original failure identity. Scope close requests cancellation, and
 the serialized driver drains cleanup even when IO or its dispatcher never replies.
+
+`session::group` owns fixed-pair cold composition admission, internal owned branch
+executions, rooted outputs and leaf-first descendant cleanup. A group wait is
+registered while the parent is active, but branch sessions are reserved/claimed
+only after it parks. The scheduler rotates group work alongside invocations and
+Tasks; VM branch activations use the same owned executor and shared granted-quanta
+budget. There are no public per-branch Tasks, tickets or failure reports.
+`native::composition::PairContext` exposes checked type/variant and rooted aggregate
+operations, not interpreter entry. The stdlib's `foundation::tasks::composition`
+implements join/try_join normal-output policy; runtime owns claims, readiness,
+termination precedence and cleanup-before-publication. Err rebinding validates
+nominal/payload identity and copies the original optional origin rather than
+recapturing it. Group ancestry carries logical depth and the parent's RNG/host-call
+recording owner. The [execution contract](spec/execution.md#structured-two-input-composition)
+defines bounds, cycles and non-owning shared Task waits.
 
 Waiting frames and cold factories retain their original executable/type environment
 through compatible reload. New roots resolve the new publication. Detached bounded

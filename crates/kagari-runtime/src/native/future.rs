@@ -8,6 +8,7 @@ use crate::{
     native::{
         binding::NativeResult,
         completion::{Completion, CompletionRegistry, Operation, OperationPoll},
+        composition::ColdComposition,
         conversion::{IntoKagari, arguments::FromKagariArguments, context::ConversionContext},
         storage::{NativePayload, NativeStorage},
     },
@@ -163,6 +164,7 @@ impl NativeFuture {
 #[derive(Debug)]
 pub(crate) enum ColdFuture {
     Native(NativeFuture),
+    Composition(ColdComposition),
     // A private, fully captured resume closure keeps its executable environment
     // reachable through the existing GC metadata graph. It never escapes alone.
     Script(Value),
@@ -183,7 +185,7 @@ impl ColdFuture {
                     )
                 })
                 .expect("disjoint cold capture buffers"),
-            Self::Script(_) => 0,
+            Self::Script(_) | Self::Composition(_) => 0,
         }
     }
 
@@ -191,6 +193,7 @@ impl ColdFuture {
         match self {
             Self::Native(cold) => &cold.values,
             Self::Script(closure) => slice::from_ref(closure),
+            Self::Composition(cold) => &cold.values,
         }
     }
 }

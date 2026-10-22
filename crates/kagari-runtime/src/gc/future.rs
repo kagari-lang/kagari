@@ -2,7 +2,7 @@
 use crate::{
     error::{RuntimeError, RuntimeErrorKind},
     frame::types::arguments::TypeArgument,
-    gc::{GcHeap, HeapObjectId, collector, storage::append_value_edges},
+    gc::{GcHeap, HeapObjectId, collector, roots::RootSet, storage::append_value_edges},
     module::LoadedModule,
     native::{
         binding::NativeResult,
@@ -70,6 +70,104 @@ impl GcHeap {
             object.ty.clone(),
             object.scope.clone(),
         ))
+    }
+
+    pub(crate) fn future_script(&self, id: HeapObjectId) -> NativeResult<Option<Value>> {
+        let objects = self
+            .objects
+            .try_borrow()
+            .map_err(|_| RuntimeError::module_validation("Future storage borrow"))?;
+        let object = self
+            .native_ref(&objects, id)
+            .ok_or_else(|| RuntimeError::module_validation("invalid Future receiver"))?;
+        Ok(match object.payload::<FuturePayload>()?.cold.as_ref() {
+            Some(ColdFuture::Script(value)) => Some(*value),
+            _ => None,
+        })
+    }
+
+    /// Reserve roots while both heap payloads still trace their cold captures.
+    pub(crate) fn prepare_future_pair(&self, ids: [HeapObjectId; 2]) -> NativeResult<[RootSet; 2]> {
+        if ids[0] == ids[1] {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "duplicate Future operands",
+            ));
+        }
+        let captures = {
+            let objects = self
+                .objects
+                .try_borrow()
+                .map_err(|_| RuntimeError::module_validation("Future storage borrow"))?;
+            let read = |id| -> NativeResult<Vec<Value>> {
+                let object = self
+                    .native_ref(&objects, id)
+                    .ok_or_else(|| RuntimeError::module_validation("invalid Future receiver"))?;
+                let cold = object
+                    .payload::<FuturePayload>()?
+                    .cold
+                    .as_ref()
+                    .ok_or_else(|| {
+                        RuntimeError::new(
+                            RuntimeErrorKind::ScriptTrap,
+                            "Future has already been awaited",
+                        )
+                    })?;
+                Ok(cold.values().to_vec())
+            };
+            [read(ids[0])?, read(ids[1])?]
+        };
+        let [left, right] = captures;
+        let root = |values| {
+            self.root_execution_values(values)
+                .ok_or_else(|| RuntimeError::resource_limit("Future capture roots"))
+        };
+        Ok([root(left)?, root(right)?])
+    }
+
+    /// Recheck and claim both payloads under one borrow. No callback, allocation or
+    /// collection occurs between claims; callers already own their capture roots.
+    pub(crate) fn take_cold_future_pair(
+        &self,
+        ids: [HeapObjectId; 2],
+    ) -> NativeResult<[ColdFuture; 2]> {
+        self.ensure_no_native_borrow()?;
+        self.ensure_execution_allowed()?;
+        if ids[0] == ids[1] {
+            return Err(RuntimeError::new(
+                RuntimeErrorKind::ScriptTrap,
+                "duplicate Future operands",
+            ));
+        }
+        let mut objects = self.objects_mut()?;
+        for id in ids {
+            let object = self
+                .native_ref(&objects, id)
+                .ok_or_else(|| RuntimeError::module_validation("invalid Future receiver"))?;
+            if object.payload::<FuturePayload>()?.cold.is_none() {
+                return Err(RuntimeError::new(
+                    RuntimeErrorKind::ScriptTrap,
+                    "Future has already been awaited",
+                ));
+            }
+        }
+        Ok(ids.map(|id| {
+            let object = self.native_mut(&mut objects, id).expect("validated Future");
+            let cold = object
+                .payload_mut::<FuturePayload>()
+                .expect("validated Future payload")
+                .cold
+                .take()
+                .expect("checked cold state");
+            let remaining = object.storage_charge(HeapCharge::default());
+            let released = HeapCharge::new(
+                object.charge.logical_units - remaining.logical_units,
+                object.charge.retained_bytes - remaining.retained_bytes,
+            );
+            object.charge = remaining;
+            self.resources.release_heap_charge(released);
+            cold
+        }))
     }
 
     pub(crate) fn take_cold_future(&self, id: HeapObjectId) -> NativeResult<ColdFuture> {

@@ -1,4 +1,5 @@
 //! Task storage, fluent methods and callbacks share the canonical core::task owner.
+mod composition;
 use crate::{
     foundation::{
         enumeration,
@@ -29,6 +30,7 @@ pub(super) const MODULE_DOCS: (&str, &str) = (
 );
 
 pub(super) fn declare(module: &mut ModuleDraft<'_>) -> NativeResult<()> {
+    composition::declare(module)?;
     let task = module.define_type(
         "Task",
         TypeDefKind::NativeStorage(NativeStorageLayout::Task),

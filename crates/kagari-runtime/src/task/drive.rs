@@ -185,7 +185,7 @@ impl Runtime {
                 };
                 match result {
                     Ok(execution) => {
-                        let dependencies = self.tasks.borrow().dependencies.clone();
+                        let dependencies = self.dependencies.clone();
                         if let Err(error) = dependencies.attach(task, execution.id) {
                             self.finish_owned_execution(&execution)?;
                             self.publish_task_result(task, Err(error))?;

@@ -35,6 +35,7 @@ constructors and tooling navigation.
 | `core::num` | ParseError, TryFromIntError, scalar numeric inherent methods and numeric native implementations |
 | `core::option`, `core::result` | Option and Result |
 | `core::future` | Cold single-drive Future |
+| `core::task` | Task, TaskScope, SpawnError and cold two-input join/try_join |
 | `alloc::string`, `alloc::vec` | String and Vec |
 | `std::collections` | List/MutableList, Map/MutableMap, Set/MutableSet, HashMap and HashSet |
 
@@ -55,6 +56,25 @@ HashMap/HashSet, Ordering, ranges and error types require explicit imports.
 New public library declarations do not automatically enter the prelude.
 Generic operation requirements use [ordinary trait bounds](traits.md#operation-specific-bounds),
 not compiler-recognized numeric constraint names.
+
+## Structured Future combinators
+
+The standard library declares ordinary generic functions in `core::task`:
+
+```text
+join<A, B>(left: Future<A>, right: Future<B>) -> Future<(A, B)>
+try_join<A, B, E>(left: Future<Result<A, E>>, right: Future<Result<B, E>>)
+    -> Future<Result<(A, B), E>>
+```
+
+Construction is cold. Awaiting starts both branches cooperatively, returns values
+in input order, and completes local cleanup before exposing the result. `join`
+does not inspect Result values. `try_join` returns the first observed Err without
+replacing its optional diagnostic origin, or Ok of both success values. Execution
+failures and cancellation are not converted to E. Duplicate/already-awaited Future
+operands trap; nested Future outputs are not flattened. See the
+[execution contract](execution.md#structured-two-input-composition) for admission,
+cycle checks, bounds, shared Task waits and cancellation ownership.
 
 ## Foundation trait inventory
 

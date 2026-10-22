@@ -42,14 +42,14 @@ impl Wake for Notify {
     }
 }
 
-struct HostLoop {
+pub(super) struct HostLoop {
     notify: Arc<Notify>,
     receive: Receiver<()>,
     wake: Waker,
 }
 
 impl HostLoop {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let (send, receive) = mpsc::sync_channel(1);
         let notify = Arc::new(Notify {
             pending: AtomicBool::new(false),
@@ -62,7 +62,7 @@ impl HostLoop {
         }
     }
 
-    fn context(&self) -> Context<'_> {
+    pub(super) fn context(&self) -> Context<'_> {
         Context::from_waker(&self.wake)
     }
 
@@ -70,7 +70,7 @@ impl HostLoop {
         self.notify.pending.store(false, Ordering::Release);
     }
 
-    fn turn(
+    pub(super) fn turn(
         &self,
         runtime: &mut KagariRuntime,
         budget: TurnBudget,
@@ -87,7 +87,7 @@ impl HostLoop {
         );
     }
 
-    fn until(&self, runtime: &mut KagariRuntime, done: impl Fn() -> bool) {
+    pub(super) fn until(&self, runtime: &mut KagariRuntime, done: impl Fn() -> bool) {
         for _ in 0..200 {
             if done() {
                 return;
@@ -97,7 +97,7 @@ impl HostLoop {
         panic!("bounded event-loop progress");
     }
 
-    fn settle(&self, runtime: &mut KagariRuntime) {
+    pub(super) fn settle(&self, runtime: &mut KagariRuntime) {
         for _ in 0..200 {
             if self.receive.try_recv().is_err() {
                 return;
@@ -124,14 +124,14 @@ pub async fn long() -> i32 { var n=0; while n < 200 { n+=1; } n }
 pub fn value() -> i32 { 42 }
 "#;
 
-fn decode(runtime: &Runtime, value: &RootedValue) -> NativeResult<i32> {
+pub(super) fn decode(runtime: &Runtime, value: &RootedValue) -> NativeResult<i32> {
     let owner = runtime
         .execution_root()
         .expect("conversion retains active invocation");
     ConversionContext::new(runtime, &owner)?.decode(value)
 }
 
-fn scheduled(f: &Fixture, entry: &str, arguments: &[Value]) -> ScheduledResult<i32> {
+pub(super) fn scheduled(f: &Fixture, entry: &str, arguments: &[Value]) -> ScheduledResult<i32> {
     let future = f.invoke(entry, arguments);
     f.runtime
         .runtime()
@@ -139,7 +139,7 @@ fn scheduled(f: &Fixture, entry: &str, arguments: &[Value]) -> ScheduledResult<i
         .unwrap()
 }
 
-fn result<R>(ticket: &mut ScheduledResult<R>) -> NativeResult<R> {
+pub(super) fn result<R>(ticket: &mut ScheduledResult<R>) -> NativeResult<R> {
     match Pin::new(ticket).poll(&mut Context::from_waker(Waker::noop())) {
         Poll::Ready(result) => result,
         Poll::Pending => panic!("terminal receiver expected"),

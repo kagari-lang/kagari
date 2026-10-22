@@ -2,8 +2,15 @@
 use crate::{
     Runtime,
     error::{RuntimeError, RuntimeErrorKind},
-    frame::{ExecutionStack, factory::QueuedFactory, waiting::QueuedFuture},
+    frame::{
+        ExecutionStack,
+        factory::QueuedFactory,
+        types::arguments::TypeArgument,
+        waiting::{ClaimedFuture, QueuedFuture},
+    },
+    gc::roots::RootSet,
     module::LoadedModule,
+    native::future::ColdFuture,
     session::{
         ExecutionId, ExecutionOptions, ExecutionPhase, ExecutionSession, SessionState,
         store::SessionId,
@@ -27,6 +34,7 @@ enum OwnedStart<'a> {
     Function(FunctionRef, &'a [Value]),
     Future(QueuedFuture),
     Factory(QueuedFactory),
+    Branch(QueuedFuture),
 }
 
 #[derive(Debug)]
@@ -226,6 +234,7 @@ impl Runtime {
                 .ok_or_else(|| RuntimeError::module_validation("Future entry type"))?,
         };
         let queued = QueuedFuture {
+            claimed: None,
             output: future.parameter(self, &owner, 0)?,
             value: self
                 .root_value(*value)
@@ -253,6 +262,68 @@ impl Runtime {
         self.create_owned_execution(&owner, options, OwnedStart::Factory(queued))
     }
 
+    /// Reserve an inactive child without invoking observers, providers or script.
+    pub(crate) fn prepare_owned_branch(
+        &self,
+        parent: SessionId,
+        module: &LoadedModule,
+        value: Value,
+        output: TypeArgument,
+    ) -> Result<OwnedExecution, RuntimeError> {
+        self.require_idle_driver()?;
+        let state = self
+            .resources()
+            .sessions
+            .get(parent)
+            .ok_or_else(|| RuntimeError::module_validation("group parent"))?;
+        state.poll(self.resources())?;
+        let options = state.options.clone();
+        let depth = state
+            .depth_base
+            .get()
+            .checked_add(state.parked_depth.get())
+            .ok_or_else(|| RuntimeError::resource_limit("group call depth"))?;
+        let nesting = state.group_depth.get() + 1;
+        let logical_root = state.logical_root.get();
+        drop(state);
+        let queued = QueuedFuture {
+            value: self
+                .root_value(value)
+                .ok_or_else(|| RuntimeError::resource_limit("branch awaitable root"))?,
+            output,
+            claimed: None,
+        };
+        let execution = self.create_owned_execution(module, options, OwnedStart::Branch(queued))?;
+        let state = self
+            .resources()
+            .sessions
+            .get(execution.id)
+            .expect("reserved branch");
+        state.depth_base.set(depth);
+        state.group_depth.set(nesting);
+        state.logical_root.set(logical_root);
+        state.group_parent.set(Some(parent));
+        Ok(execution)
+    }
+
+    pub(crate) fn install_branch_claim(
+        &self,
+        execution: &OwnedExecution,
+        cold: ColdFuture,
+        captures: RootSet,
+    ) {
+        let state = self
+            .resources()
+            .sessions
+            .get(execution.id)
+            .expect("reserved branch");
+        let mut queued = state.queued_future.borrow_mut();
+        queued.as_mut().expect("reserved branch start").claimed = Some(ClaimedFuture {
+            cold,
+            _captures: captures,
+        });
+    }
+
     fn create_owned_execution(
         &self,
         module: &LoadedModule,
@@ -265,7 +336,9 @@ impl Runtime {
             ..options
         };
         let session = self.begin_execution(module, options)?;
-        self.attach_execution_observer()?;
+        if !matches!(&entry, OwnedStart::Branch(_)) {
+            self.attach_execution_observer()?;
+        }
         let id = session.id;
         let owner = Arc::new(ExecutionOwner {
             abandoned: AtomicBool::new(false),
@@ -301,7 +374,7 @@ impl Runtime {
             OwnedStart::Function(function, args) => {
                 stack.push(self, module.slot(), function, args, None)
             }
-            OwnedStart::Future(queued) => {
+            OwnedStart::Future(queued) | OwnedStart::Branch(queued) => {
                 *self
                     .resources()
                     .sessions
@@ -415,6 +488,10 @@ impl Runtime {
         let mut count = ids.len();
         let mut failure = None;
         for id in ids {
+            // Parent teardown may already have retired this descendant.
+            if self.resources().sessions.get(id).is_none() {
+                continue;
+            }
             if let Err(error) = self.retire_execution(id) {
                 failure.get_or_insert(error);
             }
@@ -443,10 +520,11 @@ impl Runtime {
     }
 
     fn retire_execution(&self, id: SessionId) -> Result<(), RuntimeError> {
+        let group_failure = self.close_owned_groups(id).err();
         let (mut state, frames) = self.resources().sessions.remove(id).ok_or_else(|| {
             RuntimeError::module_validation("foreign, retired or borrowed execution")
         })?;
-        let mut failed = false;
+        let mut failed = group_failure.is_some();
         if let Some(mut wait) = state.pending.get_mut().take() {
             failed |= self.retirement_cleanup(|| wait.cancel()).is_err();
             failed |= self
@@ -497,7 +575,7 @@ impl Runtime {
         }
     }
 
-    fn retirement_cleanup(
+    pub(crate) fn retirement_cleanup(
         &self,
         cleanup: impl FnOnce() -> Result<(), RuntimeError>,
     ) -> Result<(), RuntimeError> {

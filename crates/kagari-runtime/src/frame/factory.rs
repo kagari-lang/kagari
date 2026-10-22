@@ -116,6 +116,7 @@ impl ExecutionStack<'_> {
             ));
         }
         let queued = QueuedFuture {
+            claimed: None,
             output: future.parameter(runtime, &owner, 0)?,
             value: runtime
                 .root_value(value)

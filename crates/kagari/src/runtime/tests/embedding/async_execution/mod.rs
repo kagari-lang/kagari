@@ -21,6 +21,8 @@ use kagari_source::source::SourceFile;
 use std::num::NonZeroUsize;
 
 mod blocks;
+mod group_boundaries;
+mod groups;
 mod scheduler;
 
 mod tasks;

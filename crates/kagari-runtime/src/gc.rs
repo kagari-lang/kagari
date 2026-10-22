@@ -325,6 +325,19 @@ impl GcHeap {
         tag: EnumTag,
         fields: Vec<Value>,
     ) -> Result<HeapObjectId, RuntimeError> {
+        let failure = matches!(&tag, EnumTag::Declared(layout) if layout.variant().reports_failure);
+        self.alloc_enum_origin(tag, fields, || {
+            failure.then(|| ErrorTrace::capture(&self.resources))
+        })
+    }
+
+    /// The caller validates the source variant before forwarding its optional origin.
+    pub(crate) fn alloc_enum_origin(
+        &self,
+        tag: EnumTag,
+        fields: Vec<Value>,
+        origin: impl FnOnce() -> Option<Arc<ErrorTrace>>,
+    ) -> Result<HeapObjectId, RuntimeError> {
         self.ensure_execution_allowed()?;
         if !tag.accepts_representations(&fields)
             || !fields.iter().all(|value| self.valid_payload(value))
@@ -336,8 +349,7 @@ impl GcHeap {
                 "invalid heap target, index, or payload",
             ));
         }
-        let trace = matches!(&tag, EnumTag::Declared(layout) if layout.variant().reports_failure)
-            .then(|| ErrorTrace::capture(&self.resources));
+        let trace = origin();
         self.alloc_object(HeapObject::Enum(EnumValueSnapshot { tag, fields }, trace))
     }
 
