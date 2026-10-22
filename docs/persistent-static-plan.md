@@ -474,7 +474,7 @@ broader [update proposal](update-model-design.md) into this feature without auth
 | PS01 | Locally complete | 36 selected tests passed; structure, formatting, workspace all-target Clippy and diff checks passed. |
 | PS02 | Locally complete | Typed descriptors, persistent cells, reload/GC and source-free negative cases pass; required local checks pass. |
 | PS03 | Locally complete | Lazy source/decoded execution, poisoning, reentry and assignment ordering pass; required local checks pass. |
-| PS04 | Not started | No implementation checks run. |
+| PS04 | Locally complete | Retained-value matrix, three-generation lifecycle and backend boundaries pass; stored collection protocol dispatch repaired; required local checks pass. |
 | PS05 | Not started | No implementation checks run. |
 
 Planning baseline: clean worktree at `b744f131`; inspected current owners and tests,
@@ -569,3 +569,42 @@ spacing are repaired. Package-local stale linker output required cleaning runtim
 and SDK products; targeted reruns passed. IDE build requests timed out; Cargo
 supplies compilation evidence. No carried selected failure remains. Full CI and
 PS04 retained-value/lifecycle acceptance are not implied by these local results.
+
+### PS04 checkpoint
+
+Source/decoded SDK cases establish recursive nominal collections and aliases,
+functions/closures/interfaces/generic providers, durable native handlers, and cold
+Future/Task values assigned outside initialization. Three-generation VM evidence
+covers old writes, fixed untouched recipes, fresh installations and Failed cells
+remaining failed after successful replacement initializers. Candidate indirect
+reads/writes, thread transfer, task cancellation and panicking payload disposal
+preserve isolation and cleanup. Existing cell cases cover independent domains,
+multiple imports, stale/abandoned publication, empty-value schema negatives and
+last-root/program-state-cycle collection.
+
+The comparator regression exposed a real ownership defect: existing Map/Set lookup
+used caller-selected Hash/Eq rather than stored construction-time protocols. The
+stdlib now queries the checked stored key mode and calls the retained selections.
+Runtime stored calls accept rooted Map/Set receivers and enter their pinned program
+through existing retained-call authority, preserving session/candidate checks.
+Content comparison deliberately continues to use caller-selected protocols under
+its separate collection-access contract. Source-free tests reject stale/foreign
+receivers and incorrect slots/arguments/results, force collecting reentry and prove
+reclamation. Independent production review found no further concrete defect.
+
+Selected results: five SDK value-family cases; fifteen VM static cases; four payload
+failure cases; twenty-three runtime static-state cases; focused stored-selection,
+key-mode, hash-collection, live-view and retained-iterator regressions; one actual
+scalar Cranelift execution case; one portable native-input correspondence case now
+including changed static initializers. All selected failures were resolved and
+rerun; the complete native/backend/platform matrix remains CI-only. Earlier PS03
+pre-entry static fallback evidence remains valid. Required workspace Clippy, fmt,
+structure (1471 files, zero violations) and diff checks pass; IDE build requests
+still time out, while scoped Cargo builds succeed.
+
+Structural access evidence: bound_cell indexes one generation binding, looks up one
+cell in the runtime hash table and checks that declaration's contract/recipe. It
+does not iterate historical generations or the cell inventory. Semantic type
+comparison/value admission may depend on the declared type/value; publication and
+joint collection intentionally traverse their own graphs. This is a bounded-access
+ownership observation, not a measured speedup or a universal constant-time claim.

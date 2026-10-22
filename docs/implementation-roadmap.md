@@ -369,11 +369,13 @@ remain foundations, and BO04/IP12/CS timing gaps are not acceptance targets here
 
 The [persistent static execution plan](persistent-static-plan.md) is active against
 `b744f131`: the user authorized PS01-PS05 in order, with one commit per phase;
-PS01-PS03 are locally complete; PS04 is next. Push/deployment remain unauthorized.
+PS01-PS04 are locally complete; PS05 is next. Push/deployment remain unauthorized.
 Source checking, typed executable records, installation-owned state, compatible
 bindings, joint GC and lazy interpreter execution are implemented. Selected source
 and decoded execution, storage/reload/GC, ordering and failure-path cases plus
-required local checks passed; the PS04 value matrix and complete CI remain unrun.
+required local checks passed. Retained-value, three-generation lifecycle and backend
+boundary cases also pass, including repaired construction-pinned Map/Set lookup
+protocols. Tooling/documentation handoff remains; complete CI is unrun.
 The task implements module-level `static val` and
 `static var` with runtime/installation-local cells shared across compatible code
 updates. Old calls, closures and waiting tasks retain their pinned code/dependencies;

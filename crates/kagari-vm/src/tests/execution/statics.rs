@@ -19,6 +19,7 @@ use kagari_runtime::{
         future::NativeStart, types::Type,
     },
     session::{ExecutionEvent, ExecutionObserver},
+    task::{CancellationCause, drive::TaskDriveResult},
     value::Value,
 };
 use std::{
@@ -76,6 +77,18 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
         pub fn read_added() -> i32 { added }
     "#,
     );
+    let third = compile_test_bytecode(
+        r#"
+        static var count: i32 = 200;
+        static val cold: i32 = 900;
+        static val unused: i32 = fail();
+        static val added: i32 = 50;
+        fn fail() -> i32 { val zero = 0; 1 / zero }
+        pub fn tick() -> i32 { count += 10; count }
+        pub fn read_cold() -> i32 { cold }
+        pub fn read_added() -> i32 { added }
+    "#,
+    );
     for decoded in [false, true] {
         let code = |program| {
             if decoded {
@@ -103,20 +116,258 @@ fn source_and_decoded_statics_are_lazy_shared_on_reload_and_keep_fixed_recipes()
         vm.runtime().collect_garbage().unwrap();
         assert_eq!(call(&vm, &current, "tick"), Value::I32(2));
         assert_eq!(call(&vm, &old, "tick"), Value::I32(3));
-        assert_eq!(call(&vm, &current, "read_cold"), Value::I32(7));
-        assert_eq!(call(&vm, &current, "read_added"), Value::I32(5));
+        let retained_second = vm
+            .runtime()
+            .retain_module(&current, ModuleEpochRetention::CompiledArtifact)
+            .unwrap();
+        let candidate = vm
+            .runtime_mut()
+            .stage_reload_program(&current, "state", code(third.clone()))
+            .unwrap();
+        let latest = vm.runtime_mut().publish_staged_reload(candidate).unwrap();
+        vm.runtime().collect_garbage().unwrap();
+        assert_eq!(call(&vm, &latest, "tick"), Value::I32(13));
+        assert_eq!(call(&vm, &old, "tick"), Value::I32(14));
+        assert_eq!(call(&vm, &current, "tick"), Value::I32(15));
+        assert_eq!(call(&vm, &latest, "read_cold"), Value::I32(7));
+        assert_eq!(call(&vm, &latest, "read_added"), Value::I32(5));
         assert!(matches!(
             state(vm.runtime(), &current, "unused"),
             StaticState::Uninitialized(_)
         ));
         let fresh = vm
             .runtime_mut()
-            .load_program("fresh", code(second.clone()))
+            .load_program("fresh", code(third.clone()))
             .unwrap();
-        assert_eq!(call(&vm, &fresh, "tick"), Value::I32(101));
-        assert_eq!(call(&vm, &fresh, "read_cold"), Value::I32(90));
+        assert_eq!(call(&vm, &fresh, "tick"), Value::I32(210));
+        assert_eq!(call(&vm, &fresh, "read_cold"), Value::I32(900));
+        assert_eq!(call(&vm, &fresh, "read_added"), Value::I32(50));
+        drop(retained_second);
         drop(retained);
         assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    }
+}
+
+#[test]
+fn candidate_indirect_reads_and_writes_cannot_touch_shared_or_private_cells() {
+    let source = r#"
+        static var count: i32 = 0;
+        static val cold: i32 = 7;
+        pub fn tick() -> i32 { count += 1; count }
+        pub fn indirect_write() -> i32 { val action: fn()->i32 = || { count += 1; count }; action() }
+        pub fn indirect_read() -> i32 { val action: fn()->i32 = || cold; action() }
+        pub fn indirect_added() -> i32 { 0 }
+    "#;
+    let candidate_source = source.replace(
+        "pub fn indirect_added() -> i32 { 0 }",
+        "static val added: i32 = 9; pub fn indirect_added() -> i32 { val action: fn()->i32 = || added; action() }",
+    );
+    let mut runtime = standard_runtime(Default::default());
+    let old = runtime
+        .load_program("candidate", compile_test_bytecode(source))
+        .unwrap();
+    let vm = Vm::new(runtime);
+    assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
+    let staged = vm
+        .runtime()
+        .stage_reload_program(
+            &old,
+            "candidate",
+            round_trip_bytecode(compile_test_bytecode(&candidate_source)),
+        )
+        .unwrap();
+    {
+        let _session = vm
+            .runtime()
+            .begin_candidate_initialization(&staged)
+            .unwrap();
+        for entry in ["indirect_write", "indirect_read", "indirect_added"] {
+            let error = vm.execute(staged.module(), entry).unwrap_err();
+            assert!(
+                matches!(error.cause(), VmError::RuntimeError(error)
+                    if error.kind() == RuntimeErrorKind::ExecutionPhaseViolation
+                        && error.message().contains("candidate cannot access static state")),
+                "{error:?}"
+            );
+        }
+    }
+    assert!(matches!(
+        state(vm.runtime(), &old, "count"),
+        StaticState::Ready(Value::I32(1))
+    ));
+    assert!(matches!(
+        state(vm.runtime(), &old, "cold"),
+        StaticState::Uninitialized(_)
+    ));
+    let current = vm.runtime().publish_staged_reload(staged).unwrap();
+    assert!(matches!(
+        state(vm.runtime(), &current, "added"),
+        StaticState::Uninitialized(_)
+    ));
+    assert_eq!(call(&vm, &current, "indirect_write"), Value::I32(2));
+    assert_eq!(call(&vm, &current, "indirect_read"), Value::I32(7));
+    assert_eq!(call(&vm, &current, "indirect_added"), Value::I32(9));
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn runtime_transfer_preserves_ready_failed_and_unstarted_recipe_ownership() {
+    let source = r#"
+        static var count: i32 = 0;
+        static val cold: i32 = 7;
+        static val bad: i32 = { val zero = 0; 1 / zero };
+        pub fn tick() -> i32 { count += 1; count }
+        pub fn read() -> i32 { cold }
+        pub fn fail() -> i32 { bad }
+    "#;
+    let mut runtime = standard_runtime(Default::default());
+    let old = runtime
+        .load_program("transfer", compile_test_bytecode(source))
+        .unwrap();
+    let vm = Vm::new(runtime);
+    assert_eq!(call(&vm, &old, "tick"), Value::I32(1));
+    assert!(vm.execute(&old, "fail").is_err());
+    let staged = vm
+        .runtime()
+        .stage_reload_program(
+            &old,
+            "transfer",
+            round_trip_bytecode(compile_test_bytecode(&source.replace("= 7;", "= 90;"))),
+        )
+        .unwrap();
+    let current = vm.runtime().publish_staged_reload(staged).unwrap();
+    let vm = std::thread::spawn(move || {
+        vm.runtime().collect_garbage().unwrap();
+        assert!(matches!(
+            state(vm.runtime(), &current, "cold"),
+            StaticState::Uninitialized(_)
+        ));
+        assert!(matches!(
+            state(vm.runtime(), &current, "bad"),
+            StaticState::Failed(_)
+        ));
+        assert_eq!(call(&vm, &current, "tick"), Value::I32(2));
+        assert_eq!(call(&vm, &current, "read"), Value::I32(7));
+        assert!(vm.execute(&current, "fail").is_err());
+        assert!(
+            vm.runtime()
+                .collect_garbage()
+                .unwrap()
+                .reclaimed_modules
+                .contains(&old.key())
+        );
+        (vm, current)
+    })
+    .join()
+    .unwrap();
+    let (vm, current) = vm;
+    assert_eq!(call(&vm, &current, "tick"), Value::I32(3));
+    assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+    assert_eq!(vm.runtime().gc().active_roots(), 0);
+}
+
+#[test]
+fn task_cancellation_leaves_unstarted_statics_cold_and_poisoned_attempts_durable() {
+    let program = compile_logging_test_bytecode(
+        r#"
+        static var attempts: i32 = 0;
+        static val value: i32 = initialize();
+        fn initialize() -> i32 { attempts += 1; print("cancel"); 42 }
+        pub fn factory() -> fn()->Future<i32> { async || value }
+        pub fn read() -> i32 { value }
+        pub fn count() -> i32 { attempts }
+    "#,
+    );
+    for before_start in [true, false] {
+        let mut runtime = standard_runtime(Default::default());
+        let options = runtime.execution_options();
+        let cancellation = options.cancellation.clone();
+        let cancel_during_initializer = cancellation.clone();
+        logging_module(move |cx, _| {
+            cx.runtime().collect_garbage().unwrap();
+            cancel_during_initializer.cancel();
+            Ok(Value::Unit)
+        })
+        .install(&mut runtime)
+        .unwrap();
+        let loaded = runtime
+            .load_program("task_static", round_trip_bytecode(program.clone()))
+            .unwrap();
+        let vm = Vm::new(runtime);
+        let factory = vm.execute(&loaded, "factory").unwrap();
+        let scope = vm
+            .runtime()
+            .create_task_scope(&loaded, options, Arc::new(|_| Ok(())))
+            .unwrap();
+        let task = vm
+            .runtime()
+            .spawn_task(
+                &scope.capability().value(vm.runtime().gc()).unwrap(),
+                &factory.return_value.value(vm.runtime().gc()).unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+        let task_id = vm
+            .runtime()
+            .task_id(&task.value(vm.runtime().gc()).unwrap())
+            .unwrap();
+        drop(factory);
+        if before_start {
+            cancellation.cancel();
+        }
+        let mut complete = false;
+        for _ in 0..100 {
+            match vm
+                .drive_task(&scope, task_id, NonZeroUsize::new(1).unwrap())
+                .unwrap()
+            {
+                TaskDriveResult::Complete => {
+                    complete = true;
+                    break;
+                }
+                TaskDriveResult::Runnable => {}
+                progress => panic!("unexpected task state: {progress:?}"),
+            }
+            assert!(!matches!(
+                state(vm.runtime(), &loaded, "value"),
+                StaticState::Initializing(_)
+            ));
+        }
+        assert!(complete);
+        let failure = vm
+            .runtime()
+            .take_task_report(&scope, task_id)
+            .unwrap()
+            .unwrap()
+            .outcome
+            .unwrap_err();
+        assert_eq!(failure.error.kind(), RuntimeErrorKind::Cancelled);
+        assert_eq!(failure.cancellation, Some(CancellationCause::ScopeClose));
+        assert!(scope.is_closed());
+        drop(task);
+        drop(scope);
+        vm.runtime().collect_garbage().unwrap();
+        if before_start {
+            assert!(matches!(
+                state(vm.runtime(), &loaded, "value"),
+                StaticState::Uninitialized(_)
+            ));
+            assert!(matches!(
+                state(vm.runtime(), &loaded, "attempts"),
+                StaticState::Uninitialized(_)
+            ));
+        } else {
+            assert!(matches!(
+                state(vm.runtime(), &loaded, "value"),
+                StaticState::Failed(_)
+            ));
+            assert_eq!(call(&vm, &loaded, "count"), Value::I32(1));
+            assert!(vm.execute(&loaded, "read").is_err());
+            assert_eq!(call(&vm, &loaded, "count"), Value::I32(1));
+        }
+        assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
+        assert_eq!(vm.runtime().gc().active_roots(), 0);
     }
 }
 
@@ -295,7 +546,7 @@ fn static_projection_bounds_are_checked_after_rhs_with_effects_preserved() {
 fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
     for cyclic in [false, true] {
         let initializer = if cyclic { "through()" } else { "1 / zero()" };
-        let program = compile_test_bytecode(&format!(
+        let source = format!(
             r#"
             static var attempts: i32 = 0;
             static val good: i32 = 7;
@@ -307,6 +558,11 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
             pub fn read() -> i32 {{ bad }}
             pub fn count() -> i32 {{ attempts }}
         "#
+        );
+        let program = compile_test_bytecode(&source);
+        let repaired = compile_test_bytecode(&source.replace(
+            "static val bad: i32 = initialize();",
+            "static val bad: i32 = 42;",
         ));
         for decoded in [false, true] {
             let mut runtime = standard_runtime(Default::default());
@@ -342,13 +598,45 @@ fn cycles_and_traps_poison_only_started_cells_without_replaying_effects() {
                     StaticState::Uninitialized(_)
                 )
             });
-            let staged = vm
+            let StaticState::Failed(original_failure) = state(vm.runtime(), &loaded, "bad") else {
+                unreachable!()
+            };
+            let mut current = loaded;
+            for _ in 0..2 {
+                let staged = vm
+                    .runtime_mut()
+                    .stage_reload_program(
+                        &current,
+                        "poison",
+                        if decoded {
+                            round_trip_bytecode(repaired.clone())
+                        } else {
+                            repaired.clone()
+                        },
+                    )
+                    .unwrap();
+                current = vm.runtime_mut().publish_staged_reload(staged).unwrap();
+                vm.runtime().collect_garbage().unwrap();
+                assert!(vm.execute(&current, "read").is_err());
+                assert_eq!(call(&vm, &current, "count"), Value::I32(1));
+                let StaticState::Failed(failure) = state(vm.runtime(), &current, "bad") else {
+                    panic!("reload must preserve failure")
+                };
+                assert_eq!(failure.cause(), original_failure.cause());
+            }
+            let fresh = vm
                 .runtime_mut()
-                .stage_reload_program(&loaded, "poison", program.clone())
+                .load_program(
+                    "repaired_fresh",
+                    if decoded {
+                        round_trip_bytecode(repaired.clone())
+                    } else {
+                        repaired.clone()
+                    },
+                )
                 .unwrap();
-            let next = vm.runtime_mut().publish_staged_reload(staged).unwrap();
-            assert!(vm.execute(&next, "read").is_err());
-            assert_eq!(call(&vm, &next, "count"), Value::I32(1));
+            assert_eq!(call(&vm, &fresh, "read"), Value::I32(42));
+            assert_eq!(call(&vm, &fresh, "count"), Value::I32(0));
             assert_eq!(vm.runtime().resources().counters().current_call_depth, 0);
             assert_eq!(vm.runtime().gc().active_roots(), 0);
         }

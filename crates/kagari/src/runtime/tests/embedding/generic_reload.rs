@@ -1,12 +1,278 @@
 #![cfg(feature = "source")]
 use crate::test_support::cancellation as support;
-use crate::{BytecodeArtifact, engine::KagariEngine};
+use crate::{
+    BytecodeArtifact, engine::KagariEngine, program::PreparedProgram, runtime::KagariRuntime,
+};
 use kagari_bytecode::program::BytecodeProgram;
 use kagari_common::identity::metadata::DefinitionMetadata;
-use kagari_runtime::{Runtime, RuntimeConfig, native::module::NativeModule, value::Value};
+use kagari_runtime::{
+    Runtime, RuntimeConfig, module::LoadedModule, native::module::NativeModule, value::Value,
+};
 use kagari_source::source::SourceFile;
 use kagari_types::declaration::module::ModuleDecl;
 use kagari_vm::vm::Vm;
+
+pub(super) fn prepare_static_program(
+    engine: &KagariEngine,
+    source: &str,
+    decoded: bool,
+) -> PreparedProgram {
+    let checked = engine
+        .compile_source(SourceFile::new("static-values.kgr", source))
+        .unwrap();
+    if !decoded {
+        return engine.prepare(&checked, Default::default()).unwrap();
+    }
+    let artifact = engine.emit_artifact(&checked, Default::default()).unwrap();
+    let bytes = artifact.records().to_bytes(artifact.definitions()).unwrap();
+    PreparedProgram::from_artifact(
+        BytecodeArtifact::from_bytes(&bytes).unwrap(),
+        &Default::default(),
+        &Default::default(),
+    )
+    .unwrap()
+}
+
+fn static_call(runtime: &KagariRuntime, module: &LoadedModule, entry: &str) -> Value {
+    runtime
+        .execute(module, entry, &[], &Default::default())
+        .unwrap()
+        .return_value
+        .value(runtime.runtime().gc())
+        .unwrap()
+}
+
+#[test]
+fn persistent_static_objects_and_recursive_nominal_collections_preserve_aliases() {
+    let source = r#"
+use std::collections::{HashMap, HashSet};
+struct Node { var value: i32, val children: Vec<Node> }
+enum Envelope { Kept(Option<Result<(String, [Node]), i32>>) }
+static var ROOT: Node = Node { value: 1, children: Vec::new() };
+static val ALIAS: Node = ROOT;
+static val ITEMS: Vec<Option<Node>> = Vec::from([Some(ROOT)]);
+static val TABLE: HashMap<String, Vec<Node>> = {
+    val map: HashMap<String, Vec<Node>> = HashMap::new();
+    map.insert("root", Vec::from([ROOT]));
+    map
+};
+static val KEYS: HashSet<String> = HashSet::from(["root"]);
+static val PACKED: Envelope = Envelope::Kept(Some(Ok(("root", [ROOT]))));
+static val UNIT: () = ();
+pub fn check() -> bool {
+    UNIT;
+    val item = match ITEMS[0] { Some(node) => node, None => { return false; } };
+    val nodes = match TABLE.get("root") { Some(nodes) => nodes, None => { return false; } };
+    val packed = match PACKED {
+        Envelope::Kept(Some(Ok(pair))) => pair,
+        _ => { return false; },
+    };
+    item === ALIAS && nodes[0] === ALIAS && packed[1][0] === ALIAS
+        && KEYS.contains(packed[0])
+}
+pub fn replace() {
+    ROOT = Node { value: 90, children: Vec::new() };
+    ALIAS.value = 7;
+    ALIAS.children.push(ROOT);
+}
+pub fn read() -> i32 { ALIAS.value * 100 + ALIAS.children[0].value }
+pub fn distinct() -> bool { !(ROOT === ALIAS) }
+"#;
+    for decoded in [false, true] {
+        let engine = KagariEngine::default();
+        let first = prepare_static_program(&engine, source, decoded);
+        let second =
+            prepare_static_program(&engine, &source.replace("value: 1,", "value: 2,"), decoded);
+        let mut runtime = engine.runtime(Default::default());
+        let old = runtime.load_program(&first, Default::default()).unwrap();
+        assert_eq!(static_call(&runtime, &old, "check"), Value::Bool(true));
+        let current = runtime
+            .reload_program(&old, &second, Default::default())
+            .unwrap();
+        static_call(&runtime, &current, "replace");
+        for module in [&old, &current] {
+            assert_eq!(static_call(&runtime, module, "check"), Value::Bool(true));
+            assert_eq!(static_call(&runtime, module, "distinct"), Value::Bool(true));
+            assert_eq!(static_call(&runtime, module, "read"), Value::I32(790));
+        }
+    }
+}
+
+const STATIC_PINNING_SOURCE: &str = r#"
+use std::collections::{HashMap, HashSet, Map, MutableMap, MutableSet, Set, map_content_equal, set_content_equal};
+use std::hash::Hash;
+trait Read { fn read(self) -> i32; }
+struct Reader {}
+impl Read for Reader { fn read(self) -> i32 { version() + STATE } }
+trait Keep {
+    fn keep<T: Read>(self, value: T) -> fn() -> i32 { || value.read() }
+}
+impl Keep for i32 {}
+fn make_callback() -> fn() -> i32 { val provider: Keep = 0; provider.keep(Reader {}) }
+struct Key { val value: i32 }
+impl PartialEq for Key { fn eq(self, other: Self) -> bool { self.value % 10 == other.value % 10 } }
+impl Eq for Key {}
+impl Hash for Key { fn hash(self) -> i64 { 1i64 } }
+fn version() -> i32 { 10 }
+static var STATE: i32 = 1;
+static var CALLBACK: fn() -> i32 = make_callback();
+static val FUNCTION: fn() -> i32 = { fn retained() -> i32 { version() } retained };
+static val ORIGINAL: fn() -> i32 = CALLBACK;
+static var VIEW: Read = Reader {};
+static val ORIGINAL_VIEW: Read = VIEW;
+static val MAP: HashMap<Key, i32> = {
+    val map: HashMap<Key, i32> = HashMap::new();
+    map.insert(Key { value: 1 }, 7);
+    map
+};
+static val SET: HashSet<Key> = HashSet::from([Key { value: 1 }]);
+pub fn init() -> bool { CALLBACK() == 11 && VIEW.read() == 11 }
+pub fn map_lookup() -> bool { MAP.get(Key { value: 11 }) == Some(7) }
+pub fn set_lookup() -> bool { SET.contains(Key { value: 11 }) }
+pub fn fresh_lookup() -> bool {
+    val map: HashMap<Key, i32> = HashMap::new();
+    map.insert(Key { value: 1 }, 7);
+    map.contains_key(Key { value: 11 })
+}
+pub fn compare_contents() -> i32 {
+    val other_map: HashMap<Key, i32> = HashMap::new();
+    other_map.insert(Key { value: 11 }, 7);
+    val other_set = HashSet::from([Key { value: 11 }]);
+    var matches = 0;
+    if MAP == other_map { matches += 1; }
+    if map_content_equal(MAP, other_map) { matches += 2; }
+    if SET == other_set { matches += 4; }
+    if set_content_equal(SET, other_set) { matches += 8; }
+    matches
+}
+pub fn content_hashes() -> bool {
+    val other_map: HashMap<Key, i32> = HashMap::new();
+    other_map.insert(Key { value: 1 }, 7);
+    val other_set = HashSet::from([Key { value: 1 }]);
+    MAP.hash() == other_map.hash() && SET.hash() == other_set.hash()
+}
+pub fn mutate_keys() -> bool {
+    MAP.insert(Key { value: 21 }, 9);
+    SET.insert(Key { value: 21 });
+    val map: MutableMap<Key, i32> = MAP;
+    val set: MutableSet<Key> = SET;
+    if map.len() != 1u64 || set.len() != 1u64 { return false; }
+    map.insert(Key { value: 31 }, 12);
+    set.insert(Key { value: 31 });
+    val read_map: Map<Key, i32> = map;
+    val read_set: Set<Key> = set;
+    val lookup = Key { value: 11 };
+    if read_map.get(lookup) != Some(12) || !read_set.contains(lookup) {
+        return false;
+    }
+    val removed = Key { value: 41 };
+    if map.remove(removed) != Some(12) || !set.remove(removed) {
+        return false;
+    }
+    if !map.is_empty() || !set.is_empty() { return false; }
+    MAP.insert(Key { value: 2 }, 15);
+    SET.insert(Key { value: 2 });
+    map.clear();
+    set.clear();
+    map.insert(Key { value: 3 }, 17);
+    set.insert(Key { value: 3 });
+    MAP.contains_key(Key { value: 13 }) && MAP.get(Key { value: 13 }) == Some(17)
+        && SET.contains(Key { value: 13 })
+}
+pub fn function() -> i32 { FUNCTION() }
+pub fn set_state() { STATE = 5; }
+pub fn saved() -> i32 { ORIGINAL() + ORIGINAL_VIEW.read() }
+pub fn current() -> i32 { CALLBACK() + VIEW.read() }
+pub fn replace() { CALLBACK = make_callback(); VIEW = Reader {}; }
+"#;
+
+#[test]
+fn persistent_static_callbacks_and_interfaces_keep_generations() {
+    let source = STATIC_PINNING_SOURCE;
+    let replacement = source
+        .replace("fn version() -> i32 { 10 }", "fn version() -> i32 { 20 }")
+        .replace(
+            "self.value % 10 == other.value % 10",
+            "self.value == other.value",
+        )
+        .replace("{ 1i64 }", "{ 2i64 }");
+    for decoded in [false, true] {
+        let engine = KagariEngine::default();
+        let first = prepare_static_program(&engine, source, decoded);
+        let second = prepare_static_program(&engine, &replacement, decoded);
+        let mut runtime = engine.runtime(Default::default());
+        let old = runtime.load_program(&first, Default::default()).unwrap();
+        assert_eq!(static_call(&runtime, &old, "init"), Value::Bool(true));
+        // Force the aliases before replacing their original cells.
+        assert_eq!(static_call(&runtime, &old, "saved"), Value::I32(22));
+        assert_eq!(static_call(&runtime, &old, "function"), Value::I32(10));
+        let current = runtime
+            .reload_program(&old, &second, Default::default())
+            .unwrap();
+        static_call(&runtime, &current, "set_state");
+
+        assert_eq!(
+            static_call(&runtime, &current, "fresh_lookup"),
+            Value::Bool(false)
+        );
+        assert_eq!(static_call(&runtime, &current, "current"), Value::I32(30));
+        assert_eq!(static_call(&runtime, &current, "function"), Value::I32(10));
+        static_call(&runtime, &current, "replace");
+        assert_eq!(static_call(&runtime, &current, "current"), Value::I32(50));
+        assert_eq!(static_call(&runtime, &current, "saved"), Value::I32(30));
+        assert_eq!(static_call(&runtime, &old, "current"), Value::I32(50));
+    }
+}
+
+#[test]
+fn persistent_static_hash_comparators_keep_generations() {
+    let source = STATIC_PINNING_SOURCE;
+    let replacement = source
+        .replace(
+            "self.value % 10 == other.value % 10",
+            "self.value == other.value",
+        )
+        .replace("{ 1i64 }", "{ 2i64 }");
+    let mut results = Vec::new();
+    for decoded in [false, true] {
+        let engine = KagariEngine::default();
+        let first = prepare_static_program(&engine, source, decoded);
+        let second = prepare_static_program(&engine, &replacement, decoded);
+        let mut runtime = engine.runtime(Default::default());
+        let old = runtime.load_program(&first, Default::default()).unwrap();
+        for entry in ["map_lookup", "set_lookup"] {
+            assert_eq!(static_call(&runtime, &old, entry), Value::Bool(true));
+        }
+        assert_eq!(
+            static_call(&runtime, &old, "compare_contents"),
+            Value::I32(15)
+        );
+        let current = runtime
+            .reload_program(&old, &second, Default::default())
+            .unwrap();
+        assert_eq!(
+            static_call(&runtime, &current, "compare_contents"),
+            Value::I32(0)
+        );
+        assert_eq!(
+            static_call(&runtime, &current, "content_hashes"),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            static_call(&runtime, &current, "fresh_lookup"),
+            Value::Bool(false)
+        );
+        for entry in ["map_lookup", "set_lookup", "mutate_keys"] {
+            results.push((decoded, entry, static_call(&runtime, &current, entry)));
+        }
+    }
+    assert!(
+        results
+            .iter()
+            .all(|(_, _, result)| *result == Value::Bool(true)),
+        "retained collection lookups: {results:?}"
+    );
+}
 
 fn prepare(engine: &KagariEngine, source: &str) -> DefinitionMetadata<BytecodeProgram> {
     let artifact = engine

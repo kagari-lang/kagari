@@ -4,6 +4,8 @@ mod iteration;
 pub mod operations;
 mod references;
 mod tasks;
+#[cfg(test)]
+mod tests;
 use crate::{
     RootedInterfaceMethod, Runtime,
     error::RuntimeError,
@@ -31,6 +33,7 @@ use crate::{
         storage::{NativePayload, StorageContext},
         storage_type::StorageType,
         stored_selection::StoredSelection,
+        typed::NativeContext,
     },
     value::Value,
 };
@@ -320,22 +323,32 @@ impl<'call> CallContext<'call> {
         self.heap().alloc_native(object).map(Value::GcHandle)
     }
 
-    /// Invoke an edge while its containing argument remains rooted by this call.
+    /// Invoke a stored selection from a native object, map or set argument.
+    /// The argument roots its graph edges; temporary retained-call authority pins
+    /// the supplying generation across callbacks without changing the root session.
+    /// Rejects missing slots, incompatible values and forbidden candidate reentry.
+    /// The caller must publish the returned value before its next safepoint.
     pub fn call_stored_values(
         &mut self,
         argument: usize,
         slot: usize,
         values: &[Value],
     ) -> NativeResult<Value> {
-        let Value::GcHandle(id) = self.argument(argument)? else {
-            return Err(RuntimeError::module_validation("stored callable receiver"));
+        let id = match self.argument(argument)? {
+            Value::GcHandle(id) | Value::Map(id) | Value::Set(id) => id,
+            _ => return Err(RuntimeError::module_validation("stored callable receiver")),
         };
         let selections = self.heap().native_selections(id)?;
         let target = selections
             .get(slot)
             .ok_or_else(|| RuntimeError::module_validation("stored callable slot"))?
-            .borrowed();
-        self.call_values(&target, values)
+            .retain(self.runtime)?;
+        let function = PreparedFunction::selected(self.runtime, self.owner, target)?;
+        let context = NativeContext::with_invoker(self.runtime, self.owner, self.invoke_script)?;
+        function
+            .call_values(&context, values)?
+            .value(self.heap())
+            .ok_or_else(|| RuntimeError::module_validation("stored callable result retention"))
     }
 
     pub fn with_payload<S: NativePayload, R>(

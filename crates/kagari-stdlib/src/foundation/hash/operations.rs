@@ -32,25 +32,20 @@ fn set(cx: &CallContext<'_>) -> NativeResult<HeapObjectId> {
 }
 
 fn builtin(cx: &CallContext<'_>) -> NativeResult<bool> {
-    Ok(
-        cx.selected_at(0)?.primitive() == Some(RuntimePrimitive::ValueHash)
-            && cx.selected_at(1)?.primitive() == Some(RuntimePrimitive::ValueEq),
-    )
+    cx.heap().uses_builtin_keys(&cx.argument(0)?)
 }
 
 fn lookup(cx: &mut CallContext<'_>, key: &Value) -> NativeResult<(i64, i64)> {
     let collection = cx.argument(0)?;
     let _guard = cx.begin_key_lookup(0)?;
-    let hash_target = cx.selected_at(0)?;
-    let hash = cx.call_values(hash_target, slice::from_ref(key))?;
+    let hash = cx.call_stored_values(0, 0, slice::from_ref(key))?;
     let Value::I64(hash) = hash else {
         return Err(invalid());
     };
-    let equal = cx.selected_at(1)?;
     let mut index = 0;
     while let Some((token, stored)) = cx.heap().custom_candidate(&collection, hash, index)? {
         cx.poll()?;
-        let result = cx.call_values(equal, &[stored, *key])?;
+        let result = cx.call_stored_values(0, 1, &[stored, *key])?;
         let Value::Bool(result) = result else {
             return Err(invalid());
         };

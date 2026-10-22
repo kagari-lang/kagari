@@ -150,6 +150,48 @@ fn destructor_panics_dispose_each_detached_payload_once_and_quarantine() {
 }
 
 #[test]
+fn retiring_static_installation_disposes_payloads_once_even_when_destructors_panic() {
+    let faults = Arc::new(Faults::default());
+    let native = module(&faults);
+    let source = r#"
+        use fixture::payload::{Payload, new};
+        static val first: Payload = new();
+        static val second: Payload = new();
+        fn main() { val a = first; val b = second; }
+    "#;
+    let (mut vm, old) = compile(source, Some(&native));
+    drop(vm.execute(&old, ProgramEntry::Main).unwrap());
+    let staged = vm
+        .runtime()
+        .stage_reload_program(&old, "boundary", compile_program(source, Some(&native)))
+        .unwrap();
+    let current = vm.runtime().publish_staged_reload(staged).unwrap();
+    vm.runtime().collect_garbage().unwrap();
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 0);
+    drop(vm.execute(&current, ProgramEntry::Main).unwrap());
+    let replacement = vm
+        .runtime_mut()
+        .load_program("boundary", compile_program("fn main() {}", None))
+        .unwrap();
+    faults.drop.store(true, Ordering::SeqCst);
+    let error = vm.runtime().collect_garbage().unwrap_err();
+    assert_eq!(error.kind(), RuntimeErrorKind::EngineFault);
+    assert!(
+        error
+            .message()
+            .contains("native payload destruction panicked")
+    );
+    assert!(vm.runtime().is_quarantined());
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
+    assert_eq!(vm.runtime().gc().stats().allocated_objects, 0);
+    assert!(vm.runtime().modules().loaded(old.key()).is_none());
+    assert!(vm.runtime().modules().loaded(current.key()).is_none());
+    assert!(vm.runtime().modules().loaded(replacement.key()).is_some());
+    drop(vm);
+    assert_eq!(faults.drops.load(Ordering::SeqCst), 2);
+}
+
+#[test]
 fn roots_do_not_keep_heap_payloads_alive_after_teardown() {
     use kagari_types::{scalar::BuiltinType, ty::Ty};
     let faults = Arc::new(Faults::default());

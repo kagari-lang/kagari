@@ -426,13 +426,29 @@ fn codec_preserves_float_bits_and_constant_pool_identity() {
 fn artifact_integrity_does_not_substitute_for_native_correspondence() {
     let context = DefinitionContext::new().unwrap();
 
-    let first = program("fn main() -> i32 { 42 }");
-    let second = program("fn main() -> i32 { 43 }");
-    for (mir, matches) in [(&first, true), (&second, false)] {
+    for (first_source, second_source) in [
+        ("fn main() -> i32 { 42 }", "fn main() -> i32 { 43 }"),
+        (
+            "static val X: i32 = 42; fn main() -> i32 { X }",
+            "static val X: i32 = 43; fn main() -> i32 { X }",
+        ),
+    ] {
+        let first = program(first_source);
+        let second = program(second_source);
+        check_native_correspondence(&context, &first, &second);
+    }
+}
+
+fn check_native_correspondence(
+    context: &DefinitionContext,
+    first: &VerifiedMirProgram,
+    second: &VerifiedMirProgram,
+) {
+    for (mir, matches) in [(first, true), (second, false)] {
         let artifact = KbcArtifact::from_program(
-            lower_program_to_bytecode(&first, &Default::default())
+            lower_program_to_bytecode(first, &Default::default())
                 .map(|program| program.into_unverified())
-                .map(|metadata| common::adopt_bytecode(&context, metadata))
+                .map(|metadata| common::adopt_bytecode(context, metadata))
                 .unwrap(),
             ArtifactBuildOptions {
                 portable_mir: Some(PortableMir {
@@ -440,15 +456,15 @@ fn artifact_integrity_does_not_substitute_for_native_correspondence() {
                 }),
                 ..Default::default()
             },
-            &context,
+            context,
             &Default::default(),
         )
         .unwrap();
         let decoded = KbcArtifact::from_bytes(&artifact.to_bytes(&context.snapshot()).unwrap())
-            .map(|metadata| common::adopt(&context, metadata))
+            .map(|metadata| common::adopt(context, metadata))
             .unwrap();
         let decoded = decoded
-            .into_verified(&Default::default(), &context, &Default::default())
+            .into_verified(&Default::default(), context, &Default::default())
             .unwrap();
         let result = verify_native_input(
             &decoded.portable_mir().unwrap().bytes,
@@ -456,7 +472,7 @@ fn artifact_integrity_does_not_substitute_for_native_correspondence() {
             &Default::default(),
         );
         if matches {
-            assert_same_bytecode(&first, &result.unwrap());
+            assert_same_bytecode(first, &result.unwrap());
         } else {
             assert!(matches!(result, Err(NativeInputError::Mismatch)));
         }

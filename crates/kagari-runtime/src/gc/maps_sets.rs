@@ -168,7 +168,7 @@ impl GcHeap {
         &self,
         id: HeapObjectId,
     ) -> Option<(Arc<StorageType>, Arc<StorageType>, bool)> {
-        let objects = self.objects.borrow();
+        let objects = self.objects.try_borrow().ok()?;
         let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Map { .. }) {
             return None;
@@ -182,7 +182,7 @@ impl GcHeap {
     }
 
     pub(crate) fn set_contract(&self, id: HeapObjectId) -> Option<(Arc<StorageType>, bool)> {
-        let objects = self.objects.borrow();
+        let objects = self.objects.try_borrow().ok()?;
         let object = self.native_ref(&objects, id)?;
         if !matches!(object.ty, Ty::Set(..)) {
             return None;

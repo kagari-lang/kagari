@@ -401,6 +401,12 @@ fn hash_mutations_and_partial_reservation_update_the_recorded_charge() {
         let id = heap.alloc_native(object).unwrap();
         let value = Value::Map(id);
         let root = runtime.root_value(value).unwrap();
+        assert_eq!(heap.uses_builtin_keys(&value).unwrap(), builtin);
+        assert!(heap.uses_builtin_keys(&Value::Set(id)).is_err());
+        assert!(heap.uses_builtin_keys(&Value::Unit).is_err());
+        assert!(Runtime::default().gc().uses_builtin_keys(&value).is_err());
+        assert!(heap.ensure_key_mode(&value, !builtin).is_ok());
+        assert!(heap.ensure_key_mode(&value, builtin).is_err());
         if builtin {
             heap.map_insert(id, Value::I32(1), Value::I32(2)).unwrap();
             heap.map_insert(id, Value::I32(1), Value::I32(3)).unwrap();
@@ -418,6 +424,7 @@ fn hash_mutations_and_partial_reservation_update_the_recorded_charge() {
         let result = heap
             .with_map_mut(id, 0, |entries| {
                 entries.try_reserve(4096).unwrap();
+                assert!(heap.uses_builtin_keys(&value).is_err());
                 Err::<(), _>(RuntimeError::resource_limit("later preparation"))
             })
             .unwrap();
@@ -428,6 +435,7 @@ fn hash_mutations_and_partial_reservation_update_the_recorded_charge() {
             heap.with_map(id, HashMapStorage::pressure_bytes).unwrap() + size_of::<MapPayload>();
         assert_eq!(heap.stats().current_retained_bytes, expected_bytes as u128);
         heap.map_clear(id).unwrap();
+        assert_eq!(heap.uses_builtin_keys(&value).unwrap(), builtin);
         let expected_bytes =
             heap.with_map(id, HashMapStorage::pressure_bytes).unwrap() + size_of::<MapPayload>();
         assert_eq!(heap.stats().current_heap_units, 1);
@@ -436,6 +444,7 @@ fn hash_mutations_and_partial_reservation_update_the_recorded_charge() {
         runtime.collect_garbage().unwrap();
         assert_eq!(heap.stats().current_heap_units, 0);
         assert_eq!(heap.stats().current_retained_bytes, 0);
+        assert!(heap.uses_builtin_keys(&value).is_err());
 
         let object = NativeStorage::set(0)
             .prepare_payload(
@@ -451,6 +460,13 @@ fn hash_mutations_and_partial_reservation_update_the_recorded_charge() {
             .unwrap();
         let id = heap.alloc_native(object).unwrap();
         let value = Value::Set(id);
+        assert_eq!(heap.uses_builtin_keys(&value).unwrap(), builtin);
+        assert!(heap.uses_builtin_keys(&Value::Map(id)).is_err());
+        assert!(Runtime::default().gc().uses_builtin_keys(&value).is_err());
+        assert!(heap.ensure_key_mode(&value, !builtin).is_ok());
+        assert!(heap.ensure_key_mode(&value, builtin).is_err());
+        heap.with_set_mut(id, 0, |_| assert!(heap.uses_builtin_keys(&value).is_err()))
+            .unwrap();
         if builtin {
             heap.set_insert(id, Value::I32(1)).unwrap();
             heap.set_insert(id, Value::I32(1)).unwrap();
@@ -461,10 +477,12 @@ fn hash_mutations_and_partial_reservation_update_the_recorded_charge() {
         assert_eq!(heap.stats().current_heap_units, 2);
         heap.reserve_collection(&value, 512).unwrap();
         heap.set_clear(id).unwrap();
+        assert_eq!(heap.uses_builtin_keys(&value).unwrap(), builtin);
         assert_eq!(heap.stats().current_heap_units, 1);
         assert!(heap.stats().current_retained_bytes > size_of::<SetPayload>() as u128);
         runtime.collect_garbage().unwrap();
         assert_eq!(heap.stats().current_retained_bytes, 0);
+        assert!(heap.uses_builtin_keys(&value).is_err());
     }
 }
 

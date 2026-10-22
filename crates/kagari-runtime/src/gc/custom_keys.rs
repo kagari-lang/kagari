@@ -25,15 +25,23 @@ fn invalid() -> RuntimeError {
 }
 
 impl GcHeap {
-    /// The selected key protocol is fixed at construction, including empty tables.
-    pub fn ensure_key_mode(&self, collection: &Value, custom: bool) -> Result<(), RuntimeError> {
-        let builtin = match collection {
+    /// Read the map/set's construction-time key mode, including for empty tables.
+    /// `true` uses builtin hashing/equality; `false` uses stored selected callbacks.
+    /// Rejects foreign, stale or non-collection values, conflicting storage borrows
+    /// and terminated execution. Never resolves a protocol from the current caller.
+    pub fn uses_builtin_keys(&self, collection: &Value) -> Result<bool, RuntimeError> {
+        self.ensure_execution_allowed()?;
+        match collection {
             Value::Map(id) => self.map_contract(*id).map(|(_, _, builtin)| builtin),
             Value::Set(id) => self.set_contract(*id).map(|(_, builtin)| builtin),
             _ => None,
         }
-        .ok_or_else(invalid)?;
-        if builtin == custom {
+        .ok_or_else(invalid)
+    }
+
+    /// The selected key protocol is fixed at construction, including empty tables.
+    pub fn ensure_key_mode(&self, collection: &Value, custom: bool) -> Result<(), RuntimeError> {
+        if self.uses_builtin_keys(collection)? == custom {
             return Err(RuntimeError::new(
                 RuntimeErrorKind::ScriptTrap,
                 "collection key protocol mismatch; custom keys require script protocol execution",

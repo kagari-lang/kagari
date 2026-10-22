@@ -29,13 +29,6 @@ impl StoredSelection {
         self.callable.trace(&self.owner, pending);
     }
 
-    /// The containing native argument roots this edge during synchronous use.
-    pub(crate) fn borrowed(&self) -> LinkedCallable {
-        let mut callable = self.callable.clone();
-        callable.owner = CallableOwner::Resolved(self.owner.clone());
-        callable
-    }
-
     /// Promote an edge of a currently rooted object to a host-owned call handle.
     pub(crate) fn retain(&self, runtime: &Runtime) -> NativeResult<LinkedCallable> {
         let mut metadata = vec![MetadataRoot::Program(self.owner.clone())];

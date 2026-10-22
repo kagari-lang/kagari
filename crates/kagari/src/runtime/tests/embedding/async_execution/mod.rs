@@ -22,6 +22,8 @@ use std::num::NonZeroUsize;
 
 mod tasks;
 
+mod static_values;
+
 mod task_waiters;
 
 mod task_handlers;
