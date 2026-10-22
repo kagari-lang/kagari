@@ -220,6 +220,16 @@ The summary's `exit_code` matches the process result. Argument parsing errors oc
 before a report exists and use the ordinary stderr usage/error path. A failing
 reported command may additionally print its short final error on stderr.
 
+## Static initializer tooling
+
+Formatting preserves dedicated module-level static declarations rather than
+rewriting them as constants. Checking includes every initializer in the checked
+closure even when execution never accesses its cell. Eligible initializer bodies
+participate in ordinary local/parameter usage lints, including captured reads and
+writes. HIR navigation, reference-to-definition facts and lexical/method completion
+use `BodyOwner::Static` and resolved static declarations/import aliases; these facts
+do not imply that the analyzer implements new semantic LSP handlers.
+
 ## KBC disassembly
 
 ```sh
@@ -246,6 +256,14 @@ another function.
   exact underlying qualified name or `@<module-index>:<function-index>`. Both
   indices are zero-based buffer slots in this artifact, not persistent identities
   across rebuilds or reloads. Quote selectors for shell portability.
+
+Static descriptors include declaration identity, semantic and physical type,
+visibility, mutability, supplier module and the supplier-local initializer selector.
+An imported descriptor resolves its initializer against the supplier, not the
+importer's function table. Selecting an otherwise-unused initializer still shows
+its owning descriptor and referenced layouts. `state=runtime-only` explicitly
+means no live cell state/value exists in the artifact; disassembly never initializes
+state. Retained initializer source metadata remains diagnostic, not type authority.
 
 Qualified names use package/module/declaration components joined with `::`, with
 nonzero declaration occurrences retained as `#N`. Functions without a declaration

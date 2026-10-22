@@ -27,6 +27,32 @@ Artifacts may be used by:
 - package distribution
 - cache directories
 
+## Persistent static contracts
+
+Artifacts encode the [semantic static descriptors](bytecode.md#persistent-static-descriptors-and-transitions),
+complete applied types/layouts and supplier/dependency identities required for
+source-free verification and binding. They also carry hidden initializer code and
+its checked zero-argument synchronous result contract. Decoding does not need
+source analysis to enforce visibility, immutable-store rules, semantic type
+admission or initializer privacy. Callable exposure through public functions,
+inherent/trait tables or defaults cannot turn an initializer into an ordinary
+entrypoint.
+
+The public ABI describes a static's declaration identity, type and access contract,
+not its initializer expression, source position or live value. Exact artifact
+identity still covers the initializer code. Thus a changed initializer can produce
+a different artifact without authorizing replacement of an existing cell's fixed
+recipe. Private statics and the recursive applied schema remain independently
+checked by [reload compatibility](module-activation.md#static-publication-compatibility).
+
+Loading an artifact into a fresh installation creates fresh Uninitialized cells.
+Compatible publication binds existing declarations to existing cells and gives
+only new declarations new cells. The artifact contains no Ready values, Failed
+state, active initialization stack or heap snapshot. Persistent static storage
+means in-memory installation continuity, not disk persistence, process recovery
+or the proposed [explicit state replacement](../update-model-design.md#state-replacement-boundary).
+This unpublished schema uses the identifiers below without an old-schema reader.
+
 ## Current executable contract
 
 Current products use KBC format v115, `kagari-runtime-abi-v138`, `KMIR` v13

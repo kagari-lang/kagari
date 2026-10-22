@@ -125,6 +125,13 @@ fn static_initializers_use_eligible_body_facts_and_declaration_policy() {
             static var bad_global: i32 = { var BadLocal = 1; val unused = 2; BadLocal };
             #[tool::allow("non_upper_case_globals", "unused_binding", "unnecessary_var")]
             static val quiet_global: i32 = { var unused = 2; 3 };
+            static val CAPTURED: i32 = {
+                var changed = 1;
+                val update = || { changed += 1; };
+                update();
+                val read = |argument: i32| changed + argument;
+                read(2)
+            };
         "#,
         )],
         100,

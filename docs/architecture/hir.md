@@ -19,7 +19,7 @@ Start with [LoweredModule](../../crates/kagari-hir/src/lower/mod.rs),
 LoweredModule
 +-- source: Arc<SourceFile> -> text, identity, revision
 +-- module: Module
-|   +-- functions, consts, structs, enums, traits, impls, ...
+|   +-- functions, consts, statics, structs, enums, traits, impls, ...
 |   `-- body: Body
 |       +-- exprs:    Vec<(HirOwner, ExprData)>
 |       +-- stmts:    Vec<(HirOwner, StmtData)>
@@ -29,12 +29,13 @@ LoweredModule
 
 These arrows describe owned fields except the explicitly shared `Arc`. A body
 node's child ID is a reference into a vector, not an owned subtree. `Body` is
-shared by the module's declaration syntax and multiple function/constant owners.
+shared by the module's declaration syntax and multiple function, constant and
+static-initializer owners.
 Its name does not imply one allocation per function.
 
 | Handle | Lookup and validity |
 | --- | --- |
-| `FunctionId`, `ConstId`, other plain declaration IDs | Index the matching collection in the same module; no arena is carried. |
+| `FunctionId`, `ConstId`, `StaticId`, other plain declaration IDs | Index the matching collection in the same module; no arena is carried. |
 | `ExprId`, `StmtId`, `BlockId`, `PlaceId`, `PatternId`, `TypeRefId` | Carry arena, owner and an allocation-wide index; `Body` checks arena/owner and indexes its vector. |
 | `ParamId`, `LocalId` | Carry arena/owner and source-map-wide indices. Parameters live in function records; local bindings live in statements, patterns or closure parameters. Semantic maps use the complete IDs. |
 | `FieldId`, `VariantId` | Carry arena, enclosing struct/enum ID and member slot; look up the owner's nested member vector. |
@@ -82,12 +83,61 @@ scoped IDs and use the analysis context for cache keys; callers with an external
 path explicitly look it up in the relevant declaration snapshot first. Source,
 revision and dependency checks still govern reuse.
 
+## Static declaration and initializer ownership
+
+[StaticItem](../../crates/kagari-hir/src/hir/item/storage.rs) belongs to
+`Module.statics`; `Item::Static(StaticId)` records its position among module items.
+It is not a ConstItem or a source Function record. For example:
+
+```text
+pub static var count: i32 = seed();
+
+Module.statics[s] = StaticItem {
+    id: s, visibility: Public, name: "count", writeability: Var,
+    ty: Some(t), initializer: e
+}
+Module.items contains Item::Static(s)
+t -> Body.type_ref -> Named("i32")
+e -> Body.expr -> Call to the resolved seed function
+owner(t) = owner(e) = HirOwner::Body(BodyOwner::Static(s))
+SourceMap.static_span(s) -> declaration site
+```
+
+The IDs above are symbolic, lowering-local handles. Lowering allocates the static
+source-map slot, switches the body owner while lowering annotation/initializer
+nodes, then restores the previous owner. Missing annotations remain `None` and
+missing initializers become `ExprKind::Missing` for recovery; neither is a valid
+checked static. The accepted declaration requires a closed, durably storable type.
+Unlike ConstItem, StaticItem has no associated trait/impl owner: statics are
+module-only.
+
+Resolution uses `ResolvedName::Static(s)` and a `DefinitionKind::Static` declaration
+identity; imported aliases retain the supplier's source declaration. Signature
+facts carry the declared type in `ModuleSignatures.statics`, and checked body facts
+retain it in `typed.statics`. The
+[static checker](../../crates/kagari-hir/src/typeck/check/statics.rs) checks the
+initializer with ordinary expression inference and the declared result context,
+not const evaluation. It publishes expression/call facts and completion evidence,
+not a `const_values` entry or an initialized runtime cell. A closure that reads a
+static resolves the declaration; it does not capture a local copy of that cell's
+current value. Capturing a local previously read from the static is different.
+
+The [source compiler](../../crates/kagari-compiler/src/source/lower/statics.rs)
+consumes those facts to emit the semantic storage contract and a hidden synchronous
+zero-argument initializer function with the declared result type. That executable
+Function identity is distinct from the source static's identity; no synthetic
+ConstDef substitutes for it. Imported operands bind to the supplier descriptor,
+not another allocation. HIR owns source bodies and checking; the runtime owns
+[lazy cells, fixed recipes and generation bindings](../spec/module-activation.md).
+Neither analysis nor import resolution executes an initializer.
+
 ## Named local function ownership
 
 For `fn outer() { fn inner() {} }`, `Module.functions` stores both records,
 while `Module.items` contains only outer. `StmtKind::Function(inner)` links the
 local declaration from its block. `FunctionKind::Local { block }` identifies the
-declaring block; the block owner identifies the enclosing callable. Inner's body
+declaring block; the block owner identifies the enclosing body, which may be a
+function or static initializer. Inner's body
 has its own `BodyOwner::Function(inner)`. Methods use the same function table;
 closures remain expressions. Traversing an outer statement does not traverse the
 local function body as part of outer's return, capture or control-flow analysis.
@@ -146,7 +196,7 @@ The complete mappings are beside their owners:
 | Which function fields come from `pub`, `async`, generics, parameters, `where`, result and body? | [Function / Param / FunctionKind](../../crates/kagari-hir/src/hir/item/function.rs): full signature expansion, omitted annotations/bodies and method links. |
 | How do field/variant declarations differ from constructor values and patterns? | [Struct / Field / Enum / Variant / OpaqueType](../../crates/kagari-hir/src/hir/item/adt.rs): complete declaration payloads, owner/member slots and native-provider surfaces. |
 | What do trait/impl headers, associated items and generic bounds store? | [TraitDef / Impl / associated members / bounds](../../crates/kagari-hir/src/hir/item/behavior.rs): required versus defined members, member input versus output constraints and function/constant links. |
-| Where do constant initializers, child module bodies and flattened use leaves go? | [Constants](../../crates/kagari-hir/src/hir/item/storage.rs) and [modules/imports](../../crates/kagari-hir/src/hir/item/module.rs): owner context, header-only children, alias/glob and leaf/root source ranges. |
+| Where do constant/static initializers, child module bodies and flattened use leaves go? | [Constants and statics](../../crates/kagari-hir/src/hir/item/storage.rs) and [modules/imports](../../crates/kagari-hir/src/hir/item/module.rs): distinct body owners, compile-time versus runtime declarations, header-only children, alias/glob and leaf/root source ranges. |
 | Is the final expression also a statement, and how is `+=` represented? | [BlockData / StmtKind](../../crates/kagari-hir/src/hir/stmt.rs): all statement payloads, tail absence, place/loop/pattern links. |
 | How does `object.run(41)` differ from calling a named function or closure? | [ExprKind](../../crates/kagari-hir/src/hir/expr/mod.rs): Call-to-Field links, name qualification versus call type arguments, all expression shapes and inline helper records. |
 | Which parts of `items[next_index()].count` are places and which are expressions? | [PlaceKind](../../crates/kagari-hir/src/hir/place.rs): root and projection expansion, once-only target structure and later validation. |
@@ -562,7 +612,7 @@ single-module boundary. [CheckedProgram](../../crates/kagari-hir/src/program.rs)
 captures the root's reachable import closure from one snapshot, rejects error
 diagnostics and retains each module once, including cycles/diamonds. Its order is
 deterministic, not a topological execution order. These are inputs to the compiler;
-HIR does not generate bytecode, verify MIR or run the functions.
+HIR does not generate bytecode, verify MIR or run functions/static initializers.
 
 For where non-source declarations enter this flow, follow
 [native declaration import](../../crates/kagari-hir/src/native/api.rs),
@@ -630,6 +680,10 @@ computed before bodies and travels with each retained file analysis. An invalid
 shared snapshot disables semantic optional queries conservatively; a local body
 error does not invalidate another successfully checked body. This evidence never
 authorizes compilation: `AnalysisSnapshot::check_program` retains the strict gate.
+
+`FileAnalysis::static_initializer_eligibility` supplies the corresponding completion
+evidence for a static initializer. Invalid initializers cannot supply optional
+semantic facts merely because their source nodes were lowered successfully.
 
 `FileAnalysis::binding_usage` walks eligible resolved bindings, expressions, places
 and closure captures once. Shadowed bindings keep distinct declaration identities;

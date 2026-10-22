@@ -14,6 +14,8 @@ Structs, arrays, Vec objects, maps, and sets are mutable identity-bearing object
 argument passing, and returns share their identity. `val` prevents rebinding a
 slot, not mutation of the referenced object. Container copy operations are
 shallow. There is no generic deep-copy or deep-freeze operation in v1.
+[Module statics](modules.md#persistent-module-statics) use the same value model:
+`static val` prevents rebinding its cell, not mutation through writable aliases.
 
 [Pattern-based declarations](syntax.md#blocks-and-statements) extract members under
 this same value model: scalar leaves copy values and object leaves retain shared
@@ -322,7 +324,9 @@ failure behavior. `===` never invokes a user callback.
 
 Map keys and Set elements continue to require `Eq + Hash`, including in generic
 code. A Map's values do not need those bounds. Lookup hashes the key, then uses
-the same equality implementation as `==` to distinguish candidate keys.
+the key equality selected at construction to distinguish candidate keys. Those
+[stored protocols](collection-access.md#stored-key-protocols-across-reload) remain
+pinned across reload; a later caller's `==` selection need not use the same body.
 
 Users implementing these protocols must ensure:
 
@@ -384,7 +388,7 @@ safepoints; JIT-ineligible paths use the interpreter.
 Operands, receivers, arguments, and dynamic indexes evaluate left to right,
 exactly once. Short-circuit operators evaluate only the selected operand.
 
-For `root()[index()].field += rhs()`, evaluation is:
+For `root()[index()].field += rhs()`, projected-location evaluation is:
 
 1. Evaluate the root and indexes and retain a location description.
 2. Evaluate the right-hand side.
@@ -406,6 +410,28 @@ element changes which current field is modified. A local scalar or tuple slot is
 read after the RHS. Updating a tuple member prepares a new tuple value and thus
 requires a writable enclosing slot; modifying a mutable object referenced by a
 tuple does not replace the tuple.
+
+### Static roots
+
+Reading a static is effectful: it may invoke its fixed initializer, allocate,
+reenter or fail. An unused read still executes, and a read in an untaken branch
+must not be hoisted into execution. See [lazy activation](module-activation.md#lazy-static-activation).
+
+For both `S = rhs()` and `S += rhs()`, ensure and read S before evaluating the RHS.
+Plain assignment does not skip initialization merely because it replaces the
+result. Direct static compound assignment computes from the value captured by
+that read, unlike a local scalar/tuple slot read after the RHS. For example, if S
+is initially 1 and `rhs()` sets S to 10 and returns 2, `S += rhs()` commits 3.
+Failure before commit retains any completed RHS effects, including its write of 10.
+
+For `S.values[index()] += rhs()`, capture S's object root first, evaluate the index
+once, then evaluate the RHS once. Only afterward resolve intermediate projections,
+check bounds, read the current destination value and commit. Rebinding S during
+index/RHS evaluation does not retarget the captured root. Replacing that root's
+`values` field does change the array used at commit: intermediate objects are not
+prematurely captured. A bounds failure therefore occurs after RHS effects, which
+remain visible. Initializer execution and access retry never repeat index/RHS
+computation or hold a storage borrow across callbacks.
 
 ## Struct update construction
 
@@ -433,8 +459,9 @@ not its move/partial-invalidation ownership model.
 - Core enum values compare by variant and selected member implementations; user enums require explicit comparison.
 - A shallow copy has new container identity but shares referenced elements.
 - Structural mutation through an alias commits; the old cursor traps on its next read.
-- A compound assignment evaluates root/index/RHS once, reads after RHS, and never
-  writes after a failed RHS, invalidated location, or overflow.
+- A projected compound assignment evaluates root/index/RHS once and reads the
+  destination after RHS; direct static compound assignment captures its value
+  before RHS. Neither writes after a failed RHS, invalidated location, or overflow.
 
 The shared language and collection suites check identity through arguments and
 returns, independent storage from explicit constructors, and shared referenced

@@ -116,16 +116,75 @@ use that same version set and cancellation state, even after publication. Retain
 rebinding by name. Old code, metadata and dependencies stay alive while reachable;
 they become reclaimable when their remaining calls and references end.
 
+## Keep static state without retargeting code
+
+The runnable <a href={source('crates/kagari/examples/persistent_static.rs')}>persistent_static example</a>
+loads V1, initializes a counter, an object and a callback, then publishes V2 with
+changed initializer expressions and a changed `version()` function. Run it from
+the repository root:
+
+```sh
+cargo run -p kagari --example persistent_static --no-default-features --features source
+```
+
+It demonstrates three different kinds of continuity:
+
+| After V2 publication | What the example observes |
+| --- | --- |
+| Shared cells | COUNT continues from 2 to 3, not V2's new initializer value of 100; the same object is mutated from 2 to 3. |
+| Pinned callable code | The retained V1 callback returns 13: V1's `version()` value of 10 plus the shared count of 3. V2's direct call returns 23. |
+| Fixed lazy recipe | LATE was never read in V1. Its first read through V2 still runs V1's recipe and returns 10, not 20. |
+
+Old handles also see the updated cells while retaining old code. A fresh V2
+installation gets new cells and V2 recipes instead: its first counter increment
+returns 101, its object starts at 50, and its first LATE read returns 20. Loading,
+inspection and ordinary publication do not force any of those initializers.
+
+Staging shares existing cells and keeps additions private until publication.
+A stale, invalid or abandoned candidate cannot change existing cells or active
+bindings. You may add statics in an existing module, but cannot delete, rename,
+move, or change the declared type, mutability or visibility of an existing static,
+including a private one. Relevant recursive applied schemas remain checked even
+when a cell holds None or an empty collection. This is a static-only addition
+rule, not permission to add arbitrary modules, public functions or types.
+
+Publishing older code is not state rollback: it cannot remove a static added
+since that version, restore old values or retry a Failed initializer. See
+<a href={source('docs/spec/module-activation.md#static-publication-compatibility')}>static publication compatibility</a>
+and <a href={source('docs/spec/runtime.md#persistent-static-cells')}>cell ownership and GC</a>.
+
+A retained HashMap/HashSet also keeps its construction-time key Hash/Eq selections
+for lookup, insertion and removal. Whole-collection comparisons and content
+helpers instead use caller-selected protocols; reload does not reindex the table.
+The <a href={source('docs/spec/collection-access.md#stored-key-protocols-across-reload')}>collection protocol contract</a>
+explains this distinction.
+
 ## Do not confuse retention with state migration
 
 Compatible reload does **not** migrate object layouts, replace durable application
 state, extend a host scope, or make a taken opaque payload available again. Old
 receiver and field descriptors cannot silently switch to a new Rust layout.
 A retained generation preserves code dependencies, not expired host access.
+Static persistence does not automatically include cells in a disk snapshot or
+implement state replacement. The separate
+<a href={source('docs/update-model-design.md#state-replacement-boundary')}>state replacement proposal</a>
+requires an explicit exported data root; durably storable does not mean serializable.
+
+Static initializers are synchronous: they cannot create a cold Future, spawn,
+create an async scope or await, even through native reentry. During ordinary
+execution, Future/Task values can be stored under the existing durable-storage
+and scope rules, for example in an initialized Option. Storage does not extend
+their scopes, revive them or change their pinned bodies/providers. Native static
+execution is unsupported; interpreter fallback must be selected before native
+entry, not after effects. See
+<a href={source('docs/spec/module-activation.md#async-activation')}>async activation</a>
+and <a href={source('docs/spec/bytecode.md#persistent-static-descriptors-and-transitions')}>backend limits</a>.
 
 Lower-level runtime APIs also permit an explicit restricted candidate session.
-Such a session may compute and mutate candidate-owned state, but cannot perform
-external modifications. Publication follows session completion and revalidation;
+Such a session may compute and mutate candidate-owned nonstatic objects, but
+cannot perform external modifications or access any static cell, even a Ready
+cell or one introduced by the candidate. Indirect calls and host reentry do not
+bypass that restriction. Publication follows session completion and revalidation;
 ordinary `reload_program` does not opt into that session for you. State replacement
 and suspended-state migration are not implicit reload features. The
 <a href={source('docs/spec/module-activation.md')}>activation contract</a> owns these

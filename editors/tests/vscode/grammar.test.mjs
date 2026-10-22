@@ -158,13 +158,13 @@ test('numeric bases, suffixes, separators and ranges follow lexer boundaries', a
 test('reserved Kagari words, conservative declarations/types, attributes and no Rust rules', async () => {
   const reserved = ['as', 'async', 'await', 'break', 'const', 'continue', 'crate', 'else', 'enum',
     'false', 'fn', 'for', 'trait', 'if', 'impl', 'in', 'loop', 'match', 'mod', 'pub', 'return',
-    'self', 'struct', 'super', 'true', 'use', 'val', 'var', 'type', 'where', 'while'];
+    'self', 'static', 'struct', 'super', 'true', 'use', 'val', 'var', 'type', 'where', 'while'];
   for (const word of reserved) {
     const spans = await tokenize(word);
     assert.ok(spans.some((span) => span.scopes.some((scope) =>
       /^(keyword\.|storage\.|variable\.language\.|constant\.language\.)/.test(scope))), word);
   }
-  const plain = "let mut dyn ref static 'life 'x' r b SomeType Constructor Vec String isize usize";
+  const plain = "let mut dyn ref static_value 'life 'x' r b SomeType Constructor Vec String isize usize";
   for (const span of await tokenize(plain)) {
     assert.equal(span.type, 'code');
     assert.ok(!span.scopes.some((scope) => /^(keyword|storage|entity\.name\.type|support\.type)\./.test(scope)),
@@ -183,6 +183,26 @@ test('reserved Kagari words, conservative declarations/types, attributes and no 
   region(text, spans, 'child', 'code', 'entity.name.namespace.kagari');
   region(text, spans, 'Model', 'code', 'entity.name.type.kagari', 2);
   region(text, spans, 'Model', 'code', 'variable.other.kagari', 3);
+});
+
+test('persistent statics use lexical storage scopes without treating val objects as constants', async () => {
+  const text = await readFile(new URL('../../../examples/syntax/grammar-witnesses.kgr', import.meta.url), 'utf8');
+  const spans = await tokenize(text);
+  for (const [occurrence, binding, name] of [[1, 'var', 'requests'], [2, 'val', 'callback'], [3, 'val', 'cached']]) {
+    region(text, spans, 'static', 'code', 'storage.modifier.kagari', occurrence);
+    regionsIn(text, spans, `static ${binding} ${name}`, [
+      ['static', 'storage.modifier.kagari'], [binding, 'storage.type.kagari'], [name, 'variable.other.kagari'],
+    ]);
+  }
+  regionsIn(text, spans, 'pub(crate) static var requests', [
+    ['pub', 'storage.modifier.kagari'], ['crate', 'variable.language.kagari'],
+    ['(', 'punctuation.separator.kagari'], [')', 'punctuation.separator.kagari'],
+  ]);
+  const quoted = '// static var count: i64 = 0;\nstatic val label: String = "static val";';
+  const quotedSpans = await tokenize(quoted);
+  region(quoted, quotedSpans, 'static', 'comment', undefined, 1);
+  region(quoted, quotedSpans, 'static', 'code', 'storage.modifier.kagari', 2);
+  region(quoted, quotedSpans, 'static', 'string', undefined, 3);
 });
 
 test('runnable binding patterns retain lexical scopes without guessing types or constructors', async () => {

@@ -283,6 +283,27 @@ The debugger may show a value as unavailable when:
 - host policy hides the value
 - the module epoch metadata is unavailable
 
+## Static inspection
+
+Runtime diagnostic snapshots can distinguish Uninitialized, Initializing, Ready
+and Failed cells without running an initializer. Inspection, expansion and watches
+must not force a cold static or retry a Failed one. Ready-only runtime reads/writes
+likewise do not execute initialization; ownership, access and candidate-session
+restrictions remain in force. A raw Value obtained for inspection must be rooted
+if retained across collection. See [cell ownership](runtime.md#persistent-static-cells)
+and [retained failure diagnostics](failure-semantics.md#static-initialization-failures).
+
+This runtime snapshot contract does not add a static-name watch evaluator, a new
+static-scope UI or a force/reset command. A source static read is effectful, not
+an ordinary pure watch read merely because its result is discarded.
+
+Lazy initializer execution uses ordinary script frames and observers. Its frame
+and source metadata belong to the fixed recipe's generation, which may be older
+than the accessing frame after reload. Inspection must not relabel that frame with
+the latest epoch. The caller remains at the accessing instruction until the
+initializer completes. Debugger observation is not permission to park an owned
+async execution while an initializer is active.
+
 ## Value Inspection
 
 The value inspector supports:
@@ -354,7 +375,8 @@ Debugger state is epoch-aware.
 Rules:
 
 - existing frames keep their original module epoch and source map
-- new calls use the latest published epoch
+- fresh root calls may select the latest published epoch; nested calls, retained
+  executable values and static initializer recipes keep their selected generation
 - source breakpoints are re-resolved after reload
 - unresolved breakpoints remain pending
 - removed or unmappable breakpoints are reported as unbound

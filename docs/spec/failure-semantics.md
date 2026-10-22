@@ -49,8 +49,10 @@ destruction are engine invariant failures and quarantine the runtime.
 Missing linked function/module/path slots and unsupported verified call targets
 also indicate broken execution state, not recoverable script traps. Quarantine
 still unwinds frames and releases their roots and call-depth accounting.
-Candidate access to module state outside its pinned program is an execution-phase
-violation instead; it leaves the runtime usable and the active entry unchanged.
+Candidate access to any static cell is an execution-phase violation, including
+Ready cells and indirect or host-reentrant access. It leaves the runtime usable
+and the active entry unchanged; publication does not grant candidate execution
+permission to read shared state.
 Holding a mutable module-instance borrow across another runtime entry violates
 the execution ownership contract; the second entry reports an engine fault and
 quarantines without a Rust borrow panic.
@@ -67,6 +69,35 @@ Quarantine and termination forbid new borrowing while still permitting guard Dro
 
 Candidate execution and ordinary calls release their version retention, frames,
 temporary roots, and host resources on failure, including after quarantine.
+
+## Static initialization failures
+
+[Lazy static activation](module-activation.md#lazy-static-activation) distinguishes
+failure to admit an attempt from failure after it starts. Admission failure before
+the transition to Initializing leaves the cell Uninitialized. After that
+transition, a trap, cancellation, depth exhaustion, observer/GC failure or dropped
+execution stack must leave the cell Failed, never stranded Initializing. A
+successful result is rooted through frame retirement and semantic validation
+until the Ready commit.
+
+Reentering an Initializing cell is an initialization cycle and poisons it
+immediately. This includes indirect cycles and native callbacks that swallow the
+reentry error: the outer initializer cannot subsequently commit success over the
+poisoned cell. Dependencies that already completed remain Ready. Cleanup retires
+all still-active initialization attempts without callbacks that resume script.
+
+Failed cells retain a detached cause of at most 1024 UTF-8 bytes and an optional
+origin span, not live frames or an executable recipe root. Later access reports
+the retained initialization failure; it does not retry, reset the cell, or turn a
+past cancellation into fresh session cancellation. Compatible reload does not
+repair Failed cells or replace their recipes. A fresh installation has fresh cells.
+Runtime quarantine, when required by the underlying failure, still takes precedence.
+
+A business `Result::Err` returned by the initializer is an ordinary Ready value,
+not Failed. Failure does not roll back completed host effects or mutations to
+other cells/objects. For example, if A initializes B successfully and then traps,
+A is Failed while B remains Ready. Static initialization is not a transaction over
+all effects that occurred while computing its result.
 
 ## Modification guarantees
 

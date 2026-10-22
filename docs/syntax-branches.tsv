@@ -3,10 +3,11 @@ item_decl	1	witnessed	examples/syntax/import-alias.kgr	-	use_decl
 item_decl	2	witnessed	examples/syntax/grammar-witnesses.kgr	-	module_decl
 item_decl	3	witnessed	examples/syntax/expressions.kgr	-	function_item
 item_decl	4	witnessed	examples/standard-library.kgr	-	const_item
-item_decl	5	witnessed	examples/syntax/data-model.kgr	-	struct_item
-item_decl	6	witnessed	examples/syntax/data-model.kgr	-	enum_item
-item_decl	7	witnessed	examples/syntax/where-bounds.kgr	-	trait_item
-item_decl	8	witnessed	examples/syntax/where-bounds.kgr	-	impl_block
+item_decl	5	witnessed	examples/syntax/grammar-witnesses.kgr	-	static_item
+item_decl	6	witnessed	examples/syntax/data-model.kgr	-	struct_item
+item_decl	7	witnessed	examples/syntax/data-model.kgr	-	enum_item
+item_decl	8	witnessed	examples/syntax/where-bounds.kgr	-	trait_item
+item_decl	9	witnessed	examples/syntax/where-bounds.kgr	-	impl_block
 attribute_arg	1	witnessed	examples/syntax/attributes.kgr	-	IDENT "=" attribute_value
 attribute_arg	2	witnessed	examples/syntax/attributes.kgr	-	attribute_value
 attribute_value	1	witnessed	examples/syntax/attributes.kgr	-	literal

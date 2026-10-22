@@ -58,6 +58,49 @@ for (const name of [...selected, ...representative]) {
   });
 }
 
+test('persistent statics have named typed initializers only at module scope', () => {
+  const file = path.join(__dirname, '../../../examples/syntax/grammar-witnesses.kgr');
+  const tree = valid(fs.readFileSync(file, 'utf8'));
+  const declarations = nodes(tree.rootNode, 'static_item');
+  assert.deepEqual(declarations.map(node => [node.childForFieldName('name').text,
+    node.childForFieldName('type').text, node.childForFieldName('value').text, node.parent.type]), [
+    ['requests', 'i64', 'BASELINE', 'source_file'],
+    ['callback', 'fn(i32) -> i32', '|value: i32| value + 1', 'source_file'],
+    ['cached', '[i64]', '[1, 2]', 'module_body'],
+  ]);
+  assert.deepEqual(declarations.map(node => node.namedChildren.find(child => child.type === 'visibility').text),
+    ['pub(crate)', 'pub', 'pub(super)']);
+  assert.ok(declarations[2].namedChildren.some(node => node.type === 'attribute'));
+
+  const initialized = valid('static val cache: Map<String, Vec<i64>> = { val initial = make(); initial };');
+  assert.equal(nodes(initialized.rootNode, 'static_item')[0].childForFieldName('value').type, 'block');
+});
+
+test('static declarations require a single name, explicit type and initializer', () => {
+  for (const source of [
+    'static count: i64 = 0;', 'static val count = 0;', 'static var count: i64;',
+    'static val count: = 0;', 'static var count: i64 = ;',
+    'static val (left, right): (i64, i64) = (1, 2);',
+    'static val count<T>: T = make();', 'static var count: i64 = 0',
+  ]) {
+    assert.ok(parse(source).rootNode.hasError, source);
+  }
+});
+
+test('local and associated statics are not valid module items', () => {
+  for (const binding of ['val', 'var']) {
+    const declaration = `static ${binding} count: i64 = 0;`;
+    for (const source of [
+      `fn run() { ${declaration} }`, `fn run() { val callback = || { ${declaration} }; }`,
+      `trait Counter { ${declaration} }`, `impl Counter { ${declaration} }`,
+      `impl Trait for Counter { ${declaration} }`, `impl<T> Counter<T> { ${declaration} }`,
+      `struct Counter { ${declaration} }`, `enum Counter { ${declaration} }`,
+    ]) assert.ok(parse(source).rootNode.hasError, source);
+  }
+  assert.ok(parse('fn static() {}').rootNode.hasError, 'static is reserved, not a function name');
+  valid('fn static_value() { val static_count = 1; static_count }');
+});
+
 test('ordinary declarations retain complete patterns from the shared binding example', () => {
   const file = path.join(__dirname, '../../../examples/syntax/binding-patterns.kgr');
   const tree = valid(fs.readFileSync(file, 'utf8'));
@@ -336,6 +379,11 @@ function editSequence(initial, edits) {
 
 test('incremental quotes, hole/block braces and nested comment terminators agree with fresh parsing', () => {
   for (const eol of ['\n', '\r\n']) {
+    editSequence(`mod state {${eol}static var count: i64 = 0;${eol}fn after() { count }${eol}}`, [
+      ['static var', 'static val'], [': i64', ':'], [': =', ': i64 ='],
+      ['= 0;', '= ;'], ['= ;', '= { val initial = 1; initial };'],
+      ['static val', 'val'], ['val count', 'static val count'],
+    ]);
     editSequence(['fn main() {', 'val s = "文🙂";', 'val after = 42;', '}'].join(eol), [
       ['文🙂"', '文🙂'], ['文🙂', '文🙂"'], ['"文🙂"', 'f"文🙂 {after}"'],
       ['{after}', '{{after}'], ['{{after}', '{after}'],

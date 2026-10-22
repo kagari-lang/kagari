@@ -234,11 +234,67 @@ fn layouts_and_module_slots_have_access_types_and_nested_dependencies() {
     assert!(output.contains("field#0 layouts::Box::\"state\\n\" name=\"state\\n\" type=enum layouts::State visibility=pub(super) mutable=true"));
     assert!(output.contains("variant#0 layouts::State::Failure reports_failure=true"));
     assert!(output.contains("payload#0 type=struct layouts::Box"));
-    assert!(output.contains("@0:slot#0 name=\"counter\\n\" physical=i64 mutable=false"));
+    assert!(output.contains("@0:slot#0 layouts::\"counter\\n\" name=\"counter\\n\" type=i64 physical=i64 visibility=private mutable=false supplier=@0 layouts initializer=@0:0 state=runtime-only"));
     assert_eq!(output.matches("  @0:struct#0").count(), 1);
     assert_eq!(output.matches("  @0:enum#0").count(), 1);
     assert!(output.find("  @0:struct#0").unwrap() < output.find("  @0:enum#0").unwrap());
     assert!(output.find("  @0:enum#0").unwrap() < output.find("  @0:slot#0").unwrap());
+}
+
+#[test]
+fn static_descriptors_resolve_supplier_initializers_and_unused_declarations() {
+    let mut caller = module("caller");
+    let mut supplier = module("supplier");
+    let mut builder = DefinitionTableBuilder::new().unwrap();
+    let root = builder.intern_root(&supplier.identity).unwrap();
+    let structure = child(&mut builder, root, DefinitionKind::Struct, "State");
+    supplier.structures.push(StructLayout {
+        declaration: structure,
+        arguments: vec![],
+        fields: vec![],
+    });
+    let descriptor = StaticDescriptor {
+        contract: StaticContract {
+            declaration: child(&mut builder, root, DefinitionKind::Static, "STATE"),
+            supplier: supplier.identity.clone(),
+            name: "STATE".into(),
+            ty: Ty::Struct(nominal(structure)),
+            mutable: true,
+            visibility: Visibility::Public,
+        },
+        initializer: FunctionRef::new(0),
+    };
+    caller.module_slots.push(descriptor.clone());
+    supplier.module_slots.push(descriptor);
+    caller.functions.push(body(vec![I::LoadModule {
+        dst: Slot::new(0),
+        slot: ModuleSlot::new(0),
+    }]));
+    // Same numeric function index, different owner. The initializer is not a callee
+    // of the selected read and its instruction dependencies must not be traversed.
+    supplier
+        .constants
+        .push(ConstantOperand::Str("initializer-only".into()));
+    supplier.functions.push(body(vec![I::LoadConst {
+        dst: Slot::new(0),
+        constant: ConstantId::new(0),
+    }]));
+    let program = program(vec![caller, supplier]);
+    let definitions = builder.freeze();
+    let read = render(&program, &[(0, 0)], &definitions);
+    assert!(read.contains("@0:slot#0 supplier::STATE name=\"STATE\" type=struct supplier::State physical=heap_object visibility=pub mutable=true supplier=@1 supplier initializer=@1:0 state=runtime-only"), "{read}");
+    assert!(read.contains("@1:struct#0 supplier::State"));
+    assert!(!read.contains("initializer-only"));
+
+    // Selecting an otherwise unused initializer still exposes its static contract.
+    let initializer = render(&program, &[(1, 0)], &definitions);
+    assert!(
+        initializer.contains("@1:slot#0 supplier::STATE"),
+        "{initializer}"
+    );
+    assert!(initializer.contains("initializer=@1:0 state=runtime-only"));
+    assert!(!initializer.contains("@0:slot#0"));
+    assert!(initializer.contains("initializer-only"));
 }
 
 #[test]
@@ -594,6 +650,17 @@ fn every_direct_table_operand_is_collected_without_rendering_unselected_bodies()
         variants: vec![],
     });
     owner.native_imports.push(native_import(native, native));
+    owner.module_slots.push(StaticDescriptor {
+        contract: StaticContract {
+            declaration: child(&mut builder, root, DefinitionKind::Static, "STATE"),
+            supplier: owner.identity.clone(),
+            name: "STATE".into(),
+            ty: integer(),
+            mutable: true,
+            visibility: Visibility::Private,
+        },
+        initializer: FunctionRef::new(1),
+    });
     let cases = vec![
         (
             Category::Constant,
@@ -719,7 +786,7 @@ fn every_direct_table_operand_is_collected_without_rendering_unselected_bodies()
             },
         ),
     ];
-    owner.functions.push(body(vec![]));
+    owner.functions.extend([body(vec![]), body(vec![])]);
     let mut program = program(vec![owner]);
     let definitions = builder.freeze();
     for (category, instruction) in cases {

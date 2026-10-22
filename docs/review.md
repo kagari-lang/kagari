@@ -1015,6 +1015,22 @@ Measure warmed execution separately from preparation, code size and slot traffic
 Current cancellation/slice guarantees remain unless explicitly revised; do not use
 benchmark-only unchecked execution.
 
+## Hash lookup equality receiver clarification
+
+Inspection during persistent-static integration found a pre-existing contract
+mismatch: [value semantics](spec/value-semantics.md)
+describes the query as the equality receiver for map/set lookup, while
+[hash operations](../crates/kagari-stdlib/src/foundation/hash/operations.rs) passes
+`[stored, query]` to selected equality. The persistent-state fix deliberately
+changes protocol ownership (construction-pinned lookup versus caller-selected
+content comparison), not operand order.
+
+For an asymmetric or observably effectful equality implementation, receiver order
+can change results or completed effects. Reconcile the intended rule with the
+collection contract and add a focused asymmetric/effect-order case before changing
+implementation or specification. This finding is source-derived, not a new executed
+reproduction; it does not activate a semantic change as part of static support.
+
 ## Artifact reachability follow-up
 
 Whether executable artifacts should prune unreachable contracts remains an open

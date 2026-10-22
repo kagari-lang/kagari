@@ -57,6 +57,27 @@ Default HashMap uses Rust `std::collections::HashMap`; HashSet uses
 LinkedHashMap/LinkedHashSet. Storage bindings preserve checked Kagari Eq/Hash key
 semantics rather than infer them from Rust types.
 
+## Stored key protocols across reload
+
+HashMap and HashSet retain their construction-time builtin/custom key mode and
+selected Hash/Eq implementations. Lookup, insertion and removal use those stored
+selections, including for an empty table, rather than the calling generation's
+selection. A map retained in a [static cell](modules.md#persistent-module-statics)
+therefore remains searchable after a compatible reload changes a key method body.
+Publication neither reindexes the table nor changes its key interpretation.
+
+Stored callbacks enter their retained supplying generation through the ordinary
+checked call path. Runtime ownership, liveness, complete types and execution-phase
+restrictions still apply. The collection and participating values remain rooted
+across callbacks; no storage borrow spans arbitrary callback execution. This does
+not relax the author's [key-stability obligations](value-semantics.md#hash-containers-and-user-obligations).
+
+[Content protocols and helpers](#content-protocols-and-helpers) are different:
+whole-collection comparison/hashing and explicit content helpers use the protocols
+selected by their caller, not the table's stored membership relation. An old table
+can keep its lookup behavior while a new caller deliberately compares its contents
+under new method bodies. Neither operation silently rebuilds the other contract.
+
 ## Read-only access is shallow and live
 
 Binding mutability, container mutation and element mutation are independent:

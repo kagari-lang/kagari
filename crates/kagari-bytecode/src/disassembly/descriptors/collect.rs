@@ -209,9 +209,16 @@ impl References {
                     }
                 }
             }
+            Category::Slot => {
+                self.layout_types(
+                    resolution,
+                    owner,
+                    &module.module_slots[slot].contract.ty,
+                    pending,
+                );
+            }
             Category::Constant
             | Category::Path
-            | Category::Slot
             | Category::PublicTrait
             | Category::TraitContract => {}
         }

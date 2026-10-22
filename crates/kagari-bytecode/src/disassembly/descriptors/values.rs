@@ -3,11 +3,17 @@
 use crate::{
     disassembly::{
         descriptors::contracts::arguments,
-        presentation::{DisplayContext, quoted},
+        presentation::{DisplayContext, physical, quoted},
+        resolution::Resolution,
     },
     instruction::ConstantOperand,
 };
-use kagari_contract::layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout};
+use kagari_contract::{
+    ids::FunctionRef,
+    layout::{EnumLayout, EnumVariantLayout, StructFieldLayout, StructLayout},
+    representation::semantic_representation,
+    statics::StaticDescriptor,
+};
 use kagari_types::visibility::Visibility;
 use std::io::{self, Write};
 
@@ -107,6 +113,30 @@ pub(super) fn enumeration(
         }
     }
     Ok(())
+}
+
+pub(super) fn static_slot(
+    writer: &mut impl Write,
+    context: &DisplayContext<'_>,
+    resolution: &Resolution<'_>,
+    owner: usize,
+    slot: usize,
+    record: &StaticDescriptor<FunctionRef>,
+) -> io::Result<()> {
+    let contract = &record.contract;
+    let supplier = resolution.module(&contract.supplier);
+    writeln!(
+        writer,
+        "  @{owner}:slot#{slot} {} name={} type={} physical={} visibility={} mutable={} supplier=@{supplier} {} initializer=@{supplier}:{} state=runtime-only",
+        context.definition(contract.declaration),
+        quoted(&contract.name),
+        context.ty(&contract.ty),
+        physical(semantic_representation(&contract.ty)),
+        visibility(contract.visibility),
+        contract.mutable,
+        context.module(&contract.supplier),
+        record.initializer.index(),
+    )
 }
 
 pub(super) fn visibility(value: Visibility) -> &'static str {

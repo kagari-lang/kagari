@@ -1,0 +1,34 @@
+==================
+Persistent static module items and ordinary runtime initializers
+==================
+const LIMIT: i64 = 10;
+static var count: i64 = LIMIT;
+mod state {
+  #[allow(dead_code)]
+  pub(crate) static val cache: [i64] = { val seed = count; [seed] };
+}
+
+---
+
+(source_file
+  (const_item
+    (identifier)
+    (type_annotation (type_path (type_identifier)))
+    (integer_literal))
+  (static_item
+    (identifier)
+    (type_path (type_identifier))
+    (path (identifier)))
+  (module_item
+    (identifier)
+    (module_body
+      (static_item
+        (attribute
+          (path (identifier))
+          (attribute_arguments (attribute_argument (path (identifier)))))
+        (visibility)
+        (identifier)
+        (array_type (type_path (type_identifier)))
+        (block
+          (binding_statement (path (identifier)) (path (identifier)))
+          (array_expression (path (identifier))))))))

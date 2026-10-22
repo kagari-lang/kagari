@@ -117,6 +117,30 @@ explicit workspace dependency inheritance, an external child module and multiple
 public host entries. Its README gives CLI check/build/run commands and a Rust host
 that invokes several exports from the same jointly compiled Program.
 
+## Persistent state across hot reload
+
+Run the [persistent_static host](../crates/kagari/examples/persistent_static.rs):
+
+```sh
+cargo run -p kagari --example persistent_static --no-default-features --features source
+```
+
+The example increments a `static var` counter, mutates an object stored in
+`static val`, retains a callback, and publishes new code with changed initializers.
+After reload the counter continues at 3 rather than restarting at 101. The retained
+callback runs v1 code against the current counter (13), while an ordinary v2 call
+returns 23. An untouched static first accessed through v2 still uses v1's recipe
+(10); a fresh installation uses v2's recipe (20).
+
+`const` remains a compile-time value. `static` is explicitly typed, lazy runtime
+storage local to an installation; `val` prevents rebinding, not object mutation.
+Compatible reload shares cells but never retargets old code. Initializers cannot
+start async work, recursive initialization fails permanently, and compatible
+reload cannot delete/rename a static or change its storage contract. This is not
+disk persistence or automatic snapshot/state migration. See the
+[module guide](../docs/spec/modules.md#persistent-module-statics) and
+[activation rules](../docs/spec/module-activation.md).
+
 ## Host-driven async tasks
 
 Run the deterministic [async_tasks host](../crates/kagari/examples/async_tasks/main.rs):

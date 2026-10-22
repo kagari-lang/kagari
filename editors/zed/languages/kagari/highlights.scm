@@ -25,7 +25,7 @@
 
 ["as" "async" "await" "break" "const" "continue" "crate" "else"
  "enum" "fn" "for" "trait" "if" "impl" "in" "loop" "match" "mod"
- "pub" "return" "self" "struct" "super" "use" "val" "var" "type"
+ "pub" "return" "self" "static" "struct" "super" "use" "val" "var" "type"
  "where" "while"] @keyword
 
 (boolean_literal) @boolean

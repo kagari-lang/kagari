@@ -1390,6 +1390,56 @@ collector used before verification. Code-image sharing across independent runtim
 must not be inferred from original version sharing. Definition table snapshots share their prefix storage, but appending
 while a snapshot is retained currently copies the table's index containers.
 
+## Persistent module state
+
+Module statics separate three owners: immutable `StaticContract`/`StaticDescriptor`
+records, runtime installation-owned cells, and checked per-generation bindings.
+A source `StaticItem` owns its initializer body independently of ordinary functions;
+checked lowering emits a private synchronous initializer and typed module accesses.
+MIR, bytecode and artifact verification preserve declaration/supplier identity,
+complete semantic types, access and initializer authority. They do not infer those
+facts again from source or current values.
+
+For example, after v1 increments `COUNT` to 100, publishing compatible v2 leaves
+that same cell at 100. Old calls still execute v1; new calls execute v2; both see
+and may update that cell. A separately installed root gets a different cell. An
+unread static still runs its introducing generation's initializer when v2 first
+accesses it. Reload never implies a reset, callback rebinding or snapshot restore.
+The [activation contract](spec/module-activation.md) owns the compatibility rules,
+including static-only additions, private schema checking and candidate denial.
+
+A cold access enters the retained recipe's `LoadedModule` through ordinary frame
+admission and shares cancellation/depth/session state. A private frame-owned attempt
+settles success or failure; immediate shared completion prevents swallowed recursive
+reentry from publishing success. A rooted return survives frame retirement and full
+semantic admission before publication. The driver retries only the access instruction,
+not prior index/RHS effects. Active attempts deny asynchronous work and parking;
+there is no nested interpreter or new root session. Readonly inspection never invokes
+an initializer. See [failure semantics](spec/failure-semantics.md#static-initialization-failures).
+
+Joint GC traces installation/program bindings to cells, Ready values and pending
+recipes. Immutable descriptor provenance is not an executable root. Clearing a stored
+callback or releasing an installation permits otherwise unreachable code/state cycles
+to retire. Stored Map/Set lookup protocols and retained callable/interface/native
+values keep their original execution authority; content comparison remains a separate
+caller-selected operation. [Runtime storage](spec/runtime.md#persistent-static-cells)
+and [collection semantics](spec/collection-access.md) own those distinctions.
+
+Access resolves one generation's indexed binding and one cell-table lookup, then
+checks that declaration's contract/recipe; it does not scan historical generations
+or all cells. Type/value admission and publication/collection retain their own
+semantic and graph costs. This structural property is not a measured speed claim.
+Native backends still reject unsupported accesses before entry, selecting existing
+interpreter fallback rather than restarting execution after effects.
+
+The design draws on [Rust 1.90 LazyLock](https://doc.rust-lang.org/1.90.0/std/sync/struct.LazyLock.html)
+for distinct construction/first-access ownership and [Java SE 25 initialization states](https://docs.oracle.com/javase/specs/jls/se25/html/jls-12.html#jls-12.4.2)
+for persistent failed initialization. Kagari instead has installation-local traced
+storage, individual declaration initialization, no blocking/default-value recursion,
+and its existing cancellation/quarantine semantics. ERTS `persistent_term`'s global,
+read-mostly copy/update model is not adopted. Typed generation bindings and joint GC
+are necessary for Kagari's shared-state/pinned-code boundary, not performance shortcuts.
+
 ## Runtime Model
 
 The active [runtime ownership and host object API](runtime-ownership-and-host-api-design.md)

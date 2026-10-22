@@ -175,7 +175,7 @@
         { "match": "\\b(true|false)\\b", "name": "constant.language.boolean.kagari" },
         { "match": "\\b(as|async|await|break|continue|else|for|if|in|loop|match|return|use|where|while)\\b", "name": "keyword.control.kagari" },
         { "match": "\\b(const|enum|fn|impl|mod|struct|trait|type|val|var)\\b", "name": "storage.type.kagari" },
-        { "match": "\\bpub\\b", "name": "storage.modifier.kagari" },
+        { "match": "\\b(pub|static)\\b", "name": "storage.modifier.kagari" },
         { "match": "\\b(crate|self|super)\\b", "name": "variable.language.kagari" }
       ]
     },

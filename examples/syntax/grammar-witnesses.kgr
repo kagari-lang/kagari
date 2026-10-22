@@ -1,5 +1,12 @@
 // Parser witnesses for grammar branches whose module semantics are still separate.
+const BASELINE: i64 = 0;
+pub(crate) static var requests: i64 = BASELINE;
+pub static val callback: fn(i32) -> i32 = |value: i32| value + 1;
+
 mod nested {
+    #[allow(dead_code)]
+    pub(super) static val cached: [i64] = [1, 2];
+
     fn answer() -> i32 { 42 }
 }
 

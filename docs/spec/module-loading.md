@@ -2,6 +2,8 @@
 
 This document defines how source files, module ids, imports, package roots, and bytecode artifacts are resolved.
 Module execution semantics are defined in [modules.md](modules.md).
+[Activation](module-activation.md) defines lazy static cells and compatible
+publication equally for source-built and source-free programs.
 
 ## Design Goals
 
@@ -9,7 +11,7 @@ Module execution semantics are defined in [modules.md](modules.md).
 - keep import resolution deterministic
 - support single-file scripts and package-style projects
 - allow `.kbc` artifacts to replace source parsing when valid
-- avoid hidden mutable module storage
+- make static storage installation-owned and checked, with no implicit initialization on import
 - keep host embedding policy in control of file-system access
 
 ## Module Identity and Package Roots

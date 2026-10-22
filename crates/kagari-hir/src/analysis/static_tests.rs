@@ -301,6 +301,30 @@ fn static_imports_reexports_inline_modules_and_navigation_keep_original_identity
         file.type_at(text.rfind("count }").unwrap()),
         Some(TypeId::Builtin(BuiltinType::I32))
     );
+    for reference in [
+        "exposed as",
+        "count; static",
+        "count; fn",
+        "count +=",
+        "count }",
+    ] {
+        let offset = text.find(reference).unwrap();
+        assert_eq!(
+            snapshot.definition_at(root, offset),
+            Some(target),
+            "{reference}"
+        );
+    }
+    assert_eq!(
+        file.type_at(text.find("count; fn").unwrap()),
+        Some(TypeId::Builtin(BuiltinType::I32))
+    );
+    let nested = file.definition_at(text.rfind("nested }").unwrap()).unwrap();
+    assert_eq!(nested.location.file, root);
+    assert_eq!(
+        nested.location.range.start,
+        text.find("nested: i32").unwrap()
+    );
     let facts = file.result().facts();
     let references: Vec<_> = facts
         .lowered
@@ -468,6 +492,75 @@ fn imported_static_contract_edits_invalidate_cached_body_facts() {
                 DiagnosticKind::AssignmentTypeMismatch { .. }
                     | DiagnosticKind::ReturnTypeMismatch { .. }
             ))
+    );
+}
+
+#[test]
+fn static_initializer_scopes_navigation_and_recovered_method_completion() {
+    let text = r#"
+struct Packet { val value: i32 }
+impl Packet { fn read(self) -> i32 { self.value } }
+static val SEED: i32 = 1;
+static val RESULT: i32 = {
+    val value = SEED;
+    val value = value + 1;
+    val callback = |argument: i32| value + argument;
+    callback(value)
+};
+static val EDITING: i32 = { val packet = Packet { value: SEED }; packet. };
+"#;
+    let mut sources = SourceDatabase::default();
+    let root = insert(&mut sources, "tooling", text);
+    let snapshot = test_analysis()
+        .snapshot(sources.snapshot(), &Default::default())
+        .unwrap();
+    let file = snapshot.file(root).unwrap();
+    let outer = file.definition_at(text.find("value + 1").unwrap()).unwrap();
+    assert_eq!(
+        outer.location.range.start,
+        text.find("val value = SEED").unwrap() + 4
+    );
+    let capture_offset = text.find("value + argument").unwrap();
+    let inner = file.definition_at(capture_offset).unwrap();
+    assert_ne!(outer.id, inner.id);
+    let visible = file.visible_bindings(capture_offset);
+    for name in ["value", "argument"] {
+        let binding = visible.iter().find(|b| b.declaration.name == name).unwrap();
+        assert_eq!(binding.ty, TypeId::Builtin(BuiltinType::I32), "{name}");
+    }
+    assert_eq!(
+        file.definition_at(text.find("callback(value)").unwrap() + 9),
+        Some(inner)
+    );
+    let candidates = file.method_completions(text.find("packet. }").unwrap() + 7);
+    let read = candidates
+        .iter()
+        .find(|candidate| candidate.name == "read")
+        .unwrap();
+    let method = snapshot.declaration(&read.declaration).unwrap();
+    assert_eq!(
+        method.location.range.start,
+        text.find("read(self)").unwrap()
+    );
+    assert_eq!(
+        file.definition_at(text.find("value: SEED").unwrap())
+            .unwrap()
+            .location
+            .range
+            .start,
+        text.find("value: i32").unwrap()
+    );
+    // Recoverable navigation facts do not authorize semantic lints when shared
+    // parser inputs are invalid, even for the otherwise healthy initializer.
+    assert!(!file.declarations_eligible());
+    let statics = &file.result().facts().lowered.module.statics;
+    assert_eq!(
+        file.static_initializer_eligibility(statics[1].id),
+        BodyEligibility::Unavailable
+    );
+    assert_eq!(
+        file.static_initializer_eligibility(statics[2].id),
+        BodyEligibility::Unavailable
     );
 }
 

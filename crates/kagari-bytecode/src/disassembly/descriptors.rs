@@ -11,7 +11,7 @@ mod values;
 mod tests;
 
 use crate::disassembly::{
-    presentation::{DisplayContext, physical, quoted},
+    presentation::DisplayContext,
     resolution::{Resolution, TraitReference, TraitSource},
 };
 use std::{
@@ -54,6 +54,19 @@ impl References {
             for instruction in &resolution.program.modules[module].functions[function].instructions
             {
                 references.instruction(resolution, module, instruction, &mut pending);
+            }
+        }
+        // An initializer need not load its own declaration. Retain its
+        // contract even when the static is unused; do not follow initializer bodies
+        // merely because another selected function reads the slot.
+        let selected: BTreeSet<_> = selected.iter().copied().collect();
+        for (owner, module) in resolution.program.modules.iter().enumerate() {
+            for (slot, record) in module.module_slots.iter().enumerate() {
+                if record.contract.supplier == module.identity
+                    && selected.contains(&(owner, record.initializer.index()))
+                {
+                    references.insert((owner, Category::Slot, slot), &mut pending);
+                }
             }
         }
         while let Some(reference) = pending.pop() {
@@ -122,18 +135,14 @@ impl References {
                     paths::write(writer, owner, slot, &module.paths[slot])?;
                 }
                 Category::Native => native::write(writer, context, resolution, owner, slot)?,
-                Category::Slot => {
-                    let record = &module.module_slots[slot];
-                    writeln!(
-                        writer,
-                        "  @{owner}:slot#{slot} name={} physical={} mutable={}",
-                        quoted(&record.contract.name),
-                        physical(kagari_contract::representation::semantic_representation(
-                            &record.contract.ty
-                        )),
-                        record.contract.mutable
-                    )?;
-                }
+                Category::Slot => values::static_slot(
+                    writer,
+                    context,
+                    resolution,
+                    owner,
+                    slot,
+                    &module.module_slots[slot],
+                )?,
             }
         }
         Ok(())

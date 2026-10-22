@@ -65,6 +65,23 @@ test('declaration/type captures and bracket pairs use syntax, not name guesses',
   }
 });
 
+test('persistent statics keep variable names and runtime initializer captures distinct from const', () => {
+  const text = readFileSync(new URL('../../../examples/syntax/grammar-witnesses.kgr', import.meta.url), 'utf8');
+  const tree = parse(text);
+  assert.equal(tree.rootNode.hasError, false, tree.rootNode.toString());
+  const found = captures(text);
+  for (const declaration of tree.rootNode.descendantsOfType('static_item')) {
+    const keyword = declaration.children.find(node => node.type === 'static');
+    assert.equal(effectiveCapture(found, keyword.startIndex), 'keyword');
+    assert.equal(effectiveCapture(found, declaration.childForFieldName('name').startIndex), 'variable');
+  }
+  for (const [needle, capture] of [['pub(crate)', 'keyword'], ['crate)', 'keyword'],
+    ['super)', 'keyword'], ['BASELINE:', 'constant'], ['i64', 'type'],
+    ['value +', 'variable'], ['cached:', 'variable'], ['[1, 2]', 'punctuation.bracket']]) {
+    assert.equal(effectiveCapture(found, text.indexOf(needle)), capture, needle);
+  }
+});
+
 test('string/comment override ranges do not disable pairing inside interpolation code', () => {
   const text = 'fn main() { val s = f"outer {call(1)} tail"; /* comment */ }';
   const overrides = query('overrides.scm').captures(parse(text).rootNode);

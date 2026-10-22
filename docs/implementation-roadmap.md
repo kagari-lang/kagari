@@ -367,28 +367,39 @@ remain foundations, and BO04/IP12/CS timing gaps are not acceptance targets here
 
 ## Persistent module static
 
-The [persistent static execution plan](persistent-static-plan.md) is active against
-`b744f131`: the user authorized PS01-PS05 in order, with one commit per phase;
-PS01-PS04 are locally complete; PS05 is next. Push/deployment remain unauthorized.
-Source checking, typed executable records, installation-owned state, compatible
-bindings, joint GC and lazy interpreter execution are implemented. Selected source
-and decoded execution, storage/reload/GC, ordering and failure-path cases plus
-required local checks passed. Retained-value, three-generation lifecycle and backend
-boundary cases also pass, including repaired construction-pinned Map/Set lookup
-protocols. Tooling/documentation handoff remains; complete CI is unrun.
-The task implements module-level `static val` and
-`static var` with runtime/installation-local cells shared across compatible code
-updates. Old calls, closures and waiting tasks retain their pinned code/dependencies;
-shared state is not a per-version snapshot. Generic associated statics are excluded.
+Module-level `static val`/`static var`, lazy initialization, compatible shared state,
+source-free verification and source/editor tooling are implemented. Lasting ownership
+belongs to [persistent module state](architecture.md#persistent-module-state),
+[declarations](spec/modules.md#persistent-module-statics), [activation](spec/module-activation.md)
+and [runtime cells](spec/runtime.md#persistent-static-cells). The
+[runnable example](../crates/kagari/examples/persistent_static.rs) demonstrates shared
+state versus pinned callbacks, untouched old recipes and fresh installations.
+Completed phase ledgers are retained in Git history, not a second execution queue.
 
-The plan owns synchronous first-access initialization, fixed initializer generation,
-failed-initialization behavior, typed cross-generation storage, candidate isolation,
-joint state/object/program GC and source-free/tooling acceptance. Its conservative
-first version rejects deletion/rename and incompatible schema changes; it does not
-implement state replacement, automatic migration, callback rebinding, disk recovery
-or general additive reload. Current module specifications remain unchanged until
-implementation. Coordinate overlapping frame/module changes with RL02/RL03 rather
-than running both migrations concurrently.
+Focused local source/decoded tests cover full durable-value families, three-generation
+publication, candidate isolation, cancellation, collecting reentry, failure poisoning
+and retirement. Map/Set lookup now uses construction-pinned protocols; content
+comparison remains caller-selected. Syntax/HIR/formatter/lint/disassembly tests,
+grammar audits, Tree-sitter CLI corpus/query checks, TextMate checks, the runnable
+example and required Rust quality checks passed. Full workspace/backend/feature
+and platform validation remains CI-only; no performance acceptance is claimed.
+
+Static syntax's native Node/capture tests remain blocked by pinned node-gyp 11.5.0
+not recognizing the only installed Visual Studio 18.10.3 (no VS 2022 installation).
+Actual WASM staging is blocked because the available Zed WASI SDK is 25.0 rather
+than pinned 34.0; the version guard correctly rejected it before compilation.
+Run those checks with supported toolchains, plus actual editor-host and complete
+inventory acceptance, before claiming the editor matrix passed. Earlier editor-host
+validation predates this syntax addition. No tool version was spoofed or upgraded.
+
+Semantic LSP handlers and static-watch UI remain separately deferred tooling, not
+implied by HIR facts or non-forcing runtime snapshots. The existing
+[update proposal](update-model-design.md) still owns state replacement/migration;
+static persistence does not implement it, disk recovery, callback rebinding, generic
+associated statics or general additive reload. The pre-existing equality receiver
+mismatch remains in [review](review.md#hash-lookup-equality-receiver-clarification).
+RL02/RL03 must reuse the current initializer/frame/state owners rather than replaying
+the replaced raw-slot model. Push and deployment remain unauthorized.
 
 ## Runtime storage redesign
 

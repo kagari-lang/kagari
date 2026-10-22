@@ -2,7 +2,7 @@
 
 use crate::program::BytecodeProgram;
 use kagari_common::identity::{
-    DefinitionKind,
+    DefinitionKind, ModuleIdentity,
     table::{DefinitionId, DefinitionTable},
 };
 use kagari_contract::{
@@ -91,6 +91,7 @@ impl<'a> LayoutIndex<'a> {
 pub(crate) struct Resolution<'a> {
     pub(super) program: &'a BytecodeProgram,
     definitions: &'a DefinitionTable,
+    modules: HashMap<&'a ModuleIdentity, usize>,
     scripts: HashMap<&'a ConcreteFunctionIdentity, Slot>,
     natives: HashMap<NativeKey<'a>, Slot>,
     native_declarations: HashMap<DefinitionId, (usize, &'a NativeDeclaration)>,
@@ -107,6 +108,7 @@ impl<'a> Resolution<'a> {
         let mut result = Self {
             program,
             definitions,
+            modules: HashMap::new(),
             scripts: HashMap::new(),
             natives: HashMap::new(),
             native_declarations: HashMap::new(),
@@ -118,6 +120,7 @@ impl<'a> Resolution<'a> {
             enumerations: LayoutIndex::default(),
         };
         for (owner, module) in program.modules.iter().enumerate() {
+            result.modules.insert(&module.identity, owner);
             for declaration in &module.native_declarations {
                 result
                     .native_declarations
@@ -210,6 +213,13 @@ impl<'a> Resolution<'a> {
             }
         }
         result
+    }
+
+    pub(super) fn module(&self, identity: &ModuleIdentity) -> usize {
+        *self
+            .modules
+            .get(identity)
+            .expect("verified module supplier")
     }
 
     pub(super) fn script(&self, identity: &ConcreteFunctionIdentity) -> Slot {

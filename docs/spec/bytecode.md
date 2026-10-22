@@ -49,6 +49,46 @@ Optional backend paths include:
 
 Bytecode remains a first-class execution format when those backend paths are present.
 
+## Persistent static descriptors and transitions
+
+MIR and bytecode carry semantic static descriptors, not synthetic constant
+records. `StaticContract` identifies the declaration, supplier `ModuleIdentity`,
+name, complete `Ty`, mutability and visibility. `StaticDescriptor<I>` also names
+the supplier-local hidden initializer. A `LoadModule`/`StoreModule` operand is a
+local descriptor-binding index, not a global cell address or the supplier's raw
+module slot. Imported descriptors repeat the checked supplier contract; linking
+binds them to the same installation cell.
+
+Both verifiers independently check declaration/supplier identity, dependency
+reachability, visibility, operand types and store permissions. The initializer
+has a dedicated hidden module-level Function identity, zero parameters, no generic
+parameters or suspension contract, and the exact declared semantic result type.
+A matching physical register representation alone is insufficient. Initializers
+cannot alias ordinary functions, inherent/trait table members or defaults, become
+public callable entries, or be invoked through ordinary direct/indirect call
+paths. These restrictions survive decoding without source analysis; only internal
+initializer admission grants entry authority.
+
+Static accesses are effectful: a load may initialize, call, allocate, mutate,
+reenter or trap. Optimizers must preserve unused loads, branch reachability and
+evaluation order. Assignment lowering emits the static-root load before the RHS
+and an ordinary checked store at commit; [value semantics](value-semantics.md#static-roots)
+defines direct compound and projected assignment ordering.
+
+The interpreter admits the fixed recipe's loaded module on its existing frame
+stack, validates and roots the return through Ready commit, then retries the same
+access PC. It does not reinterpret a recipe's function index in the current
+caller generation, reevaluate RHS/index operands, or open another root session.
+Normal calls still reject initializer entry. [Activation](module-activation.md)
+and [failure semantics](failure-semantics.md#static-initialization-failures) own the
+state machine and unwind behavior.
+
+Native code generation does not execute statics. Its whole-call capability check
+rejects unsupported static execution before entry; interpreter fallback must be
+selected before any native effects, never after partial execution. Artifact
+encoding and public ABI separation are defined in
+[static artifact contracts](artifacts.md#persistent-static-contracts).
+
 ## Verified MIR Boundary
 
 Checked analysis can contain valid source imports. The snapshot-owned CheckedProgram

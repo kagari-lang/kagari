@@ -4,16 +4,23 @@ use crate::{
         KAGARI_LANGUAGE_VERSION, KBC_ARTIFACT_FORMAT_VERSION, KbcArtifact,
     },
     disassembly::{DisassemblyError, PreparedDisassembly},
-    instruction::{BytecodeInstruction, CallTarget, NativeImportId, Slot},
+    instruction::{
+        BytecodeInstruction, CallTarget, ConstantId, ConstantOperand, ModuleSlot, NativeImportId,
+        Slot,
+    },
     module::{BytecodeFunction, BytecodeModule, FunctionMetadata, FunctionRecord},
     native_input::PortableMir,
     program::{BytecodeProgram, ModuleRef},
 };
 use kagari_abi::representation::ValueType;
-use kagari_common::identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext};
+use kagari_common::{
+    identity::{DefinitionKind, ModuleIdentity, PackageId, map::DefinitionContext},
+    span::Span,
+};
 use kagari_contract::{
     ids::FunctionRef,
     native_import::NativeImport,
+    statics::{StaticContract, StaticDescriptor},
     types::{ConcreteFunctionIdentity, PublicItem},
 };
 use kagari_types::{
@@ -21,6 +28,7 @@ use kagari_types::{
     declaration::{FnDecl, host::HostCallPolicy, module::ModuleDecl},
     scalar::BuiltinType,
     ty::Ty,
+    visibility::Visibility,
 };
 use std::io::{self, Write};
 
@@ -248,6 +256,103 @@ fn source_free_preparation_retains_scope_and_deterministic_output() {
     )));
     assert!(!output.contains("nonexistent"));
     assert!(!output.contains("load_local"));
+}
+
+#[test]
+fn decoded_static_descriptors_link_supplier_body_and_debug_without_runtime_state() {
+    let context = DefinitionContext::new().unwrap();
+    let mut supplier = BytecodeModule {
+        identity: identity("state"),
+        types: vec![ValueType::I32],
+        constants: vec![ConstantOperand::I32(7)],
+        ..Default::default()
+    };
+    let owner = context.intern_root(&supplier.identity).unwrap();
+    let descriptor = StaticDescriptor {
+        contract: StaticContract {
+            declaration: context
+                .intern_child(owner, DefinitionKind::Static, "STATE", 0)
+                .unwrap(),
+            supplier: supplier.identity.clone(),
+            name: "STATE".into(),
+            ty: Ty::Builtin(BuiltinType::I32),
+            mutable: true,
+            visibility: Visibility::PublicCrate,
+        },
+        initializer: FunctionRef::new(0),
+    };
+    let mut initializer = function("initialize_state");
+    initializer.identity = Some(ConcreteFunctionIdentity {
+        declaration: context
+            .intern_child(owner, DefinitionKind::Function, "initialize_state", 0)
+            .unwrap(),
+        arguments: vec![],
+    });
+    initializer.parameter_count = 0;
+    initializer.slot_count = 1;
+    initializer.metadata.params.clear();
+    initializer.metadata.parameter_slots.clear();
+    initializer.metadata.slots = vec![ValueType::I32];
+    initializer.metadata.semantic.result = Some(Ty::Builtin(BuiltinType::I32));
+    initializer
+        .metadata
+        .semantic
+        .slots
+        .insert(0, Ty::Builtin(BuiltinType::I32));
+    initializer.metadata.debug.source_uri = Some("nonexistent/static.kgr".into());
+    initializer.metadata.debug.source_module = Some(ModuleRef::new(0));
+    initializer.metadata.debug.function_span = Span::new(10, 42);
+    initializer.instructions = vec![
+        BytecodeInstruction::LoadConst {
+            dst: Slot::new(0),
+            constant: ConstantId::new(0),
+        },
+        BytecodeInstruction::Return(Some(Slot::new(0))),
+    ];
+    let mut reader = initializer.clone();
+    reader.identity = None;
+    reader.name = "read_state".into();
+    reader.metadata.debug = Default::default();
+    reader.instructions[0] = BytecodeInstruction::LoadModule {
+        dst: Slot::new(0),
+        slot: ModuleSlot::new(0),
+    };
+    push_function(&mut supplier, initializer);
+    supplier.module_slots.push(descriptor.clone());
+    let mut consumer = BytecodeModule {
+        identity: identity("app"),
+        types: vec![ValueType::I32],
+        dependencies: vec![ModuleRef::new(0)],
+        module_slots: vec![descriptor],
+        ..Default::default()
+    };
+    push_function(&mut consumer, reader);
+    let artifact = KbcArtifact::from_program(
+        BytecodeProgram {
+            root: ModuleRef::new(1),
+            modules: vec![supplier, consumer],
+            exports: Default::default(),
+        },
+        ArtifactBuildOptions::default(),
+        &context,
+        &Default::default(),
+    )
+    .unwrap();
+    let bytes = artifact.to_bytes(&context.snapshot()).unwrap();
+    let prepared = PreparedDisassembly::from_bytes(&bytes).unwrap();
+    let read = disassembly(&prepared, Some("@1:0"));
+    assert!(read.contains("@1:slot#0 fixture::state::STATE name=\"STATE\" type=i32 physical=i32 visibility=pub(crate) mutable=true supplier=@0 fixture::state initializer=@0:0 state=runtime-only"), "{read}");
+    assert!(!read.contains("nonexistent/static.kgr"));
+    let initialization = disassembly(&prepared, Some("@0:0"));
+    assert!(initialization.contains("@0:slot#0 fixture::state::STATE"));
+    assert!(initialization.contains("fn @0:0 fixture::state::initialize_state() -> i32"));
+    assert!(initialization.contains("debug (nonauthoritative): uri=\"nonexistent/static.kgr\" source_module=@0 function_span=[10, 42)"), "{initialization}");
+    assert!(!initialization.contains("state=Ready"));
+    assert!(!initialization.contains("state=Uninitialized"));
+    assert_eq!(
+        disassembly(&prepared, None),
+        disassembly(&PreparedDisassembly::from_bytes(&bytes).unwrap(), None)
+    );
 }
 
 #[test]

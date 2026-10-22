@@ -22,19 +22,24 @@ protection contracts rather than duplicating them.
 
 [Module activation](spec/module-activation.md) already defines validated staging,
 per-runtime publication, no implicit execution on load/reload and retained execution
-versions. [Runtime reload checks](../crates/kagari-runtime/src/reload.rs) currently
-require equal module counts and equal lists of public ABI/path fingerprints. That
-is stricter than additive compatibility, yet is not a complete frozen-definition
-inventory of the model below.
+versions. [Runtime reload checks](../crates/kagari-runtime/src/reload.rs) preserve
+module counts and nonstatic public contracts, with a narrow implemented exception
+for adding statics in existing modules. Existing statics, including private ones,
+retain their declaration/type/access and relevant applied-schema contracts. This
+is not the general additive compatibility or complete frozen-definition inventory
+proposed below.
 
 [Trait objects](spec/traits.md) already retain verified implementation tables,
 payloads and implementation versions. They are not automatically rebound by new
 publication. This is a foundation for coexistence, not evidence that the proposed
 new-type/old-collection update scenario has passed end-to-end acceptance.
 
-There is no complete state snapshot/restore/cutover API established by these
-foundations. Rust interop's value conversion and Serde adapter do not by themselves
-serialize a script-owned player state or an entire VM. Those are separate contracts.
+[Persistent static cells](spec/modules.md#persistent-module-statics) already share
+state across compatible generations of one installation, with fixed initializer
+recipes and no implicit reset. They do not establish a state snapshot/restore/cutover
+API or persistence across process restarts. Rust interop's value conversion and
+Serde adapter do not by themselves serialize a script-owned player state or an
+entire VM. Those are separate contracts.
 Re-audit completed predecessor code before implementation; no build result is
 claimed by this source inventory. Existing
 [prepared reload tests](../crates/kagari/src/program/tests/native_artifacts.rs) and
@@ -58,6 +63,11 @@ replacement: it has different latency, task, state and lifecycle consequences an
 requires an explicit host choice.
 
 ## Compatible change rules
+
+The following is the proposed broader policy, not a description of all currently
+accepted additions. Implemented static-only additions remain governed by
+[module activation](spec/module-activation.md#static-publication-compatibility);
+nonstatic additions below are not enabled by that exception.
 
 Treat compatibility as preservation of existing named declaration contracts plus
 validated additions, not equality of a whole ABI list or success of version-range
@@ -124,7 +134,7 @@ generation or proof of compatible ABI.
 ## Calls, retained objects and new trait implementations
 
 Fresh root calls through the proposed logical Function handle select the latest
-compatible published generation. Ordinary static calls and reentry retain the
+compatible published generation. Ordinary direct calls and reentry retain the
 selected dependency context; they do not look up latest code at each call. Future
 async continuations retain their existing ownership through every wait/resume.
 
@@ -169,10 +179,25 @@ All writers to the exported state, including external host mutation, must partic
 in the quiescence protocol. Otherwise a script-only pause cannot yield a consistent
 snapshot.
 
-The state is an explicit rooted value passed to handlers, not hidden mutable module
-globals. A new environment receives newly restored state. Only declared business
-resources may be reattached; raw script Values, GC IDs, old Function/Script handles
-and operation IDs do not cross into the new runtime.
+The snapshot boundary is an explicitly designated rooted data value, not an
+automatic enumeration of module statics or the runtime graph. A handler may receive
+that root directly; an object also reachable from a static is included only by
+explicit export through the chosen data contract. Quiescence must account for all
+writers to that object, including static aliases.
+
+Static storage and snapshot eligibility are different contracts. A cell may retain
+closures, interfaces, native selections or Future/Task values under ordinary runtime
+rules without making those values serializable. The snapshot does not implicitly
+include cell identities, fixed recipes, Failed diagnostics or pinned executable
+and task/provider graphs. Compatible code rollback also does not restore earlier
+cell values or permit deleting statics introduced since that code version.
+
+A fresh environment receives newly restored explicit state and has fresh static
+cells under the ordinary loading contract. Transferring exported data into selected
+new cells would require a separate explicit restore contract; no automatic transfer
+or replay of old initialization is provided. Only declared business resources may
+be reattached; raw script Values, GC IDs, old Function/Script handles and operation
+IDs do not cross into the new runtime.
 
 The player-state schema may remain identical while code changes freely, or it may
 change through a defined migration. New code must still compile, link to available

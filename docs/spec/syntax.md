@@ -126,6 +126,7 @@ The following keywords are reserved:
 - `pub`
 - `return`
 - `self`
+- `static`
 - `struct`
 - `super`
 - `true`
@@ -222,6 +223,7 @@ item_decl       ::= use_decl
                   | module_decl
                   | function_item
                   | const_item
+                  | static_item
                   | struct_item
                   | enum_item
                   | trait_item
@@ -231,11 +233,13 @@ function_item   ::= visibility? function_decl ;
 
 const_item      ::= visibility? "const" IDENT type_annotation? "=" expr ";" ;
 
+static_item     ::= visibility? "static" ("val" | "var") IDENT type_annotation "=" expr ";" ;
+
 struct_item     ::= visibility? struct_decl ;
 
 enum_item       ::= visibility? enum_decl ;
 
-visibility      ::= "pub" ;
+visibility      ::= "pub" ("(" ("super" | "crate") ")")? ;
 
 attribute       ::= "#" "[" path (attribute_args | "=" attribute_value)? "]" ;
 
@@ -255,6 +259,12 @@ attribute_value ::= literal
 Notes:
 
 - `const` is the syntax for compile-time immutable values.
+- `static val` and `static var` declare [persistent module storage](modules.md#persistent-module-statics),
+  not compile-time values. Each requires one identifier, an explicit closed type
+  valid for durable storage, and an initializer. No destructuring, omitted/default
+  initializer, local/associated/generic or thread-local static form is supported.
+  The initializer is checked even when unused and runs lazily on executing access,
+  not during import or publication. `val` restricts rebinding, not object aliases.
 - attributes provide the extensibility point for features such as reflection and tooling annotations
 - `#[lang = "role"]` binds a reserved language role only in the installed core
   trait source. HIR rejects unknown, duplicate, missing, malformed or unauthorized

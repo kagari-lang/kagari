@@ -3,7 +3,7 @@
    evidence gaps are tracked in docs/syntax-coverage.tsv. *)
 (* Kagari is a Kotlin-style business scripting language with Rust-inspired syntax. *)
 (* Trait names are interface types directly. There is no script-level dyn trait-object syntax. *)
-(* `pub` and `pub(super)` are explicit visibility markers; unmarked items are private. *)
+(* `pub`, `pub(super)` and `pub(crate)` are explicit visibility markers; unmarked items are private. *)
 (* Fields and referenced objects may be mutated according to their type and host policy. *)
 (* `val` declares a read-only binding or field slot; `var` declares a writable one. *)
 (* `const` is the immutable compile-time value form. *)
@@ -16,16 +16,22 @@ item_decl           ::= use_decl
                       | module_decl
                       | function_item
                       | const_item
+                      | static_item
                       | struct_item
                       | enum_item
                       | trait_item
                       | impl_block ;
 
-visibility          ::= "pub" ("(" "super" ")")? ;
+visibility          ::= "pub" ("(" ("super" | "crate") ")")? ;
 
 function_item       ::= visibility? function_decl ;
 
 const_item          ::= visibility? "const" IDENT type_annotation? "=" expr ";" ;
+
+(* Persistent statics are module items, including inline modules, never local or
+   associated items. The explicit type must be closed under static checking;
+   initialization is an ordinary runtime expression, not const evaluation. *)
+static_item         ::= visibility? "static" ("val" | "var") IDENT type_annotation "=" expr ";" ;
 
 struct_item         ::= visibility? struct_decl ;
 

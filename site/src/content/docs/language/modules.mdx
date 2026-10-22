@@ -47,6 +47,55 @@ categories when both exist. A local value named Option does not hide the Option
 type, and a value named like a module does not hide that module in a path prefix.
 This is checked name resolution, not a dynamically mutable module dictionary.
 
+## Choose const or persistent static storage
+
+`const` is a compile-time value evaluated by the restricted const language.
+`static` declares runtime storage: its initializer runs lazily on first executing
+access, not when its module is imported or loaded.
+
+This complete program returns 42 on its first call to `main` in a fresh installation:
+
+```kagari
+const START: i32 = 40;
+static var COUNT: i32 = START;
+
+fn next() -> i32 {
+    COUNT += 1;
+    COUNT
+}
+
+fn main() -> i32 {
+    next();
+    next()
+}
+```
+
+The first `next()` initializes COUNT to 40, then increments it to 41. The second
+call observes the same cell and increments it to 42. Calling `main` again in that
+installation continues from 42; it does not initialize COUNT again.
+
+Use `static val` when the cell must not be rebound and `static var` when it may
+be replaced. As with local bindings, `val` does not freeze a referenced object;
+see <a href={page('language/values#static-val-still-shares-an-object')}>static object identity</a>.
+Both forms require an explicit closed type and an initializer. Statics belong to
+modules, not function locals, traits or impls; there is no generic or thread-local
+static form. They occupy the value namespace and follow ordinary visibility rules.
+An import or re-export aliases the original cell rather than allocating another.
+
+Cells belong to one loaded installation. Independent loads and separate runtimes
+do not share them just because they use the same compiled code. Compatible reload
+preserves the cells and their original initializer recipes, including recipes not
+yet run. Follow <a href={page('host/reload#keep-static-state-without-retargeting-code')}>the reload example</a>
+for old/new code sharing state. Persistent here means in-memory continuity, not
+saving state to disk.
+
+Initialization can call synchronous code and fail. A cycle or a failed started
+attempt leaves a Failed cell; later access reports that failure rather than retrying.
+Reload is not a reset. Initializers cannot create Futures, spawn, create async
+scopes or await, including through callbacks. The precise boundaries are
+<a href={source('docs/spec/module-activation.md#lazy-static-activation')}>lazy activation</a>
+and <a href={source('docs/spec/failure-semantics.md#static-initialization-failures')}>initialization failure</a>.
+
 ## Move a child into a file
 
 `mod events;` declares a separately loaded child. Exactly one of `events.kgr`
@@ -56,8 +105,8 @@ compiled just because they sit beside the root. Both file candidates existing is
 an ambiguity, not a preference for one spelling.
 
 A package uses `Kagari.toml`; its default root is `src/lib.kgr`. The checked source
-closure includes declared modules and dependencies, including uncalled bodies
-and dependencies used only for trait implementations. Invalid source inside that
+closure includes declared modules and dependencies, including uncalled function
+and static initializer bodies and dependencies used only for trait implementations. Invalid source inside that
 closure cannot be hidden by leaving its functions uncalled.
 
 ## Follow a real package dependency
@@ -96,8 +145,9 @@ answer();
 ```
 
 A module contains declarations, not top-level executable statements. Put the call
-inside `main` or another explicitly invoked function. Importing or loading a
-Program does not initialize hidden module state or invoke every declared function.
+inside `main` or another explicitly invoked function, or use an initializer when
+declaring a static value. Importing or loading a Program does not run static
+initializers or invoke every declared function.
 The CLI selects a zero-argument, non-generic root `main`; a library needs no main
 merely to be checked or built.
 

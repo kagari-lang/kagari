@@ -280,13 +280,14 @@ heap root records seed traversal. Runtime-owned execution windows independently
 seed their values and program/environment metadata, including suspended callers.
 Prepared-method and selected-native-call metadata is stored alongside persistent
 roots; public leases never own that storage.
-A reached program traces its dependency members'
-module slots and materialized constants; a reached closure or interface traces its executable owner and
-environment. Metadata traversal uses an explicit worklist, visits shared descriptors
-once and excludes pure layout provenance from executable state retention. Program
-edges validate the installed generation and runtime identity. An obsolete module
-slot containing its own closure, or mutually referring obsolete programs, does not
-by itself keep either side alive.
+A reached program traces its dependency members' bound static cells and
+materialized constants; cells trace their Ready values or pending initializer
+recipes. A reached closure or interface traces its executable owner and environment.
+Metadata traversal uses an explicit worklist, visits shared descriptors once and
+excludes pure layout provenance from executable state retention. Program edges
+validate the installed generation and runtime identity. An obsolete
+program/cell/closure cycle, or mutually referring obsolete programs, does not by
+itself keep either side alive.
 
 Operation groups live in a runtime-owned generational store. They contain receiver
 tables and individual concrete selections. Environments carry an OperationId for a
@@ -332,9 +333,10 @@ Runtime::collect_garbage reports reclaimed heap objects, reclaimed_operation_gro
 reclaimed_method_applications, reclaimed_interface_snapshots and reclaimed_modules;
 there is no independent module-only sweep that could discard code reached from the heap.
 
-Runtime::collect_garbage includes registered host/debug roots, execution windows, module slots,
-initializer results and pending host-path mutation records. Path-view dynamic arguments
-are traced; Rust host objects and borrowed resources remain host-owned. Path-operation
+Runtime::collect_garbage includes registered host/debug roots, execution windows,
+reachable static cells, initializer results and pending host-path mutation records.
+Path-view dynamic arguments are traced; Rust host objects and borrowed resources
+remain host-owned. Path-operation
 arguments and old/new values are temporarily rooted across host
 read/preparation callbacks, including preparation that explicitly collects. Commit
 actions only apply prepared host state; they cannot collect or execute scripts.
@@ -831,30 +833,85 @@ runtime identities. The trace is not an external-result replay format.
 
 The runtime distinguishes loaded module code from the compilation pipeline.
 
-The model is:
+The ownership model (schematic, not a Rust field listing) is:
 
 ```text
-VerifiedProgram { root: ModuleRef, code: Arc<[Arc<BytecodeModule>]> }
-Runtime { modules: ModuleStore, heap, host_bindings, execution_cache, limits }
-ModuleStore { records: Map<ModuleKey, ModuleRecord>, publication, retention }
-ModuleRecord { module: LoadedModule, instance: ModuleInstance, native_links, layout_cache }
-LoadedModule { program: Arc<ProgramDescriptor>, slot: ModuleRef }
+Prepared program -> immutable verified code and descriptors
+Runtime -> module records, installation static cells, heap, host bindings
+Module record -> loaded generation, static bindings, constants, linked metadata
+Loaded module -> pinned program descriptor and member slot
+Static binding -> checked installation cell identity
 ```
 
-The execution format is allowed to diverge from raw IR, but the runtime keeps the concept of a loaded module with versioned identity.
+Loaded code has versioned identity; mutable static storage belongs to the
+installation, not to a raw slot array copied for each module epoch.
+
+## Persistent static cells
+
+Each installation owns checked cells; each generation has bindings from its local
+static operands to those cells. Imports bind the supplier's declaration rather
+than allocating another cell. Independent loaded roots and runtimes never share
+cells merely because they share prepared code. Access validates ownership,
+generation, declared type and access rights through the binding; it does not scan
+all historical versions. [Module activation](module-activation.md) owns lazy
+initialization, fixed recipes, compatibility and transactional publication.
+
+The initializer commit and ordinary stores validate the complete semantic value,
+not just its physical representation. Validation includes applied aggregate,
+interface, native, callable and durable-storage contracts. Scoped borrows and
+other ephemeral capabilities cannot escape into cells. A normal store requires a
+Ready mutable cell; only initializer completion may establish the first value,
+including for `static val`. Public runtime reads/writes are Ready-only and never
+execute a recipe. Diagnostic snapshots report the state without forcing it;
+these APIs still enforce candidate restrictions and quarantine. A copied raw
+Value is not an external GC root: retaining it across collection requires the
+ordinary root API.
+
+The joint GC graph is:
+
+```text
+active installation / retained executable / active initializer
+  -> generation bindings -> static cells
+       Ready         -> stored value graph
+       Uninitialized -> introducing recipe's pinned executable
+       Initializing  -> active recipe and execution roots
+       Failed        -> detached bounded diagnostic only
+```
+
+A recipe stays fixed even if first used after several publications. Once Ready,
+the value may independently retain old closures, interfaces or native selections;
+this is ordinary executable-value ownership, not a permanent historical root.
+Failed cells do not retain executable recipe edges. Pure type/layout descriptors
+are not executable or mutable-state roots. Cycles through programs, cells and
+heap values, including cross-installation cycles, can be reclaimed once external
+roots and active installation/execution ownership disappear.
+
+Initializer results remain rooted through return, semantic admission and Ready
+publication. No cell-storage borrow spans script, native, observer or destructor
+callbacks. Stack drop and cancellation retire active attempts under
+[initialization failure cleanup](failure-semantics.md#static-initialization-failures).
+Native payload disposal uses the existing detach-before-destroy and panic
+containment rules above. This adds neither an independent collector nor a reset
+operation. Live cell state is not an artifact or a disk snapshot.
 
 ## Hot Reload
 
 Hot reload is coordinated through explicit module epochs.
 
-The implementation in [reload.rs](../../crates/kagari-runtime/src/reload.rs) is compatible with this.
+[Publication and static compatibility](module-activation.md#static-publication-compatibility)
+define the implemented contract; [reload.rs](../../crates/kagari-runtime/src/reload.rs)
+implements the staging and publication boundary.
 
 The runtime uses epochs for:
 
 - module version tracking
 - stale handle detection
 - metadata comparison across reloads
-- state migration tooling
+- generation-pinned execution and shared static bindings
+
+Epoch changes do not migrate values, reset static cells or implement state
+snapshot/restore. The separate [state replacement proposal](../update-model-design.md#state-replacement-boundary)
+requires an explicit exported data root.
 
 ## Suspension and Ephemerality
 

@@ -48,6 +48,15 @@ capture rejection. Formatter/lint/navigation, source-free artifacts, async execu
 error traces, GC/cancellation/depth cleanup and retained reload generations have
 separate focused tests. Parse coverage alone does not establish those contracts.
 
+Module-only `static val`/`static var` declarations have parse witnesses in
+[grammar-witnesses.kgr](../examples/syntax/grammar-witnesses.kgr), including visibility
+and inline-module placement. Focused rejection cases cover local/associated forms,
+missing type/initializer and declaration patterns. The
+[persistent-state host example](../crates/kagari/examples/persistent_static.rs)
+executes initialization and reload; grammar coverage alone does not establish these
+runtime semantics. HIR navigation/completion/usage facts and initializer lints use
+the same checked body owners; editor semantic LSP features remain separately deferred.
+
 All inventoried EBNF rules and top-level alternatives have parse-clean
 witnesses. This is parser coverage, not an assertion that every form has linked
 runtime behavior. [`grammar-witnesses.kgr`](../examples/syntax/grammar-witnesses.kgr)

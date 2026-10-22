@@ -2,9 +2,10 @@ rule	status	evidence	note
 module	covered	examples/syntax/expressions.kgr	-
 item	covered	examples/syntax/attributes.kgr	-
 item_decl	covered	examples/syntax/expressions.kgr	-
-visibility	covered	examples/imported-traits/generic-model.kgr	-
+visibility	covered	examples/syntax/grammar-witnesses.kgr	Explicit pub, pub(super) and pub(crate) visibility.
 function_item	covered	examples/syntax/expressions.kgr	-
 const_item	covered	examples/standard-library.kgr	-
+static_item	covered	examples/syntax/grammar-witnesses.kgr	Module-only val/var with an explicit closed type and runtime initializer.
 struct_item	covered	examples/syntax/data-model.kgr	-
 enum_item	covered	examples/syntax/data-model.kgr	-
 trait_item	covered	examples/syntax/where-bounds.kgr	-

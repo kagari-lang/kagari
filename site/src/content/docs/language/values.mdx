@@ -58,6 +58,37 @@ values             -> an array object containing 20 and 22
 This distinction is shallow, not recursive. If a tuple held a vector instead of
 numbers, copying that tuple would preserve the vector's shared identity.
 
+## Static val still shares an object
+
+A <a href={page('language/modules#choose-const-or-persistent-static-storage')}>module static</a>
+uses the same value model, even when its cell survives compatible reload:
+
+```kagari
+struct Counter { var value: i32 }
+static val COUNTER: Counter = Counter { value: 0 };
+
+fn main() -> i32 {
+    COUNTER.value += 1;
+    COUNTER.value
+}
+```
+
+The first call returns 1. Later calls in the same installation update the same
+object. `COUNTER.value += 1` is allowed because the field is writable; assigning
+another Counter to COUNTER would be rejected because its binding is `val`.
+Neither storing an object in a static nor publishing compatible code copies or
+freezes that object.
+
+Static access can initialize and fail, so assignment first ensures and reads its
+static root **before** evaluating the RHS. Direct `COUNT += rhs()` uses that
+captured number, even if `rhs()` changes COUNT. For a projected destination such
+as `STATE.values[index()] += rhs()`, the root object is captured first, but the
+intermediate fields, bounds and destination value are resolved after the RHS.
+Rebinding STATE does not retarget the old object; replacing that object's `values`
+field affects the final write. Index/RHS evaluation occurs once, and completed
+RHS effects survive a later bounds failure. See the
+<a href={source('docs/spec/value-semantics.md#static-roots')}>exact assignment contract</a>.
+
 ## Choose a type deliberately
 
 Type annotations describe the values allowed in a slot or signature. Unsuffixed

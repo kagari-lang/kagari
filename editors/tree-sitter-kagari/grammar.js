@@ -34,7 +34,7 @@ module.exports = grammar({
   reserved: {
     global: $ => ['as', 'async', 'await', 'break', 'const', 'continue', 'crate', 'else',
       'enum', 'false', 'fn', 'for', 'trait', 'if', 'impl', 'in', 'loop', 'match',
-      'mod', 'pub', 'return', 'self', 'struct', 'super', 'true', 'use', 'val',
+      'mod', 'pub', 'return', 'self', 'static', 'struct', 'super', 'true', 'use', 'val',
       'var', 'type', 'where', 'while'],
   },
   inline: $ => [$.type_identifier],
@@ -55,9 +55,9 @@ module.exports = grammar({
   ],
   rules: {
     source_file: $ => repeat($._item),
-    _item: $ => choice($.function_item, $.const_item, $.struct_item, $.enum_item,
+    _item: $ => choice($.function_item, $.const_item, $.static_item, $.struct_item, $.enum_item,
       $.trait_item, $.impl_item, $.module_item, $.use_item),
-    visibility: $ => seq('pub', optional(seq('(', 'super', ')'))),
+    visibility: $ => seq('pub', optional(seq('(', choice('super', 'crate'), ')'))),
     attribute: $ => seq('#', '[', field('name', $.path), optional(choice(
       seq('=', $._attribute_value), $.attribute_arguments)), ']'),
     attribute_arguments: $ => seq('(', commaSep($.attribute_argument), ')'),
@@ -80,6 +80,8 @@ module.exports = grammar({
     return_type: $ => seq('->', $._type),
     const_item: $ => seq(repeat($.attribute), optional($.visibility), 'const',
       field('name', $.identifier), optional($.type_annotation), '=', field('value', $._expression), ';'),
+    static_item: $ => seq(repeat($.attribute), optional($.visibility), 'static', choice('val', 'var'),
+      field('name', $.identifier), ':', field('type', $._type), '=', field('value', $._expression), ';'),
     struct_item: $ => seq(repeat($.attribute), optional($.visibility), 'struct',
       field('name', $.type_identifier), optional($.generic_parameters),
       field('body', $.field_declarations)),
