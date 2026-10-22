@@ -14,6 +14,7 @@ below; the public Pages site has not been activated by this work.
 | Area | Documents |
 | --- | --- |
 | Source and types | [Syntax](spec/syntax.md), [traits](spec/traits.md), [builtins](spec/builtins.md), [value semantics](spec/value-semantics.md) |
+| Numeric library | [Scalar method inventory](spec/builtins.md#numeric-scalar-methods), [integer policies](spec/value-semantics.md#explicit-integer-arithmetic), [float edge cases and precision](spec/value-semantics.md#floating-point-utilities-and-math) |
 | Collections and native modules | [Collection interfaces/storage](spec/collection-access.md), [native declarations](spec/standard-declarations.md) |
 | Failure and execution | [Failure semantics](spec/failure-semantics.md), [execution](spec/execution.md), [runtime](spec/runtime.md), [security/access](spec/security.md), [error reporting](spec/error-reporting.md) |
 | Host integration | [Embedding and Rust DTO/Serde conversion](spec/embedding-api.md), [unified registration, Opaque and scoped Ref/RefMut](spec/host-interop.md), [typed path mutation](spec/typed-path-mutation.md) |
@@ -81,6 +82,11 @@ The [roadmap](implementation-roadmap.md) owns activation and dependencies.
   the call-stack decision are deferred until the interpreter is stable; expand
   native ABI, control flow, calls, GC values and
   host/library integration while keeping explicit native coverage requirements.
+- [Numeric library CI acceptance](implementation-roadmap.md#numeric-standard-library):
+  integer policies and bounded f32/f64 utilities/math are installed; the lasting
+  contracts are indexed above. Full workspace and feature/backend/platform acceptance
+  remains pending CI. Associated constants, native-call const evaluation, a public
+  RNG and full ray tracing are outside this delivery.
 - [Library-owned native collections](native-collections-plan.md): NC01-NC06 are
   not started; reuse the implemented Iterable APIs while migrating storage.
 - [Interface type tests and downcast](interface-downcast-plan.md): DC01-DC04 are

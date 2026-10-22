@@ -1,0 +1,187 @@
+// Run: cargo run -p kagari-cli -- run examples/numeric-sampling.kgr
+// main returns 42 on success, 0 on a failed check. No renderer or host RNG is needed.
+struct Vec3 {
+    val x: f64,
+    val y: f64,
+    val z: f64,
+}
+
+impl Vec3 {
+    fn dot(self, other: Vec3) -> f64 {
+        self.x * other.x + self.y * other.y + self.z * other.z
+    }
+
+    fn add(self, other: Vec3) -> Vec3 {
+        Vec3 { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z }
+    }
+
+    fn sub(self, other: Vec3) -> Vec3 {
+        Vec3 { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z }
+    }
+
+    fn scale(self, factor: f64) -> Vec3 {
+        Vec3 { x: self.x * factor, y: self.y * factor, z: self.z * factor }
+    }
+
+    // Callers supply nonzero vectors; this example does not define zero normalization.
+    fn normalized(self) -> Vec3 {
+        self.scale(1.0 / self.dot(self).sqrt())
+    }
+}
+
+struct Ray {
+    val origin: Vec3,
+    val direction: Vec3,
+}
+
+impl Ray {
+    fn at(self, distance: f64) -> Vec3 {
+        self.origin.add(self.direction.scale(distance))
+    }
+
+    // Solve a*t*t + 2*half_b*t + c = 0, taking the nearest nonnegative root.
+    // t is a physical distance only when direction has unit length.
+    fn sphere_distance(self, center: Vec3, radius: f64) -> Option<f64> {
+        val offset = self.origin.sub(center);
+        val a = self.direction.dot(self.direction);
+        val half_b = offset.dot(self.direction);
+        val c = offset.dot(offset) - radius * radius;
+        val discriminant = half_b * half_b - a * c;
+        if discriminant < 0.0 { return None; }
+        val root = discriminant.sqrt();
+        val near = (-half_b - root) / a;
+        if near >= 0.0 { return Some(near); }
+        val far = (-half_b + root) / a;
+        if far >= 0.0 { return Some(far); }
+        None
+    }
+}
+
+// Geometry uses absolute tolerances, not platform-specific transcendental bits.
+const TOLERANCE: f64 = 1e-10;
+
+fn close(actual: f64, expected: f64) -> bool {
+    (actual - expected).abs() <= TOLERANCE
+}
+
+fn geometry_checks() -> bool {
+    val vector = Vec3 { x: 3.0, y: 4.0, z: 0.0 };
+    val unit = vector.normalized();
+    if !close(vector.dot(vector).sqrt(), 5.0) { return false; }
+    if !close(unit.x, 0.6) || !close(unit.y, 0.8) || !close(unit.z, 0.0) {
+        return false;
+    }
+    if !close(unit.dot(unit), 1.0) { return false; }
+
+    val origin = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+    val center = Vec3 { x: 0.0, y: 0.0, z: -3.0 };
+    val forward = Vec3 { x: 0.0, y: 0.0, z: -1.0 };
+    val hit = Ray { origin, direction: forward };
+    match hit.sphere_distance(center, 1.0) {
+        Some(distance) => {
+            if !close(distance, 2.0) || !close(hit.at(distance).z, -2.0) {
+                return false;
+            }
+        },
+        None => { return false; },
+    };
+    val inside = Ray { origin: center, direction: forward };
+    match inside.sphere_distance(center, 1.0) {
+        Some(distance) => { if !close(distance, 1.0) { return false; } },
+        None => { return false; },
+    };
+    val miss = Ray { origin, direction: Vec3 { x: 0.0, y: 1.0, z: 0.0 } };
+    if val Some(_) = miss.sphere_distance(center, 1.0) { return false; }
+    true
+}
+
+// SplitMix64, adapted from Sebastiano Vigna's 2015 public-domain reference:
+// https://prng.di.unimi.it/splitmix64.c
+// Unlike the reference's static state, every workload here owns a fresh local state.
+// Not a cryptographic RNG or a public random-number API.
+struct SplitMix64 {
+    var state: u64,
+}
+
+const INCREMENT: u64 = 0x9e3779b97f4a7c15u64;
+const MIX1: u64 = 0xbf58476d1ce4e5b9u64;
+const MIX2: u64 = 0x94d049bb133111ebu64;
+
+impl SplitMix64 {
+    fn next(self) -> u64 {
+        self.state = self.state.wrapping_add(INCREMENT);
+        var z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(MIX1);
+        z = (z ^ (z >> 27)).wrapping_mul(MIX2);
+        z ^ (z >> 31)
+    }
+}
+
+fn reference_vectors_match() -> bool {
+    // Recomputed from the documented recurrence, starting at seed zero.
+    val rng = SplitMix64 { state: 0u64 };
+    if rng.next() != 0xe220a8397b1dcdafu64 { return false; }
+    if rng.next() != 0x6e789e6aa1b965f4u64 { return false; }
+    rng.next() == 0x06c45d188009454fu64
+}
+
+const TWO_NEG_53: f64 = 1.1102230246251565e-16;
+
+fn unit_sample(word: u64) -> f64 {
+    // Exactly representable high 53 bits times 2^-53: always [0, 1), never 1.
+    ((word >> 11) as f64) * TWO_NEG_53
+}
+
+const PRIME: u64 = 0x100000001b3u64;
+
+fn fold_sample(checksum: u64, word: u64, sample: f64) -> u64 {
+    // Fold each raw word, then its 16-bit sample bucket, modulo 2^64.
+    // The bucket must equal word >> 48; no approximate geometry enters this oracle.
+    val mixed = checksum.wrapping_mul(PRIME) ^ word;
+    mixed.wrapping_mul(PRIME) ^ ((sample * 65536.0) as u64)
+}
+
+// Public so an artifact-only host can check the same complete workload's exact result.
+// A failed geometry/vector/range check returns zero instead of the expected checksum.
+pub fn sampling_checksum() -> u64 {
+    if !geometry_checks() || !reference_vectors_match() { return 0u64; }
+    val rng = SplitMix64 { state: 0u64 };
+    val origin = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+    val center = Vec3 { x: 0.0, y: 0.0, z: -3.0 };
+    var checksum = 0u64;
+    var hits = 0;
+    var misses = 0;
+    var index = 0;
+    // 32 rays, two samples per ray: bounded work with no rejection loop.
+    while index < 32 {
+        val x_word = rng.next();
+        val y_word = rng.next();
+        val u = unit_sample(x_word);
+        val v = unit_sample(y_word);
+        if !(u >= 0.0 && u < 1.0 && v >= 0.0 && v < 1.0) { return 0u64; }
+        checksum = fold_sample(checksum, x_word, u);
+        checksum = fold_sample(checksum, y_word, v);
+        val direction = Vec3 { x: 2.0 * u - 1.0, y: 2.0 * v - 1.0, z: -1.0 }.normalized();
+        if !close(direction.dot(direction), 1.0) { return 0u64; }
+        val ray = Ray { origin, direction };
+        match ray.sphere_distance(center, 1.0) {
+            Some(distance) => {
+                val normal = ray.at(distance).sub(center);
+                if !close(normal.dot(normal), 1.0) { return 0u64; }
+                hits += 1;
+            },
+            None => { misses += 1; },
+        };
+        index += 1;
+    }
+    if hits == 0 || misses == 0 { return 0u64; }
+    checksum
+}
+
+// Seed 0, 64 words, checksum starts at 0; see fold_sample's exact recurrence.
+const EXPECTED_CHECKSUM: u64 = 0x396d503bb05c761au64;
+
+fn main() -> i32 {
+    if sampling_checksum() != EXPECTED_CHECKSUM { return 0; }
+    42
+}

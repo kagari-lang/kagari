@@ -38,6 +38,23 @@ Lifetime/compile-fail doctests, standalone AOT deployment and executable example
 retain their separate purposes. The feature script uses standalone manifests;
 library unit builds cannot replace proof of the production dependency graph.
 
+For the bounded [numeric sampling example](../examples/numeric-sampling.kgr), run:
+
+```text
+uv run --locked python scripts/check_features.py --numeric-only
+```
+
+This emits a fresh disposable KBC under `target/fixtures/` with the source-enabled
+producer, then builds a separate no-default-features SDK consumer. Its normal/build
+dependency graph must exclude source analysis, HIR, MIR, compiler and native codegen.
+The consumer runs only `artifact_features/numeric.rs`, requiring the explicit
+artifact path; it checks the example result, exact sampling checksum and execution
+cleanup. That file is selected by the generated standalone manifest, not added as
+another workspace integration target or silently skipped when a product is absent.
+The full CI feature-script invocation includes this case once; `--numeric-only`
+does not run the full feature matrix. `--async-only` remains the separate async
+selection, and the two focused modes cannot be combined.
+
 Tests that combine stdlib-created runtime objects live in
 `kagari-stdlib/src/tests/runtime_boundary`. A runtime unit harness and the ordinary
 runtime dependency used by stdlib have distinct Rust type identities. Keep these

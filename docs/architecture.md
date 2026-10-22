@@ -744,6 +744,29 @@ cooperative, with long native operations polling and preserving roots, cleanup a
 completed effects. The [registration guide](native-registration.md) details these
 boundaries, default-template token provenance and practical authoring.
 
+### Numeric scalar library ownership
+
+[`foundation/numeric`](../crates/kagari-stdlib/src/foundation/numeric.rs) owns scalar
+numeric declarations, documentation and bindings. `integer.rs` selects existing
+`IntegerMethodContract` facts and the runtime's shared width-aware integer kernels;
+`float.rs` owns utilities/bit reinterpretation, `math.rs` owns bounded extended math,
+and `binding.rs` shares exact scalar adapters. Each concrete declaration retains an
+independent checked target. Prepared Option symbols and the ordinary pinned
+Option/tuple return handoff preserve GC and generation ownership; generic execution
+loops do not dispatch numeric method names or acquire another API catalog.
+
+Width-matched Rust operations supply float computation, with local clamp validation
+into `ScriptTrap` and explicit power adapters for quiet/signaling-NaN unit cases and
+exact `i32` parity. The `powi` adapter computes an absolute-base magnitude and restores
+the sign; these adapters do not promise direct host agreement for every input or
+portable approximate bits. [Value semantics](spec/value-semantics.md#floating-point-utilities-and-math)
+owns the precise contracts and
+[versioned primary references](spec/value-semantics.md#precision-and-implementation-references);
+[builtins](spec/builtins.md#numeric-scalar-methods) owns the finite API inventory.
+The same declarations serve source and source-free installation without new
+opcodes, constant-evaluation machinery or broader native admission. Unsupported
+native bodies still fall back before entry, never replay after a trap.
+
 ### Documentation in registered modules
 
 Documentation is part of the native registration authoring API for standard and

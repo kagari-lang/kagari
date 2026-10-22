@@ -28,6 +28,9 @@ mod default_methods;
 #[cfg(feature = "source")]
 mod enum_payloads;
 
+#[cfg(feature = "source")]
+mod float_methods;
+
 #[cfg(all(feature = "source", feature = "native"))]
 mod generic_associated_types;
 
@@ -51,6 +54,12 @@ mod native_enums;
 
 #[cfg(all(feature = "source", feature = "native"))]
 mod never;
+
+#[cfg(feature = "source")]
+mod numeric_example;
+
+#[cfg(all(feature = "source", feature = "native"))]
+mod numeric_methods;
 
 #[cfg(all(feature = "source", feature = "native"))]
 mod numeric_operations;

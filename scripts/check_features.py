@@ -2,11 +2,14 @@
 
 Run with `uv run python scripts/check_features.py`. Generated manifests and logs
 live under target/; Cargo uses the repository's normal target directory and O1.
+Use --numeric-only for one source-free numeric workload without the feature matrix.
+The full CI invocation also runs this bounded numeric acceptance once.
 """
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import subprocess
 import tomllib
@@ -60,32 +63,39 @@ def check_crate_boundaries(output: Path = OUTPUT) -> None:
     print("ABI/contract build graphs are independent of source analysis and execution", flush=True)
 
 
-def run(async_only: bool = False) -> None:
-    output = OUTPUT
+def run(async_only: bool = False, numeric_only: bool = False) -> None:
+    output = OUTPUT / "numeric" if numeric_only else OUTPUT
     output.mkdir(parents=True, exist_ok=True)
-    check_crate_boundaries(output)
+    if not numeric_only:
+        check_crate_boundaries(output)
     lines = [
         '[workspace]', '[package]', 'name = "kagari-feature-consumer"',
         'version = "0.0.0"', 'edition = "2024"', '[features]', 'default = []',
-        'source = ["kagari/source", "dep:kagari-source"]',
-        'native = ["kagari/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
-        '[dependencies]',
     ]
-    for name in [
+    if not numeric_only:
+        lines += [
+            'source = ["kagari/source", "dep:kagari-source"]',
+            'native = ["kagari/native", "dep:kagari-codegen", "dep:kagari-mir", "dep:kagari-codegen-cranelift"]',
+        ]
+    lines.append('[dependencies]')
+    dependencies = ["kagari", "kagari-runtime"] if numeric_only else [
         "kagari", "kagari-source", "kagari-abi", "kagari-contract", "kagari-types",
         "kagari-stdlib", "kagari-bytecode", "kagari-common", "kagari-runtime",
         "kagari-vm", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift",
-    ]:
+    ]
+    for name in dependencies:
         options = [f'path = {json.dumps(str(ROOT / "crates" / name))}']
         if name == "kagari":
             options.append('default-features = false')
         if name in {"kagari-source", "kagari-codegen", "kagari-mir", "kagari-codegen-cranelift"}:
             options.append('optional = true')
         lines.append(f'{name} = {{ {", ".join(options)} }}')
-    targets = ["artifact_features", "async_execution"]
-    for target in targets:
+    targets = {"numeric_artifact": "artifact_features/numeric.rs"} if numeric_only else {
+        "artifact_features": "artifact_features.rs", "async_execution": "async_execution.rs",
+    }
+    for target, path in targets.items():
         lines += ['[[test]]', f'name = "{target}"',
-                  f'path = {json.dumps(str(ROOT / "crates/kagari/tests" / f"{target}.rs"))}']
+                  f'path = {json.dumps(str(ROOT / "crates/kagari/tests" / path))}']
     lines += ['[profile.dev]', 'opt-level = 1']
     manifest = output / "Cargo.toml"
     manifest.write_text("\n".join(lines) + "\n")
@@ -94,24 +104,38 @@ def run(async_only: bool = False) -> None:
     (output / "Cargo.lock").write_bytes((ROOT / "Cargo.lock").read_bytes())
     locked = tomllib.loads((ROOT / "Cargo.lock").read_text())["package"]
     external = {(item["name"], item["version"]) for item in locked if "source" in item}
-    if not async_only:
+    numeric_artifact = ROOT / "target/fixtures/numeric_sampling.kbc"
+    test_env = os.environ.copy()
+    if numeric_only:
+        # Never accept a stale product after a failed producer invocation.
+        numeric_artifact.unlink(missing_ok=True)
+        subprocess.run([
+            "cargo", "run", "--locked", "--offline", "-p", "kagari",
+            "--no-default-features", "--features", "source",
+            "--example", "regenerate_feature_artifact", "--",
+            str(ROOT / "examples/numeric-sampling.kgr"), str(numeric_artifact),
+        ], cwd=ROOT, check=True)
+        test_env["KAGARI_NUMERIC_ARTIFACT"] = str(numeric_artifact)
+    elif not async_only:
         subprocess.run([
             "cargo", "run", "--locked", "--offline", "-p", "kagari",
             "--no-default-features", "--features", "source",
             "--example", "regenerate_feature_artifact",
         ], cwd=ROOT, check=True)
-    subprocess.run([
-        "cargo", "run", "--locked", "--offline", "-p", "kagari",
-        "--no-default-features", "--features", "source", "--example", "async_tasks",
-        "--", str(ROOT / "target/fixtures/async_tasks.kbc"),
-    ], cwd=ROOT, check=True)
-    for features in ([""] if async_only else ["", "source", "native", "source,native"]):
+    if not numeric_only:
+        subprocess.run([
+            "cargo", "run", "--locked", "--offline", "-p", "kagari",
+            "--no-default-features", "--features", "source", "--example", "async_tasks",
+            "--", str(ROOT / "target/fixtures/async_tasks.kbc"),
+        ], cwd=ROOT, check=True)
+    for features in ([""] if async_only or numeric_only else ["", "source", "native", "source,native"]):
         label = features.replace(",", "-") or "artifact-only"
         args = ["--manifest-path", str(manifest), "--no-default-features"]
         if features:
             args += ["--features", features]
         graph = subprocess.check_output(
-            ["cargo", "tree", "--offline", *args, "--edges", "normal", "--prefix", "none"], cwd=ROOT, text=True,
+            ["cargo", "tree", "--offline", *args, "--edges",
+                         "normal,build" if numeric_only else "normal", "--prefix", "none"], cwd=ROOT, text=True,
         )
         resolved = tomllib.loads((output / "Cargo.lock").read_text())["package"]
         actual = {(item["name"], item["version"]) for item in resolved if "source" in item}
@@ -128,18 +152,29 @@ def run(async_only: bool = False) -> None:
         assert not packages & forbidden, (label, packages & forbidden)
         if "source" in features:
             assert {"kagari-source", "kagari-hir", "kagari-syntax", "kagari-package"} <= packages, label
-        selected = ["--test", "artifact_features", "source_free_async_execution_contract"] if async_only else []
-        log_label = f"{label}-async" if async_only else label
+        if numeric_only:
+            selected = ["--test", "numeric_artifact"]
+        elif async_only:
+            selected = ["--test", "artifact_features", "source_free_async_execution_contract"]
+        else:
+            selected = []
+        log_label = f"{label}-numeric" if numeric_only else f"{label}-async" if async_only else label
         with (output / f"{log_label}-tests.log").open("w") as log:
             subprocess.run(
                 ["cargo", "test", "--locked", "--offline", *args, "--target-dir", str(ROOT / "target"), *selected],
-                cwd=ROOT, stdout=log, stderr=subprocess.STDOUT, check=True,
+                cwd=ROOT, env=test_env, stdout=log, stderr=subprocess.STDOUT, check=True,
             )
         print(f"{log_label}: production graph and standalone artifact tests pass", flush=True)
+    if not async_only and not numeric_only:
+        run(numeric_only=True)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--async-only", action="store_true",
-                        help="run only the source-free async consumer contract, not the CI feature matrix")
-    run(parser.parse_args().async_only)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--async-only", action="store_true",
+                      help="run only the source-free async consumer contract, not the CI feature matrix")
+    mode.add_argument("--numeric-only", action="store_true",
+                      help="emit and execute only the numeric example in a source-free consumer")
+    args = parser.parse_args()
+    run(async_only=args.async_only, numeric_only=args.numeric_only)

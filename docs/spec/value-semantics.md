@@ -495,9 +495,174 @@ Compound assignment remains restricted to primitive operations.
 ## Explicit integer arithmetic
 
 Ordinary arithmetic and compound assignment trap on overflow, including signed
-MIN divided or remaindered by -1. Optional wrapping, checked, overflowing,
-saturating and rotation helpers are deferred; they are not installed language
-methods. Explicit casts retain the rules below.
+MIN divided or remaindered by -1. Installed scalar methods explicitly select a
+different policy without changing those operators. The exact signatures and finite
+inventory are in [builtins](builtins.md#numeric-scalar-methods).
+
+- `wrapping_add`, `wrapping_sub` and `wrapping_mul` compute modulo 2^width and
+  interpret the result at the receiver's signedness.
+- `checked_add`, `checked_sub`, `checked_mul`, `checked_div` and `checked_rem`
+  return `Some(result)` when representable and `None` on arithmetic failure.
+  Division truncates toward zero; a nonzero remainder has the receiver's sign.
+  Zero divisors and signed MIN / -1 or MIN % -1 return `None`, even though the
+  mathematical remainder in the last case is zero.
+- `overflowing_add`, `overflowing_sub` and `overflowing_mul` return the wrapped
+  result and an arithmetic overflow flag. For signed receivers this flag is not
+  an unsigned carry or borrow flag.
+- `saturating_add`, `saturating_sub` and `saturating_mul` clamp the mathematical
+  result to the receiver's range; unsigned subtraction bottoms at zero.
+- Unsigned `wrapping_add_signed` adds a signed offset of the corresponding width
+  and returns an unsigned result modulo 2^width. It is not installed on signed
+  receivers.
+- `rotate_left` and `rotate_right` circularly rotate the fixed-width bit pattern.
+  Their `u32` count is reduced modulo the receiver's bit width; zero and multiples
+  of the width leave it unchanged. Signed results reinterpret the rotated bits
+  at the original signedness. Ordinary shifts still trap for out-of-width counts.
+
+Receiver and arguments must match the declared types exactly and are evaluated
+once, left to right. These policies replace only the selected arithmetic failure
+outcome; runtime and allocation errors still propagate. Wrong arity, width or
+signedness is rejected by source checking or executable/native contract validation,
+not silently converted. Explicit casts retain the rules below.
+
+## Floating-point utilities and math
+
+Installed `f32` and `f64` methods use exact, width-matched native scalar bindings:
+`f32` operations do not widen to `f64` and narrow again. Arguments must have the
+declared types and are evaluated once, left to right. The
+[finite API inventory](builtins.md#numeric-scalar-methods) includes utilities,
+classification, bit reinterpretation and bounded extended math, not every Rust
+float method. Numeric domain errors, overflow and underflow return ordinary float
+results rather than arithmetic traps or host panics, except for invalid `clamp`
+bounds as specified below. Other runtime errors still propagate.
+
+### Utilities, bounds and exact bits
+
+- `abs` makes negative zero positive and either infinity positive; NaN stays NaN.
+- `sqrt` returns the **correctly rounded** square root at the receiver's width.
+  Negative nonzero inputs, including negative infinity, return NaN; positive
+  infinity remains positive infinity and negative zero remains negative zero.
+- `floor` rounds toward negative infinity, `ceil` toward positive infinity,
+  `round` to the nearest integral float with halfway cases away from zero, and
+  `trunc` toward zero. Signed zeros and infinities are retained; NaN stays NaN.
+  These return floats, not integer conversions.
+- `fract` follows the matching Rust primitive's `self - self.trunc()`: negative
+  nonintegral inputs have negative fractions, infinities return NaN, and zero
+  signs follow the subtraction rather than a separate sign-preservation rule.
+- `min` and `max` ignore one NaN and return the other operand; two NaNs return
+  NaN. Equal positive and negative zero operands may return either sign.
+  Infinities compare normally. These are not total-order operations and do not
+  give floats `Ord`.
+- `clamp(min, max)` validates both bounds **even when the receiver is NaN**.
+  Either NaN bound or `min > max` produces Kagari `ScriptTrap`, never a Rust panic.
+  Infinite bounds and equal opposite-signed zero bounds are legal. With valid
+  bounds a NaN receiver returns NaN, an out-of-range value returns its bound, and
+  an in-range receiver is retained, including its zero sign. Replacing this with
+  a `max`/`min` composition changes the contract.
+- `is_nan` recognizes quiet and signaling NaN patterns; `is_infinite` recognizes
+  either infinity; `is_finite` includes subnormals and both signed zeros.
+- `to_bits` and static `from_bits` reinterpret IEEE 754 bits, never perform `as`
+  conversion. `f32::from_bits(bits).to_bits()` with `u32` bits and the analogous
+  `f64`/`u64` round trip preserve every bit, including zero signs, subnormals,
+  infinities and quiet/signaling NaN signs and payloads. Every input bit pattern
+  is accepted. There is no signaling-NaN exception mode.
+
+Bit-exact transport is not a promise about subsequent arithmetic, casts,
+formatting or math. In particular, arithmetic/math NaN signs and payloads are not
+specified, even when an input was constructed with `from_bits`.
+
+### Extended math domains and powers
+
+Angles are radians. `sin` and `tan` preserve signed zero, `cos` of either zero
+is 1, and all three return NaN for infinite or NaN inputs. Near an approximate
+tangent pole, no exact pole or particular infinity is promised. `asin` and `acos`
+accept [-1, 1] and return NaN outside it; `asin` preserves signed zero, while
+`acos(1)` is positive zero. `atan` accepts all finite inputs, preserves signed
+zero and maps infinities to the corresponding signed pi/2. Nonzero angles remain
+subject to the precision boundary below.
+
+`y.atan2(x)` is the four-quadrant angle in [-pi, pi], not `atan(y / x)`.
+The receiver is y and the argument is x. Zero y with positive x returns y's zero
+sign; with negative x it yields pi with y's sign. This includes signed-zero x:
+`atan2(+0, -0)` yields +pi and `atan2(-0, -0)` yields -pi, whereas positive-zero x
+returns y's signed zero. Nonzero y with either zero x, or infinite y with finite x,
+yields pi/2 with y's sign. Finite y with positive infinite x returns y-signed zero;
+with negative infinite x it yields y-signed pi. Both infinite coordinates yield
+y-signed pi/4 for positive x or y-signed 3*pi/4 for negative x. Either NaN returns NaN.
+
+`exp` of either zero is 1; positive infinity returns positive infinity and negative
+infinity returns positive zero. Finite results may overflow to infinity or underflow
+to a positive subnormal or zero. `ln(1)` is positive zero, either signed zero yields
+negative infinity, negative inputs yield NaN, and positive infinity remains positive
+infinity. NaN inputs to either method return NaN.
+
+`powf(exponent: F)` uses a same-width floating exponent. Explicit library guards
+return 1 for either signed zero exponent with **every** base, and for base 1 with
+**every** exponent, including quiet and signaling NaNs. These guards run before
+NaN handling; otherwise a NaN operand returns a quiet NaN of unspecified sign and
+payload. Remaining inputs use the matching Rust `powf` operation:
+
+- A finite negative nonzero base with a finite noninteger exponent returns NaN.
+  A finite integer exponent produces a negative result exactly when it is odd.
+- For nonzero exponents, zero bases return zero for positive exponents and infinity
+  for negative exponents. Negative zero has a negative result only for finite odd
+  integer exponents. Infinite bases have the same sign rule, with infinite magnitude
+  for positive exponents and zero magnitude for negative exponents; a noninteger
+  exponent does not make negative infinity a domain NaN.
+- With either infinite exponent, absolute base 1 returns 1, including base -1.
+  Positive infinite exponent gives positive zero for absolute base below 1 and
+  positive infinity above 1; negative infinite exponent reverses those results.
+
+`powi(exponent: i32)` accepts the entire exact `i32` range without converting it
+to float. Exponent zero returns 1 even for quiet/signaling NaNs, zero and infinities;
+a NaN base with nonzero exponent returns a quiet NaN. Base 1 always returns exactly
+1; base -1 returns exactly -1 for odd exponents and 1 for even exponents. For other
+non-NaN bases, the library computes the matching Rust `powi` magnitude on the
+absolute base and restores a negative base's sign exactly when the original `i32`
+exponent is odd. This preserves parity at `i32` extrema even where a direct host
+signed-base operation would lose it; it is not a promise to match direct Rust
+`powi` for every input.
+
+Negative finite bases are valid for every integer exponent. For nonzero exponents,
+zero bases yield zero for positive exponents and infinity for negative exponents;
+infinite bases yield infinity for positive exponents and zero for negative
+exponents. A negative base gives a negative result exactly for odd exponents,
+including signed zero/infinity results. Finite power results may overflow to
+infinity or underflow to subnormals or zero; negative exponents compute reciprocal
+powers without trapping. `powi` and `powf` need not round identically even for
+integer-valued exponents. Neither is replaced with `exp(exponent * ln(base))`.
+
+### Precision and implementation references
+
+The correctly rounded `sqrt` guarantee is stronger than the contract for extended
+trigonometric, exponential, logarithmic and power methods. Extended-math precision
+is unspecified and may vary with platform, Rust version or even between invocations
+in one execution. There is no universal ULP bound, cross-platform bit identity or
+bit-identical repeated approximate result guarantee. Tests at finite reference
+points require justified, width-specific tolerances; matching the same host's Rust
+result alone is not an independent accuracy proof. No fast-math, reassociation or
+implicit fused multiply-add is introduced.
+
+Primary semantic references consulted on 2026-10-21 are pinned to Rust **1.90.0**;
+that version is a reference, not a toolchain requirement:
+
+- Rust core [signed integers](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/core/src/num/int_macros.rs)
+  and [unsigned integers](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/core/src/num/uint_macros.rs):
+  explicit overflow policies and rotations. Kagari reuses its width-aware kernels,
+  not Rust's Option/tuple storage or build-mode overflow policy.
+- Rust core [f32](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/core/src/num/f32.rs)
+  and [f64](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/core/src/num/f64.rs):
+  classification, bit reinterpretation and NaN-ignoring bounds operations. Kagari
+  validates invalid clamp bounds into `ScriptTrap` instead of a Rust panic.
+- Rust std [f32](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/std/src/num/f32.rs)
+  and [f64](https://raw.githubusercontent.com/rust-lang/rust/1.90.0/library/std/src/num/f64.rs):
+  width-specific intrinsic/platform math and the sqrt/extended-precision distinction.
+  Kagari's power guards and exact integer-parity restoration adapt host exceptional
+  behavior; ordinary magnitude precision remains Rust-dependent.
+
+These native method calls are not added to compile-time evaluation. Existing scalar
+const operations and casts are unchanged. Native associated constants, a public RNG,
+full ray tracing and broader JIT/native execution are not supplied by this inventory.
 
 ## Explicit numeric conversions
 
