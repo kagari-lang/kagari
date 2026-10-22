@@ -291,7 +291,7 @@ field_suffix        ::= "." IDENT ;
 
 index_suffix        ::= "[" expr "]" ;
 
-(* Built-in Option/Result only; exits the nearest function or closure. *)
+(* Propagation protocols exit the nearest function, closure or async block. *)
 propagation_suffix  ::= "?" ;
 
 await_suffix        ::= "." "await" ;
@@ -310,7 +310,8 @@ primary_expr        ::= literal
                       | block
                       | qualified_type
                       | interpolated_string
-                      | explicit_callable_path ;
+                      | explicit_callable_path
+                      | async_block_expr ;
 
 explicit_callable_path ::= path "::" generic_args ;
 
@@ -346,6 +347,8 @@ field_init          ::= IDENT
 
 (* Closures are runtime values with lexical captures. Persisting closure values
    across process restarts is outside the current runtime contract. *)
+async_block_expr    ::= "async" block ;
+
 closure_expr        ::= ("async")? "|" closure_param_list? "|" closure_body ;
 
 closure_param_list  ::= closure_param ("," closure_param)* (",")? ;

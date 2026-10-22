@@ -153,7 +153,10 @@ impl<'a, 'p> FunctionLowerer<'a, 'p> {
             .expressions()
             .filter(|(id, expr)| {
                 id.owner() == HirOwner::Body(instance.body.owner())
-                    && matches!(expr.kind, ExprKind::Closure { .. })
+                    && matches!(
+                        expr.kind,
+                        ExprKind::Closure { .. } | ExprKind::AsyncBlock { .. }
+                    )
             })
             .flat_map(|(id, _)| analyzed.names.closure_captures(id).iter())
             .filter_map(|resolved| match resolved {

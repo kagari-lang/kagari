@@ -572,7 +572,7 @@ impl Display for DiagnosticKind {
             }
             Self::InvalidClosureCapture { type_name } => write!(
                 f,
-                "cannot capture host value of type `{type_name}` in a closure"
+                "cannot capture host value of type `{type_name}` in a closure or async block"
             ),
             Self::InvalidAsyncCapture { type_name } => write!(
                 f,
@@ -580,7 +580,7 @@ impl Display for DiagnosticKind {
             ),
             Self::AwaitOutsideAsync => write!(
                 f,
-                "`.await` requires an async function or an explicitly async closure"
+                "`.await` requires an async function, async closure or async block"
             ),
             Self::InvalidAwaitOperand { type_name } => {
                 write!(

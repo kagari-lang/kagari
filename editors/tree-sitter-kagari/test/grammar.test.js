@@ -58,6 +58,19 @@ for (const name of [...selected, ...representative]) {
   });
 }
 
+test('async blocks are distinct cold expressions with ordinary postfix and recovery', () => {
+  const tree = valid('async fn run() { val make = async || 1; async /* body */ { make().await }.await? }');
+  const blocks = nodes(tree.rootNode, 'async_block_expression');
+  assert.equal(blocks.length, 1);
+  assert.equal(blocks[0].childForFieldName('body').type, 'block');
+  assert.equal(blocks[0].parent.type, 'await_expression');
+  assert.equal(nodes(tree.rootNode, 'closure_expression').length, 1);
+  valid('fn make() { async { async { 42 } } }');
+  const broken = parse('fn make() { val pending = async; val after = 42; after }');
+  assert.ok(broken.rootNode.hasError);
+  assert.ok(nodes(broken.rootNode, 'binding_statement').some(n => n.childForFieldName('pattern')?.text === 'after'));
+});
+
 test('persistent statics have named typed initializers only at module scope', () => {
   const file = path.join(__dirname, '../../../examples/syntax/grammar-witnesses.kgr');
   const tree = valid(fs.readFileSync(file, 'utf8'));

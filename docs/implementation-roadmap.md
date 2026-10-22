@@ -698,8 +698,8 @@ remain independently queued.
 ## Async blocks, structured concurrency and Runtime API
 
 The [AR01-AR06 execution plan](async-runtime-plan.md) is active; the user authorized
-implementation with one commit per completed phase. AR01 design closure is complete;
-AR02 async-block implementation is next. Its finite scope is
+implementation with one commit per completed phase. AR01 design closure and AR02
+async blocks are complete with focused local acceptance; AR03 scheduling is next. Its finite scope is
 script `async { ... }` expressions, cold-Future `join`/`try_join` composition and a
 Runtime facade with direct synchronous calls, Rust-awaitable async calls and
 internal script-task scheduling. API planning also covers reusable function/member

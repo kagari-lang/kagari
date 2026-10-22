@@ -259,6 +259,12 @@ pub enum ExprKind {
         /// Expression body; a braced body is an `ExprKind::Block`.
         body: ExprId,
     },
+    /// A cold future such as `async { value }`, not a callable value.
+    /// Captures and callable control-flow boundaries are shared with closures.
+    AsyncBlock {
+        /// The `ExprKind::Block` for `{ value }`, or `Missing` during recovery.
+        body: ExprId,
+    },
     /// A named-field constructor such as `Point { x: 1 }`.
     StructInit {
         /// Unresolved constructor path.

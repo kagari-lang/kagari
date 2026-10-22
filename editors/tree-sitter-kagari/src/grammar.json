@@ -3032,6 +3032,10 @@
         },
         {
           "type": "SYMBOL",
+          "name": "async_block_expression"
+        },
+        {
+          "type": "SYMBOL",
           "name": "if_expression"
         },
         {
@@ -5565,6 +5569,23 @@
           "content": {
             "type": "SYMBOL",
             "name": "_expression"
+          }
+        }
+      ]
+    },
+    "async_block_expression": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "STRING",
+          "value": "async"
+        },
+        {
+          "type": "FIELD",
+          "name": "body",
+          "content": {
+            "type": "SYMBOL",
+            "name": "block"
           }
         }
       ]

@@ -32,13 +32,15 @@ Type-parameterized associated declarations and definitions, including their
 input/output bounds and qualified member arguments, have an executable witness
 in [generic-associated-types.kgr](../examples/syntax/generic-associated-types.kgr).
 
-Async function/closure and postfix-await grammar has a parse witness in
+Async function/closure/block and postfix-await grammar has a parse witness in
 [async.kgr](../examples/syntax/async.kgr). Executable acceptance belongs to the SDK
 async contracts: explicit closure inference, ordinary-closure rejection, nested
 calls, generic Fn coercion and ordinary for-body suspension. The
 [async_tasks script](../crates/kagari/examples/async_tasks/script.kgr) also runs
-as a decoded artifact in a standalone consumer without source compilation. No async
-block, async iterator or custom awaitable grammar is implied by this coverage.
+as a decoded artifact in a standalone consumer without source compilation, including
+an async block constructed by an ordinary closure factory. Block capture, return,
+propagation, loop boundaries, coldness and nested Future outputs have focused
+syntax/HIR/SDK coverage. No async iterator or custom awaitable grammar is implied.
 
 Named block-local functions have an executable witness in
 [callables.kgr](../examples/syntax/callables.kgr): forward declaration lookup,

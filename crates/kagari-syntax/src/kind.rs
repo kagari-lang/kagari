@@ -344,6 +344,8 @@ pub enum SyntaxKind {
     PropagateExpr,
     /// A postfix `.await` expression. See [`AwaitExpr`](crate::ast::expr::AwaitExpr).
     AwaitExpr,
+    /// A cold async block. See [`AsyncBlockExpr`](crate::ast::expr::AsyncBlockExpr).
+    AsyncBlockExpr,
     /// Two operands joined by an arithmetic, comparison, bitwise or logical operator. See [`BinaryExpr`](crate::ast::expr::BinaryExpr).
     BinaryExpr,
     /// An exclusive `..` or inclusive `..=` range with optional endpoints. See [`RangeExpr`](crate::ast::expr::RangeExpr).

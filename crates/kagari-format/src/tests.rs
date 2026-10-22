@@ -80,6 +80,22 @@ fn functions_bindings_and_width_have_expected_layout() {
 }
 
 #[test]
+fn async_blocks_preserve_layout_comments_and_postfix() {
+    let input = "async fn f(){val pending=async{42};async /* body */ {pending.await}.await}";
+    let expected = "async fn f() {\n    val pending = async {\n        42\n    };\n    async /* body */ {\n        pending.await\n    }.await\n}\n";
+    assert_eq!(formatted(input, 100), expected);
+    assert_eq!(formatted(expected, 100), expected);
+    for input in [
+        "fn f(){async{async{42}}}",
+        "async fn f(){async // body\n{request().await?}.await;}",
+        "fn f(){val text=f\"before {async{42}} after\";}",
+    ] {
+        let once = formatted(input, 30);
+        assert_eq!(formatted(&once, 30), once);
+    }
+}
+
+#[test]
 fn adjacency_interpolation_comments_and_boundaries_are_idempotent() {
     for text in [
         "fn f(x:i32)->i32{x>>2<<1}",

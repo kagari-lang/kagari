@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-**Active: AR01 design closure complete; AR02 implementation next.** Originally
+**Active: AR01-AR02 complete; AR03 runtime scheduling next.** Originally
 planned on 2026-10-22 against `2bfcc77c`; the user subsequently authorized AR01-AR06
 implementation with one commit per completed phase. This document owns scope,
 dependencies, acceptance and progress. The [roadmap](implementation-roadmap.md#async-blocks-structured-concurrency-and-runtime-api)
@@ -840,12 +840,12 @@ This checkpoint may be documentation-only; it does not activate excluded feature
 
 ### AR02 - Implement async block expressions
 
-- [ ] Extend grammar, syntax AST/parser recovery and HIR for async blocks while
+- [x] Extend grammar, syntax AST/parser recovery and HIR for async blocks while
       retaining named functions and async closure syntax unchanged.
-- [ ] Check output inference, captures and return/?/loop-control boundaries.
-- [ ] Lower through shared resume/MakeFuture machinery; preserve independent MIR
+- [x] Check output inference, captures and return/?/loop-control boundaries.
+- [x] Lower through shared resume/MakeFuture machinery; preserve independent MIR
       and decoded-bytecode verification and existing effect timing.
-- [ ] Update syntax/AST reading guides, formatter/editor support and diagnostics
+- [x] Update syntax/AST reading guides, formatter/editor support and diagnostics
       affected by the new expression; review unused cold-Future diagnostics at
       their existing owner without introducing a general lint framework.
 
@@ -989,15 +989,57 @@ artifacts and batch fixture regeneration at a coherent checkpoint.
 | --- | --- | --- |
 | Planning | Complete; implementation and one commit per phase authorized | Original baseline 2bfcc77c; scope remains AR01-AR06. |
 | AR01 | Complete (design/documentation) | Closure decisions above resolve ownership, bounds, scheduler, groups, reports/close and finite migration. Source/link/diff review only; runtime acceptance remains in implementation phases. |
-| AR02 | Not started | Async block syntax and shared lowering. |
+| AR02 | Complete (focused local acceptance) | Distinct AST/HIR block, shared capture/type checking and direct MakeFuture lowering; tooling and contracts updated. Validation below; exhaustive CI unrun. |
 | AR03 | Not started | Internal runtime scheduling and cleanup. |
 | AR04 | Not started | Structured groups and stdlib join/try_join. |
 | AR05 | Not started | Public synchronous/awaitable calls, reusable bindings and retained object/member facade. |
 | AR06 | Not started | Integrated contracts and focused local acceptance. |
 
-Known intermediate build/test errors: none established; no implementation checks
-have been run for this plan. Existing unrelated findings and timing failures remain
-with their current roadmap/review owners. Full CI acceptance is unrun.
+Known intermediate build/test errors: no outstanding AR02 failures. Initial capture
+lowering omitted semantic register types, rejected by MIR verification; corrected
+through shared capture lowering and both failing block contracts passed. Parser/HIR
+fixture and editor-token fixture failures were corrected and rerun. The initial
+default-feature SDK build hit the 120-second compound-command timeout before tests
+ran; source-only focused SDK validation passed afterward. Full CI acceptance is unrun.
+
+### AR02 validation and review
+
+Selection: new syntax/control-flow/capture behavior, existing Future factory and
+pinned-reload contracts, independent MIR/bytecode validation and source-free execution.
+No new scheduler or native backend behavior was introduced. Read-only review found
+no blocking ownership/import/control-flow defects. Effective Rust LOC check passed
+without exceptions; closure checking was split into its own ordinary module.
+
+Passed focused commands (SDK source tests use --no-default-features --features source):
+
+```text
+cargo check -p kagari-compiler -p kagari-format -p kagari-analyzer
+cargo test -p kagari-syntax --lib async_
+cargo test -p kagari-syntax --lib grammar_coverage
+cargo test -p kagari-hir --lib async_callable_typing_contract
+cargo test -p kagari-format --lib async_blocks
+cargo test -p kagari-lint --lib async_block
+cargo test -p kagari --no-default-features --features source --lib sdk_async_block
+cargo test -p kagari --no-default-features --features source --lib persistent_static_future_and_task_keep_old_code_but_observe_shared_state
+cargo test -p kagari --no-default-features --features source --lib sdk_script_future_and_for_await_contract
+cargo test -p kagari --no-default-features --features source --lib sdk_owned_future_factory_contract
+cargo test -p kagari --no-default-features --features source --test artifact_features source_free_async_execution_contract
+cargo test -p kagari --no-default-features --test artifact_features source_free_async_execution_contract
+cargo test -p kagari-compiler async_mir_suspension_contract
+cargo test -p kagari-bytecode async_factory_artifact_contract
+uv run --locked scripts/check_structure.py
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+git diff --check
+```
+
+From editors/: npm run generate, npm run build:grammar (using the installed uv Python
+for node-gyp), focused node async grammar/shared tests, npm run test:zed, and
+npm run check:generated passed. Zed had 23 passes and one optional WASM/WASI-SDK skip.
+VS Code had 17 passes and one fixture failure; after correction the exact failing
+selected-repository-examples test passed, without rerunning unaffected tests.
+Generated Tree-sitter assets passed hash/header reproducibility. Complete editor
+platform/backend/native matrices and full workspace tests remain CI-only.
 
 Planning validation: 38 local Markdown file targets in this plan and added lines of
 the three navigation/handoff documents were checked for existence; the roadmap and

@@ -974,6 +974,7 @@ primary_expr    ::= literal
                   | array_expr
                   | struct_expr
                   | closure_expr
+                  | async_block_expr
                   | loop_expr
                   | match_expr
                   | block ;
@@ -1005,6 +1006,8 @@ field_init_list ::= field_init ("," field_init)* (",")? ;
 
 field_init      ::= IDENT
                   | IDENT ":" expr ;
+
+async_block_expr ::= "async" block ;
 
 closure_expr    ::= ("async")? "|" closure_param_list? "|" closure_body ;
 
@@ -1331,8 +1334,8 @@ is checked during constraint collection and solving.
 ## Propagation
 
 `expr?` is a postfix operator, at the same parsing level as calls, member access
-and indexing. It unwraps success or returns failure from the nearest function or
-closure. It checks the operand's installed Try protocol and the return type's
+and indexing. It unwraps success or returns failure from the nearest function,
+closure or async block. It checks the operand's installed Try protocol and the return type's
 FromResidual bound. Option, Result, ControlFlow and eligible source/native custom
 carriers use the same operator; see [propagation protocols](builtins.md#propagation-protocols)
 for associated output/residual types and error conversion rules. There is no exception-handler syntax.
@@ -1387,11 +1390,11 @@ implemented, including ordinary for-body awaits and generic Fn calls. The
 [async executable contracts](../async-execution-design.md#executable-contracts)
 define the checked handoff.
 
-Reserved `async fn`, explicit `async |args| body` / `async || body` and postfix
-`.await` are explicit source forms. Async calls return cold Future values; ordinary closures
-never infer async. Await is allowed in an async body, including ordinary for-loop
-bodies, but not in a nested ordinary closure. No async block or async iterator
-syntax is introduced.
+Reserved `async fn`, explicit `async |args| body` / `async || body`, `async { body }`
+and postfix `.await` are explicit source forms. Async calls and blocks return cold
+Future values; ordinary closures never infer async. Await is allowed in an async
+body, including ordinary for-loop bodies, but not in a nested ordinary closure.
+Async iterator syntax is not supported.
 
 `.await` accepts the installed `Future<T>` and `Task<T>` storage roles and returns
 `T`. Future is single-drive; Task observes an independently scheduled execution
@@ -1407,6 +1410,29 @@ flattening of a Future-valued result. `.await` shares postfix precedence with
 calls, fields, indexing and `?`; `read().await?` propagates the awaited result.
 General async trait methods remain unsupported even though parser recovery retains
 the modifier. An inherent async method is an ordinary Future-producing callable.
+
+An async block constructs `Future<T>` directly, even in synchronous code; it is
+not a callable factory. Its tail expression and explicit returns infer `T`, and a
+contextual `Future<T>` supplies the completed result type. An empty body produces
+`Future<()>`. Captures follow ordinary closures: scalar values remain values,
+shared objects remain shared and writable captured bindings retain shared slots.
+Creation captures the environment but executes none of the body. Capture/allocation
+can fail; surrounding expressions retain left-to-right, once-only evaluation.
+
+```text
+val factory = async || read().await; // fn() -> Future<T>, repeatable
+val pending = async { read().await }; // Future<T>, cold and one-shot
+val nested = async { read() };        // Future<Future<T>>, no flattening
+```
+
+`return` and `?` target the block's completed output, never its enclosing function.
+`break` and `continue` cannot cross its boundary; loops inside it work normally.
+Aliases share one-shot Future state: a repeated await traps. Discarding an unstarted
+block runs no body effects. Generation pinning, scoped-host capture rejection,
+GC roots, cancellation and candidate/static-initialization restrictions are the
+same as other cold Futures. The existing `unused_binding` lint covers unread
+Future bindings; discarded expression statements do not currently have a separate
+must-use diagnostic, for blocks or other Future constructors.
 
 Async parameters are retained in the cold Future, even when the body has no await.
 Known scoped host parameter types are rejected at the parameter declaration,

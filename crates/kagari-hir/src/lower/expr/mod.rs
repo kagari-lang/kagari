@@ -351,6 +351,12 @@ impl Lowerer {
                         )
                     }),
             },
+            Expr::AsyncBlockExpr(block) => ExprKind::AsyncBlock {
+                body: block
+                    .body()
+                    .map(|body| self.lower_expr(&Expr::BlockExpr(body)))
+                    .unwrap_or_else(|| self.missing_expr()),
+            },
             Expr::ClosureExpr(closure) => ExprKind::Closure {
                 is_async: closure.is_async(),
                 params: closure

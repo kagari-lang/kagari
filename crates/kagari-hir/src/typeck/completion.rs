@@ -345,7 +345,8 @@ impl<'a> Completion<'a> {
                             ExprKind::Missing
                             | ExprKind::Name { .. }
                             | ExprKind::Literal(_)
-                            | ExprKind::Closure { .. } => {
+                            | ExprKind::Closure { .. }
+                            | ExprKind::AsyncBlock { .. } => {
                                 value = Exits::NORMAL;
                                 continue;
                             }

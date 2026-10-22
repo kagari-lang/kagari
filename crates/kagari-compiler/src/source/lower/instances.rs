@@ -1033,6 +1033,7 @@ impl<'a> InstancePlanner<'a> {
         &mut self,
         parent: &Instance,
         closure: ExprId,
+        resume: bool,
         span: Span,
     ) -> Result<InstanceId, MirLoweringError> {
         self.check()?;
@@ -1062,7 +1063,7 @@ impl<'a> InstancePlanner<'a> {
         let id = InstanceId::new(self.instances.len());
         self.keys.insert(key.clone(), id);
         self.instances.push(Instance {
-            resume: false,
+            resume,
             callable: None,
             origin: parent.origin,
             id,

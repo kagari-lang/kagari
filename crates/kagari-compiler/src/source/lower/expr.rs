@@ -96,19 +96,33 @@ impl FunctionLowerer<'_, '_> {
             };
             let value = self.alloc_temp(physical);
             self.emit(Instruction::LoadLocal { dst: value, local });
-            if physical == ValueType::Generic {
-                let semantic = self.semantic_type(&ty)?;
-                self.function
-                    .semantic
-                    .registers
-                    .insert(value.temp.index(), semantic);
-            }
+            // MakeFuture verifies every captured argument's semantic type,
+            // including shared cells whose physical representation is a handle.
+            let semantic = self.semantic_type(&ty)?;
+            self.function
+                .semantic
+                .registers
+                .insert(value.temp.index(), semantic);
             captures.push(value);
         }
         let span = self.analyzed.lowered.source_map.expr_span(expr_id);
+        let is_block = matches!(
+            self.analyzed.lowered.module.expr(expr_id).kind,
+            ExprKind::AsyncBlock { .. }
+        );
         let function = self
             .planner
-            .enqueue_closure(&self.instance, expr_id, span)?;
+            .enqueue_closure(&self.instance, expr_id, is_block, span)?;
+        if is_block {
+            let ty = self
+                .analyzed
+                .typed
+                .type_table
+                .expr_type(expr_id)
+                .ok_or(MirLoweringError::MissingExprType(expr_id))?;
+            let future = self.semantic_type(&ty)?;
+            return Ok(self.make_future(function, captures, future));
+        }
         let dst = self.alloc_temp(ValueType::HeapObject);
         self.emit(Instruction::MakeClosure {
             dst,
@@ -545,7 +559,7 @@ impl FunctionLowerer<'_, '_> {
                 Ok(dst)
             }
             ExprKind::Array(elements) => self.lower_array(expr_id, elements),
-            ExprKind::Closure { .. } => self.lower_closure(expr_id),
+            ExprKind::Closure { .. } | ExprKind::AsyncBlock { .. } => self.lower_closure(expr_id),
         }
     }
 

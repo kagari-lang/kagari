@@ -391,6 +391,22 @@ impl<'a> Parser<'a> {
             Some(TokenKind::LParen) => self.parse_paren_or_tuple_expr(),
             Some(TokenKind::LBracket) => self.parse_array_expr(),
             Some(TokenKind::LBrace) => self.parse_block(),
+            Some(TokenKind::AsyncKw)
+                if !matches!(
+                    self.nth_nontrivia_kind(1),
+                    Some(TokenKind::Pipe | TokenKind::PipePipe)
+                ) =>
+            {
+                self.start_node(SyntaxKind::AsyncBlockExpr);
+                self.bump();
+                self.bump_trivia();
+                if self.at(TokenKind::LBrace) {
+                    self.parse_block();
+                } else {
+                    self.error_here(DiagnosticKind::ExpectedExpression);
+                }
+                self.finish_node();
+            }
             Some(TokenKind::AsyncKw | TokenKind::Pipe | TokenKind::PipePipe) => {
                 self.parse_closure_expr();
             }

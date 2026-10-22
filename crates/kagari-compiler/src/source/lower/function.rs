@@ -8,7 +8,11 @@ use kagari_common::identity::{DefinitionKind, mapping::DefinitionMappingError};
 use kagari_contract::standard::RuntimePrimitive;
 use kagari_hir::{
     AnalyzedModule,
-    hir::{expr::ExprKind, ids::ExprId, item::function::Function},
+    hir::{
+        expr::{ClosureParam, ExprKind},
+        ids::ExprId,
+        item::function::Function,
+    },
     language::semantics::{ProtocolSemantics, callable_signature, ordering_type},
     resolver::resolved::ResolvedName,
     types::TypeId,
@@ -411,30 +415,40 @@ pub(crate) fn lower_closure<'a>(
     instance: Instance,
     planner: &mut InstancePlanner<'a>,
 ) -> Result<MirFunction, MirLoweringError> {
-    let ExprKind::Closure {
-        params,
-        body,
-        is_async,
-    } = &module.lowered.module.expr(closure).kind
-    else {
-        return Err(MirLoweringError::MissingBinding("closure body"));
-    };
-    let TypeId::Function { result, .. } = module
+    let (params, body, is_async, is_block): (&[ClosureParam], _, _, _) =
+        match &module.lowered.module.expr(closure).kind {
+            ExprKind::Closure {
+                params,
+                body,
+                is_async,
+            } => (params, *body, *is_async, false),
+            ExprKind::AsyncBlock { body } => (&[], *body, true, true),
+            _ => return Err(MirLoweringError::MissingBinding("closure body")),
+        };
+    let ty = module
         .typed
         .type_table
         .expr_type(closure)
-        .ok_or(MirLoweringError::MissingExprType(closure))?
-    else {
+        .ok_or(MirLoweringError::MissingExprType(closure))?;
+    let result = if is_block {
+        ty
+    } else if let TypeId::Function { result, .. } = ty {
+        *result
+    } else {
         return Err(MirLoweringError::MissingBinding("closure type"));
     };
     let typed = LoweringSignature {
         bounds: Default::default(),
-        name: format!("closure_{}", closure.index()),
+        name: format!(
+            "{}_{}",
+            if is_block { "async_block" } else { "closure" },
+            closure.index()
+        ),
         params: Default::default(),
         return_type: if instance.resume {
             completed_output(&result)?
         } else {
-            *result
+            result
         },
     };
     let mut lowerer = FunctionLowerer::new(module, &typed, instance, planner)?;
@@ -561,11 +575,11 @@ pub(crate) fn lower_closure<'a>(
         });
         lowerer.locals.insert(param.local, local);
     }
-    if *is_async && !lowerer.instance.resume {
+    if is_async && !lowerer.instance.resume {
         lowerer.lower_future_factory()?;
         return lowerer.finish();
     }
-    let value = lowerer.lower_expr(*body)?;
+    let value = lowerer.lower_expr(body)?;
     if !lowerer.current_block_terminated() {
         lowerer.set_terminator(Terminator::Return(Some(value)));
     }

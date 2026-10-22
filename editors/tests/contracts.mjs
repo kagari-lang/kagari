@@ -103,7 +103,18 @@ const structUpdate = {
     { needle: 'after', category: 'code', capture: 'variable' },
   ],
 };
-export const cases = [lexical, interpolation, bindingPatterns, structUpdate, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
+const asyncBlock = {
+  name: 'async blocks retain keyword and nested lexical regions',
+  text: 'async fn run() { val pending = async /* body */ { val label = "}"; read().await }; pending.await }',
+  expected: [
+    { needle: 'async', occurrence: 1, category: 'code', capture: 'keyword' },
+    { needle: '/* body */', category: 'comment' },
+    { needle: '"}"', category: 'string' },
+    { needle: 'await', category: 'code', capture: 'keyword' },
+    { needle: 'pending', occurrence: 1, category: 'code', capture: 'variable' },
+  ],
+};
+export const cases = [lexical, interpolation, bindingPatterns, structUpdate, asyncBlock, ...casesForEol('\n', 'LF'), ...casesForEol('\r\n', 'CRLF'), {
   name: 'unterminated block comment really extends to EOF',
   text: 'fn main() {} /* outer /* inner */ fn hidden() {}',
   expected: [

@@ -2,7 +2,11 @@
 use crate::source::lower::{MirLoweringError, state::FunctionLowerer};
 use kagari_abi::representation::ValueType;
 use kagari_hir::hir::ids::ExprId;
-use kagari_mir::instruction::{Instruction, MirValue, Terminator, ValueBuffer};
+use kagari_mir::{
+    ids::InstanceId,
+    instruction::{Instruction, MirValue, Terminator, ValueBuffer},
+};
+use kagari_types::ty::Ty;
 
 impl FunctionLowerer<'_, '_> {
     pub(super) fn mark_resume(&mut self) {
@@ -42,6 +46,17 @@ impl FunctionLowerer<'_, '_> {
             .result
             .clone()
             .ok_or(MirLoweringError::MissingBinding("Future factory result"))?;
+        let dst = self.make_future(function, arguments, future);
+        self.set_terminator(Terminator::Return(Some(dst)));
+        Ok(())
+    }
+
+    pub(super) fn make_future(
+        &mut self,
+        function: InstanceId,
+        arguments: ValueBuffer,
+        future: Ty,
+    ) -> MirValue {
         let dst = self.alloc_temp(ValueType::HeapObject);
         self.function
             .semantic
@@ -53,8 +68,7 @@ impl FunctionLowerer<'_, '_> {
             arguments,
             future,
         });
-        self.set_terminator(Terminator::Return(Some(dst)));
-        Ok(())
+        dst
     }
 
     pub(super) fn lower_await(

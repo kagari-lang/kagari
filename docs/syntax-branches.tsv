@@ -137,3 +137,4 @@ trait_arguments	1	witnessed	examples/syntax/callables.kgr	-	generic_args
 trait_arguments	2	witnessed	examples/syntax/callables.kgr	-	callable_arguments
 postfix_op	5	witnessed	examples/syntax/async.kgr	-	await_suffix
 primary_expr	15	witnessed	examples/syntax/callables.kgr	-	explicit_callable_path
+primary_expr	16	witnessed	examples/syntax/async.kgr	-	async_block_expr

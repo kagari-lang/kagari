@@ -58,6 +58,24 @@ async fn looping(items: Vec<i32>) -> i32 {
     total
 }
 fn plain() -> Future<i32> { (|| identity(1))() }
+fn block<T>(value: T) -> Future<T> { async { return value; } }
+fn block_unit() -> Future<()> { async {} }
+fn block_inferred() -> Future<i32> { val pending = async { return 42; }; pending }
+fn block_context() -> Future<Vec<i64>> { async { Vec::from([]) } }
+fn block_nested() -> Future<Future<i32>> { async { identity(42) } }
+fn block_propagate(value: Result<i32, i32>) -> Future<Result<i32, i32>> {
+    async { Ok(identity(value?).await) }
+}
+fn block_option(value: Option<i32>) -> Future<Option<i32>> { async { Some(value?) } }
+fn block_capture() -> Future<i32> {
+    var x = 1;
+    val make = || async { x += 1; val result = loop { break x; }; result };
+    make()
+}
+async fn block_boundaries() -> i32 {
+    val pending = async { val f = || { return 40; }; return f() + 2; };
+    pending.await
+}
 "#;
     let mut sources = SourceDatabase::default();
     let root = sources
@@ -141,6 +159,26 @@ fn plain() -> Future<i32> { (|| identity(1))() }
 
     for (text, code) in [
         (
+            "fn bad() { loop { val pending = async { break; }; } }",
+            "KG_TYPE_BREAK_OUTSIDE_LOOP",
+        ),
+        (
+            "fn bad() { loop { val pending = async { continue; }; } }",
+            "KG_TYPE_CONTINUE_OUTSIDE_LOOP",
+        ),
+        (
+            "fn bad() { val pending = async { val inner = || async { 1 }.await; }; }",
+            "KG_AWAIT_OUTSIDE_ASYNC",
+        ),
+        (
+            "fn bad() -> i32 { async { 42 }.await }",
+            "KG_AWAIT_OUTSIDE_ASYNC",
+        ),
+        (
+            "fn bad() -> Future<i32> { async { return true; } }",
+            "KG_TYPE_RETURN_TYPE_MISMATCH",
+        ),
+        (
             "async fn value() -> i32 { 1 } fn bad() -> i32 { value().await }",
             "KG_AWAIT_OUTSIDE_ASYNC",
         ),
@@ -209,6 +247,7 @@ fn plain() -> Future<i32> { (|| identity(1))() }
         "async fn bad(value:(i32,host::State)) {}",
         "fn bad() { val f=async |value:host::State| {}; }",
         "fn bad() { val f:fn(host::State)->Future<()> = async |value| {}; }",
+        "fn bad(value:host::State) { val f=async { value; }; }",
     ] {
         sources
             .set("async-types.kgr", text.into(), SourceLayer::Base)
@@ -218,14 +257,16 @@ fn plain() -> Future<i32> { (|| identity(1))() }
             .unwrap();
         let analysis = snapshot.file(root).unwrap();
         assert!(
-            analysis
-                .result()
-                .diagnostics()
-                .iter()
-                .any(|diagnostic| matches!(
-                    diagnostic.kind,
-                    DiagnosticKind::InvalidAsyncCapture { .. }
-                )),
+            analysis.result().diagnostics().iter().any(|diagnostic| {
+                if text.starts_with("fn bad(value:") {
+                    matches!(
+                        diagnostic.kind,
+                        DiagnosticKind::InvalidClosureCapture { .. }
+                    )
+                } else {
+                    matches!(diagnostic.kind, DiagnosticKind::InvalidAsyncCapture { .. })
+                }
+            }),
             "{text}: {:?}",
             analysis.result().diagnostics()
         );

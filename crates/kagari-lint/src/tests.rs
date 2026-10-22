@@ -93,6 +93,29 @@ fn usage_tracks_reads_shadowing_captures_and_places() {
 }
 
 #[test]
+fn async_block_captures_and_unused_future_bindings_use_existing_rules() {
+    let (_, _, snapshot, root) = analyze(
+        &[(
+            "root",
+            r#"
+        fn cold(value: i32) -> Future<i32> {
+            var captured = value;
+            val pending = async { captured += 1; captured };
+            val unused = async { 99 };
+            pending
+        }
+    "#,
+        )],
+        100,
+    );
+    snapshot.check_program(root, &Default::default()).unwrap();
+    let records = findings(&snapshot, root, &Policy::default());
+    assert_eq!(codes(&records, "unused_binding"), 1, "{records:?}");
+    assert_eq!(codes(&records, "unused_parameter"), 0, "{records:?}");
+    assert_eq!(codes(&records, "unnecessary_var"), 0, "{records:?}");
+}
+
+#[test]
 fn naming_rules_cover_declarations_and_preserve_trait_contracts() {
     let (_, _, snapshot, root) = analyze(
         &[(

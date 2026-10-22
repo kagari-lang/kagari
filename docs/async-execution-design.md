@@ -23,7 +23,7 @@ attribution and hierarchical budget delegation are not async requirements.
 ## Supported scope
 
 The interpreter supports named async script functions, explicitly marked
-async closures, typed awaitable native operations, nested async script calls,
+async closures and blocks, typed awaitable native operations, nested async script calls,
 explicit host driving and cancellation.
 Multiple independent host-started executions may wait in one runtime, but only one
 may execute script at a time. This is cooperative interleaving, not parallel heap
@@ -130,12 +130,11 @@ val work = async || {
 };
 ```
 
-The proposed grammar is `async_closure_expr ::= "async" closure_expr`, reusing
-the current pipe-delimited parameters and expression/block body. Zero parameters
-use `async ||`; parameter annotations and contextual parameter inference follow
-ordinary closure rules. There is no new `async { ... }` block, trailing-lambda form
-or `move` modifier. The current syntax specification remains unchanged until
-implementation; these examples specify the proposed extension.
+The closure grammar accepts an optional `async` modifier before pipe-delimited
+parameters and an expression/block body. Zero parameters use `async ||`;
+parameter annotations and contextual inference follow ordinary closure rules.
+There is no trailing-lambda form or `move` modifier. See the
+[syntax specification](spec/syntax.md#async-syntax) for the supported forms.
 
 An ordinary closure remains synchronous even inside an async function or when
 passed to spawn. Its own body cannot contain `.await`; a nested async closure is
@@ -158,6 +157,22 @@ Async closure evaluation has three distinct stages:
 Creating or calling an async closure is allowed from synchronous code; driving it
 with `.await` requires an async body or the host execution driver. Creation/call
 can fail checked allocation or capture validation without running the body.
+
+### Async block expressions
+
+`async { body }` directly creates a cold, one-shot `Future<T>` using the same
+capture, resume and lifetime contracts as async closures. It does not construct
+a callable or invoke an extra factory. The compiler shares capture lowering and
+emits the existing `MakeFuture` instruction targeting a private resume body;
+MIR and decoded-bytecode verification remain independent acceptance boundaries.
+
+For example, `val pending = async { load_profile(id).await };` captures `id`
+now and calls `load_profile` only when driven. `return` and `?` exit this body,
+not its enclosing function; loop control cannot cross that boundary. A contextual
+`Future<T>` supplies the body's expected output. `async { load_profile(id) }`
+retains a nested Future output rather than flattening it. Ordinary closures
+inside a block remain synchronous. Full source, capture and discard rules belong
+to [async syntax](spec/syntax.md#async-syntax).
 
 ### Callable types and generic calls
 

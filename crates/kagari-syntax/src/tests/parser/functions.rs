@@ -38,6 +38,8 @@ fn async_callable_syntax_contract() {
 
     for text in [
         "fn plain() { async || 1 }",
+        "fn plain() { async { 1 } }",
+        "async fn run() { async { read().await? }.await; async || {}; async |x| x; }",
         "mod nested { pub(super) async fn run() {} }",
         "struct S {} impl S { pub async fn run(self) {} }",
         "async fn run() { for item in items { item.await; } }",
@@ -52,7 +54,7 @@ fn async_callable_syntax_contract() {
     };
     assert!(!closure.is_async());
     for text in [
-        "fn bad() { async { 1 } }",
+        "fn bad() { async; }",
         "async value() {}",
         "fn async() {}",
         "fn bad() { await value; }",
@@ -73,6 +75,43 @@ fn async_callable_syntax_contract() {
             TokenKind::Eof
         ]
     );
+}
+
+#[test]
+fn async_block_ast_and_recovery_contract() {
+    let source = "fn make() { async /* capture */ { async { 42 }.await } }";
+    let module = common::parse_ok(source);
+    assert_eq!(module.syntax().text().to_string(), source);
+    let Some(Expr::AsyncBlockExpr(block)) =
+        common::first_function(&module).body().unwrap().tail_expr()
+    else {
+        panic!("async block");
+    };
+    let Some(Expr::AwaitExpr(wait)) = block.body().unwrap().tail_expr() else {
+        panic!("block tail");
+    };
+    assert!(matches!(wait.expr(), Some(Expr::AsyncBlockExpr(_))));
+    for text in [
+        "fn make() { val pending = async; val next = 42; next }",
+        "fn make() { val pending = async { val bad = ; }; val next = 42; next }",
+    ] {
+        let parsed = common::parse(text);
+        assert!(!parsed.diagnostics().is_empty());
+        assert_eq!(parsed.syntax().syntax().text().to_string(), text);
+        let body = common::first_function(&parsed.syntax()).body().unwrap();
+        assert_eq!(body.statements().count(), 2);
+        assert!(matches!(body.tail_expr(), Some(Expr::PathExpr(_))));
+    }
+    let parsed = common::parse("fn make() { async {");
+    assert!(!parsed.diagnostics().is_empty());
+    let Some(Expr::AsyncBlockExpr(block)) = common::first_function(&parsed.syntax())
+        .body()
+        .unwrap()
+        .tail_expr()
+    else {
+        panic!("incomplete async block");
+    };
+    assert!(block.body().is_some());
 }
 
 #[test]

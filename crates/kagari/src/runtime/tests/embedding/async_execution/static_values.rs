@@ -19,7 +19,7 @@ async fn work() -> i32 {
     STATE += 1;
     version() + STATE + response
 }
-pub fn save_future() { SAVED_FUTURE = Some(work()); }
+pub fn save_future() { SAVED_FUTURE = Some(async { work().await }); }
 pub fn factory() -> fn()->Future<i32> { || work() }
 pub fn save_task(task: Task<i32>) { SAVED_TASK = Some(task); }
 pub async fn await_future() -> i32 {

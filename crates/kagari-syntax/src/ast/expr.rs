@@ -577,6 +577,22 @@ ast_node!(
 );
 
 ast_node!(
+    /// A cold future expression with its own return and suspension boundary.
+    ///
+    /// ```text
+    /// AsyncBlockExpr
+    /// +-- AsyncKw "async" [token]
+    /// `-- BlockExpr { fetch().await } [node] -> body()
+    /// ```
+    ///
+    /// The braces belong to the child block. `body()` is absent when recovery
+    /// retains an `async` keyword without an opening brace; an incomplete block
+    /// remains available with its successfully parsed children.
+    AsyncBlockExpr,
+    AsyncBlockExpr
+);
+
+ast_node!(
     /// A closure parameter list followed by its expression body.
     ///
     /// See [AST conventions](crate::ast) for storage and diagram notation.
@@ -996,6 +1012,8 @@ pub enum Expr {
     LoopExpr(LoopExpr),
     /// An anonymous callable, such as `|x| x + 1`, `|| 1`, or `async || fetch().await`.
     ClosureExpr(ClosureExpr),
+    /// A cold future, such as `async { fetch().await }`.
+    AsyncBlockExpr(AsyncBlockExpr),
     /// A tuple, such as `(x, y)`, `(x,)`, or `()`; `(x)` is grouping instead.
     TupleExpr(TupleExpr),
     /// An array list `[a, b]` or repeated array `[value; count]`.
@@ -1026,6 +1044,7 @@ impl AstNode for Expr {
                 | SyntaxKind::MatchExpr
                 | SyntaxKind::LoopExpr
                 | SyntaxKind::ClosureExpr
+                | SyntaxKind::AsyncBlockExpr
                 | SyntaxKind::TupleExpr
                 | SyntaxKind::InterpolatedString
                 | SyntaxKind::ArrayExpr
@@ -1052,6 +1071,7 @@ impl AstNode for Expr {
             SyntaxKind::MatchExpr => MatchExpr::cast(syntax).map(Self::MatchExpr),
             SyntaxKind::LoopExpr => LoopExpr::cast(syntax).map(Self::LoopExpr),
             SyntaxKind::ClosureExpr => ClosureExpr::cast(syntax).map(Self::ClosureExpr),
+            SyntaxKind::AsyncBlockExpr => AsyncBlockExpr::cast(syntax).map(Self::AsyncBlockExpr),
             SyntaxKind::TupleExpr => TupleExpr::cast(syntax).map(Self::TupleExpr),
             SyntaxKind::InterpolatedString => {
                 InterpolatedString::cast(syntax).map(Self::InterpolatedString)
@@ -1081,6 +1101,7 @@ impl AstNode for Expr {
             Self::MatchExpr(node) => node.syntax(),
             Self::LoopExpr(node) => node.syntax(),
             Self::ClosureExpr(node) => node.syntax(),
+            Self::AsyncBlockExpr(node) => node.syntax(),
             Self::TupleExpr(node) => node.syntax(),
             Self::InterpolatedString(node) => node.syntax(),
             Self::ArrayExpr(node) => node.syntax(),
@@ -1473,6 +1494,13 @@ impl MatchExpr {
 
 impl LoopExpr {
     /// Returns `{ break 42; }` in the expression `loop { break 42; }`.
+    pub fn body(&self) -> Option<BlockExpr> {
+        support::child(self.syntax())
+    }
+}
+
+impl AsyncBlockExpr {
+    /// Returns `{ value }` in `async { value }`, or `None` for a missing body.
     pub fn body(&self) -> Option<BlockExpr> {
         support::child(self.syntax())
     }

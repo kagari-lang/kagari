@@ -3,7 +3,7 @@
 use crate::{
     builtin::BuiltinFunction,
     hir::{
-        expr::{Condition, ExprKind},
+        expr::{ClosureParam, Condition, ExprKind},
         ids::{
             BlockId, BodyOwner, ExprId, FunctionId, HirOwner, ParamId, PatternId, PlaceId, StmtId,
         },
@@ -339,31 +339,36 @@ impl<'a> BodyResolver<'a> {
             ExprKind::Block(block) => self.resolve_block(*block),
             ExprKind::Loop { body } => self.resolve_block(*body),
             ExprKind::Closure { params, body, .. } => {
-                let outer = self
-                    .scopes
-                    .iter()
-                    .flat_map(|scope| {
-                        self.resolved.scopes[scope.id]
-                            .bindings
-                            .iter()
-                            .map(|binding| binding.resolved.clone())
-                    })
-                    .collect();
-                self.closures.push((expr_id, outer, Vec::new()));
-                self.push_child_scope(self.source_map.expr_span(expr_id));
-                for param in params {
-                    self.bind_name(
-                        &param.name,
-                        ResolvedName::Local(param.local),
-                        self.source_map.expr_span(*body).start,
-                    );
-                }
-                self.resolve_expr(*body);
-                self.pop_scope();
-                let (_, _, captures) = self.closures.pop().expect("closure context");
-                self.resolved.insert_closure_captures(expr_id, captures);
+                self.resolve_closure(expr_id, params, *body);
             }
+            ExprKind::AsyncBlock { body } => self.resolve_closure(expr_id, &[], *body),
         }
+    }
+
+    fn resolve_closure(&mut self, expr_id: ExprId, params: &[ClosureParam], body: ExprId) {
+        let outer = self
+            .scopes
+            .iter()
+            .flat_map(|scope| {
+                self.resolved.scopes[scope.id]
+                    .bindings
+                    .iter()
+                    .map(|binding| binding.resolved.clone())
+            })
+            .collect();
+        self.closures.push((expr_id, outer, Vec::new()));
+        self.push_child_scope(self.source_map.expr_span(expr_id));
+        for param in params {
+            self.bind_name(
+                &param.name,
+                ResolvedName::Local(param.local),
+                self.source_map.expr_span(body).start,
+            );
+        }
+        self.resolve_expr(body);
+        self.pop_scope();
+        let (_, _, captures) = self.closures.pop().expect("closure context");
+        self.resolved.insert_closure_captures(expr_id, captures);
     }
 
     fn bind_pattern(&mut self, pattern: PatternId, start: usize) {

@@ -55,9 +55,18 @@ recognition must remain independent of name resolution and executable state.
 Block-local functions reuse the ordinary `FnDef` node and child layout through
 `Stmt::FnDef`; no wrapper node duplicates the function signature/body. Block parsing
 recognizes `fn`, attributed function headers and `async fn`, while `async` followed
-by a closure continues through expression parsing. Recovery preserves following
+by pipes or a block continues through expression parsing. Recovery preserves following
 siblings and block tails. Syntax retains visibility and unsupported attributes for
 HIR to diagnose; parsing a local header does not establish capture or export rules.
+
+`async { value }` has a distinct `AsyncBlockExpr` wrapper: the `async` token
+belongs to the wrapper and `{ value }` is its direct `BlockExpr` child, returned
+by `body()`. This is not `ClosureExpr` with missing pipes. Missing braces retain
+the keyword and an absent body; malformed block contents use normal block recovery.
+Postfix operators wrap the whole expression, so `async { value }.await` is an
+`AwaitExpr` whose operand is the async block. HIR retains `AsyncBlock { body }`,
+then shares closure capture resolution and callable-boundary checking; its type
+is `Future<T>`, not `fn() -> Future<T>`.
 
 ## 2. Inputs and outputs
 

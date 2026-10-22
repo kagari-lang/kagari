@@ -1,4 +1,4 @@
-// AX03 syntax/type-checking witness. Script Future execution is still in progress.
+// Cold functions, repeatable closure factories and one-shot blocks.
 async fn read(value: i32) -> i32 {
     value
 }
@@ -14,4 +14,16 @@ async fn total(items: Vec<i32>) -> i32 {
 
 fn work() -> fn() -> Future<i32> {
     async || total(Vec::from([1, 2, 3])).await
+}
+
+fn pending(value: i32) -> Future<i32> {
+    async { read(value).await }
+}
+
+async fn blocks() -> i32 {
+    var count = 1;
+    val first = async { count += 1; return count; };
+    count = 2;
+    val nested = async { pending(4) };
+    first.await + nested.await.await + async { 5 }.await
 }
